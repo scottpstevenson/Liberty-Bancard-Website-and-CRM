@@ -1,4 +1,6 @@
 import * as React from "react"
+import { useEmployeeCrm } from "@/components/crm/employee-crm-context"
+import { currentProtectedIdentity, protectedContextToken } from "@/lib/protected-actor"
 
 import type {
   ToastActionElement,
@@ -13,6 +15,7 @@ type ToasterToast = ToastProps & {
   title?: React.ReactNode
   description?: React.ReactNode
   action?: ToastActionElement
+  protectedContext?: string | null
 }
 
 const actionTypes = {
@@ -130,6 +133,17 @@ const listeners: Array<(state: State) => void> = []
 
 let memoryState: State = { toasts: [] }
 
+export function clearProtectedToasts() {
+  for(const item of [...memoryState.toasts]){
+    if(item.protectedContext){
+      const timeout=toastTimeouts.get(item.id);
+      if(timeout)clearTimeout(timeout);
+      toastTimeouts.delete(item.id);
+      dispatch({type:"REMOVE_TOAST",toastId:item.id});
+    }
+  }
+}
+
 function dispatch(action: Action) {
   memoryState = reducer(memoryState, action)
   listeners.forEach((listener) => {
@@ -141,8 +155,13 @@ type Toast = Omit<ToasterToast, "id">
 
 function toast({ ...props }: Toast) {
   const id = genId()
+  const context=props.protectedContext===undefined && currentProtectedIdentity()!=="anonymous"
+    ?protectedContextToken():props.protectedContext;
+  if(context && context!==protectedContextToken())
+    return {id,suppressed:true,dismiss:()=>{},update:(_props:ToasterToast)=>{}};
 
   const update = (props: ToasterToast) =>
+    (!context || context===protectedContextToken()) &&
     dispatch({
       type: "UPDATE_TOAST",
       toast: { ...props, id },
@@ -153,6 +172,7 @@ function toast({ ...props }: Toast) {
     type: "ADD_TOAST",
     toast: {
       ...props,
+      protectedContext:context,
       id,
       open: true,
       onOpenChange: (open) => {
@@ -170,6 +190,8 @@ function toast({ ...props }: Toast) {
 
 function useToast() {
   const [state, setState] = React.useState<State>(memoryState)
+  const employee=useEmployeeCrm()
+  const context=employee?protectedContextToken():null
 
   React.useEffect(() => {
     listeners.push(setState)
@@ -183,7 +205,7 @@ function useToast() {
 
   return {
     ...state,
-    toast,
+    toast:(props:Toast)=>toast({...props,protectedContext:context}),
     dismiss: (toastId?: string) => dispatch({ type: "DISMISS_TOAST", toastId }),
   }
 }

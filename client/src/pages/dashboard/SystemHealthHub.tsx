@@ -5,6 +5,7 @@ import SystemReadiness from "./SystemReadiness";
 import SeoHealth from "./SeoHealth";
 import IncidentsDashboard from "./IncidentsDashboard";
 import { useAuth } from "@/hooks/use-auth";
+import { systemState, systemUrl, selectionMessage } from "@/lib/crm-destination-state";
 
 const VALID_TABS = ["monitor", "readiness", "seo", "incidents"] as const;
 const ADMIN_ONLY_TABS = ["monitor", "incidents"] as const;
@@ -14,16 +15,19 @@ export default function SystemHealthHub() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const search = useSearch();
-  const raw = new URLSearchParams(search).get("tab") ?? "";
-  // Non-admin-only tabs (readiness/seo) must stay reachable via deep link even
-  // when the user isn't an admin; only admin-only tabs fall back to "readiness".
-  const requestedTab = (VALID_TABS as readonly string[]).includes(raw) ? (raw as Tab) : "readiness";
-  const tab: Tab = (ADMIN_ONLY_TABS as readonly string[]).includes(requestedTab) && !isAdmin ? "readiness" : requestedTab;
+  const state = systemState(search, isAdmin);
+  const tab = state.tab;
+  const reason = state.issues[0]?.reason ?? selectionMessage(search);
   const [, navigate] = useLocation();
-  const goTab = (v: string) => navigate(`/dashboard/system-health?tab=${v}`);
+  const goTab = (v: string) => {
+    if ((VALID_TABS as readonly string[]).includes(v) &&
+      (isAdmin || !(ADMIN_ONLY_TABS as readonly string[]).includes(v)))
+      navigate(systemUrl(search, window.location.hash, v));
+  };
 
   return (
     <Tabs value={tab} onValueChange={goTab} className="space-y-4">
+      {reason && <p role="status">{reason}</p>}
       <TabsList className="flex-wrap h-auto gap-1">
         {isAdmin && <TabsTrigger value="monitor" data-testid="tab-system-monitor">System Monitor</TabsTrigger>}
         <TabsTrigger value="readiness" data-testid="tab-system-readiness">System Readiness</TabsTrigger>

@@ -1,0 +1,45 @@
+{
+  "identity": {
+    "sourceHead": "67cbc2e976f8b269719c3bc93d69098c1321d68c",
+    "candidateContentHash": "bd603e77ecb3888e8a6ce23eade39498c6790ab7c9b52b9ecb8db4d27cf61af2",
+    "compiledClientHash": "d8719fa2996423324b28c52221c2b13584b84ebb8a9d1b51e430b66026b2a46e",
+    "isolatedDatabase": true,
+    "isolatedRedis": true,
+    "providerTransports": "denied-before-import",
+    "session": "private empty-cookie Chromium; actual password login"
+  },
+  "candidateUrl": "http://127.0.0.1:40615",
+  "receipts": [
+    {
+      "role": "admin",
+      "control": "people-default",
+      "result": {
+        "pageSize": 50,
+        "syntheticVolume": 61,
+        "realRows": true,
+        "oneH1": true,
+        "usefulListMs": 1425.6118320000023
+      }
+    },
+    {
+      "role": "admin",
+      "control": "unsupported-mine-preset",
+      "result": {
+        "disabled": true,
+        "directLinkSafe": true,
+        "noUnsupportedReaderFilter": true
+      }
+    },
+    {
+      "role": "admin",
+      "control": "search/back/paging",
+      "result": {
+        "debounced": true,
+        "resetPage": true,
+        "history": true,
+        "localResponseMs": 130.69246199999907
+      }
+    }
+  ],
+  "requestReceipts": []
+}

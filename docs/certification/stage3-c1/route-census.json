@@ -1,0 +1,17 @@
+{
+  "appLiteralCount": 245,
+  "patterns": 147,
+  "routePartitions": {
+    "C2": 25,
+    "C3": 24,
+    "C4": 39,
+    "C5": 59
+  },
+  "panelPartitions": {
+    "C2": 30,
+    "C3": 28,
+    "C4": 70,
+    "C5": 181
+  },
+  "status": "source evidence inventory only; not effective-handler/browser/action acceptance"
+}

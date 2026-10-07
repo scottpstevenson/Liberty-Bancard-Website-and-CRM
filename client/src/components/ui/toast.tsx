@@ -4,6 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { crmPortalClass, useEmployeeCrm } from "@/components/crm/employee-crm-context"
 
 const ToastProvider = ToastPrimitives.Provider
 
@@ -43,10 +44,11 @@ const Toast = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof ToastPrimitives.Root> &
     VariantProps<typeof toastVariants>
 >(({ className, variant, ...props }, ref) => {
+  const employeeCrm = useEmployeeCrm()
   return (
     <ToastPrimitives.Root
       ref={ref}
-      className={cn(toastVariants({ variant }), className)}
+      className={cn(toastVariants({ variant }), className, crmPortalClass(employeeCrm))}
       {...props}
     />
   )

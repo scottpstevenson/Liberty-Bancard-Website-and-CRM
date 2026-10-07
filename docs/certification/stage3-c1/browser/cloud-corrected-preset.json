@@ -1,0 +1,211 @@
+{
+  "candidateUrl": "https://92fd513c-d028-45ae-b664-31ad54630ef0-00-3o008csyx3pux-k03wtivh.spock.replit.dev",
+  "receipts": [
+    {
+      "role": "admin",
+      "control": "unsupported-assignment-preset-corrected",
+      "actualLogin": true,
+      "bothControlsDisabled": true,
+      "visibleReason": true,
+      "directLinkReadsSafe": true,
+      "rows": 50,
+      "identity": {
+        "inputHash": "0d0cbdffcda095f8261b27ddc3eeb355f39cdebc5443374bde55a43841a94921",
+        "entryOutputsHash": "9b708d5e858baccbe68488f5b4f35ea494dbdc8c954febffa6d5a97996cdcd41",
+        "compiledHtmlAt": "2026-10-07T15:36:11.259Z",
+        "qualification": "Compiled client; registered source handlers; not deployed",
+        "sourceHead": "0b1e320c2c43cb5ecbae6d7c006a8b58b3d7d157"
+      }
+    },
+    {
+      "role": "admin",
+      "control": "unified-nested-select-dialog-dismissal",
+      "ordinaryLogin": true,
+      "optionsMinHeight": 44,
+      "firstEscapeOnlyChild": true,
+      "childFocusReturn": true,
+      "secondEscapeParent": true,
+      "parentFocusReturn": true
+    },
+    {
+      "role": "admin",
+      "control": "compiled-light-colors-and-warm-cached-list",
+      "result": {
+        "compiled": {
+          "background": "rgb(252, 250, 248)",
+          "foreground": "rgb(15, 23, 41)",
+          "mutedForeground": "rgb(101, 117, 139)",
+          "destructive": "rgb(239, 68, 68)",
+          "destructiveForeground": "rgb(248, 250, 252)",
+          "primary": "rgb(15, 23, 41)",
+          "primaryForeground": "rgb(248, 250, 252)",
+          "font": "\"IBM Plex Sans\", system-ui, sans-serif",
+          "inputHeight": 44,
+          "selectionHeight": 44,
+          "viewport": "width=device-width, initial-scale=1.0",
+          "h1": 1
+        },
+        "ratios": {
+          "body": 17.166550699271028,
+          "muted": 4.511356083716052,
+          "destructive": 3.5966880482294172,
+          "primary": 17.083474905517008
+        },
+        "usefulMs": 2181.72820100002,
+        "budget": 2500,
+        "budgetPassed": true,
+        "volume": 61,
+        "rows": 50,
+        "cacheQualification": "Production-equivalent immutable hashed assets; warmed after ordinary login, not cold first visit"
+      }
+    },
+    {
+      "role": "admin",
+      "control": "reduced-motion-dialog",
+      "result": {
+        "preference": true,
+        "duration": "0.15s",
+        "transition": "0.2s",
+        "headings": 0,
+        "buttons": [
+          {
+            "id": "select-contact-vertical",
+            "height": 43.540435791015625
+          },
+          {
+            "id": null,
+            "height": 43.54046630859375
+          },
+          {
+            "id": null,
+            "height": 43.540443420410156
+          }
+        ],
+        "inputs": [
+          43.54045104980469,
+          43.54045104980469,
+          43.54046630859375,
+          43.540435791015625,
+          43.540435791015625
+        ]
+      }
+    },
+    {
+      "role": "admin",
+      "control": "compiled-dark-contrast",
+      "result": {
+        "dark": {
+          "background": "rgb(15, 23, 41)",
+          "foreground": "rgb(248, 250, 252)",
+          "mutedForeground": "rgb(148, 163, 184)",
+          "destructive": "rgb(127, 29, 29)",
+          "destructiveForeground": "rgb(248, 250, 252)"
+        },
+        "darkRatios": {
+          "body": 17.083474905517008,
+          "muted": 6.971036626669108,
+          "destructive": 9.57643900946243
+        }
+      }
+    },
+    {
+      "role": "agent",
+      "control": "supported-assignment-preset-corrected",
+      "realLogin": true,
+      "enabled": true,
+      "actualScopedReader": true,
+      "rows": 50,
+      "facetCount": 61,
+      "allRowsOwned": true,
+      "qualification": "Rows and total independently verified; ordinary navigation recovered after overlapping login redirect; no repeated login write"
+    }
+  ],
+  "requests": [
+    {
+      "role": "admin",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/class-counts",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=0&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/facets",
+      "query": "?recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/agents",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/merchant-applications/pending-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/outreach-queue/count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    }
+  ],
+  "status": "DECLARED_CORRECTION_ONLY_NOT_FULL_ACCEPTANCE",
+  "identityQualification": "Mixed sequential serving checks; the original preset receipt retains its earlier exact identity. Later probes span a rebuilt CSS artifact and are not claimed as one immutable candidate",
+  "servingMetadataAtExport": {
+    "inputHash": "e1a1b405e5a37cfe185b11459f74fef4b1b982cf1e13e4c27b629d6961d31912",
+    "entryOutputsHash": "7e85001af04f8acecaf7ee1b6012c8d601124eeb0a88a332e5140b38274385c1",
+    "compiledHtmlAt": "2026-10-07T15:56:59.255Z",
+    "qualification": "Compiled client; registered source handlers; not deployed",
+    "sourceHead": "0b1e320c2c43cb5ecbae6d7c006a8b58b3d7d157"
+  }
+}

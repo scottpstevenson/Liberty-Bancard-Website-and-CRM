@@ -126,6 +126,18 @@ outputType = "console"
 task = "shell.exec"
 args = "RELEASE_SHA=$(git rev-parse HEAD) bash scripts/run-pre-deploy.sh"
 
+[[workflows.workflow]]
+name = "C1 isolated cloud preview"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx tsx scripts/start-stage3-c1-cloud-preview.ts --reuse-build"
+waitForPort = 5000
+
 [agent]
 integrations = ["javascript_log_in_with_replit:2.0.0", "javascript_openai_ai_integrations:2.0.0", "google-docs:1.0.0", "google-drive:1.0.0"]
 

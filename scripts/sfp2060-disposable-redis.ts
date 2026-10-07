@@ -6,11 +6,14 @@ import os from "node:os";
 import path from "node:path";
 import Redis from "ioredis";
 
-export async function launchSfp2060DisposableRedis(env: NodeJS.ProcessEnv): Promise<{
+export async function launchSfp2060DisposableRedis(env: NodeJS.ProcessEnv,
+  options:{startupTimeoutMs?:number}={}): Promise<{
   url: string;
   prefix: string;
   stop: () => Promise<void>;
 }> {
+  const timeout=options.startupTimeoutMs??3000;
+  if(!Number.isInteger(timeout)||timeout<100||timeout>30000)throw new Error("INVALID_PRIVATE_REDIS_STARTUP_BUDGET");
   const directory = await mkdtemp(path.join(os.tmpdir(), "test-sfp2060-redis-"));
   await chmod(directory, 0o700);
   const port = await new Promise<number>((resolve, reject) => {
@@ -62,7 +65,7 @@ export async function launchSfp2060DisposableRedis(env: NodeJS.ProcessEnv): Prom
     }
   };
   try {
-    for (let attempt = 0; attempt < 30; attempt++) {
+    for (let attempt = 0; attempt < Math.ceil(timeout/100); attempt++) {
       if (launchError) throw launchError;
       if (child.exitCode !== null) throw new Error("PRIVATE_REDIS_EXITED");
       try {

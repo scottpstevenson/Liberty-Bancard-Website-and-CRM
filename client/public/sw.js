@@ -44,7 +44,20 @@ self.addEventListener("fetch", (event) => {
   // ── Cacheable API calls: network-first, cache fallback ───────────────────
   if (CACHEABLE_APIS.some((api) => url.pathname.startsWith(api))) {
     event.respondWith(
-      fetch(event.request)
+      (async () => {
+        const client = event.clientId ? await self.clients.get(event.clientId) : null;
+        // Employee reads must never consume a URL-only mobile API cache.
+        // This is a cache boundary, not authentication or permission authority.
+        const clientPath = client ? new URL(client.url).pathname : "";
+        const employee = /^\/dashboard(?:\/|$)/.test(clientPath)
+          && !/^\/dashboard\/(?:merchant-portal|mobile)(?:\/|$)/.test(clientPath);
+        if (!client || employee) {
+          return fetch(event.request).catch(() => new Response(
+            JSON.stringify({error:"protected_read_unavailable"}),
+            {status:503,headers:{"Content-Type":"application/json"}}
+          ));
+        }
+        return fetch(event.request)
         .then((res) => {
           if (res.ok) {
             const clone = res.clone();
@@ -62,7 +75,8 @@ self.addEventListener("fetch", (event) => {
               headers: { "Content-Type": "application/json" },
             });
           })
-        )
+        );
+      })()
     );
     return;
   }

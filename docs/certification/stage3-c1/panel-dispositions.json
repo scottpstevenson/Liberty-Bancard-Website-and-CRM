@@ -1,0 +1,2783 @@
+[
+  {
+    "id": "T-001",
+    "url": "/dashboard/outbound-center?tab=campaigns",
+    "label": "Campaigns / tab",
+    "target": "Campaigns → Manage",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-002",
+    "url": "/dashboard/outbound-center?tab=sequences",
+    "label": "Sequences / tab",
+    "target": "Campaigns → Manage",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-003",
+    "url": "/dashboard/outbound-center?tab=governance",
+    "label": "Governance / tab",
+    "target": "Campaigns → Delivery",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-004",
+    "url": "/dashboard/outbound-center?tab=prospects",
+    "label": "Re-engagement / tab",
+    "target": "Campaigns → Audience",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-005",
+    "url": "/dashboard/outbound-center?tab=analytics",
+    "label": "Analytics / tab",
+    "target": "Campaigns → Results",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-006",
+    "url": "/dashboard/contacts/159443",
+    "label": "Deals (1) / tab",
+    "target": "Records → Sales Work",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-007",
+    "url": "/dashboard/contacts/159443",
+    "label": "Tickets (0) / tab",
+    "target": "Records → Service & Performance",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-008",
+    "url": "/dashboard/contacts/159443",
+    "label": "Tasks (1) / tab",
+    "target": "Records → Sales Work",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-009",
+    "url": "/dashboard/contacts/159443",
+    "label": "Notes (0) / tab",
+    "target": "Records → Conversations",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-010",
+    "url": "/dashboard/contacts/159443",
+    "label": "Documents  / tab",
+    "target": "Records → Lifecycle",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-011",
+    "url": "/dashboard/contacts/159443",
+    "label": "Live Processing / tab",
+    "target": "Records → Service & Performance",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-012",
+    "url": "/dashboard/contacts/159443",
+    "label": "Chargebacks / tab",
+    "target": "Records → Service & Performance",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-013",
+    "url": "/dashboard/contacts/159443",
+    "label": "Activity / tab",
+    "target": "Records → Activity & History drawer",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-014",
+    "url": "/dashboard/contacts/159443",
+    "label": "Calls & VMs / tab",
+    "target": "Records → Sales Work",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-015",
+    "url": "/dashboard/contacts/159443",
+    "label": "Call Assist / tab",
+    "target": "Records → Sales Work",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-016",
+    "url": "/dashboard/contacts/159443",
+    "label": "Relationships / tab",
+    "target": "Records → Overview",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-017",
+    "url": "/dashboard/contacts/159443",
+    "label": "Locations  / tab",
+    "target": "Records → Overview",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-018",
+    "url": "/dashboard/contacts/159443",
+    "label": "History / tab",
+    "target": "Records → Activity & History drawer",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-019",
+    "url": "/dashboard/contacts/159443",
+    "label": "Comments / tab",
+    "target": "Records → Conversations",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-020",
+    "url": "/dashboard/contacts/159443",
+    "label": "Churn Risk / tab",
+    "target": "Records → Service & Performance",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-021",
+    "url": "/dashboard/contacts/159443",
+    "label": "Delivery Log / tab",
+    "target": "Records → Conversations",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-022",
+    "url": "/dashboard/contacts/159443",
+    "label": "Comm. Timeline / tab",
+    "target": "Records → Conversations",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-023",
+    "url": "/dashboard/contacts/159443",
+    "label": "Comm. Health / tab",
+    "target": "Records → Conversations",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-024",
+    "url": "/dashboard/contacts/159443",
+    "label": "Offer Intelligence / tab",
+    "target": "Records → Sales Work",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-025",
+    "url": "/dashboard/contacts/159443",
+    "label": "RFIs / tab",
+    "target": "Records → Lifecycle",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-026",
+    "url": "/dashboard/contacts/159443",
+    "label": "NPS / tab",
+    "target": "Records → Service & Performance",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-027",
+    "url": "/dashboard/lead-ops",
+    "label": "Businesses / hub-tab",
+    "target": "Prospecting → Inventory",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-028",
+    "url": "/dashboard/lead-ops?tab=prospects",
+    "label": "Source Prospects / hub-tab",
+    "target": "Prospecting → Sources & Imports",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-029",
+    "url": "/dashboard/lead-ops?tab=imports",
+    "label": "Imports / hub-tab",
+    "target": "Prospecting → Sources & Imports",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-030",
+    "url": "/dashboard/lead-ops?tab=staging",
+    "label": "Staging & Promotion / hub-tab",
+    "target": "Prospecting → Qualification & Staging",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-031",
+    "url": "/dashboard/lead-ops?tab=sources",
+    "label": "Sources / hub-tab",
+    "target": "Prospecting → Sources & Imports",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-032",
+    "url": "/dashboard/lead-ops?tab=census",
+    "label": "Census / hub-tab",
+    "target": "Prospecting → Sources & Imports",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-033",
+    "url": "/dashboard/lead-ops?tab=intelligence",
+    "label": "Intelligence / hub-tab",
+    "target": "Prospecting → Enrichment",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-034",
+    "url": "/dashboard/lead-ops?tab=quality",
+    "label": "Data Quality / hub-tab",
+    "target": "Prospecting → Qualification & Staging",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-035",
+    "url": "/dashboard/lead-ops?tab=pipeline",
+    "label": "Inbound Operations / hub-tab",
+    "target": "Prospecting → Qualification & Staging",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-036",
+    "url": "/dashboard/lead-ops?tab=sfp",
+    "label": "South Florida Prospecting / hub-tab",
+    "target": "Prospecting → Qualification & Staging",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-037",
+    "url": "/dashboard/lead-ops?tab=provider-results",
+    "label": "Provider Results / hub-tab",
+    "target": "Prospecting → Enrichment",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-038",
+    "url": "/dashboard/lead-ops?tab=pilot",
+    "label": "🧪 Paid Pilot (Legacy) / hub-tab",
+    "target": "Prospecting → Program Health / Legacy",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-039",
+    "url": "/dashboard/lead-ops?tab=health",
+    "label": "Enrichment Program Health / hub-tab",
+    "target": "Prospecting → Program Health",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-040",
+    "url": "/dashboard/admin-hub",
+    "label": "User Management / hub-tab",
+    "target": "Administration → Users & Access",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-041",
+    "url": "/dashboard/admin-hub?tab=permissions",
+    "label": "Permissions / hub-tab",
+    "target": "Administration → Users & Access",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-042",
+    "url": "/dashboard/admin-hub?tab=audit-log",
+    "label": "Audit Log / hub-tab",
+    "target": "Administration → Data & Audit",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-043",
+    "url": "/dashboard/admin-hub?tab=consent",
+    "label": "Consent Audit / hub-tab",
+    "target": "Administration → Data & Audit",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-044",
+    "url": "/dashboard/admin-hub?tab=pci",
+    "label": "PCI Assessment / hub-tab",
+    "target": "Administration → Release Readiness",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-045",
+    "url": "/dashboard/admin-hub?tab=agents",
+    "label": "Agent Management / hub-tab",
+    "target": "Administration → Users & Access",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-046",
+    "url": "/dashboard/admin-hub?tab=integrations",
+    "label": "Integrations / hub-tab",
+    "target": "Administration → Integrations",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-047",
+    "url": "/dashboard/admin-hub?tab=ghl",
+    "label": "GHL Integration / hub-tab",
+    "target": "Administration → Integrations",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-048",
+    "url": "/dashboard/admin-hub?tab=info-flow",
+    "label": "Information Flow / hub-tab",
+    "target": "Administration → Integrations",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-049",
+    "url": "/dashboard/admin-hub?tab=gate-result",
+    "label": "Deploy Gate / hub-tab",
+    "target": "Administration → Release Readiness",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-050",
+    "url": "/dashboard/admin-hub?tab=automations",
+    "label": "Automations / hub-tab",
+    "target": "Administration → Operational Controls",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-051",
+    "url": "/dashboard/reporting",
+    "label": "Overview / hub-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-052",
+    "url": "/dashboard/reporting?tab=growth",
+    "label": "Growth Metrics / hub-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-053",
+    "url": "/dashboard/reporting?tab=win-loss",
+    "label": "Win/Loss / hub-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-054",
+    "url": "/dashboard/reporting?tab=outreach-analytics",
+    "label": "Outreach Analytics / hub-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-055",
+    "url": "/dashboard/reporting?tab=operations",
+    "label": "Operations Report / hub-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-056",
+    "url": "/dashboard/reporting?tab=financial",
+    "label": "Financial / hub-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-057",
+    "url": "/dashboard/system-health?tab=monitor",
+    "label": "System Monitor / hub-tab",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-058",
+    "url": "/dashboard/system-health?tab=readiness",
+    "label": "System Readiness / hub-tab",
+    "target": "Administration → Release & Incidents",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-059",
+    "url": "/dashboard/system-health?tab=seo",
+    "label": "SEO Health / hub-tab",
+    "target": "Administration → Release & Incidents",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-060",
+    "url": "/dashboard/system-health?tab=incidents",
+    "label": "Incidents & DLQ / hub-tab",
+    "target": "Administration → Release & Incidents",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-061",
+    "url": "/dashboard/contacts-leads",
+    "label": "People / hub-tab",
+    "target": "Records → retained nested section",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-062",
+    "url": "/dashboard/contacts-leads?tab=leads",
+    "label": "Leads / hub-tab",
+    "target": "Records → retained nested section",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-063",
+    "url": "/dashboard/tasks-appointments",
+    "label": "Tasks / hub-tab",
+    "target": "Work / header notifications → retained nested section",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-064",
+    "url": "/dashboard/tasks-appointments?tab=calendar",
+    "label": "Appointments / hub-tab",
+    "target": "Work / header notifications → retained nested section",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-065",
+    "url": "/dashboard/onboarding",
+    "label": "Onboarding / hub-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-066",
+    "url": "/dashboard/onboarding?tab=board",
+    "label": "Board / hub-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-067",
+    "url": "/dashboard/merchant-risk",
+    "label": "Chargebacks / hub-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-068",
+    "url": "/dashboard/merchant-risk?tab=health",
+    "label": "Merchant Health / hub-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-069",
+    "url": "/dashboard/support-hub",
+    "label": "Tickets / hub-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-070",
+    "url": "/dashboard/support-hub?tab=rfis",
+    "label": "RFIs / hub-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-071",
+    "url": "/dashboard/support-hub?tab=review-queue",
+    "label": "Review Queue / hub-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-072",
+    "url": "/dashboard/merchant-success",
+    "label": "Review Requests / hub-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-073",
+    "url": "/dashboard/merchant-success?tab=testimonials",
+    "label": "Testimonials / hub-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-074",
+    "url": "/dashboard/merchant-success?tab=nps",
+    "label": "NPS / CSAT / hub-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-075",
+    "url": "/dashboard/merchant-success?tab=retention",
+    "label": "Retention Campaigns / hub-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-076",
+    "url": "/dashboard/ghl-integration",
+    "label": "Settings / hub-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-077",
+    "url": "/dashboard/ghl-integration?tab=workflow-ids",
+    "label": "Workflow IDs / hub-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-078",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "Sequence Guide / hub-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-079",
+    "url": "/dashboard/financial-hub",
+    "label": "Revenue Dashboard / hub-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-080",
+    "url": "/dashboard/reporting?tab=financial&financialTab=forecasting",
+    "label": "Forecasting / hub-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-081",
+    "url": "/dashboard/reporting?tab=financial&financialTab=terminal-roi",
+    "label": "Terminal ROI / tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-082",
+    "url": "/dashboard/deliverability-hub",
+    "label": "Email Health / hub-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-083",
+    "url": "/dashboard/deliverability-hub?tab=inbox-health",
+    "label": "Inbox Health / hub-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-084",
+    "url": "/dashboard/content-hub",
+    "label": "Content Engine / hub-tab",
+    "target": "Resources / privileged acquisition tools → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-085",
+    "url": "/dashboard/content-hub?tab=blog",
+    "label": "Blog Generator / hub-tab",
+    "target": "Resources / privileged acquisition tools → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-086",
+    "url": "/dashboard/content-hub?tab=linkedin",
+    "label": "LinkedIn / hub-tab",
+    "target": "Resources / privileged acquisition tools → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-087",
+    "url": "/dashboard/content-hub?tab=blaze",
+    "label": "Blaze.ai / hub-tab",
+    "target": "Resources / privileged acquisition tools → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-088",
+    "url": "/dashboard/sdr-hub",
+    "label": "AI SDR / hub-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-089",
+    "url": "/dashboard/sdr-hub?tab=chatbot",
+    "label": "Chat Bot Settings / hub-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-090",
+    "url": "/dashboard/settings/integrations",
+    "label": "GHL Workflow IDs / hub-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-091",
+    "url": "/dashboard/settings/integrations",
+    "label": "Sending Identities / hub-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-092",
+    "url": "/dashboard/settings/integrations",
+    "label": "Processor Adapters / hub-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-093",
+    "url": "/dashboard/settings/integrations",
+    "label": "LinkedIn Enrichment / hub-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-094",
+    "url": "/dashboard/settings/integrations",
+    "label": "ZeroBounce / hub-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-095",
+    "url": "/dashboard/agent-management",
+    "label": "Team Members / hub-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-096",
+    "url": "/dashboard/agent-management",
+    "label": "Rep Metrics / hub-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-097",
+    "url": "/dashboard/agent-management",
+    "label": "Residual Calculator / hub-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-098",
+    "url": "/dashboard/agent-management",
+    "label": "Comp Model / hub-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-099",
+    "url": "/dashboard/ghl-integration?tab=workflow-ids",
+    "label": "Workflow ID Manager / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-100",
+    "url": "/dashboard/ghl-integration?tab=workflow-ids",
+    "label": "AI Workflow Prompts / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-101",
+    "url": "/dashboard/ghl-integration?tab=workflow-ids",
+    "label": "Cadence Blueprints / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-102",
+    "url": "/dashboard/ghl-integration?tab=workflow-ids",
+    "label": "Cadence Timeline / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-103",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "WF1 — Inbound / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-104",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "WF2 — Cold Outbound / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-105",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "WF3 — Reply Engaged / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-106",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "WF4 — Statement Chase / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-107",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "WF5 — Proposal / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-108",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "WF6 — Onboarding / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-109",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "WF7 — Go-Live / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-110",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "WF8 — Retention / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-111",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "WF9 — Win-Back / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-112",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "Re-engagement / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-113",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "Tag Reference / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-114",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "Global Setup / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-115",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "GHL Admin Setup / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-116",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "📧 Email Library / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-117",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "📋 Manual Sequences / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-118",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "🔁 Multi-Touch Map / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-119",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "🤖 AI Employee / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-120",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "✍️ Signatures / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-121",
+    "url": "/dashboard/ghl-integration?tab=sequence-guide",
+    "label": "🛡️ Workflow Guard / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-122",
+    "url": "/dashboard/reporting?tab=financial",
+    "label": "Revenue Dashboard / nested-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-123",
+    "url": "/dashboard/reporting?tab=financial&financialTab=forecasting",
+    "label": "Forecasting / nested-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-124",
+    "url": "/dashboard/reporting?tab=financial&financialTab=terminal-roi",
+    "label": "Terminal ROI / nested-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-125",
+    "url": "/dashboard/reporting?tab=financial&financialTab=revenue",
+    "label": "Dashboard / nested-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-126",
+    "url": "/dashboard/reporting?tab=financial&financialTab=revenue",
+    "label": "By Partner / nested-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-127",
+    "url": "/dashboard/reporting?tab=financial&financialTab=revenue",
+    "label": "Import & Reconcile / nested-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-128",
+    "url": "/dashboard/reporting?tab=financial&financialTab=revenue",
+    "label": "History / nested-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-129",
+    "url": "/dashboard/reporting?tab=financial&financialTab=revenue",
+    "label": "Payouts / nested-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-130",
+    "url": "/dashboard/reporting?tab=outreach-analytics",
+    "label": "Campaigns / nested-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-131",
+    "url": "/dashboard/reporting?tab=outreach-analytics",
+    "label": "A/B Testing / nested-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-132",
+    "url": "/dashboard/reporting?tab=outreach-analytics",
+    "label": "Recent Messages / nested-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-133",
+    "url": "/dashboard/merchant-risk?tab=health",
+    "label": "Health Alerts / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-134",
+    "url": "/dashboard/merchant-risk?tab=health",
+    "label": "Churn Risk / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-135",
+    "url": "/dashboard/merchant-risk?tab=health",
+    "label": "NPS / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-136",
+    "url": "/dashboard/merchant-risk?tab=health",
+    "label": "Signal Settings / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-137",
+    "url": "/dashboard/deliverability-hub?tab=inbox-health",
+    "label": "Inboxes / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-138",
+    "url": "/dashboard/deliverability-hub?tab=inbox-health",
+    "label": "Warmup & Cap / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-139",
+    "url": "/dashboard/deliverability-hub?tab=inbox-health",
+    "label": "Domains / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-140",
+    "url": "/dashboard/sdr-hub",
+    "label": "Summary / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-141",
+    "url": "/dashboard/sdr-hub",
+    "label": "Discovery / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-142",
+    "url": "/dashboard/sdr-hub",
+    "label": "Funnel / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-143",
+    "url": "/dashboard/sdr-hub",
+    "label": "Stuck Leads / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-144",
+    "url": "/dashboard/sdr-hub",
+    "label": "Channel Health / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-145",
+    "url": "/dashboard/sdr-hub",
+    "label": "Anomaly Alerts / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-146",
+    "url": "/dashboard/sdr-hub",
+    "label": "SMS / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-147",
+    "url": "/dashboard/sdr-hub",
+    "label": "Enrichment / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-148",
+    "url": "/dashboard/sdr-hub",
+    "label": "Voice AI / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-149",
+    "url": "/dashboard/sdr-hub",
+    "label": "Discovery Controls / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-150",
+    "url": "/dashboard/sdr-hub",
+    "label": "Chat AI / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-151",
+    "url": "/dashboard/sdr-hub",
+    "label": "Processor Intel / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-152",
+    "url": "/dashboard/sdr-hub",
+    "label": "Source Quality / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-153",
+    "url": "/dashboard/sdr-hub",
+    "label": "Inbox Health / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-154",
+    "url": "/dashboard/sdr-hub",
+    "label": "Market Expansion / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-155",
+    "url": "/dashboard/sdr-hub",
+    "label": "Weekly KPI / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-156",
+    "url": "/dashboard/sdr-hub",
+    "label": "Lead Contacts / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-157",
+    "url": "/dashboard/sdr-hub?tab=sdr",
+    "label": "AI SDR / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-158",
+    "url": "/dashboard/sdr-hub?tab=chatbot",
+    "label": "Chat Bot Settings / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-159",
+    "url": "/dashboard/content-hub?tab=content",
+    "label": "Content Engine / nested-tab",
+    "target": "Resources / privileged acquisition tools → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-160",
+    "url": "/dashboard/content-hub?tab=blog",
+    "label": "Blog Generator / nested-tab",
+    "target": "Resources / privileged acquisition tools → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-161",
+    "url": "/dashboard/content-hub?tab=linkedin",
+    "label": "LinkedIn / nested-tab",
+    "target": "Resources / privileged acquisition tools → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-162",
+    "url": "/dashboard/content-hub?tab=blaze",
+    "label": "Blaze.ai / nested-tab",
+    "target": "Resources / privileged acquisition tools → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-163",
+    "url": "/dashboard/sdr-hub?tab=chatbot",
+    "label": "Bot Contexts / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-164",
+    "url": "/dashboard/sdr-hub?tab=chatbot",
+    "label": "Handoff Rules / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-165",
+    "url": "/dashboard/sdr-hub?tab=chatbot",
+    "label": "Live Conversations / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-166",
+    "url": "/dashboard/sdr-hub?tab=chatbot",
+    "label": "Webhooks / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-167",
+    "url": "/dashboard/content-hub?tab=content",
+    "label": "Editorial Queue / nested-tab",
+    "target": "Resources / privileged acquisition tools → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-168",
+    "url": "/dashboard/content-hub?tab=content",
+    "label": "AI-Assist Draft / nested-tab",
+    "target": "Resources / privileged acquisition tools → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-169",
+    "url": "/dashboard/content-hub?tab=linkedin",
+    "label": "Queue / nested-tab",
+    "target": "Resources / privileged acquisition tools → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-170",
+    "url": "/dashboard/content-hub?tab=linkedin",
+    "label": "Compose / nested-tab",
+    "target": "Resources / privileged acquisition tools → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-171",
+    "url": "/dashboard/content-hub?tab=linkedin",
+    "label": "AI Generate / nested-tab",
+    "target": "Resources / privileged acquisition tools → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-172",
+    "url": "/dashboard/playbooks?tab=marketing",
+    "label": "GHL Workflows / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-173",
+    "url": "/dashboard/playbooks?tab=marketing",
+    "label": "Content Library / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-174",
+    "url": "/dashboard/playbooks?tab=marketing",
+    "label": "Social Ads / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-175",
+    "url": "/dashboard/playbooks?tab=marketing",
+    "label": "Call Script / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-176",
+    "url": "/dashboard/playbooks?tab=marketing",
+    "label": "Objection Handling / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-177",
+    "url": "/dashboard/playbooks?tab=growth",
+    "label": "CRO / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-178",
+    "url": "/dashboard/playbooks?tab=growth",
+    "label": "Phase 1 / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-179",
+    "url": "/dashboard/playbooks?tab=growth",
+    "label": "Phase 2 / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-180",
+    "url": "/dashboard/playbooks?tab=growth",
+    "label": "PR & Earned Media / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-181",
+    "url": "/dashboard/playbooks?tab=growth",
+    "label": "Podcast/Video / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-182",
+    "url": "/dashboard/playbooks?tab=growth",
+    "label": "Partnerships / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-183",
+    "url": "/dashboard/playbooks?tab=growth",
+    "label": "Community / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-184",
+    "url": "/dashboard/playbooks?tab=growth",
+    "label": "Reviews / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-185",
+    "url": "/dashboard/playbooks?tab=growth",
+    "label": "Builds / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-186",
+    "url": "/dashboard/playbooks?tab=growth",
+    "label": "Weekly / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-187",
+    "url": "/dashboard/playbooks?tab=growth",
+    "label": "Tools / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-188",
+    "url": "/dashboard/playbooks?tab=growth",
+    "label": "Partner Pipeline / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-189",
+    "url": "/dashboard/playbooks?tab=growth",
+    "label": "Content Repurposing / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-190",
+    "url": "/dashboard/playbooks?tab=growth",
+    "label": "Weekly Review / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-191",
+    "url": "/dashboard/playbooks?tab=growth",
+    "label": "Scorecard / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-192",
+    "url": "/dashboard/training",
+    "label": "Training Guides / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-193",
+    "url": "/dashboard/training",
+    "label": "AI Practice / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-194",
+    "url": "/dashboard/training",
+    "label": "Team Coaching / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-195",
+    "url": "/dashboard/leaderboard",
+    "label": "Deals / nested-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-196",
+    "url": "/dashboard/leaderboard",
+    "label": "Revenue / nested-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-197",
+    "url": "/dashboard/leaderboard",
+    "label": "Proposals / nested-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-198",
+    "url": "/dashboard/leaderboard",
+    "label": "Calls / nested-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-199",
+    "url": "/dashboard/leaderboard",
+    "label": "Close Rate / nested-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-200",
+    "url": "/dashboard/leaderboard",
+    "label": "Contacts Added / nested-tab",
+    "target": "Reports → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-201",
+    "url": "/dashboard/activation",
+    "label": "Day-1 Runbook / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-202",
+    "url": "/dashboard/activation",
+    "label": "Identity Wizard / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-203",
+    "url": "/dashboard/activation",
+    "label": "System Status / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-204",
+    "url": "/dashboard/activation",
+    "label": "Readiness / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-205",
+    "url": "/dashboard/activation",
+    "label": "Bridge / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-206",
+    "url": "/dashboard/activation",
+    "label": "Orchestrator / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-207",
+    "url": "/dashboard/activation",
+    "label": "Activity / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-208",
+    "url": "/dashboard/activation",
+    "label": "Stuck Leads / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-209",
+    "url": "/dashboard/activation",
+    "label": "Deal Backfill / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-210",
+    "url": "/dashboard/activation",
+    "label": "Compliance / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-211",
+    "url": "/dashboard/activation",
+    "label": "Kill Switch / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-212",
+    "url": "/dashboard/activation",
+    "label": "Enrichment / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-213",
+    "url": "/dashboard/notifications",
+    "label": "All / nested-tab",
+    "target": "Work / header notifications → retained nested section",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-214",
+    "url": "/dashboard/notifications",
+    "label": "Leads / nested-tab",
+    "target": "Work / header notifications → retained nested section",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-215",
+    "url": "/dashboard/notifications",
+    "label": "Deals / nested-tab",
+    "target": "Work / header notifications → retained nested section",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-216",
+    "url": "/dashboard/notifications",
+    "label": "SLA / nested-tab",
+    "target": "Work / header notifications → retained nested section",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-217",
+    "url": "/dashboard/notifications",
+    "label": "System / nested-tab",
+    "target": "Work / header notifications → retained nested section",
+    "owner": "C2",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-218",
+    "url": "/dashboard/underwriting",
+    "label": "Needs Review / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-219",
+    "url": "/dashboard/underwriting",
+    "label": "Auto-Approved Today / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-220",
+    "url": "/dashboard/underwriting",
+    "label": "Rules Config / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-221",
+    "url": "/dashboard/merchant-applications",
+    "label": "All / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-222",
+    "url": "/dashboard/merchant-applications",
+    "label": "Submitted / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-223",
+    "url": "/dashboard/merchant-applications",
+    "label": "Under Review / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-224",
+    "url": "/dashboard/merchant-applications",
+    "label": "Approved / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-225",
+    "url": "/dashboard/merchant-applications",
+    "label": "Declined / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-226",
+    "url": "/dashboard/merchant-applications",
+    "label": "Draft / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-227",
+    "url": "/dashboard/boarding",
+    "label": "All / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-228",
+    "url": "/dashboard/boarding",
+    "label": "Submitted / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-229",
+    "url": "/dashboard/boarding",
+    "label": "Under Review / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-230",
+    "url": "/dashboard/boarding",
+    "label": "More Info Needed / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-231",
+    "url": "/dashboard/boarding",
+    "label": "Approved / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-232",
+    "url": "/dashboard/boarding",
+    "label": "Declined / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-233",
+    "url": "/dashboard/knowledge-admin",
+    "label": "Sources (0) / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-234",
+    "url": "/dashboard/knowledge-admin",
+    "label": "Unanswered 2 / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-235",
+    "url": "/dashboard/knowledge-admin",
+    "label": "Feedback / nested-tab",
+    "target": "Resources → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-236",
+    "url": "/dashboard/workflows",
+    "label": "Workflows (17) / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-237",
+    "url": "/dashboard/workflows",
+    "label": "Run History (455) / nested-tab",
+    "target": "Administration / operational controls → retained nested section",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-238",
+    "url": "/dashboard/outbound-center?tab=campaigns",
+    "label": "Campaigns / nested-tab",
+    "target": "Campaigns → Manage",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-239",
+    "url": "/dashboard/outbound-center?tab=campaigns",
+    "label": "Readiness Intelligence / nested-tab",
+    "target": "Campaigns → retained nested section",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-240",
+    "url": "/dashboard/contact-census",
+    "label": "Census / nested-tab",
+    "target": "Prospecting → retained nested section",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-241",
+    "url": "/dashboard/contact-census",
+    "label": "Reconciliation / nested-tab",
+    "target": "Prospecting → retained nested section",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-242",
+    "url": "/dashboard/merchant-success?tab=reviews",
+    "label": "Review Requests / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-243",
+    "url": "/dashboard/merchant-success?tab=testimonials",
+    "label": "Testimonials / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-244",
+    "url": "/dashboard/merchant-success?tab=nps",
+    "label": "NPS / CSAT / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-245",
+    "url": "/dashboard/merchant-success?tab=retention",
+    "label": "Retention Campaigns / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-246",
+    "url": "/dashboard/support-hub?tab=tickets",
+    "label": "Tickets / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-247",
+    "url": "/dashboard/support-hub?tab=rfis",
+    "label": "RFIs / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-248",
+    "url": "/dashboard/support-hub?tab=review-queue",
+    "label": "Review Queue / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-249",
+    "url": "/dashboard/lead-ops?tab=provider-results",
+    "label": "Provider Results / tab",
+    "target": "Prospecting → Enrichment",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-250",
+    "url": "/dashboard/lead-ops?tab=staging",
+    "label": "Master Leads / nested-tab",
+    "target": "Prospecting → retained nested section",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-251",
+    "url": "/dashboard/lead-ops?tab=staging&stagingTab=promotion-review",
+    "label": "Promotion Review / nested-tab",
+    "target": "Prospecting → retained nested section",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-252",
+    "url": "/dashboard/merchant-success?tab=testimonials",
+    "label": "Pending / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-253",
+    "url": "/dashboard/merchant-success?tab=testimonials",
+    "label": "Approved / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-254",
+    "url": "/dashboard/merchant-success?tab=testimonials",
+    "label": "Rejected / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-255",
+    "url": "/dashboard/merchant-success?tab=testimonials",
+    "label": "All / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-256",
+    "url": "/dashboard/support-hub?tab=review-queue",
+    "label": "Pending / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-257",
+    "url": "/dashboard/support-hub?tab=review-queue",
+    "label": "Approved / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-258",
+    "url": "/dashboard/support-hub?tab=review-queue",
+    "label": "All / nested-tab",
+    "target": "Merchant Operations → retained nested section",
+    "owner": "C4",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C4; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-259",
+    "url": "/dashboard/outbound-center?tab=command",
+    "label": "Pipeline / nested-tab",
+    "target": "Campaigns → retained nested section",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-260",
+    "url": "/dashboard/outbound-center?tab=command",
+    "label": "Outreach Sources / nested-tab",
+    "target": "Campaigns → retained nested section",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-261",
+    "url": "/dashboard/outbound-center?tab=command",
+    "label": "Signatures / nested-tab",
+    "target": "Campaigns → retained nested section",
+    "owner": "C3",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C3; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-262",
+    "url": "/dashboard/system-health?view=command-center",
+    "label": "Command Center / operator-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-263",
+    "url": "/dashboard/system-health?view=command-center",
+    "label": "Command Center / operator-navigation-defect",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-264",
+    "url": "/dashboard/system-health?tab=monitor&view=command-center",
+    "label": "Command Center / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-265",
+    "url": "/dashboard/system-health?tab=monitor&view=lifecycle",
+    "label": "Lifecycle / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-266",
+    "url": "/dashboard/system-health?tab=monitor&view=conversion",
+    "label": "Conversion / operator-direct-panel",
+    "target": "Administration → Data Diagnostics",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-267",
+    "url": "/dashboard/system-health?tab=monitor&view=stuck-leads",
+    "label": "Stuck Leads / operator-direct-panel",
+    "target": "Administration → Data Diagnostics",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-268",
+    "url": "/dashboard/system-health?tab=monitor&view=lead-queue-health",
+    "label": "Speed to Lead / operator-direct-panel",
+    "target": "Administration → Data Diagnostics",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-269",
+    "url": "/dashboard/system-health?tab=monitor&view=stage-health",
+    "label": "Stage Health / operator-direct-panel",
+    "target": "Administration → Data Diagnostics",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-270",
+    "url": "/dashboard/system-health?tab=monitor&view=vertical-coverage",
+    "label": "Vertical Coverage / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-271",
+    "url": "/dashboard/system-health?tab=monitor&view=statement-upload",
+    "label": "Statement Upload / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-272",
+    "url": "/dashboard/system-health?tab=monitor&view=a-lead-queue",
+    "label": "A-Lead Review Queue / operator-direct-panel",
+    "target": "Administration → Data Diagnostics",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-273",
+    "url": "/dashboard/system-health?tab=monitor&view=sdr",
+    "label": "SDR / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-274",
+    "url": "/dashboard/system-health?tab=monitor&view=recent-sends",
+    "label": "Recent Sends / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-275",
+    "url": "/dashboard/system-health?tab=monitor&view=send-monitoring",
+    "label": "Send Monitoring / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-276",
+    "url": "/dashboard/system-health?tab=monitor&view=silent-sequences",
+    "label": "Sequences Not Firing / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-277",
+    "url": "/dashboard/system-health?tab=monitor&view=pipeline-silence-thresholds",
+    "label": "Silence Thresholds / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-278",
+    "url": "/dashboard/system-health?tab=monitor&view=bounce-failure",
+    "label": "Bounce & Failure / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-279",
+    "url": "/dashboard/system-health?tab=monitor&view=comm-health",
+    "label": "Email Health / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-280",
+    "url": "/dashboard/system-health?tab=monitor&view=ai-health",
+    "label": "AI Health / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-281",
+    "url": "/dashboard/system-health?tab=monitor&view=ai-activity",
+    "label": "AI Activity / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-282",
+    "url": "/dashboard/system-health?tab=monitor&view=ai-learning-center",
+    "label": "AI Learning Center / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-283",
+    "url": "/dashboard/system-health?tab=monitor&view=low-confidence",
+    "label": "Low Confidence / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-284",
+    "url": "/dashboard/system-health?tab=monitor&view=subject-audit",
+    "label": "Subject Sync / operator-direct-panel",
+    "target": "Administration → Integrations",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-285",
+    "url": "/dashboard/system-health?tab=monitor&view=content-organic",
+    "label": "Content & Organic / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-286",
+    "url": "/dashboard/system-health?tab=monitor&view=ghl-connection",
+    "label": "GHL Status / operator-direct-panel",
+    "target": "Administration → Integrations",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-287",
+    "url": "/dashboard/system-health?tab=monitor&view=sync-conflicts",
+    "label": "Sync Conflicts / operator-direct-panel",
+    "target": "Administration → Integrations",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-288",
+    "url": "/dashboard/system-health?tab=monitor&view=ghl-invalid-contacts",
+    "label": "Invalid Contacts / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-289",
+    "url": "/dashboard/system-health?tab=monitor&view=serper-control",
+    "label": "Serper Control / operator-direct-panel",
+    "target": "Administration → Integrations",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-290",
+    "url": "/dashboard/system-health?tab=monitor&view=webhook-events",
+    "label": "Webhook Events / operator-direct-panel",
+    "target": "Administration → Integrations",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-291",
+    "url": "/dashboard/system-health?tab=monitor&view=registry-import",
+    "label": "Registry Import / operator-direct-panel",
+    "target": "Administration → Data Diagnostics",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-292",
+    "url": "/dashboard/system-health?tab=monitor&view=ghl-deferred-queue",
+    "label": "Deferred Enrollments / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-293",
+    "url": "/dashboard/system-health?tab=monitor&view=save-cases",
+    "label": "Save Cases / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-294",
+    "url": "/dashboard/system-health?tab=monitor&view=score-all",
+    "label": "Score All Contacts / operator-direct-panel",
+    "target": "Administration → Data Diagnostics",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-295",
+    "url": "/dashboard/system-health?tab=monitor&view=new-lead-enroll",
+    "label": "New Lead Enrollment / operator-direct-panel",
+    "target": "Administration → Data Diagnostics",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-296",
+    "url": "/dashboard/system-health?tab=monitor&view=kpis",
+    "label": "KPIs / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-297",
+    "url": "/dashboard/system-health?tab=monitor&view=readiness",
+    "label": "Readiness / operator-direct-panel",
+    "target": "Administration → Release & Incidents",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-298",
+    "url": "/dashboard/system-health?tab=monitor&view=job-health",
+    "label": "Job Health / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-299",
+    "url": "/dashboard/system-health?tab=monitor&view=queue-metrics",
+    "label": "Job Queue / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-300",
+    "url": "/dashboard/system-health?tab=monitor&view=worker-intervals",
+    "label": "Worker Intervals / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-301",
+    "url": "/dashboard/system-health?tab=monitor&view=worker-heartbeats",
+    "label": "Worker Heartbeats / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-302",
+    "url": "/dashboard/system-health?tab=monitor&view=deleted-records",
+    "label": "Deleted Records / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-303",
+    "url": "/dashboard/system-health?tab=monitor&view=outbound-preflight",
+    "label": "Outbound Preflight / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-304",
+    "url": "/dashboard/system-health?tab=monitor&view=queue-holds",
+    "label": "Queue Holds / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-305",
+    "url": "/dashboard/system-health?tab=monitor&view=data-health",
+    "label": "Data Health / operator-direct-panel",
+    "target": "Administration → Data Diagnostics",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-306",
+    "url": "/dashboard/system-health?tab=monitor&view=system-audit",
+    "label": "System Audit / operator-direct-panel",
+    "target": "Administration → Release & Incidents",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-307",
+    "url": "/dashboard/system-health?tab=monitor&view=launch-readiness",
+    "label": "Launch Readiness / operator-direct-panel",
+    "target": "Administration → Release & Incidents",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-308",
+    "url": "/dashboard/system-health?tab=monitor&view=data-quality",
+    "label": "Data Quality / operator-direct-panel",
+    "target": "Administration → Data Diagnostics",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  },
+  {
+    "id": "T-309",
+    "url": "/dashboard/system-health?tab=monitor&view=deliverability-settings",
+    "label": "Deliverability Settings / operator-direct-panel",
+    "target": "Administration → Runtime & Queues",
+    "owner": "C5",
+    "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+    "originalDisposition": "C5; historical observation, actions UNVERIFIED unless new receipt"
+  }
+]

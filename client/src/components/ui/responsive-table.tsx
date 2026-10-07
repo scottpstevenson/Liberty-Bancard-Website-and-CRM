@@ -23,6 +23,7 @@ interface ResponsiveTableProps<T> {
   mobileCard?: (row: T) => ReactNode;
   testId?: string;
   onRowClick?: (row: T) => void;
+  containerResponsive?: boolean;
 }
 
 function getCellValue<T>(row: T, key: keyof T & string): string {
@@ -38,11 +39,12 @@ export function ResponsiveTable<T>({
   mobileCard,
   testId,
   onRowClick,
+  containerResponsive = false,
 }: ResponsiveTableProps<T>) {
   return (
     <>
       {mobileCard && (
-        <div className="md:hidden space-y-3" data-testid={testId ? `${testId}-mobile` : undefined}>
+        <div className={containerResponsive ? "crm-worklist-cards space-y-3" : "md:hidden space-y-3"} data-testid={testId ? `${testId}-mobile` : undefined}>
           {data.map((row) => (
             <div
               key={keyExtractor(row)}
@@ -57,7 +59,7 @@ export function ResponsiveTable<T>({
       )}
 
       <div
-        className={mobileCard ? "hidden md:block overflow-x-auto" : "overflow-x-auto"}
+        className={mobileCard ? containerResponsive ? "crm-worklist-table overflow-x-auto" : "hidden md:block overflow-x-auto" : "overflow-x-auto"}
         data-testid={testId ? `${testId}-desktop` : undefined}
       >
         <Table>

@@ -1,6 +1,7 @@
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { useState, useEffect } from "react";
 import { useParams, useLocation, Link } from "wouter";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUpdateContact } from "@/hooks/use-contacts";
 import { apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -38,6 +39,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import Comments from "@/components/Comments";
 import { EmailComposer } from "@/components/EmailComposer";
 import { ReadinessCard } from "@/components/ReadinessCard";
+import { CrmDataState, RecordHeader, CrmPageHeader } from "@/components/crm/CrmPresentation";
+import { parseLocalEntityId } from "@/lib/crm-destination-state";
+import { useEmployeeCrm } from "@/components/crm/employee-crm-context";
 
 // #240 — One-click copy button for phone/email
 function CopyButton({ value, label }: { value: string; label: string }) {
@@ -232,8 +236,8 @@ function ZeroBounceHistorySection({ contactId }: { contactId: number }) {
 
   const { data: history = [], isLoading } = useQuery<ZbHistoryEntry[]>({
     queryKey: ["/api/contacts", contactId, "zerobounce-history"],
-    queryFn: async () => {
-      const r = await fetch(`/api/contacts/${contactId}/zerobounce-history`);
+    queryFn: async ({ signal }) => {
+      const r = await fetch(`/api/contacts/${contactId}/zerobounce-history`, { signal, credentials: "include" });
       if (!r.ok) throw new Error("Failed to load validation history");
       return r.json();
     },
@@ -373,7 +377,7 @@ interface SfpReadinessResult {
 function SfpReadinessSection({ contactId }: { contactId: number }) {
   const readinessQuery = useQuery<SfpReadinessResult>({
     queryKey: ["/api/contacts", contactId, "sfp-readiness"],
-    queryFn: async () => (await apiRequest("GET", `/api/contacts/${contactId}/sfp-readiness`)).json(),
+    queryFn: async ({ signal }) => (await apiRequest("GET", `/api/contacts/${contactId}/sfp-readiness`, undefined, undefined, signal)).json(),
     enabled: Number.isInteger(contactId) && contactId > 0,
     staleTime: 30_000,
     retry: false,
@@ -489,8 +493,8 @@ function LifecycleHistorySection({ contactId }: { contactId: number }) {
 
   const { data: history = [], isLoading } = useQuery<LifecycleHistoryEntry[]>({
     queryKey: ["/api/contacts", contactId, "lifecycle-history"],
-    queryFn: async () => {
-      const r = await fetch(`/api/contacts/${contactId}/lifecycle-history`, { credentials: "include" });
+    queryFn: async ({ signal }) => {
+      const r = await fetch(`/api/contacts/${contactId}/lifecycle-history`, { credentials: "include", signal });
       if (!r.ok) throw new Error("Failed to load lifecycle history");
       return r.json();
     },
@@ -583,8 +587,8 @@ function NpsScoreBadge({ score }: { score: number }) {
 function NpsHistoryPanel({ contactId }: { contactId: number }) {
   const { data: responses = [], isLoading } = useQuery<NpsResponse[]>({
     queryKey: ["/api/contacts", contactId, "nps-responses"],
-    queryFn: async () => {
-      const res = await fetch(`/api/contacts/${contactId}/nps-responses`, { credentials: "include" });
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/contacts/${contactId}/nps-responses`, { credentials: "include", signal });
       if (!res.ok) return [];
       return res.json();
     },
@@ -698,8 +702,8 @@ function ChurnRiskPanel({ contactId, isManagerOrAdmin }: { contactId: number; is
 
   const { data: score, isLoading, refetch } = useQuery<MerchantHealthScore | null>({
     queryKey: ["/api/churn-scores/contact", contactId],
-    queryFn: async () => {
-      const res = await fetch(`/api/churn-scores/contact/${contactId}`, { credentials: "include" });
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/churn-scores/contact/${contactId}`, { credentials: "include", signal });
       if (!res.ok) return null;
       return res.json();
     },
@@ -1214,6 +1218,20 @@ function DocumentAccessHistory({ contactId }: { contactId: number }) {
 
 export default function ContactDetail() {
   const params = useParams<{ id: string }>();
+  if (!parseLocalEntityId("contactId", params.id ?? "")) {
+    return <div className="crm-page">
+      <CrmPageHeader title="Contact unavailable" description="The Contact reference is not a valid local Contact ID." />
+      <p role="alert">No record was opened. Choose a Contact from People.</p>
+      <Link href="/dashboard/contacts" className="inline-flex min-h-11 items-center underline"
+        data-testid="link-invalid-contact-people">Back to People</Link>
+    </div>;
+  }
+  return <ContactDetailRecord />;
+}
+
+function ContactDetailRecord() {
+  const employeeCrm = useEmployeeCrm();
+  const params = useParams<{ id: string }>();
   const contactId = Number(params.id);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -1225,8 +1243,8 @@ export default function ContactDetail() {
 
   const { data: agentsList } = useQuery<Agent[]>({
     queryKey: ["/api/agents"],
-    queryFn: async () => {
-      const res = await fetch("/api/agents", { credentials: "include" });
+    queryFn: async ({ signal }) => {
+      const res = await fetch("/api/agents", { credentials: "include", signal });
       if (!res.ok) return [];
       return res.json();
     },
@@ -1319,8 +1337,8 @@ export default function ContactDetail() {
 
   const { data, isLoading, error } = useQuery<ContactDetailData>({
     queryKey: ["/api/contacts", contactId, "detail"],
-    queryFn: async () => {
-      const res = await fetch(`/api/contacts/${contactId}/detail`, { credentials: "include" });
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/contacts/${contactId}/detail`, { credentials: "include", signal });
       if (!res.ok) throw new Error("Failed to fetch contact details");
       return res.json();
     },
@@ -1329,8 +1347,8 @@ export default function ContactDetail() {
 
   const { data: activityEvents } = useQuery<ActivityEvent[]>({
     queryKey: ["/api/contacts", contactId, "activity"],
-    queryFn: async () => {
-      const res = await fetch(`/api/contacts/${contactId}/activity`, { credentials: "include" });
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/contacts/${contactId}/activity`, { credentials: "include", signal });
       if (!res.ok) return [];
       return res.json();
     },
@@ -1339,8 +1357,8 @@ export default function ContactDetail() {
 
   const { data: notesList,isError:notesError,refetch:retryNotes } = useQuery<Note[]>({
     queryKey: ["/api/notes", "contact", contactId],
-    queryFn: async () => {
-      const res = await fetch(`/api/notes?entityType=contact&entityId=${contactId}`, { credentials: "include" });
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/notes?entityType=contact&entityId=${contactId}`, { credentials: "include", signal });
       if (!res.ok) throw new Error("Contact notes unavailable");
       return res.json();
     },
@@ -1349,8 +1367,8 @@ export default function ContactDetail() {
 
   const { data: contactCompanies = [] } = useQuery<ContactCompany[]>({
     queryKey: ["/api/contacts", contactId, "companies"],
-    queryFn: async () => {
-      const res = await fetch(`/api/contacts/${contactId}/companies`, { credentials: "include" });
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/contacts/${contactId}/companies`, { credentials: "include", signal });
       if (!res.ok) throw new Error("Contact company associations unavailable");
       return res.json();
     },
@@ -1369,8 +1387,8 @@ export default function ContactDetail() {
   };
   const { data: rateReviews = [], refetch: refetchRateReviews } = useQuery<RateReviewEntry[]>({
     queryKey: ["/api/rate-reviews/contact", contactId],
-    queryFn: async () => {
-      const res = await fetch(`/api/rate-reviews/contact/${contactId}`, { credentials: "include" });
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/rate-reviews/contact/${contactId}`, { credentials: "include", signal });
       if (!res.ok) return [];
       return res.json();
     },
@@ -1418,8 +1436,8 @@ export default function ContactDetail() {
     hasConfirmationRecord: boolean;
   }>({
     queryKey: ["/api/contacts", contactId, "confirmation-status"],
-    queryFn: async () => {
-      const res = await fetch(`/api/contacts/${contactId}/confirmation-status`, { credentials: "include" });
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/contacts/${contactId}/confirmation-status`, { credentials: "include", signal });
       if (!res.ok) return null;
       return res.json();
     },
@@ -1467,8 +1485,8 @@ export default function ContactDetail() {
     syncAgeMs: number | null;
   }>({
     queryKey: ["/api/ghl/sync-status/contact", contactId],
-    queryFn: async () => {
-      const res = await fetch(`/api/ghl/sync-status/contact/${contactId}`, { credentials: "include" });
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/ghl/sync-status/contact/${contactId}`, { credentials: "include", signal });
       if (!res.ok) throw new Error("Failed to fetch sync status");
       return res.json();
     },
@@ -1478,8 +1496,8 @@ export default function ContactDetail() {
 
   const { data: repsList = [] } = useQuery<{ id: string; email: string; firstName: string; lastName: string; role: string }[]>({
     queryKey: ["/api/users/reps"],
-    queryFn: async () => {
-      const res = await fetch("/api/users/reps", { credentials: "include" });
+    queryFn: async ({ signal }) => {
+      const res = await fetch("/api/users/reps", { credentials: "include", signal });
       if (!res.ok) return [];
       return res.json();
     },
@@ -1488,8 +1506,8 @@ export default function ContactDetail() {
 
   const { data: parentAccount } = useQuery<Contact | null>({
     queryKey: ["/api/contacts", contactId, "parent"],
-    queryFn: async () => {
-      const res = await fetch(`/api/contacts/${contactId}/parent`, { credentials: "include" });
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/contacts/${contactId}/parent`, { credentials: "include", signal });
       if (!res.ok) return null;
       return res.json();
     },
@@ -1499,8 +1517,8 @@ export default function ContactDetail() {
 
   const { data: childLocations = [] } = useQuery<Contact[]>({
     queryKey: ["/api/contacts", contactId, "locations"],
-    queryFn: async () => {
-      const res = await fetch(`/api/contacts/${contactId}/locations`, { credentials: "include" });
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/contacts/${contactId}/locations`, { credentials: "include", signal });
       if (!res.ok) return [];
       return res.json();
     },
@@ -1510,8 +1528,8 @@ export default function ContactDetail() {
 
   const { data: contactDocuments = [] } = useQuery<Document[]>({
     queryKey: ["/api/merchant-documents/contact", contactId],
-    queryFn: async () => {
-      const res = await fetch(`/api/merchant-documents/contact/${contactId}`, { credentials: "include" });
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/merchant-documents/contact/${contactId}`, { credentials: "include", signal });
       if (!res.ok) return [];
       return res.json();
     },
@@ -1571,7 +1589,8 @@ export default function ContactDetail() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6 p-4 md:p-6" data-testid="contact-detail-loading">
+      <div className={`${employeeCrm ? "crm-page" : "p-4 md:p-6"} space-y-6`} data-testid="contact-detail-loading">
+        <h1>Contact record</h1>
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-6 w-32" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1584,11 +1603,12 @@ export default function ContactDetail() {
 
   if (error || !data?.contact) {
     return (
-      <div className="p-4 md:p-6 space-y-4" data-testid="contact-detail-error">
+      <div className={`${employeeCrm ? "crm-page" : "p-4 md:p-6"} space-y-4`} data-testid="contact-detail-error">
+        <h1>Contact record unavailable</h1>
         <Button variant="ghost" onClick={() => setLocation("/dashboard/contacts")} data-testid="button-back-error">
           <ArrowLeft className="h-4 w-4 mr-2" /> Back to Contacts
         </Button>
-        <p className="text-muted-foreground">Contact not found.</p>
+        <CrmDataState state="unavailable" message="Contact not found." />
       </div>
     );
   }
@@ -1791,9 +1811,9 @@ export default function ContactDetail() {
   };
 
   return (
-    <div className="space-y-6 p-4 md:p-6 max-w-6xl mx-auto pb-20 md:pb-6" data-testid="contact-detail-page">
+    <div className={`${employeeCrm ? "crm-page" : ""} space-y-6 pb-20 md:pb-6`} data-testid="contact-detail-page">
       {/* Header */}
-      <div className="flex flex-col gap-4">
+      <RecordHeader className="flex flex-col gap-4">
         <Button variant="ghost" className="self-start" onClick={() => setLocation("/dashboard/contacts")} data-testid="button-back">
           <ArrowLeft className="h-4 w-4 mr-2" /> Back to Contacts
         </Button>
@@ -1801,6 +1821,8 @@ export default function ContactDetail() {
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
           <div className="space-y-1">
             {isEditing ? (
+              <>
+              <h1 className="sr-only">Editing contact: {contact.firstName} {contact.lastName}</h1>
               <div className="flex flex-wrap gap-2 items-center">
                 <Input
                   value={editFields.firstName ?? ""}
@@ -1815,6 +1837,7 @@ export default function ContactDetail() {
                   data-testid="input-edit-lastname"
                 />
               </div>
+              </>
             ) : (
               <h1 className="text-2xl font-bold" data-testid="text-contact-name">
                 {/* #1475 — Best identifier: company → full name → email → phone */}
@@ -2202,7 +2225,7 @@ export default function ContactDetail() {
             )}
           </div>
         </div>
-      </div>
+      </RecordHeader>
 
       <EmailComposer
         open={emailComposerOpen}

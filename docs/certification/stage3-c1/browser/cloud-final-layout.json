@@ -1,0 +1,50 @@
+{
+  "role": "admin",
+  "realLogin": true,
+  "layouts": [
+    {
+      "width": 320,
+      "scroll": 320,
+      "container": "crm-page",
+      "h1": 1
+    },
+    {
+      "width": 390,
+      "scroll": 390,
+      "container": "crm-page",
+      "h1": 1
+    },
+    {
+      "width": 768,
+      "scroll": 768,
+      "container": "crm-page",
+      "h1": 1
+    },
+    {
+      "width": 1280,
+      "scroll": 1280,
+      "container": "crm-page",
+      "h1": 1
+    },
+    {
+      "width": 1440,
+      "scroll": 1440,
+      "container": "crm-page",
+      "h1": 1
+    }
+  ],
+  "facetOutage": {
+    "actual503": true,
+    "realRowsUsable": true,
+    "unknownNotZero": true
+  },
+  "qualification": "Declared layout/facet checks; not whole-action acceptance",
+  "identity": {
+    "inputHash": "46d79b8fcc2f0ce8c6ec7ac41a2cf5d07e5d32ccf1a7f4d52f5e35127c23a14b",
+    "entryOutputsHash": "d877a832a9c080181de1f53e0705502335294fbb8327ed5830efd657c5f7d28d",
+    "compiledHtmlAt": "2026-10-07T16:17:44.595Z",
+    "qualification": "Compiled client; registered source handlers; not deployed",
+    "sourceHead": "77de3b5c3245302fd10105b6c6c2fdf607ec56af",
+    "fixtureQualification": "Includes the source-visible atomic readiness publisher correction before its commit; compile identity hashes application inputs separately from fixture scripts"
+  }
+}

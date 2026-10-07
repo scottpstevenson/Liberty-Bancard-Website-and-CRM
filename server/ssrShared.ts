@@ -117,7 +117,7 @@ export function ssrHtmlShell({
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#1e3a5f" />
   <meta name="robots" content="index, follow" />
   <title>${safeTitle}</title>

@@ -1,0 +1,53 @@
+{
+  "baseline": "442fd044f10f52db4bf391dabcb1299403314eaf",
+  "sourceHead": "442fd044f10f52db4bf391dabcb1299403314eaf",
+  "toolchain": {
+    "node": "v22.22.0",
+    "npm": "10.9.4"
+  },
+  "servingIdentity": "Only isolated test candidate; no deployed identity inferred",
+  "inputs": [
+    {
+      "source": ".local/tasks/liberty-stage3-c1-hypothesis-audit.md",
+      "portable": "inputs/adjudication.md",
+      "sha256": "66f65f81b4835c88e8048fe9233dd8a720f62fec18da70df90369dca9c2cdc55",
+      "precedence": 1,
+      "status": "exact available specification/evidence, not a current runtime pass"
+    },
+    {
+      "source": ".local/tasks/task-2072.md",
+      "portable": "inputs/implementation-contract.md",
+      "sha256": "c52698346f49659e5653f1f5b933a797a92e716447b3dcce946fd886978512e0",
+      "precedence": 2,
+      "status": "exact available specification/evidence, not a current runtime pass"
+    },
+    {
+      "source": "attached_assets/LIBERTY_TASK_2072_C1_REPLIT_AUDIT_CORRECTIONS_2026-10-07_1791367791047.md",
+      "portable": "inputs/submitted-review.md",
+      "sha256": "519e287e3f17f79f80a875ad657dddffef75c4ad1607497dd4b51de00edf4f4a",
+      "precedence": 3,
+      "status": "exact available specification/evidence, not a current runtime pass"
+    },
+    {
+      "source": "attached_assets/LIBERTY_STAGE3_TASK_C1_PREFLIGHT_BUILD_MASTER_PROMPT_1791318462918.md",
+      "portable": "inputs/original-c1.md",
+      "sha256": "110475857e66fd7b36871b83a21fafa866e8c6a89e264c37eabebc7def8d9e30",
+      "precedence": 4,
+      "status": "exact available specification/evidence, not a current runtime pass"
+    },
+    {
+      "source": ".local/tasks/liberty-stage3-c-preflight-common.md",
+      "portable": "inputs/common.md",
+      "sha256": "c10b619b8523635767ab2c292e6d50820bd9315360368c46676b96420d112e08",
+      "precedence": 4,
+      "status": "exact available specification/evidence, not a current runtime pass"
+    },
+    {
+      "source": ".local/tasks/liberty-stage3-post-2071-audit.md",
+      "portable": "inputs/inheritance.md",
+      "sha256": "a64f4be1199b4143f8bc7933e3ac70b62f51f6785ccedbfb2f38b64893696e34",
+      "precedence": 4,
+      "status": "exact available specification/evidence, not a current runtime pass"
+    }
+  ]
+}

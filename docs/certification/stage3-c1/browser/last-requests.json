@@ -1,0 +1,337 @@
+[
+  {
+    "url": "/api/auth/user",
+    "method": "GET",
+    "status": 401
+  },
+  {
+    "url": "/api/auth/login",
+    "method": "POST",
+    "status": 200
+  },
+  {
+    "url": "/api/auth/user",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/admin/ghl-health",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/system/outbound-settings",
+    "method": "GET",
+    "status": 501
+  },
+  {
+    "url": "/api/kpi/summary",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/deals",
+    "method": "GET",
+    "status": 501
+  },
+  {
+    "url": "/api/kpi/pipeline-stats",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/kpi/comparative",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/analytics/lead-sources",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/admin/rep-activity/today",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/admin/rep-activity/inactive",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/analytics/lifecycle-distribution",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/analytics/weekly-outreach",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/analytics/conversion-funnel",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/analytics/daily-leads",
+    "method": "GET"
+  },
+  {
+    "url": "/api/sms-inbox/unread-count",
+    "method": "GET",
+    "status": 501
+  },
+  {
+    "url": "/api/merchant-applications/pending-count",
+    "method": "GET",
+    "status": 501
+  },
+  {
+    "url": "/api/notifications/count",
+    "method": "GET"
+  },
+  {
+    "url": "/api/live-chat/sessions?status=active",
+    "method": "GET"
+  },
+  {
+    "url": "/api/tasks/overdue-count",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/outreach-queue/count",
+    "method": "GET"
+  },
+  {
+    "url": "/api/overview/daily-briefing",
+    "method": "GET"
+  },
+  {
+    "url": "/api/auth/user",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/admin/ghl-health",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts?limit=50&offset=0&recordClass=production",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/facets?recordClass=production",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/agents",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/class-counts",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/sms-inbox/unread-count",
+    "method": "GET",
+    "status": 501
+  },
+  {
+    "url": "/api/merchant-applications/pending-count",
+    "method": "GET",
+    "status": 501
+  },
+  {
+    "url": "/api/notifications/count",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/live-chat/sessions?status=active",
+    "method": "GET",
+    "status": 501
+  },
+  {
+    "url": "/api/tasks/overdue-count",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/outreach-queue/count",
+    "method": "GET",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts/confirmation-status/batch",
+    "method": "POST",
+    "status": 200
+  },
+  {
+    "url": "/api/auth/user",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/admin/ghl-health",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts?limit=50&offset=0&recordClass=production",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/facets?recordClass=production",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/agents",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/class-counts",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/sms-inbox/unread-count",
+    "method": "GET",
+    "status": 501
+  },
+  {
+    "url": "/api/merchant-applications/pending-count",
+    "method": "GET",
+    "status": 501
+  },
+  {
+    "url": "/api/notifications/count",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/live-chat/sessions?status=active",
+    "method": "GET",
+    "status": 501
+  },
+  {
+    "url": "/api/tasks/overdue-count",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/outreach-queue/count",
+    "method": "GET",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts/confirmation-status/batch",
+    "method": "POST",
+    "status": 200
+  },
+  {
+    "url": "/api/auth/user",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/admin/ghl-health",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts?limit=50&offset=0&recordClass=production",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/facets?recordClass=production",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/agents",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/class-counts",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/sms-inbox/unread-count",
+    "method": "GET",
+    "status": 501
+  },
+  {
+    "url": "/api/merchant-applications/pending-count",
+    "method": "GET",
+    "status": 501
+  },
+  {
+    "url": "/api/notifications/count",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/live-chat/sessions?status=active",
+    "method": "GET",
+    "status": 501
+  },
+  {
+    "url": "/api/tasks/overdue-count",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/outreach-queue/count",
+    "method": "GET",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts/confirmation-status/batch",
+    "method": "POST",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts?limit=50&offset=50&recordClass=production",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/confirmation-status/batch",
+    "method": "POST",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts?limit=50&offset=0&search=C1+Synthetic+61&recordClass=production",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/facets?search=C1+Synthetic+61&recordClass=production",
+    "method": "GET",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/confirmation-status/batch",
+    "method": "POST",
+    "status": 200
+  }
+]

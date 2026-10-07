@@ -15,7 +15,8 @@
  */
 
 import { useQueries } from "@tanstack/react-query";
-import { getCsrfToken } from "@/lib/queryClient";
+import { getCsrfToken, protectedScope } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
 
 const CHUNK_SIZE = 200;
 
@@ -31,13 +32,14 @@ interface BatchResult {
   statuses: Record<string, ConfirmationFailedStatus | null>;
 }
 
-async function fetchChunk(ids: number[]): Promise<BatchResult> {
+async function fetchChunk(ids: number[], signal: AbortSignal): Promise<BatchResult> {
   const token = getCsrfToken();
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers["x-csrf-token"] = token;
   const res = await fetch("/api/contacts/confirmation-status/batch", {
     method: "POST",
     credentials: "include",
+    signal,
     headers,
     body: JSON.stringify({ contactIds: ids }),
   });
@@ -78,13 +80,14 @@ export function useConfirmationFailedBatch(
   isLoading: boolean;
 } {
   const ids = prepareIds(rawIds);
+  const { user } = useAuth();
   const chunks = ids.length > 0 ? chunkArray(ids, CHUNK_SIZE) : [];
 
   const queries = useQueries({
     queries: chunks.map((chunkIds) => ({
-      queryKey: ["/api/contacts/confirmation-status/batch", chunkIds],
-      queryFn: () => fetchChunk(chunkIds),
-      enabled: chunkIds.length > 0,
+      queryKey: ["/api/contacts/confirmation-status/batch", chunkIds, protectedScope(user)],
+      queryFn: ({signal}: {signal: AbortSignal}) => fetchChunk(chunkIds,signal),
+      enabled: !!user && chunkIds.length > 0,
       retry: false,
       staleTime: 30_000,
     })),

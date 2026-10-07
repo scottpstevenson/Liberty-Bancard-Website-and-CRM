@@ -1,5 +1,6 @@
 import { ReactNode, useState, useMemo, useEffect, useCallback } from "react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
+import { peopleHubState } from "@/lib/crm-destination-state";
 import { useIsMobile } from "@/hooks/use-mobile";
 import Forbidden from "@/pages/Forbidden";
 import { useQuery } from "@tanstack/react-query";
@@ -103,6 +104,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { EmployeeCrmProvider } from "@/components/crm/employee-crm-context";
 
 export interface DashboardLayoutProps {
   children: ReactNode;
@@ -387,6 +389,7 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
   const { openTour } = useTour();
   const [location, setLocation] = useLocation();
   const isMobile = useIsMobile();
+  const mobileDesktopOptOut = typeof window !== "undefined" && localStorage.getItem("prefer_desktop") === "true";
   const { logout, user } = useAuth();
 
   // Redirect mobile browsers to the native mobile shell unless the user
@@ -400,6 +403,16 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
   const [resourcesOpen, setResourcesOpen] = useState(false);
   const [partnersOpen, setPartnersOpen] = useState(false);
   const role = (user?.role as UserRole) || "merchant";
+  const isEmployeeCrm = ["admin", "manager", "agent"].includes(role)
+    && location.startsWith("/dashboard")
+    && !location.startsWith("/dashboard/merchant-portal")
+    && !location.startsWith("/dashboard/mobile")
+    && (!isMobile || mobileDesktopOptOut);
+  const isContactRecordRoute = /^\/dashboard\/contacts\/[^/]+/.test(location);
+  const adoptedSearch=useSearch();
+  const isPeopleRoute = location === "/dashboard/contacts" || (location === "/dashboard/contacts-leads"
+    && peopleHubState(adoptedSearch).value==="people");
+  const isAdoptedPage = isContactRecordRoute || isPeopleRoute;
 
   // Admin dev-mode toggle — persisted in localStorage; off by default
   const [devMode, setDevMode] = useState(() => {
@@ -685,8 +698,9 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
   );
 
   return (
+    <EmployeeCrmProvider enabled={isEmployeeCrm}>
     <SidebarProvider style={style as React.CSSProperties}>
-      <div className="flex h-screen w-full">
+      <div className={`flex h-screen w-full${isEmployeeCrm ? " crm-theme" : ""}`}>
         <Sidebar>
           <SidebarHeader className="p-4 border-b">
             <Link href="/" data-testid="link-sidebar-logo">
@@ -773,9 +787,15 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
           <header className="h-14 bg-background border-b flex items-center justify-between gap-2 sm:gap-4 px-3 sm:px-6 sticky top-0 z-50">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               <SidebarTrigger data-testid="button-sidebar-toggle" className="shrink-0" />
-              <h1 className="font-display font-semibold text-base sm:text-lg truncate" data-testid="text-page-title">
-                {currentLabel}
-              </h1>
+              {isAdoptedPage ? (
+                <div className="font-display font-semibold text-base sm:text-lg truncate" data-testid="text-page-title" aria-label={currentLabel}>
+                  {currentLabel}
+                </div>
+              ) : (
+                <h1 className="font-display font-semibold text-base sm:text-lg truncate" data-testid="text-page-title">
+                  {currentLabel}
+                </h1>
+              )}
             </div>
             <div className="flex items-center gap-1 sm:gap-2 min-w-0">
               <div className="min-w-0">
@@ -845,7 +865,7 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
           )}
           <GhlAlertBanner role={role} />
           <div className="flex flex-1 overflow-hidden min-h-0">
-            <main className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-6 max-w-7xl mx-auto w-full" data-testid="dashboard-main">
+            <main className={`flex-1 overflow-y-auto overflow-x-hidden max-w-7xl mx-auto w-full${isAdoptedPage ? "" : " p-3 sm:p-6"}`} data-testid="dashboard-main">
               <ErrorBoundary key={location}>
                 {children}
               </ErrorBoundary>
@@ -862,5 +882,6 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
         </div>
       </div>
     </SidebarProvider>
+    </EmployeeCrmProvider>
   );
 }

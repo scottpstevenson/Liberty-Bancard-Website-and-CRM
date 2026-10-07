@@ -6,24 +6,28 @@ import WinLoss from "./WinLoss";
 import OutreachAnalytics from "./OutreachAnalytics";
 import OperationsReport from "./OperationsReport";
 import FinancialHub from "./FinancialHub";
+import { selectValue, safeParams, safeContextKeys, destinationUrl, financialViews } from "@/lib/crm-destination-state";
 
 const VALID_TABS = ["overview", "growth", "win-loss", "outreach-analytics", "operations", "financial"] as const;
 type Tab = typeof VALID_TABS[number];
 
 export default function ReportingHub() {
   const search = useSearch();
-  const raw = new URLSearchParams(search).get("tab") ?? "";
-  const tab: Tab = (VALID_TABS as readonly string[]).includes(raw) ? (raw as Tab) : "overview";
+  const state = selectValue(new URLSearchParams(search), "tab", VALID_TABS, "overview");
+  const tab = state.value;
   const [, navigate] = useLocation();
   const goTab = (v: string) => {
-    const params = new URLSearchParams(search);
+    if (!(VALID_TABS as readonly string[]).includes(v)) return;
+    const params = safeParams(search, [...safeContextKeys, "financialTab"]);
     params.set("tab", v);
     if (v !== "financial") params.delete("financialTab");
-    navigate(`/dashboard/reporting?${params.toString()}`);
+    else params.set("financialTab", selectValue(new URLSearchParams(search), "financialTab", financialViews, "revenue").value);
+    navigate(destinationUrl("/dashboard/reporting", params, window.location.hash));
   };
 
   return (
     <Tabs value={tab} onValueChange={goTab} className="space-y-4">
+      {state.issues.length > 0 && <p role="status">{state.issues[0].reason}</p>}
       <TabsList className="flex-wrap h-auto gap-1">
         <TabsTrigger value="overview" data-testid="tab-reporting-overview">Overview</TabsTrigger>
         <TabsTrigger value="growth" data-testid="tab-reporting-growth">Growth Metrics</TabsTrigger>

@@ -1,0 +1,47 @@
+{
+  "candidateUrl": "https://92fd513c-d028-45ae-b664-31ad54630ef0-00-3o008csyx3pux-k03wtivh.spock.replit.dev",
+  "receipts": [
+    {
+      "role": "admin",
+      "control": "corrected-destructive-boundary-reduced-motion",
+      "realLogin": true,
+      "colors": {
+        "destructive": "rgb(239, 68, 68)",
+        "foreground": "rgb(15, 23, 41)",
+        "background": "rgb(252, 250, 248)",
+        "inputBorder": "rgb(101, 117, 139)"
+      },
+      "correctedContrast": 4.74977942941893,
+      "boundaryContrast": 4.511356083716052,
+      "motion": {
+        "duration": "1e-05s",
+        "transition": "1e-05s",
+        "preference": true
+      },
+      "nestedEscape": true
+    },
+    {
+      "role": "admin-to-anonymous",
+      "control": "real-session-delayed-read-fence",
+      "actualLogout": 200,
+      "authClockAdvance": "5m1s to expire existing client auth freshness; server authority unchanged",
+      "normalHubClick": true,
+      "sameDocument": true,
+      "oldNameVisible": false,
+      "employeePage": false,
+      "login": true,
+      "delayedResponseCompleted": true,
+      "abortedWhileFenced": false,
+      "hardReload": false
+    }
+  ],
+  "qualification": "Declared correction flows only; no complete action/session/portal acceptance",
+  "identity": {
+    "inputHash": "bd17f3114cb3e2d869a41738656a9440189aa007c406604dd3705f4176568af8",
+    "entryOutputsHash": "3cae5c4a56a852ceef88047d88bf30c156e6b5955e8b5c9f0b800f34181ee855",
+    "compiledHtmlAt": "2026-10-07T16:03:09.835Z",
+    "qualification": "Compiled client; registered source handlers; not deployed",
+    "sourceHead": "abfc4f2fc1d879c1080adeecf07818b0e40712ab"
+  },
+  "clockQualification": "Session test advanced only browser auth freshness; actual server logout and canonical auth read remained authoritative"
+}

@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { api, buildUrl } from "@shared/routes";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, protectedScope } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
 import type { z } from "zod";
 
 type CreateContactInput = z.infer<typeof api.contacts.create.input>;
@@ -36,7 +37,9 @@ export function useContacts(params?: {
   noDeal?: boolean;
   createdThisWeek?: boolean;
 }) {
-  const limit = params?.limit ?? 100;
+  const { user } = useAuth();
+  const scope = protectedScope(user);
+  const limit = params?.limit ?? 50;
   const offset = params?.offset ?? 0;
   const churnRisk = params?.churnRisk;
   const noOutreach = params?.noOutreach;
@@ -76,9 +79,10 @@ export function useContacts(params?: {
     stale: params?.stale, recentlyUpdated: params?.recentlyUpdated, neverContacted: params?.neverContacted,
     notContactedIn30: params?.notContactedIn30, noDeal: params?.noDeal, createdThisWeek: params?.createdThisWeek };
   return useQuery({
-    queryKey: [api.contacts.list.path, filterKey],
-    queryFn: async () => {
-      const res = await fetch(url, { credentials: "include" });
+    queryKey: [api.contacts.list.path, filterKey, scope],
+    enabled: !!user,
+    queryFn: async ({ signal }) => {
+      const res = await fetch(url, { credentials: "include", signal });
       if (!res.ok) throw new Error("Failed to fetch contacts");
       const json = await res.json();
       // Server returns rows-only (no total/facets) — those come from useContactsFacets.
@@ -96,6 +100,8 @@ export function useContacts(params?: {
  * blocks contact rows from rendering.
  */
 export function useContactsFacets(params?: Parameters<typeof useContacts>[0]) {
+  const { user } = useAuth();
+  const scope = protectedScope(user);
   const limit = params?.limit ?? 100;
   const offset = params?.offset ?? 0;
   const churnRisk = params?.churnRisk;
@@ -136,9 +142,10 @@ export function useContactsFacets(params?: Parameters<typeof useContacts>[0]) {
     stale: params?.stale, recentlyUpdated: params?.recentlyUpdated, neverContacted: params?.neverContacted,
     notContactedIn30: params?.notContactedIn30, noDeal: params?.noDeal, createdThisWeek: params?.createdThisWeek };
   return useQuery({
-    queryKey: ["/api/contacts/facets", filterKey],
-    queryFn: async () => {
-      const res = await fetch(facetsUrl, { credentials: "include" });
+    queryKey: ["/api/contacts/facets", filterKey, scope],
+    enabled: !!user,
+    queryFn: async ({ signal }) => {
+      const res = await fetch(facetsUrl, { credentials: "include", signal });
       if (!res.ok) throw new Error("Facets unavailable");
       return res.json() as Promise<{
         total: number;
@@ -156,16 +163,17 @@ export function useContactsFacets(params?: Parameters<typeof useContacts>[0]) {
 }
 
 export function useContact(id: number) {
+  const { user } = useAuth();
   return useQuery({
-    queryKey: [api.contacts.get.path, id],
-    queryFn: async () => {
+    queryKey: [api.contacts.get.path, id, protectedScope(user)],
+    queryFn: async ({ signal }) => {
       const url = buildUrl(api.contacts.get.path, { id });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(url, { credentials: "include", signal });
       if (res.status === 404) return null;
       if (!res.ok) throw new Error("Failed to fetch contact");
       return res.json();
     },
-    enabled: !!id,
+    enabled: !!user && Number.isSafeInteger(id) && id > 0,
   });
 }
 

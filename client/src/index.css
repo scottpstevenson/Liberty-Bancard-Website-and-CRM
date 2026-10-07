@@ -2,6 +2,7 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "./styles/tailwind-legacy-preflight.css" layer(base);
 @import "tailwindcss/utilities.css" layer(utilities);
+@import "./styles/crm-theme.css";
 @config "../../tailwind.config.ts";
 @custom-variant hover (&:hover);
 

@@ -7,15 +7,30 @@ import {
   ToastTitle,
   ToastViewport,
 } from "@/components/ui/toast"
+import { useAuth } from "@/hooks/use-auth"
+import { useLocation } from "wouter"
+import { useIsMobile } from "@/hooks/use-mobile"
 
 export function Toaster() {
   const { toasts } = useToast()
+  const { user } = useAuth()
+  const [location] = useLocation()
+  const isMobile = useIsMobile()
+  const mobileDesktopOptOut = typeof window !== "undefined" && localStorage.getItem("prefer_desktop") === "true"
+  const employeeRoute = ["admin", "manager", "agent"].includes(user?.role ?? "")
+    && location.startsWith("/dashboard")
+    && !location.startsWith("/dashboard/merchant-portal")
+    && !location.startsWith("/dashboard/mobile")
+    && location !== "/mobile"
+    && (!isMobile || mobileDesktopOptOut)
+  const portalClass = employeeRoute ? "crm-theme crm-portal" : undefined
 
   return (
     <ToastProvider>
-      {toasts.map(function ({ id, title, description, action, ...props }) {
+      <div className={portalClass}>
+      {toasts.map(function ({ id, title, description, action, protectedContext, ...props }) {
         return (
-          <Toast key={id} {...props}>
+          <Toast key={id} {...props} className={props.className ? `${props.className} ${portalClass ?? ""}` : portalClass}>
             <div className="grid gap-1">
               {title && <ToastTitle>{title}</ToastTitle>}
               {description && (
@@ -27,7 +42,8 @@ export function Toaster() {
           </Toast>
         )
       })}
-      <ToastViewport />
+      <ToastViewport className={portalClass} />
+      </div>
     </ToastProvider>
   )
 }

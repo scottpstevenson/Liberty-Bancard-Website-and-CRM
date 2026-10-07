@@ -1,6 +1,8 @@
 import React, { Suspense, lazy, useEffect, useState } from "react";
 import { Switch, Route, Redirect, useLocation, useSearch } from "wouter";
 import { queryClient } from "./lib/queryClient";
+import { financialUrl, operatorAliasUrl } from "@/lib/crm-destination-state";
+import { actorIdentity, protectedScope } from "@/lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { HelmetProvider } from 'react-helmet-async';
 import { Toaster } from "@/components/ui/toaster";
@@ -270,7 +272,7 @@ function AgentRoute({ component: Component }: { component: React.ComponentType }
   if (!user || user.role !== "agent") return null;
 
   return (
-    <DashboardLayout>
+    <DashboardLayout key={`${actorIdentity(user)}:${protectedScope(user).generation}`}>
       <Component />
     </DashboardLayout>
   );
@@ -333,20 +335,32 @@ function ProtectedRoute({ component: Component, allowedRoles }: { component: Rea
   if (user.role === "agent" && location === "/dashboard") return null;
 
   if (allowedRoles && !allowedRoles.includes(user.role as string)) {
+    if (/^\/dashboard\/(?:contacts(?:\/[^/]+)?|contacts-leads)$/.test(location))
+      return <Forbidden />;
     return <Redirect to="/dashboard" />;
   }
 
   return (
-    <DashboardLayout>
-      <Component />
+    <DashboardLayout key={`${actorIdentity(user)}:${protectedScope(user).generation}`}>
+      <Component key={`${location}:${actorIdentity(user)}`} />
     </DashboardLayout>
   );
 }
 
 function LegacyOperatorRedirect() {
   const search = useSearch();
-  const passthrough = search.replace(/^\?/, "");
-  return <Redirect to={`/dashboard/system-health?tab=monitor${passthrough ? `&${passthrough}` : ""}`} />;
+  return <Redirect to={operatorAliasUrl(search, window.location.hash)} />;
+}
+
+function LegacyFinancialRedirect() {
+  const search = useSearch();
+  return <Redirect to={financialUrl(search, window.location.hash)} />;
+}
+function LegacyFinancialChildRedirect({ child }: { child: "revenue" | "forecasting" | "terminal-roi" }) {
+  const search = useSearch();
+  const params = new URLSearchParams(search);
+  if (!params.has("financialTab")) params.set("financialTab", child);
+  return <Redirect to={financialUrl(params.toString(), window.location.hash)} />;
 }
 
 function LegacyProspectsRedirect() {
@@ -557,10 +571,10 @@ function Router() {
           <ProtectedRoute component={CompanyDetail} />
         </Route>
         <Route path="/dashboard/contacts/:id">
-          <ProtectedRoute component={ContactDetail} />
+          <ProtectedRoute component={ContactDetail} allowedRoles={["admin", "manager", "agent"]} />
         </Route>
         <Route path="/dashboard/contacts">
-          <ProtectedRoute component={Contacts} />
+          <ProtectedRoute component={Contacts} allowedRoles={["admin", "manager", "agent"]} />
         </Route>
         <Route path="/dashboard/my-leads">
           <AgentRoute component={Leads} />
@@ -621,7 +635,7 @@ function Router() {
         </Route>
         {/* ─── Unified CRM Console Routes ───────────────────────────────── */}
         <Route path="/dashboard/contacts-leads">
-          <ProtectedRoute component={ContactsAndLeads} />
+          <ProtectedRoute component={ContactsAndLeads} allowedRoles={["admin", "manager", "agent"]} />
         </Route>
         <Route path="/dashboard/tasks-appointments">
           <ProtectedRoute component={TasksAppointments} />
@@ -724,7 +738,7 @@ function Router() {
           <ProtectedRoute component={MyEarnings} allowedRoles={["agent"]} />
         </Route>
         <Route path="/dashboard/residual-revenue">
-          <Redirect to="/dashboard/financial-hub?tab=revenue" />
+          <LegacyFinancialChildRedirect child="revenue" />
         </Route>
         <Route path="/dashboard/referral-program">
           <ProtectedRoute component={ReferralProgram} />
@@ -769,7 +783,7 @@ function Router() {
           <ProtectedRoute component={ArbitrationLog} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/forecasting">
-          <Redirect to="/dashboard/financial-hub?tab=forecasting" />
+          <LegacyFinancialChildRedirect child="forecasting" />
         </Route>
         <Route path="/dashboard/pci-assessment">
           <Redirect to="/dashboard/admin-hub?tab=pci" />
@@ -829,7 +843,7 @@ function Router() {
           <ProtectedRoute component={Leaderboard} />
         </Route>
         <Route path="/dashboard/terminal-roi">
-          <Redirect to="/dashboard/financial-hub?tab=terminal-roi" />
+          <LegacyFinancialChildRedirect child="terminal-roi" />
         </Route>
         <Route path="/dashboard/my-day">
           <AgentRoute component={SalesRepHome} />
@@ -906,7 +920,7 @@ function Router() {
           <ProtectedRoute component={DeliverabilityHub} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/financial-hub">
-          <ProtectedRoute component={FinancialHub} allowedRoles={["admin", "manager"]} />
+          <ProtectedRoute component={LegacyFinancialRedirect} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/system-health">
           <ProtectedRoute component={SystemHealthHub} allowedRoles={["admin", "manager"]} />

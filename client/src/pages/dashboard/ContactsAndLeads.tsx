@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
 import { useLocation, useSearch, Redirect } from "wouter";
+import { useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Users, Target } from "lucide-react";
 import ContactsPage from "./Contacts";
 import LeadsPage from "./Leads";
+import { destinationUrl, safeParams, safeContextKeys, peopleHubState } from "@/lib/crm-destination-state";
 
 /**
  * Contacts & Leads — unified tabbed view
@@ -20,34 +21,38 @@ export default function ContactsAndLeads() {
   const search = useSearch();
   const [, navigate] = useLocation();
 
-  const params = new URLSearchParams(search);
-  const requestedTab = params.get("tab");
+  const state = peopleHubState(search);
 
   // The old "prospect-staging" deep link now lives under Lead Ops → Source
   // Prospects; redirect explicitly instead of silently falling back to People (#1957).
-  if (requestedTab === "prospect-staging") {
-    return <Redirect to="/dashboard/lead-ops?tab=prospects" />;
-  }
-
-  const tabFromSearch = requestedTab === "leads" ? requestedTab : "people";
-  const [tab, setTab] = useState(tabFromSearch);
+  const tab = state.value;
+  useEffect(() => {
+    const params=new URLSearchParams(search);
+    if(!state.issues.length && params.getAll("tab").length>1){
+      params.set("tab",tab);
+      navigate(destinationUrl("/dashboard/contacts-leads",params,window.location.hash),{replace:true});
+    }
+  },[search,tab,navigate,state.issues.length]);
 
   // Keep URL in sync when tab changes
   const handleTabChange = (value: string) => {
-    setTab(value);
+    if(value!=="people" && value!=="leads")return;
     const next = new URLSearchParams(search);
     next.set("tab", value);
-    navigate(`/dashboard/contacts-leads?${next.toString()}`, { replace: true });
+    navigate(destinationUrl("/dashboard/contacts-leads", next, window.location.hash));
   };
 
-  // Sync if URL changes externally (e.g. back-button)
-  useEffect(() => {
-    const requested = params.get("tab");
-    setTab(requested === "leads" ? requested : "people");
-  }, [search]);
+  // All hooks run on both entrances; same-component history transitions cannot
+  // change the hook count or mount People before resolving the staging alias.
+  if (tab === "prospect-staging") {
+    const next = safeParams(search, [...safeContextKeys, "search", "source", "page"]);
+    next.set("tab", "prospects");
+    return <Redirect to={destinationUrl("/dashboard/lead-ops", next, window.location.hash)} />;
+  }
 
   return (
     <div className="space-y-4">
+      {state.issues[0] && <p role="status">{state.issues[0].reason}</p>}
       <Tabs value={tab} onValueChange={handleTabChange}>
         <TabsList className="h-auto flex-wrap gap-1">
           <TabsTrigger value="people" className="gap-2" data-testid="tab-contacts-people">

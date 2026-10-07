@@ -1,12 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import type { User } from "@shared/models/auth";
+import { transitionProtectedActor, actorIdentity, currentProtectedIdentity, subscribeProtectedIdentity } from "@/lib/queryClient";
+import { useSyncExternalStore } from "react";
 
 type SafeUser = Omit<User, "passwordHash" | "totpSecret">;
 
-async function fetchUser(): Promise<SafeUser | null> {
+async function fetchUser({ signal }: { signal: AbortSignal }): Promise<SafeUser | null> {
   const response = await fetch("/api/auth/user", {
     credentials: "include",
+    signal,
   });
 
   if (response.status === 401) {
@@ -20,6 +23,9 @@ async function fetchUser(): Promise<SafeUser | null> {
     } catch {
       // Ignore parse errors
     }
+    signal.throwIfAborted();
+    await transitionProtectedActor(null);
+    signal.throwIfAborted();
     return null;
   }
 
@@ -27,7 +33,11 @@ async function fetchUser(): Promise<SafeUser | null> {
     throw new Error(`${response.status}: ${response.statusText}`);
   }
 
-  return response.json();
+  const actor = await response.json();
+  signal.throwIfAborted();
+  await transitionProtectedActor(actor);
+  signal.throwIfAborted();
+  return actor;
 }
 
 export function useAuth() {
@@ -39,6 +49,8 @@ export function useAuth() {
     retry: false,
     staleTime: 1000 * 60 * 5,
   });
+  const identity=useSyncExternalStore(subscribeProtectedIdentity,currentProtectedIdentity,()=>"anonymous");
+  const contextChanging=actorIdentity(user)!==identity;
 
   const loginMutation = useMutation({
     mutationFn: async (credentials: { email: string; password: string }) => {
@@ -56,6 +68,8 @@ export function useAuth() {
       if (data.mfa_required) {
         return data;
       }
+      await queryClient.cancelQueries({queryKey:["/api/auth/user"],exact:true});
+      await transitionProtectedActor(data);
       queryClient.setQueryData(["/api/auth/user"], data);
       return data;
     },
@@ -78,7 +92,9 @@ export function useAuth() {
       }
       return res.json();
     },
-    onSuccess: (user) => {
+    onSuccess: async (user) => {
+      await queryClient.cancelQueries({queryKey:["/api/auth/user"],exact:true});
+      await transitionProtectedActor(user);
       queryClient.setQueryData(["/api/auth/user"], user);
     },
     onError: (err: Error) => {
@@ -100,7 +116,9 @@ export function useAuth() {
       }
       return res.json();
     },
-    onSuccess: (user) => {
+    onSuccess: async (user) => {
+      await queryClient.cancelQueries({queryKey:["/api/auth/user"],exact:true});
+      await transitionProtectedActor(user);
       queryClient.setQueryData(["/api/auth/user"], user);
     },
     onError: (err: Error) => {
@@ -110,9 +128,12 @@ export function useAuth() {
 
   const logoutMutation = useMutation({
     mutationFn: async () => {
-      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+      const response = await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+      if (!response.ok) throw new Error("Logout failed");
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      await queryClient.cancelQueries({queryKey:["/api/auth/user"],exact:true});
+      await transitionProtectedActor(null);
       queryClient.setQueryData(["/api/auth/user"], null);
       window.location.href = "/login";
     },
@@ -122,9 +143,9 @@ export function useAuth() {
   });
 
   return {
-    user,
-    isLoading,
-    isAuthenticated: !!user,
+    user:contextChanging?null:user,
+    isLoading:isLoading||contextChanging,
+    isAuthenticated: !contextChanging && !!user,
     login: loginMutation.mutateAsync,
     loginError: loginMutation.error,
     isLoggingIn: loginMutation.isPending,

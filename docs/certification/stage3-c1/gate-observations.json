@@ -1,0 +1,302 @@
+{
+  "status": "NOT_ACCEPTED",
+  "sourceHead": "442fd044f10f52db4bf391dabcb1299403314eaf",
+  "finalImmutableCandidateGate": false,
+  "productionExecution": false,
+  "publication": false,
+  "observations": {
+    "guardedRoster": {
+      "selected": 174,
+      "passed": 131,
+      "childFailures": 40,
+      "resourceSetupFailures": 3,
+      "sharedLauncherFailures": 0,
+      "stockSuites": 172,
+      "additionalC1SuitesAtStart": 2,
+      "qualification": "Executed before the latest edits. Includes an earlier, narrower C1 browser script; not fresh acceptance of the expanded candidate. Current manifest has a third supporting C1 mounted-runtime suite.",
+      "setupFailures": [
+        "scripts/test-cro03a-geography.ts",
+        "scripts/test-cro03a-batch-equivalence.ts",
+        "scripts/test-cro03a-batch-performance.ts"
+      ],
+      "setupReason": "Private isolated Redis did not become ready",
+      "childFailureScripts": [
+        "scripts/certification/test-canonical-provider-import.ts",
+        "scripts/test-stage3-b-browser.ts",
+        "scripts/test-sfp-pipeline-correction.mjs",
+        "scripts/dependency-audit-policy.ts",
+        "scripts/test-sfp-disposable-certification.ts",
+        "scripts/test-sfp2000-disposable-certification.ts",
+        "scripts/test-sfp2001-campaign-staging-certification.ts",
+        "scripts/test-import-reconciliation.ts",
+        "scripts/check-contact-merge-manifest.ts",
+        "scripts/scan-tracked-files.ts",
+        "server/tests/auth-actions.integration.test.ts",
+        "scripts/check-queue-compliance.ts",
+        "scripts/scan-serper-raw-fetch.ts",
+        "scripts/test-serper-gateway.ts",
+        "scripts/test-sequence-compliance.ts",
+        "scripts/test-contactability.ts",
+        "scripts/test-new-lead-enrollment-policy.ts",
+        "scripts/sfp-certification.ts",
+        "scripts/test-transport-dispatch.ts",
+        "scripts/test-cro03-static.ts",
+        "scripts/test-cro03b-static.ts",
+        "scripts/test-cro03c-static.ts",
+        "scripts/test-cro03c-initial-continuation-static.ts",
+        "scripts/test-cro03c-integration.ts",
+        "scripts/test-cro03b-integration.ts",
+        "scripts/certify-cro03b-csv-handoff.ts",
+        "scripts/test-seed-convergence-verifier-integrity.ts",
+        "scripts/test-reporting-boundaries.ts",
+        "scripts/test-task1721-inbox-statement-structure.ts",
+        "server/tests/cr06-promotional-boundary-inventory.source.test.ts",
+        "scripts/test-cr06-disposable-certification.ts",
+        "scripts/test-cro07-disposable-certification.ts",
+        "scripts/test-cro03-integration.ts",
+        "scripts/test-cro03-http-authorization.ts",
+        "scripts/smoke-role-guards.ts",
+        "scripts/test-reconciliation-certification.ts",
+        "scripts/test-pause-fence.ts",
+        "scripts/test-outbound-boundary-1626.ts",
+        "scripts/test-nba.ts",
+        "scripts/test-forms.ts"
+      ]
+    },
+    "staticBaselineComparison": {
+      "candidate": "South Florida Enrichment Pipeline Correction failed",
+      "untouchedBaseline": "South Florida Enrichment Pipeline Correction failed",
+      "failure": "Missing verifyEmail(realEmail) source assertion",
+      "qualification": "This failure only was reproduced on the untouched baseline. The other roster failures are NOT classified as unchanged baseline without their own comparison."
+    },
+    "foundation": {
+      "assertions": 338,
+      "result": "passed-source-unit",
+      "qualification": "Includes unsupported assigned-to-me direct-link and role capability cases. Not effective-handler or real-browser acceptance"
+    },
+    "mountedRuntime": {
+      "assertions": "actor, permission generation, record, delayed/out-of-order results, signals, explicit URL, public cache, toast isolation",
+      "result": "passed-clean-exit-0",
+      "qualification": "Direct Node wrapper completed with exit 0 in two current runs. Supporting mounted harness, not real-session browser proof."
+    },
+    "typecheck": {
+      "lastObserved": "npm run check (full configured tsc) passed with exit 0 after descendant-adapter source; not a runtime or release acceptance claim",
+      "command": "npm run check"
+    },
+    "manifest": {
+      "lastObserved": "valid",
+      "stockCount": 172,
+      "currentAdditionalC1Count": 3
+    },
+    "security": {
+      "earlierDependencyFindings": 15,
+      "earlierHighDependencyFindings": 5,
+      "earlierStaticFindings": 0,
+      "earlierPrivacyFindings": 91,
+      "qualification": "Earlier observations only. Not a clean security gate or current-source scan."
+    },
+    "expandedBrowser": {
+      "result": "pending-fresh-candidate",
+      "previousPartialReceipts": "Real admin/manager/agent login, People, durable Contact edit, selected widths/fonts; expanded run reached admin Financial/Operator and manager People before facet failure injection did not produce the intended unavailable state.",
+      "latestCandidate": "Most recent local native run passed admin real sign-in/default list, safe mine filter, paging/search/back with 1426ms useful list and 131ms local response. Then a private browser evaluation failed on unavailable-facet count read; no full-suite pass. Equivalent cloud browser proved actual 503, Unknown count and usable real rows",
+      "unverified": [
+        "expanded role/action/session-transition denominator",
+        "merchant/partner current candidate isolation",
+        "all nested portals and focus",
+        "contrast/reduced-motion",
+        "actual browser 200% zoom",
+        "current-candidate full style/performance coverage"
+      ],
+      "previewScreenshot": "Fresh unauthenticated port-5000 /login snapshot rendered the actual sign-in form at 1280x900. Not signed-in UI acceptance.",
+      "authenticationBypass": false,
+      "publicFixtureProxy": false,
+      "remainingOwner": "C1",
+      "nativeRecentFailures": [
+        {
+          "source": "abfc4f2fc1d879c1080adeecf07818b0e40712ab",
+          "check": "paging",
+          "observed": "0 !== 11 after fixed 350ms wait; replaced by actual settled row polling",
+          "retainedAttempt": {
+            "identity": {
+              "sourceHead": "abfc4f2fc1d879c1080adeecf07818b0e40712ab",
+              "candidateContentHash": "bd603e77ecb3888e8a6ce23eade39498c6790ab7c9b52b9ecb8db4d27cf61af2",
+              "compiledClientHash": "d8719fa2996423324b28c52221c2b13584b84ebb8a9d1b51e430b66026b2a46e",
+              "isolatedDatabase": true,
+              "isolatedRedis": true,
+              "providerTransports": "denied-before-import",
+              "session": "private empty-cookie Chromium; actual password login"
+            },
+            "candidateUrl": "http://127.0.0.1:38917",
+            "receipts": [
+              {
+                "role": "admin",
+                "control": "people-default",
+                "result": {
+                  "pageSize": 50,
+                  "syntheticVolume": 61,
+                  "realRows": true,
+                  "oneH1": true,
+                  "usefulListMs": 1259.2609220000013
+                }
+              },
+              {
+                "role": "admin",
+                "control": "unsupported-mine-preset",
+                "result": {
+                  "disabled": true,
+                  "directLinkSafe": true,
+                  "noUnsupportedReaderFilter": true
+                }
+              }
+            ],
+            "requestReceipts": []
+          }
+        },
+        {
+          "check": "compiled SSR fixture",
+          "observed": "Top-level runner guard rejected HTTP fixture descendant Redis prefix; switched to existing real disposable infrastructure guard without broadening it"
+        }
+      ],
+      "localFailure": {
+        "source": "67cbc2e976f8b269719c3bc93d69098c1321d68c",
+        "line": "scripts/test-stage3-c1-browser.ts:131",
+        "message": "Private browser evaluation failed; expression and response omitted",
+        "result": "failed-current-native-run"
+      }
+    },
+    "cloudPreview": {
+      "status": "AUTHENTICATED_PARTIAL_PROOF_SCREENSHOT_EXPORT_BLOCKED",
+      "candidateUrl": "https://92fd513c-d028-45ae-b664-31ad54630ef0-00-3o008csyx3pux-k03wtivh.spock.replit.dev",
+      "sourceHead": "ea22ec3f3efe19ef9b3580ace375bf78c0d03d6b",
+      "inputHash": "22d6d4224a5a3dd10fa971ce77784c3b2ca178a07811d280d899cc0bb69d5abc",
+      "entryOutputsHash": "196c627dfebf218faf64b492ea8ae6f1737f82611617d50167f9062aebb92208",
+      "compiledHtmlAt": "2026-10-07T14:34:23.615Z",
+      "servingIdentity": "Compiled client with real registered source handlers, not a published deployment or full startup-server certification",
+      "isolation": "Owned private PostgreSQL socket cluster and Redis namespace; synthetic accounts and 61 inserted contacts; denied provider transports; no session injection or imported browser profile",
+      "freshChecks": [
+        "Real ordinary login succeeded as admin, manager, agent, merchant and partner",
+        "Admin paging, 25/50/100 sizes, search, back, reload, page-selection reset and real 503 facet outage were observed",
+        "Admin Contact edit completed with ordinary UI save and actual server readback",
+        "Compiled Plex Sans, 24px title, 44px dialog close, Escape and focus return were measured",
+        "All five required widths and dark background were measured without full-page overflow",
+        "Financial selected child, actual request, click, back and reload were observed",
+        "Manager Operator denial and agent Financial denial preceded forbidden child reads",
+        "Merchant and partner had no employee theme or People reads",
+        "Native Chromium keyboard zoom measured devicePixelRatio 2, CSS width 720 and scroll width 720; not density emulation"
+      ],
+      "startupReceipts": "A short Redis budget and a too-short server startup budget failed. Current C1 preview uses explicit bounded startup allowances; existing stock Redis allowance remains unchanged. Disposable namespace and constructor sentinel were corrected to meet existing guards, not bypass them.",
+      "secureSignInAttempt": {
+        "collection": "User chose Kernel hosted collection and approved filling the synthetic login; credential metadata reported ready",
+        "browser": "Fresh isolated Chromium attached to the dedicated temporary vault; no saved profile imported",
+        "fill": "Single advertised fill returned an error; immutable credential event reported failed. Original per-field response was not retained, so its error code is unavailable",
+        "reconciliation": "Synthetic email matched; password field remained empty, visible, editable and focused; real /api/auth/user returned 401",
+        "submission": "After explicit user approval, password-only secure recovery completed and ordinary Sign In succeeded. Subsequent role logins were reconciled against /api/auth/user",
+        "recovery": "Approved recovery and value-free per-field outcomes were retained. A partner fill rejected after signed-in redirect; actual merchant logout restored the login page before deliberate recovery and successful partner login",
+        "cleanup": "Owned Kernel browser deleted without saving an unrelated profile; owned C1 preview stopped; stale private readiness mappings removed. Temporary hosted vault retained pending explicit deletion confirmation."
+      },
+      "authenticatedBrowserAcceptance": false,
+      "partialReceipt": "browser/cloud-observed-receipts.json",
+      "observedReceiptCount": 26,
+      "runtimeErrors": 0,
+      "screenshots": {
+        "capturedInIsolatedBrowser": 17,
+        "portableExportComplete": false,
+        "blocker": "Screenshot base64 export response was blocked by MCP security screening. Export stopped; no alternate encoding or bypass attempted"
+      },
+      "performance": {
+        "declaredSyntheticVolume": 61,
+        "inputResponseMs": 117.70154499999626,
+        "navigationLoadThenRowMs": 4730.196668000019,
+        "commitThenFirstRowMs": 3872.5300399999833,
+        "usefulListBudgetMs": 2500,
+        "usefulListVerdict": "FAILED_IN_CLOUD_ENVIRONMENT",
+        "latestWarm": {
+          "usefulListMs": 2181.72820100002,
+          "budgetMs": 2500,
+          "passed": true,
+          "qualification": "Immutable compiled assets warmed after ordinary login. Earlier 4730ms/3873ms failures retained; not cold cloud proof"
+        }
+      },
+      "presetDefect": {
+        "observed": "Admin assignedToMe=true returned all 61 contacts assigned to the agent; registered parser resolves that filter only for agent ownership",
+        "repair": "Client codec removes unsupported filter before reads; both mine controls disabled with an explicit reason outside the agent role; backend authority unchanged",
+        "currentVerification": "Corrected admin and agent behavior actually browser verified in declared receipts; previous source/build identities remain distinct"
+      },
+      "remainingOwner": "C1: complete action/role/overlay/session denominator, unresolved native runner, portable signed-in screenshots, cold cloud performance if claimed, final immutable acceptance",
+      "correctionReceipts": [
+        "browser/cloud-corrected-preset.json",
+        "browser/cloud-final-corrections.json"
+      ],
+      "correctedChecks": [
+        "Admin preset controls disabled with reason and unsupported direct filters absent from both readers",
+        "Agent preset enabled; actual 50 owned rows and independently read facet count 61",
+        "Nested Select/Dialog Escape and both focus-return steps; stable options 44px",
+        "Employee light destructive foreground contrast 4.74977942941893; actual input boundary 4.511356083716052",
+        "Root dialog reduced-motion animation and transition 0.00001s",
+        "Actual server logout 200; delayed protected reader fulfilled after canonical auth refresh in same document; no old name or employee page resurrected"
+      ],
+      "sessionProof": {
+        "receipt": "browser/cloud-final-corrections.json",
+        "actualLogout": true,
+        "sameDocument": true,
+        "delayedResponseFulfilled": true,
+        "oldProtectedContentVisible": false,
+        "browserClockQualification": "Advanced browser freshness by 5m1s; real server session authority and canonical auth reader unchanged",
+        "remaining": "Full actor/role/action/session denominator still open"
+      },
+      "publicPreviewFinding": {
+        "observed": "Public page SSR painted but development module URLs returned HTML and failed MIME checks under guarded NODE_ENV=test",
+        "correction": "Fixture-only exact asset preamble adapter; production SSR code, markup, styles and auth unchanged",
+        "qualification": "Fresh public compiled browser verification pending",
+        "currentVerification": "Fresh anonymous public screenshot renders actual hydrated marketing page with serif branding; no module MIME error; anonymous auth 401 and existing import warning remain. Not whole public/portal acceptance"
+      },
+      "layoutReceipt": "browser/cloud-final-layout.json",
+      "readinessCorrection": {
+        "observed": "Parent read an empty partially written readiness JSON and stopped the just-ready child",
+        "repair": "Same-directory atomic rename after complete private readiness write",
+        "current": "Fresh candidate reached actual login and final five-width/outage checks"
+      },
+      "finalFixtureHashes": {
+        "cloudPreviewScript": "9739dfb4248a14c5b70f81ebcb730e2e33887648440d79e00d9412dd7226d658",
+        "compiledSsrAdapter": "5f9f4cf7bd5020dab88be9853071d6de0511d6a35066798ac62d0c9f31a40954"
+      }
+    },
+    "lockedInstall": {
+      "command": "npm ci --ignore-scripts --no-audit --no-fund",
+      "result": "passed",
+      "node": "22.22.0",
+      "npm": "10.9.4",
+      "scope": "locked root install, scripts intentionally not executed; not security approval"
+    },
+    "portableDependencyPolicy": {
+      "result": "passed",
+      "scope": "HTTPS portable lockfile sources including nested Radix slot; audit remains separate"
+    },
+    "baselineComparisons": {
+      "receipt": "gate-baseline-comparison.json",
+      "attempted": 43,
+      "untouchedPassed": 6,
+      "untouchedFailed": 34,
+      "setupFailures": 3,
+      "reproducedNormalizedFailureSignatures": 33,
+      "qualification": "Each row states its exact level of equivalence; wrapper-only failure labels do not classify the underlying cause; failing browser comparison is unresolved"
+    },
+    "freshBoundedGates": {
+      "passed": [
+        "server/tests/auth-actions.integration.test.ts",
+        "scripts/smoke-role-guards.ts",
+        "scripts/test-reporting-boundaries.ts",
+        "scripts/test-ssr-style-isolation.ts",
+        "scripts/test-sfp-disposable-certification.ts"
+      ],
+      "qualification": "Individual selected disposable checks, not a fresh full-roster pass. SFP passed only in a separate clean candidate, after earlier proof-writing browser artifacts made its batch dirty-tree assertion fail."
+    }
+  },
+  "taskClosure": {
+    "requestedByUser": true,
+    "acceptanceStatusUnchanged": "NOT_ACCEPTED",
+    "defaultRunRepair": "Removed the isolated preview from the parallel Project workflow; normal application remains the default webview and the private preview is separately invokable",
+    "verification": "Schema-validated .replit replacement, two new workflow-graph assertions, all 338 foundation checks, npm run check and whitespace check pass",
+    "runtimeQualification": "Preview was independently exercised in the prior isolated checks and is now stopped. Normal shared-development startup was not rerun because it can reconcile shared data outside this task; its existing command was unchanged."
+  }
+}

@@ -1,0 +1,1098 @@
+{
+  "baselineHead": "442fd044f10f52db4bf391dabcb1299403314eaf",
+  "candidateQualification": "Earlier guarded roster, not final current candidate",
+  "compared": 43,
+  "results": [
+    {
+      "script": "scripts/certification/test-canonical-provider-import.ts",
+      "candidate": {
+        "script": "scripts/certification/test-canonical-provider-import.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Canonical provider intake and recovery (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/certification/test-canonical-provider-import.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Canonical provider intake and recovery (executed_fail)"
+        ]
+      },
+      "classification": "same suite failure reproduced; underlying cause still unclassified",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-stage3-b-browser.ts",
+      "candidate": {
+        "script": "scripts/test-stage3-b-browser.ts",
+        "outcome": "failed",
+        "signatures": []
+      },
+      "baseline": {
+        "script": "scripts/test-stage3-b-browser.ts",
+        "outcome": "failed",
+        "signatures": [
+          "Error: Browser text unavailable: Browser knowledge fixture",
+          "  ✗ Stage 3 B Protected Browser Proof (executed_fail)"
+        ]
+      },
+      "classification": "failure reproduced on baseline; signatures require comparison before unchanged-cause claim",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": false
+    },
+    {
+      "script": "scripts/test-sfp-pipeline-correction.mjs",
+      "candidate": {
+        "script": "scripts/test-sfp-pipeline-correction.mjs",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ ZeroBounce execution uses plaintext only inside governed boundary: missing: verifyEmail(realEmail)",
+          "  ✗ South Florida Enrichment Pipeline Correction (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-sfp-pipeline-correction.mjs",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ ZeroBounce execution uses plaintext only inside governed boundary: missing: verifyEmail(realEmail)",
+          "  ✗ South Florida Enrichment Pipeline Correction (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/dependency-audit-policy.ts",
+      "candidate": {
+        "script": "scripts/dependency-audit-policy.ts",
+        "outcome": "failed",
+        "signatures": [
+          "Error: npm audit policy rejected 0 critical and 2 high findings",
+          "  ✗ Dependency Audit Policy (fail closed on critical/high) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/dependency-audit-policy.ts",
+        "outcome": "failed",
+        "signatures": [
+          "Error: npm audit policy rejected 0 critical and 2 high findings",
+          "  ✗ Dependency Audit Policy (fail closed on critical/high) (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-sfp-disposable-certification.ts",
+      "candidate": {
+        "script": "scripts/test-sfp-disposable-certification.ts",
+        "outcome": "failed",
+        "signatures": [
+          "SFP disposable certification FAILED: AssertionError [ERR_ASSERTION]: [VFC-01b] the implementation diff is isolated to Task #1999 audit artifacts and owned source paths (52 changed paths; unexpected=client/index.html,client/src/App.tsx,client/src/components/ui/alert-dialog.tsx,client/src/components/ui/context-menu.tsx,client/src/components/ui/dialog.tsx,client/src/components/ui/dropdown-menu.tsx,client/src/components/ui/popover.tsx,client/src/components/ui/responsive-table.tsx,client/src/components/ui/select.tsx,client/src/components/ui/sheet.tsx,client/src/components/ui/toast.tsx,client/src/components/ui/toaster.tsx,client/src/components/ui/tooltip.tsx,client/src/hooks/use-auth.ts,client/src/hooks/use-confirmation-failed-batch.ts,client/src/hooks/use-contacts.ts,client/src/hooks/use-toast.ts,client/src/index.css,client/src/lib/queryClient.ts,client/src/pages/DashboardLayout.tsx,client/src/pages/dashboard/ContactDetail.tsx,client/src/pages/dashboard/Contacts.tsx,client/src/pages/dashboard/ContactsAndLeads.tsx,client/src/pages/dashboard/FinancialHub.tsx,client/src/pages/dashboard/OperatorDashboard.tsx,client/src/pages/dashboard/ReportingHub.tsx,client/src/pages/dashboard/SystemHealthHub.tsx,docs/certification/canonical-enrichment-address-preparation-native-repair-v1.json,docs/certification/canonical-enrichment-contact-link-automation-test.json,docs/certification/canonical-enrichment-projection-coverage.json,docs/certification/canonical-enrichment-registry-originals.json,docs/certification/canonical-enrichment-registry-projection.json,docs/certification/canonical-enrichment-source-outbox.json,scripts/fixtures/private-stage3-browser.ts,scripts/fixtures/stage3-b-http.ts,server/ssrShared.ts,attached_assets/LIBERTY_TASK_2072_C1_REPLIT_AUDIT_CORRECTIONS_2026-10-07_1791367791047.md,client/public/fonts/,client/src/components/crm/,client/src/hooks/use-crm-query.ts,client/src/lib/crm-destination-state.ts,client/src/lib/crm-route-registry.generated.json,client/src/lib/crm-route-registry.ts,client/src/styles/crm-theme.css,docs/certification/stage3-c1/,scripts/generate-stage3-c1-contract.ts,scripts/test-stage3-c1-browser.ts,scripts/test-stage3-c1-foundation.ts,scripts/test-stage3-c1-query-runtime.mjs,scripts/test-stage3-c1-query-runtime.tsx)",
+          "  ✗ South Florida Prospecting Corrections Certification (classifier/geography-resolver determinism, real policy versions, full-manifest cohort hash, frozen-snapshot reconciliation, frozen/voided immutability, atomic failure persistence) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-sfp-disposable-certification.ts",
+        "outcome": "passed",
+        "signatures": []
+      },
+      "classification": "candidate failure not reproduced in baseline; specific diagnosis required",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": false,
+      "latestDiagnosis": "Current failure explicitly identifies an uncommitted C1 proof artifact in the suite diff-isolation assertion; clean candidate rerun still required"
+    },
+    {
+      "script": "scripts/test-sfp2000-disposable-certification.ts",
+      "candidate": {
+        "script": "scripts/test-sfp2000-disposable-certification.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: [T2K-03setup-transport] the seeded candidate reached the injected fake transport after normal provider governance",
+          "  ✗ Task #2000 SFP Validation & Outreach Eligibility Certification (unified free+paid candidates, real-vs-masked decryption, freshness reuse, snapshot-bound execute, atomic finalization, Task-2001 staging fence, exact reporting) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-sfp2000-disposable-certification.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: [T2K-03setup-transport] the seeded candidate reached the injected fake transport after normal provider governance",
+          "  ✗ Task #2000 SFP Validation & Outreach Eligibility Certification (unified free+paid candidates, real-vs-masked decryption, freshness reuse, snapshot-bound execute, atomic finalization, Task-2001 staging fence, exact reporting) (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-sfp2001-campaign-staging-certification.ts",
+      "candidate": {
+        "script": "scripts/test-sfp2001-campaign-staging-certification.ts",
+        "outcome": "failed",
+        "signatures": [
+          "✗ [SFP2001-17] initial current selected sources each retain an exact, subject-bound direct or reused completed ZeroBounce receipt and current source pin: initial current selected sources each retain an exact, subject-bound direct or reused completed ZeroBounce receipt and current source pin",
+          "AssertionError [ERR_ASSERTION]: fixture eligibility must retain its exact current-run direct or reused provider operation",
+          "  ✗ Task #2001 SFP Campaign Staging Certification (free/paid package-pinned ready_held, idempotent commands, stale snapshot and no-send boundaries) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-sfp2001-campaign-staging-certification.ts",
+        "outcome": "failed",
+        "signatures": [
+          "✗ [SFP2001-17] initial current selected sources each retain an exact, subject-bound direct or reused completed ZeroBounce receipt and current source pin: initial current selected sources each retain an exact, subject-bound direct or reused completed ZeroBounce receipt and current source pin",
+          "AssertionError [ERR_ASSERTION]: fixture eligibility must retain its exact current-run direct or reused provider operation",
+          "  ✗ Task #2001 SFP Campaign Staging Certification (free/paid package-pinned ready_held, idempotent commands, stale snapshot and no-send boundaries) (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-import-reconciliation.ts",
+      "candidate": {
+        "script": "scripts/test-import-reconciliation.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Scenario 4: all 4 provider rows are deferred with zero direct inserts (inserted=4, deferred=0)",
+          "  ✗ Scenario 6: provider row is deferred with zero direct inserts (inserted=1, deferred=0)",
+          "  ✗ CSV Import Reconciliation (durable execution replay and ledger totals) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-import-reconciliation.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Scenario 4: all 4 provider rows are deferred with zero direct inserts (inserted=4, deferred=0)",
+          "  ✗ Scenario 6: provider row is deferred with zero direct inserts (inserted=1, deferred=0)",
+          "  ✗ CSV Import Reconciliation (durable execution replay and ledger totals) (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/check-contact-merge-manifest.ts",
+      "candidate": {
+        "script": "scripts/check-contact-merge-manifest.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Canonical Merge Manifest Guard (complete relationship disposition) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/check-contact-merge-manifest.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Canonical Merge Manifest Guard (complete relationship disposition) (executed_fail)"
+        ]
+      },
+      "classification": "same suite failure reproduced; underlying cause still unclassified",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/scan-tracked-files.ts",
+      "candidate": {
+        "script": "scripts/scan-tracked-files.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Tracked-File Exposure Scan (no backups/exports/dumps in git) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/scan-tracked-files.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Tracked-File Exposure Scan (no backups/exports/dumps in git) (executed_fail)"
+        ]
+      },
+      "classification": "same suite failure reproduced; underlying cause still unclassified",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "server/tests/auth-actions.integration.test.ts",
+      "candidate": {
+        "script": "server/tests/auth-actions.integration.test.ts",
+        "outcome": "failed",
+        "signatures": []
+      },
+      "baseline": {
+        "script": "server/tests/auth-actions.integration.test.ts",
+        "outcome": "passed",
+        "signatures": []
+      },
+      "classification": "candidate failure not reproduced in baseline; specific diagnosis required",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": false,
+      "latestDiagnosis": "Current exact disposable selection passed; earlier roster failure is retained and not claimed as a source regression"
+    },
+    {
+      "script": "scripts/check-queue-compliance.ts",
+      "candidate": {
+        "script": "scripts/check-queue-compliance.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Queue Compliance (logical dispatch ownership and worker initialization boundaries) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/check-queue-compliance.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Queue Compliance (logical dispatch ownership and worker initialization boundaries) (executed_fail)"
+        ]
+      },
+      "classification": "same suite failure reproduced; underlying cause still unclassified",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/scan-serper-raw-fetch.ts",
+      "candidate": {
+        "script": "scripts/scan-serper-raw-fetch.ts",
+        "outcome": "failed",
+        "signatures": [
+          "✗ Raw Serper API usage found outside the approved gateway file:",
+          "  ✗ Serper Raw-Fetch Scan (canonical gateway compliance) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/scan-serper-raw-fetch.ts",
+        "outcome": "failed",
+        "signatures": [
+          "✗ Raw Serper API usage found outside the approved gateway file:",
+          "  ✗ Serper Raw-Fetch Scan (canonical gateway compliance) (executed_fail)"
+        ]
+      },
+      "classification": "same suite failure reproduced; underlying cause still unclassified",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-serper-gateway.ts",
+      "candidate": {
+        "script": "scripts/test-serper-gateway.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ scan exits zero when clean — exit=1",
+          "  ✗ Serper Gateway (circuit breaker / budget / rollover — fake transports) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-serper-gateway.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ scan exits zero when clean — exit=1",
+          "  ✗ Serper Gateway (circuit breaker / budget / rollover — fake transports) (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-sequence-compliance.ts",
+      "candidate": {
+        "script": "scripts/test-sequence-compliance.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ PEWC contact email allowed before opt-out — Marketing email validation blocked — mismatched_email_token",
+          "  ✗ PEWC contact: email allowed (flags on) — Marketing email validation blocked — mismatched_email_token",
+          "  ✗ email ghlPermissionPayload.lb_email_allowed=true — {\"lb_email_allowed\":false,\"lb_manual_call_allowed\":true,\"lb_sms_allowed\":false,\"lb_voice_ai_allowed\":false,\"lb_ringless_vm_allowed\":false,\"lb_channel_block_reason\":\"Marketing email validation blocked — mismatched_email_token\",\"lb_next_best_action\":\"Wait for current email validation evidence before automated marketing email.\"}",
+          "  ✗ otherwise email-contactable fixture passes the independent contactability gate — Marketing email validation blocked — mismatched_email_token",
+          "  ✗ canonical fence independently identifies missing cohort authority",
+          "  ✗ declared email fixture independently passes email contactability — Marketing email validation blocked — mismatched_email_token",
+          "  ✗ declared email-only channels do not bypass the canonical cohort fence",
+          "  ✗ Before unsubscribe: email allowed for warm contact — Marketing email validation blocked — mismatched_email_token"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-sequence-compliance.ts",
+        "outcome": "setup-failed",
+        "signatures": [
+          "Error: Disposable app server did not reach its verified test posture: fetch failed"
+        ]
+      },
+      "classification": "baseline setup failed; behavior not classified",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": false
+    },
+    {
+      "script": "scripts/test-contactability.ts",
+      "candidate": {
+        "script": "scripts/test-contactability.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ cold scraped can receive email — Marketing email validation blocked — mismatched_email_token",
+          "  ✗ SMS STOP does not block email",
+          "  ✗ DNC reason does not block email",
+          "  ✗ Florida: email NOT blocked solely by FL state",
+          "  ✗ ghlPermissionPayload: email allowed for cold contact",
+          "  ✗ Case 2: email-only tier — email channel allowed — Marketing email validation blocked — mismatched_email_token",
+          "  ✗ Contactability Engine (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-contactability.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ cold scraped can receive email — Marketing email validation blocked — mismatched_email_token",
+          "  ✗ SMS STOP does not block email",
+          "  ✗ DNC reason does not block email",
+          "  ✗ Florida: email NOT blocked solely by FL state",
+          "  ✗ ghlPermissionPayload: email allowed for cold contact",
+          "  ✗ Case 2: email-only tier — email channel allowed — Marketing email validation blocked — mismatched_email_token",
+          "  ✗ Contactability Engine (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-new-lead-enrollment-policy.ts",
+      "candidate": {
+        "script": "scripts/test-new-lead-enrollment-policy.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ B9: no candidate audit log written for test deal: expected new_lead_auto_enrollment_candidate_detected",
+          "  ✗ B22: no candidate audit log written for null-vertical deal with __unknown__ mapping",
+          "  ✗ B23: null-vertical deal NOT enrolled into __unknown__ seq: enrollments=[]",
+          "  ✗ New-Lead Enrollment Policy (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-new-lead-enrollment-policy.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ B9: no candidate audit log written for test deal: expected new_lead_auto_enrollment_candidate_detected",
+          "  ✗ B22: no candidate audit log written for null-vertical deal with __unknown__ mapping",
+          "  ✗ B23: null-vertical deal NOT enrolled into __unknown__ seq: enrollments=[]",
+          "  ✗ New-Lead Enrollment Policy (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/sfp-certification.ts",
+      "candidate": {
+        "script": "scripts/sfp-certification.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ 2d. sfp-validation.ts uses the audited openSfpCandidatePlaintext() boundary for decryption (not masked_value direct): Must call verifyEmail with decrypted realEmail",
+          "  ✗ 2e. sfp-validation.ts never passes masked_value to ZeroBounce transport: Must call verifyEmail with realEmail, not masked_value",
+          "  ✗ 7f. Fake transport received REAL decrypted emails, never masked_value (positive proof): Transport must have been invoked at least once",
+          "  ✗ 7j. Verified named contact validates with typed source pins and fake transport: Only the real contact address reaches the injected fake transport",
+          "  ✗ South Florida Prospecting Cohort Certification (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/sfp-certification.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ 2d. sfp-validation.ts uses the audited openSfpCandidatePlaintext() boundary for decryption (not masked_value direct): Must call verifyEmail with decrypted realEmail",
+          "  ✗ 2e. sfp-validation.ts never passes masked_value to ZeroBounce transport: Must call verifyEmail with realEmail, not masked_value",
+          "  ✗ 7f. Fake transport received REAL decrypted emails, never masked_value (positive proof): Transport must have been invoked at least once",
+          "  ✗ 7j. Verified named contact validates with typed source pins and fake transport: Only the real contact address reaches the injected fake transport",
+          "  ✗ South Florida Prospecting Cohort Certification (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-transport-dispatch.ts",
+      "candidate": {
+        "script": "scripts/test-transport-dispatch.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Unhandled error: Sequence must be live and paused/draft before changing its steps",
+          "  ✗ Transport Dispatch (Gmail/SMTP/GHL routing + unsubscribe URL) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-transport-dispatch.ts",
+        "outcome": "setup-failed",
+        "signatures": [
+          "Error: PRIVATE_REDIS_NOT_READY"
+        ]
+      },
+      "classification": "baseline setup failed; behavior not classified",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": false
+    },
+    {
+      "script": "scripts/test-cro03-static.ts",
+      "candidate": {
+        "script": "scripts/test-cro03-static.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: The input did not match the regular expression /await retainProviderImportRow/. Input:",
+          "  ✗ CRO-03 Durable Enrichment Factory (static transport, privacy, routing, and ownership gates) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-cro03-static.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: The input did not match the regular expression /await retainProviderImportRow/. Input:",
+          "  ✗ CRO-03 Durable Enrichment Factory (static transport, privacy, routing, and ownership gates) (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-cro03b-static.ts",
+      "candidate": {
+        "script": "scripts/test-cro03b-static.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: The input did not match the regular expression /cro03b_provider_denied/. Input:",
+          "  ✗ CRO-03B Unified Recipe, Admission, Arbitration, and Local Projection (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-cro03b-static.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: The input did not match the regular expression /cro03b_provider_denied/. Input:",
+          "  ✗ CRO-03B Unified Recipe, Admission, Arbitration, and Local Projection (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-cro03c-static.ts",
+      "candidate": {
+        "script": "scripts/test-cro03c-static.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+          "  ✗ CRO-03C Governed Live Activation (provider denied) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-cro03c-static.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+          "  ✗ CRO-03C Governed Live Activation (provider denied) (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-cro03c-initial-continuation-static.ts",
+      "candidate": {
+        "script": "scripts/test-cro03c-initial-continuation-static.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: claim, reservation, execution, and immediate pre-I/O must remain authority checked",
+          "  ✗ CRO-03C Initial Continuation Bridge Contract (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-cro03c-initial-continuation-static.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: claim, reservation, execution, and immediate pre-I/O must remain authority checked",
+          "  ✗ CRO-03C Initial Continuation Bridge Contract (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-cro03c-integration.ts",
+      "candidate": {
+        "script": "scripts/test-cro03c-integration.ts",
+        "outcome": "failed",
+        "signatures": [
+          "Error: CRO03C_WORKER_FLEET_INVALID",
+          "  ✗ CRO-03C Live Dispatch Durability (disposable PostgreSQL/Redis, provider-denied) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-cro03c-integration.ts",
+        "outcome": "failed",
+        "signatures": [
+          "Error: CRO03C_WORKER_FLEET_INVALID",
+          "  ✗ CRO-03C Live Dispatch Durability (disposable PostgreSQL/Redis, provider-denied) (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-cro03b-integration.ts",
+      "candidate": {
+        "script": "scripts/test-cro03b-integration.ts",
+        "outcome": "failed",
+        "signatures": [
+          "Error: CRO03B_ACTIVE_RECIPE_WRITE_FENCED",
+          "  ✗ CRO-03B Durable Recipe Lifecycle (database-backed, provider-denied) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-cro03b-integration.ts",
+        "outcome": "failed",
+        "signatures": [
+          "Error: CRO03B_ACTIVE_RECIPE_WRITE_FENCED",
+          "  ✗ CRO-03B Durable Recipe Lifecycle (database-backed, provider-denied) (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/certify-cro03b-csv-handoff.ts",
+      "candidate": {
+        "script": "scripts/certify-cro03b-csv-handoff.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: Admin user required for certification",
+          "  ✗ CRO-03B CSV Handoff Certification — Business-Only, Contact, and Safe-Hold Paths (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/certify-cro03b-csv-handoff.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: Admin user required for certification",
+          "  ✗ CRO-03B CSV Handoff Certification — Business-Only, Contact, and Safe-Hold Paths (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-seed-convergence-verifier-integrity.ts",
+      "candidate": {
+        "script": "scripts/test-seed-convergence-verifier-integrity.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Seed Convergence Verifier Detects Deletion/Substitution (#1750) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-seed-convergence-verifier-integrity.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Seed Convergence Verifier Detects Deletion/Substitution (#1750) (executed_fail)"
+        ]
+      },
+      "classification": "same suite failure reproduced; underlying cause still unclassified",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-reporting-boundaries.ts",
+      "candidate": {
+        "script": "scripts/test-reporting-boundaries.ts",
+        "outcome": "failed",
+        "signatures": [
+          "✗ financial URL state is namespaced",
+          "✗ financial navigation preserves reporting parent",
+          "  ✗ CR-05 Reporting Boundary and Exactness Contract (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-reporting-boundaries.ts",
+        "outcome": "passed",
+        "signatures": []
+      },
+      "classification": "candidate failure not reproduced in baseline; specific diagnosis required",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": false,
+      "latestDiagnosis": "Two introduced source-string assertions expected inline query code. Replaced by actual shared-codec behavior plus mounted call-site bindings; all existing authority/exactness checks preserved; current direct run passes"
+    },
+    {
+      "script": "scripts/test-task1721-inbox-statement-structure.ts",
+      "candidate": {
+        "script": "scripts/test-task1721-inbox-statement-structure.ts",
+        "outcome": "failed",
+        "signatures": [
+          "Error: Raw automatic storage.createTask calls are prohibited: /home/runner/workspace/server/routes/tickets-tasks.ts (manual POST allowlist mismatch)",
+          "  ✗ CR-05 Task, Inbox, and Statement Authority Contract (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-task1721-inbox-statement-structure.ts",
+        "outcome": "failed",
+        "signatures": [
+          "Error: Raw automatic storage.createTask calls are prohibited: /tmp/c1-untouched-baseline/server/routes/tickets-tasks.ts (manual POST allowlist mismatch)",
+          "  ✗ CR-05 Task, Inbox, and Statement Authority Contract (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "server/tests/cr06-promotional-boundary-inventory.source.test.ts",
+      "candidate": {
+        "script": "server/tests/cr06-promotional-boundary-inventory.source.test.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: CR-06 active enrollment writer inventory changed; classify and fence every new boundary before updating this reviewed inventory",
+          "  ✗ CR-06 Promotional Enrollment Boundary Inventory (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "server/tests/cr06-promotional-boundary-inventory.source.test.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: CR-06 active enrollment writer inventory changed; classify and fence every new boundary before updating this reviewed inventory",
+          "  ✗ CR-06 Promotional Enrollment Boundary Inventory (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-cr06-disposable-certification.ts",
+      "candidate": {
+        "script": "scripts/test-cr06-disposable-certification.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: authority-owned current provider evidence qualifies the exact email generation",
+          "  ✗ CR-06 Disposable Authority Certification (Task 1722 corrections 7-9) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-cr06-disposable-certification.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: authority-owned current provider evidence qualifies the exact email generation",
+          "  ✗ CR-06 Disposable Authority Certification (Task 1722 corrections 7-9) (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-cro07-disposable-certification.ts",
+      "candidate": {
+        "script": "scripts/test-cro07-disposable-certification.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: fixture contact has valid current provider evidence",
+          "  ✗ CRO-07 Controlled Delivery, Reply, Growth & Conversion Feedback Certification (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-cro07-disposable-certification.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: fixture contact has valid current provider evidence",
+          "  ✗ CRO-07 Controlled Delivery, Reply, Growth & Conversion Feedback Certification (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-cro03-integration.ts",
+      "candidate": {
+        "script": "scripts/test-cro03-integration.ts",
+        "outcome": "failed",
+        "signatures": [
+          "Error: Unapproved provider caller: server/services/cro03/enrichment-factory.ts -> apollo",
+          "  ✗ CRO-03 Durable Enrichment Factory Concurrency and Recovery (disposable PostgreSQL/Redis certification) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-cro03-integration.ts",
+        "outcome": "failed",
+        "signatures": [
+          "Error: Unapproved provider caller: server/services/cro03/enrichment-factory.ts -> apollo",
+          "  ✗ CRO-03 Durable Enrichment Factory Concurrency and Recovery (disposable PostgreSQL/Redis certification) (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-cro03-http-authorization.ts",
+      "candidate": {
+        "script": "scripts/test-cro03-http-authorization.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: handoff fixture requires source occurrence and qualification policy",
+          "  ✗ CRO-03 HTTP Authorization and Ownership (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-cro03-http-authorization.ts",
+        "outcome": "failed",
+        "signatures": [
+          "AssertionError [ERR_ASSERTION]: handoff fixture requires source occurrence and qualification policy",
+          "  ✗ CRO-03 HTTP Authorization and Ownership (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/smoke-role-guards.ts",
+      "candidate": {
+        "script": "scripts/smoke-role-guards.ts",
+        "outcome": "failed",
+        "signatures": [
+          "✗ GET /api/admin/seo-coverage                      401   403       —      —        -1     (seo coverage)",
+          "✗ GET /api/deals                                   -1    -1        —      —        -1     (deals list)",
+          "  ✗ Role Guards (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/smoke-role-guards.ts",
+        "outcome": "passed",
+        "signatures": []
+      },
+      "classification": "candidate failure not reproduced in baseline; specific diagnosis required",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": false,
+      "latestDiagnosis": "Current exact disposable selection passed; earlier roster failure is retained and not claimed as a source regression"
+    },
+    {
+      "script": "scripts/test-reconciliation-certification.ts",
+      "candidate": {
+        "script": "scripts/test-reconciliation-certification.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Contact Reconciliation Certification (lifecycle, CAS, allowlist, schema — disposable DB) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-reconciliation-certification.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Contact Reconciliation Certification (lifecycle, CAS, allowlist, schema — disposable DB) (executed_fail)"
+        ]
+      },
+      "classification": "same suite failure reproduced; underlying cause still unclassified",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-pause-fence.ts",
+      "candidate": {
+        "script": "scripts/test-pause-fence.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ outbound_pause_control row exists",
+          "  ✗ Outbound Pause Fence (persisted DB rows, not code defaults, + control authority table) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-pause-fence.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ outbound_pause_control row exists",
+          "  ✗ Outbound Pause Fence (persisted DB rows, not code defaults, + control authority table) (executed_fail)"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-outbound-boundary-1626.ts",
+      "candidate": {
+        "script": "scripts/test-outbound-boundary-1626.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Outbound Boundary Denial (#1626: form-sync/delete/SMTP pause denial, drain fail-closed, epoch interleaving, audit sanitizer) (executed_fail)"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-outbound-boundary-1626.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Outbound Boundary Denial (#1626: form-sync/delete/SMTP pause denial, drain fail-closed, epoch interleaving, audit sanitizer) (executed_fail)"
+        ]
+      },
+      "classification": "same suite failure reproduced; underlying cause still unclassified",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-nba.ts",
+      "candidate": {
+        "script": "scripts/test-nba.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ actionType is CALL_PROSPECT or SEND_EMAIL",
+          "  ✗ actionType is CONTACT_AT_RISK_MERCHANT",
+          "  ✗ urgency is critical",
+          "  ✗ humanRequired is true",
+          "  ✗ actionType is SEND_PROPOSAL",
+          "  ✗ urgency is critical",
+          "  ✗ reasonCode is do_not_contact",
+          "  ✗ reasonCode is closed_lost_no_action"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-nba.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ actionType is CALL_PROSPECT or SEND_EMAIL",
+          "  ✗ actionType is CONTACT_AT_RISK_MERCHANT",
+          "  ✗ urgency is critical",
+          "  ✗ humanRequired is true",
+          "  ✗ actionType is SEND_PROPOSAL",
+          "  ✗ urgency is critical",
+          "  ✗ reasonCode is do_not_contact",
+          "  ✗ reasonCode is closed_lost_no_action"
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-forms.ts",
+      "candidate": {
+        "script": "scripts/test-forms.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Statement upload returns 2xx (not rate-limited — run from a fresh IP or wait 15 min if 429) — status=503",
+          "  ✗ Deal created after statement upload — contactId=1",
+          "  ✗ Deal stage is 'Statement Received' — stage=\"undefined\"",
+          "  ✗ Document record created after statement upload — no document row found — file WAS attached in payload; statement-upload-chain should create a document record",
+          "  ✗ Statement upload: referral attribution row created for referralCode field — email=qa-release-test-stmt-1791373136588-ot2iwa1x3b@libertybancard.test partnerId=1",
+          "  ✗ Estimate form returns 2xx (not rate-limited — run from a fresh IP or wait 15 min if 429) — status=400",
+          "  ✗ Get Started form returns 2xx (not rate-limited — run from a fresh IP or wait 15 min if 429) — status=400",
+          "✗ Form integration tests FAILED."
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-forms.ts",
+        "outcome": "failed",
+        "signatures": [
+          "  ✗ Statement upload returns 2xx (not rate-limited — run from a fresh IP or wait 15 min if 429) — status=503",
+          "  ✗ Deal created after statement upload — contactId=1",
+          "  ✗ Deal stage is 'Statement Received' — stage=\"undefined\"",
+          "  ✗ Document record created after statement upload — no document row found — file WAS attached in payload; statement-upload-chain should create a document record",
+          "  ✗ Statement upload: referral attribution row created for referralCode field — email=qa-release-test-stmt-1791380503192-7wclwast8d3@libertybancard.test partnerId=1",
+          "  ✗ Estimate form returns 2xx (not rate-limited — run from a fresh IP or wait 15 min if 429) — status=400",
+          "  ✗ Get Started form returns 2xx (not rate-limited — run from a fresh IP or wait 15 min if 429) — status=400",
+          "✗ Form integration tests FAILED."
+        ]
+      },
+      "classification": "same observed failure signature reproduced on untouched baseline; not a claim of comprehensive cause equivalence",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-cro03a-geography.ts",
+      "candidate": {
+        "script": "scripts/test-cro03a-geography.ts",
+        "outcome": "setup-failed",
+        "signatures": [
+          "Error: PRIVATE_REDIS_NOT_READY"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-cro03a-geography.ts",
+        "outcome": "passed",
+        "signatures": []
+      },
+      "classification": "candidate failure not reproduced in baseline; specific diagnosis required",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": false
+    },
+    {
+      "script": "scripts/test-cro03a-batch-equivalence.ts",
+      "candidate": {
+        "script": "scripts/test-cro03a-batch-equivalence.ts",
+        "outcome": "setup-failed",
+        "signatures": [
+          "Error: PRIVATE_REDIS_NOT_READY"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-cro03a-batch-equivalence.ts",
+        "outcome": "setup-failed",
+        "signatures": [
+          "Error: PRIVATE_REDIS_NOT_READY"
+        ]
+      },
+      "classification": "baseline setup failed; behavior not classified",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": true
+    },
+    {
+      "script": "scripts/test-cro03a-batch-performance.ts",
+      "candidate": {
+        "script": "scripts/test-cro03a-batch-performance.ts",
+        "outcome": "setup-failed",
+        "signatures": [
+          "Error: PRIVATE_REDIS_NOT_READY"
+        ]
+      },
+      "baseline": {
+        "script": "scripts/test-cro03a-batch-performance.ts",
+        "outcome": "passed",
+        "signatures": []
+      },
+      "classification": "candidate failure not reproduced in baseline; specific diagnosis required",
+      "normalization": [
+        "checkout directory",
+        "isolated randomized fixture email"
+      ],
+      "normalizedSignaturesMatch": false
+    }
+  ]
+}

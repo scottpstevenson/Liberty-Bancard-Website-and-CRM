@@ -1,3 +1,4 @@
+import { systemState, systemUrl, operatorViews } from "@/lib/crm-destination-state";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -4046,15 +4047,11 @@ function OperatorNavShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
-  const params = new URLSearchParams(search);
-  const rawView = params.get("view") || params.get("tab") || "command-center";
-  const view = ALL_OPERATOR_VIEWS.has(rawView) ? rawView : "command-center";
+  const view = systemState(search, true).view;
 
   const setView = (v: string) => {
-    const p = new URLSearchParams(search);
-    p.set("view", v);
-    p.delete("tab");
-    navigate(`${location}?${p.toString()}`);
+    if (!(operatorViews as readonly string[]).includes(v)) return;
+    navigate(systemUrl(search, window.location.hash, "monitor", v as typeof operatorViews[number]));
     setDrawerOpen(false);
   };
 

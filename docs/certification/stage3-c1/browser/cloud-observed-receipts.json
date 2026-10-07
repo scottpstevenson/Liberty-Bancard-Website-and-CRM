@@ -1,0 +1,2536 @@
+{
+  "status": "NOT_ACCEPTED_UNSUPPORTED_PRESET_FOUND_AND_INCOMPLETE_COVERAGE",
+  "candidateUrl": "https://92fd513c-d028-45ae-b664-31ad54630ef0-00-3o008csyx3pux-k03wtivh.spock.replit.dev",
+  "sourceHead": "ea22ec3f3efe19ef9b3580ace375bf78c0d03d6b",
+  "inputHash": "22d6d4224a5a3dd10fa971ce77784c3b2ca178a07811d280d899cc0bb69d5abc",
+  "entryOutputsHash": "196c627dfebf218faf64b492ea8ae6f1737f82611617d50167f9062aebb92208",
+  "browser": "Kernel Chromium, isolated profile; ordinary login and logout; no authentication bypass",
+  "fixtureVolume": 61,
+  "receipts": [
+    {
+      "role": "admin",
+      "control": "people-default",
+      "result": {
+        "pageSize": 50,
+        "declaredVolume": 61,
+        "actualRows": 50,
+        "oneH1": true
+      }
+    },
+    {
+      "role": "admin",
+      "control": "selection-paging-search-reload",
+      "result": {
+        "pageSizes": [
+          25,
+          50,
+          100
+        ],
+        "selectionReset": true,
+        "historyBack": true,
+        "searchResultRows": 1,
+        "inputMs": 117.70154499999626
+      }
+    },
+    {
+      "role": "admin",
+      "control": "facet-outage",
+      "result": {
+        "network503": true,
+        "rows": 50,
+        "count": "Unknown",
+        "filteredCount": "Count unavailable"
+      }
+    },
+    {
+      "role": "admin",
+      "control": "record-header-edit",
+      "result": {
+        "typedId": 61,
+        "oneH1": true,
+        "actualUiSave": true,
+        "serverReadback": {
+          "status": 200,
+          "id": 61,
+          "firstName": "C1 Synthetic Updated"
+        }
+      }
+    },
+    {
+      "role": "admin",
+      "control": "dialog-style-keyboard-focus",
+      "result": {
+        "themed": true,
+        "font": "\"IBM Plex Sans\", system-ui, sans-serif",
+        "titleSize": "24px",
+        "closeHeight": 44,
+        "plexLoaded": true,
+        "focusReturned": true
+      }
+    },
+    {
+      "role": "admin",
+      "control": "layout-320",
+      "result": {
+        "width": 320,
+        "scrollWidth": 320,
+        "h1": 1,
+        "font": "\"IBM Plex Sans\", system-ui, sans-serif"
+      }
+    },
+    {
+      "role": "admin",
+      "control": "layout-390",
+      "result": {
+        "width": 390,
+        "scrollWidth": 390,
+        "h1": 1,
+        "font": "\"IBM Plex Sans\", system-ui, sans-serif"
+      }
+    },
+    {
+      "role": "admin",
+      "control": "layout-768",
+      "result": {
+        "width": 768,
+        "scrollWidth": 768,
+        "h1": 1,
+        "font": "\"IBM Plex Sans\", system-ui, sans-serif"
+      }
+    },
+    {
+      "role": "admin",
+      "control": "layout-1280",
+      "result": {
+        "width": 1280,
+        "scrollWidth": 1280,
+        "h1": 1,
+        "font": "\"IBM Plex Sans\", system-ui, sans-serif"
+      }
+    },
+    {
+      "role": "admin",
+      "control": "layout-1440",
+      "result": {
+        "width": 1440,
+        "scrollWidth": 1440,
+        "h1": 1,
+        "font": "\"IBM Plex Sans\", system-ui, sans-serif"
+      }
+    },
+    {
+      "role": "admin",
+      "control": "dark-theme",
+      "result": {
+        "background": "222 47% 11%"
+      }
+    },
+    {
+      "role": "admin",
+      "control": "financial-alias-click-back-reload",
+      "result": {
+        "selectedChild": "forecasting",
+        "childRequest": true,
+        "hash": "#history"
+      }
+    },
+    {
+      "role": "admin",
+      "control": "operator-parent-child",
+      "result": {
+        "parent": "monitor",
+        "view": "worker-heartbeats"
+      }
+    },
+    {
+      "role": "manager",
+      "control": "real-login",
+      "result": {
+        "role": "manager",
+        "status": 200
+      }
+    },
+    {
+      "role": "manager",
+      "control": "people",
+      "result": {
+        "rows": 50,
+        "oneH1": true
+      }
+    },
+    {
+      "role": "manager",
+      "control": "monitor-denial",
+      "result": {
+        "noTab": true,
+        "noHeartbeatRequest": true
+      }
+    },
+    {
+      "role": "agent",
+      "control": "real-login",
+      "result": {
+        "role": "agent",
+        "status": 200
+      }
+    },
+    {
+      "role": "agent",
+      "control": "scoped-people",
+      "result": {
+        "rows": 50,
+        "oneH1": true
+      }
+    },
+    {
+      "role": "agent",
+      "control": "financial-denial",
+      "result": {
+        "noForecastRequest": true,
+        "path": "/dashboard/my-day"
+      }
+    },
+    {
+      "role": "merchant",
+      "control": "portal-isolation",
+      "result": {
+        "actualRole": "merchant",
+        "noEmployeeTheme": true,
+        "noPeopleRead": true,
+        "path": "/dashboard/merchant-portal"
+      }
+    },
+    {
+      "role": "partner",
+      "control": "portal-isolation",
+      "result": {
+        "actualRole": "partner",
+        "noEmployeeTheme": true,
+        "noPeopleRead": true,
+        "path": "/partner-portal"
+      }
+    },
+    {
+      "role": "admin",
+      "control": "useful-list-performance",
+      "result": {
+        "volume": 61,
+        "usefulMs": 4730.196668000019,
+        "budgetMs": 2500,
+        "passed": false,
+        "environment": "Kernel Chromium; cloud preview HTTPS; 1440x1000"
+      }
+    },
+    {
+      "role": "admin",
+      "control": "invalid-record-id",
+      "result": {
+        "noNormalizedRecordRead": true
+      }
+    },
+    {
+      "role": "admin",
+      "control": "first-useful-list-commit-method",
+      "result": {
+        "volume": 61,
+        "firstUsefulMs": 3872.5300399999833,
+        "budgetMs": 2500,
+        "passed": false,
+        "method": "commit then actual first row"
+      }
+    },
+    {
+      "role": "admin",
+      "control": "preset-mine-defect",
+      "result": {
+        "filter": "assignedToMe=true",
+        "returnedRows": 50,
+        "total": 61,
+        "allAssignedToAnotherActor": true,
+        "verdict": "FAIL_STOP_ADOPTION_DISABLE_UNSUPPORTED"
+      }
+    },
+    {
+      "role": "admin",
+      "control": "actual-native-browser-zoom",
+      "result": {
+        "cssWidth": 720,
+        "pixelRatio": 2,
+        "scrollWidth": 720,
+        "h1": 1,
+        "passed": true
+      }
+    }
+  ],
+  "requests": [
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=50&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=25&offset=0&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=100&offset=0&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/confirmation-status/batch",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/facets",
+      "query": "?search=C1+Synthetic+61&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=0&search=C1+Synthetic+61&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/facets",
+      "query": "?search=C1+Synthetic+61&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/class-counts",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=0&search=C1+Synthetic+61&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/agents",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/facets",
+      "query": "?recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/class-counts",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=0&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/agents",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/facets",
+      "query": "?recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/class-counts",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=0&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/agents",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/merchant-applications/pending-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/outreach-queue/count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/confirmation-status/batch",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/facets",
+      "query": "?search=C1&recordClass=production",
+      "method": "GET",
+      "status": 503
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/agents",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/class-counts",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=0&search=C1&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/merchant-applications/pending-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/outreach-queue/count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/confirmation-status/batch",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/facets",
+      "query": "?search=C1&recordClass=production",
+      "method": "GET",
+      "status": 503
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/facets",
+      "query": "?recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/class-counts",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=0&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/agents",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/merchant-applications/pending-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/activity",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/confirmation-status",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/companies",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/detail",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/sales-prep",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/parent",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/locations",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/agents",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/proxycurl/status",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/notes",
+      "query": "?entityType=contact&entityId=61",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/rate-reviews/contact/61",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/ghl/sync-status/contact/61",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/companies",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/merchant-documents/contact/61",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/users/reps",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/merchant-applications/pending-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/outreach-queue/count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/zerobounce-history",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/nba",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/suppression-status",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61",
+      "query": "",
+      "method": "PUT",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/activity",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/parent",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/confirmation-status",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/sfp-readiness",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/companies",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/detail",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/locations",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/zerobounce-history",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61/detail",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/61",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/outreach-queue/count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/merchant-applications/pending-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=0&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/class-counts",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/facets",
+      "query": "?recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/confirmation-status/batch",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/appointments",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/field-sales/status",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/deals",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/tasks",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/class-counts",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/facets",
+      "query": "?recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=0&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/agents",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/merchant-applications/pending-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/outreach-queue/count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/confirmation-status/batch",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/deals",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/merchant-applications/pending-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/forecasting/summary",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/outreach-queue/count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/deals",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/forecasting/summary",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/worker-heartbeats",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/merchant-applications/pending-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/outreach-queue/count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/worker-heartbeats",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/auth/logout",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 401
+    },
+    {
+      "role": "manager",
+      "path": "/api/auth/login",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/deals",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "manager",
+      "path": "/api/system/outbound-settings",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "manager",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/contacts",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/contacts/facets",
+      "query": "?recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=0&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/agents",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "manager",
+      "path": "/api/merchant-applications/pending-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "manager",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "manager",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/outreach-queue/count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "manager",
+      "path": "/api/contacts/confirmation-status/batch",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/wizard/gonogo-report",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "manager",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/admin/system-readiness",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "manager",
+      "path": "/api/merchant-applications/pending-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "manager",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "manager",
+      "path": "/api/outreach-queue/count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "manager",
+      "path": "/api/auth/logout",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "manager",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 401
+    },
+    {
+      "role": "agent",
+      "path": "/api/auth/login",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "agent",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "agent",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "agent",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "agent",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "agent",
+      "path": "/api/agents",
+      "query": "",
+      "method": "GET",
+      "status": 403
+    },
+    {
+      "role": "agent",
+      "path": "/api/contacts/facets",
+      "query": "?recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "agent",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "agent",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=0&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "agent",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "agent",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "agent",
+      "path": "/api/outreach-queue/count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "agent",
+      "path": "/api/contacts/confirmation-status/batch",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "agent",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "agent",
+      "path": "/api/my-day",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "agent",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "agent",
+      "path": "/api/save-cases/my",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "agent",
+      "path": "/api/analytics/deals-closing-this-month",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "agent",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "agent",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "agent",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "agent",
+      "path": "/api/outreach-queue/count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "agent",
+      "path": "/api/auth/logout",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "agent",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 401
+    },
+    {
+      "role": "merchant",
+      "path": "/api/auth/login",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "merchant",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "merchant",
+      "path": "/api/merchant-profile",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "merchant",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "partner",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "partner",
+      "path": "/api/merchant-profile",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "partner",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "partner",
+      "path": "/api/auth/logout",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "partner",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 401
+    },
+    {
+      "role": "partner",
+      "path": "/api/auth/login",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "partner",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "partner",
+      "path": "/api/partner/session",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "partner",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "partner",
+      "path": "/api/partner/session",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "partner",
+      "path": "/api/auth/logout",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 401
+    },
+    {
+      "role": "admin",
+      "path": "/api/auth/login",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/class-counts",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/facets",
+      "query": "?recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=0&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/agents",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/merchant-applications/pending-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/outreach-queue/count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/confirmation-status/batch",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/facets",
+      "query": "?recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/agents",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/class-counts",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=0&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/merchant-applications/pending-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/outreach-queue/count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/confirmation-status/batch",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/facets",
+      "query": "?recordClass=production&assignedToMe=true",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=0&recordClass=production&assignedToMe=true",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/confirmation-status/batch",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/merchant-applications/pending-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/facets",
+      "query": "?blocked=true&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=0&blocked=true&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/confirmation-status/batch",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/facets",
+      "query": "?recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/facets",
+      "query": "?recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/class-counts",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=0&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/agents",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/merchant-applications/pending-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/outreach-queue/count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/confirmation-status/batch",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/auth/user",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/tasks/overdue-count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/class-counts",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/admin/ghl-health",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts",
+      "query": "?limit=50&offset=0&recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/facets",
+      "query": "?recordClass=production",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/agents",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/sms-inbox/unread-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/merchant-applications/pending-count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/notifications/count",
+      "query": "",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/outreach-queue/count",
+      "query": "",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "role": "admin",
+      "path": "/api/contacts/confirmation-status/batch",
+      "query": "",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "/api/live-chat/sessions",
+      "query": "?status=active",
+      "method": "GET",
+      "status": 501
+    }
+  ],
+  "errors": []
+}

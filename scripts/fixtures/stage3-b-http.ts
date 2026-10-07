@@ -6,7 +6,8 @@ import { assertDisposableTestInfrastructure } from "../test-infrastructure-guard
 /** Actual persisted Passport sessions/CSRF, private listener, no inherited
  * customer/provider credentials. Call before importing application modules. */
 export async function stage3BHttpFixture(register: (app: Express) => Promise<void>,
-  authDependencies?:Parameters<typeof import("../../server/replit_integrations/auth/replitAuth").setupAuth>[1]) {
+  authDependencies?:Parameters<typeof import("../../server/replit_integrations/auth/replitAuth").setupAuth>[1],
+  options?:{interactivePassword?:string;emailPrefix?:string}) {
   // The canonical runner owns its suite namespace. This fixture owns a
   // separate descendant, just as canonical migration/server wrappers do.
   // Never reuse or release the runner's reservation.
@@ -15,6 +16,15 @@ export async function stage3BHttpFixture(register: (app: Express) => Promise<voi
   const isolation = await assertDisposableTestInfrastructure({
     operation: "Stage 3 B registered lifecycle/workflow fixture", requireRedis: true, reserveRedisNamespace: true,
   });
+  const originalFetch = globalThis.fetch;
+  let externalCalls = 0;
+  let base = "";
+  // Deny before database-bound application/auth/route imports, not only once
+  // the listener is ready. Test isolation never restores product approval gates.
+  globalThis.fetch = (async (input: any, init: any) => {
+    if (!base || !String(input).startsWith(`${base}/`)) { externalCalls++; throw new Error("FIXTURE_PROVIDER_DENIED"); }
+    return originalFetch(input, init);
+  }) as typeof fetch;
   const { db, pool } = await import("../../server/db");
   const { default: express } = await import("express");
   const { default: cookieParser } = await import("cookie-parser");
@@ -22,17 +32,15 @@ export async function stage3BHttpFixture(register: (app: Express) => Promise<voi
   const { setupAuth } = await import("../../server/replit_integrations/auth");
   const { registerAuthRoutes } = await import("../../server/replit_integrations/auth/routes");
   const { csrfTokenEndpoint } = await import("../../server/middleware/csrf");
-  const originalFetch = globalThis.fetch;
   const prefix = `stage3b-${randomUUID()}`;
-  const password = `fixture-${randomUUID()}`;
+  if(options?.interactivePassword)assert.ok(options.interactivePassword.length>=16,"Temporary interactive test password must have at least 16 characters");
+  const password = options?.interactivePassword ?? `fixture-${randomUUID()}`;
   const passwordHash = await bcrypt.hash(password, 4);
   const roles = ["admin", "manager", "agent", "other", "merchant", "affiliate", "partner"] as const;
   const userId = (role: string) => `${prefix}-${role}`;
-  const email = (role: string) => `${userId(role)}@example.test`;
-  let externalCalls = 0;
+  const email = (role: string) => `${options?.emailPrefix?`${options.emailPrefix}-${role}`:userId(role)}@example.test`;
   let server: ReturnType<Express["listen"]> | undefined;
   const sessions = new Map<string, { cookie: string; token: string }>();
-  let base = "";
   const close = async () => {
     globalThis.fetch = originalFetch;
     if (server) await new Promise<void>(resolve => server!.close(() => resolve()));

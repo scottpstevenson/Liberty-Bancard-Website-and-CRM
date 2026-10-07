@@ -6,13 +6,22 @@
 import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { financialState, financialUrl } from "../client/src/lib/crm-destination-state";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (path: string) => readFileSync(resolve(root, path), "utf8");
+const financialHub = read("client/src/pages/dashboard/FinancialHub.tsx");
+const financialNavigation = new URL(financialUrl("tab=financial&financialTab=revenue&dealId=42", "#history", "forecasting"), "http://candidate.test");
 const assertions: Array<[string, boolean]> = [
   ["nested reporting URL keeps parent tab", read("client/src/pages/dashboard/ReportingHub.tsx").includes('params.set("tab", v)')],
-  ["financial URL state is namespaced", read("client/src/pages/dashboard/FinancialHub.tsx").includes('get("financialTab")')],
-  ["financial navigation preserves reporting parent", read("client/src/pages/dashboard/FinancialHub.tsx").includes('params.set("tab", "financial")')],
+  ["financial URL state is namespaced", financialHub.includes("financialState(search)")
+    && financialState("tab=financial&financialTab=forecasting").value === "forecasting"],
+  ["financial navigation preserves reporting parent", financialHub.includes("financialUrl(search, window.location.hash, v as Tab)")
+    && financialNavigation.pathname === "/dashboard/reporting"
+    && financialNavigation.searchParams.getAll("tab").join() === "financial"
+    && financialNavigation.searchParams.getAll("financialTab").join() === "forecasting"
+    && financialNavigation.searchParams.get("dealId") === "42"
+    && financialNavigation.hash === "#history"],
   ["reporting analytics exclude agents", ["/api/analytics/pipeline", "/api/analytics/support", "/api/analytics/tasks"].every(
     route => new RegExp(`${route.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}", requireRole\\("admin", "manager"\\)`).test(read("server/routes/analytics.ts")),
   )],

@@ -81,6 +81,12 @@ type SuiteManifestDefinition = Omit<
 >;
 
 const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
+  {name:"Stage 3 C1 Protected Query Runtime",script:"scripts/test-stage3-c1-query-runtime.mjs",capability:"deterministic-static",
+    providerDenial:"Mounted jsdom hooks and injected delayed fetch; no real sessions, DB or providers"},
+  {name:"Stage 3 C1 Typed Foundation",script:"scripts/test-stage3-c1-foundation.ts",capability:"deterministic-static",
+    providerDenial:"Pure complete-set/codecs/portable hashes; no DB, transport or action claims"},
+  {name:"Stage 3 C1 Authenticated Candidate Browser",script:"scripts/test-stage3-c1-browser.mjs",capability:"deterministic-integration",
+    providerDenial:"Private disposable DB/Redis; actual empty-profile UI login, real handlers; all non-loopback browser/server fetch denied"},
   {name:"Stage 3 B Fake Auth Continuations",script:"scripts/test-stage3-b-auth-continuations.ts",capability:"deterministic-integration",
     providerDenial:"Guarded disposable DB and Redis; fake all account-security/MFA transports; actual current auth handlers/sessions"},
   {name:"Stage 3 B Protected Browser Proof",script:"scripts/test-stage3-b-browser.ts",capability:"deterministic-integration",

@@ -1,0 +1,260 @@
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('/fonts/ibm-plex-mono-400.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-400.ttf") format("truetype");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-500.ttf") format("truetype");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-600.ttf") format("truetype");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-700.ttf") format("truetype");
+}
+/* Employee-only Liberty presentation contract. Applied only to adopted CRM
+   surfaces and explicitly opted-in Radix portal content. */
+.crm-theme {
+  --background: 40 33% 98%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 222 47% 11%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 221 78% 48%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 84.2% 60.2%;
+  /* Compiled white/red measured 3.60:1. Keep the specified red; correct
+     only employee light-theme text to navy (4.75:1). Dark stays inverse. */
+  --destructive-foreground: 222 47% 11%;
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 222 47% 11%;
+  --brand-red: 0 72% 47%;
+  --stat-positive: 152 52% 36%;
+  --stat-negative: 0 66% 48%;
+  --sidebar: 0 0% 100%;
+  --sidebar-foreground: 222 47% 11%;
+  --sidebar-border: 214.3 31.8% 91.4%;
+  --sidebar-ring: 222 47% 11%;
+  --sidebar-primary: 222 47% 11%;
+  --sidebar-primary-foreground: 210 40% 98%;
+  --sidebar-accent: 210 40% 96.1%;
+  --sidebar-accent-foreground: 222 47% 11%;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-display: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+  --radius: 0.5rem;
+  --crm-space-1: 4px;
+  --crm-space-2: 8px;
+  --crm-space-3: 12px;
+  --crm-space-4: 16px;
+  --crm-space-5: 24px;
+  --crm-space-6: 32px;
+  --crm-title-size: 24px;
+  --crm-title-line: 32px;
+  --crm-section-size: 18px;
+  --crm-section-line: 24px;
+  --crm-body-size: 14px;
+  --crm-body-line: 20px;
+  --crm-label-size: 12px;
+  --crm-label-line: 16px;
+  --crm-metric-size: 28px;
+  --crm-metric-line: 32px;
+  --crm-target-height: 44px;
+  --crm-control-radius: 6px;
+  --crm-surface-radius: 8px;
+  --shadow-card: 0 1px 2px -1px hsl(222 47% 11% / 0.08), 0 2px 6px -1px hsl(222 47% 11% / 0.06);
+  --shadow-elevated: 0 12px 32px -12px hsl(222 47% 11% / 0.28), 0 4px 10px -4px hsl(222 47% 11% / 0.12);
+  --crm-danger-foreground: 0 0% 100%;
+  --crm-chart-1: 221 78% 48%;
+  --crm-chart-2: 152 52% 36%;
+  --crm-chart-3: 0 72% 47%;
+  --crm-chart-4: 222 47% 11%;
+  --crm-chart-5: 215 16% 47%;
+  --crm-control-border: 215 16% 47%;
+  --crm-danger-surface: var(--brand-red);
+  color-scheme: light;
+  font-family: var(--font-body);
+  color: hsl(var(--foreground));
+  background-color: hsl(var(--background));
+}
+
+.dark .crm-theme,
+.crm-theme.dark {
+  --background: 222 47% 11%;
+  --foreground: 210 40% 98%;
+  --card: 222 47% 10%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222 47% 10%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 210 40% 98%;
+  --primary-foreground: 222 47% 11%;
+  --secondary: 217.2 32.6% 17.5%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217.2 32.6% 17.5%;
+  --muted-foreground: 215 20.2% 65.1%;
+  --accent: 217.2 32.6% 17.5%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 217.2 32.6% 17.5%;
+  --input: 217.2 32.6% 17.5%;
+  --ring: 212.7 26.8% 83.9%;
+  --brand-red: 0 70% 55%;
+  --stat-positive: 152 45% 50%;
+  --stat-negative: 0 72% 62%;
+  --shadow-card: 0 1px 2px -1px hsl(0 0% 0% / 0.4), 0 2px 6px -1px hsl(0 0% 0% / 0.3);
+  --shadow-elevated: 0 12px 32px -12px hsl(0 0% 0% / 0.55), 0 4px 10px -4px hsl(0 0% 0% / 0.4);
+  --sidebar: 222 47% 10%;
+  --sidebar-foreground: 210 40% 98%;
+  --sidebar-border: 217.2 32.6% 17.5%;
+  --sidebar-ring: 212.7 26.8% 83.9%;
+  --sidebar-primary: 210 40% 98%;
+  --sidebar-primary-foreground: 222 47% 11%;
+  --sidebar-accent: 217.2 32.6% 17.5%;
+  --sidebar-accent-foreground: 210 40% 98%;
+  --crm-chart-1: 217 91% 60%;
+  --crm-chart-2: 152 45% 50%;
+  --crm-chart-3: 0 70% 55%;
+  --crm-chart-4: 210 40% 98%;
+  --crm-chart-5: 215 20.2% 65.1%;
+  --crm-control-border: 215 20.2% 65.1%;
+  --crm-danger-surface: var(--destructive);
+  --crm-danger-foreground: 0 0% 100%;
+  color-scheme: dark;
+}
+
+.crm-page {
+  container-type: inline-size;
+  container-name: crm-page;
+  width: 100%;
+  max-width: 1280px;
+  margin-inline: auto;
+  padding-inline: 12px;
+  padding-top: 12px;
+  font-family: var(--font-body);
+  font-size: var(--crm-body-size);
+  line-height: var(--crm-body-line);
+}
+.crm-worklist-cards { display: none; }
+.crm-worklist-table { display: block; max-height: min(640px, 70dvh); overflow-y: auto; }
+.crm-worklist-table thead { position: sticky; top: 0; z-index: 1; background: hsl(var(--card)); }
+.crm-page th { min-height: 44px; height: 44px; }
+.crm-page .crm-worklist-table td { padding: 10px 12px; }
+.crm-page [data-testid="contacts-pagination"] { flex-wrap: wrap; gap: 12px; padding: 16px; }
+.crm-page [data-testid="contacts-pagination"] > div { flex-wrap: wrap; }
+.crm-theme :is(button, [role="button"], [role="tab"], [role="combobox"]) { min-height: 44px; }
+.crm-theme :is(button[aria-label], [data-testid="button-sidebar-toggle"]) { min-width: 44px; }
+.crm-theme [data-sidebar="menu-button"] { min-height: 44px; }
+.crm-theme [data-sidebar="sidebar"] { font-family: var(--font-body); }
+.crm-theme [role="checkbox"] { min-width: 44px; min-height: 44px; }
+.crm-theme .bg-destructive { background-color: hsl(var(--crm-danger-surface)); color: hsl(var(--crm-danger-foreground)); }
+.crm-theme [toast-close] { display: grid; min-width: 44px; height: 44px; place-items: center; }
+.crm-theme.crm-portal {
+  background-color: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  font-family: var(--font-body);
+  box-shadow: var(--shadow-elevated);
+}
+.crm-theme.crm-portal.destructive {
+  background-color: hsl(var(--crm-danger-surface));
+  color: hsl(var(--crm-danger-foreground));
+}
+@container crm-page (max-width: 767px) {
+  .crm-page div:has(> div > input[data-testid="input-search-contacts"]) { flex-wrap: wrap; }
+  .crm-page div:has(> input[data-testid="input-search-contacts"]) { flex-basis: 100%; }
+}
+.crm-page textarea { min-height: 96px; padding: 12px; line-height: 20px; }
+@media (max-width: 767px) {
+  .crm-page :is(input,select,textarea), .crm-portal :is(input,select,textarea) { font-size: 16px; }
+}
+@container (max-width: 767px) {
+  .crm-worklist-cards { display: block; }
+  .crm-worklist-table { display: none; }
+}
+.crm-page h1 {
+  margin: 0;
+  font-size: var(--crm-title-size);
+  line-height: var(--crm-title-line);
+  font-weight: 600;
+}
+.crm-control {
+  min-height: 44px;
+  border-radius: var(--crm-control-radius);
+}
+.crm-page :is(button, [role="button"], input, select, [role="combobox"], [role="tab"]),
+.crm-portal :is(button, [role="button"], input, select, [role="combobox"], [role="tab"]) {
+  min-height: 44px;
+}
+.crm-page :is(input, select, textarea),
+.crm-portal :is(input, select, textarea) {
+  border-color: hsl(var(--crm-control-border));
+  border-radius: var(--crm-control-radius);
+}
+.crm-page :is(button, a, input, select, textarea, [tabindex]):focus-visible,
+.crm-portal :is(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+.crm-page :is([role="option"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]),
+.crm-portal :is([role="option"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]) {
+  min-height: 44px;
+}
+.crm-portal :is([role="dialog"], [data-radix-popper-content-wrapper] > *) {
+  font-family: var(--font-body);
+}
+@media (min-width: 640px) {
+  .crm-page { padding-inline: 24px; padding-top: 24px; }
+}
+@media (max-width: 767px) {
+  .crm-page textarea { min-height: 96px; padding: 12px; line-height: 20px; }
+}
+@container (max-width: 680px) {
+  .crm-metric-rail { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .crm-card-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 639px) {
+  .crm-page { padding-inline: 12px; padding-top: 12px; }
+}
+@media (max-width: 767px) {
+  .crm-page :is(input, select, textarea), .crm-portal :is(input, select, textarea) { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .crm-page, .crm-portal,
+  .crm-page::before, .crm-page::after, .crm-portal::before, .crm-portal::after,
+  .crm-page *, .crm-page *::before, .crm-page *::after,
+  .crm-portal *, .crm-portal *::before, .crm-portal *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

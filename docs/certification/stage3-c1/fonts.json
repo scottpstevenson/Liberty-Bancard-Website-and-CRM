@@ -1,0 +1,11 @@
+{
+  "license": "client/public/fonts/OFL.txt",
+  "scope": "Local IBM Plex font faces preserve existing families; CRM sets operational aliases. Marketing display family is not replaced.",
+  "assets": [
+    {"file":"client/public/fonts/ibm-plex-sans-400.ttf","sha256":"6dbe082463cf749cfa057d45c3048c90f4df031496498e5b5bdfd0b6babb9d16","source":"https://fonts.gstatic.com/s/ibmplexsans/v23/zYXGKVElMYYaJe8bpLHnCwDKr932-G7dytD-Dmu1swZSAXcomDVmadSD6llzAA.ttf"},
+    {"file":"client/public/fonts/ibm-plex-sans-500.ttf","sha256":"6f7a8c4219e021ff7c9131bc5f1f7af97bcd1436a59578d444a8cb92e9791742","source":"https://fonts.gstatic.com/s/ibmplexsans/v23/zYXGKVElMYYaJe8bpLHnCwDKr932-G7dytD-Dmu1swZSAXcomDVmadSD2FlzAA.ttf"},
+    {"file":"client/public/fonts/ibm-plex-sans-600.ttf","sha256":"5311c66fd6d04ae45671236f7eae667b671c06c1dc7e88d52c206e5fadd0fb21","source":"https://fonts.gstatic.com/s/ibmplexsans/v23/zYXGKVElMYYaJe8bpLHnCwDKr932-G7dytD-Dmu1swZSAXcomDVmadSDNF5zAA.ttf"},
+    {"file":"client/public/fonts/ibm-plex-sans-700.ttf","sha256":"e129a20e8ff7c907ffd07124b573e88c323b7b18afc934d4aa539a3e0f2fe100","source":"https://fonts.gstatic.com/s/ibmplexsans/v23/zYXGKVElMYYaJe8bpLHnCwDKr932-G7dytD-Dmu1swZSAXcomDVmadSDDV5zAA.ttf"},
+    {"file":"client/public/fonts/ibm-plex-mono-400.ttf","sha256":"6a3412f058c7d8dfd9170c41e85ade48e5156ecb89356110ca57a0a27734af46","source":"https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexmono/IBMPlexMono-Regular.ttf"}
+  ]
+}

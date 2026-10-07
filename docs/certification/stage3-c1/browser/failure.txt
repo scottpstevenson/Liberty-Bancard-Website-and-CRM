@@ -1,0 +1,497 @@
+DAILY WORK
+Overview
+Contacts & Leads
+Pipeline
+Messages & Inbox
+Tasks & Appointments
+AI Advisor
+MERCHANT OPS
+Portfolio
+Applications
+Statement Reviews
+Documents
+Underwriting
+Onboarding
+Merchant Risk
+Boarding
+OUTBOUND
+Canonical Enrichment
+Lead Ops Center
+Ready for Outreach
+Outreach
+Lead Imports
+REPORTS
+Reports
+Leaderboard
+Settings
+PARTNERS
+RESOURCES
+U
+stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf-manager@example.test
+Dev Mode
+Replay Tour
+Sign Out
+Toggle Sidebar
+My Contacts
+Ctrl+K
+Protect your account by enabling two-factor authentication (2FA).
+Set up 2FA
+GHL not configured. Set GHL_PRIVATE_INTEGRATION_TOKEN and GHL_LOCATION_ID in Replit Secrets to enable sync.
+GHL Settings
+People
+
+Contacts in your authorized scope. Filters and paging are shareable in the URL.
+
+Add Contact
+61
+Total Contacts
+61
+Active
+100%
+0
+Bounced
+0%
+0
+Invalid
+0%
+0
+Opted Out
+0%
+61 contacts
+Default order
+All
+61
+Active
+61
+Bounced
+Invalid
+Opted Out
+Assigned to me
+Never contacted
+Contacted today
+This week
+Stale (30d)
+Updated this week
+No call (30d)
+Blocked
+Churn Risk
+No outreach (24h)
+No deal
+Assigned
+Show Archived
+Filters
+Find Duplicates
+Export CSV
+Production people
+Assigned to me
+Outreach blocked
+URL presets only — no saved-filter writes.
+Select all
+	Name	Company	Email	Phone	Vertical	Tags	Status	Last Activity	Last Contacted	Assigned Rep	
+	
+CP
+C1 Synthetic 61 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf61@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 60 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf60@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 59 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf59@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 58 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf58@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 57 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf57@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 56 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf56@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 55 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf55@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 54 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf54@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 53 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf53@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 52 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf52@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 51 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf51@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 50 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf50@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 49 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf49@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 48 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf48@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 47 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf47@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 46 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf46@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 45 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf45@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 44 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf44@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 43 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf43@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 42 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf42@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 41 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf41@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 40 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf40@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 39 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf39@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 38 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf38@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 37 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf37@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 36 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf36@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 35 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf35@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 34 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf34@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 33 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf33@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 32 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf32@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 31 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf31@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 30 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf30@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 29 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf29@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 28 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf28@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 27 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf27@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 26 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf26@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 25 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf25@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 24 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf24@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 23 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf23@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 22 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf22@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 21 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf21@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 20 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf20@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 19 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf19@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 18 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf18@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 17 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf17@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 16 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf16@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 15 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf15@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 14 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf14@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 13 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf13@example.test		—	
+	New	—	—	
+Unassigned
+	
+
+	
+CP
+C1 Synthetic 12 Person
+	—	stage3b-b32c4b78-2e70-46ba-86e7-9223becf6baf12@example.test		—	
+	New	—	—	
+Unassigned
+	
+Showing 1–50 of 61
+As of 12:40:24 PM
+Per page
+25
+50
+100
+Previous
+Next

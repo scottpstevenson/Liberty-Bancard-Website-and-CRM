@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect,useRef } from "react";
 import { useContacts, useContactsFacets, useCreateContact, useUpdateContact } from "@/hooks/use-contacts";
 import { useConfirmationFailedBatch } from "@/hooks/use-confirmation-failed-batch";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -26,7 +27,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { exportToCSV } from "@/lib/export-csv";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import SavedFilterBar from "@/components/SavedFilterBar";
+import { destinationUrl, peopleState } from "@/lib/crm-destination-state";
+import { CrmPage, CrmPageHeader, CrmFilterPanel } from "@/components/crm/CrmPresentation";
 import DashboardErrorState from "@/components/DashboardErrorState";
 import { VERTICALS } from "@shared/schema";
 import { resolveContactTargetVertical, SFP_CONTACT_VERTICAL_IDS } from "@shared/contact-vertical-taxonomy";
@@ -120,8 +122,8 @@ function getDetailText(event: ActivityEvent): string | null {
 function ActivityTimeline({ entityType, entityId }: { entityType: string; entityId: number }) {
   const { data: events, isLoading } = useQuery<ActivityEvent[]>({
     queryKey: ["/api/activity", entityType, entityId],
-    queryFn: async () => {
-      const res = await fetch(`/api/activity?entityType=${entityType}&entityId=${entityId}`, { credentials: "include" });
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/activity?entityType=${entityType}&entityId=${entityId}`, { credentials: "include", signal });
       if (!res.ok) return [];
       return res.json();
     },
@@ -388,27 +390,53 @@ function DuplicateFinderDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 }
 
 export default function Contacts() {
-  const pageSize = 100;
   const [location, setLocation] = useLocation();
   const search = useSearch();
-  const peopleParams = new URLSearchParams(search);
+  const { user } = useAuth();
+  const isManagerOrAdmin = user?.role === "admin" || user?.role === "manager";
+  // The registered reader resolves assignedToMe only through agentOwnershipEmail.
+  // Other roles silently receive an unfiltered result; never label that "mine".
+  const assignmentFilterSupported = user?.role === "agent";
+  const parsedPeople = peopleState(search,isManagerOrAdmin,assignmentFilterSupported);
+  const peopleParams = parsedPeople.params;
+  useEffect(()=>{
+    if(!parsedPeople.issues.length && peopleParams.toString()!==new URLSearchParams(search).toString())
+      setLocation(destinationUrl(location,peopleParams,window.location.hash),{replace:true});
+  },[search,location,setLocation]);
+  const requestedSize = Number(peopleParams.get("limit") ?? 50);
+  const pageSize = [25, 50, 100].includes(requestedSize) ? requestedSize : 50;
   const peoplePath = location === "/dashboard/contacts-leads" ? "/dashboard/contacts-leads" : "/dashboard/contacts";
   const offsetParam = Number(peopleParams.get("offset") ?? "0");
-  const offset = Number.isFinite(offsetParam) && offsetParam >= 0 ? offsetParam : 0;
+  const offset = Number.isSafeInteger(offsetParam) && offsetParam >= 0
+    ? Math.floor(offsetParam / pageSize) * pageSize : 0;
   const page = Math.floor(offset / pageSize);
+  const pendingParams = useRef<{ source: string; params: URLSearchParams; scheduled: boolean; replace: boolean }>();
   const setPage = (nextPage: number | ((current: number) => number)) => {
     const resolvedPage = typeof nextPage === "function" ? nextPage(page) : nextPage;
     const next = new URLSearchParams(search);
     if (resolvedPage > 0) next.set("offset", String(resolvedPage * pageSize));
     else next.delete("offset");
-    setLocation(`${peoplePath}${next.toString() ? `?${next.toString()}` : ""}`, { replace: true });
+    setLocation(destinationUrl(peoplePath, next, window.location.hash));
   };
-  const updatePeopleParam = (key: "search" | "sort" | "archived" | "status" | "recordClass", value: string) => {
-    const next = new URLSearchParams(search);
+  const updatePeopleParam = (key: string, value: string, replace = false) => {
+    // Existing "clear filters" actions change several fields synchronously.
+    // Merge those changes before one navigation rather than losing all but
+    // the final setter against a captured URL.
+    if (!pendingParams.current || pendingParams.current.source !== search)
+      pendingParams.current = { source: search, params: new URLSearchParams(search), scheduled: false, replace };
+    const pending = pendingParams.current;
+    const next = pending.params;
     if (value) next.set(key, value);
     else next.delete(key);
     next.delete("offset");
-    setLocation(`${peoplePath}${next.toString() ? `?${next.toString()}` : ""}`, { replace: true });
+    pending.replace = pending.replace && replace;
+    if (!pending.scheduled) {
+      pending.scheduled = true;
+      queueMicrotask(() => {
+        setLocation(destinationUrl(peoplePath, next, window.location.hash), { replace: pending.replace });
+        if (pendingParams.current === pending) pendingParams.current = undefined;
+      });
+    }
   };
   // These list controls are URL state, so a shared link/back navigation always
   // describes the same People view and every change returns to the first page.
@@ -419,47 +447,62 @@ export default function Contacts() {
   // Default to "production" so the list shows only real contacts unless the admin
   // explicitly selects another class. "all" is a virtual value that removes the filter.
   const recordClassFilter = peopleParams.get("recordClass") ?? "production";
-  const setSearchTerm = (value: string) => updatePeopleParam("search", value);
+  const [searchDraft, setSearchTerm] = useState(searchTerm);
+  const latestSearch = useRef(search);
+  latestSearch.current = search;
+  useEffect(() => { setSearchTerm(searchTerm); }, [searchTerm]);
+  useEffect(() => {
+    if (searchDraft === searchTerm) return;
+    const timeout = setTimeout(() => {
+      const next = new URLSearchParams(latestSearch.current);
+      if (searchDraft) next.set("search", searchDraft); else next.delete("search");
+      next.delete("offset");
+      setLocation(destinationUrl(peoplePath, next, window.location.hash), { replace: true });
+    }, 250);
+    return () => clearTimeout(timeout);
+  }, [searchDraft, searchTerm, peoplePath, setLocation]);
   const setActivitySort = (value: string) => updatePeopleParam("sort", value);
   const setShowArchived = (value: boolean) => updatePeopleParam("archived", value ? "true" : "");
   const setStatusFilter = (value: string) => updatePeopleParam("status", value);
   // #1443 — Declare server-filter states BEFORE useContacts so they can be passed as
   // reactive query params. Initialized synchronously from URL search params so the very
   // first fetch already carries the filter (no double-fetch / empty-flash from useEffect).
-  const [churnRiskOnly, setChurnRiskOnly] = useState<boolean>(
-    () => new URLSearchParams(window.location.search).get("churnRisk") === "high",
-  );
-  const [noOutreach24hOnly, setNoOutreach24hOnly] = useState<boolean>(
-    () => new URLSearchParams(window.location.search).get("noOutreach") === "24h",
-  );
-  const [blockedOnly, setBlockedOnly] = useState<boolean>(
-    () => new URLSearchParams(window.location.search).get("blocked") === "true",
-  );
+  const churnRiskOnly = peopleParams.get("churnRisk") === "high";
+  const setChurnRiskOnly = (v: boolean) => updatePeopleParam("churnRisk", v ? "high" : "");
+  const noOutreach24hOnly = peopleParams.get("noOutreach") === "24h";
+  const setNoOutreach24hOnly = (v: boolean) => updatePeopleParam("noOutreach", v ? "24h" : "");
+  const blockedOnly = peopleParams.get("blocked") === "true";
+  const setBlockedOnly = (v: boolean) => updatePeopleParam("blocked", v ? "true" : "");
   const [bulkUpdating, setBulkUpdating] = useState(false);
-  const [emailHealthFilter, setEmailHealthFilter] = useState("");
-  const [assignedToMe, setAssignedToMe] = useState(false);
-  const [verticalFilter, setVerticalFilter] = useState(""); // #238
+  const emailHealthFilter = peopleParams.get("emailHealth") ?? "";
+  const setEmailHealthFilter = (v: string) => updatePeopleParam("emailHealth", v);
+  const assignedToMe = peopleParams.get("assignedToMe") === "true";
+  const setAssignedToMe = (v: boolean) => updatePeopleParam("assignedToMe", v ? "true" : "");
+  const verticalFilter = peopleParams.get("vertical") ?? "";
+  const setVerticalFilter = (v: string) => updatePeopleParam("vertical", v);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false); // #236
-  const [tagFilter, setTagFilter] = useState(""); // #263
-  const [neverContactedOnly, setNeverContactedOnly] = useState(false); // #462
-  const [createdThisWeekOnly, setCreatedThisWeekOnly] = useState(false); // #482
-  const [leadSourceFilter, setLeadSourceFilter] = useState(""); // #514
-  const [hasAssigneeOnly, setHasAssigneeOnly] = useState(false); // #619
-  const [contactedTodayOnly, setContactedTodayOnly] = useState(false); // #383
-  const [lifecycleFilter, setLifecycleFilter] = useState(""); // #520
-  const [staleContactsOnly, setStaleContactsOnly] = useState(false); // #398
-  const [recentlyUpdated, setRecentlyUpdated] = useState(false); // #543
-  const [noDealOnly, setNoDealOnly] = useState(false); // #835
-  const [notContactedIn30Only, setNotContactedIn30Only] = useState(false); // #1245
-  // churnRiskOnly / noOutreach24hOnly / blockedOnly declared early (before useContacts) — see above
-  useEffect(() => {
-    setPage(0);
-  }, [
-    churnRiskOnly, noOutreach24hOnly, blockedOnly, emailHealthFilter, assignedToMe,
-    verticalFilter, tagFilter, neverContactedOnly, createdThisWeekOnly, leadSourceFilter,
-    hasAssigneeOnly, contactedTodayOnly, lifecycleFilter, staleContactsOnly, recentlyUpdated,
-    noDealOnly, notContactedIn30Only,
-  ]);
+  const tagFilter = peopleParams.get("tag") ?? "";
+  const setTagFilter = (v: string) => updatePeopleParam("tag", v);
+  const neverContactedOnly = peopleParams.get("neverContacted") === "true";
+  const setNeverContactedOnly = (v: boolean) => updatePeopleParam("neverContacted", v ? "true" : "");
+  const createdThisWeekOnly = peopleParams.get("createdThisWeek") === "true";
+  const setCreatedThisWeekOnly = (v: boolean) => updatePeopleParam("createdThisWeek", v ? "true" : "");
+  const leadSourceFilter = peopleParams.get("leadSource") ?? "";
+  const setLeadSourceFilter = (v: string) => updatePeopleParam("leadSource", v);
+  const hasAssigneeOnly = peopleParams.get("hasAssignee") === "true";
+  const setHasAssigneeOnly = (v: boolean) => updatePeopleParam("hasAssignee", v ? "true" : "");
+  const contactedTodayOnly = peopleParams.get("contactedToday") === "true";
+  const setContactedTodayOnly = (v: boolean) => updatePeopleParam("contactedToday", v ? "true" : "");
+  const lifecycleFilter = peopleParams.get("lifecycle") ?? "";
+  const setLifecycleFilter = (v: string) => updatePeopleParam("lifecycle", v);
+  const staleContactsOnly = peopleParams.get("stale") === "true";
+  const setStaleContactsOnly = (v: boolean) => updatePeopleParam("stale", v ? "true" : "");
+  const recentlyUpdated = peopleParams.get("recentlyUpdated") === "true";
+  const setRecentlyUpdated = (v: boolean) => updatePeopleParam("recentlyUpdated", v ? "true" : "");
+  const noDealOnly = peopleParams.get("noDeal") === "true";
+  const setNoDealOnly = (v: boolean) => updatePeopleParam("noDeal", v ? "true" : "");
+  const notContactedIn30Only = peopleParams.get("notContactedIn30") === "true";
+  const setNotContactedIn30Only = (v: boolean) => updatePeopleParam("notContactedIn30", v ? "true" : "");
 
   const { data: contactsResult, isLoading, isError, refetch } = useContacts({
     limit: pageSize,
@@ -522,6 +565,12 @@ export default function Contacts() {
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setSelectedContact(null);
+    setIsDialogOpen(false);
+    setDuplicatesOpen(false);
+  }, [search]);
   const createContact = useCreateContact();
   const updateContact = useUpdateContact();
 
@@ -532,8 +581,6 @@ export default function Contacts() {
   );
   const { failedMap: confirmationFailedMap } = useConfirmationFailedBatch(pageContactIds);
   const { toast } = useToast();
-  const { user } = useAuth();
-  const isManagerOrAdmin = user?.role === "admin" || user?.role === "manager"; // #422
   const lifecycleIntents=useRef<Record<string,{key:string;payload:any}>>({});
   const lifecyclePayload=(operation:string,ids:number[])=>{
     const items=ids.map(id=>{
@@ -779,12 +826,14 @@ export default function Contacts() {
   const filteredContacts = contacts;
   const sortedContacts = contacts;
 
-  const { data: emailHealthSummary, isLoading: summaryLoading } = useQuery<{
-    total: number; active: number; bounced: number; invalid: number; opted_out: number;
-  }>({
-    queryKey: ["/api/contacts/email-health-summary"],
-    refetchInterval: 60_000,
-  });
+  const summaryLoading = facetsLoading;
+  const emailHealthSummary = facetsError || !facetsResult ? undefined : {
+    total:facetsResult.total,
+    active:facetsResult.byEmailHealth.active ?? 0,
+    bounced:facetsResult.byEmailHealth.bounced ?? 0,
+    invalid:facetsResult.byEmailHealth.invalid ?? 0,
+    opted_out:facetsResult.byEmailHealth.opted_out ?? 0,
+  };
 
   const contactsFilterState = { searchTerm, statusFilter, emailHealthFilter, showArchived: String(showArchived), assignedToMe: String(assignedToMe) };
 
@@ -913,7 +962,12 @@ export default function Contacts() {
   ] as const;
 
   return (
-    <div className="space-y-6">
+    <CrmPage className="space-y-6">
+      <CrmPageHeader title="People" description="Contacts in your authorized scope. Filters and paging are shareable in the URL."
+        primaryAction={<Button onClick={()=>setIsDialogOpen(true)} data-testid="button-add-contact"><Plus className="mr-2 h-4 w-4" /> Add Contact</Button>} />
+      {!!parsedPeople.issues.length && <div role="alert" className="rounded-md border p-3 text-sm">
+        {parsedPeople.issues.map(issue=><p key={issue.key}>{issue.reason}</p>)}
+      </div>}
       {/* Email Health Stats Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2" data-testid="email-health-stats-bar">
         {/* Total */}
@@ -929,7 +983,7 @@ export default function Contacts() {
           {summaryLoading ? (
             <Skeleton className="h-6 w-10 mb-1" />
           ) : (
-            <span className="text-xl font-bold leading-tight" data-testid="stat-count-all">{summaryTotal.toLocaleString()}</span>
+            <span className="text-xl font-bold leading-tight" data-testid="stat-count-all">{emailHealthSummary ? summaryTotal.toLocaleString() : "Unknown"}</span>
           )}
           <span className="text-[11px] font-medium text-muted-foreground mt-0.5">Total Contacts</span>
         </button>
@@ -956,7 +1010,7 @@ export default function Contacts() {
                   className={`text-xl font-bold leading-tight ${isActive ? stat.selectedText : stat.idleColor}`}
                   data-testid={`stat-count-${stat.key}`}
                 >
-                  {stat.value.toLocaleString()}
+                  {emailHealthSummary ? stat.value.toLocaleString() : "Unknown"}
                 </span>
               )}
               <span className={`text-[11px] font-medium mt-0.5 ${isActive ? stat.selectedText : stat.idleColor}`}>
@@ -977,7 +1031,7 @@ export default function Contacts() {
             <Input 
               placeholder="Search contacts..." 
               className="pl-9"
-              value={searchTerm}
+              value={searchDraft}
               onChange={(e) => setSearchTerm(e.target.value)}
               data-testid="input-search-contacts"
             />
@@ -1049,6 +1103,9 @@ export default function Contacts() {
           <button
             onClick={() => setAssignedToMe(!assignedToMe)}
             data-testid="chip-assigned-to-me"
+            disabled={!assignmentFilterSupported}
+            title={!assignmentFilterSupported ? "Assigned-to-me filtering is unavailable for this role" : undefined}
+            aria-describedby={!assignmentFilterSupported ? "people-assignment-filter-support" : undefined}
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
               assignedToMe
                 ? "bg-primary/10 border-primary/30 text-primary"
@@ -1060,7 +1117,7 @@ export default function Contacts() {
           </button>
           {/* #462 — Never contacted filter chip */}
           <button
-            onClick={() => setNeverContactedOnly(v => !v)}
+            onClick={() => setNeverContactedOnly(!neverContactedOnly)}
             data-testid="chip-never-contacted"
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
               neverContactedOnly
@@ -1073,7 +1130,7 @@ export default function Contacts() {
           </button>
           {/* #383 — Contacted today chip */}
           <button
-            onClick={() => setContactedTodayOnly(v => !v)}
+            onClick={() => setContactedTodayOnly(!contactedTodayOnly)}
             data-testid="chip-contacted-today"
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
               contactedTodayOnly
@@ -1086,7 +1143,7 @@ export default function Contacts() {
           </button>
           {/* #482 — Created this week filter chip */}
           <button
-            onClick={() => setCreatedThisWeekOnly(v => !v)}
+            onClick={() => setCreatedThisWeekOnly(!createdThisWeekOnly)}
             data-testid="chip-created-this-week"
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
               createdThisWeekOnly
@@ -1099,7 +1156,7 @@ export default function Contacts() {
           </button>
           {/* #398 — Stale contacts chip (no activity in 30+ days) */}
           <button
-            onClick={() => setStaleContactsOnly(v => !v)}
+            onClick={() => setStaleContactsOnly(!staleContactsOnly)}
             data-testid="chip-stale-contacts"
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
               staleContactsOnly
@@ -1112,7 +1169,7 @@ export default function Contacts() {
           </button>
           {/* #543 — Recently updated chip (last 7 days) */}
           <button
-            onClick={() => setRecentlyUpdated(v => !v)}
+            onClick={() => setRecentlyUpdated(!recentlyUpdated)}
             data-testid="chip-recently-updated"
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
               recentlyUpdated
@@ -1125,7 +1182,7 @@ export default function Contacts() {
           </button>
           {/* #1245 — Not contacted in 30 days chip */}
           <button
-            onClick={() => setNotContactedIn30Only(v => !v)}
+            onClick={() => setNotContactedIn30Only(!notContactedIn30Only)}
             data-testid="chip-not-contacted-30d"
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
               notContactedIn30Only
@@ -1138,7 +1195,7 @@ export default function Contacts() {
           </button>
           {/* #1443 — Blocked contacts chip */}
           <button
-            onClick={() => setBlockedOnly(v => !v)}
+            onClick={() => setBlockedOnly(!blockedOnly)}
             data-testid="chip-blocked-contacts"
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
               blockedOnly
@@ -1151,7 +1208,7 @@ export default function Contacts() {
           </button>
           {/* #1443 — Churn risk chip */}
           <button
-            onClick={() => setChurnRiskOnly(v => !v)}
+            onClick={() => setChurnRiskOnly(!churnRiskOnly)}
             data-testid="chip-churn-risk"
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
               churnRiskOnly
@@ -1164,7 +1221,7 @@ export default function Contacts() {
           </button>
           {/* #1443 — No-outreach 24h chip */}
           <button
-            onClick={() => setNoOutreach24hOnly(v => !v)}
+            onClick={() => setNoOutreach24hOnly(!noOutreach24hOnly)}
             data-testid="chip-no-outreach-24h"
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
               noOutreach24hOnly
@@ -1216,7 +1273,7 @@ export default function Contacts() {
           )}
           {/* #835 — No-deal contacts chip */}
           <button
-            onClick={() => setNoDealOnly(v => !v)}
+            onClick={() => setNoDealOnly(!noDealOnly)}
             data-testid="chip-no-deal"
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
               noDealOnly
@@ -1228,7 +1285,7 @@ export default function Contacts() {
           </button>
           {/* #619 — Has assignee chip */}
           <button
-            onClick={() => setHasAssigneeOnly(v => !v)}
+            onClick={() => setHasAssigneeOnly(!hasAssigneeOnly)}
             data-testid="chip-has-assignee"
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
               hasAssigneeOnly
@@ -1530,11 +1587,6 @@ export default function Contacts() {
             <Download className="w-4 h-4" /> Export CSV
           </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="gap-2" data-testid="button-add-contact">
-                <Plus className="w-4 h-4" /> Add Contact
-              </Button>
-            </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Create New Contact</DialogTitle>
@@ -1707,7 +1759,7 @@ export default function Contacts() {
       )}
 
       {/* #236 — Advanced filter drawer with #238 vertical filter */}
-      {showAdvancedFilters && (
+      <CrmFilterPanel open={showAdvancedFilters} onOpenChange={setShowAdvancedFilters}>
         <div className="p-3 border rounded-lg bg-muted/30 space-y-3 animate-in fade-in-0 slide-in-from-top-2 duration-150" data-testid="advanced-filters-panel">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">Advanced Filters</span>
@@ -1801,13 +1853,24 @@ export default function Contacts() {
             </div>
           </div>
         </div>
-      )}
+      </CrmFilterPanel>
 
-      <SavedFilterBar
-        entityType="contact"
-        currentFilters={contactsFilterState}
-        onApplyFilter={handleApplySavedFilter}
-      />
+      <div className="flex flex-wrap gap-2" aria-label="People URL presets">
+        <Button variant="outline" onClick={() => {
+          const next = new URLSearchParams();
+          if (peoplePath === "/dashboard/contacts-leads") next.set("tab", "people");
+          setLocation(destinationUrl(peoplePath, next, window.location.hash));
+        }} data-testid="preset-people-all">Production people</Button>
+        <Button variant="outline" disabled={!assignmentFilterSupported}
+          aria-describedby={!assignmentFilterSupported ? "people-assignment-filter-support" : undefined}
+          onClick={() => updatePeopleParam("assignedToMe", "true")}
+          data-testid="preset-people-mine">Assigned to me</Button>
+        <Button variant="outline" onClick={() => updatePeopleParam("blocked", "true")}
+          data-testid="preset-people-blocked">Outreach blocked</Button>
+        {!assignmentFilterSupported && <span id="people-assignment-filter-support"
+          className="text-sm text-muted-foreground self-center">Assigned-to-me filtering is unavailable for this role.</span>}
+        <span className="text-sm text-muted-foreground self-center">URL presets only — no saved-filter writes.</span>
+      </div>
 
       <Card>
         <CardContent className="p-0">
@@ -1888,6 +1951,7 @@ export default function Contacts() {
                 </span>
               </div>
               <ResponsiveTable
+                containerResponsive
               data={sortedContacts ?? []}
               columns={[
                 {
@@ -1917,7 +1981,9 @@ export default function Contacts() {
                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">
                           {contact.firstName?.[0] ?? '?'}{contact.lastName?.[0] ?? ''}
                         </div>
-                        <span className={isArchived ? "line-through" : ""}>{contact.firstName} {contact.lastName}</span>
+                        <a href={`/dashboard/contacts/${contact.id}`} onClick={e=>e.stopPropagation()}
+                          className={`inline-flex min-h-11 items-center hover:underline ${isArchived ? "line-through" : ""}`}
+                          data-testid={`link-contact-${contact.id}`}>{contact.firstName} {contact.lastName}</a>
                         {confirmationFailedMap.has(contact.id) && (
                           <Badge variant="destructive" className="text-xs gap-1 cursor-pointer no-default-hover-elevate no-default-active-elevate"
                             data-testid={`badge-confirmation-failed-${contact.id}`}
@@ -2192,7 +2258,9 @@ export default function Contacts() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1 flex-wrap">
-                        <span className={`font-medium text-sm ${isArchived ? "line-through" : ""}`}>{contact.firstName} {contact.lastName}</span>
+                        <a href={`/dashboard/contacts/${contact.id}`} onClick={e=>e.stopPropagation()}
+                          className={`inline-flex min-h-11 items-center font-medium text-sm hover:underline ${isArchived ? "line-through" : ""}`}
+                          data-testid={`link-contact-card-${contact.id}`}>{contact.firstName} {contact.lastName}</a>
                         {(contact as any).isDecisionMaker && <Star className="h-3 w-3 fill-amber-400 text-amber-400" />}
                         {/* #542 — DNC flag */}
                         {(contact as any).doNotContact && (
@@ -2217,23 +2285,31 @@ export default function Contacts() {
             </>
           )}
         </CardContent>
-        {(totalPages ?? 0) > 1 && (
+        {
           <div className="flex items-center justify-between px-6 py-4 border-t" data-testid="contacts-pagination">
             <span className="text-sm text-muted-foreground" data-testid="text-contacts-total">
               {totalContacts != null
-                ? `Showing ${page * pageSize + 1}–${Math.min((page + 1) * pageSize, totalContacts)} of ${totalContacts.toLocaleString()}`
-                : "Loading…"}
+                ? `Showing ${contacts?.length ? page * pageSize + 1 : 0}–${Math.min(page * pageSize + (contacts?.length ?? 0), totalContacts)} of ${totalContacts.toLocaleString()}`
+                : facetsError ? "Total unavailable" : "Loading total…"}
+              {facetsResult?.asOf && <span className="block text-xs">As of {new Date(facetsResult.asOf).toLocaleTimeString()}</span>}
             </span>
             <div className="flex gap-2">
+              <label className="flex items-center gap-2 text-sm">
+                Per page
+                <select value={pageSize} onChange={e => updatePeopleParam("limit", e.target.value)}
+                  data-testid="select-people-page-size" aria-label="People per page" className="min-h-11 rounded-md border bg-background px-2">
+                  {[25,50,100].map(size => <option value={size} key={size}>{size}</option>)}
+                </select>
+              </label>
               <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)} data-testid="button-contacts-prev">
                 Previous
               </Button>
-              <Button variant="outline" size="sm" disabled={totalPages == null || page >= totalPages - 1} onClick={() => setPage(p => p + 1)} data-testid="button-contacts-next">
+              <Button variant="outline" size="sm" disabled={isLoading || (totalPages != null ? page >= totalPages - 1 : (contacts?.length ?? 0) < pageSize)} onClick={() => setPage(p => p + 1)} data-testid="button-contacts-next">
                 Next
               </Button>
             </div>
           </div>
-        )}
+        }
       </Card>
 
       <DuplicateFinderDialog open={duplicatesOpen} onOpenChange={setDuplicatesOpen} />
@@ -2426,6 +2502,6 @@ export default function Contacts() {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </CrmPage>
   );
 }

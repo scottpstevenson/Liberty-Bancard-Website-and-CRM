@@ -109,6 +109,10 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
     timeoutSecs:900,requiresDisposableTestDatabase:true},
 ];
 export const MANDATORY_SUITES: Suite[] = [
+  {name:"Stage 3 C1 Protected Query Runtime",script:"scripts/test-stage3-c1-query-runtime.mjs",timeoutSecs:60},
+  {name:"Stage 3 C1 Typed Foundation",script:"scripts/test-stage3-c1-foundation.ts",timeoutSecs:60},
+  {name:"Stage 3 C1 Authenticated Candidate Browser",script:"scripts/test-stage3-c1-browser.mjs",
+    timeoutSecs:600,requiresDisposableTestDatabase:true},
   {name:"Canonical native transaction and lease boundaries",
     script:"scripts/certification/test-canonical-transaction-leases.ts",
     timeoutSecs:180,requiresDisposableTestDatabase:true},
