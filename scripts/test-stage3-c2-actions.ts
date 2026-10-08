@@ -36,11 +36,14 @@ const h=await stage3BHttpFixture(async app=>{
       }
     });else if(file==="toolkit")module[fn](app,{appointments:{
       config:()=>fakeAppointments?{apiKey:"fake-not-a-credential",locationId:"fixture-location",calendarId:undefined}:null,
-      read:async()=>appointmentFailure?{events:{invalid:true}}:{events:[
+       read:async(path:string)=>{
+         assert.equal(new URL(path,"https://fake.invalid").searchParams.has("limit"),false,
+           "Appointment reader must not send GHL's rejected limit parameter");
+         return appointmentFailure?{events:{invalid:true}}:{events:[
         {id:"owned-event",contactId:"c2-owned-provider",startTime:"2026-10-09T10:00:00Z",endTime:"2026-10-09T11:00:00Z"},
         {id:"foreign-event",contactId:"c2-foreign-provider",startTime:"2026-10-09T10:00:00Z",endTime:"2026-10-09T11:00:00Z"},
         {id:"unmapped-event",contactId:"unmapped",startTime:"2026-10-09T10:00:00Z",endTime:"2026-10-09T11:00:00Z"},
-      ]}
+       ]};}
     }});else module[fn](app);
   }
   app.use("/api",(_req,res)=>res.status(501).json({message:"Unregistered isolated C2 service; blocked, not empty"}));

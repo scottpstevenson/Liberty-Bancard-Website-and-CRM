@@ -1,0 +1,104 @@
+DAILY WORK
+Overview
+Contacts & Leads
+Pipeline
+Messages & Inbox
+Tasks & Appointments
+2
+AI Advisor
+MERCHANT OPS
+Portfolio
+Applications
+Statement Reviews
+Documents
+Underwriting
+Onboarding
+Merchant Risk
+Boarding
+OUTBOUND
+Canonical Enrichment
+Lead Ops Center
+Ready for Outreach
+Outreach
+Lead Imports
+REPORTS
+Reports
+Leaderboard
+Settings
+PARTNERS
+RESOURCES
+U
+stage3b-97a15bb1-2cb0-457c-9499-fc0d2e180a55-admin@example.test
+Dev Mode
+Replay Tour
+Sign Out
+Toggle Sidebar
+Tasks & Appointments
+Ctrl+K
+Security warning: Your admin account does not have two-factor authentication enabled. Enable 2FA immediately to protect your account.
+Set up 2FA
+Work
+
+Tasks and appointments in your authorized scope.
+
+Tasks
+Appointments
+Calendar
+Add Event
+
+Calendar source coverage
+
+Appointment calendar is not configured.
+
+Appointment list is bounded or incomplete (queue limit 10); an empty result is not definitive.
+
+ghl_appointments · not_configured
+
+October 2026
+Sun
+Mon
+Tue
+Wed
+Thu
+Fri
+Sat
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+Thursday, October 8
+
+No internal events are scheduled. Appointment calendar is not configured.
+
+Legend
+Meeting
+Call
+Follow-Up
+Demo

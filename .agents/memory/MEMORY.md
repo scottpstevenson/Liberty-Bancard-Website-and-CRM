@@ -133,7 +133,7 @@
 - [PR CI baseline discipline](pr-ci-baseline-discipline.md) — compare failures with main before expanding reconciliation scope; unrelated failing static checks belong to separate work.
 - [SFP contact-link evidence](sfp-contact-link-evidence.md) — user rejected universal strict Sunbiz/corporate-domain requirements; identity linking is separate from outreach eligibility.
 - [Ranked SQL selections and locks](postgres-ranked-selection-locks.md) — window queries cannot use FOR UPDATE; lock base rows and recheck; prove partial-expression index use with EXPLAIN.
-- [Provider documentation contracts](provider-documentation-contracts.md) — Outscraper expired results look Pending; Apollo organization and people searches have different billing semantics.
+- [Provider contracts](provider-documentation-contracts.md) — Invalid GHL resources can mask request errors; Outscraper expiry looks Pending; Apollo billing is operation-specific.
 - [Provider facts versus eligibility](provider-facts-vs-eligibility.md) — Preserve dispatched receipts across authority drift; serialize authorization separately from network I/O and promotion.
 - [Lossless timestamp authority pins](lossless-timestamp-authority-pins.md) — PostgreSQL microseconds must survive review CAS; JavaScript Date rounding can immediately invalidate an approval.
 - [Private auto-auth UI verification](private-autoauth-ui-verification.md) — Keep session-injecting fixture proxies loopback; use an explicit-port screenshot instead of exposing admin authority.

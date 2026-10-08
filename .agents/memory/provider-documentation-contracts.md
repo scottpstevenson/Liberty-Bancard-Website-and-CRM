@@ -1,7 +1,18 @@
 ---
 name: Provider documentation contracts
-description: External Apollo and Outscraper semantics that must be verified independently of fixtures and parser assumptions.
+description: External GHL, Apollo and Outscraper contracts that must be verified independently of fixtures and parser assumptions.
 ---
+
+Verify a provider request against a known-valid resource before concluding that
+configuration is its only defect.
+
+**Why:** A nonexistent GHL calendar produced HTTP 400 and masked a second HTTP
+422 caused by an unsupported query parameter. Known-valid calendars only
+succeeded after the request itself was corrected.
+
+**How to apply:** Keep diagnostics read-only and location-scoped. Test both valid
+resource success and invalid resource failure; never silently broaden scope or
+switch configured calendars to obtain success.
 
 Outscraper `Pending` is not proof that an async task is still running: expired results also return `Pending`. The documented successful request response does not include a completion timestamp.
 

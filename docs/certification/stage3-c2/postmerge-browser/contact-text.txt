@@ -1,0 +1,167 @@
+DAILY WORK
+Overview
+Contacts & Leads
+Pipeline
+Messages & Inbox
+Tasks & Appointments
+2
+AI Advisor
+MERCHANT OPS
+Portfolio
+Applications
+Statement Reviews
+Documents
+Underwriting
+Onboarding
+Merchant Risk
+Boarding
+OUTBOUND
+Canonical Enrichment
+Lead Ops Center
+Ready for Outreach
+Outreach
+Lead Imports
+REPORTS
+Reports
+Leaderboard
+Settings
+PARTNERS
+RESOURCES
+U
+stage3b-47830e58-f72c-48d0-ad56-741255cd4091-admin@example.test
+Dev Mode
+Replay Tour
+Sign Out
+Toggle Sidebar
+Dashboard
+Ctrl+K
+Security warning: Your admin account does not have two-factor authentication enabled. Enable 2FA immediately to protect your account.
+Set up 2FA
+Back to Contacts
+Repair Fixture
+Added: 10/8/2026
+stage3b-47830e58-f72c-48d0-ad56-741255cd4091@example.test
+stage3b-47830e58-f72c-48d0-ad56-741255cd4091-agent@example.test
+New
+Email unvalidated
+Prospect
+Lead Score:
+0
+✓
+Name
+✓
+Email
+✗
+Phone
+✗
+Company
+✗
+Website
+✗
+Vertical
+Ask AI Advisor
+Edit
+Compose Email
+GHL sync status unavailable
+Re-sync to GHL
+
+Writes to GHL are unavailable: synchronization is incoming-only. This does not pause incoming synchronization.
+
+Rate review status is unavailable.Retry
+Confirmation:
+Not Sent
+Email Validation:
+Not yet validated
+South Florida program (SFP) validation & readiness
+Separate from CRM
+
+This is an SFP-only decision, separate from the CRM Email Validation badge and history when present. An unvalidated CRM email plus a stored valid SFP outcome does not certify eligibility; a receipt is an eligible match only when it is matched, fresh, linked to the current employer, and the policy is eligible.
+
+No SFP validation decisions were returned for this contact. This is not a CRM validation result.
+
+Stage History
+Tags:
+Data Readiness
+
+Not yet scored. Readiness will be calculated by the active readiness backfill.
+
+↻ Re-score readiness
+Associated Companies
+Link Company
+
+No companies linked yet
+
+Log Call
+Add Note
+Create Deal
+Create Task
+Create Ticket
+Overview
+Sales work
+Conversations
+Lifecycle
+Service & performance
+Activity
+History
+Summary
+Relationships
+Locations
+Next best action is unavailable: 501: {"message":"Unregistered isolated service"}
+LEAD TEMP:
+Cold
+PREFERRED:
+Unknown
+LAST TOUCH:
+Never
+NEXT FOLLOW-UP:
+None scheduled
+ENGAGEMENT:
+0
+Contact Details
+Vertical
+—
+Monthly Volume
+—
+Current Provider
+—
+Preferred Channel
+—
+Primary Offer Path
+—
+Interested in 0%
+No
+Needs Terminal
+No
+SMS Consent
+No
+Email Consent
+No
+Do Not Contact
+No
+Assigned Rep
+stage3b-47830e58-f72c-48d0-ad56-741255cd4091-agent
+Lifecycle State
+PROSPECT
+Summary
+Total Deals
+0
+Total Deal Volume
+$0/mo
+Open Tickets
+0
+Pending Tasks
+2
+Days Since Added
+0d
+Decision Maker
+Not a Decision Maker
+Mark as DM
+Compliance & Suppression
+Do Not Contact
+Opted Out
+Unsubscribed
+Hard Bounce
+Complaint
+SMS Consent
+Mark Do Not Contact
+Set Next Step

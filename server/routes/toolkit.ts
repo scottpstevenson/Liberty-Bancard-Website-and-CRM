@@ -286,8 +286,10 @@ export function registerToolkitRoutes(app: Express, readerDependencies?: {
       const endTime = now + 30 * 24 * 60 * 60 * 1000;
       const calendarId = config.calendarId;
 
-      let path = `/calendars/events?locationId=${config.locationId}&startTime=${startTime}&endTime=${endTime}&limit=50`;
-      if (calendarId) path += `&calendarId=${calendarId}`;
+      // GHL rejects an unsupported `limit` on this endpoint with HTTP 422.
+      // Bound the local queue below; do not claim a provider-side page limit.
+      let path = `/calendars/events?locationId=${encodeURIComponent(config.locationId)}&startTime=${startTime}&endTime=${endTime}`;
+      if (calendarId) path += `&calendarId=${encodeURIComponent(calendarId)}`;
 
       const result = await (readerDependencies?.appointments?.read ?? ghlFetch)(path);
       const events = result?.events ?? result?.data;
@@ -334,7 +336,7 @@ export function registerToolkitRoutes(app: Express, readerDependencies?: {
         .slice(0, 10);
 
       res.json({ appointments, configured: true, status:"available", source:"ghl_appointments",
-        queueLimit:10, providerLimit:50, completeness:"bounded_queue", exact:false,
+        queueLimit:10, providerLimit:null, completeness:"bounded_queue", exact:false,
         scope:agent?"authorized_local_mapping":"management", asOf:new Date(now).toISOString(),
         window:{start:new Date(startTime).toISOString(),endExclusive:new Date(endTime).toISOString(),timezone:"UTC"} });
     } catch (err: any) {

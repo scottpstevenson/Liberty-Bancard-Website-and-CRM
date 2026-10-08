@@ -1,0 +1,469 @@
+{
+  "status": "pass",
+  "checks": [
+    "ordinary/month-end/leap-day real SQL persistence retains start, duration, owner and contact",
+    "foreign owner/merchant denial and nonpositive backend rejection",
+    "real signed-in repair write failure retains SQL record/editor and shows error without success",
+    "replacement fields real pointer/input, successful actual handler SQL write and reload",
+    "Contact visible pending count equals authorized Work population, 2 to 1 after real task command/reload; mobile capture"
+  ],
+  "effects": "private PostgreSQL/Redis, real fixture login, provider egress denied",
+  "invalidTimeFixture": "timestamp-only wire fault on authorized read, not a production malformed SQL row",
+  "requests": [
+    {
+      "path": "/api/auth/user",
+      "method": "GET",
+      "status": 401
+    },
+    {
+      "path": "/api/auth/login",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/ghl-health",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/tools/capabilities",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/inbox/send-state",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/system/outbound-settings",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/kpi/summary",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/deals",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/kpi/pipeline-stats",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/kpi/comparative",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/analytics/lead-sources",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/rep-activity/today",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/admin/rep-activity/inactive",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/analytics/lifecycle-distribution",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/analytics/weekly-outreach",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/analytics/conversion-funnel",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/analytics/daily-leads",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/sms-inbox/unread-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/merchant-applications/pending-count",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/notifications/count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/live-chat/sessions",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/tasks/overdue-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/outreach-queue/count",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/overview/daily-briefing",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/auth/user",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/ghl-health",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/calendar-events",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/appointments",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/deals",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/sms-inbox/unread-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/merchant-applications/pending-count",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/notifications/count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/live-chat/sessions",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/tasks/overdue-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/outreach-queue/count",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/calendar-events/1",
+      "method": "PUT",
+      "status": 503
+    },
+    {
+      "path": "/api/calendar-events/1",
+      "method": "PUT",
+      "status": 200
+    },
+    {
+      "path": "/api/calendar-events",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/deals",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/auth/user",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/ghl-health",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/calendar-events",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/appointments",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/deals",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/sms-inbox/unread-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/merchant-applications/pending-count",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/notifications/count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/live-chat/sessions",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/tasks/overdue-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/outreach-queue/count",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/auth/user",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/ghl-health",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/inbox/send-state",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/detail",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/sms-inbox/unread-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/merchant-applications/pending-count",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/notifications/count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/live-chat/sessions",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/tasks/overdue-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/outreach-queue/count",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/zerobounce-history",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/sfp-readiness",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/nba",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/suppression-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/companies",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/rate-reviews/contact/1",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/confirmation-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/ghl/sync-status/contact/1",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/parent",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/auth/user",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/ghl-health",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/inbox/send-state",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/detail",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/sms-inbox/unread-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/merchant-applications/pending-count",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/notifications/count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/live-chat/sessions",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/tasks/overdue-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/outreach-queue/count",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/zerobounce-history",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/sfp-readiness",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/nba",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/suppression-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/companies",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/rate-reviews/contact/1",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/confirmation-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/ghl/sync-status/contact/1",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/parent",
+      "method": "GET",
+      "status": 200
+    }
+  ]
+}

@@ -2,10 +2,12 @@
 
 ## Scope and status
 
-The two source-confirmed defects in the supplied postmerge report are repaired
-locally. No migration, production record write, provider write, outbound
-activation, GHL sync setting change or publish was performed. Full C2 acceptance
-is not claimed.
+The two source-confirmed defects are repaired locally and verified with a real
+signed-in browser, registered handlers and disposable PostgreSQL. Reader
+diagnosis is complete for the sampled failures. A further appointment query
+defect was discovered and repaired. No migration, production record write,
+provider write, outbound activation, GHL sync setting change or publish was
+performed. This is the narrow postmerge repair scope, not full C2 acceptance.
 
 ## Calendar date repair
 
@@ -28,14 +30,28 @@ query, authorization rule or competing task-state definition was introduced.
 
 ### Appointments
 
-Published runtime logs contain a GHL HTTP 400 with message
-`The calendar is not found.` for the appointment reader. The reader builds a
-location-scoped events request and adds the configured calendar ID, if present.
-It truthfully returns HTTP 503/`provider_failed` rather than fabricating an empty
-successful calendar. This is a provider calendar lookup failure; the logs do
-not determine whether the calendar is missing, belongs to another location or
-is unavailable to the credential. No settings were changed or permissions
-broadened. Successful live provider coverage remains unverified.
+Published logs contain GHL HTTP 400 `The calendar is not found.` Live, read-only
+diagnosis with the available GHL configuration confirms:
+
+- The location matches the sampled production message namespace.
+- Calendar inventory succeeds (HTTP 200) and contains three accessible calendars.
+- The configured calendar is not in that inventory; exact configured-calendar
+  lookup and event lookup both fail (HTTP 400). This is not a total credential
+  or provider outage. Whether the inaccessible ID was deleted or belongs to
+  another inaccessible location is not provable from this credential.
+- All three valid calendars initially failed with HTTP 422: GHL rejects the
+  unsupported `limit` parameter sent by this reader.
+- Removing only that parameter produces HTTP 200 for all three calendars in
+  the same location/window, with event counts 0, 2 and 0.
+
+The reader now omits the rejected parameter, URL-encodes IDs and truthfully
+reports no provider-side limit, while retaining its local 10-item queue bound,
+role/contact owner filtering and explicit unavailable/error state. Actual
+registered-handler fixtures test mapped-owner coverage, foreign/unmapped
+exclusion for agents, management scope, successful reads and malformed-provider
+failures. No calendar selection was silently substituted. The remaining
+configuration decision is which valid calendar the owner intends to use;
+changing that configured value was not performed.
 
 ### Inbox
 
@@ -47,14 +63,19 @@ authorized contact, and then matching immutable source content. No retained
 source means it cannot reach a thread body. This establishes the sampled
 missing-observation boundary, not a provider outage or IDOR.
 
-The list persists native observations only for mapped contacts, but management
-can also see unmapped provider cards. Whether the sampled item lacks a local
-contact mapping, suffered another intake failure, or was previously observed
-under a different identity remains unverified without its authorized provider
-source/mapping evidence. A list preview was not substituted for detail
-authority, and no contact/source observation was inserted to obtain a green
-test. The production list endpoint was deliberately not replayed: it can write
-observations during a GET.
+The sampled message's direct provider read succeeds (HTTP 200), is inbound,
+matches the expected location and has both contact and conversation identifiers.
+A production-scoped read-only lookup finds zero CRM contacts for that exact
+provider contact ID, including archived contacts. Thus this sampled failure is
+an unmapped contact/source observation under the existing authority rule, not
+a deleted message, provider outage or proven IDOR. Management may see unmapped
+provider list cards, but only mapped observations are persisted and readable
+through the authorized detail resolver. Agent/foreign-owner/unmapped denial and
+mapped exact detail success are covered by the real registered-handler fixture.
+
+No preview was substituted for authoritative thread data and no contact/source
+observation was inserted to force success. The production list endpoint was
+deliberately not replayed: it can write observations during a GET.
 
 ## Local verification
 
@@ -65,23 +86,47 @@ elapsed duration, explicit invalid-time replacement, read-only/provider denial,
 event/deal namespace separation, injected-store persistence/reload, failure
 without a success toast, task states and unavailable-state handling.
 
-Passes: 42 assertions in UTC, 44 in America/New_York, and 42 in
-America/Los_Angeles. These repeat shared assertions in different timezones,
-not 128 unique production controls. Focused syntax checks and whitespace
-validation pass. The injected store is not live SQL persistence or signed-in
-browser acceptance; neither is claimed. No full repository typecheck, stock CI,
-production durable mutation or all-role browser suite is certified here.
+Passes: 42 helper/mutation assertions in UTC, 44 in America/New_York and 42 in
+America/Los_Angeles. These are repeated timezone assertions, not 128 unique
+production controls. The new helper's focused TypeScript check and whitespace
+validation pass. The production build succeeds, retaining existing warnings.
 
-A focused TypeScript check of the new date helper passes. The application was
-restarted with its existing background-jobs-off profile and serves requests.
-An anonymous screenshot of the Calendar route correctly renders the sign-in
-page; the signed-in Calendar/editor and Contact UI were not visually verified.
-Existing release-identity/configuration warnings and unrelated failed workflow
-results are not reclassified as passing by this verification.
+`scripts/test-stage3-c2-actions.ts` passes 128 actual HTTP assertions using real
+authentication/CSRF/role middleware, durable note/task/draft actions and reader
+success/denial/error paths against private infrastructure.
+
+`scripts/test-c2-postmerge-browser.ts` additionally passes:
+
+- Ordinary, month-end and leap-day event moves through the actual handler into
+  PostgreSQL, preserving duration, owner and contact.
+- Foreign-owner and merchant denial; nonpositive end-time rejection.
+- Real synthetic admin sign-in; replacement fields entered using actual
+  pointer/keyboard input.
+- A deliberately failed repair request leaves the SQL row/editor intact and
+  renders an error without success.
+- Successful repair writes the chosen start and 45-minute duration into SQL;
+  reload and selection of the repaired day hydrate the saved event.
+- A four-state scoped task population has two pending tasks in the authorized
+  Work reader and rendered Contact count. A real task completion command changes
+  both to one after reload.
+- Desktop and mobile captures; no uncaught browser exceptions; zero external
+  provider calls from disposable tests. Live diagnostic calls were GET-only.
+
+Screenshots and the successful receipt are in `postmerge-browser/`. Earlier
+failure captures remain historical harness failures, not current pass evidence.
+Malformed event timestamps are injected into an already-authorized wire read;
+the repair write, authority middleware, PostgreSQL persistence and reload are
+real. This fixture does not claim that an actual production SQL row has malformed
+timestamp text.
+
+These are narrow postmerge checks, not a full repository typecheck, stock CI,
+published bundled-server/all-role browser certification or production mutation.
+The app's authentication remains unchanged. Existing unrelated failed workflow
+results are not reclassified as passing.
 
 ## Existing acceptance owners
 
-Calendar configuration/provider coverage and the sampled Inbox source/mapping
-boundary remain within the existing C2 reader acceptance scope. Their remaining
-verification is not a new task ladder. Incoming GHL synchronization remains
-independent of outbound pause; neither was modified.
+Calendar selection and any future approved intake/linking of the sampled Inbox
+contact remain under their existing owners; neither is a new task ladder.
+The causes and safe read boundaries are established. Incoming GHL synchronization
+remains independent of outbound pause; neither was modified.

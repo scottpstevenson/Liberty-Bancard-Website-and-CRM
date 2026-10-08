@@ -9,6 +9,16 @@ Prefer the environment-supported browser runtime over cached executables.
 **How to apply:** Verify an actual isolated browser connection before relying
 on the runtime; an executable's version response is not provision proof.
 
+Chromium native date/time controls need segmented keyboard entry rather than
+a single CDP `Input.insertText` call.
+
+**Why:** Bulk insertion silently left date/time values unchanged in an actual
+browser, while segment navigation and individual key events updated them.
+
+**How to apply:** Use real pointer focus and ArrowLeft/ArrowRight plus key events
+in the browser's declared locale; assert the resulting input value before saving.
+Do not misclassify an automation input failure as an application defect.
+
 For real pointer input, wait for the modal's opening transition and verify
 hit testing; visible title text or an existing input is not enough.
 
