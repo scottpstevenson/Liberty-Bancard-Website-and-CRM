@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { apiRequest } from "@/lib/queryClient";
+import { localCalendarDateAtTime, moveCalendarEventToDate } from "@/lib/calendar-date-repair";
 import { useToast } from "@/hooks/use-toast";
 import type { CalendarEvent, Deal, Contact } from "@shared/schema";
 
@@ -198,14 +199,18 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
 
   const [fixingItemId, setFixingItemId] = useState<string | null>(null);
   const [fixDate, setFixDate] = useState<string>("");
+  const [fixStartTime, setFixStartTime] = useState("09:00");
+  const [fixDurationMinutes, setFixDurationMinutes] = useState("60");
 
   const fixEventDateMutation = useMutation({
-    mutationFn: async ({ item, newDate }: { item: CalendarItem; newDate: string }) => {
+    mutationFn: async ({ item, newDate, replacement }: {
+      item: CalendarItem; newDate: string; replacement?: { startTime: string; durationMinutes: number };
+    }) => {
       if (item.readOnly || item.source === "appointment") throw new Error("Provider appointments are read-only.");
-      const iso = new Date(`${newDate}T09:00:00`).toISOString();
       if (item.source === "event") {
-        return apiRequest("PUT", `/api/calendar-events/${item.rawId}`, { startTime: iso, endTime: iso });
+        return apiRequest("PUT", `/api/calendar-events/${item.rawId}`, moveCalendarEventToDate(item, newDate, replacement));
       }
+      const iso = localCalendarDateAtTime(newDate, "09:00").toISOString();
       return apiRequest("PUT", `/api/deals/${item.rawId}`, { nextFollowUp: iso });
     },
     onSuccess: (_data, variables) => {
@@ -215,8 +220,8 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
       setFixDate("");
       toast({ title: variables.item.source === "event" ? "Event date fixed" : "Follow-up date fixed" });
     },
-    onError: () => {
-      toast({ title: "Failed to fix date", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ title: "Failed to fix date", description: error.message, variant: "destructive" });
     },
   });
 
@@ -500,7 +505,7 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
                       {evt.readOnly ? (
                         <p className="text-xs text-muted-foreground">Provider appointment · read-only</p>
                       ) : fixingItemId === evt.id ? (
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <Input
                             type="date"
                             value={fixDate}
@@ -508,11 +513,30 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
                             className="h-8 text-xs"
                             data-testid={`input-fix-date-${evt.id}`}
                           />
+                          {evt.source === "event" && (
+                            <>
+                              <label className="text-xs">
+                                Replacement start
+                                <Input type="time" value={fixStartTime} onChange={e => setFixStartTime(e.target.value)}
+                                  className="h-8 text-xs" data-testid={`input-fix-start-${evt.id}`} />
+                              </label>
+                              <label className="text-xs">
+                                Duration (minutes)
+                                <Input type="number" min={1} max={10080} step={1} value={fixDurationMinutes}
+                                  onChange={e => setFixDurationMinutes(e.target.value)}
+                                  className="h-8 text-xs" data-testid={`input-fix-duration-${evt.id}`} />
+                              </label>
+                              <p className="w-full text-xs text-muted-foreground">
+                                Valid original times and duration are preserved. These replacements apply only to invalid times.
+                              </p>
+                            </>
+                          )}
                           <Button
                             size="sm"
                             className="h-8 px-2 text-xs"
                             disabled={!fixDate || fixEventDateMutation.isPending}
-                            onClick={() => fixEventDateMutation.mutate({ item: evt, newDate: fixDate })}
+                            onClick={() => fixEventDateMutation.mutate({ item: evt, newDate: fixDate,
+                              replacement: { startTime: fixStartTime, durationMinutes: Number(fixDurationMinutes) } })}
                             data-testid={`button-save-fix-${evt.id}`}
                           >
                             Save
@@ -533,7 +557,8 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
                             size="sm"
                             variant="outline"
                             className="h-7 px-2 text-xs"
-                            onClick={() => { setFixingItemId(evt.id); setFixDate(formatDateKey(today)); }}
+                            onClick={() => { setFixingItemId(evt.id); setFixDate(formatDateKey(today));
+                              setFixStartTime("09:00"); setFixDurationMinutes("60"); }}
                             data-testid={`button-edit-invalid-date-${evt.id}`}
                           >
                             Fix Date

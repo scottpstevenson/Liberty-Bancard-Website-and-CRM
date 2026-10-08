@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import {useRetainedLocalIntent} from "@/hooks/use-retained-local-intent";
 import { useOutboundPauseObservation } from "@/hooks/use-outbound-pause-observation";
 import { invalidateWorkFacts } from "@/hooks/use-work-commands";
+import { isPendingTask } from "@/lib/task-source";
 import type { Contact, Deal, Ticket as TicketType, Task as TaskType, Company, ContactCompany, Document, Agent } from "@shared/schema";
 import { VERTICALS, OFFER_PATHS } from "@shared/schema";
 import RfiTab from "@/components/RfiTab";
@@ -1602,7 +1603,7 @@ function ContactDetailRecord() {
 
   const openTickets = ticketsLoaded ? tickets.filter(t => t.status !== "Resolved" && t.status !== "Closed") : undefined;
   const pendingTasks = tasksLoaded
-    ? tasks.filter(task => (task as typeof task & { effectiveState?: string }).effectiveState === "open")
+    ? tasks.filter(isPendingTask)
     : undefined;
   const totalDealVolume = dealsLoaded ? (() => {
     const activeDeals = deals.filter(deal => !deal.archivedAt);
