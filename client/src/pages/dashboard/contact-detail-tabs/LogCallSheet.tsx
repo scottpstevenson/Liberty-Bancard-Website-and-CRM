@@ -2,7 +2,7 @@
  * LogCallSheet — slide-in sheet for reps to log a call recap.
  * Saves to /api/call-logs and optionally creates a Task for the next step.
  */
-import { useState } from "react";
+import { useState, type ComponentPropsWithoutRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -38,9 +38,10 @@ interface LogCallSheetProps {
   onClose: () => void;
   contactId: number;
   dealId?: number | null;
+  onCloseAutoFocus?: ComponentPropsWithoutRef<typeof SheetContent>["onCloseAutoFocus"];
 }
 
-export function LogCallSheet({ open, onClose, contactId, dealId }: LogCallSheetProps) {
+export function LogCallSheet({ open, onClose, contactId, dealId, onCloseAutoFocus }: LogCallSheetProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -112,7 +113,7 @@ export function LogCallSheet({ open, onClose, contactId, dealId }: LogCallSheetP
 
   return (
     <Sheet open={open} onOpenChange={(v) => { if (!v) { reset(); onClose(); } }}>
-      <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+      <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto" onCloseAutoFocus={onCloseAutoFocus}>
         <SheetHeader className="pb-4">
           <SheetTitle className="flex items-center gap-2">
             <Phone className="h-4 w-4" /> Log Call

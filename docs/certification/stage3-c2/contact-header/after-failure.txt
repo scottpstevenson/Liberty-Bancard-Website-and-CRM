@@ -1,0 +1,133 @@
+Call logged
+Outcome: Connected
+DAILY WORK
+My Day
+Ready for Outreach
+My Portfolio
+My Contacts
+My Leads
+My Pipeline
+Messages & Inbox
+Tasks & Appointments
+AI Advisor
+My Earnings
+REPORTS
+Leaderboard
+RESOURCES
+U
+stage3b-f2b8ecf7-f359-4a84-b61e-2c6d4600be37-agent@example.test
+Replay Tour
+Sign Out
+Toggle Sidebar
+Dashboard
+Ctrl+K
+2
+Protect your account by enabling two-factor authentication (2FA).
+Set up 2FA
+Back to Contacts
+Liberty fixture
+Liberty fixture
+stage3b-f2b8ecf7-f359-4a84-b61e-2c6d4600be37@example.test
++19081647374
+Owner: stage3b-f2b8ecf7-f359-4a84-b61e-2c6d4600be37-agent@example.test
+Automotive
+New
+Lifecycle: Prospect
+Email consent: Not recorded
+SMS consent: Not recorded
+Email status: valid
+Outbound paused
+No control row found — fail-closed default
+
+Next action: Complete task: Call: stage3b-f2b8ecf7-f359-4a84-b61e-2c6d4600be37 scheduler
+
+Log Call
+Add Note
+New Task
+More actions
+Overview
+Sales work
+Conversations
+Lifecycle
+Service & performance
+Validation, readiness & record diagnostics
+Associated Companies
+Link Company
+
+No companies linked yet
+
+Activity
+History
+Summary
+Relationships
+Locations
+NO ACTION
+low
+Blocked
+system
+global pause active
+
+Outbound communications are globally paused.
+
+This recommendation is blocked. No action or outreach can be started from this card.
+
+LEAD TEMP:
+Cold
+VERTICAL:
+Automotive
+PREFERRED:
+Unknown
+LAST TOUCH:
+Never
+NEXT FOLLOW-UP:
+None scheduled
+ENGAGEMENT:
+0
+Contact Details
+Vertical
+Automotive
+Monthly Volume
+—
+Current Provider
+—
+Preferred Channel
+—
+Primary Offer Path
+—
+Interested in 0%
+No
+Needs Terminal
+No
+SMS Consent
+No
+Email Consent
+No
+Do Not Contact
+No
+Assigned Rep
+stage3b-f2b8ecf7-f359-4a84-b61e-2c6d4600be37-agent
+Lifecycle State
+PROSPECT
+Summary
+Total Deals
+1
+Total Deal Volume
+Unknown
+Open Tickets
+1
+Pending Tasks
+2
+Days Since Added
+0d
+Decision Maker
+Not a Decision Maker
+Mark as DM
+Compliance & Suppression
+Do Not Contact
+Opted Out
+Unsubscribed
+Hard Bounce
+Complaint
+SMS Consent
+Mark Do Not Contact
+Notification Call loggedOutcome: Connected

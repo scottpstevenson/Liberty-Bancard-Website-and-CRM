@@ -1,5 +1,5 @@
 import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation, Link, useSearch } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUpdateContact } from "@/hooks/use-contacts";
@@ -15,6 +15,14 @@ import { VERTICALS, OFFER_PATHS } from "@shared/schema";
 import RfiTab from "@/components/RfiTab";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -47,20 +55,30 @@ import { contactAreaSections, contactAreas, contactSectionArea, contactSections,
 import { useEmployeeCrm } from "@/components/crm/employee-crm-context";
 
 // #240 — One-click copy button for phone/email
-function CopyButton({ value, label }: { value: string; label: string }) {
+function CopyButton({ value, label, menuItem = false }: { value: string; label: string; menuItem?: boolean }) {
   const [copied, setCopied] = useState(false);
-  const copy = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const copy = () => {
     navigator.clipboard.writeText(value).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     }).catch(() => {});
   };
+  if (menuItem) {
+    return (
+      <DropdownMenuItem
+        className="min-h-11"
+        onSelect={copy}
+        data-testid={`menu-action-copy-${label}`}
+      >
+        {copied ? <CheckIcon className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+        Copy {label}
+      </DropdownMenuItem>
+    );
+  }
   return (
     <button
-      onClick={copy}
-      className="opacity-0 group-hover:opacity-100 transition-opacity ml-0.5 p-0.5 rounded hover:bg-muted"
+      onClick={(event) => { event.preventDefault(); event.stopPropagation(); copy(); }}
+      className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity ml-0.5 p-0.5 rounded hover:bg-muted"
       aria-label={`Copy ${label}`}
       data-testid={`button-copy-${label}`}
       title={copied ? "Copied!" : `Copy ${label}`}
@@ -69,6 +87,13 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       {copied ? <CheckIcon className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
     </button>
   );
+}
+
+function restoreFocusOnClose<T extends HTMLElement>(ref: { readonly current: T | null }) {
+  return (event: Event) => {
+    event.preventDefault();
+    window.setTimeout(() => ref.current?.focus(), 0);
+  };
 }
 
 import {
@@ -1248,6 +1273,9 @@ function ContactDetailRecord() {
   const params = useParams<{ id: string }>();
   const search = useSearch();
   const contactId = Number(params.id);
+  const moreActionsButtonRef = useRef<HTMLButtonElement>(null);
+  const primaryActionButtonRef = useRef<HTMLButtonElement>(null);
+  const newTaskActionButtonRef = useRef<HTMLButtonElement>(null);
   const requestedDrawer = contactWorkspaceState(search).drawer;
   const requestedWorkspace = contactWorkspaceState(search);
   const requestedSection = requestedWorkspace.section ?? "overview";
@@ -1329,6 +1357,8 @@ function ContactDetailRecord() {
 
   const [emailComposerOpen, setEmailComposerOpen] = useState(false);
   const [logCallOpen, setLogCallOpen] = useState(false); // #1475
+  const [nextStepsOpen, setNextStepsOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
 
   const [showCompanyDialog, setShowCompanyDialog] = useState(false);
   const [companyMode, setCompanyMode] = useState<"existing" | "new">("existing");
@@ -1631,6 +1661,16 @@ function ContactDetailRecord() {
     : dealsLoaded
       ? deals.find(deal => deal.nextFollowUp && !deal.archivedAt)?.nextFollowUp?.toString() ?? null
       : undefined;
+  const nextFollowUpDate = nextFollowUp ? new Date(nextFollowUp) : null;
+  const headerNextAction = nextFollowUpDate
+    ? Number.isNaN(nextFollowUpDate.getTime())
+      ? "Follow-up date needs review"
+      : `Follow up ${nextFollowUpDate.toLocaleString()}`
+    : pendingTasks?.[0]
+      ? `Complete task: ${pendingTasks[0].title}`
+      : nextFollowUp === undefined || pendingTasks === undefined
+        ? "Scheduled action unavailable"
+        : "No next action scheduled";
 
   const startEdit = () => {
     setEditFields({
@@ -1664,6 +1704,11 @@ function ContactDetailRecord() {
       setEditDealFields({ name: "", offerPath: "" });
     }
     setIsEditing(true);
+  };
+
+  const finishEdit = () => {
+    setIsEditing(false);
+    window.setTimeout(() => moreActionsButtonRef.current?.focus(), 0);
   };
 
   const saveEdit = async () => {
@@ -1714,7 +1759,7 @@ function ContactDetailRecord() {
       }
 
       queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "detail"] });
-      setIsEditing(false);
+      finishEdit();
       toast({ title: "Contact updated" });
     } catch (err: any) {
       toast({ title: "Failed to update contact", description: err?.message, variant: "destructive" });
@@ -1878,14 +1923,165 @@ function ContactDetailRecord() {
     : "";
 
   return (
-    <div className={`${employeeCrm ? "crm-page" : ""} space-y-6 pb-20 md:pb-6`} data-testid="contact-detail-page">
+    <div className={`${employeeCrm ? "crm-page" : ""} space-y-4 pb-6`} data-testid="contact-detail-page">
       {/* Header */}
-      <RecordHeader className="flex flex-col gap-4">
+      <RecordHeader className="flex flex-col gap-3">
         <Button variant="ghost" className="self-start" onClick={() => setLocation("/dashboard/contacts")} data-testid="button-back">
           <ArrowLeft className="h-4 w-4 mr-2" /> Back to Contacts
         </Button>
 
-        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+        {!isEditing && (
+          <div className="min-w-0 space-y-3" data-testid="contact-compact-header">
+            <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0 space-y-2">
+                <h1 className="break-words text-2xl font-semibold tracking-tight" data-testid="text-contact-name">
+                  {contact.companyName ||
+                    `${contact.firstName || ""} ${contact.lastName || ""}`.trim() ||
+                    contact.email ||
+                    contact.phone ||
+                    "Unnamed Contact"}
+                </h1>
+                <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                  {contact.companyName && <span className="inline-flex min-w-0 items-center gap-1.5" data-testid="text-company"><Building2 className="h-4 w-4 shrink-0" /><span className="break-words">{contact.companyName}</span></span>}
+                  {contact.email && (
+                    <span className="inline-flex min-w-0 items-center gap-1.5" data-testid="text-email">
+                      <Mail className="h-4 w-4 shrink-0" />
+                        <span className="break-all">{contact.email}</span>
+                    </span>
+                  )}
+                  {contact.phone && (
+                    <span className="inline-flex min-w-0 items-center gap-1.5" data-testid="text-phone">
+                      <Phone className="h-4 w-4 shrink-0" />
+                        <span className="break-all">{contact.phone}</span>
+                    </span>
+                  )}
+                  <span className="inline-flex min-w-0 items-center gap-1.5" data-testid="text-assigned-rep"><UserCheck className="h-4 w-4 shrink-0" /><span className="break-words">Owner: {(contact as any).assignedTo || "Unassigned"}</span></span>
+                  {contact.vertical && <Badge variant="outline" data-testid="badge-vertical">{contact.vertical}</Badge>}
+                </div>
+                <div className="flex min-w-0 flex-wrap items-center gap-2" data-testid="contact-authority-status">
+                  <Badge variant={statusColor(contact.status)} data-testid="badge-status">{contact.status}</Badge>
+                  <Badge variant="outline" data-testid="badge-lifecycle-state">
+                    Lifecycle: {(contact as any).lifecycleState
+                      ? String((contact as any).lifecycleState).replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c: string) => c.toUpperCase())
+                      : "Not recorded"}
+                  </Badge>
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm" data-testid="contactability-status">
+                    <span>Email consent: <strong className="font-medium text-foreground">{(contact as any).consentEmail ? "Recorded" : "Not recorded"}</strong></span>
+                    <span>SMS consent: <strong className="font-medium text-foreground">{(contact as any).consentSms ? "Recorded" : "Not recorded"}</strong></span>
+                    {(contact as any).doNotContact && <span className="font-medium text-destructive">Do not contact{(contact as any).dncReason ? ` · ${(contact as any).dncReason}` : ""}</span>}
+                    {(contact as any).emailStatus && <span>Email status: <strong className="font-medium text-foreground">{String((contact as any).emailStatus).replace(/_/g, " ")}</strong></span>}
+                  </span>
+                  <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm" data-testid="outbound-pause-status" role="status">
+                    <span className="font-medium">
+                      {outbound.isLoading
+                        ? "Checking outbound pause state"
+                        : outbound.isError
+                          ? "Outbound pause state unavailable"
+                          : outbound.data?.state === "paused"
+                            ? "Outbound paused"
+                            : outbound.data?.state === "activating"
+                              ? "Outbound pause is changing"
+                              : "Outbound send eligibility still required"}
+                    </span>
+                    {outbound.reason && <span className="break-words text-muted-foreground">{outbound.reason}</span>}
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground" data-testid="contact-next-action">
+                  <span className="font-medium text-foreground">Next action:</span>{" "}
+                  {headerNextAction}
+                </p>
+              </div>
+              <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end" data-testid="contact-primary-actions">
+                <Button ref={primaryActionButtonRef} className="min-h-11" onClick={() => setLogCallOpen(true)} data-testid="contact-primary-action">
+                  <Phone className="mr-1.5 h-4 w-4" /> Log Call
+                </Button>
+                <Button className="min-h-11" variant="outline" onClick={() => setActiveTab("notes")} data-testid="contact-secondary-add-note">
+                  <StickyNote className="mr-1.5 h-4 w-4" /> Add Note
+                </Button>
+                <Button ref={newTaskActionButtonRef} className="min-h-11" variant="outline" onClick={() => setShowTaskDialog(true)} data-testid="contact-secondary-new-task">
+                  <CheckSquare className="mr-1.5 h-4 w-4" /> New Task
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button ref={moreActionsButtonRef} className="min-h-11" variant="outline" aria-label="More actions" data-testid="contact-more-actions">
+                      More actions <ChevronDown className="ml-1.5 h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto">
+                    <DropdownMenuLabel>Contact actions</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {contact.email && <CopyButton value={contact.email} label="email" menuItem />}
+                    {contact.phone && <CopyButton value={contact.phone} label="phone" menuItem />}
+                    {contact.phone && (outbound.blocked ? (
+                      <DropdownMenuItem
+                        className="min-h-11 items-start whitespace-normal"
+                        disabled
+                        title={outbound.reason}
+                        aria-label={`Call phone unavailable. Outbound paused: ${outbound.reason}`}
+                        data-outbound-blocked="true"
+                        data-testid="menu-action-call-phone"
+                      >
+                        <Phone className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span className="min-w-0">
+                          <span className="block font-medium">Call phone · Outbound paused</span>
+                          <span className="block break-words text-xs text-muted-foreground">{outbound.reason}</span>
+                        </span>
+                      </DropdownMenuItem>
+                    ) : (
+                      <DropdownMenuItem
+                        asChild
+                        className="min-h-11"
+                        data-outbound-blocked="false"
+                        data-testid="menu-action-call-phone"
+                      >
+                        <a
+                          href={`tel:${contact.phone}`}
+                          title={outbound.reason}
+                          onClick={() => {
+                            const _csrfToken = getCsrfToken();
+                            fetch("/api/analytics/phone-call-click", {
+                              method: "POST",
+                              headers: {
+                                "Content-Type": "application/json",
+                                ...(_csrfToken ? { "X-CSRF-Token": _csrfToken } : {}),
+                              },
+                              credentials: "include",
+                              body: JSON.stringify({ contactId, sourcePage: "contact_detail" }),
+                            }).catch(() => {});
+                          }}
+                        >
+                          <Phone className="h-4 w-4" /> Call phone
+                        </a>
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuItem className="min-h-11" onSelect={() => { window.setTimeout(() => startEdit(), 0); }} data-testid="menu-action-edit">
+                      <Edit2 className="h-4 w-4" /> Edit contact
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="min-h-11" onSelect={() => { window.setTimeout(() => setEmailComposerOpen(true), 0); }} data-testid="menu-action-email">
+                      <Mail className="h-4 w-4" /> Compose email
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="min-h-11" onSelect={() => { window.setTimeout(() => setShowDealDialog(true), 0); }} data-testid="menu-action-deal">
+                      <TrendingUp className="h-4 w-4" /> Create deal
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="min-h-11" onSelect={() => { window.setTimeout(() => setShowTicketDialog(true), 0); }} data-testid="menu-action-ticket">
+                      <Ticket className="h-4 w-4" /> Create ticket
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="min-h-11" onSelect={() => { window.setTimeout(() => setNextStepsOpen(true), 0); }} data-testid="menu-action-schedule-follow-up">
+                      <Clock className="h-4 w-4" /> Schedule follow-up
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => {
+                      const v = contact.vertical ? encodeURIComponent(contact.vertical) : null;
+                      setLocation(`/dashboard/chat${v ? `?vertical=${v}` : ""}`);
+                    }} className="min-h-11" data-testid="menu-action-ai">
+                      <Bot className="h-4 w-4" /> Ask AI advisor
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          </div>
+        )}
+        {isEditing && <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
           <div className="space-y-1">
             {isEditing ? (
               <>
@@ -1930,7 +2126,7 @@ function ContactDetailRecord() {
                 return (
                   <span className={`flex items-center gap-1 text-xs ${days > 30 ? "text-destructive/70" : days > 14 ? "text-muted-foreground" : ""}`}
                     data-testid="text-days-since-contact" title={new Date((contact as any).lastContactedAt).toLocaleDateString()}>
-                    📞 {label}
+                  {label}
                   </span>
                 );
               })()}
@@ -2068,7 +2264,7 @@ function ContactDetailRecord() {
               )}
               {!isEditing && (contact as any).referralSource && (
                 <span className="flex items-center gap-1 text-xs text-muted-foreground" data-testid="text-referral-source">
-                  🔗 {(contact as any).referralSource}
+                  {(contact as any).referralSource}
                 </span>
               )}
               {/* Deal name + offer path (edit mode) — shown when an active deal is linked */}
@@ -2280,7 +2476,7 @@ function ContactDetailRecord() {
                 <Button onClick={saveEdit} disabled={updateContact.isPending} data-testid="button-save-edit">
                   <Save className="h-4 w-4 mr-1" /> Save
                 </Button>
-                <Button variant="outline" onClick={() => setIsEditing(false)} data-testid="button-cancel-edit">
+                <Button variant="outline" onClick={finishEdit} data-testid="button-cancel-edit">
                   <X className="h-4 w-4 mr-1" /> Cancel
                 </Button>
               </>
@@ -2295,7 +2491,7 @@ function ContactDetailRecord() {
               </>
             )}
           </div>
-        </div>
+        </div>}
       </RecordHeader>
 
       <EmailComposer
@@ -2303,8 +2499,22 @@ function ContactDetailRecord() {
         onClose={() => setEmailComposerOpen(false)}
         contactId={contact.id}
         initialVertical={contact.vertical ?? undefined}
+        onCloseAutoFocus={restoreFocusOnClose(moreActionsButtonRef)}
       />
-
+      <CrmAreaNav entries={areaEntries} current={currentAreaHref} className="crm-contact-area-nav" />
+      <details
+        className="rounded-lg border border-border bg-card"
+        open={diagnosticsOpen}
+        onToggle={(event) => setDiagnosticsOpen(event.currentTarget.open)}
+        data-testid="contact-context-details"
+      >
+        <summary
+          className="min-h-11 cursor-pointer select-none px-4 py-3 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
+          data-testid="contact-context-details-toggle"
+        >
+          Validation, readiness &amp; record diagnostics
+        </summary>
+        {diagnosticsOpen && <div className="space-y-4 border-t p-4" data-testid="contact-context-details-content">
       {/* GHL Sync Status */}
         <GhlSyncStatus
           contact={contact}
@@ -2496,6 +2706,8 @@ function ContactDetailRecord() {
           </Button>
         </div>
       </div>
+        </div>}
+      </details>
 
       {/* Associated Companies */}
       {requestedSection === "overview" && <Card data-testid="section-associated-companies">
@@ -2575,86 +2787,11 @@ function ContactDetailRecord() {
         </CardContent>
       </Card>}
 
-      {/* Quick actions */}
-      <div className="flex flex-wrap gap-2" data-testid="section-quick-actions">
-        <Button onClick={() => setLogCallOpen(true)} data-testid="button-log-call">
-          <Phone className="h-4 w-4 mr-1" /> Log Call
-        </Button>
-        <Button variant="outline" onClick={() => { setActiveTab("notes"); }} data-testid="button-add-note">
-          <StickyNote className="h-4 w-4 mr-1" /> Add Note
-        </Button>
-        <Button variant="outline" onClick={() => setShowDealDialog(true)} data-testid="button-create-deal">
-          <TrendingUp className="h-4 w-4 mr-1" /> Create Deal
-        </Button>
-        <Button variant="outline" onClick={() => setShowTaskDialog(true)} data-testid="button-create-task">
-          <CheckSquare className="h-4 w-4 mr-1" /> Create Task
-        </Button>
-        <Button variant="outline" onClick={() => setShowTicketDialog(true)} data-testid="button-create-ticket">
-          <Ticket className="h-4 w-4 mr-1" /> Create Ticket
-        </Button>
-      </div>
-
-      {/* Mobile sticky action bar — only visible on small screens */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 block sm:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 px-4 py-2 flex items-center gap-2" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}>
-        <button
-          onClick={() => setLogCallOpen(true)}
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[44px] text-green-800 dark:text-green-300 active:opacity-70"
-          data-testid="mobile-action-log-call"
-        >
-          <Phone className="h-5 w-5" />
-          <span className="text-[10px] font-medium">Log Call</span>
-        </button>
-        <button
-          onClick={() => setEmailComposerOpen(true)}
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[44px] text-blue-600 dark:text-blue-400 active:opacity-70"
-          data-testid="mobile-action-email"
-        >
-          <Mail className="h-5 w-5" />
-          <span className="text-[10px] font-medium">Email</span>
-        </button>
-        <button
-          onClick={startEdit}
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[44px] text-gray-600 dark:text-gray-400 active:opacity-70"
-          data-testid="mobile-action-edit"
-        >
-          <Edit2 className="h-5 w-5" />
-          <span className="text-[10px] font-medium">Edit</span>
-        </button>
-        <button
-          onClick={() => setShowDealDialog(true)}
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[44px] text-gray-600 dark:text-gray-400 active:opacity-70"
-          data-testid="mobile-action-deal"
-        >
-          <TrendingUp className="h-5 w-5" />
-          <span className="text-[10px] font-medium">Deal</span>
-        </button>
-        <button
-          onClick={() => setShowTaskDialog(true)}
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[44px] text-gray-600 dark:text-gray-400 active:opacity-70"
-          data-testid="mobile-action-task"
-        >
-          <CheckSquare className="h-5 w-5" />
-          <span className="text-[10px] font-medium">Task</span>
-        </button>
-        <button
-          onClick={() => {
-            const v = contact.vertical ? encodeURIComponent(contact.vertical) : null;
-            setLocation(`/dashboard/chat${v ? `?vertical=${v}` : ""}`);
-          }}
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[44px] text-gray-600 dark:text-gray-400 active:opacity-70"
-          data-testid="mobile-action-ai"
-        >
-          <Bot className="h-5 w-5" />
-          <span className="text-[10px] font-medium">AI</span>
-        </button>
-      </div>
-
       {workspace.issues.length > 0 && <div className="crm-state-panel" role="status" data-testid="contact-selection-notice">
         <span className="crm-state-kicker">Selection adjusted</span><p>{workspace.issues[0].reason}</p>
       </div>}
       {/* Five destination areas keep the complete authorized section set, while
           inactive interiors remain unmounted by Radix TabsContent. */}
-      <CrmAreaNav entries={areaEntries} current={currentAreaHref} className="crm-contact-area-nav" />
       <div className="crm-contact-drawer-actions">
         <Button variant="outline" onClick={() => setDrawer("activity")} aria-expanded={workspace.drawer === "activity"}>Activity</Button>
         <Button variant="outline" onClick={() => setDrawer("history")} aria-expanded={workspace.drawer === "history"}>History</Button>
@@ -2864,45 +3001,6 @@ function ContactDetailRecord() {
         {workspace.drawer === "history" && <ChangeHistoryTab entityType="contact" entityId={contactId} />}
       </CrmDetailDrawer>
 
-      {/* Mobile sticky action bar — replaces scattered quick-action buttons on small screens */}
-      <div
-        className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex items-center z-40"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-      >
-        <button
-          data-testid="mobile-action-note"
-          onClick={() => setActiveTab("notes")}
-          className="flex-1 flex flex-col items-center gap-0.5 py-2.5 text-gray-600 dark:text-gray-400 active:bg-gray-100 dark:active:bg-gray-800"
-        >
-          <StickyNote className="w-5 h-5" />
-          <span className="text-[10px] font-medium">Note</span>
-        </button>
-        <button
-          data-testid="mobile-action-deal"
-          onClick={() => setShowDealDialog(true)}
-          className="flex-1 flex flex-col items-center gap-0.5 py-2.5 text-gray-600 dark:text-gray-400 active:bg-gray-100 dark:active:bg-gray-800"
-        >
-          <TrendingUp className="w-5 h-5" />
-          <span className="text-[10px] font-medium">Deal</span>
-        </button>
-        <button
-          data-testid="mobile-action-email"
-          onClick={() => setEmailComposerOpen(true)}
-          className="flex-1 flex flex-col items-center gap-0.5 py-2.5 text-gray-600 dark:text-gray-400 active:bg-gray-100 dark:active:bg-gray-800"
-        >
-          <Mail className="w-5 h-5" />
-          <span className="text-[10px] font-medium">Email</span>
-        </button>
-        <button
-          data-testid="mobile-action-task"
-          onClick={() => setShowTaskDialog(true)}
-          className="flex-1 flex flex-col items-center gap-0.5 py-2.5 text-gray-600 dark:text-gray-400 active:bg-gray-100 dark:active:bg-gray-800"
-        >
-          <CheckSquare className="w-5 h-5" />
-          <span className="text-[10px] font-medium">Task</span>
-        </button>
-      </div>
-
       <CreateDialogs
           showDealDialog={showDealDialog}
           setShowDealDialog={setShowDealDialog}
@@ -2914,6 +3012,9 @@ function ContactDetailRecord() {
           ticketForm={ticketForm}
           setTicketForm={setTicketForm}
           createTicket={createTicket}
+          onDealCloseAutoFocus={restoreFocusOnClose(moreActionsButtonRef)}
+          onTicketCloseAutoFocus={restoreFocusOnClose(moreActionsButtonRef)}
+          onTaskCloseAutoFocus={restoreFocusOnClose(newTaskActionButtonRef)}
           showTaskDialog={showTaskDialog}
           setShowTaskDialog={setShowTaskDialog}
           taskForm={taskForm}
@@ -2950,13 +3051,18 @@ function ContactDetailRecord() {
         onClose={() => setLogCallOpen(false)}
         contactId={contactId}
         dealId={deals.find(d => !d.archivedAt)?.id ?? null}
+        onCloseAutoFocus={restoreFocusOnClose(primaryActionButtonRef)}
       />
 
-      {/* #1475 — Next Steps sticky widget */}
+      {/* #1475 — Next Steps scheduler, opened from the compact record actions */}
       <NextStepsWidget
         contactId={contactId}
         dealId={activeHeaderDeal?.id}
         nextFollowUp={nextFollowUp}
+        open={nextStepsOpen}
+        onOpenChange={setNextStepsOpen}
+        onCloseAutoFocus={restoreFocusOnClose(moreActionsButtonRef)}
+        dialogOnly
       />
     </div>
   );

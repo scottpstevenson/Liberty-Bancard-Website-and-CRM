@@ -26,6 +26,29 @@ Contact consumes the existing shared `isPendingTask` predicate, counting both
 open and in-progress tasks. Loaded/unavailable distinction is retained. No new
 query, authorization rule or competing task-state definition was introduced.
 
+## C2-R10 — Contact header and action hierarchy
+
+This was an unmet original C2 implementation-step-4 requirement, assigned to the
+existing Task #2073/C2 alongside the two corrections above. It is not C3–C5 work.
+The implemented outer composition keeps identity, owner, lifecycle,
+consent/contactability, next action and essential pause status visible; one
+primary Log Call and two secondary Add Note/New Task actions precede an
+accessible More actions menu. Detailed diagnostics/SFP/readiness move into a
+keyboard-expandable contextual section after nearby five-area navigation.
+
+Scoped desktop/mobile/native-200%-zoom and real-handler verification passed
+on 2026-10-08. Before/after screenshots, actual viewport geometry, handler
+status/contact IDs and source-pinned receipt are in `contact-header/`.
+Real Edit/Deal/Ticket/Note/Task/Call and scheduler persistence, keyboard/
+dialog focus return, last-command reachability at native 200%, and existing
+owner 404/merchant 403 denials passed. Three existing blueprint attempts were
+denied before provider dispatch; external egress was zero.
+See `contact-header/README.md` for the exact hashes and bounded qualifications.
+This does not certify Email/AI execution, published signed-in UI, full C2 or
+global Go Live acceptance. Earlier Calendar/pending-task receipts are retained,
+not relabelled or rerun as broad suites.
+The final eleven-entry sidebar remains C5.
+
 ## Reader investigation
 
 ### Appointments

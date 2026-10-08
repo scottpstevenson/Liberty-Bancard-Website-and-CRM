@@ -1,0 +1,722 @@
+{
+  "status": "pass",
+  "phase": "after",
+  "checks": [
+    "one primary/two secondaries; five areas above fold; diagnostic details keyboard-expandable",
+    "More actions: labelled, keyboard open/navigation/Escape, focus returns to trigger",
+    "clipboard menu commands use this record's actual values; paused dial command disabled",
+    "relocated follow-up scheduler invokes actual contact-bound task handler; focus returns; no floating scheduler overlays",
+    "Edit actual record-bound save and cancellation restore More focus",
+    "Create Deal actual contact-bound SQL persistence",
+    "overflow Edit/Deal/Email/Ticket retain record handlers; ticket persists; modal dismissal focus returns; AI preserves existing vertical-context navigation",
+    "Add Note retains URL-backed notes section and real contact-bound persistence",
+    "New Task submits the actual task handler with the current contact ID",
+    "Log Call submits the actual call log handler with the current contact ID",
+    "foreign owner non-disclosure 404 and merchant denial 403 remain intact",
+    "desktop/mobile screenshots and actual native 200% browser zoom",
+    "native 200% overflow scrolls to last command with keyboard and returns focus on Escape"
+  ],
+  "mutations": [
+    {
+      "path": "/api/tasks",
+      "method": "POST",
+      "contactId": 1,
+      "status": 201
+    },
+    {
+      "path": "/api/contacts/1",
+      "method": "PUT",
+      "contactId": 1,
+      "status": 200
+    },
+    {
+      "path": "/api/deals",
+      "method": "POST",
+      "contactId": 1,
+      "status": 201
+    },
+    {
+      "path": "/api/tickets",
+      "method": "POST",
+      "contactId": 1,
+      "status": 201
+    },
+    {
+      "path": "/api/tasks",
+      "method": "POST",
+      "contactId": 1,
+      "status": 201
+    },
+    {
+      "path": "/api/call-logs",
+      "method": "POST",
+      "contactId": 1,
+      "status": 201
+    }
+  ],
+  "sourceHead": "b20e7a1ec40c70714e77738b4b892a5fc4924aef",
+  "compiledInputHash": "7347a06dc73f215ed7fc1f9f4997e5793772744c5ecafbaa54dfe64206132a29",
+  "compiledOutputHash": "05f3124d88867f7614b75cbf847f202b9658770eb6850ea25909878c8f6d27f1",
+  "requests": [
+    {
+      "path": "/api/auth/user",
+      "method": "GET",
+      "status": 401
+    },
+    {
+      "path": "/api/auth/login",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/inbox/send-state",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/my-day",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/analytics/deals-closing-this-month",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/save-cases/my",
+      "method": "GET"
+    },
+    {
+      "path": "/api/sms-inbox/unread-count",
+      "method": "GET",
+      "status": 403
+    },
+    {
+      "path": "/api/notifications/count",
+      "method": "GET"
+    },
+    {
+      "path": "/api/live-chat/sessions?status=active",
+      "method": "GET"
+    },
+    {
+      "path": "/api/tasks/overdue-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/outreach-queue/count",
+      "method": "GET"
+    },
+    {
+      "path": "/api/leaderboard?period=month",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/user",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/inbox/send-state",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/detail?section=overview",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/sms-inbox/unread-count",
+      "method": "GET",
+      "status": 403
+    },
+    {
+      "path": "/api/notifications/count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/live-chat/sessions?status=active",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/tasks/overdue-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/outreach-queue/count",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/nba",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/suppression-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/companies",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/rate-reviews/contact/1",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/confirmation-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/ghl/sync-status/contact/1",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/parent",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/zerobounce-history",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/sfp-readiness",
+      "method": "GET"
+    },
+    {
+      "path": "/api/tasks",
+      "method": "POST",
+      "status": 201
+    },
+    {
+      "path": "/api/contacts/1/detail?section=overview",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/users/reps",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/users/reps",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1",
+      "method": "PUT",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/detail?section=overview",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/companies",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/confirmation-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/parent",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/detail?section=overview",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/deals",
+      "method": "POST",
+      "status": 201
+    },
+    {
+      "path": "/api/contacts/1/detail?section=overview",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/live-chat/sessions?status=active",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/message-drafts?contextType=contact&contextId=1&channel=email",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/tickets",
+      "method": "POST",
+      "status": 201
+    },
+    {
+      "path": "/api/contacts/1/detail?section=overview",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/auth/user",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/inbox/send-state",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/detail?section=overview",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/sms-inbox/unread-count",
+      "method": "GET",
+      "status": 403
+    },
+    {
+      "path": "/api/notifications/count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/live-chat/sessions?status=active",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/tasks/overdue-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/outreach-queue/count",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/nba",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/suppression-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/companies",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/rate-reviews/contact/1",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/confirmation-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/ghl/sync-status/contact/1",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/parent",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/detail?section=notes",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notes",
+      "method": "POST",
+      "status": 201
+    },
+    {
+      "path": "/api/contacts/1/detail?section=notes",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/auth/user",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/inbox/send-state",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/detail?section=overview",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/sms-inbox/unread-count",
+      "method": "GET",
+      "status": 403
+    },
+    {
+      "path": "/api/notifications/count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/live-chat/sessions?status=active",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/tasks/overdue-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/outreach-queue/count",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/nba",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/suppression-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/companies",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/rate-reviews/contact/1",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/confirmation-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/ghl/sync-status/contact/1",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/parent",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/tasks",
+      "method": "POST",
+      "status": 201
+    },
+    {
+      "path": "/api/notifications/count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/tasks/overdue-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/detail?section=overview",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/companies",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/confirmation-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/parent",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/nba",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/suppression-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/auth/user",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/inbox/send-state",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/detail?section=overview",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/sms-inbox/unread-count",
+      "method": "GET",
+      "status": 403
+    },
+    {
+      "path": "/api/notifications/count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/live-chat/sessions?status=active",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/tasks/overdue-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/outreach-queue/count",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/nba",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/suppression-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/companies",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/rate-reviews/contact/1",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/confirmation-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/ghl/sync-status/contact/1",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/parent",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/call-logs",
+      "method": "POST",
+      "status": 201
+    },
+    {
+      "path": "/api/auth/user",
+      "method": "GET",
+      "status": 401
+    },
+    {
+      "path": "/api/auth/login",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/inbox/send-state",
+      "method": "GET"
+    },
+    {
+      "path": "/api/my-day",
+      "method": "GET"
+    },
+    {
+      "path": "/api/analytics/deals-closing-this-month",
+      "method": "GET"
+    },
+    {
+      "path": "/api/save-cases/my",
+      "method": "GET"
+    },
+    {
+      "path": "/api/sms-inbox/unread-count",
+      "method": "GET"
+    },
+    {
+      "path": "/api/notifications/count",
+      "method": "GET"
+    },
+    {
+      "path": "/api/live-chat/sessions?status=active",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/tasks/overdue-count",
+      "method": "GET"
+    },
+    {
+      "path": "/api/outreach-queue/count",
+      "method": "GET"
+    },
+    {
+      "path": "/api/tasks",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/appointments",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/facets",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/deals",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/field-sales/status",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/auth/user",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/inbox/send-state",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/detail?section=overview",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/sms-inbox/unread-count",
+      "method": "GET",
+      "status": 403
+    },
+    {
+      "path": "/api/notifications/count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/live-chat/sessions?status=active",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/tasks/overdue-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/outreach-queue/count",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/nba",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/suppression-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/companies",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/rate-reviews/contact/1",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/confirmation-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/ghl/sync-status/contact/1",
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/contacts/1/parent",
+      "method": "GET",
+      "status": 200
+    }
+  ],
+  "deniedProviderAttempts": 3,
+  "externalEgress": 0,
+  "qualification": "retained compiled client and actual registered source handlers; private agent login, not published bundled-server UI",
+  "effects": "private PostgreSQL/Redis; fixture-only writes; provider egress denied"
+}

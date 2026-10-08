@@ -2,6 +2,21 @@
 
 ## Liberty Stage 3 C2 — 2026-10-08 scoped closeout
 
+**C2-R10 correction:** The Contact outer header/action hierarchy was an unmet
+original C2 step-4 requirement, not accepted by the earlier closeout or deferred
+to C3–C5. Implementation and scoped local rendered/action proof passed on
+2026-10-08 in `certification/stage3-c2/contact-header/`; see its README and
+source-pinned after receipt. Real contact-bound persistence, keyboard/focus
+return and native 200% last-command reachability are verified. Three provider
+attempts were denied and external egress was zero. Published signed-in UI,
+Email/AI execution and full C2/global acceptance remain uncertified.
+This correction is tracked with
+Calendar-duration and pending-task corrections in the C2 closeout and reconciled
+[Stage 3 spec](LIBERTY_BANCARD_STAGE_3_CONSOLIDATED_IMPLEMENTATION_SPEC.md) /
+[Go Live ledger](LIBERTY_BANCARD_GO_LIVE_AUDIT_LEDGER_CURRENT.md).
+No release GO is granted. Final eleven-entry sidebar remains C5; outbound stays
+paused and incoming GHL stays independently enabled.
+
 C2 implementation is handed off at the user's explicit no-more-full-suites
 boundary. **This entry grants no release GO and closes no global finding.**
 The compiled C2 browser construction at `4df9b86e` passed 335 bounded

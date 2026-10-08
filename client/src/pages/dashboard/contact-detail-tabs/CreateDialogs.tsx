@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Building2 } from "lucide-react";
-import type { Dispatch, SetStateAction } from "react";
+import type { ComponentPropsWithoutRef, Dispatch, SetStateAction } from "react";
 import type { Company, ContactCompany } from "@shared/schema";
 import { VERTICALS } from "@shared/schema";
 
@@ -19,12 +19,14 @@ interface Props {
   dealForm: DealForm;
   setDealForm: Dispatch<SetStateAction<DealForm>>;
   createDeal: () => void;
+  onDealCloseAutoFocus?: ComponentPropsWithoutRef<typeof DialogContent>["onCloseAutoFocus"];
 
   showTicketDialog: boolean;
   setShowTicketDialog: Dispatch<SetStateAction<boolean>>;
   ticketForm: TicketForm;
   setTicketForm: Dispatch<SetStateAction<TicketForm>>;
   createTicket: () => void;
+  onTicketCloseAutoFocus?: ComponentPropsWithoutRef<typeof DialogContent>["onCloseAutoFocus"];
 
   showTaskDialog: boolean;
   setShowTaskDialog: Dispatch<SetStateAction<boolean>>;
@@ -33,6 +35,7 @@ interface Props {
   createTask: () => void;
   taskSaving?: boolean;
   taskSaveError?: string|null;
+  onTaskCloseAutoFocus?: ComponentPropsWithoutRef<typeof DialogContent>["onCloseAutoFocus"];
 
   showCompanyDialog: boolean;
   setShowCompanyDialog: Dispatch<SetStateAction<boolean>>;
@@ -62,7 +65,7 @@ export function CreateDialogs(p: Props) {
     <>
       {/* Create Deal Dialog */}
       <Dialog open={p.showDealDialog} onOpenChange={p.setShowDealDialog}>
-        <DialogContent data-testid="dialog-create-deal">
+        <DialogContent onCloseAutoFocus={p.onDealCloseAutoFocus} data-testid="dialog-create-deal">
           <DialogHeader>
             <DialogTitle>Create Deal</DialogTitle>
           </DialogHeader>
@@ -120,7 +123,7 @@ export function CreateDialogs(p: Props) {
 
       {/* Create Ticket Dialog */}
       <Dialog open={p.showTicketDialog} onOpenChange={p.setShowTicketDialog}>
-        <DialogContent data-testid="dialog-create-ticket">
+        <DialogContent onCloseAutoFocus={p.onTicketCloseAutoFocus} data-testid="dialog-create-ticket">
           <DialogHeader>
             <DialogTitle>Create Ticket</DialogTitle>
           </DialogHeader>
@@ -170,7 +173,7 @@ export function CreateDialogs(p: Props) {
 
       {/* Create Task Dialog */}
       <Dialog open={p.showTaskDialog} onOpenChange={p.setShowTaskDialog}>
-        <DialogContent data-testid="dialog-create-task">
+        <DialogContent onCloseAutoFocus={p.onTaskCloseAutoFocus} data-testid="dialog-create-task">
           <DialogHeader>
             <DialogTitle>Create Task</DialogTitle>
           </DialogHeader>

@@ -1,0 +1,36 @@
+{
+  "viewport": {
+    "width": 720,
+    "height": 428,
+    "dpr": 2
+  },
+  "documentWidth": 720,
+  "header": {
+    "top": 201,
+    "bottom": 477,
+    "width": 664.5,
+    "height": 276,
+    "visible": true
+  },
+  "navigation": {
+    "top": 493,
+    "bottom": 554,
+    "width": 664.5,
+    "height": 61,
+    "visible": true
+  },
+  "status": {
+    "top": 311,
+    "bottom": 389,
+    "width": 664.5,
+    "height": 78,
+    "visible": true
+  },
+  "nextAction": {
+    "top": 397,
+    "bottom": 417,
+    "width": 664.5,
+    "height": 20,
+    "visible": true
+  }
+}

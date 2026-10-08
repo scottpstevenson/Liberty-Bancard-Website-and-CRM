@@ -1,3 +1,32 @@
+# C2 postmerge correction — C2-R10 (2026-10-08)
+
+Contact header cleanup was explicitly required by C2 implementation step 4.
+Track it as an unmet existing Task #2073/C2 requirement alongside the
+Calendar-duration and pending-task corrections; do not defer it to C3–C5.
+
+Complete ContactDetail's outer record composition with shared RecordHeader and
+Liberty CRM components: visible identity/owner/lifecycle/consent/contactability/
+next action; one primary and no more than two secondaries; other permitted
+actions in labelled accessible More actions. Preserve Add Note/New Task/Log Call
+handlers and current contact ID. Move substantial SFP/readiness explanations to
+an expandable contextual section, retaining essential status/pause reasons.
+Place five-area URL navigation close to the compact header and preserve
+permissions, sections, tokens, typography, spacing and responsive behavior.
+
+Verify real desktop/mobile/200% zoom, keyboard access, menu focus return and
+relocated action handler/context; retain before/after screenshots and separate
+implementation from unverified behavior. Update C2 closeout, Stage 3 spec and
+Go Live ledger. The eleven-entry sidebar stays C5. Outbound remains paused;
+incoming GHL remains independently enabled.
+
+**Scoped outcome, 2026-10-08:** implemented and locally verified. The
+source-pinned receipt in `../contact-header/after-receipt.json` passes thirteen
+bounded check groups, including contact-bound persistence, before/after
+desktop/phone/native-200% evidence, keyboard/modal focus return and unchanged
+owner/merchant denials. Three provider attempts were denied; external egress
+was zero. `../contact-header/README.md` retains the exact qualifications.
+This does not close full C2 or certify production/Email/AI execution.
+
 # Liberty Stage 3 — Task #2073 / C2 repository and live-access audit
 
 Audit date: October 7, 2026 UTC. Task reviewed: **Daily CRM Workspace Integration**. This is one correction handoff for the **existing #2073**, preserving its five destinations, original assignments, implementation sequence and kill lines. It does not create another implementation task.

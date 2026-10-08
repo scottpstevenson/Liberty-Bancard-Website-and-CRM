@@ -1,0 +1,12 @@
+{
+  "status": "pass",
+  "phase": "before",
+  "checks": [
+    "desktop/mobile screenshots and actual native 200% browser zoom"
+  ],
+  "mutations": [],
+  "sourceHead": "222b92e00e244e23dbb3fa97520785bf8f2cfe5a",
+  "compiledInputHash": "6a54e8448bebe01b03842328dfd43b71c536b138c1a01858d62b3864f6a1fd04",
+  "qualification": "retained compiled client and actual registered source handlers; private agent login, not published bundled-server UI",
+  "effects": "private PostgreSQL/Redis; fixture-only writes; provider egress denied"
+}

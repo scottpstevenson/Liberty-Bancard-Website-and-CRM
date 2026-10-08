@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, type ComponentPropsWithoutRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -48,9 +48,10 @@ interface EmailComposerProps {
   initialVertical?: string
   onClose: () => void
   open: boolean
+  onCloseAutoFocus?: ComponentPropsWithoutRef<typeof DialogContent>["onCloseAutoFocus"]
 }
 
-export function EmailComposer({ contactId, prospectId, initialVertical, onClose, open }: EmailComposerProps) {
+export function EmailComposer({ contactId, prospectId, initialVertical, onClose, open, onCloseAutoFocus }: EmailComposerProps) {
   const [context, setContext] = useState("")
   const [tone, setTone] = useState("")
   const [vertical, setVertical] = useState(initialVertical || "")
@@ -116,7 +117,7 @@ export function EmailComposer({ contactId, prospectId, initialVertical, onClose,
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
-      <DialogContent className="max-w-2xl max-sm:fixed max-sm:inset-0 max-sm:translate-x-0 max-sm:translate-y-0 max-sm:!max-w-none max-sm:rounded-none max-sm:h-dvh max-sm:overflow-y-auto" data-testid="dialog-email-composer">
+      <DialogContent onCloseAutoFocus={onCloseAutoFocus} className="max-w-2xl max-sm:fixed max-sm:inset-0 max-sm:translate-x-0 max-sm:translate-y-0 max-sm:!max-w-none max-sm:rounded-none max-sm:h-dvh max-sm:overflow-y-auto" data-testid="dialog-email-composer">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" />

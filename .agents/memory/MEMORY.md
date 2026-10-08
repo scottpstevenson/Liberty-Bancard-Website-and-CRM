@@ -1,4 +1,5 @@
 - [Canonical consolidation completion](canonical-consolidation-scope.md) — Finish the original scope; production blockers do not justify stopping independent local work.
+- [C2 Contact header scope](c2-contact-header-scope.md) — Header/action hierarchy remains C2; final eleven-entry sidebar stays C5; qualify rendered/action evidence separately.
 - [Multi-mailbox restart proof](multi-mailbox-restart-proof.md) — Certify ordinary upload restart separately from deferred-item recovery; immutable row accounting is not fulfillment.
 - [Original-row claim planning](original-row-claim-planning.md) — Verify the full payload-extraction plan; limit scalar work before opening workbook JSON.
 - [Legacy role-conditional redirects](legacy-role-conditional-redirects.md) — Non-admin/manager roles may still see retired pages; inspect every redirect branch before deletion.
@@ -52,13 +53,12 @@
 - [GHL client pitfalls](ghl-fetch-timeout.md) — AbortController per fetch (20s, retryable); email-422s sanitize to terminal skips; pause enforced at each client's fetch helper.
 - [tsx hot-reload stale route registration](tsx-stale-route.md) — new Express routes may 404 until a full server restart; probe with curl and restart to confirm.
 - [Drizzle-kit orphaned file deploy hang](drizzle-kit-orphaned-hang.md) — Unjournaled SQL in migrations/ root hangs drizzle-kit generate; journal it or move to migrations/guarded/.
-- [Test phone/EIN isolation](test-phone-isolation.md) — hardcoded phones/EINs collide across test runs; always generate uniquely (uniquePhone(), Date.now()%10000000) (see test-ein-uniqueness.md).
 - [Communication Events Model](communication-events-model.md) — migration 0119; recordOutboundSend/recordInboundEvent are the only write paths; wired sites documented.
 - [Arbitration fail-closed](arbitration-fail-closed.md) — arbitration catch block returns suppressed:true on error (was fail-open); ARBITRATION_ERROR audit log written.
 - [Migration statement timeout bypass](migration-statement-timeout.md) — Use dedicated pg.Client with statement_timeout=0, not drizzle(pool), to protect large indexes.
 - [AI Memory Architecture](ai-memory-arch.md) — AI memory tables and /api/ai-memory routes; AI Learning Center is in OperatorDashboard.
 - [Save Cases auto-open](save-cases-auto-open.md) — openSaveCaseIfNeeded() fires after High/Critical nightly churn score; partial unique index prevents duplicate open cases per contact.
-- [Test contact isolation](test-contact-prefixes.md) — Prefix families and FK cleanup order; [GHL cleanup](ghl-test-contact-cleanup.md).
+- [Test fixture isolation](test-contact-prefixes.md) — Prefix/FK rules; [unique phones/EINs](test-phone-isolation.md) and [GHL cleanup](ghl-test-contact-cleanup.md).
 - [Processor boarding authority pattern](processor-boarding-authority.md) — activation snapshot is the single gate for all provider I/O; MIDs masked in every response.
 - [Equipment Shipments Device Fields](equipment-shipments-device-fields.md) — device_type/serial_number; POST/PATCH/GET /api/boarding/equipment CRUD; merchant_mids IS the master MID registry.
 - [Pre-deploy gate quirks](appointment-statement-polling-fix.md) — GHL fix: pollUntil(12s); see [predeploy-port-5000-conflict.md](predeploy-port-5000-conflict.md): dev owns port 5000.
@@ -148,7 +148,7 @@
 - [Partial patch results](partial-patch-results.md) — A failed multi-file patch may retain successful edits; inspect per-file results before retrying.
 - [Dev startup mutation scope](dev-startup-mutation-scope.md) — Background profile off disables jobs, not all startup reconciliations; no-mutation verification needs separate care.
 - [Dependency upgrades and design](dependency-design-preservation.md) — Security upgrades must preserve Liberty's design; installs can reintroduce nonportable mirror sources.
-- [Browser runtime verification](browser-runtime-verification.md) — Prefer the environment Chromium wrapper; cached browsers can lack compatible Nix runtime libraries.
+- [Browser runtime verification](browser-runtime-verification.md) — Use environment Chromium; [wait for overlay transitions](browser-overlay-settling.md) before target/focus assertions.
 - [Cloud browser sessions](cloud-browser-test-isolation.md) — Fresh Kernel sessions omit profile-save flags; filter credential-bearing connection metadata.
 - [Nested overlay dismissal](radix-overlay-context.md) — Radix overlays must share a dismissal context; prove nested Escape and focus return after dependency changes.
 - [ESM harness loader ownership](esm-harness-loader-ownership.md) — Run tsImport-based .mjs harnesses with Node; an extra tsx loader can cause timeouts.

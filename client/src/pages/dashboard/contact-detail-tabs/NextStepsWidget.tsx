@@ -3,7 +3,7 @@
  * Lets reps quickly set the next action type, scheduled datetime, and a reminder note.
  * Saves directly to the Tasks table via POST /api/tasks.
  */
-import { useState } from "react";
+import { useState, type ComponentPropsWithoutRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -27,6 +27,12 @@ interface NextStepsWidgetProps {
   nextFollowUp?: string | null;
   /** Whether to show the widget */
   visible?: boolean;
+  /** Control the scheduler sheet from an external action such as More actions. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onCloseAutoFocus?: ComponentPropsWithoutRef<typeof SheetContent>["onCloseAutoFocus"];
+  /** Render only the existing scheduler sheet, without sticky/mobile triggers. */
+  dialogOnly?: boolean;
 }
 
 interface WidgetFormProps {
@@ -140,11 +146,45 @@ function WidgetForm({ contactId, dealId, onSuccess, onCancel }: WidgetFormProps)
   );
 }
 
-export function NextStepsWidget({ contactId, dealId, nextFollowUp, visible = true }: NextStepsWidgetProps) {
+export function NextStepsWidget({
+  contactId,
+  dealId,
+  nextFollowUp,
+  visible = true,
+  open,
+  onOpenChange,
+  onCloseAutoFocus,
+  dialogOnly = false,
+}: NextStepsWidgetProps) {
   const [expanded, setExpanded] = useState(false);
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [localSheetOpen, setLocalSheetOpen] = useState(false);
+  const sheetOpen = open ?? localSheetOpen;
+  const setSheetOpen = (next: boolean) => {
+    if (open === undefined) setLocalSheetOpen(next);
+    onOpenChange?.(next);
+  };
 
   if (!visible) return null;
+
+  if (dialogOnly) {
+    return (
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent side="bottom" className="pb-safe" onCloseAutoFocus={onCloseAutoFocus} data-testid="next-steps-scheduler-dialog">
+          <SheetHeader className="pb-4">
+            <SheetTitle className="flex items-center gap-2" data-testid="next-steps-scheduler-title">
+              <CalendarClock className="h-4 w-4" /> Set Next Step
+            </SheetTitle>
+          </SheetHeader>
+          <WidgetForm
+            contactId={contactId}
+            dealId={dealId}
+            onSuccess={() => setSheetOpen(false)}
+            onCancel={() => setSheetOpen(false)}
+          />
+        </SheetContent>
+      </Sheet>
+    );
+  }
 
   return (
     <>
@@ -206,7 +246,7 @@ export function NextStepsWidget({ contactId, dealId, nextFollowUp, visible = tru
       </div>
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent side="bottom" className="pb-safe">
+        <SheetContent side="bottom" className="pb-safe" onCloseAutoFocus={onCloseAutoFocus}>
           <SheetHeader className="pb-4">
             <SheetTitle className="flex items-center gap-2">
               <CalendarClock className="h-4 w-4" /> Set Next Step

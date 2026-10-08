@@ -472,3 +472,45 @@ mtime_ms = 1791410529270
 storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/e31804e8-3e81-4cec-a720-873607aaf2d8/3d36874e-02dd-4e66-a3d4-dd28458fe03a"
 storage_version_token = "1791410613720813"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "hbD3nfU4mcZqFE3y_QDRB"
+uri = "file://docs/certification/stage3-c2/closeout.md"
+type = "text"
+title = "C2 closeout — scoped Contact header proof"
+description = "Updated C2-R10 results, qualifications and retained historical closeout."
+logical_id = "487b1f0c-4e70-4cfc-b44a-b21efe4789ae"
+content_hash = "sha256:a24229e250d41df0d65dc1d187e300b6d052f0a41d5ae5b6484ce8f2b05b6e68"
+size = 6537
+mtime_ms = 1791481864250
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/487b1f0c-4e70-4cfc-b44a-b21efe4789ae/ce101289-5059-4e81-a394-022672392af5"
+storage_version_token = "1791481999928966"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "zH9p0u-u_7QbwYSLWiUop"
+uri = "file://docs/LIBERTY_BANCARD_STAGE_3_CONSOLIDATED_IMPLEMENTATION_SPEC.md"
+type = "text"
+title = "Updated Stage 3 implementation spec"
+description = "Readable historical baseline preserved verbatim with the scoped C2-R10 amendment."
+logical_id = "364b7058-226d-4fc6-af84-18562a505098"
+content_hash = "sha256:e4b0a32ac0c069e3d8f6d61263cbe0f1d71a9d89f5f8d63828c60ce7f5224eb1"
+size = 377663
+mtime_ms = 1791481868010
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/364b7058-226d-4fc6-af84-18562a505098/906aeda0-3189-4453-b7e0-86449205346d"
+storage_version_token = "1791482002771482"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "Nt1HmeHMW10glSIe95jGk"
+uri = "file://docs/LIBERTY_BANCARD_GO_LIVE_AUDIT_LEDGER_CURRENT.md"
+type = "text"
+title = "Updated Go Live audit ledger"
+description = "Scoped local evidence recorded without granting full C2 or production acceptance."
+logical_id = "12da8a19-2f3b-489b-9265-5c6c800ff121"
+content_hash = "sha256:c323dcdcd656197098a94075bc22a4517ad05ab7c8fd992d5e3a13f7fa94b529"
+size = 133944
+mtime_ms = 1791481871418
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/12da8a19-2f3b-489b-9265-5c6c800ff121/c6180ee2-1a4c-4762-9555-46afefe19b0d"
+storage_version_token = "1791482003470637"
+content_type = "text/markdown"

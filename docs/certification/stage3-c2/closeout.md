@@ -2,6 +2,42 @@
 
 ## Delivery boundary
 
+### C2-R10 — Unfinished Contact header and action hierarchy
+
+The earlier handoff did **not** fulfill C2 implementation step 4's Contact
+outer-header/action requirement. This is tracked as an unmet existing requirement
+of Task #2073/C2 alongside Calendar-duration and pending-task corrections, not
+new work or a deferral to C3–C5.
+
+The compact header correction is implemented; its scoped rendered/action
+verification passed on 2026-10-08. It uses the existing `RecordHeader`, Liberty tokens
+and URL-backed five-area navigation; Log Call is primary, Add Note/New Task are
+the two secondaries, and other permitted operations live in labelled More actions.
+Substantial SFP/readiness explanations and diagnostic content are expandable,
+with essential status/pause reasons retained in the header.
+
+See `contact-header/`, `scripts/test-c2-contact-header.ts`, the
+[reconciled Stage 3 spec](../../LIBERTY_BANCARD_STAGE_3_CONSOLIDATED_IMPLEMENTATION_SPEC.md)
+and [Go Live ledger](../../LIBERTY_BANCARD_GO_LIVE_AUDIT_LEDGER_CURRENT.md).
+Before/after desktop, phone and native 200% captures are retained. The final
+receipt passes thirteen bounded check groups: real contact-bound Edit/Deal/
+Ticket/Note/Task/Call and follow-up scheduling, clipboard, keyboard/menu/dialog
+focus return, viewport-bounded overflow and unchanged owner/merchant denials.
+Email/AI execution and production signed-in UI are not certified. This is not
+an all-C2 pass. `contact-header/README.md` records exact geometry/qualification.
+The final eleven-entry sidebar remains C5. Outbound stays paused; incoming GHL
+synchronization remains independently enabled. No production mutation or publish.
+
+Final R10 source HEAD: `b20e7a1ec40c70714e77738b4b892a5fc4924aef`.
+Effective build input:
+`7347a06dc73f215ed7fc1f9f4997e5793772744c5ecafbaa54dfe64206132a29`.
+Output:
+`05f3124d88867f7614b75cbf847f202b9658770eb6850ea25909878c8f6d27f1`.
+Three existing Create Deal blueprint attempts were denied before provider
+transport; external egress was zero. Do not describe this as zero attempts.
+
+## Historical closeout before R10 — retained, not relabelled
+
 Today, Records/Contact, Pipeline, Inbox and Work have the implemented Liberty
 composition and retained existing authorities/actions. The user requested
 closeout and explicitly stopped further full test/suite execution. That changes

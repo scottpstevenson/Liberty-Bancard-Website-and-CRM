@@ -1,0 +1,18 @@
+{
+  "viewport": {
+    "width": 1440,
+    "height": 857,
+    "dpr": 1
+  },
+  "documentWidth": 1440,
+  "header": null,
+  "navigation": {
+    "top": 1555,
+    "bottom": 1616,
+    "width": 1121,
+    "height": 61,
+    "visible": true
+  },
+  "status": null,
+  "nextAction": null
+}

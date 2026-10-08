@@ -20,3 +20,14 @@ tree and test nested Escape/focus in a signed-in real browser. A successful
 build or a themed portal alone does not establish correct nested behavior.
 Compiler deduplication can share an existing implementation without changing
 locked package versions when the installed implementations are compatible.
+
+Controlled Dialog/Sheet content opened from a menu but lacking its own
+Dialog/Sheet Trigger needs explicit caller-owned focus return on close.
+
+**Why:** The modal's trigger reference is empty in this composition. Waiting for
+animations or scheduling its opening after menu dismissal does not create a
+trigger reference; a real successful save can still leave focus on the body.
+
+**How to apply:** Keep a ref to the initiating, still-owned record action and
+handle the modal's close-autofocus event in the app. Prove focus returns with
+actual keyboard/pointer interactions; never focus the expected element in a test.
