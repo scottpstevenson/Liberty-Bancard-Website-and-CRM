@@ -1,6 +1,6 @@
 ---
 name: SFP contact–business link evidence
-description: Independent identity threshold and Sunbiz vendor-source distinction for safely admitting CRM contacts into SFP.
+description: Production-wide business affiliation independent of outreach, with evidence thresholds and Sunbiz source distinctions.
 ---
 
 Do not treat the legacy Sunbiz/corporate-domain conjunction as the universal company/contact linking policy. The user explicitly said the linking rules were too strict. Company identity, email deliverability, outreach eligibility and permission to send are separate decisions.
@@ -8,6 +8,12 @@ Do not treat the legacy Sunbiz/corporate-domain conjunction as the universal com
 **Why:** Requiring every registry website, exact legal-name spelling and corporate email at once leaves genuine businesses using Gmail or missing websites unresolved. Suppression/invalid email status is a reason not to send, not proof that a company relationship is false.
 
 **How to apply:** Allow an explicit, attributable operator confirmation of a unique company-name match without demanding missing phone/domain evidence, evidence IDs, or typed reasons. Supporting identifiers strengthen or disambiguate the match. Keep competing/conflicting matches unresolved, preserve opt-outs, and never describe operator confirmation or software matching as independent registry/provider verification.
+
+Ordinary supported business assignment must advance automatically across production contacts, independently of Sunbiz membership, outreach geography, vertical, ZeroBounce and sending. Routine manual linking is not the normal operating flow.
+
+**Why:** The user explicitly required production-wide automatic affiliation and supported missing-business creation, rather than limiting assignment to campaign-qualified contacts.
+
+**How to apply:** Reuse sufficient retained source/company evidence, create a supported missing business once, preserve valid relationships, and distinguish shared-brand locations and genuine conflicts. Missing corporate email or registry membership is not a universal disqualifier; unsupported associations remain explicit exceptions.
 
 The legacy strict automatic path still requires an independent canonical Sunbiz source relationship with matching source website domain and entity name, a unique canonical business domain, an exact normalized CRM company name, and a matching non-shared corporate email domain. This is a specific system-verification authority, not overall linking eligibility. A verified link still does not validate the email or authorize outreach.
 
