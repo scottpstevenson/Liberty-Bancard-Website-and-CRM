@@ -47,6 +47,7 @@ export function useMessageDraft(context: DraftContext, enabled: boolean, onLoad:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, enabled]);
   const save = useMutation({
+    onMutate: () => ({ key: keyRef.current }),
     mutationFn: async (text: { subject: string; body: string }) => {
       if (loading || !ready || !enabled || !user?.id) throw new Error("Reopen the authorized draft before saving");
       const payload = JSON.stringify({ context, ...text, expectedVersion: version });
@@ -61,12 +62,14 @@ export function useMessageDraft(context: DraftContext, enabled: boolean, onLoad:
       if (keyRef.current !== selectedKey) return;
       setVersion(draft.version); setSavedAt(draft.savedAt); setError(null); command.current = null;
     },
-    onError: err => setError((err as Error).message),
+    onError: (err, _text, context) => {
+      if (context?.key === keyRef.current) setError((err as Error).message);
+    },
   });
   // A transport failure retains the exact command for a safe response-loss retry.
   const retrySave = (text: { subject: string; body: string }) => {
     setError(null);
     save.mutate(text);
   };
-  return { version, savedAt, loading, error, save, retrySave, reopen: load };
+  return { version, savedAt, loading, ready, error, save, retrySave, reopen: load };
 }

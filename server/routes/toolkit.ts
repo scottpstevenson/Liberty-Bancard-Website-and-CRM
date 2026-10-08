@@ -1,10 +1,14 @@
 import type { Express } from "express";
 import crypto from "crypto";
-import { isAuthenticated, isAdmin, requireRole } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, isAdmin, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { serverError, safeMessage } from "../utils/server-error";
 import { getRoundRobinPool, assignNextRep, mutateRoundRobinPool, getEligibleRoundRobinReps } from "../services/round-robin-policy";
 import { resolveWorkAssignee, WorkCommandError } from "../services/work-item-command";
+import { canAccessOwner } from "../services/crm-object-access";
+import { db } from "../db";
+import { contacts } from "@shared/schema";
+import { inArray } from "drizzle-orm";
 export {getRoundRobinPool,assignNextRep};
 
 const GHL_API_BASE = "https://services.leadconnectorhq.com";
@@ -35,7 +39,28 @@ async function ghlFetch(path: string, options: RequestInit = {}): Promise<any> {
   return text ? JSON.parse(text) : {};
 }
 
-export function registerToolkitRoutes(app: Express) {
+export function registerToolkitRoutes(app: Express, readerDependencies?: {
+  appointments?: {config:()=>ReturnType<typeof getGhlConfig>;read:(path:string)=>Promise<any>};
+}) {
+  // Read-only presentation of transport restrictions; not an authorization,
+  // release approval, provider probe, or replacement for command-side gates.
+  app.get("/api/tools/capabilities", isDashboardUser, (_req, res) => {
+    const denied = process.env.VG_PROVIDER_DENY_MODE === "1";
+    const generationConfigured = !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+    res.json({
+      ai: { blocked: denied, reason: denied
+        ? "Provider transport is denied in this isolated candidate; AI execution is unavailable."
+        : "AI execution uses the existing assistant authority; configuration is not release approval." },
+      followups: { blocked: denied || !generationConfigured, reason: denied
+        ? "Provider transport is denied in this isolated candidate; follow-up generation is unavailable."
+        : generationConfigured ? "Generating drafts uses an AI provider; it does not send or enroll."
+          : "Follow-up generation is unavailable because its AI provider is not configured." },
+      bin: { blocked: denied, reason: denied
+        ? "Public provider transport is denied in this isolated candidate; BIN lookup is unavailable."
+        : "BIN lookup queries an external directory; no payment or card processing is performed." },
+      asOf: new Date().toISOString(), capability: "transport_observation_only",
+    });
+  });
   // === SMS INBOX ===
   // C-01 (#1626): all SMS inbox routes are admin/manager only. These routes
   // read GHL conversations (PII) and can send SMS to arbitrary contacts —
@@ -247,10 +272,13 @@ export function registerToolkitRoutes(app: Express) {
 
 
   // === CALENDAR / APPOINTMENTS ===
-  app.get("/api/appointments", isAuthenticated, async (req, res) => {
+  app.get("/api/appointments", isDashboardUser, async (req, res) => {
+    let configured=false;
     try {
-      const config = getGhlConfig();
-      if (!config) return res.json({ appointments: [], configured: false });
+      const config = readerDependencies?.appointments ? readerDependencies.appointments.config() : getGhlConfig();
+      configured=!!config;
+      if (!config) return res.json({ appointments: [], configured: false, status:"not_configured",
+        source:"ghl_appointments", completeness:"unavailable", queueLimit:10 });
 
       const now = Date.now();
       const lookbackMs = 24 * 60 * 60 * 1000;
@@ -261,11 +289,17 @@ export function registerToolkitRoutes(app: Express) {
       let path = `/calendars/events?locationId=${config.locationId}&startTime=${startTime}&endTime=${endTime}&limit=50`;
       if (calendarId) path += `&calendarId=${calendarId}`;
 
-      const result = await ghlFetch(path);
-      const events = result?.events || result?.data || [];
+      const result = await (readerDependencies?.appointments?.read ?? ghlFetch)(path);
+      const events = result?.events ?? result?.data;
+      if(!Array.isArray(events)) throw new Error("APPOINTMENT_PROVIDER_SHAPE_INVALID");
+      const externalIds = [...new Set(events.map((e:any)=>e.contact?.id || e.contactId).filter((id:unknown)=>typeof id==="string"))] as string[];
+      const localContacts = externalIds.length ? await db.select({id:contacts.id,ghlId:contacts.ghlContactId,owner:contacts.assignedTo})
+        .from(contacts).where(inArray(contacts.ghlContactId,externalIds)) : [];
+      const authorizedContacts = new Map(localContacts.filter(c=>canAccessOwner(req.user as any,c.owner,false)).map(c=>[c.ghlId,c.id]));
+      const agent = (req.user as any)?.role==="agent";
 
       const appointments = events
-        .filter((e: any) => e.status !== "cancelled")
+        .filter((e: any) => e.status !== "cancelled" && (!agent || authorizedContacts.has(e.contact?.id || e.contactId)))
         .map((e: any) => {
           const isNoShow =
             e.status === "noShow" ||
@@ -279,7 +313,9 @@ export function registerToolkitRoutes(app: Express) {
             id: e.id,
             title: e.title || e.summary || "Appointment",
             contactName: e.contact?.name || e.contactName || e.attendees?.[0]?.name || "Contact",
-            contactId: e.contact?.id || e.contactId || null,
+            contactId: authorizedContacts.get(e.contact?.id || e.contactId) ?? null,
+            externalContactId: e.contact?.id || e.contactId || null,
+            source:"ghl_appointments",
             startTime: startTs,
             endTime: e.endTime || e.end?.dateTime || e.endDate,
             status: e.status || "booked",
@@ -297,10 +333,14 @@ export function registerToolkitRoutes(app: Express) {
         })
         .slice(0, 10);
 
-      res.json({ appointments, configured: true });
+      res.json({ appointments, configured: true, status:"available", source:"ghl_appointments",
+        queueLimit:10, providerLimit:50, completeness:"bounded_queue", exact:false,
+        scope:agent?"authorized_local_mapping":"management", asOf:new Date(now).toISOString(),
+        window:{start:new Date(startTime).toISOString(),endExclusive:new Date(endTime).toISOString(),timezone:"UTC"} });
     } catch (err: any) {
       console.error("[Appointments] error:", err.message);
-      res.json({ appointments: [], configured: false, error: safeMessage(err.message, "Appointments unavailable") });
+      res.status(503).json({ appointments: [], configured, status:"provider_failed",
+        source:"ghl_appointments", completeness:"unavailable", error:"Appointments unavailable" });
     }
   });
 

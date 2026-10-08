@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, AlertTriangle, RefreshCw, Mail, MessageSquare, CheckCircle2, XCircle, Clock, SendHorizonal } from "lucide-react";

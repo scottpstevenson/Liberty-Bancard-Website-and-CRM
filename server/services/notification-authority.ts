@@ -122,7 +122,7 @@ function destination(metadata:any) {
   const target=typedTarget(metadata);
   if(!target) return metadata?.link==="/dashboard" || ["daily","weekly"].includes(metadata?.digestType)
     ? {state:"available",url:"/dashboard"}:{state:"unavailable",url:null};
-  if(target.kind==="task") return {state:"available",url:"/dashboard",...target,
+  if(target.kind==="task") return {state:"available",url:"/dashboard/tasks-appointments?tab=tasks",...target,
     context:"authorized_list_fallback",label:"Open task list (no selected task)"};
   const paths:Record<string,string>={contact:`/dashboard/contacts/${target.id}`,
     deal:`/dashboard/pipeline?id=${target.id}`,ticket:`/dashboard/tickets?id=${target.id}`,

@@ -1,9 +1,12 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { useContacts } from "@/hooks/use-contacts";
+import { CrmDataState } from "@/components/crm/CrmPresentation";
 import { useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Contact, Deal } from "@shared/schema";
+import type { Contact } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +14,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   MapPin, Plus, Unlink, ExternalLink, TrendingUp, Building2, Activity,
@@ -45,48 +47,31 @@ export function LocationsTab({ contact }: LocationsTabProps) {
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [linkContactId, setLinkContactId] = useState("");
   const [linkLocationName, setLinkLocationName] = useState("");
+  const [locationSearch, setLocationSearch] = useState("");
 
-  const { data: locations = [], isLoading: locationsLoading } = useQuery<Contact[]>({
+  const { data: locations = [], isLoading: locationsLoading, isError: locationsError, refetch: retryLocations } = useQuery<Contact[]>({
     queryKey: ["/api/contacts", contact.id, "locations"],
-    queryFn: async () => {
-      const res = await fetch(`/api/contacts/${contact.id}/locations`, { credentials: "include" });
-      if (!res.ok) return [];
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/contacts/${contact.id}/locations`, { credentials: "include", signal });
+      if (!res.ok) throw new Error("Linked locations could not be loaded.");
       return res.json();
     },
     enabled: !!contact.id,
   });
 
-  const { data: kpis, isLoading: kpisLoading } = useQuery<GroupKpis>({
+  const { data: kpis, isLoading: kpisLoading, isError: kpisError, refetch: retryKpis } = useQuery<GroupKpis>({
     queryKey: ["/api/contacts", contact.id, "group-kpis"],
-    queryFn: async () => {
-      const res = await fetch(`/api/contacts/${contact.id}/group-kpis`, { credentials: "include" });
-      if (!res.ok) return null;
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/contacts/${contact.id}/group-kpis`, { credentials: "include", signal });
+      if (!res.ok) throw new Error("Group metrics could not be loaded.");
       return res.json();
     },
     enabled: !!contact.id,
   });
 
-  const { data: allContacts = [] } = useQuery<Contact[]>({
-    queryKey: ["/api/contacts"],
-    queryFn: async () => {
-      const res = await fetch("/api/contacts?limit=500", { credentials: "include" });
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.data ?? [];
-    },
-    staleTime: 60000,
-  });
-
-  const { data: allDeals = [] } = useQuery<Deal[]>({
-    queryKey: ["/api/deals"],
-    queryFn: async () => {
-      const res = await fetch("/api/deals?limit=500", { credentials: "include" });
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.data ?? [];
-    },
-    staleTime: 60000,
-  });
+  // Search is an authorized, actor-scoped paged Records read. Do not model the
+  // first 500 contacts as the complete population available to link.
+  const contactSearch = useContacts({ limit: 50, offset: 0, search: locationSearch.trim() || undefined });
 
   const linkMutation = useMutation({
     mutationFn: async () => {
@@ -139,39 +124,12 @@ export function LocationsTab({ contact }: LocationsTabProps) {
   });
 
   const locationIdSet = new Set(locations.map(l => l.id));
-  const availableContacts = allContacts.filter(c =>
+  const availableContacts = (contactSearch.data?.data ?? []).filter(c =>
     c.id !== contact.id &&
     !locationIdSet.has(c.id) &&
     !c.parentContactId &&
     !c.archivedAt
   );
-
-  function getLocationDeals(locationId: number) {
-    return allDeals.filter(d => d.contactId === locationId && !(d as any).archivedAt);
-  }
-
-  function getBestDeal(locationId: number) {
-    const locationDeals = getLocationDeals(locationId);
-    const active = locationDeals.find(d => d.stage === "Closed Won");
-    return active ?? locationDeals[0] ?? null;
-  }
-
-  function getDealStageBadge(stage: string | null | undefined) {
-    if (!stage) return null;
-    const colors: Record<string, string> = {
-      "Closed Won": "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
-      "Closed Lost": "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
-      "New Lead": "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-      "Verbal Commit": "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
-      "Proposal Sent": "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
-    };
-    const cls = colors[stage] ?? "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200";
-    return (
-      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>
-        {stage}
-      </span>
-    );
-  }
 
   return (
     <div className="space-y-4" data-testid="locations-tab">
@@ -237,6 +195,7 @@ export function LocationsTab({ contact }: LocationsTabProps) {
           ) : null}
         </div>
       )}
+      {kpisError && <CrmDataState state="unavailable" message="Group metrics are unavailable; linked locations remain available." onRetry={() => void retryKpis()} />}
 
       {/* Header */}
       <Card>
@@ -258,7 +217,12 @@ export function LocationsTab({ contact }: LocationsTabProps) {
           </Button>
         </CardHeader>
         <CardContent>
-          {locationsLoading ? (
+          {locationsError ? (
+            <div className="crm-state-panel" role="alert" data-testid="locations-error">
+              <span className="crm-state-kicker">Locations unavailable</span><p>Authorized linked-location details could not be loaded.</p>
+              <button type="button" className="crm-inline-retry" onClick={() => void retryLocations()}>Try again</button>
+            </div>
+          ) : locationsLoading ? (
             <div className="space-y-3">
               {[1, 2].map(i => <Skeleton key={i} className="h-16 w-full" />)}
             </div>
@@ -270,10 +234,7 @@ export function LocationsTab({ contact }: LocationsTabProps) {
             </div>
           ) : (
             <div className="space-y-3">
-              {locations.map(loc => {
-                const bestDeal = getBestDeal(loc.id);
-                const locDeals = getLocationDeals(loc.id);
-                return (
+              {locations.map(loc => (
                   <div
                     key={loc.id}
                     className="flex flex-wrap items-start justify-between gap-3 rounded-md border p-3"
@@ -303,25 +264,8 @@ export function LocationsTab({ contact }: LocationsTabProps) {
                         {loc.city && loc.state && (
                           <span>{loc.city}, {loc.state}</span>
                         )}
-                        <span className="flex items-center gap-1">
-                          <Activity className="h-3 w-3" />
-                          {locDeals.length} deal{locDeals.length !== 1 ? "s" : ""}
-                        </span>
-                        {bestDeal?.mid && (
-                          <span className="font-mono">MID: {bestDeal.mid}</span>
-                        )}
-                        {bestDeal?.totalVolume && (
-                          <span className="flex items-center gap-0.5">
-                            <DollarSign className="h-3 w-3" />
-                            {fmtCurrency(parseFloat(bestDeal.totalVolume) || 0)}/mo
-                          </span>
-                        )}
+                        <span className="crm-record-id">Contact #{loc.id}</span>
                       </div>
-                      {bestDeal && (
-                        <div className="flex items-center gap-2" data-testid={`location-deal-stage-${loc.id}`}>
-                          {getDealStageBadge(bestDeal.stage)}
-                        </div>
-                      )}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <Button
@@ -345,8 +289,7 @@ export function LocationsTab({ contact }: LocationsTabProps) {
                       </Button>
                     </div>
                   </div>
-                );
-              })}
+                ))}
             </div>
           )}
         </CardContent>
@@ -361,19 +304,21 @@ export function LocationsTab({ contact }: LocationsTabProps) {
           <div className="space-y-4 py-2">
             <div>
               <Label>Contact to link as a location</Label>
-              <Select value={linkContactId} onValueChange={setLinkContactId}>
-                <SelectTrigger className="mt-1" data-testid="select-link-contact">
-                  <SelectValue placeholder="Select a contact…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableContacts.map(c => (
-                    <SelectItem key={c.id} value={String(c.id)} data-testid={`option-contact-${c.id}`}>
-                      {c.companyName || `${c.firstName} ${c.lastName}`}
-                      {c.city ? ` — ${c.city}` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Input className="mt-1" value={locationSearch} onChange={event => setLocationSearch(event.currentTarget.value)}
+                placeholder="Search authorized contacts" aria-label="Search contacts for a location" data-testid="input-link-contact-search" />
+              <div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-md border p-1">
+                {contactSearch.isError ? <div className="p-3 text-sm text-destructive" role="alert">
+                  Contact search unavailable. <button type="button" className="underline" onClick={() => void contactSearch.refetch()}>Retry</button>
+                </div> : contactSearch.isLoading ? <p className="p-3 text-sm text-muted-foreground" role="status">Searching authorized records…</p> :
+                  availableContacts.length === 0 ? <p className="p-3 text-sm text-muted-foreground" role="status">{locationSearch.trim() ? "No matching available contacts." : "Search by name or company to find a contact."}</p> :
+                  availableContacts.map(c => <button key={c.id} type="button" onClick={() => setLinkContactId(String(c.id))}
+                    aria-pressed={linkContactId === String(c.id)} data-testid={`option-contact-${c.id}`}
+                    className={`flex min-h-11 w-full items-center justify-between rounded px-3 text-left text-sm ${linkContactId === String(c.id) ? "bg-accent text-accent-foreground" : "hover:bg-muted"}`}>
+                    <span>{c.companyName || `${c.firstName} ${c.lastName}`}{c.city ? ` — ${c.city}` : ""}</span>
+                    <span className="crm-record-id">#{c.id}</span>
+                  </button>)}
+              </div>
+              {linkContactId && <p className="text-xs text-muted-foreground">Selected record #{linkContactId}</p>}
             </div>
             <div>
               <Label>Location label (optional)</Label>

@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ClipboardList, CalendarDays } from "lucide-react";
 import TasksPage from "./Tasks";
 import CalendarPage from "./Calendar";
+import { buildWorkWorkspaceHref, workWorkspaceState } from "@/lib/crm-destination-state";
+import { CrmPage, CrmPageHeader } from "@/components/crm/CrmPresentation";
 
 /**
  * Tasks & Appointments — unified tabbed view
@@ -15,23 +16,17 @@ import CalendarPage from "./Calendar";
 export default function TasksAppointments() {
   const search = useSearch();
   const [, navigate] = useLocation();
-
-  const params = new URLSearchParams(search);
-  const initialTab = params.get("tab") === "calendar" ? "calendar" : "tasks";
-  const [tab, setTab] = useState(initialTab);
+  const { tab, issues } = workWorkspaceState(search);
 
   const handleTabChange = (value: string) => {
-    setTab(value);
-    navigate(`/dashboard/tasks-appointments?tab=${value}`, { replace: true });
+    if (value !== "tasks" && value !== "calendar") return;
+    navigate(buildWorkWorkspaceHref(window.location.href, value), { replace: false });
   };
 
-  useEffect(() => {
-    const t = params.get("tab") === "calendar" ? "calendar" : "tasks";
-    setTab(t);
-  }, [search]);
-
   return (
-    <div className="space-y-4">
+    <CrmPage className="crm-work-area space-y-5">
+      <CrmPageHeader title="Work" description="Tasks and appointments in your authorized scope." />
+      {issues.length > 0 && <p className="crm-state-panel" role="status">{issues[0].reason} Showing Tasks.</p>}
       <Tabs value={tab} onValueChange={handleTabChange}>
         <TabsList className="h-auto flex-wrap gap-1">
           <TabsTrigger value="tasks" className="gap-2" data-testid="tab-tasks">
@@ -45,13 +40,13 @@ export default function TasksAppointments() {
         </TabsList>
 
         <TabsContent value="tasks" data-testid="tab-content-tasks">
-          <TasksPage />
+          <TasksPage embedded />
         </TabsContent>
 
         <TabsContent value="calendar" data-testid="tab-content-calendar">
-          <CalendarPage />
+          <CalendarPage embedded />
         </TabsContent>
       </Tabs>
-    </div>
+    </CrmPage>
   );
 }

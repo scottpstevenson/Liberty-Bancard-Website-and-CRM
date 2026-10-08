@@ -13,10 +13,27 @@ export interface ActivityEvent {
 
 export interface ContactDetailData {
   contact: Contact;
-  deals: Deal[];
-  tickets: TicketType[];
-  tasks: TaskType[];
-  notes: Note[];
+  /** Interior arrays are projected only when requested by the active section. */
+  deals?: Deal[];
+  tickets?: TicketType[];
+  tasks?: TaskType[];
+  notes?: Note[];
+  capabilities?: {
+    hasOnboarding?: boolean;
+    sdrSourced?: boolean;
+  };
+  loaded?: {
+    deals?: boolean;
+    tickets?: boolean;
+    tasks?: boolean;
+    notes?: boolean;
+    documents?: boolean;
+  };
+  /** Small, non-interior deal facts retained for the always-visible contact header. */
+  headerDealFacts?: {
+    activeDeal?: Pick<Deal, "id" | "stage" | "pipeline" | "nextFollowUp" | "archivedAt"> | null;
+    nextFollowUp?: string | null;
+  };
 }
 
 export function formatRelativeTime(dateStr: string | Date): string {

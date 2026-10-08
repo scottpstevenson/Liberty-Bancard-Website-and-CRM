@@ -1,0 +1,18 @@
+{
+  "status": "Affected G11 lane remains failed; no waiver or whole-task acceptance",
+  "baselineSource": "353cb381ed500dc2acf793b3b2e91a61b3aeade0",
+  "baselineConstruction": "Untouched detached Git worktree; dependency-free Node source assertions; no DB, Redis, provider or application startup",
+  "candidateQualification": "Working C2 source, not a clean committed candidate",
+  "configuredCommand": "node node_modules/tsx/dist/cli.mjs scripts/run-ci-suites.ts --capability deterministic-static",
+  "configuredResult": "Stopped at South Florida Enrichment Pipeline Correction; subsequent suites were not executed",
+  "comparisonCommand": "node scripts/test-sfp-pipeline-correction.mjs",
+  "candidateExit": 1,
+  "baselineExit": 1,
+  "candidateAssertionsPassed": 20,
+  "baselineAssertionsPassed": 20,
+  "failure": "ZeroBounce execution uses plaintext only inside governed boundary: missing: verifyEmail(realEmail)",
+  "candidateLogSha256": "b7eb62a9d2f5998dd73406b3377659572b0c5e77cb3b04f4ce82e454cc9b5203",
+  "baselineLogSha256": "b7eb62a9d2f5998dd73406b3377659572b0c5e77cb3b04f4ce82e454cc9b5203",
+  "interpretation": "Identical observed output on merged C1 and current C2. This does not establish whole-lane success, comprehensive cause equivalence, or authority to rewrite the assertion/provider path.",
+  "remainingOwner": "Existing SFP certification/provider owner; C2 does not restore paid-provider approval or spend-limit policy"
+}

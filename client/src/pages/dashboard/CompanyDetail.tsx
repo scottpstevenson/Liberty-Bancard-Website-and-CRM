@@ -1,7 +1,9 @@
 import { useParams, useLocation } from "wouter";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { apiRequest, protectedContextToken } from "@/lib/queryClient";
+import { useOwnedToast as useToast } from "@/hooks/use-owned-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +18,8 @@ import {
   Star, Mail, AlertTriangle, Search, CheckCircle2, XCircle, Shield, Users
 } from "lucide-react";
 import { useState } from "react";
+import { CrmPage, CrmPageHeader, RecordHeader } from "@/components/crm/CrmPresentation";
+import { AuthorizedContactPicker } from "@/components/crm/AuthorizedContactPicker";
 
 interface Company {
   id: number;
@@ -92,51 +96,10 @@ function CounterpartyPicker({
   value: { id: number; name: string } | null;
   onSelect: (c: { id: number; name: string } | null) => void;
 }) {
-  const [search, setSearch] = useState("");
-  const { data: results = [] } = useQuery<ContactSearchResult[]>({
-    queryKey: ["/api/contacts", { search }],
-    queryFn: () => fetch(`/api/contacts?search=${encodeURIComponent(search)}&limit=10`).then(r => r.json()),
-    enabled: search.length >= 2,
-  });
-
   return (
     <div className="space-y-1">
       <Label>Counterparty (CRM Contact)</Label>
-      {value ? (
-        <div className="flex items-center justify-between border rounded px-3 py-2 bg-muted/30">
-          <span className="text-sm font-medium">{value.name}</span>
-          <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => onSelect(null)} data-testid="btn-clear-counterparty">Clear</Button>
-        </div>
-      ) : (
-        <div className="relative">
-          <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            className="pl-7"
-            placeholder="Search contacts…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            data-testid="input-counterparty-search"
-          />
-          {results.length > 0 && (
-            <div className="absolute z-50 w-full mt-1 border rounded bg-background shadow-md max-h-40 overflow-y-auto">
-              {results.map(c => (
-                <button
-                  key={c.id}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50"
-                  onClick={() => {
-                    onSelect({ id: c.id, name: `${c.firstName} ${c.lastName}${c.companyName ? ` (${c.companyName})` : ""}` });
-                    setSearch("");
-                  }}
-                  data-testid={`counterparty-option-${c.id}`}
-                >
-                  <span className="font-medium">{c.firstName} {c.lastName}</span>
-                  {c.companyName && <span className="text-muted-foreground ml-1">— {c.companyName}</span>}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      <AuthorizedContactPicker value={value} onSelect={onSelect} label="CRM counterparty" testId="counterparty"/>
       <p className="text-[11px] text-muted-foreground">
         Selecting a CRM contact creates a linked entity relationship. Optional — leave blank for external parties.
       </p>
@@ -145,11 +108,20 @@ function CounterpartyPicker({
 }
 
 export default function CompanyDetail() {
+  useAuth();
+  const params=useParams<{id:string}>();
+  return <CompanyWorkspace key={`${params.id}:${protectedContextToken()}`} />;
+}
+
+function CompanyWorkspace() {
+  const {user}=useAuth();
+  const canManageMa=user?.role==="admin" || user?.role==="manager";
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const qc = useQueryClient();
   const companyId = Number(id);
+  const validCompanyId = Number.isSafeInteger(companyId) && companyId > 0;
 
   const [maOpen, setMaOpen] = useState(false);
   const [counterparty, setCounterparty] = useState<{ id: number; name: string } | null>(null);
@@ -160,19 +132,34 @@ export default function CompanyDetail() {
     note: "",
   });
 
-  const { data: company, isLoading } = useQuery<Company>({
+  const { data: company, isLoading, isError: companyError, refetch: retryCompany } = useQuery<Company>({
     queryKey: [`/api/companies/${companyId}`],
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`/api/companies/${companyId}`, { credentials: "include", signal });
+      if (!response.ok) throw new Error("Company record is unavailable");
+      return response.json();
+    },
+    enabled: validCompanyId,
   });
 
-  const { data: linkedContacts = [] } = useQuery<CompanyContact[]>({
+  const { data: linkedContacts, isLoading: contactsLoading, isError: contactsError, refetch: retryContacts } = useQuery<CompanyContact[]>({
     queryKey: [`/api/companies/${companyId}/contacts`],
-    enabled: !!companyId,
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`/api/companies/${companyId}/contacts`, { credentials: "include", signal });
+      if (!response.ok) throw new Error("Company contacts are unavailable");
+      return response.json();
+    },
+    enabled: validCompanyId && !!company && !companyError,
   });
 
-  const { data: events = [] } = useQuery<MaEvent[]>({
+  const { data: events, isLoading: eventsLoading, isError: eventsError, refetch: retryEvents } = useQuery<MaEvent[]>({
     queryKey: ["/api/ma-events", "company", companyId],
-    queryFn: () => fetch(`/api/ma-events?entityType=company&entityId=${companyId}`).then(r => r.json()),
-    enabled: !!companyId,
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`/api/ma-events?entityType=company&entityId=${companyId}`, { credentials: "include", signal });
+      if (!response.ok) throw new Error("Company M&A history is unavailable");
+      return response.json();
+    },
+    enabled: validCompanyId && !!company && !companyError,
   });
 
   const setMgmtType = useMutation({
@@ -215,6 +202,9 @@ export default function CompanyDetail() {
     onError: () => toast({ title: "Error", variant: "destructive" }),
   });
 
+  if (!validCompanyId) {
+    return <div className="container max-w-4xl mx-auto py-6" role="alert">Company reference is not a valid local record ID.</div>;
+  }
   if (isLoading) {
     return (
       <div className="container max-w-4xl mx-auto py-6 space-y-4">
@@ -225,29 +215,31 @@ export default function CompanyDetail() {
     );
   }
 
-  if (!company) {
+  if (companyError || !company) {
     return (
       <div className="container max-w-4xl mx-auto py-6">
-        <p className="text-muted-foreground">Company not found.</p>
+        <p className="text-muted-foreground" role="alert">Company record unavailable; no company was opened.</p>
+        <Button className="mt-3" variant="outline" onClick={() => void retryCompany()}>Retry</Button>
       </div>
     );
   }
 
-  const decisionMakers = linkedContacts.filter(c => c.isDecisionMaker);
-  const bouncedCount = linkedContacts.filter(c => c.emailStatus === "bounced").length;
-  const activeCount = linkedContacts.filter(c => !c.emailStatus || c.emailStatus === "active").length;
+  const safeLinkedContacts = linkedContacts ?? [];
+  const safeEvents = events ?? [];
+  const decisionMakers = safeLinkedContacts.filter(c => c.isDecisionMaker);
+  const bouncedCount = safeLinkedContacts.filter(c => c.emailStatus === "bounced").length;
+  const activeCount = safeLinkedContacts.filter(c => !c.emailStatus || c.emailStatus === "active").length;
 
   return (
-    <div className="container max-w-4xl mx-auto py-6 space-y-6">
-      <div className="flex items-center gap-3">
+    <CrmPage className="space-y-6">
+      <RecordHeader>
+      <CrmPageHeader title={company.legalName} description={company.dba ? `DBA: ${company.dba}` : "Authorized company record"}
+        secondaryActions={
         <Button variant="ghost" size="sm" onClick={() => setLocation("/dashboard/contacts")} data-testid="btn-back-company">
           <ArrowLeft className="h-4 w-4 mr-1" /> Back
         </Button>
-        <div>
-          <h1 className="text-2xl font-bold">{company.legalName}</h1>
-          {company.dba && <p className="text-muted-foreground text-sm">DBA: {company.dba}</p>}
-        </div>
-      </div>
+      } />
+      </RecordHeader>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card>
@@ -304,7 +296,9 @@ export default function CompanyDetail() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {linkedContacts.length === 0 ? (
+          {contactsLoading ? <p className="text-sm text-muted-foreground" role="status">Loading linked contacts…</p>
+            : contactsError ? <p className="text-sm text-destructive" role="alert">Linked contacts unavailable. <Button size="sm" variant="outline" onClick={() => void retryContacts()}>Retry</Button></p>
+            : safeLinkedContacts.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">No contacts linked to this company.</p>
           ) : (
             <>
@@ -331,7 +325,7 @@ export default function CompanyDetail() {
               )}
 
               <div className="space-y-1.5">
-                {linkedContacts.map(c => (
+                {safeLinkedContacts.map(c => (
                   <div key={c.id} className="flex items-center justify-between text-xs py-1.5 px-2 border rounded hover:bg-muted/30" data-testid={`company-contact-row-${c.id}`}>
                     <div className="flex items-center gap-2 min-w-0">
                       <button
@@ -372,7 +366,7 @@ export default function CompanyDetail() {
             </CardTitle>
             <Dialog open={maOpen} onOpenChange={setMaOpen}>
               <DialogTrigger asChild>
-                <Button size="sm" variant="outline" data-testid="btn-add-company-ma-event">
+                <Button size="sm" variant="outline" disabled={!canManageMa} title={!canManageMa?"M&A changes require an admin or manager":undefined} data-testid="btn-add-company-ma-event">
                   <Plus className="h-3.5 w-3.5 mr-1" /> Add Event
                 </Button>
               </DialogTrigger>
@@ -412,7 +406,7 @@ export default function CompanyDetail() {
                     <Label>Note (optional)</Label>
                     <Textarea value={maForm.note} onChange={e => setMaForm(f => ({ ...f, note: e.target.value }))} rows={2} data-testid="input-company-event-note" />
                   </div>
-                  <Button className="w-full" onClick={() => createMaEvent.mutate()} disabled={createMaEvent.isPending} data-testid="btn-submit-company-ma-event">
+                  <Button className="w-full" onClick={() => createMaEvent.mutate()} disabled={!canManageMa || createMaEvent.isPending} data-testid="btn-submit-company-ma-event">
                     Save Event
                   </Button>
                 </div>
@@ -421,11 +415,13 @@ export default function CompanyDetail() {
           </div>
         </CardHeader>
         <CardContent>
-          {events.length === 0 ? (
+          {eventsLoading ? <p className="text-sm text-muted-foreground" role="status">Loading M&amp;A history…</p>
+            : eventsError ? <p className="text-sm text-destructive" role="alert">M&amp;A event history unavailable. <Button size="sm" variant="outline" onClick={() => void retryEvents()}>Retry</Button></p>
+            : safeEvents.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4" data-testid="no-company-ma-events">No M&amp;A events logged.</p>
           ) : (
             <div className="space-y-2">
-              {events.map(event => (
+              {safeEvents.map(event => (
                 <div key={event.id} className="flex items-start justify-between p-2 rounded border bg-muted/30" data-testid={`company-ma-event-${event.id}`}>
                   <div>
                     <div className="flex items-center gap-2">
@@ -438,7 +434,7 @@ export default function CompanyDetail() {
                     {event.counterpartyName && <div className="text-xs mt-0.5">→ {event.counterpartyName}</div>}
                     {event.note && <div className="text-xs text-muted-foreground mt-0.5">{event.note}</div>}
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => deleteMaEvent.mutate(event.id)} data-testid={`btn-delete-company-ma-event-${event.id}`}>
+                  <Button variant="ghost" size="sm" disabled={!canManageMa || deleteMaEvent.isPending} aria-label="Delete M&A event" title={!canManageMa?"M&A changes require an admin or manager":undefined} onClick={() => deleteMaEvent.mutate(event.id)} data-testid={`btn-delete-company-ma-event-${event.id}`}>
                     <Trash2 className="h-3.5 w-3.5 text-red-500" />
                   </Button>
                 </div>
@@ -458,6 +454,6 @@ export default function CompanyDetail() {
           </CardContent>
         </Card>
       )}
-    </div>
+    </CrmPage>
   );
 }

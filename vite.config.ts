@@ -31,6 +31,10 @@ export default defineConfig({
       : []),
   ],
   resolve: {
+    // Dialog/Select's locked focus-scope versions have identical implementations
+    // but independent modal stacks when bundled twice. Keep one existing root
+    // instance so a nested Select pauses its enclosing Dialog's focus trap.
+    dedupe: ["@radix-ui/react-focus-scope"],
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
       "@shared": path.resolve(import.meta.dirname, "shared"),

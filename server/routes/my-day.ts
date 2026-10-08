@@ -1,11 +1,16 @@
 import type { Express, Request, Response } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isDashboardUser } from "../replit_integrations/auth";
 import { db } from "../db";
 import { storage } from "../storage";
 import { agents, agentMerchants, agentQuotas, deals, contacts, tasks, callLogs, SALES_STAGES } from "@shared/schema";
-import { eq, and, lte, gte, isNull, isNotNull, or, desc, inArray, sql, asc } from "drizzle-orm";
+import { eq, and, lte, gte, isNull, isNotNull, or, desc, inArray, sql, asc, getTableColumns } from "drizzle-orm";
 import { authorizeContactAccess } from "../services/crm-object-access";
+import {advanceDealStage,DealStageConflictError,DealStageIllegalTransitionError} from "../services/deal-stage-service";
+import {GoLiveGateError} from "../services/go-live-gate";
 import { z } from "zod";
+import { taskReadPredicate, taskStateSql, readTaskMetrics } from "../services/task-read-authority";
+import { revenuePredicateSql } from "../services/revenue-read-authority";
+import { crmDayWindow } from "@shared/crm-time-window";
 
 const ALLOWED_ACTIVITY_TYPES = ["call", "email", "sms", "meeting", "voicemail"] as const;
 
@@ -46,7 +51,7 @@ function getAuthUser(req: Request, res: Response): AuthUser | null {
 }
 
 export function registerMyDayRoutes(app: Express) {
-  app.get("/api/my-day", isAuthenticated, async (req, res) => {
+  app.get("/api/my-day", isDashboardUser, async (req, res) => {
     try {
       const user = getAuthUser(req, res);
       if (!user) return;
@@ -68,8 +73,12 @@ export function registerMyDayRoutes(app: Express) {
       }
 
       const today = new Date();
-      const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
+      const timezone=typeof req.query.timezone==="string" ? req.query.timezone : "UTC";
+      let dayWindow;
+      try { dayWindow=crmDayWindow(today,timezone); }
+      catch { return res.status(400).json({message:"Valid IANA timezone required"}); }
+      const startOfToday = dayWindow.start;
+      const endOfToday = dayWindow.endExclusive;
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
       const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59);
 
@@ -87,7 +96,7 @@ export function registerMyDayRoutes(app: Express) {
         myDeals = await db
           .select()
           .from(deals)
-          .where(and(inArray(deals.id, agentDealIds), isNull(deals.archivedAt)))
+           .where(and(inArray(deals.id, agentDealIds), revenuePredicateSql(user, "deal")))
           .orderBy(desc(deals.updatedAt));
       }
 
@@ -111,15 +120,15 @@ export function registerMyDayRoutes(app: Express) {
       // Order: CR-04-eligible first (reachability_score desc proxy), then lead_score desc,
       //        then last_contacted_at asc nulls first. Limit 50.
       // Deal metadata is left-joined when a matching deal exists for context.
-      const agentEmail = agent.email ?? "";
+       const agentEmail = user.email ?? "";
       const agentFullName = `${agent.firstName} ${agent.lastName}`;
 
       const rawAssignedContacts = await db
         .select()
         .from(contacts)
         .where(and(
-          or(eq(contacts.assignedTo, agentEmail), eq(contacts.assignedTo, agentFullName)),
-          isNull(contacts.archivedAt),
+           eq(contacts.assignedTo, agentEmail),
+           revenuePredicateSql(user, "contact"),
         ))
         .orderBy(
           desc(contacts.reachabilityScore), // CR-04 proxy: higher = more contactable
@@ -135,7 +144,7 @@ export function registerMyDayRoutes(app: Express) {
         const relatedDeals = await db
           .select({ id: deals.id, contactId: deals.contactId, stage: deals.stage })
           .from(deals)
-          .where(and(inArray(deals.contactId, assignedContactIds), isNull(deals.archivedAt)))
+           .where(and(inArray(deals.contactId, assignedContactIds), revenuePredicateSql(user, "deal")))
           .orderBy(desc(deals.updatedAt));
         for (const d of relatedDeals) {
           if (d.contactId !== null && !(d.contactId in dealsByContactId)) {
@@ -147,25 +156,15 @@ export function registerMyDayRoutes(app: Express) {
       const myContacts = rawAssignedContacts;
       const dealContactIds = assignedContactIds; // used for recentActivity below
 
-      const agentName = `${agent.firstName} ${agent.lastName}`;
-
+      const taskScope = {actor:user, asOf:today, timezone,
+        states:["open","in_progress"] as const, dueBefore:endOfToday};
       const myTasks = await db
-        .select()
+        .select({...getTableColumns(tasks),effectiveState:taskStateSql})
         .from(tasks)
-        .where(
-          and(
-            or(eq(tasks.assignedTo, agentName), eq(tasks.assignedTo, user.email ?? "")),
-            or(
-              and(gte(tasks.dueDate, startOfToday), lte(tasks.dueDate, endOfToday)),
-              and(
-                lte(tasks.dueDate, startOfToday),
-                or(eq(tasks.status, "pending"), eq(tasks.status, "in_progress"))
-              )
-            )
-          )
-        )
-        .orderBy(tasks.dueDate)
+        .where(taskReadPredicate(taskScope))
+        .orderBy(tasks.dueDate, tasks.id)
         .limit(20);
+      const metrics = await readTaskMetrics(taskScope);
 
       const openDeals = myDeals.filter(
         (d) => d.stage !== "Closed Won" && d.stage !== "Closed Lost"
@@ -238,10 +237,7 @@ export function registerMyDayRoutes(app: Express) {
       // #1107 — First-contact rate: use contacts.assignedTo ownership (not deal-linked IDs)
       // Both numerator and denominator use the same predicate so they cover the same population.
       // agentEmail / agentFullName already defined above in the canonical contact list section
-      const ownershipFilter = or(
-        eq(contacts.assignedTo, agentEmail),
-        eq(contacts.assignedTo, agentFullName),
-      );
+      const ownershipFilter = and(eq(contacts.assignedTo, agentEmail), revenuePredicateSql(user, "contact"));
       const [totalContactsResult, contactedResult] = await Promise.all([
         db.select({ count: sql<number>`cast(count(*) as integer)` })
           .from(contacts)
@@ -273,6 +269,8 @@ export function registerMyDayRoutes(app: Express) {
         quota: quotaWithActuals,
         closedWonThisMonth: closedWonThisMonth.length,
         tasksToday: myTasks,
+        taskQueue: {limit:20, returned:myTasks.length, total:metrics.rows[0].total,
+          ...metrics.meta, window:"overdue_and_due_before_next_day", dueBefore:endOfToday.toISOString(), availability:"available"},
         recentActivity,
         closedDealsHistory,
         totalAssignedContacts,
@@ -284,7 +282,7 @@ export function registerMyDayRoutes(app: Express) {
     }
   });
 
-  app.post("/api/my-day/log-activity", isAuthenticated, async (req, res) => {
+  app.post("/api/my-day/log-activity", isDashboardUser, async (req, res) => {
     try {
       const user = getAuthUser(req, res);
       if (!user) return;
@@ -360,7 +358,7 @@ export function registerMyDayRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/my-day/deals/:id/stage", isAuthenticated, async (req, res) => {
+  app.patch("/api/my-day/deals/:id/stage", isDashboardUser, async (req, res) => {
     try {
       const user = getAuthUser(req, res);
       if (!user) return;
@@ -391,14 +389,14 @@ export function registerMyDayRoutes(app: Express) {
         return res.status(403).json({ message: "Deal not assigned to you" });
       }
 
-      const updatePayload: Record<string, unknown> = { stage };
-      if (stage === "Closed Won") {
-        updatePayload.closedAt = new Date();
-      }
-
-      await storage.updateDeal(dealId, updatePayload as any, { actorType: "user", userId: user.id ?? null });
+      if(req.body.expectedStage!==undefined && typeof req.body.expectedStage!=="string")
+        return res.status(400).json({message:"Displayed stage must be a string"});
+      await advanceDealStage(dealId,stage,"my_day",undefined,req.body.expectedStage);
       res.json({ success: true });
     } catch (err) {
+      if(err instanceof DealStageConflictError)return res.status(409).json({code:err.code,message:"Displayed deal stage changed; reload before moving.",currentStage:err.actual});
+      if(err instanceof DealStageIllegalTransitionError)return res.status(422).json({code:err.code,message:err.message});
+      if(err instanceof GoLiveGateError)return res.status(422).json({code:"GO_LIVE_GATE_FAILED",message:"Go-live prerequisites are not met",missing:err.missing});
       console.error("my-day move-stage error:", err);
       res.status(500).json({ message: "Failed to update deal stage" });
     }

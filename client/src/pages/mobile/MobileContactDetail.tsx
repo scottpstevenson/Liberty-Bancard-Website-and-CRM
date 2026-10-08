@@ -1,8 +1,11 @@
 import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { parseLocalEntityId } from "@/lib/crm-destination-state";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLocation, useParams } from "wouter";
 import { trackPhoneCallClick } from "@/lib/analytics";
+import { useOutboundPauseObservation } from "@/hooks/use-outbound-pause-observation";
 import { VERTICALS } from "@shared/schema";
 import {
   ChevronLeft, Phone, MessageSquare, Mail, Building, MapPin,
@@ -10,7 +13,7 @@ import {
   DollarSign, User, Hash, Globe, ListOrdered,
 } from "lucide-react";
 import MobileQuickLog from "./MobileQuickLog";
-import { useToast } from "@/hooks/use-toast";
+import { useOwnedToast as useToast } from "@/hooks/use-owned-toast";
 
 const OUTCOMES = [
   "Connected - Interested",
@@ -84,22 +87,26 @@ function EnrollSequenceSheet({
   // All sequences
   const { data: allSequences, isLoading: loadingSeqs, isError: seqError, refetch: refetchSeqs } = useQuery<any[]>({
     queryKey: ["/api/sequences"],
-    queryFn: async () => {
-      const res = await fetch("/api/sequences", { credentials: "include" });
+    queryFn: async ({signal}) => {
+      const res = await fetch("/api/sequences", { credentials: "include", signal });
       if (!res.ok) throw new Error("Failed to load sequences");
-      return res.json();
+      const data=await res.json();
+      if(!Array.isArray(data))throw new Error("Invalid sequence response");
+      return data;
     },
     enabled: open,
     staleTime: 60000,
   });
 
   // Contact's current enrollments
-  const { data: enrollments, isLoading: loadingEnrollments } = useQuery<any[]>({
+  const { data: enrollments, isLoading: loadingEnrollments, isError: enrollmentError, refetch: retryEnrollments } = useQuery<any[]>({
     queryKey: ["/api/contacts", contactId, "enrollments"],
-    queryFn: async () => {
-      const res = await fetch(`/api/contacts/${contactId}/enrollments`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+    queryFn: async ({signal}) => {
+      const res = await fetch(`/api/contacts/${contactId}/enrollments`, { credentials: "include",signal });
+      if (!res.ok) throw new Error("Enrollment history unavailable");
+      const data=await res.json();
+      if(!Array.isArray(data))throw new Error("Invalid enrollment history response");
+      return data;
     },
     enabled: open && !!contactId,
     staleTime: 30000,
@@ -171,12 +178,12 @@ function EnrollSequenceSheet({
             <div className="flex justify-center py-10">
               <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
             </div>
-          ) : seqError ? (
+          ) : seqError || enrollmentError ? (
             <div className="text-center py-10">
-              <p className="text-sm text-red-500 mb-3">Failed to load sequences.</p>
+              <p className="text-sm text-red-500 mb-3" role="alert">Sequence or enrollment history unavailable. No empty-enrollment conclusion is assumed.</p>
               <button
-                onClick={() => refetchSeqs()}
-                className="text-sm text-blue-600 dark:text-blue-400 underline"
+                onClick={() => {void refetchSeqs();void retryEnrollments();}}
+                className="min-h-11 px-3 text-sm text-blue-600 dark:text-blue-400 underline"
               >
                 Retry
               </button>
@@ -238,6 +245,16 @@ function EnrollSequenceSheet({
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export default function MobileContactDetail() {
+  const params=useParams<{id:string}>();
+  const [,navigate]=useLocation();
+  if(!parseLocalEntityId("contactId",params.id ?? ""))return <div role="alert" className="p-4">
+    Invalid contact destination. <button className="min-h-11 underline" onClick={()=>navigate("/mobile/contacts")}>Back to contacts</button>
+  </div>;
+  return <MobileContactRecord key={params.id}/>;
+}
+
+function MobileContactRecord() {
+  const outbound=useOutboundPauseObservation();
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const [quickLogOpen, setQuickLogOpen] = useState(false);
@@ -250,42 +267,50 @@ export default function MobileContactDetail() {
 
   const contactId = Number(params.id);
 
-  const { data: contact, isLoading } = useQuery<any>({
+  const { data: contact, isLoading, isError:contactError, error, refetch:retryContact } = useQuery<any>({
     queryKey: ["/api/contacts", contactId],
-    queryFn: async () => {
-      const res = await fetch(`/api/contacts/${contactId}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Not found");
-      return res.json();
+    queryFn: async ({signal}) => {
+      const res = await fetch(`/api/contacts/${contactId}`, { credentials: "include", signal });
+      if (!res.ok) throw new Error(`Contact unavailable (${res.status})`);
+      const data=await res.json();
+      if(!data || data.id!==contactId)throw new Error("Invalid contact response");
+      return data;
     },
     enabled: !!contactId,
   });
 
-  const { data: activity } = useQuery<any[]>({
+  const { data: activity, isError:activityError, refetch:retryActivity } = useQuery<any[]>({
     queryKey: ["/api/contacts", contactId, "activity"],
-    queryFn: async () => {
-      const res = await fetch(`/api/contacts/${contactId}/activity`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+    queryFn: async ({signal}) => {
+      const res = await fetch(`/api/contacts/${contactId}/activity`, { credentials: "include", signal });
+      if (!res.ok) throw new Error("Activity unavailable");
+      const data=await res.json();
+      if(!Array.isArray(data))throw new Error("Invalid activity response");
+      return data;
     },
-    enabled: !!contactId,
+    enabled: !!contact,
   });
 
-  const { data: deals } = useQuery<any[]>({
+  const { data: deals, isError:dealsError, refetch:retryDeals } = useQuery<any[]>({
     queryKey: ["/api/contacts", contactId, "deals"],
-    queryFn: async () => {
-      const res = await fetch(`/api/contacts/${contactId}/deals`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+    queryFn: async ({signal}) => {
+      const res = await fetch(`/api/contacts/${contactId}/deals`, { credentials: "include", signal });
+      if (!res.ok) throw new Error("Linked deals unavailable");
+      const data=await res.json();
+      if(!Array.isArray(data))throw new Error("Invalid linked-deal response");
+      return data;
     },
-    enabled: !!contactId,
+    enabled: !!contact,
   });
 
-  const { data: enrollments } = useQuery<any[]>({
+  const { data: enrollments, isError: enrollmentError, refetch: retryEnrollments } = useQuery<any[]>({
     queryKey: ["/api/contacts", contactId, "enrollments"],
-    queryFn: async () => {
-      const res = await fetch(`/api/contacts/${contactId}/enrollments`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+    queryFn: async ({signal}) => {
+      const res = await fetch(`/api/contacts/${contactId}/enrollments`, { credentials: "include",signal });
+      if (!res.ok) throw new Error("Enrollment history unavailable");
+      const data=await res.json();
+      if(!Array.isArray(data))throw new Error("Invalid enrollment history response");
+      return data;
     },
     enabled: !!contactId,
   });
@@ -352,6 +377,10 @@ export default function MobileContactDetail() {
     );
   }
 
+  if(contactError)return <div role="alert" className="p-4">
+    {error.message.includes("(404)")?"Contact not found":error.message.includes("(403)")?"Contact access denied":"Contact unavailable"}
+    <button className="ml-3 min-h-11 underline" onClick={()=>void retryContact()}>Retry</button>
+  </div>;
   if (!contact) {
     return (
       <div className="p-4 text-center text-gray-500">
@@ -373,7 +402,7 @@ export default function MobileContactDetail() {
     <div className="pb-4">
       {/* Header */}
       <div className="bg-blue-600 px-4 pb-6" style={{ paddingTop: "calc(env(safe-area-inset-top) + 12px)" }}>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 pr-14">
           <button
             data-testid="button-back"
             onClick={() => setLocation("/mobile/contacts")}
@@ -429,7 +458,13 @@ export default function MobileContactDetail() {
               {contact.status && (
                 <span className="inline-block bg-white/20 text-white text-xs px-2 py-0.5 rounded-full">{contact.status}</span>
               )}
-              {activeEnrollmentCount > 0 && (
+              {enrollmentError&&<span role="alert" className="text-sm">
+                Enrollment history unavailable.
+                <button type="button" className="min-h-11 px-3 underline" onClick={()=>void retryEnrollments()}>
+                  Retry enrollment history
+                </button>
+              </span>}
+              {!enrollmentError&&activeEnrollmentCount > 0 && (
                 <span
                   data-testid="chip-active-sequences"
                   className="inline-flex items-center gap-1 bg-white/20 text-white text-xs px-2 py-0.5 rounded-full"
@@ -445,20 +480,23 @@ export default function MobileContactDetail() {
         {!editing && (
           <div className="flex gap-2 mt-4">
             {contact.phone && (
-              <a data-testid="link-call-contact" href={`tel:${contact.phone}`}
-                onClick={() => trackPhoneCallClick({ contactId: contact.id, sourcePage: "/mobile/contacts/" + contact.id })}
+              <a data-testid="link-call-contact" href={outbound.blocked ? undefined : `tel:${contact.phone}`}
+                aria-disabled={outbound.blocked} title={outbound.reason}
+                onClick={event=>{if(outbound.blocked){event.preventDefault();return;}trackPhoneCallClick({ contactId: contact.id, sourcePage: "/mobile/contacts/" + contact.id });}}
                 className="flex-1 bg-white text-blue-600 rounded-xl py-2.5 flex items-center justify-center gap-2 font-semibold text-sm active:scale-95 transition-transform">
                 <Phone className="w-4 h-4" />Call
               </a>
             )}
             {contact.phone && (
-              <a data-testid="link-sms-contact" href={`sms:${contact.phone}`}
+              <a data-testid="link-sms-contact" href={outbound.blocked ? undefined : `sms:${contact.phone}`}
+                aria-disabled={outbound.blocked} title={outbound.reason}
                 className="flex-1 bg-blue-500/50 text-white rounded-xl py-2.5 flex items-center justify-center gap-2 font-semibold text-sm active:scale-95 transition-transform">
                 <MessageSquare className="w-4 h-4" />Text
               </a>
             )}
             {contact.email && (
-              <a data-testid="link-email-contact" href={`mailto:${contact.email}`}
+              <a data-testid="link-email-contact" href={outbound.blocked ? undefined : `mailto:${contact.email}`}
+                aria-disabled={outbound.blocked} title={outbound.reason}
                 className="flex-1 bg-blue-500/50 text-white rounded-xl py-2.5 flex items-center justify-center gap-2 font-semibold text-sm active:scale-95 transition-transform">
                 <Mail className="w-4 h-4" />Email
               </a>
@@ -560,6 +598,10 @@ export default function MobileContactDetail() {
             </div>
 
             {/* Deals */}
+            {(activityError || dealsError) && <div role="alert" className="p-4 text-sm">
+              {activityError && <p>Activity unavailable. <button className="min-h-11 underline" onClick={()=>void retryActivity()}>Retry activity</button></p>}
+              {dealsError && <p>Linked deals unavailable. <button className="min-h-11 underline" onClick={()=>void retryDeals()}>Retry linked deals</button></p>}
+            </div>}
             {deals && deals.length > 0 && (
               <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4" data-testid="card-deals">
                 <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Deals ({deals.length})</h3>
@@ -605,6 +647,8 @@ export default function MobileContactDetail() {
               </button>
               <button
                 data-testid="button-enroll-sequence"
+                disabled={outbound.blocked}
+                title={outbound.reason}
                 onClick={() => setEnrollOpen(true)}
                 className="col-span-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 flex items-center justify-center gap-3 active:scale-95 transition-transform"
               >
@@ -613,7 +657,8 @@ export default function MobileContactDetail() {
                 </div>
                 <div className="text-left">
                   <div className="text-xs font-medium text-gray-700 dark:text-gray-300">Enroll in Sequence</div>
-                  {activeEnrollmentCount > 0 && (
+                  {enrollmentError&&<span role="status" className="text-xs">Enrollment history unavailable</span>}
+                  {!enrollmentError&&activeEnrollmentCount > 0 && (
                     <div className="text-xs text-purple-600 dark:text-purple-400">
                       {activeEnrollmentCount} active
                     </div>

@@ -23,7 +23,10 @@ export function Toaster() {
     && !location.startsWith("/dashboard/mobile")
     && location !== "/mobile"
     && (!isMobile || mobileDesktopOptOut)
-  const portalClass = employeeRoute ? "crm-theme crm-portal" : undefined
+  const mobileEmployeeRoute = ["admin", "manager", "agent"].includes(user?.role ?? "")
+    && (location === "/mobile" || location.startsWith("/mobile/"))
+    && location !== "/mobile/login"
+  const portalClass = employeeRoute || mobileEmployeeRoute ? "crm-theme crm-portal" : undefined
 
   return (
     <ToastProvider>

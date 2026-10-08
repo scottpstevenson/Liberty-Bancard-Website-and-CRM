@@ -78,6 +78,7 @@
 - [Sequence dispatch linearization](sequence-dispatch-linearization.md) — serialize inbound writes and final dispatch; only expired pre-dispatch leases are retryable.
 - [Commercial/channel authority axes](commercial-resolution-authority.md) — Keep resolution, channel evidence, and identity/provenance separate; shadow never replaces legacy pre-cutover.
 - [Multi-source cursor buffering](multi-source-cursor-buffering.md) — merged pagination must retain fetched-but-not-emitted items or cursors silently drop them.
+- [Source thread URL authority](source-thread-url-authority.md) — persisted selections need exact authorized reads outside loaded windows before mounting drafts.
 - [CR-06 immutable rollout versioning](cr06-immutable-rollout-versioning.md) — never edit an applied premium manifest in place; publish a new artifact identity/version.
 - [Publish/production schema ownership](production-schema-ownership.md) — Publish owns prod DDL; startup must not replay Drizzle migrations; inline NOT VALID constraints fail Publish.
 - [Inbound request authority](inbound-request-authority.md) — request occurrence owns classification, idempotency, held effects, assignment/SLA links, receipts.
@@ -136,6 +137,7 @@
 - [Provider facts versus eligibility](provider-facts-vs-eligibility.md) — Preserve dispatched receipts across authority drift; serialize authorization separately from network I/O and promotion.
 - [Lossless timestamp authority pins](lossless-timestamp-authority-pins.md) — PostgreSQL microseconds must survive review CAS; JavaScript Date rounding can immediately invalidate an approval.
 - [Private auto-auth UI verification](private-autoauth-ui-verification.md) — Keep session-injecting fixture proxies loopback; use an explicit-port screenshot instead of exposing admin authority.
+- [Fixture workflow Run groups](workflow-run-group.md) — autoStart=false can still add a configured fixture workflow to normal Run; inspect and preserve the parent group.
 - [Authority write pitfalls](authority-bootstrap-transfer.md) — Upserts trigger INSERT; [Drizzle dropped columns](drizzle-set-silent-drop.md).
 - [Publish-safe indexes](publish-nested-expression-indexes.md) — Round-trip definitions; [migration CONCURRENTLY restriction](concurrent-index-migration-fix.md).
 - [SFP published build identity](sfp-published-build-identity.md) — Routine publishes auto-handoff audited SFP authority; preserve retired-build fencing, explicit holds, and manual rollback.
@@ -152,3 +154,5 @@
 - [SFP owner lock ordering](sfp-owner-lock-order.md) — Pin selector → owner before graph locks; queued renewal and joined FOR SHARE make inconsistent ordering dangerous.
 - [TOTP verification](totp-functional-api.md) — Use configured functional verification and explicit validity; prove wrong-code rejection and actual continuation.
 - [Retained native snapshot parity](retained-native-snapshot-parity.md) — Distinguish absent source columns from NULLs; audit source/disposable constraints before restoring historical topology.
+- [Response-loss evidence](response-loss-evidence.md) — Prove the post-commit fault executed; persisted rows alone cannot certify confirmation-loss recovery.
+- [Useful-list evidence](useful-list-evidence.md) — Time visible hydrated records, not shell headings or offscreen DOM; declare volume, hardware, network and cache conditions.

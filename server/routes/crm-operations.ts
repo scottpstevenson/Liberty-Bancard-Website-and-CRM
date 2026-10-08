@@ -16,12 +16,15 @@ import { syncContactToGhl, syncDealToGhl } from "../services/ghl-sync";
 import { extractRelationshipsForContact } from "../services/relationship-extractor";
 import { propagateDealDeleteToGhl, propagateTaskDeleteToGhl } from "../services/ghl-delete-sync";
 import { serverError } from "../utils/server-error";
-import { advanceDealStage } from "../services/deal-stage-service";
+import { advanceDealStage, DealStageConflictError, DealStageIllegalTransitionError } from "../services/deal-stage-service";
 import { GoLiveGateError } from "../services/go-live-gate";
-import { authorizeContactAccess } from "../services/crm-object-access";
+import { authorizeContactAccess, canAccessOwner } from "../services/crm-object-access";
+import { taskReadPredicate, taskStateSql } from "../services/task-read-authority";
+import { contactSections } from "../../client/src/lib/crm-destination-state";
+import {isSdrSourcedContact} from "../services/sales-prep";
 import { db } from "../db";
 import { tickets, tasks } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, getTableColumns } from "drizzle-orm";
 
 export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDeleteTransport?: NativeTaskDeleteTransport;
   relationshipExtractor?:(contactId:number)=>Promise<unknown> } = {}) {
@@ -39,23 +42,47 @@ export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDele
   // === CONTACT DETAIL AGGREGATE ===
   app.get("/api/contacts/:id/detail", isDashboardUser, async (req, res) => {
     try {
+      const section=req.query.section;
+      if(section!==undefined && (typeof section!=="string" || !contactSections.includes(section as any) || section==="activity" || section==="history"))
+        return res.status(400).json({code:"INVALID_CONTACT_SECTION",message:"A valid underlying contact section is required"});
       const contactId = Number(req.params.id);
       const contact = await authorizeContactAccess(req, res, contactId);
       if (!contact) return;
 
-      const [rawDeals, contactTickets, contactTasks, contactNotes] = await Promise.all([
+      // Default preserves the aggregate contract for older consumers. C2 asks
+      // for only the mounted section; omitted arrays are explicitly unloaded,
+      // never authoritative empty collections or zero counts.
+      const full=section===undefined || section==="overview";
+      const loadDeals=full || ["deals","onboarding-stages","documents"].includes(String(section));
+      const loadTickets=full || section==="tickets";
+      const loadTasks=full || section==="tasks";
+      const loadNotes=full || section==="notes";
+      const asOf=new Date();
+      const [linkedDeals, contactTickets, contactTasks, contactNotes, sdrSourced] = await Promise.all([
         storage.getDealsByContact(contactId),
-        db.select().from(tickets).where(eq(tickets.contactId, contactId)),
-        db.select().from(tasks).where(eq(tasks.contactId, contactId)),
-        storage.getNotes("contact", contactId),
+        loadTickets?db.select().from(tickets).where(eq(tickets.contactId, contactId)):Promise.resolve([]),
+        loadTasks?db.select({...getTableColumns(tasks),effectiveState:taskStateSql}).from(tasks).where(and(eq(tasks.contactId,contactId),
+          taskReadPredicate({actor:req.user as any,asOf,timezone:"UTC"}))):Promise.resolve([]),
+        loadNotes?storage.getNotes("contact", contactId):Promise.resolve([]),
+        isSdrSourcedContact(contactId),
       ]);
+      const rawDeals=linkedDeals.filter(deal=>canAccessOwner(req.user as any,deal.owner,false));
 
       // REV-05A: mask raw MID from deal objects before returning to the client.
       // Full MIDs are available only via dedicated receipted endpoints.
       const { serializeDeal } = await import("../utils/mask-mid");
-      const contactDeals = rawDeals.map((d: any) => serializeDeal(d));
+      const contactDeals = loadDeals?rawDeals.map((d: any) => serializeDeal(d)):[];
+      const activeDeal=rawDeals.find(deal=>!deal.archivedAt);
+      const nextFollowUp=rawDeals.find(deal=>!deal.archivedAt && deal.nextFollowUp)?.nextFollowUp;
 
-      res.json({ contact, deals: contactDeals, tickets: contactTickets, tasks: contactTasks, notes: contactNotes });
+      res.json({ contact, deals: contactDeals, tickets: contactTickets, tasks: contactTasks, notes: contactNotes,
+        capabilities:{hasOnboarding:rawDeals.some(deal=>deal.pipeline==="onboarding" && !deal.archivedAt),
+          sdrSourced},
+        loaded:{deals:loadDeals,tickets:loadTickets,tasks:loadTasks,notes:loadNotes},
+        headerDealFacts:{activeDeal:activeDeal?{id:activeDeal.id,stage:activeDeal.stage,pipeline:activeDeal.pipeline,
+          nextFollowUp:activeDeal.nextFollowUp,archivedAt:activeDeal.archivedAt}:null,
+          nextFollowUp:nextFollowUp?.toISOString()??null},
+        projection:section??"legacy_full",asOf:asOf.toISOString() });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -245,6 +272,10 @@ export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDele
     try {
       const { dealIds, stage, overrideReason } = req.body;
       if (!Array.isArray(dealIds) || !stage) return res.status(400).json({ message: "dealIds array and stage required" });
+      if(!dealIds.length || dealIds.length>500 || dealIds.some((id:unknown)=>!Number.isSafeInteger(id)||Number(id)<=0)
+        || typeof stage!=="string" || !stage.trim()) return res.status(400).json({message:"Valid bounded deal IDs and stage required"});
+      const expectedStages=z.record(z.string().min(1)).optional().safeParse(req.body.expectedStages);
+      if(!expectedStages.success) return res.status(400).json({message:"Invalid displayed stages"});
 
       const actor = req.user as any;
       const actorEmail: string = actor?.email ?? actor?.role ?? "unknown";
@@ -259,24 +290,37 @@ export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDele
       let advanced = 0;
       let blocked = 0;
       const blockedDealIds: number[] = [];
+      const results:Array<{id:number;outcome:"confirmed"|"blocked"|"unknown"|"unattempted";reason?:string;currentStage?:string}>=[];
+      let interrupted=false;
 
       for (const rawId of dealIds) {
         const dealId = Number(rawId);
+        if(interrupted) { results.push({id:dealId,outcome:"unattempted",reason:"Earlier outcome unresolved"});continue; }
         try {
-          const result = await advanceDealStage(dealId, stage, "bulk_stage", overrideCtx);
-          if (result) advanced++;
+          const result = await advanceDealStage(dealId, stage, "bulk_stage", overrideCtx, expectedStages.data?.[String(dealId)]);
+          if (result) { advanced++;results.push({id:dealId,outcome:"confirmed",currentStage:result.stage}); }
+          else { blocked++;blockedDealIds.push(dealId);results.push({id:dealId,outcome:"blocked",reason:"Record unavailable"}); }
         } catch (err) {
           if (err instanceof GoLiveGateError) {
             blocked++;
             blockedDealIds.push(dealId);
+            results.push({id:dealId,outcome:"blocked",reason:"Go-live prerequisites not met"});
             // GoLiveGateError already wrote an audit log inside advanceDealStage
+          } else if(err instanceof DealStageConflictError || err instanceof DealStageIllegalTransitionError) {
+            blocked++;blockedDealIds.push(dealId);
+            results.push({id:dealId,outcome:"blocked",reason:err.code,
+              currentStage:err instanceof DealStageConflictError ? err.actual : err.from});
           } else {
-            throw err; // unexpected errors bubble up
+            // A service can commit before an effect/readback fails. Never lose
+            // confirmed item receipts or call this item a rollback.
+            interrupted=true;results.push({id:dealId,outcome:"unknown",reason:"Read back this deal before retrying"});
           }
         }
       }
 
-      res.json({ success: true, advanced, blocked, blockedDealIds });
+      res.json({ success:!interrupted, partial:blocked>0 || interrupted, advanced, blocked, blockedDealIds,results,
+        confirmedDealIds:results.filter(r=>r.outcome==="confirmed").map(r=>r.id),
+        unresolvedDealIds:results.filter(r=>r.outcome==="unknown" || r.outcome==="unattempted").map(r=>r.id) });
     } catch (err: any) {
       console.error("Bulk stage update error:", err.message);
       serverError(res, err);

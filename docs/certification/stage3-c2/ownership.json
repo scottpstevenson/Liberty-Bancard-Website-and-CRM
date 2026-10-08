@@ -1,0 +1,2217 @@
+{
+  "status": "Source retention, not acceptance",
+  "routes": [
+    {
+      "id": "R-002",
+      "pattern": "/dashboard/mobile/contacts/:id",
+      "currentTarget": "mobile compatibility",
+      "guard": "mobile compatibility redirect; MobileApp owns access",
+      "owner": "C2",
+      "workspace": "C2 / Scoped mobile / access boundary",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/mobile/contacts/:id\">\n          {(params) => { window.location.replace(`/mobile/contacts/${params.id}`); return null; }}\n        </Route>"
+      ],
+      "renderOwner": "C2 / Scoped mobile / access boundary",
+      "actualWrapperKinds": [],
+      "component": "mobile compatibility",
+      "componentPolicy": {
+        "source": null,
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [
+        {
+          "parameter": "id",
+          "namespace": "contact",
+          "type": "positive-local-integer"
+        }
+      ],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/mobile/contacts/:id",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-003",
+      "pattern": "/dashboard/mobile/pipeline",
+      "currentTarget": "mobile compatibility",
+      "guard": "mobile compatibility redirect; MobileApp owns access",
+      "owner": "C2",
+      "workspace": "C2 / Scoped mobile / access boundary",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/mobile/pipeline\">\n          {() => { window.location.replace(\"/mobile/pipeline\"); return null; }}\n        </Route>"
+      ],
+      "renderOwner": "C2 / Scoped mobile / access boundary",
+      "actualWrapperKinds": [],
+      "component": "mobile compatibility",
+      "componentPolicy": {
+        "source": null,
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/mobile/pipeline",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-004",
+      "pattern": "/dashboard/mobile/tasks",
+      "currentTarget": "mobile compatibility",
+      "guard": "mobile compatibility redirect; MobileApp owns access",
+      "owner": "C2",
+      "workspace": "C2 / Scoped mobile / access boundary",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/mobile/tasks\">\n          {() => { window.location.replace(\"/mobile/tasks\"); return null; }}\n        </Route>"
+      ],
+      "renderOwner": "C2 / Scoped mobile / access boundary",
+      "actualWrapperKinds": [],
+      "component": "mobile compatibility",
+      "componentPolicy": {
+        "source": null,
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/mobile/tasks",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-005",
+      "pattern": "/dashboard/mobile",
+      "currentTarget": "mobile compatibility",
+      "guard": "mobile compatibility redirect; MobileApp owns access",
+      "owner": "C2",
+      "workspace": "C2 / Scoped mobile / access boundary",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/mobile\">\n          {() => { window.location.replace(\"/mobile\"); return null; }}\n        </Route>"
+      ],
+      "renderOwner": "C2 / Scoped mobile / access boundary",
+      "actualWrapperKinds": [],
+      "component": "mobile compatibility",
+      "componentPolicy": {
+        "source": null,
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/mobile",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-006",
+      "pattern": "/dashboard",
+      "currentTarget": "Overview",
+      "guard": "ProtectedRoute: authenticated dashboard roles; merchant/partner boundaries",
+      "owner": "C2",
+      "workspace": "C2 / Today / contextual AI",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard\">\n          <ProtectedRoute component={Overview} />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Today / contextual AI",
+      "actualWrapperKinds": [
+        "ProtectedRoute"
+      ],
+      "component": "Overview",
+      "componentPolicy": {
+        "source": "client/src/pages/dashboard/Overview.tsx",
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-007",
+      "pattern": "/dashboard/companies/:id",
+      "currentTarget": "CompanyDetail",
+      "guard": "ProtectedRoute: authenticated dashboard roles; merchant/partner boundaries",
+      "owner": "C2",
+      "workspace": "C2 / Records",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/companies/:id\">\n          <ProtectedRoute component={CompanyDetail} />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Records",
+      "actualWrapperKinds": [
+        "ProtectedRoute"
+      ],
+      "component": "CompanyDetail",
+      "componentPolicy": {
+        "source": "client/src/pages/dashboard/CompanyDetail.tsx",
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [
+        {
+          "parameter": "id",
+          "namespace": "company",
+          "type": "positive-local-integer"
+        }
+      ],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/companies/:id",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-008",
+      "pattern": "/dashboard/contacts/:id",
+      "currentTarget": "ContactDetail",
+      "guard": "ProtectedRoute: authenticated dashboard roles; merchant/partner boundaries",
+      "owner": "C2",
+      "workspace": "C2 / Records",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/contacts/:id\">\n          <ProtectedRoute component={ContactDetail} allowedRoles={[\"admin\", \"manager\", \"agent\"]} />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Records",
+      "actualWrapperKinds": [
+        "ProtectedRoute"
+      ],
+      "component": "ContactDetail",
+      "componentPolicy": {
+        "source": "client/src/pages/dashboard/ContactDetail.tsx",
+        "selectors": [
+          "overview",
+          "deals",
+          "tickets",
+          "tasks",
+          "notes",
+          "documents",
+          "live-processing",
+          "chargebacks",
+          "activity",
+          "call-logs",
+          "call-assist",
+          "relationships",
+          "locations",
+          "history",
+          "comments",
+          "churn-risk",
+          "delivery-log",
+          "comm-timeline",
+          "comm-health",
+          "offer-intelligence",
+          "company-intelligence",
+          "sales-prep",
+          "onboarding-stages",
+          "rfis",
+          "nps"
+        ],
+        "queryKeys": [],
+        "children": [
+          {
+            "selector": "overview",
+            "renderedComponents": [
+              "OverviewTab"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "deals",
+            "renderedComponents": [
+              "DealsTab"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "live-processing",
+            "renderedComponents": [
+              "LiveProcessingTabBody"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "tickets",
+            "renderedComponents": [
+              "TicketsTab"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "tasks",
+            "renderedComponents": [
+              "TasksTab"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "notes",
+            "renderedComponents": [
+              "Button",
+              "NotesTab"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "documents",
+            "renderedComponents": [
+              "ContactDocumentsTab",
+              "Card",
+              "CardHeader",
+              "CardTitle",
+              "FolderOpen",
+              "CardContent",
+              "DocumentAccessHistory"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "chargebacks",
+            "renderedComponents": [
+              "ContactChargebacksTab"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "activity",
+            "renderedComponents": [
+              "ActivityTimelineFull"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "call-logs",
+            "renderedComponents": [
+              "Button",
+              "Phone",
+              "CallLogsTab"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "call-assist",
+            "renderedComponents": [
+              "CallAssistPanel"
+            ],
+            "conditionExpressions": [
+              "(user?.role === \"agent\" || user?.role === \"manager\" || user?.role === \"admin\")"
+            ]
+          },
+          {
+            "selector": "relationships",
+            "renderedComponents": [
+              "RelationshipsTab"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "locations",
+            "renderedComponents": [
+              "LocationsTab"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "history",
+            "renderedComponents": [
+              "ChangeHistoryTab"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "comments",
+            "renderedComponents": [
+              "Card",
+              "CardContent",
+              "Comments"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "churn-risk",
+            "renderedComponents": [
+              "ChurnRiskPanel"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "delivery-log",
+            "renderedComponents": [
+              "DeliveryLogTab"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "comm-timeline",
+            "renderedComponents": [
+              "CommunicationTimelineTab"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "comm-health",
+            "renderedComponents": [
+              "CommunicationHealthTab"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "offer-intelligence",
+            "renderedComponents": [
+              "OfferIntelligenceTab"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "company-intelligence",
+            "renderedComponents": [
+              "CompanyIntelligenceTab"
+            ],
+            "conditionExpressions": [
+              "contact.isParentAccount"
+            ]
+          },
+          {
+            "selector": "sales-prep",
+            "renderedComponents": [
+              "SalesPrepTab"
+            ],
+            "conditionExpressions": [
+              "salesPrepStatus?.sdrSourced"
+            ]
+          },
+          {
+            "selector": "onboarding-stages",
+            "renderedComponents": [
+              "OnboardingStagesChecklist"
+            ],
+            "conditionExpressions": [
+              "deals.some(d => d.pipeline === \"onboarding\" && !d.archivedAt)"
+            ]
+          },
+          {
+            "selector": "rfis",
+            "renderedComponents": [
+              "RfiTab"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "nps",
+            "renderedComponents": [
+              "NpsHistoryPanel"
+            ],
+            "conditionExpressions": []
+          }
+        ],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": [
+        "admin",
+        "manager",
+        "agent"
+      ],
+      "childCapabilities": {},
+      "entityParameters": [
+        {
+          "parameter": "id",
+          "namespace": "contact",
+          "type": "positive-local-integer"
+        }
+      ],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [
+          "overview",
+          "deals",
+          "tickets",
+          "tasks",
+          "notes",
+          "documents",
+          "live-processing",
+          "chargebacks",
+          "activity",
+          "call-logs",
+          "call-assist",
+          "relationships",
+          "locations",
+          "history",
+          "comments",
+          "churn-risk",
+          "delivery-log",
+          "comm-timeline",
+          "comm-health",
+          "offer-intelligence",
+          "company-intelligence",
+          "sales-prep",
+          "onboarding-stages",
+          "rfis",
+          "nps"
+        ],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/contacts/:id",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-009",
+      "pattern": "/dashboard/contacts",
+      "currentTarget": "Contacts",
+      "guard": "ProtectedRoute: authenticated dashboard roles; merchant/partner boundaries",
+      "owner": "C2",
+      "workspace": "C2 / Records",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/contacts\">\n          <ProtectedRoute component={Contacts} allowedRoles={[\"admin\", \"manager\", \"agent\"]} />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Records",
+      "actualWrapperKinds": [
+        "ProtectedRoute"
+      ],
+      "component": "Contacts",
+      "componentPolicy": {
+        "source": "client/src/pages/dashboard/Contacts.tsx",
+        "selectors": [],
+        "queryKeys": [
+          "limit",
+          "offset",
+          "search",
+          "sort",
+          "archived",
+          "status",
+          "recordClass",
+          "churnRisk",
+          "noOutreach",
+          "blocked",
+          "emailHealth",
+          "assignedToMe",
+          "vertical",
+          "tag",
+          "neverContacted",
+          "createdThisWeek",
+          "leadSource",
+          "hasAssignee",
+          "contactedToday",
+          "lifecycle",
+          "stale",
+          "recentlyUpdated",
+          "noDeal",
+          "notContactedIn30"
+        ],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": [
+        "admin",
+        "manager",
+        "agent"
+      ],
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "tab",
+          "search",
+          "sort",
+          "archived",
+          "status",
+          "recordClass",
+          "limit",
+          "offset",
+          "churnRisk",
+          "noOutreach",
+          "blocked",
+          "emailHealth",
+          "assignedToMe",
+          "vertical",
+          "tag",
+          "contactedToday",
+          "hasAssignee",
+          "leadSource",
+          "lifecycle",
+          "stale",
+          "recentlyUpdated",
+          "neverContacted",
+          "notContactedIn30",
+          "noDeal",
+          "createdThisWeek",
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/contacts-leads?tab=people (admin/manager); retain scoped agent entry",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-010",
+      "pattern": "/dashboard/my-leads",
+      "currentTarget": "Leads",
+      "guard": "AgentRoute: agent",
+      "owner": "C2",
+      "workspace": "C2 / Records",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/my-leads\">\n          <AgentRoute component={Leads} />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Records",
+      "actualWrapperKinds": [
+        "AgentRoute"
+      ],
+      "component": "Leads",
+      "componentPolicy": {
+        "source": "client/src/pages/dashboard/Leads.tsx",
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": [
+        "agent"
+      ],
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/contacts-leads?tab=leads (admin/manager); retain scoped agent entry",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-011",
+      "pattern": "/dashboard/chat",
+      "currentTarget": "Chat",
+      "guard": "ProtectedRoute: authenticated dashboard roles; merchant/partner boundaries",
+      "owner": "C2",
+      "workspace": "C2 / Today / contextual AI",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/chat\">\n          <ProtectedRoute component={Chat} />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Today / contextual AI",
+      "actualWrapperKinds": [
+        "ProtectedRoute"
+      ],
+      "component": "Chat",
+      "componentPolicy": {
+        "source": "client/src/pages/dashboard/Chat.tsx",
+        "selectors": [],
+        "queryKeys": [
+          "vertical"
+        ],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "vertical",
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/chat",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-012",
+      "pattern": "/dashboard/pipeline",
+      "currentTarget": "Pipeline",
+      "guard": "ProtectedRoute: authenticated dashboard roles; merchant/partner boundaries",
+      "owner": "C2",
+      "workspace": "C2 / Pipeline",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/pipeline\">\n          <ProtectedRoute component={Pipeline} />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Pipeline",
+      "actualWrapperKinds": [
+        "ProtectedRoute"
+      ],
+      "component": "Pipeline",
+      "componentPolicy": {
+        "source": "client/src/pages/dashboard/Pipeline.tsx",
+        "selectors": [],
+        "queryKeys": [
+          "archived",
+          "sort",
+          "group"
+        ],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "archived",
+          "sort",
+          "group",
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/pipeline",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-015",
+      "pattern": "/dashboard/tasks",
+      "currentTarget": "/dashboard/tasks-appointments?tab=tasks",
+      "guard": "legacy alias; destination guard applies",
+      "owner": "C2",
+      "workspace": "C2 / Work / header notifications",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/tasks\">\n          <Redirect to=\"/dashboard/tasks-appointments?tab=tasks\" />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Work / header notifications",
+      "actualWrapperKinds": [],
+      "component": "/dashboard/tasks-appointments?tab=tasks",
+      "componentPolicy": {
+        "source": null,
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/tasks-appointments?tab=tasks",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-016",
+      "pattern": "/dashboard/notifications",
+      "currentTarget": "Notifications",
+      "guard": "ProtectedRoute: authenticated dashboard roles; merchant/partner boundaries",
+      "owner": "C2",
+      "workspace": "C2 / Work / header notifications",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/notifications\">\n          <ProtectedRoute component={Notifications} />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Work / header notifications",
+      "actualWrapperKinds": [
+        "ProtectedRoute"
+      ],
+      "component": "Notifications",
+      "componentPolicy": {
+        "source": "client/src/pages/dashboard/Notifications.tsx",
+        "selectors": [
+          "events",
+          "digests"
+        ],
+        "queryKeys": [],
+        "children": [
+          {
+            "selector": "events",
+            "renderedComponents": [
+              "Bell",
+              "Mail",
+              "Switch"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "digests",
+            "renderedComponents": [
+              "Card",
+              "CardContent",
+              "CheckCheck",
+              "AlertTriangle",
+              "Info",
+              "Calendar",
+              "Switch"
+            ],
+            "conditionExpressions": []
+          }
+        ],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [
+          "events",
+          "digests"
+        ],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/notifications",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-017",
+      "pattern": "/dashboard/call-outcome",
+      "currentTarget": "CallOutcome",
+      "guard": "ProtectedRoute: authenticated dashboard roles; merchant/partner boundaries",
+      "owner": "C2",
+      "workspace": "C2 / Record contextual tool",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/call-outcome\">\n          <ProtectedRoute component={CallOutcome} />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Record contextual tool",
+      "actualWrapperKinds": [
+        "ProtectedRoute"
+      ],
+      "component": "CallOutcome",
+      "componentPolicy": {
+        "source": "client/src/pages/dashboard/CallOutcome.tsx",
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/call-outcome",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-018",
+      "pattern": "/dashboard/review-complete",
+      "currentTarget": "ReviewComplete",
+      "guard": "ProtectedRoute: authenticated dashboard roles; merchant/partner boundaries",
+      "owner": "C2",
+      "workspace": "C2 / Record contextual tool",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/review-complete\">\n          <ProtectedRoute component={ReviewComplete} />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Record contextual tool",
+      "actualWrapperKinds": [
+        "ProtectedRoute"
+      ],
+      "component": "ReviewComplete",
+      "componentPolicy": {
+        "source": "client/src/pages/dashboard/ReviewComplete.tsx",
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/review-complete",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-029",
+      "pattern": "/dashboard/contacts-leads",
+      "currentTarget": "ContactsAndLeads",
+      "guard": "ProtectedRoute: authenticated dashboard roles; merchant/partner boundaries",
+      "owner": "C2",
+      "workspace": "C2 / Records",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/contacts-leads\">\n          <ProtectedRoute component={ContactsAndLeads} allowedRoles={[\"admin\", \"manager\", \"agent\"]} />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Records",
+      "actualWrapperKinds": [
+        "ProtectedRoute"
+      ],
+      "component": "ContactsAndLeads",
+      "componentPolicy": {
+        "source": "client/src/pages/dashboard/ContactsAndLeads.tsx",
+        "selectors": [
+          "people",
+          "leads"
+        ],
+        "queryKeys": [],
+        "children": [
+          {
+            "selector": "people",
+            "renderedComponents": [
+              "ContactsPage"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "leads",
+            "renderedComponents": [
+              "LeadsPage"
+            ],
+            "conditionExpressions": []
+          }
+        ],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": [
+        "admin",
+        "manager",
+        "agent"
+      ],
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "tab",
+          "search",
+          "sort",
+          "archived",
+          "status",
+          "recordClass",
+          "limit",
+          "offset",
+          "churnRisk",
+          "noOutreach",
+          "blocked",
+          "emailHealth",
+          "assignedToMe",
+          "vertical",
+          "tag",
+          "contactedToday",
+          "hasAssignee",
+          "leadSource",
+          "lifecycle",
+          "stale",
+          "recentlyUpdated",
+          "neverContacted",
+          "notContactedIn30",
+          "noDeal",
+          "createdThisWeek",
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [
+          "people",
+          "leads"
+        ],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/contacts-leads",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-030",
+      "pattern": "/dashboard/tasks-appointments",
+      "currentTarget": "TasksAppointments",
+      "guard": "ProtectedRoute: authenticated dashboard roles; merchant/partner boundaries",
+      "owner": "C2",
+      "workspace": "C2 / Work / header notifications",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/tasks-appointments\">\n          <ProtectedRoute component={TasksAppointments} />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Work / header notifications",
+      "actualWrapperKinds": [
+        "ProtectedRoute"
+      ],
+      "component": "TasksAppointments",
+      "componentPolicy": {
+        "source": "client/src/pages/dashboard/TasksAppointments.tsx",
+        "selectors": [
+          "tasks",
+          "calendar"
+        ],
+        "queryKeys": [
+          "tab"
+        ],
+        "children": [
+          {
+            "selector": "tasks",
+            "renderedComponents": [
+              "TasksPage"
+            ],
+            "conditionExpressions": []
+          },
+          {
+            "selector": "calendar",
+            "renderedComponents": [
+              "CalendarPage"
+            ],
+            "conditionExpressions": []
+          }
+        ],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "tab",
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [
+          "tasks",
+          "calendar"
+        ],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/tasks-appointments",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-041",
+      "pattern": "/dashboard/stage-rules",
+      "currentTarget": "StageRules",
+      "guard": "ProtectedRoute: admin/manager",
+      "owner": "C2",
+      "workspace": "C2 / Pipeline",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/stage-rules\">\n          <ProtectedRoute component={StageRules} allowedRoles={[\"admin\", \"manager\"]} />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Pipeline",
+      "actualWrapperKinds": [
+        "ProtectedRoute"
+      ],
+      "component": "StageRules",
+      "componentPolicy": {
+        "source": "client/src/pages/dashboard/StageRules.tsx",
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": [
+        "admin",
+        "manager"
+      ],
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/stage-rules",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-070",
+      "pattern": "/dashboard/calendar",
+      "currentTarget": "/dashboard/tasks-appointments?tab=calendar",
+      "guard": "legacy alias; destination guard applies",
+      "owner": "C2",
+      "workspace": "C2 / Work / header notifications",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/calendar\">\n          <Redirect to=\"/dashboard/tasks-appointments?tab=calendar\" />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Work / header notifications",
+      "actualWrapperKinds": [],
+      "component": "/dashboard/tasks-appointments?tab=calendar",
+      "componentPolicy": {
+        "source": null,
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/tasks-appointments?tab=calendar",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-084",
+      "pattern": "/dashboard/sms-inbox",
+      "currentTarget": "/dashboard/comms-hub?tab=messages",
+      "guard": "legacy alias; destination guard applies",
+      "owner": "C2",
+      "workspace": "C2 / Inbox",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/sms-inbox\">\n          <Redirect to=\"/dashboard/comms-hub?tab=messages\" />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Inbox",
+      "actualWrapperKinds": [],
+      "component": "/dashboard/comms-hub?tab=messages",
+      "componentPolicy": {
+        "source": null,
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/comms-hub?tab=messages",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-085",
+      "pattern": "/dashboard/bin-lookup",
+      "currentTarget": "BinLookup",
+      "guard": "ProtectedRoute: authenticated dashboard roles; merchant/partner boundaries",
+      "owner": "C2",
+      "workspace": "C2 / Record contextual tool",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/bin-lookup\">\n          <ProtectedRoute component={BinLookup} />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Record contextual tool",
+      "actualWrapperKinds": [
+        "ProtectedRoute"
+      ],
+      "component": "BinLookup",
+      "componentPolicy": {
+        "source": "client/src/pages/dashboard/BinLookup.tsx",
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/bin-lookup",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-097",
+      "pattern": "/dashboard/my-day",
+      "currentTarget": "SalesRepHome",
+      "guard": "AgentRoute: agent",
+      "owner": "C2",
+      "workspace": "C2 / Today / contextual AI",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/my-day\">\n          <AgentRoute component={SalesRepHome} />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Today / contextual AI",
+      "actualWrapperKinds": [
+        "AgentRoute"
+      ],
+      "component": "SalesRepHome",
+      "componentPolicy": {
+        "source": "client/src/pages/dashboard/SalesRepHome.tsx",
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": [
+        "agent"
+      ],
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/my-day",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-098",
+      "pattern": "/dashboard/live-chat",
+      "currentTarget": "/dashboard/comms-hub?tab=live-chat",
+      "guard": "legacy alias; destination guard applies",
+      "owner": "C2",
+      "workspace": "C2 / Inbox",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/live-chat\">\n          <Redirect to=\"/dashboard/comms-hub?tab=live-chat\" />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Inbox",
+      "actualWrapperKinds": [],
+      "component": "/dashboard/comms-hub?tab=live-chat",
+      "componentPolicy": {
+        "source": null,
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/comms-hub?tab=live-chat",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-116",
+      "pattern": "/dashboard/comms-hub",
+      "currentTarget": "CommsHub",
+      "guard": "ProtectedRoute: authenticated dashboard roles; merchant/partner boundaries",
+      "owner": "C2",
+      "workspace": "C2 / Inbox",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/comms-hub\">\n          <ProtectedRoute component={CommsHub} />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Inbox",
+      "actualWrapperKinds": [
+        "ProtectedRoute"
+      ],
+      "component": "CommsHub",
+      "componentPolicy": {
+        "source": "client/src/pages/dashboard/CommsHub.tsx",
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": null,
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/comms-hub",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    },
+    {
+      "id": "R-123",
+      "pattern": "/dashboard/nba",
+      "currentTarget": "NbaPriorityPage",
+      "guard": "ProtectedRoute: admin/manager",
+      "owner": "C2",
+      "workspace": "C2 / Today / contextual AI",
+      "sourceDeclarations": [
+        "<Route path=\"/dashboard/nba\">\n          <ProtectedRoute component={NbaPriorityPage} allowedRoles={[\"admin\", \"manager\"]} />\n        </Route>"
+      ],
+      "renderOwner": "C2 / Today / contextual AI",
+      "actualWrapperKinds": [
+        "ProtectedRoute"
+      ],
+      "component": "NbaPriorityPage",
+      "componentPolicy": {
+        "source": "client/src/pages/dashboard/NbaPriorityPage.tsx",
+        "selectors": [],
+        "queryKeys": [],
+        "children": [],
+        "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
+      },
+      "wrapperRoles": [
+        "admin",
+        "manager"
+      ],
+      "childCapabilities": {},
+      "entityParameters": [],
+      "queryPolicy": {
+        "allowed": [
+          "contactId",
+          "companyId",
+          "businessId",
+          "dealId",
+          "sourceId",
+          "from"
+        ],
+        "selectors": [],
+        "duplicates": "equal-collapse; conflict explicit safe fallback",
+        "unknown": "not authority; adopted codecs strip unregistered keys"
+      },
+      "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+      "futureTarget": "/dashboard/nba",
+      "status": "current render retained; future target is NOT activated by this registry",
+      "outcomes": {
+        "invalid": "reason + permitted fallback; no name lookup",
+        "forbidden": "existing wrapper/child denial before mount/request",
+        "conflict": "reason + permitted fallback"
+      }
+    }
+  ],
+  "panels": [
+    {
+      "id": "T-006",
+      "url": "/dashboard/contacts/159443",
+      "label": "Deals (1) / tab",
+      "target": "Records → Sales Work",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-007",
+      "url": "/dashboard/contacts/159443",
+      "label": "Tickets (0) / tab",
+      "target": "Records → Service & Performance",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-008",
+      "url": "/dashboard/contacts/159443",
+      "label": "Tasks (1) / tab",
+      "target": "Records → Sales Work",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-009",
+      "url": "/dashboard/contacts/159443",
+      "label": "Notes (0) / tab",
+      "target": "Records → Conversations",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-010",
+      "url": "/dashboard/contacts/159443",
+      "label": "Documents  / tab",
+      "target": "Records → Lifecycle",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-011",
+      "url": "/dashboard/contacts/159443",
+      "label": "Live Processing / tab",
+      "target": "Records → Service & Performance",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-012",
+      "url": "/dashboard/contacts/159443",
+      "label": "Chargebacks / tab",
+      "target": "Records → Service & Performance",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-013",
+      "url": "/dashboard/contacts/159443",
+      "label": "Activity / tab",
+      "target": "Records → Activity & History drawer",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-014",
+      "url": "/dashboard/contacts/159443",
+      "label": "Calls & VMs / tab",
+      "target": "Records → Sales Work",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-015",
+      "url": "/dashboard/contacts/159443",
+      "label": "Call Assist / tab",
+      "target": "Records → Sales Work",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-016",
+      "url": "/dashboard/contacts/159443",
+      "label": "Relationships / tab",
+      "target": "Records → Overview",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-017",
+      "url": "/dashboard/contacts/159443",
+      "label": "Locations  / tab",
+      "target": "Records → Overview",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-018",
+      "url": "/dashboard/contacts/159443",
+      "label": "History / tab",
+      "target": "Records → Activity & History drawer",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-019",
+      "url": "/dashboard/contacts/159443",
+      "label": "Comments / tab",
+      "target": "Records → Conversations",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-020",
+      "url": "/dashboard/contacts/159443",
+      "label": "Churn Risk / tab",
+      "target": "Records → Service & Performance",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-021",
+      "url": "/dashboard/contacts/159443",
+      "label": "Delivery Log / tab",
+      "target": "Records → Conversations",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-022",
+      "url": "/dashboard/contacts/159443",
+      "label": "Comm. Timeline / tab",
+      "target": "Records → Conversations",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-023",
+      "url": "/dashboard/contacts/159443",
+      "label": "Comm. Health / tab",
+      "target": "Records → Conversations",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-024",
+      "url": "/dashboard/contacts/159443",
+      "label": "Offer Intelligence / tab",
+      "target": "Records → Sales Work",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-025",
+      "url": "/dashboard/contacts/159443",
+      "label": "RFIs / tab",
+      "target": "Records → Lifecycle",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-026",
+      "url": "/dashboard/contacts/159443",
+      "label": "NPS / tab",
+      "target": "Records → Service & Performance",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-061",
+      "url": "/dashboard/contacts-leads",
+      "label": "People / hub-tab",
+      "target": "Records → retained nested section",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-062",
+      "url": "/dashboard/contacts-leads?tab=leads",
+      "label": "Leads / hub-tab",
+      "target": "Records → retained nested section",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-063",
+      "url": "/dashboard/tasks-appointments",
+      "label": "Tasks / hub-tab",
+      "target": "Work / header notifications → retained nested section",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-064",
+      "url": "/dashboard/tasks-appointments?tab=calendar",
+      "label": "Appointments / hub-tab",
+      "target": "Work / header notifications → retained nested section",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-213",
+      "url": "/dashboard/notifications",
+      "label": "All / nested-tab",
+      "target": "Work / header notifications → retained nested section",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-214",
+      "url": "/dashboard/notifications",
+      "label": "Leads / nested-tab",
+      "target": "Work / header notifications → retained nested section",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-215",
+      "url": "/dashboard/notifications",
+      "label": "Deals / nested-tab",
+      "target": "Work / header notifications → retained nested section",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-216",
+      "url": "/dashboard/notifications",
+      "label": "SLA / nested-tab",
+      "target": "Work / header notifications → retained nested section",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    },
+    {
+      "id": "T-217",
+      "url": "/dashboard/notifications",
+      "label": "System / nested-tab",
+      "target": "Work / header notifications → retained nested section",
+      "owner": "C2",
+      "disposition": "Deferred to the specific workspace owner; historical observation, not a C1 action pass",
+      "originalDisposition": "C2; historical observation, actions UNVERIFIED unless new receipt"
+    }
+  ],
+  "claims": [
+    {
+      "id": "CRM3-05",
+      "originalScope": "Work counts/briefing contradiction",
+      "historicalRepairGroup": null,
+      "correctionScope": "Canonical source repair present; R03 residual MyDay/freshness and R07 states; full live parity unverified.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "CRM3-11",
+      "originalScope": "Scope mismatches across lists/reports",
+      "historicalRepairGroup": null,
+      "correctionScope": "R03/R04/R05 scoped counts/populations/cache metadata; actual cross-page live numbers unverified.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "CRM3-13",
+      "originalScope": "Readiness/contactability advice vs actual permission",
+      "historicalRepairGroup": null,
+      "correctionScope": "R06 truthful channel/draft/pause reasons; existing server guard retained; native eligibility not inferred.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "CRM3-21",
+      "originalScope": "Dense workspace buries next action",
+      "historicalRepairGroup": null,
+      "correctionScope": "R02/R04/R08/R10; five destinations/Contact areas/contextual actions; proposed UX adoption and measured acceptance pending.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "CRM3-22",
+      "originalScope": "Large panels/bundles need bounded loading",
+      "historicalRepairGroup": null,
+      "correctionScope": "R05 proposal burst and Contact eager queries source-confirmed; R09/R10 lazy/declared-volume proof pending.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "CRM3-24",
+      "originalScope": "Empty/filtered states confuse unavailable with no match",
+      "historicalRepairGroup": null,
+      "correctionScope": "R04/R06/R07/R08 source-confirmed paths; existing B graph/notes error repairs preserved.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "CRM3-26",
+      "originalScope": "Lifecycle relationship workspace incomplete",
+      "historicalRepairGroup": null,
+      "correctionScope": "R02/R04/R08/R10 outer composition/typed links; existing B relationship authority preserved; C4 interiors not transferred.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-003",
+      "originalScope": "D3 Create returns 500 after commit",
+      "historicalRepairGroup": "R03",
+      "correctionScope": "R03/R04/R08; A/B create authority preserved; original degraded/local-commit replay needs actual fixture receipts, not production submission.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-005",
+      "originalScope": "D5 Tasks totals disagree",
+      "historicalRepairGroup": "R04",
+      "correctionScope": "R03/R07; canonical backend repair present; MyDay predicate, UI effective states and freshness remain source-confirmed gaps.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-006",
+      "originalScope": "D6 Empty pipeline/old deal notices",
+      "historicalRepairGroup": "R06",
+      "correctionScope": "R04/R05; paged/qualified/role scope and selected-deal UI. Original live empty/old-notice population is unverified now.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-007",
+      "originalScope": "D7 Partial Inbox",
+      "historicalRepairGroup": "R12",
+      "correctionScope": "R06; desktop partial/page labels present; cursor, drafts, thread and dedicated mobile gaps source-confirmed. Provider completeness not certified.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-010",
+      "originalScope": "D10 Seven unassigned SLA tickets",
+      "historicalRepairGroup": "R04",
+      "correctionScope": "R03/R07; canonical SLA/task presentation and B assignment. Historical seven-ticket identity/assignment outcome not reverified.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-031",
+      "originalScope": "P0-05 relationship chain",
+      "historicalRepairGroup": "R08",
+      "correctionScope": "R02/R04/R08; exact Company/contact/business IDs and existing B graph/link authority; picker/M&A/context gaps. Full native relationship lineage pending.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-045",
+      "originalScope": "Home briefing unavailable",
+      "historicalRepairGroup": "R04",
+      "correctionScope": "R03; current deterministic/null-aware briefing repair present; day-cache/invalidation/other Today readers still need repair. Live output unverified.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-046",
+      "originalScope": "Lead Ops empty / old 6,471 business assertion",
+      "historicalRepairGroup": "R06",
+      "correctionScope": "R04; distinguish qualified People/Leads and all-class inventory. Prospecting/old6471 native business claim stays C3/native evidence, not C2 closure.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-047",
+      "originalScope": "Ready queue empty",
+      "historicalRepairGroup": "R12",
+      "correctionScope": "R06/R10; truthful source/readiness reasons and no-send. Ready queue engine/qualification scope C3/A; no inferred eligibility.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-048",
+      "originalScope": "Empty merchant/application/document sections",
+      "historicalRepairGroup": "R08",
+      "correctionScope": "R02/R07/R10; C2 Contact Lifecycle/Service outer slots, failure/empty distinctions. C4 merchant/application/document internals remain owned there.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-049",
+      "originalScope": "Notification totals and stale links",
+      "historicalRepairGroup": "R04",
+      "correctionScope": "R02/R03/R08; typed notification authority already exists; task-list fallback/freshness/UI proof pending. Historical numeric totals not reverified.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-050",
+      "originalScope": "Round robin",
+      "historicalRepairGroup": "R04",
+      "correctionScope": "R03/R06; C2 assignment presentation/readback; B routing/handoff authority and actual replay/capacity proof retained.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-051",
+      "originalScope": "Scoring/readiness/last activity",
+      "historicalRepairGroup": "R12",
+      "correctionScope": "R03/R04/R06; source/date/readiness/last-touch explanations. No rewrite of score/model or new send gate; C3/A engine evidence retained.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-053",
+      "originalScope": "Forms builder, widgets, content, call tools, BIN, case studies, review completion, partner/merchant success",
+      "historicalRepairGroup": "R08",
+      "correctionScope": "R04/R08/R10; C2 CallOutcome/ReviewComplete/BIN/contextual tools fully included. Forms/content/portal internals outside C2 keep C5/C4 owners.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-055",
+      "originalScope": "Callback +1, search failure, no workflow",
+      "historicalRepairGroup": "R04",
+      "correctionScope": "R03/R04/R06; callback record/search/work handoff consumer evidence only. Original intake/assignment/SLA/native chain not proven by current source or +1.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-056",
+      "originalScope": "Editable workflow builder / Cancel / run counts / switches",
+      "historicalRepairGroup": "R08",
+      "correctionScope": "R08/R10; C2 StageRules/current contextual controls and honest Cancel/pending. Broader workflow-builder/history/activation authority stays B/C5.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-058",
+      "originalScope": "“All sections load / no 500 / functionally complete”",
+      "historicalRepairGroup": "R05",
+      "correctionScope": "R01/R09/all gates; blanket functional-complete claim remains unproved. Explicit action denominator and failed/not-tested outcomes mandatory.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-059",
+      "originalScope": "First 30 rows / 25 plausible / 83% valid",
+      "historicalRepairGroup": "R06",
+      "correctionScope": "R04; sample30/25/83% is not population validation. Source/qualified count labels and independent historical receipt verification retained.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-060",
+      "originalScope": "QQ/numeric addresses",
+      "historicalRepairGroup": "R06",
+      "correctionScope": "R04/R10; safe data display/typed identity; original QQ/numeric-address quality needs specified records/receipts, no name repair.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-061",
+      "originalScope": "Image-file email strings; Null/N/a display prefixes",
+      "historicalRepairGroup": "R06",
+      "correctionScope": "R04/R10; missing/invalid contact field presentation; historical image-email/Null/N-a claims not newly runtime-confirmed.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-062",
+      "originalScope": "Formulaic score / 100 no-activity rows",
+      "historicalRepairGroup": "R12",
+      "correctionScope": "R03/R06/R10; display model/source/last activity honestly; old100-row model sample is not unique population truth; A/C3/native proof retained.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-067",
+      "originalScope": "Corrected ticket identities",
+      "historicalRepairGroup": "R04",
+      "correctionScope": "R03/R07; correctly scoped tickets/tasks UI; original corrected-ticket identities still require historical/native receipts; no reassignment/deletion.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    },
+    {
+      "id": "REF-069",
+      "originalScope": "Local/GHL contacts/stages/workflows/users/forms/phones comparison",
+      "historicalRepairGroup": "R06",
+      "correctionScope": "R04/R06/R07; local/native source namespace and status distinctions. Full GHL forms/users/workflows/phones population comparison remains native/C3/C5 evidence.",
+      "owner": "C2 composition; existing A/B facts/access/actions; C3/C4 interior/native boundaries retained",
+      "disposition": "Candidate source work and bounded receipts only; not globally closed"
+    }
+  ],
+  "qualifiedCLs": [
+    {
+      "id": "CL09",
+      "qualification": "Historical reference only; no renewed native/runtime closure"
+    },
+    {
+      "id": "CL10",
+      "qualification": "Historical reference only; no renewed native/runtime closure"
+    },
+    {
+      "id": "CL16",
+      "qualification": "Historical reference only; no renewed native/runtime closure"
+    },
+    {
+      "id": "CL17",
+      "qualification": "Historical reference only; no renewed native/runtime closure"
+    },
+    {
+      "id": "CL18",
+      "qualification": "Historical reference only; no renewed native/runtime closure"
+    }
+  ],
+  "contact": {
+    "areas": {
+      "overview": [
+        "overview",
+        "relationships",
+        "locations",
+        "company-intelligence"
+      ],
+      "sales-work": [
+        "deals",
+        "tasks",
+        "call-logs",
+        "call-assist",
+        "offer-intelligence",
+        "sales-prep"
+      ],
+      "conversations": [
+        "comm-timeline",
+        "comm-health",
+        "delivery-log",
+        "notes",
+        "comments"
+      ],
+      "lifecycle": [
+        "documents",
+        "onboarding-stages",
+        "rfis"
+      ],
+      "service-performance": [
+        "tickets",
+        "live-processing",
+        "chargebacks",
+        "churn-risk",
+        "nps"
+      ]
+    },
+    "keys": [
+      "overview",
+      "deals",
+      "tickets",
+      "tasks",
+      "notes",
+      "documents",
+      "live-processing",
+      "chargebacks",
+      "activity",
+      "call-logs",
+      "call-assist",
+      "relationships",
+      "locations",
+      "history",
+      "comments",
+      "churn-risk",
+      "delivery-log",
+      "comm-timeline",
+      "comm-health",
+      "offer-intelligence",
+      "company-intelligence",
+      "sales-prep",
+      "onboarding-stages",
+      "rfis",
+      "nps"
+    ]
+  },
+  "globalAccounting": {
+    "originalFindings": 95,
+    "repairGroups": 14,
+    "tasks": 8,
+    "qualification": "Preserved common portable register; C2 bundles/subclaims are not added unique defects or closure"
+  },
+  "correctionSha256": "1431a97cd1a48538e3dbf722e03b6f95eddf1b4d32e35b02a30f1fbd30205d6e"
+}

@@ -4,6 +4,7 @@ import { rm, readFile, writeFile } from "fs/promises";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createSfpPublishBuildIdentity } from "../shared/sfp-publish-build-identity";
+import { writeCandidateIdentity } from "../scripts/fixtures/candidate-build-identity";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -75,6 +76,7 @@ async function buildAll() {
   await writeFile("dist/sfp-publish-build.json", JSON.stringify({ ...publishIdentity, builtAt: publishBuiltAt }) + "\n");
   await writeFile("dist/RELEASE_SHA", publishIdentity.artifactSha + "\n");
   console.log("[SFP Publish Artifact]", JSON.stringify(publishIdentity));
+  await writeCandidateIdentity();
 }
 
 buildAll().catch((err) => {

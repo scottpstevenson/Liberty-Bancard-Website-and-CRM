@@ -2,6 +2,16 @@ import { storage } from "../storage";
 import type { ContactAiCache } from "@shared/schema";
 import crypto from "crypto";
 import { z } from "zod";
+import {db} from "../db";
+import {sdrLeadState} from "@shared/schema";
+import {eq} from "drizzle-orm";
+
+/** Existing SDR lineage, not a guessed source-name capability. Read-only. */
+export async function isSdrSourcedContact(contactId:number) {
+  const rows=await db.select({id:sdrLeadState.id}).from(sdrLeadState)
+    .where(eq(sdrLeadState.contactId,contactId)).limit(1);
+  return rows.length>0;
+}
 
 const PROMPT_VERSION = "v3";
 const TEST_MODEL = "test-fixture";

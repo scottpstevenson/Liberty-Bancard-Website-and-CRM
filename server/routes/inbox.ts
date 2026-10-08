@@ -15,9 +15,11 @@ import { sql } from "drizzle-orm";
 import { classifyIntent, mapIntentToAction } from "../services/sdr/reply-intelligence";
 import { resolvePolicy } from "../services/sender-policy";
 import { serverError, safeMessage } from "../utils/server-error";
-import { authorizeContactAccess, authorizeInboxItemAccess } from "../services/crm-object-access";
+import { authorizeContactAccess, authorizeInboxItemAccess, authorizeLiveChatAccess, denyCrmObject } from "../services/crm-object-access";
 import { rememberInboxSourceItem } from "../storage/inbox";
 import { applyConsentCommand } from "../services/consent-authority";
+import { normalizeGhlMessage } from "../services/ghl-message-normalization";
+import { getPauseState } from "../services/outbound-pause-authority";
 
 const GHL_API_BASE = "https://services.leadconnectorhq.com";
 
@@ -70,6 +72,8 @@ type InboxCursorPayload = {
   merge?: { timestamp: string; source: string; id: string };
   sources: Record<string, SourceCursor>;
   remainder?: InboxItem[];
+  sourceStatus?:Array<{source:string;status:"ok"|"failed"|"not_configured";fetched:number;truncated:boolean;errorCode?:string}>;
+  snapshotAt?:string;
 };
 function inboxCursorSecret(): string {
   const secret = process.env.SESSION_SECRET || process.env.GHL_PRIVATE_INTEGRATION_TOKEN;
@@ -124,6 +128,7 @@ export interface InboxItem {
   aiIntent?: string | null;
   phone?: string;
   ghlConversationId?: string;
+  providerMessageId?: string;
   // voicemail-specific
   voicemailDuration?: number | null;
   voicemailUrl?: string | null;
@@ -262,7 +267,27 @@ function buildNextActionRecommendation(intent: string): string {
   }
 }
 
-export function registerInboxRoutes(app: Express) {
+export function registerInboxRoutes(app: Express, readerDependencies?: {
+  config:()=>ReturnType<typeof getGhlConfig>; read:(path:string)=>Promise<any>;
+}) {
+  // Test seam changes readers only; every effect retains the real guarded
+  // dispatcher and cannot use a supplied fake provider transport.
+  const readProvider=readerDependencies?.read ?? ghlFetch;
+  const providerConfig=readerDependencies?.config ?? getGhlConfig;
+  // Read the existing pause authority; this observation never grants delivery,
+  // changes controls, initializes workers, or calls a provider.
+  app.get("/api/inbox/send-state", isDashboardUser, async (_req,res)=>{
+    const pause=await getPauseState();
+    const reason=pause.source==="safe_default"
+      ? pause.reason || "Outbound pause authority unavailable; outbound actions remain disabled."
+      : pause.state==="paused" ? pause.reason || "Outbound is paused."
+      : pause.state==="activating" ? pause.reason || "Outbound activation is pending; sending is blocked."
+      : "Channel delivery readiness is unverified; outbound actions remain disabled.";
+    res.setHeader("Cache-Control","no-store");
+    res.json({state:pause.state,reason,source:pause.source,epoch:pause.epoch.toString(),
+      availability:pause.source==="database"?"available":"unavailable",canSend:false,
+      capability:"pause_observation_only",asOf:new Date().toISOString()});
+  });
   // ─── GET /api/inbox/items — unified inbound feed ───────────────────────────
   app.get("/api/inbox/items", isDashboardUser, async (req, res) => {
     try {
@@ -285,6 +310,8 @@ export function registerInboxRoutes(app: Express) {
         id: (req.user as any)?.id || null,
         role: (req.user as any)?.role || null,
         email: (req.user as any)?.email || null,
+        accountVersion:(req.user as any)?.accountVersion ?? null,
+        authEpoch:(req.user as any)?.authEpoch ?? null,
       }));
       let cursorPayload: InboxCursorPayload | null = null;
       if (cursor) {
@@ -296,7 +323,7 @@ export function registerInboxRoutes(app: Express) {
       }
       const requestedSources = channel === "all"
         ? ["email_audit", "ghl_sms", "ghl_chat", "ghl_voicemail", "live_chat"]
-        : [channel === "email" ? "email_audit" : channel === "sms" ? "ghl_sms" : channel === "ghl_chat" ? "ghl_chat" : channel === "voicemail" ? "ghl_voicemail" : "live_chat"];
+        : channel==="email" ? ["email_audit","ghl_chat"] : [channel === "sms" ? "ghl_sms" : channel === "ghl_chat" ? "ghl_chat" : channel === "voicemail" ? "ghl_voicemail" : "live_chat"];
       // At most one overfetch item per source is needed for a stable merge, so
       // the signed remainder stays small even at the maximum API limit.
       const bufferedCount = cursorPayload?.remainder?.length || 0;
@@ -306,6 +333,7 @@ export function registerInboxRoutes(app: Express) {
       const items: InboxItem[] = [...(cursorPayload?.remainder || [])];
       const sources: Array<{ source: string; status: "ok" | "failed" | "not_configured"; fetched: number; truncated: boolean; errorCode?: string }> = [];
       const sourceContinuations: Record<string, SourceCursor> = { ...(cursorPayload?.sources || {}) };
+      const snapshotAt=cursorPayload?.snapshotAt ?? new Date().toISOString();
 
       // 1. Inbound email events from audit_logs
       if (!drainRemainderOnly && (channel === "all" || channel === "email"))
@@ -318,7 +346,9 @@ export function registerInboxRoutes(app: Express) {
             al.created_at
           FROM audit_logs al
           WHERE al.action IN ('inbound_message_processed', 'inbound_email_received', 'email_inbound')
-          ORDER BY al.created_at DESC
+            AND al.created_at <= ${new Date(snapshotAt)}
+            AND (al.action <> 'inbound_message_processed' OR al.details->>'channel' = 'email')
+          ORDER BY al.created_at DESC, al.id DESC
            LIMIT ${perSourceLimit}
            OFFSET ${sourceContinuations.email_audit?.offset || 0}
         `);
@@ -368,20 +398,36 @@ export function registerInboxRoutes(app: Express) {
       }
 
       // 2. Inbound SMS/GHL conversation messages
-      const config = getGhlConfig();
+      const config = providerConfig();
+      const messageReads = new Map<string,Promise<ReturnType<typeof normalizeGhlMessage>>>();
+      const occurrence = (c:any) => {
+        if(!config || typeof c.id!=="string" || (c.locationId && c.locationId!==config.locationId)) throw new Error("GHL_CONVERSATION_SCOPE_INVALID");
+        if(!messageReads.has(c.id)) messageReads.set(c.id,(async()=>{
+          const response = await readProvider(`/conversations/${encodeURIComponent(c.id)}/messages?limit=1`);
+          const messages = response?.messages?.messages ?? response?.messages;
+          if(!Array.isArray(messages)) throw new Error("GHL_MESSAGE_SHAPE_INVALID");
+          if(!messages.length) return null;
+          const message=normalizeGhlMessage(config.locationId,messages[0]);
+          if(message && message.ghlConversationId!==c.id) throw new Error("GHL_MESSAGE_CONVERSATION_MISMATCH");
+          return message;
+        })());
+        return messageReads.get(c.id)!;
+      };
       if (config && !drainRemainderOnly) {
-        if (channel === "all" || channel === "sms")
+        if ((channel === "all" || channel === "sms") && sourceContinuations.ghl_sms?.exhausted!==true)
         try {
-          const result = await ghlFetch(
-            `/conversations/search?locationId=${config.locationId}&limit=${perSourceLimit}&type=TYPE_PHONE${sourceContinuations.ghl_sms?.afterId ? `&startAfterId=${encodeURIComponent(sourceContinuations.ghl_sms.afterId)}` : ""}`
+          const result = await readProvider(
+            `/conversations/search?locationId=${config.locationId}&limit=${perSourceLimit}&lastMessageType=TYPE_SMS&lastMessageDirection=inbound${sourceContinuations.ghl_sms?.highWater ? `&startAfterDate=${encodeURIComponent(sourceContinuations.ghl_sms.highWater)}` : ""}`
           );
           const conversations = result?.conversations || result?.data || [];
+          if(!Array.isArray(conversations)) throw new Error("GHL_SEARCH_SHAPE_INVALID");
 
           for (const c of conversations) {
-            const lastMsg = c.lastMessage || c.lastMessageBody || "";
-            if (!lastMsg) continue;
+            const message=await occurrence(c);
+            if(!message || message.channel!=="sms") continue;
+            const lastMsg = message.body;
             // Only show inbound
-            if (c.lastMessageType === "TYPE_PHONE" || c.lastMessageDirection === "inbound" || c.unreadCount > 0) {
+            if (message.direction === "inbound") {
               let contactName = c.fullName || c.contactName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown";
               let contactId: number | null = null;
 
@@ -397,29 +443,24 @@ export function registerInboxRoutes(app: Express) {
                     const name = [lc.first_name, lc.last_name].filter(Boolean).join(" ");
                     if (name) contactName = name;
                   }
-                } catch { /* ignore */ }
+                } catch { throw new Error("GHL_LOCAL_MAPPING_UNAVAILABLE"); }
               }
 
               items.push({
-                id: `ghl:${config.locationId}::sms:${c.id}`,
                 contactId,
                 contactName,
                 companyName: "",
-                channel: "sms",
-                direction: "inbound",
-                body: String(lastMsg).slice(0, 2000),
-                receivedAt: c.lastMessageDate || c.dateUpdated || new Date().toISOString(),
                 intentLabel: null,
                 confidence: null,
                 isRead: c.unreadCount === 0,
                 phone: c.phone || "",
-                ghlConversationId: c.id,
+                ...message,
               });
             }
           }
           const smsLastId = result?.lastId || conversations[conversations.length - 1]?.id;
           const smsExhausted = conversations.length < perSourceLimit && !result?.nextPage;
-          sourceContinuations.ghl_sms = { afterId: smsLastId, highWater: conversations[0]?.lastMessageDate, exhausted: smsExhausted };
+          sourceContinuations.ghl_sms = { afterId: smsLastId, highWater: conversations.at(-1)?.lastMessageDate, exhausted: smsExhausted };
           sources.push({ source: "ghl_sms", status: "ok", fetched: items.filter(i => i.channel === "sms").length, truncated: !smsExhausted });
         } catch (smsErr: any) {
           console.warn("[Inbox] source_failed code=GHL_SMS_PROVIDER_FAILED");
@@ -427,15 +468,17 @@ export function registerInboxRoutes(app: Express) {
         }
 
         // 3. GHL chat/email conversation messages
-        if (channel === "all" || channel === "ghl_chat") {
+        if ((channel === "all" || channel === "ghl_chat" || channel==="email") && sourceContinuations.ghl_chat?.exhausted!==true) {
           try {
-            const result = await ghlFetch(
-              `/conversations/search?locationId=${config.locationId}&limit=${perSourceLimit}&type=TYPE_EMAIL${sourceContinuations.ghl_chat?.afterId ? `&startAfterId=${encodeURIComponent(sourceContinuations.ghl_chat.afterId)}` : ""}`
+            const result = await readProvider(
+              `/conversations/search?locationId=${config.locationId}&limit=${perSourceLimit}&lastMessageDirection=inbound${channel==="email"?"&lastMessageType=TYPE_EMAIL":channel==="ghl_chat"?"&lastMessageType=TYPE_WEBCHAT":""}${sourceContinuations.ghl_chat?.highWater ? `&startAfterDate=${encodeURIComponent(sourceContinuations.ghl_chat.highWater)}` : ""}`
             );
             const conversations = result?.conversations || result?.data || [];
+            if(!Array.isArray(conversations)) throw new Error("GHL_SEARCH_SHAPE_INVALID");
             for (const c of conversations) {
-              const lastMsg = c.lastMessage || c.lastMessageBody || "";
-              if (!lastMsg) continue;
+              const message=await occurrence(c);
+              if(!message || !["email","ghl_chat"].includes(message.channel) || (channel!=="all" && message.channel!==channel)) continue;
+              const lastMsg = message.body;
 
               let contactName = c.fullName || c.contactName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown";
               let contactId: number | null = null;
@@ -452,29 +495,24 @@ export function registerInboxRoutes(app: Express) {
                     const name = [lc.first_name, lc.last_name].filter(Boolean).join(" ");
                     if (name) contactName = name;
                   }
-                } catch { /* ignore */ }
+                } catch { throw new Error("GHL_LOCAL_MAPPING_UNAVAILABLE"); }
               }
 
               items.push({
-                id: `ghl:${config.locationId}::chat:${c.id}`,
                 contactId,
                 contactName,
                 companyName: "",
-                channel: "ghl_chat",
-                direction: "inbound",
-                body: String(lastMsg).slice(0, 2000),
                 preview: String(lastMsg).slice(0, 120),
-                receivedAt: c.lastMessageDate || c.dateUpdated || new Date().toISOString(),
                 intentLabel: null,
                 confidence: null,
                 isRead: c.unreadCount === 0,
-                ghlConversationId: c.id,
+                ...message,
               });
             }
             const chatPageLimit = perSourceLimit;
             const chatLastId = result?.lastId || conversations[conversations.length - 1]?.id;
             const chatExhausted = conversations.length < chatPageLimit && !result?.nextPage;
-            sourceContinuations.ghl_chat = { afterId: chatLastId, highWater: conversations[0]?.lastMessageDate, exhausted: chatExhausted };
+            sourceContinuations.ghl_chat = { afterId: chatLastId, highWater: conversations.at(-1)?.lastMessageDate, exhausted: chatExhausted };
             sources.push({ source: "ghl_chat", status: "ok", fetched: items.filter(i => i.channel === "ghl_chat").length, truncated: !chatExhausted });
           } catch (chatErr: any) {
             console.warn("[Inbox] source_failed code=GHL_CHAT_PROVIDER_FAILED");
@@ -483,13 +521,17 @@ export function registerInboxRoutes(app: Express) {
         }
 
         // 4. Voicemail items from GHL (TYPE_VOICE conversations)
-        if ((channel === "all" || channel === "voicemail") && process.env.VOICEMAIL_SYNC_ENABLED !== "false") {
+        if ((channel === "all" || channel === "voicemail") && process.env.VOICEMAIL_SYNC_ENABLED !== "false"
+          && sourceContinuations.ghl_voicemail?.exhausted!==true) {
           try {
-            const result = await ghlFetch(
-              `/conversations/search?locationId=${config.locationId}&limit=${perSourceLimit}&type=TYPE_VOICE${sourceContinuations.ghl_voicemail?.afterId ? `&startAfterId=${encodeURIComponent(sourceContinuations.ghl_voicemail.afterId)}` : ""}`
+            const result = await readProvider(
+              `/conversations/search?locationId=${config.locationId}&limit=${perSourceLimit}&lastMessageType=TYPE_CAMPAIGN_VOICEMAIL&lastMessageDirection=inbound${sourceContinuations.ghl_voicemail?.highWater ? `&startAfterDate=${encodeURIComponent(sourceContinuations.ghl_voicemail.highWater)}` : ""}`
             );
             const conversations = result?.conversations || result?.data || [];
+            if(!Array.isArray(conversations)) throw new Error("GHL_SEARCH_SHAPE_INVALID");
             for (const c of conversations) {
+              const message=await occurrence(c);
+              if(!message || message.channel!=="voicemail") continue;
               const lastMsg = c.lastMessage || c.lastMessageBody || c.transcriptText || "";
               let contactName = c.fullName || c.contactName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown";
               let contactId: number | null = null;
@@ -506,32 +548,27 @@ export function registerInboxRoutes(app: Express) {
                     const name = [lc.first_name, lc.last_name].filter(Boolean).join(" ");
                     if (name) contactName = name;
                   }
-                } catch { /* ignore */ }
+                } catch { throw new Error("GHL_LOCAL_MAPPING_UNAVAILABLE"); }
               }
 
               items.push({
-                id: `ghl:${config.locationId}::voicemail:${c.id}`,
                 contactId,
                 contactName,
                 companyName: "",
-                channel: "voicemail",
-                direction: "inbound",
-                body: lastMsg || "Voicemail received",
                 preview: lastMsg ? String(lastMsg).slice(0, 120) : "Voicemail received",
-                receivedAt: c.lastMessageDate || c.dateUpdated || new Date().toISOString(),
                 intentLabel: null,
                 confidence: null,
                 isRead: c.unreadCount === 0,
                 phone: c.phone || "",
-                ghlConversationId: c.id,
                 voicemailDuration: c.duration || c.lastMessageDuration || null,
                 voicemailUrl: c.mediaUrl || c.recordingUrl || c.lastMessageMedia?.url || null,
                 transcript: c.transcriptText || null,
+                ...message,
               });
             }
             const vmLastId = result?.lastId || conversations[conversations.length - 1]?.id;
             const vmExhausted = conversations.length < perSourceLimit && !result?.nextPage;
-            sourceContinuations.ghl_voicemail = { afterId: vmLastId, highWater: conversations[0]?.lastMessageDate, exhausted: vmExhausted };
+            sourceContinuations.ghl_voicemail = { afterId: vmLastId, highWater: conversations.at(-1)?.lastMessageDate, exhausted: vmExhausted };
             sources.push({ source: "ghl_voicemail", status: "ok", fetched: items.filter(i => i.channel === "voicemail").length, truncated: !vmExhausted });
           } catch (vmErr: any) {
             console.warn("[Inbox] source_failed code=GHL_VOICEMAIL_PROVIDER_FAILED");
@@ -585,7 +622,7 @@ export function registerInboxRoutes(app: Express) {
       if (!config) {
         const unavailableProviderSources = [
           ...(channel === "all" || channel === "sms" ? ["ghl_sms"] : []),
-          ...(channel === "all" || channel === "ghl_chat" ? ["ghl_chat"] : []),
+          ...(channel === "all" || channel === "ghl_chat" || channel==="email" ? ["ghl_chat"] : []),
           ...(channel === "all" || channel === "voicemail" ? ["ghl_voicemail"] : []),
         ];
         for (const providerSource of unavailableProviderSources) {
@@ -598,16 +635,32 @@ export function registerInboxRoutes(app: Express) {
       }
       if (drainRemainderOnly && sources.length === 0) {
         for (const source of requestedSources) {
-          sources.push({
+            const previous=cursorPayload?.sourceStatus?.find(s=>s.source===source);
+            sources.push({
             source,
-            status: "ok",
+              status:previous?.status ?? "ok",
             fetched: 0,
             truncated: sourceContinuations[source]?.exhausted !== true,
+              ...(previous?.errorCode?{errorCode:previous.errorCode}:{}),
           });
         }
       }
+      for(const source of requestedSources) if(!sources.some(s=>s.source===source)) {
+        const previous=cursorPayload?.sourceStatus?.find(s=>s.source===source);
+        sources.push(previous?{...previous,fetched:0}:{source,status:"ok",fetched:0,truncated:sourceContinuations[source]?.exhausted!==true});
+      }
       // Persist a source-scoped, immutable server observation before exposing it.
       // No mutation can rely on a browser-provided contact, channel, or body.
+      // Do not materialize foreign source observations during an agent read.
+      if ((req.user as any)?.role === "agent") {
+        const agentEmail = (req.user as any)?.email;
+        const visibility = await Promise.all(items.map(async (item) => {
+          if (!item.contactId) return false;
+          const contact = await storage.getContact(item.contactId);
+          return !!contact && (!contact.assignedTo || contact.assignedTo === agentEmail);
+        }));
+        for (let i = items.length - 1; i >= 0; i--) if (!visibility[i]) items.splice(i, 1);
+      }
       await Promise.all(items
         .filter((item) => item.contactId !== null)
         .map((item) => rememberInboxSourceItem({
@@ -619,18 +672,6 @@ export function registerInboxRoutes(app: Express) {
           sourceReceivedAt: new Date(item.receivedAt),
           contactId: item.contactId!,
         })));
-
-      // Agents only see records with a locally mapped owned/unassigned contact.
-      // Unmapped provider conversations intentionally remain invisible.
-      if ((req.user as any)?.role === "agent") {
-        const agentEmail = (req.user as any)?.email;
-        const visibility = await Promise.all(items.map(async (item) => {
-          if (!item.contactId) return false;
-          const contact = await storage.getContact(item.contactId);
-          return !!contact && (!contact.assignedTo || contact.assignedTo === agentEmail);
-        }));
-        for (let i = items.length - 1; i >= 0; i--) if (!visibility[i]) items.splice(i, 1);
-      }
 
       // Apply smart filters
       let filtered = items;
@@ -661,6 +702,8 @@ export function registerInboxRoutes(app: Express) {
               id: page[page.length - 1].id.split("::")[1] || page[page.length - 1].id,
             } : cursorPayload?.merge,
             sources: sourceContinuations,
+             sourceStatus:sources,
+             snapshotAt,
             remainder: merged.remainder.map(cursorSafeInboxItem),
           })
         : null;
@@ -668,7 +711,7 @@ export function registerInboxRoutes(app: Express) {
       res.json({
         items: page,
         knownFilteredCount: filtered.length,
-        totalIsExact: complete,
+        totalIsExact: complete && !cursor,
         resultScope: complete ? "all_sources_exhausted" : "partial_source_pages",
         complete,
         partial: !complete,
@@ -677,6 +720,7 @@ export function registerInboxRoutes(app: Express) {
         sourceStatus: sources,
         nextCursor,
         ghlConfigured: !!config,
+        sourceScope:"latest_inbound_message_conversation_projections_and_local_receipts",
       });
     } catch (err: any) {
       console.error("[Inbox] request_failed code=INBOX_ITEMS_FAILED");
@@ -688,9 +732,51 @@ export function registerInboxRoutes(app: Express) {
   // it never accepts caller-supplied content or fetches a provider.
   app.get("/api/inbox/items/:id", isDashboardUser, async (req, res) => {
     try {
+      const sourceId = String(req.params.id);
+      if (sourceId.startsWith("live_chat:local::")) {
+        const sessionKey = sourceId.match(/^live_chat:local::session:([1-9]\d*)$/);
+        const sessionId = sessionKey ? Number(sessionKey[1]) : NaN;
+        if (!Number.isSafeInteger(sessionId)) return void denyCrmObject(res);
+        const chat = await storage.getLiveChat(sessionId);
+        const authorized = await authorizeLiveChatAccess(req, res, chat);
+        if (!authorized) return;
+        const contact = authorized.contactId ? await storage.getContact(authorized.contactId) : undefined;
+        const contactName = contact
+          ? [contact.firstName, contact.lastName].filter(Boolean).join(" ").trim()
+            || contact.companyName || contact.email || contact.phone || "Unidentified contact"
+          : authorized.visitorName || authorized.visitorEmail || "Unmapped site visitor";
+        res.setHeader("Cache-Control", "no-store");
+        return res.json({
+          id: sourceId, contactId: authorized.contactId, contactName,
+          companyName: contact?.companyName ?? null, channel: "site",
+          sourceScope: "local_session_projection",
+          body: null, subject: null,
+          preview: `${authorized.status} site chat`,
+          receivedAt: authorized.lastMessageAt, createdAt: authorized.createdAt,
+          updatedAt: authorized.lastMessageAt, isRead: null,
+          liveChatSessionId: authorized.sessionId, liveChatStatus: authorized.status,
+          pageUrl: authorized.pageUrl,
+        });
+      }
       const resolved = await authorizeInboxItemAccess(req, res, String(req.params.id));
       if (!resolved) return;
-      res.json({ id: String(req.params.id), contactId: resolved.contact?.id ?? null, body: resolved.body ?? null });
+      if (!["email", "sms", "ghl_chat", "voicemail", "site"].includes(resolved.channel ?? "")) {
+        return res.status(422).json({ message: "Stored message channel is unavailable; no reply channel is inferred." });
+      }
+      const contact = resolved.contact;
+      const name = [contact.firstName, contact.lastName].filter(Boolean).join(" ").trim()
+        || contact.companyName || contact.email || contact.phone || "Unidentified contact";
+      res.setHeader("Cache-Control", "no-store");
+      res.json({
+        id: String(req.params.id), contactId: contact.id,
+        contactName: name, companyName: contact.companyName ?? null,
+        channel: resolved.channel, body: resolved.body ?? null,
+        ghlConversationId: resolved.providerConversationId ?? undefined,
+        subject: null, preview: null,
+        // The durable observation does not establish a current unread count.
+        isRead: null, receivedAt: resolved.item.sourceReceivedAt,
+        createdAt: resolved.item.createdAt, updatedAt: resolved.item.updatedAt,
+      });
     } catch (error) { serverError(res, error); }
   });
 

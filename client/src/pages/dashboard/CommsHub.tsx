@@ -9,7 +9,11 @@
  *   right = conversation panel (cross-channel thread + channel-appropriate reply)
  */
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useSearch } from "wouter";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useCrmInfiniteQuery } from "@/hooks/use-crm-infinite-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { useOutboundPauseObservation } from "@/hooks/use-outbound-pause-observation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,11 +25,15 @@ import {
   AlertTriangle, Search, X, Send, ArrowLeft, ExternalLink, Bot,
   CheckCircle2, Link2, Volume2, Play, Clock, Flag, User, Inbox,
 } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, protectedContextToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import { format, formatDistanceToNow } from "date-fns";
+import { useMessageDraft } from "@/hooks/use-message-draft";
+import { CrmPageHeader, CrmDataState } from "@/components/crm/CrmPresentation";
+import { decodeInboxSourceItem, decodeInboxSourcePage } from "@/lib/inbox-source";
+import { buildInboxWorkspaceHref, inboxWorkspaceState } from "@/lib/crm-destination-state";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -45,7 +53,7 @@ interface InboxItem {
   receivedAt: string;
   intentLabel: string | null;
   confidence: number | null;
-  isRead: boolean;
+  isRead: boolean | null;
   assignedTo?: string | null;
   aiIntent?: string | null;
   phone?: string;
@@ -108,16 +116,16 @@ const CHANNEL_META: Record<string, { label: string; icon: React.ReactNode; color
 };
 
 const INTENT_META: Record<string, { label: string; color: string }> = {
-  interested: { label: "Interested ✅", color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" },
-  meeting_intent: { label: "Meeting 📅", color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" },
-  pricing_question: { label: "Pricing 💰", color: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200" },
-  call_me: { label: "Call Me 📞", color: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200" },
-  not_interested: { label: "Not Interested 👎", color: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" },
-  stop: { label: "Opt-Out 🛑", color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" },
-  angry: { label: "Angry ⚠️", color: "bg-red-200 text-red-900 dark:bg-red-950 dark:text-red-100" },
-  send_info: { label: "Wants Info 📋", color: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200" },
-  booked: { label: "Booked 🎉", color: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200" },
-  unclear: { label: "Unclear ❓", color: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400" },
+  interested: { label: "Interested", color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" },
+  meeting_intent: { label: "Meeting", color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" },
+  pricing_question: { label: "Pricing", color: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200" },
+  call_me: { label: "Call requested", color: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200" },
+  not_interested: { label: "Not interested", color: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" },
+  stop: { label: "Opt-out", color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" },
+  angry: { label: "Escalated tone", color: "bg-red-200 text-red-900 dark:bg-red-950 dark:text-red-100" },
+  send_info: { label: "Information requested", color: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200" },
+  booked: { label: "Booked", color: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200" },
+  unclear: { label: "Unclear", color: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400" },
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -125,7 +133,7 @@ const INTENT_META: Record<string, { label: string; color: string }> = {
 function formatTime(dateStr: string): string {
   try {
     const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return "";
+    if (isNaN(d.getTime())) return "Time unavailable";
     const now = new Date();
     const diff = now.getTime() - d.getTime();
     if (diff < 60 * 60 * 1000) return `${Math.floor(diff / 60000)}m ago`;
@@ -227,22 +235,29 @@ function ItemCard({ item, selected, onClick }: { item: InboxItem; selected: bool
 // ─── Thread Panel ───────────────────────────────────────────────────────────
 
 function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) {
+  const outbound=useOutboundPauseObservation();
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [replyText, setReplyText] = useState("");
   const [linkSearch, setLinkSearch] = useState("");
+  const draftChannel = item.channel;
+  const draft = useMessageDraft(
+    { contextType: "inbox", contextId: item.id, channel: draftChannel },
+    !!item.contactId && item.channel !== "voicemail",
+    loaded => setReplyText(loaded.body),
+  );
   const meta = CHANNEL_META[item.channel] || CHANNEL_META.email;
 
   // Fetch cross-channel thread (only when contactId available)
-  const { data: threadData, isLoading: threadLoading } = useQuery<{
+  const { data: threadData, isLoading: threadLoading, isError: threadError, refetch: retryThread } = useQuery<{
     contactId: number;
     timeline: ThreadEvent[];
     total: number;
   }>({
     queryKey: ["/api/inbox/contacts", item.contactId, "thread"],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/inbox/contacts/${item.contactId}/thread`);
+      queryFn: async ({ signal }) => {
+      const res = await apiRequest("GET", `/api/inbox/contacts/${item.contactId}/thread`, undefined, undefined, signal);
       return res.json();
     },
     enabled: !!item.contactId,
@@ -250,10 +265,10 @@ function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) 
   });
 
   // For SMS threads, also fetch the GHL conversation
-  const { data: smsThread, isLoading: smsLoading } = useQuery<{ messages: any[] }>({
+  const { data: smsThread, isLoading: smsLoading, isError: smsError, refetch: retrySms } = useQuery<{ messages: any[] }>({
     queryKey: ["/api/sms-inbox/thread", item.ghlConversationId],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/sms-inbox/thread/${item.ghlConversationId}`);
+    queryFn: async ({ signal }) => {
+      const res = await apiRequest("GET", `/api/sms-inbox/thread/${item.ghlConversationId}`, undefined, undefined, signal);
       return res.json();
     },
     enabled: item.channel === "sms" && !!item.ghlConversationId,
@@ -267,10 +282,10 @@ function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) 
     : item.channel === "site"
       ? Number(item.id.match(/:(\d+)$/)?.[1]) || null
       : null;
-  const { data: liveChatData, isLoading: liveChatLoading } = useQuery<{ messages: any[]; chat: any }>({
+  const { data: liveChatData, isLoading: liveChatLoading, isError: liveChatError, refetch: retryLiveChat } = useQuery<{ messages: any[]; chat: any }>({
     queryKey: ["/api/live-chat/sessions", chatId, "messages"],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/live-chat/sessions/${chatId}/messages`);
+    queryFn: async ({ signal }) => {
+      const res = await apiRequest("GET", `/api/live-chat/sessions/${chatId}/messages`, undefined, undefined, signal);
       return res.json();
     },
     enabled: item.channel === "site" && !!chatId,
@@ -278,86 +293,40 @@ function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) 
     refetchInterval: item.channel === "site" ? 10000 : false,
   });
 
-  // SMS reply
-  const smsReplyMutation = useMutation({
-    mutationFn: async (message: string) => {
-      const res = await apiRequest("POST", "/api/sms-inbox/reply", {
-        conversationId: item.ghlConversationId,
-        message,
-      });
-      return res.json();
-    },
-    onSuccess: () => {
-      setReplyText("");
-      queryClient.invalidateQueries({ queryKey: ["/api/sms-inbox/thread", item.ghlConversationId] });
-      toast({ title: "SMS sent" });
-    },
-    onError: (e: any) => toast({ title: "Send failed", description: e.message, variant: "destructive" }),
-  });
-
-  // Email reply
-  const emailReplyMutation = useMutation({
-    mutationFn: async (body: string) => {
-      const res = await apiRequest("POST", "/api/inbox/reply", {
-        sourceItemId: item.id,
-        subject: `Re: Your inquiry`,
-        body,
-      });
-      return res.json();
-    },
-    onSuccess: () => {
-      setReplyText("");
-      queryClient.invalidateQueries({ queryKey: ["/api/inbox/items"] });
-      toast({ title: "Email sent" });
-    },
-    onError: (e: any) => toast({ title: "Send failed", description: e.message, variant: "destructive" }),
-  });
-
-  // Live-chat reply
-  const chatReplyMutation = useMutation({
-    mutationFn: async (content: string) => {
-      const res = await apiRequest("POST", `/api/live-chat/sessions/${chatId}/reply`, { content });
-      return res.json();
-    },
-    onSuccess: () => {
-      setReplyText("");
-      queryClient.invalidateQueries({ queryKey: ["/api/live-chat/sessions", chatId, "messages"] });
-      toast({ title: "Message sent" });
-    },
-    onError: (e: any) => toast({ title: "Send failed", description: e.message, variant: "destructive" }),
-  });
   const canLinkAnonymousChat = item.channel === "site" && !item.contactId && !!chatId && (user?.role === "admin" || user?.role === "manager");
   const contactSearch = useQuery<Array<{ id: number; firstName: string; lastName: string; email: string }>>({
     queryKey: ["/api/live-chat/contacts/search", linkSearch],
-    queryFn: async () => {
-      const response = await apiRequest("GET", `/api/live-chat/contacts/search?q=${encodeURIComponent(linkSearch)}`);
-      return response.json();
+    queryFn: async ({ signal }) => {
+      const response = await apiRequest("GET", `/api/live-chat/contacts/search?q=${encodeURIComponent(linkSearch)}`, undefined, undefined, signal);
+      const rows = await response.json();
+      if (!Array.isArray(rows) || rows.some(row => !Number.isSafeInteger(row?.id) || row.id <= 0)) {
+        throw new Error("Contact search returned an invalid result; no empty result is inferred.");
+      }
+      return rows;
     },
     enabled: canLinkAnonymousChat && linkSearch.trim().length >= 2,
   });
   const linkContactMutation = useMutation({
+    onMutate: () => ({ context: protectedContextToken(), sourceId: item.id }),
     mutationFn: async (contactId: number) => {
       const response = await apiRequest("PATCH", `/api/live-chat/sessions/${chatId}`, { contactId });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (_result, _contactId, submitted) => {
+      if (submitted?.context !== protectedContextToken() ||
+        submitted.sourceId !== inboxWorkspaceState(window.location.search).thread) return;
       toast({ title: "Chat linked to contact" });
       queryClient.invalidateQueries({ queryKey: ["/api/inbox/items"] });
       queryClient.invalidateQueries({ queryKey: ["/api/live-chat/sessions", chatId, "messages"] });
     },
-    onError: (error: any) => toast({ title: "Could not link chat", description: error.message, variant: "destructive" }),
+    onError: (error: any, _contactId, submitted) => {
+      if (submitted?.context === protectedContextToken() &&
+        submitted.sourceId === inboxWorkspaceState(window.location.search).thread)
+        toast({ title: "Could not link chat", description: error.message, variant: "destructive" });
+    },
   });
 
-  const handleSend = () => {
-    const text = replyText.trim();
-    if (!text) return;
-    if (item.channel === "sms") smsReplyMutation.mutate(text);
-    else if (item.channel === "email" || item.channel === "ghl_chat") emailReplyMutation.mutate(text);
-    else if (item.channel === "site") chatReplyMutation.mutate(text);
-  };
-
-  const canReply = item.channel !== "voicemail";
-  const isSending = smsReplyMutation.isPending || emailReplyMutation.isPending || chatReplyMutation.isPending;
+  const canReply = !!item.contactId && item.channel !== "voicemail";
 
   return (
     <div className="flex flex-col h-full">
@@ -450,6 +419,8 @@ function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) 
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
               </div>
+            ) : smsError ? (
+              <div className="py-8 text-center" role="alert"><p className="text-sm text-destructive">SMS conversation history is unavailable.</p><Button variant="outline" className="mt-3" onClick={() => void retrySms()}>Retry history</Button></div>
             ) : (smsThread?.messages || []).length === 0 ? (
               <p className="text-center text-sm text-muted-foreground py-6">No messages yet.</p>
             ) : (
@@ -482,6 +453,8 @@ function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) 
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
               </div>
+            ) : liveChatError ? (
+              <div className="py-8 text-center" role="alert"><p className="text-sm text-destructive">Site conversation history is unavailable.</p><Button variant="outline" className="mt-3" onClick={() => void retryLiveChat()}>Retry history</Button></div>
             ) : (liveChatData?.messages || []).length === 0 ? (
               <p className="text-center text-sm text-muted-foreground py-6">No messages yet.</p>
             ) : (
@@ -527,10 +500,15 @@ function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) 
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
               </div>
+            ) : threadError ? (
+              <div className="py-8 text-center" role="alert"><p className="text-sm text-destructive">Communication history is unavailable.</p><Button variant="outline" className="mt-3" onClick={() => void retryThread()}>Retry history</Button></div>
             ) : (threadData?.timeline || []).length === 0 ? (
               <div className="text-center py-8">
                 <Inbox className="w-8 h-8 mx-auto mb-2 text-muted-foreground/40" />
-                <p className="text-sm text-muted-foreground">No communication history yet.</p>
+                {item.body ? <div className="min-w-0 text-left">
+                  <p className="mb-2 text-xs text-muted-foreground">Selected incoming source message · canonical history contains no additional messages</p>
+                  <p className="whitespace-pre-wrap break-all text-sm" data-testid="selected-source-message">{item.body}</p>
+                </div> : <p className="text-sm text-muted-foreground">Canonical history contains no messages. Selected source content is unavailable.</p>}
               </div>
             ) : (
               <div className="space-y-3">
@@ -573,6 +551,9 @@ function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) 
       {/* Reply input */}
       {canReply && (
         <div className="p-4 border-t border-border shrink-0">
+          <div className="mb-3 rounded-md p-3 text-sm" data-crm-paused="true" role="status">
+            {outbound.reason} Your draft is saved only when you choose Save draft.
+          </div>
           <div className="flex gap-2">
             <Textarea
               placeholder={
@@ -586,23 +567,32 @@ function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) 
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  handleSend();
                 }
               }}
+              aria-label={`Draft reply for ${CHANNEL_META[item.channel]?.label ?? item.channel}`}
               data-testid="thread-reply-input"
             />
-            <Button
-              onClick={handleSend}
-              disabled={!replyText.trim() || isSending}
-              className="shrink-0"
-              data-testid="thread-reply-send"
-            >
-              {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              {draft.error ? `Draft issue: ${draft.error}` : draft.savedAt ? `Saved ${formatDistanceToNow(new Date(draft.savedAt), { addSuffix: true })}` : "Not sent · Enter adds a line"}
+            </p>
+            <Button variant="outline" disabled={!replyText.trim() || !draft.ready || draft.loading || draft.save.isPending}
+              onClick={() => draft.save.mutate({ subject: item.subject || `Re: Your inquiry`, body: replyText })}
+              data-testid="thread-save-draft">
+              {draft.save.isPending ? "Saving…" : "Save draft"}
+            </Button>
+            <Button disabled aria-disabled="true" title={outbound.reason} data-crm-paused="true" data-testid="thread-reply-send">
+              <Send className="w-4 h-4" /> Send paused
             </Button>
           </div>
-          <p className="text-[10px] text-muted-foreground mt-1">
-            {item.channel === "sms" ? "Sends via GHL SMS · Enter to send" : "Enter to send · Shift+Enter for new line"}
-          </p>
+          {draft.error && <Button variant="ghost" disabled={draft.loading || draft.save.isPending}
+            className="mt-1 h-auto px-0 underline"
+            onClick={() => draft.ready
+              ? draft.retrySave({ subject: item.subject || "Re: Your inquiry", body: replyText })
+              : draft.reopen()}>
+            {draft.ready ? "Retry saving draft" : "Reopen authorized draft"}
+          </Button>}
         </div>
       )}
 
@@ -633,6 +623,8 @@ function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) 
                     {contact.firstName} {contact.lastName} · {contact.email}
                   </Button>
                 ))}
+                {contactSearch.isError && <p role="alert" className="text-xs text-destructive">Authorized contact search failed. <button type="button" className="underline" onClick={() => void contactSearch.refetch()}>Retry</button></p>}
+                {contactSearch.isLoading && <p role="status" className="text-xs text-muted-foreground">Searching authorized contacts…</p>}
               </div>
             )}
             {item.liveChatStatus === "active" && chatId && (
@@ -681,13 +673,22 @@ const CHANNEL_FILTERS: { key: ChannelType; label: string; icon: React.ReactNode 
 export default function CommsHub() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [selected, setSelected] = useState<InboxItem | null>(null);
-  const [channelFilter, setChannelFilter] = useState<ChannelType>("all");
-  const [smartFilter, setSmartFilter] = useState<SmartFilter>("all");
-  const [search, setSearch] = useState("");
-  const [showPanel, setShowPanel] = useState(false);
-
-  const { data, isLoading, isError, refetch } = useQuery<{
+  const [, navigate] = useLocation();
+  const locationSearch = useSearch();
+  const workspace = inboxWorkspaceState(locationSearch);
+  useEffect(() => {
+    const legacy = new URLSearchParams(locationSearch).get("tab");
+    if ((legacy === "messages" || legacy === "live-chat") && workspace.issues.length === 0) {
+      navigate(buildInboxWorkspaceHref(window.location.href, {
+        channel: workspace.channel, filter: workspace.filter,
+        search: workspace.search, thread: workspace.thread,
+      }), { replace: true });
+    }
+  }, [locationSearch, navigate]);
+  const channelFilter = workspace.channel as ChannelType;
+  const smartFilter = workspace.filter as SmartFilter;
+  const search = workspace.search;
+  const { data, isLoading, isError, refetch, hasNextPage, isFetchingNextPage, fetchNextPage, isFetchNextPageError } = useCrmInfiniteQuery<{
     items: InboxItem[];
     knownFilteredCount: number;
     totalIsExact: boolean;
@@ -698,58 +699,91 @@ export default function CommsHub() {
     nextCursor: string | null;
     ghlConfigured: boolean;
   }>({
-    queryKey: ["/api/inbox/items", { channel: channelFilter, filter: smartFilter }],
-    queryFn: async () => {
+      queryKey: ["/api/inbox/items", { channel: channelFilter, filter: smartFilter, limit: 60 }],
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam, signal }) => {
       const params = new URLSearchParams({ channel: channelFilter, filter: smartFilter, limit: "60" });
-      const res = await apiRequest("GET", `/api/inbox/items?${params.toString()}`);
-      return res.json();
+      if (typeof pageParam === "string" && pageParam) params.set("cursor", pageParam);
+      const res = await apiRequest("GET", `/api/inbox/items?${params.toString()}`, undefined, undefined, signal);
+      const body = await res.json();
+      decodeInboxSourcePage(body);
+      return body;
     },
+    getNextPageParam: lastPage => lastPage.nextCursor || undefined,
     refetchInterval: 45000,
     staleTime: 30000,
   });
 
-  const allItems = data?.items || [];
-  const inboxDegraded = !!data && (!data.complete || data.sourceStatus.some((source) => source.status === "failed"));
+  const pages = data?.pages ?? [];
+  const allItems = pages.flatMap(page => page.items);
+  const lastPage = pages.at(-1);
+  const inboxDegraded = pages.some(page => !page.complete || page.sourceStatus.some((source) => source.status === "failed"));
 
   // Client-side search filter
   const items = allItems.filter((item) => {
     if (!search.trim()) return true;
     const q = search.toLowerCase().trim();
     return (
-      item.contactName.toLowerCase().includes(q) ||
-      item.companyName.toLowerCase().includes(q) ||
+      (item.contactName || "").toLowerCase().includes(q) ||
+      (item.companyName || "").toLowerCase().includes(q) ||
       (item.body || "").toLowerCase().includes(q) ||
       (item.phone || "").includes(q)
     );
   });
 
-  const unreadCount = allItems.filter(i => !i.isRead).length;
+  const unreadCount = allItems.filter(i => i.isRead === false).length;
   const voicemailCount = allItems.filter(i => i.channel === "voicemail").length;
   const siteActiveCount = allItems.filter(i => i.channel === "site" && i.liveChatStatus === "active").length;
+  const selectedSource = useQuery({
+    queryKey: ["/api/inbox/items", workspace.thread],
+    enabled: !!workspace.thread && workspace.issues.length === 0,
+    staleTime: 30000,
+    queryFn: async ({ signal }) => {
+      const response = await apiRequest("GET", `/api/inbox/items/${encodeURIComponent(workspace.thread)}`, undefined, undefined, signal);
+      return decodeInboxSourceItem(await response.json(), workspace.thread);
+    },
+  });
+  const source = selectedSource.data;
+  const loaded = allItems.find(item => item.id === workspace.thread);
+  // Loaded-only media/model hints may supplement this occurrence, but never
+  // supply its current contact, channel, body or source identity.
+  const selected: InboxItem | null = source ? {
+    ...loaded, id: source.id, contactId: source.contactId,
+    contactName: source.contactName || "Unidentified contact",
+    companyName: source.companyName || "", channel: source.channel,
+    body: source.body ?? "", direction: "inbound", receivedAt: source.receivedAt || "",
+    subject: source.subject ?? loaded?.subject, preview: source.preview ?? undefined,
+    isRead: source.isRead, intentLabel: loaded?.intentLabel ?? null, confidence: loaded?.confidence ?? null,
+    ghlConversationId: typeof source.ghlConversationId === "string" ? source.ghlConversationId : undefined,
+    liveChatSessionId: typeof source.liveChatSessionId === "string" ? source.liveChatSessionId : undefined,
+    liveChatStatus: typeof source.liveChatStatus === "string" ? source.liveChatStatus : undefined,
+    pageUrl: typeof source.pageUrl === "string" ? source.pageUrl : undefined,
+  } : null;
+  const showPanel = !!workspace.thread;
 
   const handleSelect = (item: InboxItem) => {
-    setSelected(item);
-    setShowPanel(true);
+    navigate(buildInboxWorkspaceHref(window.location.href, { thread: item.id }), { replace: false });
   };
 
   const handleBack = () => {
-    setShowPanel(false);
+    navigate(buildInboxWorkspaceHref(window.location.href, { thread: "" }), { replace: false });
   };
+  const changeWorkspace = (patch: Partial<Pick<typeof workspace, "channel" | "filter" | "search" | "thread">>, replace = false) =>
+    navigate(buildInboxWorkspaceHref(window.location.href, patch), { replace });
 
   return (
-    <div className="flex flex-col h-[calc(100vh-7rem)]" data-testid="comms-hub">
+    <div className="crm-page crm-inbox-workspace flex flex-col" data-testid="comms-hub">
       {/* ── Page header ── */}
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap shrink-0">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Inbox className="w-6 h-6 text-primary" />
-            Unified Inbox
+          <CrmPageHeader title="Inbox" description="Source-aware conversations in your authorized scope." />
+          <div className="flex items-center gap-2">
             {unreadCount > 0 && (
               <Badge variant="destructive" className="text-xs" data-testid="badge-unread-count">
                 {unreadCount} on page
               </Badge>
             )}
-          </h2>
+          </div>
           <p className="text-sm text-muted-foreground">
             All channels in one place — email, SMS, voicemail, chat, and site visitors
           </p>
@@ -758,6 +792,7 @@ export default function CommsHub() {
               Partial inbox window — one or more sources are unavailable or sampled.
             </p>
           )}
+          {workspace.issues?.map((issue, index) => <p key={`${issue.key}-${index}`} className="mt-1 text-xs text-amber-700" role="status">{issue.reason}</p>)}
         </div>
         <div className="flex items-center gap-2">
           {voicemailCount > 0 && (
@@ -787,7 +822,7 @@ export default function CommsHub() {
             variant={channelFilter === f.key ? "default" : "outline"}
             size="sm"
             className="h-7 text-xs gap-1.5 px-2.5"
-            onClick={() => setChannelFilter(f.key)}
+            onClick={() => changeWorkspace({ channel: f.key, thread: "" })}
             data-testid={`filter-channel-${f.key}`}
           >
             {f.icon}
@@ -802,7 +837,7 @@ export default function CommsHub() {
             variant={smartFilter === f ? "secondary" : "ghost"}
             size="sm"
             className="h-7 text-xs px-2.5"
-            onClick={() => setSmartFilter(f)}
+            onClick={() => changeWorkspace({ filter: f, thread: "" })}
             data-testid={`filter-smart-${f}`}
           >
             {f === "all" ? "All" : f === "unread" ? "Unread" : "Needs Reply"}
@@ -811,26 +846,29 @@ export default function CommsHub() {
       </div>
 
       {/* ── Two-panel layout ── */}
-      <div className="flex-1 flex gap-4 min-h-0">
+      <div className="crm-inbox-container flex-1 min-w-0 min-h-0">
+      <div className="crm-inbox-layout">
         {/* Left panel — item list */}
         <Card className={cn(
-          "flex flex-col min-h-0 transition-all",
-          showPanel ? "hidden lg:flex lg:w-[360px] lg:shrink-0" : "flex-1"
+          "crm-inbox-list flex flex-col min-w-0 min-h-0",
+          showPanel && "crm-inbox-list-selected"
         )} data-testid="card-item-list">
           {/* Search */}
           <div className="p-3 border-b border-border shrink-0">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
               <Input
-                placeholder="Search contacts, messages…"
+                placeholder="Search loaded messages"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => changeWorkspace({ search: e.target.value, thread: "" }, true)}
                 className="pl-8 h-8 text-sm"
                 data-testid="input-search-inbox"
               />
               {search && (
                 <button
-                  onClick={() => setSearch("")}
+                  type="button"
+                  aria-label="Clear inbox search"
+                  onClick={() => changeWorkspace({ search: "", thread: "" }, true)}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -846,20 +884,22 @@ export default function CommsHub() {
                 <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
               </div>
             ) : isError ? (
-              <div className="text-center py-8 px-4 text-sm text-muted-foreground">
+              <div className="text-center py-8 px-4 text-sm text-muted-foreground" role="alert">
                 <AlertTriangle className="w-5 h-5 text-yellow-500 mx-auto mb-2" />
-                Failed to load inbox
+                <p>Failed to load inbox. No empty state is assumed.</p>
+                <Button variant="outline" className="mt-3" onClick={() => void refetch()}>Retry</Button>
               </div>
             ) : inboxDegraded && items.length === 0 ? (
               <div className="text-center py-12 px-4">
                 <AlertTriangle className="w-8 h-8 mx-auto mb-3 text-amber-500" />
+                 {search && <p className="text-sm text-foreground mb-2">No loaded messages match your search</p>}
                 <p className="text-sm text-muted-foreground">Inbox sources are unavailable or incomplete; this is not a confirmed empty inbox.</p>
               </div>
             ) : items.length === 0 ? (
               <div className="text-center py-12 px-4">
                 <Inbox className="w-8 h-8 mx-auto mb-3 text-muted-foreground/40" />
                 <p className="text-sm text-muted-foreground">
-                  {search ? "No messages match your search" : "No messages yet"}
+                  {search ? "No loaded messages match your search" : "No messages on this loaded page"}
                 </p>
               </div>
             ) : (
@@ -880,30 +920,47 @@ export default function CommsHub() {
           {!isLoading && items.length > 0 && (
             <div className="px-4 py-2 border-t border-border shrink-0">
               <p className="text-[10px] text-muted-foreground">
-                {items.length} message{items.length !== 1 ? "s" : ""} on this page
-                {data && !data.totalIsExact ? " · more may be available" : ""}
+                {items.length} matching messages loaded
+                {lastPage && !lastPage.totalIsExact ? " · total not exact" : lastPage ? ` · ${lastPage.knownFilteredCount} known in scope` : ""}
               </p>
             </div>
           )}
+          {(hasNextPage || isFetchNextPageError) && <div className="border-t p-2">
+            {isFetchNextPageError && <p role="alert" className="mb-2 text-xs text-destructive">More source messages could not be loaded. Your current list is unchanged.</p>}
+            <Button className="w-full" variant="outline" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
+              {isFetchingNextPage ? "Loading next window…" : isFetchNextPageError ? "Retry next window" : "Load next window"}
+            </Button>
+          </div>}
         </Card>
 
         {/* Right panel — conversation / thread */}
         <Card className={cn(
-          "flex flex-col min-h-0 flex-1",
-          !showPanel && "hidden lg:flex"
+          "crm-inbox-thread flex flex-col min-w-0 min-h-0",
+          !showPanel && "crm-inbox-thread-unselected"
         )} data-testid="card-thread-panel">
-          {!selected ? (
+          {workspace.thread && workspace.issues.length === 0 && selectedSource.isError ? (
+            <div className="p-4">
+              <CrmDataState state="unavailable"
+                message="Selected source message is missing, unmapped or outside current access. No loaded preview is substituted."
+                onRetry={() => void selectedSource.refetch()} />
+              <Button variant="outline" onClick={handleBack}>Clear unavailable selection</Button>
+            </div>
+          ) : workspace.thread && workspace.issues.length === 0 && !selected ? (
+            <div className="p-4"><CrmDataState state="loading" message="Loading authorized source message" /></div>
+          ) : !selected ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
                 <Inbox className="w-10 h-10 mx-auto mb-3 text-muted-foreground/30" />
-                <p className="text-sm text-muted-foreground font-medium">Select a message to view the conversation</p>
-                <p className="text-xs text-muted-foreground mt-1">All channels shown chronologically on the left</p>
+                <p className="text-sm text-muted-foreground font-medium">{workspace.thread ? "This thread is not present in the loaded authorized source window." : "Select a message to view the conversation"}</p>
+                <p className="text-xs text-muted-foreground mt-1">{workspace.thread ? "Clear the selection or refresh this channel; no other record was substituted." : "Source and channel identity remain attached to each thread."}</p>
+                {workspace.thread && <Button variant="outline" className="mt-3" onClick={handleBack}>Clear unavailable selection</Button>}
               </div>
             </div>
           ) : (
-            <ThreadPanel item={selected} onBack={handleBack} />
+            <ThreadPanel key={`${protectedContextToken()}:${selected.id}:${selected.channel}`} item={selected} onBack={handleBack} />
           )}
         </Card>
+      </div>
       </div>
     </div>
   );

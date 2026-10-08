@@ -12,7 +12,7 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
   if(options.zoom){
     await mkdir(path.join(profile,"Default"),{recursive:true});
     await writeFile(path.join(profile,"Default","Preferences"),JSON.stringify({
-      partition:{default_zoom_level:Math.log(options.zoom)/Math.log(1.2)},
+      partition:{default_zoom_level:{x:Math.log(options.zoom)/Math.log(1.2)}},
     }));
   }
   const process=spawn("/repl/tools/bin/chromium",["--headless","--no-sandbox","--disable-gpu",
@@ -29,8 +29,9 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
   let socket:WebSocket|undefined;
   const pending=new Map<number,{resolve:(v:any)=>void;reject:(e:Error)=>void}>();
   const exceptions:string[]=[];
-  const requests:Array<{url:string;method:string;status?:number;failed?:string}>=[];
+  const requests:Array<{url:string;method:string;documentId?:string;status?:number;failed?:string}>=[];
   const requestIndexes=new Map<string,number>();
+  const readFaults:Array<{path:string;status:number}>=[];
   let serial=0,failPath:string|null=null,delayPath:string|null=null,delayMs=0,acceptDialog=false,closing=false;
   const close=async()=>{
     closing=true;
@@ -70,7 +71,7 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
         const url=new URL(m.params.request.url);
         // No bodies, headers, credentials, cookies or auth response values.
         requestIndexes.set(m.params.requestId,requests.length);
-        requests.push({url:url.pathname+url.search,method:m.params.request.method});
+        requests.push({url:url.pathname+url.search,method:m.params.request.method,documentId:m.params.loaderId});
       }
       if(m.method==="Network.responseReceived"){
         const index=requestIndexes.get(m.params.requestId);
@@ -86,8 +87,11 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
         try {
         if(delayPath && request.url.startsWith(base+delayPath))
           await new Promise(resolve=>setTimeout(resolve,delayMs));
-        if(failPath && request.url.startsWith(base+failPath)) await call("Fetch.fulfillRequest",{requestId,responseCode:503,
-          responseHeaders:[{name:"Content-Type",value:"application/json"}],body:Buffer.from('{"message":"Fixture source unavailable"}').toString("base64")});
+        if(failPath && request.url.startsWith(base+failPath)) {
+          await call("Fetch.fulfillRequest",{requestId,responseCode:503,
+            responseHeaders:[{name:"Content-Type",value:"application/json"}],body:Buffer.from('{"message":"Fixture source unavailable"}').toString("base64")});
+          readFaults.push({path:new URL(request.url).pathname,status:503});
+        }
         else await call(request.url.startsWith(base+"/")?"Fetch.continueRequest":"Fetch.failRequest",
           request.url.startsWith(base+"/")?{requestId}:{requestId,errorReason:"BlockedByClient"});
         } catch(error) {
@@ -110,7 +114,9 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
       if(result.exceptionDetails)throw new Error("Private browser evaluation failed; expression and response omitted");
       return result.result.value;
     };
-    const text=()=>evaluate("document.body.innerText");
+    // Navigation can replace the document before its body exists. Wait for
+    // the next document; do not misclassify this as an application exception.
+    const text=()=>evaluate("document.body?.innerText ?? ''");
     const screenshot=async(name:string)=>{
       assert.match(name,/^[a-z0-9-]+$/i);
       await mkdir(screenshotDirectory,{recursive:true});
@@ -127,14 +133,24 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
         assert.equal(await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return false;e.click();return true})()`),true,selector);
         return;
       }
-      const point=await evaluate(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.getClientRects().length);if(!e)return null;
-        e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
-      assert.ok(point,selector);
+      const point=await evaluate(`(async()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.getClientRects().length);if(!e)return null;
+        e.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});
+        await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+        const r=e.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
+        const hit=document.elementFromPoint(x,y);
+        return x>=0&&x<innerWidth&&y>=0&&y<innerHeight&&(hit===e||e.contains(hit))?{x,y}:null;})()`);
+      if(!point){
+        const diagnostic=await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return {reason:'absent'};
+          const r=e.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2,hit=document.elementFromPoint(x,y);
+          return {rect:{x:r.x,y:r.y,width:r.width,height:r.height},viewport:{width:innerWidth,height:innerHeight},
+            pointerEvents:getComputedStyle(e).pointerEvents,hit:hit?{tag:hit.tagName,role:hit.getAttribute('role'),testId:hit.getAttribute('data-testid')}:null};})()`);
+        assert.fail(`${selector}: real pointer target unavailable ${JSON.stringify(diagnostic)}`);
+      }
       await call("Input.dispatchMouseEvent",{type:"mouseMoved",...point});
       await call("Input.dispatchMouseEvent",{type:"mousePressed",button:"left",clickCount:1,...point});
       await call("Input.dispatchMouseEvent",{type:"mouseReleased",button:"left",clickCount:1,...point});
     };
-    const set=async(selector:string,value:string)=>{
+    const set=async(selector:string,value:string,onInputStart?:()=>void)=>{
       if(!options.realInput){
         assert.equal(await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return false;
           const p=e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
@@ -143,11 +159,14 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
         return;
       }
       await click(selector);
+      assert.equal(await evaluate(`document.activeElement?.matches(${JSON.stringify(selector)})`),true,
+        `Real text input must focus ${selector}, never select body text`);
       await call("Input.dispatchKeyEvent",{type:"keyDown",key:"a",code:"KeyA",modifiers:2,windowsVirtualKeyCode:65});
       await call("Input.dispatchKeyEvent",{type:"keyUp",key:"a",code:"KeyA",modifiers:2,windowsVirtualKeyCode:65});
+      onInputStart?.();
       await call("Input.insertText",{text:value});
     };
-    return {call,evaluate,text,waitFor,click,set,screenshot,close,exceptions,requests,
+    return {call,evaluate,text,waitFor,click,set,screenshot,close,exceptions,requests,readFaults,
       failRead:(path:string|null)=>{failPath=path;},
       delayRead:(path:string|null,ms=0)=>{delayPath=path;delayMs=ms;},
       acceptDialogs:(accept:boolean)=>{acceptDialog=accept;},

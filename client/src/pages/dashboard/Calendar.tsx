@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { CalendarEvent, Deal, Contact } from "@shared/schema";
@@ -79,11 +80,40 @@ interface CalendarItem {
   description?: string | null;
   contactId?: number | null;
   dealId?: number | null;
-  source: "event" | "deal";
-  rawId: number;
+  source: "event" | "deal" | "appointment";
+  sourceLabel?: string;
+  externalUrl?: string | null;
+  readOnly?: boolean;
+  noShow?: boolean;
+  rawId: number | string;
 }
 
-export default function CalendarPage() {
+interface AppointmentRead {
+  appointments: Array<{
+    id: string;
+    title: string;
+    contactName?: string;
+    contactId: number | null;
+    startTime: string | number | null;
+    endTime: string | number | null;
+    status: string;
+    noShow: boolean;
+    locationName: string | null;
+    ghlLink?: string | null;
+    source?: string;
+  }>;
+  configured: boolean;
+  status?: string;
+  source?: string;
+  completeness?: string;
+  exact?: boolean;
+  queueLimit?: number;
+  scope?: string;
+  asOf?: string;
+  sourceStatus?: Array<{ source: string; status: string; fetched?: number; truncated?: boolean }>;
+}
+
+export default function CalendarPage({ embedded = false }: { embedded?: boolean }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -108,22 +138,40 @@ export default function CalendarPage() {
   const startParam = startOfMonth.toISOString().split("T")[0];
   const endParam = endOfMonth.toISOString().split("T")[0];
 
-  const { data: calendarEvents, isLoading: eventsLoading } = useQuery<CalendarEvent[]>({
+  const { data: calendarEvents, isLoading: eventsLoading, isError: eventsError, refetch: retryEvents } = useQuery<CalendarEvent[]>({
     queryKey: ["/api/calendar-events", startParam, endParam],
-    queryFn: async () => {
-      const res = await fetch(`/api/calendar-events?start=${startParam}&end=${endParam}`, { credentials: "include" });
-      if (!res.ok) return [];
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/calendar-events?start=${startParam}&end=${endParam}`, { credentials: "include", signal });
+      if (!res.ok) throw new Error("Calendar events are unavailable.");
       return res.json();
     },
   });
 
-  const { data: dealsRes } = useQuery<{ data: Deal[]; total: number }>({
-    queryKey: ["/api/deals"],
+  const { data: appointmentRead, isLoading: appointmentsLoading, isError: appointmentsError, refetch: retryAppointments } = useQuery<AppointmentRead>({
+    queryKey: ["/api/appointments"],
+    queryFn: async ({ signal }) => {
+      const response = await apiRequest("GET", "/api/appointments", undefined, undefined, signal);
+      return response.json();
+    },
+    refetchInterval: 300000,
+  });
+  const { data: dealsRes, isLoading: dealsLoading, isError: dealsError, refetch: retryDeals } = useQuery<{ data: Deal[]; total: number }>({
+    queryKey: ["/api/deals", { calendar: true }],
+    queryFn: async ({ signal }) => {
+      const res = await fetch("/api/deals?limit=250&offset=0", { credentials: "include", signal });
+      if (!res.ok) throw new Error("Deal follow-ups are unavailable.");
+      return res.json();
+    },
   });
   const allDeals = dealsRes?.data;
 
-  const { data: contactsRes } = useQuery<{ data: Contact[]; total: number }>({
-    queryKey: ["/api/contacts"],
+  const { data: contactsRes, isError: contactsError, refetch: retryContacts } = useQuery<{ data: Contact[]; total: number }>({
+    queryKey: ["/api/contacts", { calendar: true }],
+    queryFn: async ({ signal }) => {
+      const res = await fetch("/api/contacts?limit=250&offset=0", { credentials: "include", signal });
+      if (!res.ok) throw new Error("Contact names are unavailable.");
+      return res.json();
+    },
   });
   const contacts = contactsRes?.data;
 
@@ -153,6 +201,7 @@ export default function CalendarPage() {
 
   const fixEventDateMutation = useMutation({
     mutationFn: async ({ item, newDate }: { item: CalendarItem; newDate: string }) => {
+      if (item.readOnly || item.source === "appointment") throw new Error("Provider appointments are read-only.");
       const iso = new Date(`${newDate}T09:00:00`).toISOString();
       if (item.source === "event") {
         return apiRequest("PUT", `/api/calendar-events/${item.rawId}`, { startTime: iso, endTime: iso });
@@ -173,6 +222,7 @@ export default function CalendarPage() {
 
   const removeInvalidDateMutation = useMutation({
     mutationFn: async (item: CalendarItem) => {
+      if (item.readOnly || item.source === "appointment") throw new Error("Provider appointments are read-only.");
       if (item.source === "event") {
         return apiRequest("DELETE", `/api/calendar-events/${item.rawId}`);
       }
@@ -206,6 +256,30 @@ export default function CalendarPage() {
       });
     });
 
+    (appointmentRead?.appointments ?? []).forEach(appt => {
+      const dateValue = appt.startTime;
+      const startDate = new Date(typeof dateValue === "number" ? dateValue : dateValue ?? "");
+      if (Number.isFinite(startDate.getTime()) && (startDate < startOfMonth || startDate > endOfMonth)) return;
+      items.push({
+        id: `appointment_${appt.id}`,
+        title: appt.title || appt.contactName || "Appointment",
+        type: "meeting",
+        startTime: typeof appt.startTime === "number" ? new Date(appt.startTime).toISOString() : appt.startTime ?? "",
+        endTime: typeof appt.endTime === "number" ? new Date(appt.endTime).toISOString() : appt.endTime ?? "",
+        contactId: appt.contactId,
+        description: [
+          appt.status ? `Appointment status: ${appt.status}` : "",
+          appt.locationName || "",
+        ].filter(Boolean).join(" · ") || undefined,
+        source: "appointment",
+        sourceLabel: `GHL · ${appt.source || "appointment"}`,
+        externalUrl: appt.ghlLink,
+        readOnly: true,
+        noShow: appt.noShow,
+        rawId: appt.id,
+      });
+    });
+
     allDeals?.forEach(deal => {
       if (deal.nextFollowUp) {
         const followUpDate = new Date(deal.nextFollowUp);
@@ -228,7 +302,7 @@ export default function CalendarPage() {
     });
 
     return items;
-  }, [calendarEvents, allDeals, startOfMonth, endOfMonth]);
+  }, [calendarEvents, appointmentRead, allDeals, startOfMonth, endOfMonth]);
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, CalendarItem[]>();
@@ -280,14 +354,22 @@ export default function CalendarPage() {
 
   const selectedDayEvents = eventsByDate.get(selectedDate) || [];
   const todayKey = formatDateKey(today);
+  const dealsPartial = Boolean(dealsRes && dealsRes.data.length < dealsRes.total);
+  const appointmentPartial = Boolean(appointmentRead && (
+    (typeof appointmentRead.exact !== "boolean" && !appointmentRead.completeness) ||
+    appointmentRead.exact === false ||
+    Boolean(appointmentRead.completeness && !["complete", "all_sources_exhausted"].includes(appointmentRead.completeness)) ||
+    Boolean(appointmentRead.status && ["failed", "error", "unavailable", "partial"].includes(appointmentRead.status.toLowerCase())) ||
+    appointmentRead.sourceStatus?.some(source => source.status === "failed" || source.truncated)
+  ));
 
   const calendarCells: (number | null)[] = [];
   for (let i = 0; i < firstDay; i++) calendarCells.push(null);
   for (let d = 1; d <= daysInMonth; d++) calendarCells.push(d);
 
-  if (eventsLoading) {
+  if (eventsLoading || appointmentsLoading || dealsLoading) {
     return (
-      <div className="space-y-4 p-4 md:p-6" data-testid="calendar-loading">
+      <div className={embedded ? "space-y-4" : "space-y-4 p-4 md:p-6"} data-testid="calendar-loading">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-96" />
       </div>
@@ -295,16 +377,40 @@ export default function CalendarPage() {
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6 max-w-6xl mx-auto" data-testid="calendar-page">
+    <div className={embedded ? "space-y-6" : "space-y-6 p-4 md:p-6 max-w-6xl mx-auto"} data-testid="calendar-page">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <CalendarIcon className="h-6 w-6 text-muted-foreground" />
-          <h1 className="text-2xl font-bold" data-testid="text-calendar-title">Calendar</h1>
+          {embedded ? <h2 className="text-lg font-semibold" data-testid="text-calendar-title">Calendar</h2> : <h1 className="text-2xl font-bold" data-testid="text-calendar-title">Calendar</h1>}
         </div>
         <Button onClick={() => { setEventForm(f => ({ ...f, date: selectedDate })); setShowAddDialog(true); }} data-testid="button-add-event">
           <Plus className="h-4 w-4 mr-1" /> Add Event
         </Button>
       </div>
+
+      {(eventsError || appointmentsError || dealsError || contactsError || dealsPartial || appointmentPartial || appointmentRead?.configured === false) && (
+        <Card className="border-amber-300 bg-amber-50/60 dark:bg-amber-950/20" role="status" data-testid="calendar-source-status">
+          <CardContent className="space-y-2 p-4 text-sm">
+            <p className="font-medium">Calendar source coverage</p>
+            {eventsError && <p className="flex flex-wrap items-center gap-2">Internal events could not be read.
+              <Button size="sm" variant="outline" onClick={() => void retryEvents()}>Retry</Button></p>}
+            {appointmentsError && <p className="flex flex-wrap items-center gap-2">Appointment provider read failed; appointments are not assumed absent.
+              <Button size="sm" variant="outline" onClick={() => void retryAppointments()}>Retry</Button></p>}
+            {dealsError && <p className="flex flex-wrap items-center gap-2">Deal follow-up dates could not be read.
+              <Button size="sm" variant="outline" onClick={() => void retryDeals()}>Retry</Button></p>}
+            {contactsError && <p className="flex flex-wrap items-center gap-2">Contact names are unavailable; IDs are retained.
+              <Button size="sm" variant="outline" onClick={() => void retryContacts()}>Retry</Button></p>}
+            {dealsPartial && <p>Deal follow-ups are a partial window ({dealsRes?.data.length} of {dealsRes?.total} reported).</p>}
+            {appointmentRead?.configured === false && <p>Appointment calendar is not configured.</p>}
+            {appointmentPartial && <p>Appointment list is bounded or incomplete{appointmentRead?.queueLimit ? ` (queue limit ${appointmentRead.queueLimit})` : ""}; an empty result is not definitive.</p>}
+            {appointmentRead && <p className="text-xs text-muted-foreground">
+              {appointmentRead.source || appointmentRead.scope || "Appointment source"}
+              {appointmentRead.status ? ` · ${appointmentRead.status}` : ""}
+              {appointmentRead.asOf ? ` · read ${new Date(appointmentRead.asOf).toLocaleString()}` : ""}
+            </p>}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
@@ -391,7 +497,9 @@ export default function CalendarPage() {
                         <span className="truncate">{evt.title}</span>
                         <span className="text-xs text-muted-foreground shrink-0">Invalid date</span>
                       </div>
-                      {fixingItemId === evt.id ? (
+                      {evt.readOnly ? (
+                        <p className="text-xs text-muted-foreground">Provider appointment · read-only</p>
+                      ) : fixingItemId === evt.id ? (
                         <div className="flex items-center gap-2">
                           <Input
                             type="date"
@@ -464,7 +572,13 @@ export default function CalendarPage() {
             <CardContent>
               {selectedDayEvents.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4" data-testid="text-no-events">
-                  No events scheduled
+                  {eventsError || appointmentsError || dealsError
+                    ? "Some calendar sources could not be read; no-empty results are not assumed."
+                    : appointmentRead?.configured === false
+                    ? "No internal events are scheduled. Appointment calendar is not configured."
+                    : appointmentPartial || dealsPartial
+                    ? "No events found in the available source windows; coverage is partial."
+                    : "No events scheduled"}
                 </p>
               ) : (
                 <div className="space-y-3">
@@ -496,9 +610,18 @@ export default function CalendarPage() {
                               {evt.description}
                             </p>
                           )}
+                          {evt.contactId && !contactMap.has(evt.contactId) && (
+                            <p className="text-xs text-muted-foreground">
+                              Contact #{evt.contactId}{contactsError ? " · name lookup failed" : ""}
+                            </p>
+                          )}
                           <Badge variant="secondary" className={`text-[10px] ${TYPE_BADGE_VARIANTS[evt.type] || ""}`} data-testid={`badge-event-type-${evt.id}`}>
                             {evt.type}
                           </Badge>
+                          <Badge variant="outline" className="ml-1 text-[10px]">{evt.sourceLabel || evt.source}</Badge>
+                          {evt.noShow && <Badge variant="destructive" className="ml-1 text-[10px]">No-show</Badge>}
+                          {evt.externalUrl && <a href={evt.externalUrl} target="_blank" rel="noopener noreferrer"
+                            className="ml-2 inline-flex items-center text-xs text-primary underline">Open appointment</a>}
                         </div>
                       </div>
                     );

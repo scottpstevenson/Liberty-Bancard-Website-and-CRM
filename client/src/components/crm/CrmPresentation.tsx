@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, HTMLAttributes } from "react";
 import { Link } from "wouter";
 import DashboardErrorState from "@/components/DashboardErrorState";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -39,14 +39,14 @@ export function RecordHeader({ children, className, ...props }: RecordHeaderProp
   return <header className={cn("min-w-0", className)} {...props}>{children}</header>;
 }
 
-export function CrmFilterPanel({open,onOpenChange,children}:{
-  open:boolean;onOpenChange:(open:boolean)=>void;children:ReactNode;
+export function CrmFilterPanel({open,onOpenChange,children,title="People filters",description="Filters update this authorized worklist and reset its page."}:{
+  open:boolean;onOpenChange:(open:boolean)=>void;children:ReactNode;title?:string;description?:string;
 }){
   const mobile=useIsMobile();
   if(mobile)return <Sheet open={open} onOpenChange={onOpenChange}>
     <SheetContent className="overflow-y-auto">
-      <SheetHeader><SheetTitle>People filters</SheetTitle>
-        <SheetDescription>Filters update this authorized worklist and reset its page.</SheetDescription></SheetHeader>
+      <SheetHeader><SheetTitle>{title}</SheetTitle>
+        <SheetDescription>{description}</SheetDescription></SheetHeader>
       <div className="mt-4">{children}</div>
     </SheetContent>
   </Sheet>;
@@ -68,6 +68,7 @@ export function CrmDataState({
     return <DashboardErrorState title={state === "conflict" ? "This record changed" : "Information unavailable"} message={message} onRetry={onRetry} />;
   }
   if (state === "denied") return <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground" data-crm-state={state} role="status">{message ?? "You do not have access to this information."}</div>;
+  if (state === "empty" || state === "no-match") return <div className="crm-state-panel" data-crm-state={state} role="status"><span className="crm-state-kicker">{state === "empty" ? "Nothing recorded" : "No match"}</span><p>{message ?? (state === "empty" ? "There is no information in this section yet." : "Try a different search or clear a filter.")}</p></div>;
   if (children) return (
     <div data-crm-state={state}>
       {["loading", "degraded", "stale", "pending"].includes(state) && (
@@ -84,12 +85,12 @@ export function CrmDataState({
     degraded: "Some information could not be refreshed.", stale: "Showing the last available information.",
     pending: "Working…", conflict: "This record changed.", success: "Up to date.",
   };
-  return <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground" data-crm-state={state} role="status">{message ?? fallback[state]}</div>;
+  return <div className="crm-state-panel" data-crm-state={state} role="status"><span className="crm-state-kicker">{state === "success" ? "Current" : state === "pending" ? "In progress" : "Workspace status"}</span><p>{message ?? fallback[state]}</p></div>;
 }
 
-export function CrmPage({ children, className }: { children: ReactNode; className?: string }) {
+export function CrmPage({ children, className, ...props }: HTMLAttributes<HTMLDivElement>) {
   const employeeCrm = useEmployeeCrm();
-  return <div className={cn(employeeCrm && "crm-theme crm-page", className)}>{children}</div>;
+  return <div {...props} className={cn(employeeCrm && "crm-theme crm-page", className)}>{children}</div>;
 }
 
 export function ScopedMetricStrip({ children, className, scopeId, asOf, sourceLabel, availability = "available" }: {
@@ -161,12 +162,13 @@ export interface CrmDataColumn<Row> {
   render: (row: Row) => ReactNode;
   sortable?: boolean;
   headerClassName?: string;
+  cellClassName?: string;
 }
 
 export function CrmDataTable<Row extends { id: string | number }>({
   rows, columns, selectedIds = [], onSelectionChange, mobileCard, className, availability = "available",
   page, pageSize, total, totalAvailability = "unknown", hasPrevious, hasNext, onPageChange,
-  sortedColumn, sortDirection, onSortChange, cursor,
+   sortedColumn, sortDirection, onSortChange, cursor, containerResponsive=false, onRowClick, testId,
 }: {
   rows: Row[];
   columns: Array<CrmDataColumn<Row>>;
@@ -186,6 +188,9 @@ export function CrmDataTable<Row extends { id: string | number }>({
   sortDirection?: "asc" | "desc";
   onSortChange?: (columnId: string, direction: "asc" | "desc") => void;
   cursor?: string | null;
+   containerResponsive?: boolean;
+   onRowClick?: (row:Row)=>void;
+   testId?: string;
 }) {
   const toggle = (id: string | number) => {
     if (!onSelectionChange) return;
@@ -194,7 +199,9 @@ export function CrmDataTable<Row extends { id: string | number }>({
   return (
     <div className={cn("max-h-[min(640px,70dvh)] overflow-auto rounded-lg border", className)} data-availability={availability}
       data-page={page} data-page-size={pageSize} data-total-availability={totalAvailability} data-cursor={cursor ?? undefined}>
-      <table className={cn("w-full border-collapse text-left text-sm", mobileCard && "hidden md:table")}>
+      <div className={mobileCard ? containerResponsive ? "crm-worklist-table" : "hidden md:block" : undefined}
+        data-testid={testId ? `${testId}-desktop` : undefined}>
+      <table className="w-full border-collapse text-left text-sm crm-data-table">
         <thead className="sticky top-0 z-10 bg-muted text-xs text-muted-foreground">
           <tr>{onSelectionChange && <th className="h-11 w-11 px-3" scope="col"><span className="sr-only">Select row</span></th>}
           {columns.map((column) => <th key={column.id} scope="col" className={cn("h-10 px-3 font-medium", column.headerClassName)}>
@@ -208,15 +215,27 @@ export function CrmDataTable<Row extends { id: string | number }>({
           </tr>
         </thead>
         <tbody>{rows.map((row) => (
-          <tr key={row.id} className="border-t align-middle">
-            {onSelectionChange && <td className="h-11 px-3"><input type="checkbox" aria-label={`Select row ${row.id}`} checked={selectedIds.includes(row.id)} onChange={() => toggle(row.id)} /></td>}
-            {columns.map((column) => <td key={column.id} className="min-h-11 px-3 py-2">{column.render(row)}</td>)}
+          <tr key={row.id} className={cn("border-t align-middle",onRowClick&&"cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2")}
+            data-testid={testId ? `${testId}-row-${row.id}` : undefined}
+            tabIndex={onRowClick ? 0 : undefined} onClick={onRowClick ? ()=>onRowClick(row) : undefined}
+            onKeyDown={onRowClick ? event=>{if(event.target===event.currentTarget&&(event.key==="Enter"||event.key===" ")){
+              event.preventDefault();onRowClick(row);
+            }} : undefined}>
+            {onSelectionChange && <td className="h-11 px-3" onClick={event=>event.stopPropagation()}><input type="checkbox" aria-label={`Select row ${row.id}`} checked={selectedIds.includes(row.id)} onChange={() => toggle(row.id)} /></td>}
+            {columns.map((column) => <td key={column.id} className={cn("min-h-11 px-3 py-2",column.cellClassName)}>{column.render(row)}</td>)}
           </tr>
         ))}</tbody>
       </table>
-      {mobileCard && <div className="space-y-3 p-3 md:hidden">{rows.map((row) => (
-        <div key={row.id} className="flex items-start gap-2">
-          {onSelectionChange && <input type="checkbox" aria-label={`Select row ${row.id}`} checked={selectedIds.includes(row.id)} onChange={() => toggle(row.id)} />}
+      </div>
+      {mobileCard && <div className={cn("space-y-3 p-3",containerResponsive ? "crm-worklist-cards" : "md:hidden")}
+        data-testid={testId ? `${testId}-mobile` : undefined}>{rows.map((row) => (
+        <div key={row.id} className="flex items-start gap-2"
+          data-testid={testId ? `${testId}-card-${row.id}` : undefined}
+          tabIndex={onRowClick ? 0 : undefined} onClick={onRowClick ? ()=>onRowClick(row) : undefined}
+          onKeyDown={onRowClick ? event=>{if(event.target===event.currentTarget&&(event.key==="Enter"||event.key===" ")){
+            event.preventDefault();onRowClick(row);
+          }} : undefined}>
+          {onSelectionChange && <input type="checkbox" aria-label={`Select row ${row.id}`} checked={selectedIds.includes(row.id)} onClick={event=>event.stopPropagation()} onChange={() => toggle(row.id)} />}
           <div className="min-w-0 flex-1">{mobileCard(row)}</div>
         </div>
       ))}</div>}

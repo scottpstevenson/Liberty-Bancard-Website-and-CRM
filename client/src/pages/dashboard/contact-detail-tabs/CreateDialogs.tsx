@@ -31,6 +31,8 @@ interface Props {
   taskForm: TaskForm;
   setTaskForm: Dispatch<SetStateAction<TaskForm>>;
   createTask: () => void;
+  taskSaving?: boolean;
+  taskSaveError?: string|null;
 
   showCompanyDialog: boolean;
   setShowCompanyDialog: Dispatch<SetStateAction<boolean>>;
@@ -47,6 +49,9 @@ interface Props {
   companyIsPrimary: boolean;
   setCompanyIsPrimary: Dispatch<SetStateAction<boolean>>;
   allCompanies: Company[];
+  companiesLoading: boolean;
+  companiesError: boolean;
+  retryCompanies: () => void;
   contactCompanies: ContactCompany[];
   addCompanyAssociation: { mutate: (v: { companyId: number; role?: string; isPrimary: boolean }) => void; isPending: boolean };
   createAndLinkCompany: { mutate: () => void; isPending: boolean };
@@ -176,6 +181,7 @@ export function CreateDialogs(p: Props) {
                 value={p.taskForm.title}
                 onChange={e => p.setTaskForm(prev => ({ ...prev, title: e.target.value }))}
                 data-testid="input-task-title"
+                aria-label="Task title"
               />
             </div>
             <div className="space-y-2">
@@ -185,25 +191,28 @@ export function CreateDialogs(p: Props) {
                 onChange={e => p.setTaskForm(prev => ({ ...prev, description: e.target.value }))}
                 rows={3}
                 data-testid="textarea-task-description"
+                aria-label="Task description"
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Due Date</label>
+              <label className="text-sm font-medium">Due date and time (device timezone)</label>
               <Input
-                type="date"
+                type="datetime-local"
                 value={p.taskForm.dueDate}
                 onChange={e => p.setTaskForm(prev => ({ ...prev, dueDate: e.target.value }))}
                 data-testid="input-task-duedate"
+                aria-label="Task due date and time in your device timezone"
               />
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => p.setShowTaskDialog(false)} data-testid="button-cancel-task">
                 Cancel
               </Button>
-              <Button onClick={p.createTask} disabled={!p.taskForm.title} data-testid="button-submit-task">
-                Create Task
+              <Button onClick={p.createTask} disabled={!p.taskForm.title.trim() || p.taskSaving} data-testid="button-submit-task">
+                {p.taskSaving?"Saving…":"Create Task"}
               </Button>
             </div>
+            {p.taskSaveError&&<p role="alert" data-testid="contact-task-save-error">{p.taskSaveError}</p>}
           </div>
         </DialogContent>
       </Dialog>
@@ -243,7 +252,9 @@ export function CreateDialogs(p: Props) {
                   placeholder="Search by name..."
                   data-testid="input-company-search"
                 />
-                <div className="max-h-40 overflow-y-auto border rounded-md">
+                <div className="max-h-48 overflow-y-auto border rounded-md" aria-live="polite">
+                  {p.companiesLoading ? <p className="p-3 text-sm text-muted-foreground" role="status">Loading authorized companies…</p> : null}
+                  {p.companiesError ? <p className="p-3 text-sm text-destructive" role="alert">Company list unavailable. <button type="button" className="underline" onClick={p.retryCompanies}>Retry</button></p> : null}
                   {p.allCompanies
                     .filter(c => {
                       if (!p.companySearch) return true;
@@ -255,10 +266,12 @@ export function CreateDialogs(p: Props) {
                     })
                     .filter(c => !p.contactCompanies.some(cc => cc.companyId === c.id))
                     .map(c => (
-                      <div
+                      <button
+                        type="button"
                         key={c.id}
-                        className={`flex items-center gap-2 p-2 cursor-pointer hover-elevate ${p.selectedCompanyId === String(c.id) ? "bg-accent" : ""}`}
+                        className={`flex min-h-11 w-full items-center gap-2 p-2 text-left hover-elevate ${p.selectedCompanyId === String(c.id) ? "bg-accent" : ""}`}
                         onClick={() => p.setSelectedCompanyId(String(c.id))}
+                        aria-pressed={p.selectedCompanyId === String(c.id)}
                         data-testid={`company-option-${c.id}`}
                       >
                         <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -266,9 +279,9 @@ export function CreateDialogs(p: Props) {
                           <p className="text-sm font-medium truncate">{c.legalName}</p>
                           {c.dba && <p className="text-xs text-muted-foreground truncate">DBA: {c.dba}</p>}
                         </div>
-                      </div>
+                      </button>
                     ))}
-                  {p.allCompanies.filter(c => {
+                  {!p.companiesError && !p.companiesLoading && p.allCompanies.filter(c => {
                     if (!p.companySearch) return true;
                     const q = p.companySearch.toLowerCase();
                     return c.legalName.toLowerCase().includes(q) || (c.dba && c.dba.toLowerCase().includes(q));

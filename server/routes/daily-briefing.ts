@@ -21,6 +21,8 @@ import { serverError } from "../utils/server-error";
 import { queryCr04ReadyProjection } from "../services/cr04-cohort-ready-authority";
 import { taskReadPredicate, readTaskMetrics } from "../services/task-read-authority";
 import { dealReadPredicate } from "../services/revenue-read-authority";
+import { crmFactRevision } from "../services/crm-fact-freshness";
+import { crmDayWindow } from "@shared/crm-time-window";
 
 function getTodayStr(): string {
   return new Date().toISOString().split("T")[0]; // YYYY-MM-DD
@@ -48,7 +50,7 @@ async function generateAiBriefing(stats: BriefingFacts): Promise<string> {
   return briefingFactsSummary(stats);
 }
 
-async function buildDailyBriefing(user: any, bypassCache = false) {
+async function buildDailyBriefing(user: any, bypassCache = false, timezone="UTC") {
       const userId = String(user?.id || "");
       const userEmail = String(user?.email || "");
       const role = user?.role || "agent";
@@ -57,16 +59,19 @@ async function buildDailyBriefing(user: any, bypassCache = false) {
 
       // Check cache: per user per calendar day
       // V4 versions the null/degraded/scoped-event factual contract.
-      const cacheKey = `daily_briefing_v4_${userId}_${role}_${getTodayStr()}`;
+      const day=crmDayWindow(new Date(),timezone);
+      const cacheKey = `daily_briefing_v5_${userId}_${role}_${timezone}_${day.start.toISOString()}`;
+      const factRevision = await crmFactRevision();
       const cached = await storage.getSystemSetting(cacheKey);
-      if (!bypassCache && cached && typeof cached === "object" && (cached as any).generatedAt) {
+      if (!bypassCache && cached && typeof cached === "object" && (cached as any).generatedAt &&
+        (cached as any).factRevision === factRevision) {
         return cached;
       }
 
-      const todayRange = getTodayRange();
+      const todayRange = {start:day.start,end:day.endExclusive};
       const yesterdayRange = getYesterdayRange();
       const taskAsOf = new Date();
-      const taskScope = { actor: user, asOf: taskAsOf, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" };
+      const taskScope = { actor: user, asOf: taskAsOf, timezone };
 
       // ── 1. Tasks due today ──────────────────────────────────────────────────
       let tasksDueToday: number | null = null;
@@ -158,6 +163,7 @@ async function buildDailyBriefing(user: any, bypassCache = false) {
       });
 
       const briefing = {
+        factRevision,
         tasksDueToday,
         overdueTaskCount,
         overdueSlaCount,
@@ -187,7 +193,9 @@ export function registerDailyBriefingRoutes(app: Express) {
   // GET /api/overview/daily-briefing
   app.get("/api/overview/daily-briefing", isDashboardUser, async (req, res) => {
     try {
-      res.json(await buildDailyBriefing(req.user as any));
+      const timezone=typeof req.query.timezone==="string"?req.query.timezone:"UTC";
+      try { crmDayWindow(new Date(),timezone); } catch { return res.status(400).json({message:"Valid IANA timezone required"}); }
+      res.json(await buildDailyBriefing(req.user as any,false,timezone));
     } catch (err: any) {
       console.error("[DailyBriefing] error:", err.message);
       serverError(res, err);
@@ -198,10 +206,9 @@ export function registerDailyBriefingRoutes(app: Express) {
   app.post("/api/overview/daily-briefing/refresh", isDashboardUser, async (req, res) => {
     try {
       const user = req.user as any;
-      const userId = String(user?.id || "");
-      const cacheKey = `daily_briefing_v4_${userId}_${user.role || "agent"}_${getTodayStr()}`;
-      await storage.setSystemSetting(cacheKey, null).catch(() => {});
-      res.json(await buildDailyBriefing(user, true));
+      const timezone=typeof req.query.timezone==="string"?req.query.timezone:"UTC";
+      try { crmDayWindow(new Date(),timezone); } catch { return res.status(400).json({message:"Valid IANA timezone required"}); }
+      res.json(await buildDailyBriefing(user, true,timezone));
     } catch (err: any) {
       serverError(res, err);
     }

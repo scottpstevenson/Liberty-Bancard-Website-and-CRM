@@ -334,8 +334,16 @@ export function registerActivityRoutes(app: Express) {
   app.post("/api/call-logs", isDashboardUser, async (req, res) => {
     try {
       const input = insertCallLogSchema.parse(req.body);
+      if ((input.contactId != null && (!Number.isSafeInteger(input.contactId) || input.contactId <= 0))
+        || (input.duration != null && (!Number.isSafeInteger(input.duration) || input.duration < 0))) {
+        return res.status(400).json({message:"A positive local contact ID and nonnegative duration are required"});
+      }
       if (input.contactId && !await authorizeContactAccess(req, res, input.contactId)) return;
-      if (input.dealId && !await authorizeDealAccess(req, res, input.dealId)) return;
+      if (input.dealId) {
+        const deal = await authorizeDealAccess(req, res, input.dealId);
+        if (!deal) return;
+        if (input.contactId != null && deal.contactId !== input.contactId) return res.status(409).json({message:"The selected deal is not linked to this contact"});
+      }
       const log = await storage.createCallLog(input);
       await storage.createAuditLog({ action: "call_logged", entityType: "contact", entityId: log.contactId || 0, details: { direction: log.direction, outcome: log.outcome || "", duration: String(log.duration || 0) } });
       if (log.outcome === "Appointment Set" || log.outcome === "Interested") {
@@ -727,6 +735,11 @@ Respond in this exact JSON format:
       const user = req.user as { id?: string; role?: string } | undefined;
       const { start, end } = req.query;
       const isAgent = user?.role === "agent";
+      if ((start && !end) || (!start && end) ||
+        (start && end && (typeof start!=="string" || typeof end!=="string" ||
+          !Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end)) || Date.parse(end)<=Date.parse(start)))) {
+        return res.status(400).json({message:"Calendar window requires valid start and exclusive end"});
+      }
 
       if (start && end) {
         let events = await storage.getCalendarEventsByDateRange(new Date(start as string), new Date(end as string));
@@ -749,7 +762,11 @@ Respond in this exact JSON format:
       const bodyWithoutOwner = { ...req.body };
       delete bodyWithoutOwner.ownerId;
       delete bodyWithoutOwner.owner_id;
-      const input = insertCalendarEventSchema.parse(bodyWithoutOwner);
+      const input = insertCalendarEventSchema.extend({startTime:z.coerce.date(),endTime:z.coerce.date()})
+        .refine(value=>value.endTime>value.startTime,{message:"End must be after start",path:["endTime"]})
+        .parse(bodyWithoutOwner);
+      if(input.contactId && !await authorizeContactAccess(req,res,input.contactId)) return;
+      if(input.dealId && !await authorizeDealAccess(req,res,input.dealId)) return;
       // Set owner_id from authenticated session
       const event = await storage.createCalendarEvent({ ...input, ownerId: user?.id ?? null });
       res.status(201).json(event);
@@ -770,6 +787,17 @@ Respond in this exact JSON format:
       const bodyWithoutOwner = { ...req.body };
       delete bodyWithoutOwner.ownerId;
       delete bodyWithoutOwner.owner_id;
+      const existingEvent=await storage.getCalendarEventById(eventId);
+      if(!existingEvent) return res.status(404).json({message:"Not found"});
+      if(isAgent && existingEvent.ownerId!==user?.id) return res.status(403).json({message:"You do not own this calendar event"});
+      const parsed=insertCalendarEventSchema.extend({startTime:z.coerce.date(),endTime:z.coerce.date()}).partial().safeParse(bodyWithoutOwner);
+      if(!parsed.success) return res.status(400).json({message:"Invalid calendar event",errors:parsed.error.flatten()});
+      const nextStart=parsed.data.startTime ?? existingEvent.startTime;
+      const nextEnd=parsed.data.endTime ?? existingEvent.endTime;
+      if(nextEnd<=nextStart) return res.status(400).json({message:"End must be after start"});
+      if(parsed.data.contactId && !await authorizeContactAccess(req,res,parsed.data.contactId)) return;
+      if(parsed.data.dealId && !await authorizeDealAccess(req,res,parsed.data.dealId)) return;
+      Object.assign(bodyWithoutOwner,parsed.data);
 
       if (isAgent) {
         // Agent: verify they own this event

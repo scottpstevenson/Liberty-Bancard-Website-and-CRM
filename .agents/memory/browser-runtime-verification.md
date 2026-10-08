@@ -9,6 +9,16 @@ Prefer the environment-supported browser runtime over cached executables.
 **How to apply:** Verify an actual isolated browser connection before relying
 on the runtime; an executable's version response is not provision proof.
 
+For real pointer input, wait for the modal's opening transition and verify
+hit testing; visible title text or an existing input is not enough.
+
+**Why:** A newly opened protected dialog had its input present and focused but
+coordinate-based clicks failed until the opening transition settled.
+
+**How to apply:** Retain real pointer/keyboard input and capture the intended
+rectangle and actual hit target on failure, rather than replacing it with a
+programmatic DOM click.
+
 For responsive acceptance, inspect the captured image and explicitly verify
 fixed dialog bounds, not only page text and document scroll width.
 
@@ -28,3 +38,12 @@ scroll width, so page overflow alone can give a false accessibility pass.
 
 **How to apply:** Check that the current-source overlay fits the viewport after
 its opening animation and that serving assets match the source being certified.
+
+Chromium blocks reserved ports such as 6000 before making a page request.
+
+**Why:** The screenshot browser returned `ERR_UNSAFE_PORT` for a running
+isolated preview on 6000; that error is not evidence of an application crash.
+
+**How to apply:** Use an allowed serving port (the fixture's actual private
+port is suitable for unauthenticated captures) without bypassing login or
+changing the normal application Run.

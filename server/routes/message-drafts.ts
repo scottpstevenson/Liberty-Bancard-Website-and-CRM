@@ -15,7 +15,11 @@ const contextSchema = z.object({
 }).strict().superRefine((v, ctx) => {
   if (v.contextType === "global" && v.contextId !== "unaddressed"
     || ["contact", "prospect"].includes(v.contextType) && !/^[1-9]\d*$/.test(v.contextId)
-    || v.contextType === "inbox" && !/^[a-zA-Z0-9_-]+::.+$/.test(v.contextId)) {
+    || v.contextType === "inbox" && (
+      !v.contextId.includes("::") ||
+      !/^[a-zA-Z0-9_.:%-]+$/.test(parseInboxSourceIdentity(v.contextId).sourceNamespace) ||
+      !parseInboxSourceIdentity(v.contextId).sourceItemId
+    )) {
     ctx.addIssue({ code: "custom", message: "Explicit, namespaced draft context required" });
   }
   if (["contact", "prospect"].includes(v.contextType) && !Number.isSafeInteger(Number(v.contextId))) {

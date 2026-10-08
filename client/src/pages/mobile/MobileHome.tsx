@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { useState, useRef, useEffect } from "react";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { queryClient, protectedScope } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import { useOfflineQueue } from "@/hooks/use-offline-queue";
@@ -13,6 +13,9 @@ import MobileQuickLog from "./MobileQuickLog";
 import type { Task } from "@shared/schema";
 import { useWorkCommands, invalidateWorkFacts } from "@/hooks/use-work-commands";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import { decodeTaskRows, isPendingTask } from "@/lib/task-source";
+import { useContactsFacets } from "@/hooks/use-contacts";
 
 function formatTime(ts: string | null | undefined): string {
   if (!ts) return "";
@@ -29,7 +32,7 @@ function isToday(dateStr: string | null | undefined): boolean {
 }
 
 function isOverdue(task: Task): boolean {
-  if (!task.dueDate || task.status === "completed") return false;
+  if (!task.dueDate || !isPendingTask(task)) return false;
   return new Date() > new Date(task.dueDate);
 }
 
@@ -40,12 +43,22 @@ export default function MobileHome() {
   const [, setLocation] = useLocation();
   const [quickLogOpen, setQuickLogOpen] = useState(false);
 
-  const { data: tasksData, isLoading: tasksLoading, isError: tasksError } = useQuery<Task[]>({
+  const { data: tasksData, isLoading: tasksLoading, isError: tasksError, refetch: retryTasks } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
+    queryFn: async ({ signal }) => decodeTaskRows(await (await apiRequest("GET", "/api/tasks", undefined, undefined, signal)).json()),
   });
 
-  const { data: appointmentsData } = useQuery<{ appointments: any[]; configured: boolean }>({
+  const { data: appointmentsData, isError: appointmentsError, isLoading: appointmentsLoading, refetch: retryAppointments } =
+    useQuery<{ appointments: any[]; configured: boolean; status: string; completeness: string; source: string }>({
     queryKey: ["/api/appointments"],
+    queryFn: async ({ signal }) => {
+      const data = await (await apiRequest("GET", "/api/appointments", undefined, undefined, signal)).json();
+      if (!data || !Array.isArray(data.appointments) || typeof data.configured !== "boolean" ||
+        !["available", "not_configured", "provider_failed"].includes(data.status) || data.source !== "ghl_appointments") {
+        throw new Error("Native appointment response unavailable");
+      }
+      return data;
+    },
     retry: false,
   });
 
@@ -55,10 +68,7 @@ export default function MobileHome() {
     isFetching: contactsFetching,
     refetch: refetchContacts,
     dataUpdatedAt: contactsUpdatedAt,
-  } = useQuery<{ data: any[]; total: number }>({
-    queryKey: ["/api/contacts"],
-    retry: false,
-  });
+  } = useContactsFacets();
 
   const {
     data: dealsData,
@@ -68,6 +78,14 @@ export default function MobileHome() {
     dataUpdatedAt: dealsUpdatedAt,
   } = useQuery<{ data: any[]; total: number }>({
     queryKey: ["/api/deals"],
+    queryFn: async ({signal}) => {
+      const data=await (await apiRequest("GET","/api/deals",undefined,undefined,signal)).json();
+      if(!data || !Array.isArray(data.data) || !Number.isSafeInteger(data.total) || data.total<0 ||
+        !data.data.every((row:any)=>row && Number.isSafeInteger(row.id) && typeof row.pipeline==="string" && typeof row.stage==="string")) {
+        throw new Error("Authorized deal page unavailable");
+      }
+      return data;
+    },
     retry: false,
   });
 
@@ -86,16 +104,20 @@ export default function MobileHome() {
   });
 
   const tasks = tasksData || [];
-  const todayTasks = tasks.filter(t => t.status !== "completed" && (isToday(t.dueDate as any) || isOverdue(t)));
+  const todayTasks = tasks.filter(t => isPendingTask(t) && (isToday(t.dueDate as any) || isOverdue(t)));
   const overdueTasks = todayTasks.filter(isOverdue);
   const appointments = (appointmentsData?.appointments || []).slice(0, 3);
   // Only compute from real data — never silently show 0 when the API failed.
-  const activeDeals = dealsData?.data?.filter((d: any) => d.stage !== "Closed Won" && d.stage !== "Closed Lost") ?? null;
+  const activeDeals = dealsData?.data?.filter((d: any) => d.pipeline === "sales" && d.stage !== "Closed Won" && d.stage !== "Closed Lost") ?? null;
 
   const { executeOrQueue } = useOfflineQueue();
   const [completingIds, setCompletingIds] = useState<Set<number>>(new Set());
+  const actorContext=JSON.stringify(protectedScope(user));
+  const actorRef=useRef(actorContext);actorRef.current=actorContext;
+  useEffect(()=>setCompletingIds(new Set()),[actorContext]);
 
   async function completeTask(id: number) {
+    const submittedActor=actorContext;
     const task = tasks.find(t => t.id === id);
     if (!task || !Number.isInteger(task.authorityFence)) {
       return toast({ title: "Work version unavailable", description: "Reload before completing this task.", variant: "destructive" });
@@ -103,12 +125,14 @@ export default function MobileHome() {
     setCompletingIds(prev => new Set(prev).add(id));
     try {
       const result = await executeOrQueue("PUT", `/api/tasks/${id}`, workCommands.edit(task, { status: "completed" }), invalidateWorkFacts);
+      if(actorRef.current!==submittedActor)return;
       toast({ title: result.ok ? "Task completed" : result.queued ? "Completion queued, not yet saved" : "Completion not saved",
         description: result.ok ? undefined : result.reason || "Keep the work open until its server confirmation is available.", variant: result.ok || result.queued ? "default" : "destructive" });
     } catch (error) {
+      if(actorRef.current!==submittedActor)return;
       toast({ title: "Completion not saved", description: (error as Error).message, variant: "destructive" });
     } finally {
-      setCompletingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+      if(actorRef.current===submittedActor)setCompletingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
     }
   }
 
@@ -117,16 +141,17 @@ export default function MobileHome() {
   return (
     <div className="pb-4">
       <div className="bg-blue-600 px-4 pt-12 pb-6" style={{ paddingTop: "calc(env(safe-area-inset-top) + 24px)" }}>
-        <p className="text-blue-200 text-sm">Good {getGreeting()},</p>
-        <h1 className="text-white text-2xl font-bold" data-testid="text-greeting">{firstName}</h1>
+        <p className="text-white text-sm pr-14">Good {getGreeting()},</p>
+        <h1 className="text-white text-2xl font-bold pr-14" data-testid="text-greeting">{firstName}</h1>
         <div className="flex gap-3 mt-4">
-          <div className="bg-blue-500/50 rounded-xl p-3 flex-1 text-center">
+          <div className="bg-blue-700/50 rounded-xl p-3 flex-1 text-center">
             <div className="text-white text-xl font-bold" data-testid="text-today-tasks">
-              {tasksError ? <WifiOff className="w-5 h-5 mx-auto opacity-70" /> : todayTasks.length}
+              {tasksError ? <span aria-label="Task count unavailable">—</span> :
+                tasksLoading ? <Loader2 className="w-5 h-5 mx-auto animate-spin" aria-label="Loading task count" /> : todayTasks.length}
             </div>
-            <div className="text-blue-200 text-xs">Tasks Today</div>
+            <div className="text-white text-xs">Due work loaded</div>
           </div>
-          <div className="bg-blue-500/50 rounded-xl p-3 flex-1 text-center">
+          <div className="bg-blue-700/50 rounded-xl p-3 flex-1 text-center">
             {dealsError ? (
               <button
                 data-testid="button-retry-deals"
@@ -134,18 +159,18 @@ export default function MobileHome() {
                 className="w-full flex flex-col items-center gap-0.5 active:opacity-70"
               >
                 <WifiOff className="w-5 h-5 text-white/70" />
-                <div className="text-blue-200 text-[10px]">Retry</div>
+                <div className="text-white text-xs">Retry</div>
               </button>
             ) : (
               <>
                 <div className="text-white text-xl font-bold" data-testid="text-active-deals">
                   {dealsFetching && activeDeals === null ? <Loader2 className="w-5 h-5 mx-auto animate-spin opacity-70" /> : (activeDeals?.length ?? "—")}
                 </div>
-                <div className="text-blue-200 text-xs">Active Deals</div>
+                <div className="text-white text-xs">Active sales on page</div>
               </>
             )}
           </div>
-          <div className="bg-blue-500/50 rounded-xl p-3 flex-1 text-center">
+          <div className="bg-blue-700/50 rounded-xl p-3 flex-1 text-center">
             {contactsError ? (
               <button
                 data-testid="button-retry-contacts"
@@ -153,14 +178,14 @@ export default function MobileHome() {
                 className="w-full flex flex-col items-center gap-0.5 active:opacity-70"
               >
                 <WifiOff className="w-5 h-5 text-white/70" />
-                <div className="text-blue-200 text-[10px]">Retry</div>
+                <div className="text-white text-xs">Retry</div>
               </button>
             ) : (
               <>
                 <div className="text-white text-xl font-bold" data-testid="text-total-contacts">
                   {contactsFetching && contactsData === undefined ? <Loader2 className="w-5 h-5 mx-auto animate-spin opacity-70" /> : (contactsData?.total ?? "—")}
                 </div>
-                <div className="text-blue-200 text-xs">Contacts</div>
+                <div className="text-white text-xs">People · scoped total</div>
               </>
             )}
           </div>
@@ -223,7 +248,7 @@ export default function MobileHome() {
         </div>
       )}
 
-      {overdueTasks.length > 0 && (
+      {!tasksError && overdueTasks.length > 0 && (
         <div className="px-4 mt-4">
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl p-4" data-testid="card-overdue-tasks">
             <div className="flex items-center gap-2 mb-3">
@@ -234,9 +259,10 @@ export default function MobileHome() {
               {overdueTasks.slice(0, 3).map(task => (
                 <div key={task.id} className="flex items-center gap-2">
                   <button
+                    aria-label={`Complete overdue task: ${task.title}`}
                     onClick={() => completeTask(task.id)}
                     disabled={completingIds.has(task.id)}
-                    className="w-5 h-5 rounded-full border-2 border-red-400 flex-shrink-0 active:bg-red-100 disabled:opacity-50"
+                    className="w-11 h-11 rounded-full border-2 border-red-700 dark:border-red-400 flex-shrink-0 active:bg-red-100 disabled:opacity-50"
                   />
                   <span className="text-sm text-red-800 dark:text-red-300 line-clamp-1">{task.title}</span>
                 </div>
@@ -249,31 +275,37 @@ export default function MobileHome() {
       <div className="px-4 mt-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-semibold text-gray-900 dark:text-white text-sm">Today's Tasks</h2>
-          <button onClick={() => setLocation("/mobile/tasks")} className="text-blue-600 text-xs font-medium">See all</button>
+          <button onClick={() => setLocation("/mobile/tasks")} className="min-h-11 text-blue-700 dark:text-blue-400 text-xs font-medium">See loaded work</button>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700 overflow-hidden" data-testid="card-today-tasks">
           {tasksLoading ? (
             <div className="py-8 flex justify-center">
               <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
             </div>
+          ) : tasksError ? (
+            <div className="p-4 text-sm" role="alert">
+              Tasks could not be loaded. No empty state is assumed.
+              <button className="min-h-11 ml-2 underline" onClick={()=>void retryTasks()}>Retry</button>
+            </div>
           ) : todayTasks.length === 0 ? (
-            <div className="py-8 text-center text-gray-400 text-sm">
+            <div className="py-8 text-center text-gray-500 dark:text-gray-400 text-sm">
               <CheckSquare className="w-8 h-8 mx-auto mb-2 opacity-40" />
-              All caught up!
+              No due work returned by your authorized reader.
             </div>
           ) : (
             todayTasks.slice(0, 5).map(task => (
               <div key={task.id} className="flex items-center gap-3 px-4 py-3">
                 <button
                   data-testid={`button-complete-task-${task.id}`}
+                  aria-label={`Complete task: ${task.title}`}
                   onClick={() => completeTask(task.id)}
                   disabled={completingIds.has(task.id)}
-                  className="w-5 h-5 rounded-full border-2 border-gray-300 dark:border-gray-600 flex-shrink-0 active:bg-blue-100 dark:active:bg-blue-900"
+                  className="w-11 h-11 rounded-full border-2 border-gray-500 dark:border-gray-400 flex-shrink-0 active:bg-blue-100 dark:active:bg-blue-900"
                 />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-gray-900 dark:text-white line-clamp-1">{task.title}</div>
                   {task.dueDate && (
-                    <div className={`text-xs ${isOverdue(task) ? "text-red-500" : "text-gray-400"}`}>
+                    <div className={`text-xs ${isOverdue(task) ? "text-red-700 dark:text-red-400" : "text-gray-500 dark:text-gray-400"}`}>
                       {formatTime(task.dueDate as any)}
                     </div>
                   )}
@@ -288,13 +320,27 @@ export default function MobileHome() {
             ))
           )}
         </div>
+        {!tasksError && !tasksLoading && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          Up to 5 of {todayTasks.length} loaded due/overdue tasks shown. Due times use {Intl.DateTimeFormat().resolvedOptions().timeZone}.
+        </p>}
       </div>
 
-      {appointments.length > 0 && (
+      {appointmentsError || appointmentsData?.status === "provider_failed" ? (
+        <div className="mx-4 mt-4 rounded-2xl border p-4" role="alert">
+          Native appointments are unavailable. This is not an empty calendar.
+          <button className="min-h-11 ml-2 underline" onClick={() => void retryAppointments()}>Retry</button>
+        </div>
+      ) : appointmentsLoading ? <p className="px-4 mt-4 text-sm" role="status">Loading native appointments…</p> :
+      appointmentsData?.status === "not_configured" ? (
+        <p className="px-4 mt-4 text-sm" data-testid="native-appointments-status">Native GHL appointments are not configured. Local events are separate.</p>
+      ) : appointments.length === 0 ? (
+        <p className="px-4 mt-4 text-sm" data-testid="native-appointments-status">No native appointments returned in this bounded reader window; not a whole-calendar total.</p>
+      ) : (
         <div className="px-4 mt-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold text-gray-900 dark:text-white text-sm">Upcoming Appointments</h2>
           </div>
+          <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">{appointments.length} shown from the bounded native GHL queue; local events are separate. Times use {Intl.DateTimeFormat().resolvedOptions().timeZone}.</p>
           <div className="space-y-2" data-testid="card-appointments">
             {appointments.map((appt: any) => (
               <div key={appt.id} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
@@ -359,7 +405,7 @@ export default function MobileHome() {
             localStorage.setItem("prefer_desktop", "true");
             window.location.href = "/dashboard";
           }}
-          className="text-xs text-gray-400 dark:text-gray-500 underline underline-offset-2 active:opacity-70"
+          className="min-h-11 text-xs text-gray-500 dark:text-gray-400 underline underline-offset-2 active:opacity-70"
           data-testid="button-switch-to-desktop"
         >
           Switch to desktop view

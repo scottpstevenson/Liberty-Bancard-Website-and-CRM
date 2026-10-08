@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useCrmQuery } from "@/hooks/use-crm-query";
+import { useToolCapability } from "@/hooks/use-tool-capabilities";
+import { CrmPage, CrmPageHeader } from "@/components/crm/CrmPresentation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,38 +39,35 @@ const brandColors: Record<string, string> = {
 export default function BinLookup() {
   const [bin, setBin] = useState("");
   const [submittedBin, setSubmittedBin] = useState("");
+  const capability = useToolCapability("bin");
 
-  const { data, isLoading, isError, error } = useQuery<BinResult>({
+  const { data, isLoading, isError, error, refetch } = useCrmQuery<BinResult>({
     queryKey: ["/api/tools/bin-lookup", submittedBin],
-    queryFn: async () => {
+    queryFn: async ({signal}) => {
       if (!submittedBin) return { found: false };
-      const res = await fetch(`/api/tools/bin-lookup?bin=${encodeURIComponent(submittedBin)}`);
+      const res = await fetch(`/api/tools/bin-lookup?bin=${encodeURIComponent(submittedBin)}`,{credentials:"include",signal});
       if (!res.ok) {
         const body = await res.json();
         throw new Error(body.message || "Lookup failed");
       }
-      return res.json();
+      const result = await res.json();
+      if (!result || typeof result.found !== "boolean") throw new Error("Invalid BIN directory response");
+      return result;
     },
-    enabled: !!submittedBin,
+    enabled: !!submittedBin && !capability.blocked,
     staleTime: 10 * 60 * 1000,
   });
 
   const handleLookup = () => {
+    if(capability.blocked) return;
     const cleaned = bin.replace(/\D/g, "").slice(0, 8);
     if (cleaned.length >= 6) setSubmittedBin(cleaned);
   };
 
   return (
-    <div className="space-y-6 max-w-2xl" data-testid="page-bin-lookup">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <CreditCard className="w-6 h-6" />
-          BIN Lookup
-        </h2>
-        <p className="text-muted-foreground text-sm">
-          Identify card type, brand, bank, and interchange category from the first 6–8 digits of a card number
-        </p>
-      </div>
+    <CrmPage className="space-y-6 max-w-2xl" data-testid="page-bin-lookup">
+      <CrmPageHeader title="BIN Lookup" description="Identify card type, brand and bank using only the first 6–8 digits." />
+      <p role="status" data-testid="bin-capability-reason">{capability.reason}</p>
 
       <Card data-testid="card-bin-input">
         <CardContent className="pt-6">
@@ -97,7 +96,7 @@ export default function BinLookup() {
             <div className="flex items-end">
               <Button
                 onClick={handleLookup}
-                disabled={bin.replace(/\D/g, "").length < 6 || isLoading}
+                disabled={capability.blocked || bin.replace(/\D/g, "").length < 6 || isLoading}
                 data-testid="button-bin-lookup"
               >
                 {isLoading ? (
@@ -117,6 +116,7 @@ export default function BinLookup() {
           <CardContent className="p-4 flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-destructive shrink-0" />
             <p className="text-sm text-destructive">{(error as Error)?.message || "Lookup failed"}</p>
+            <Button onClick={() => refetch()} disabled={capability.blocked}>Retry lookup</Button>
           </CardContent>
         </Card>
       )}
@@ -235,6 +235,6 @@ export default function BinLookup() {
           </p>
         </CardContent>
       </Card>
-    </div>
+    </CrmPage>
   );
 }

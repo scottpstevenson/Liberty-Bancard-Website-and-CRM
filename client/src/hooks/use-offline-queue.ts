@@ -1,11 +1,13 @@
-import { useState,useEffect,useCallback } from "react";
-import { getCsrfToken,queryClient } from "@/lib/queryClient";
+import { useState,useEffect,useCallback,useRef } from "react";
+import { getCsrfToken,protectedScope } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { invalidateWorkFacts } from "@/hooks/use-work-commands";
 import { prepareWorkCreation,acknowledgeWorkCreation } from "@/lib/work-create-intent";
 import { OFFLINE_QUEUE_KEY,readOfflineQueue,appendOfflineWork,replayOfflineWork,isReplayableWork,
   type QueueIO,type QueueActor,type QueueEntry } from "@/lib/offline-work-queue";
 
 const CHANGED="liberty-offline-work-changed";
+export const WORK_ACKNOWLEDGED_EVENT="liberty-offline-work-acknowledged";
 let replayRunning:Promise<{acknowledged:number}>|null=null;
 function browserIO():QueueIO {
   if (typeof window==="undefined") throw new Error("Offline storage is unavailable.");
@@ -30,6 +32,12 @@ function browserIO():QueueIO {
       if (response.ok && /^\/api\/tasks(?:\/[1-9]\d*)?$/.test(entry.url) && !Number.isSafeInteger(receipt?.id)) {
         throw new Error("Creation receipt unavailable. The original command is retained for safe retry.");
       }
+      if (response.ok && entry.method === "POST" && entry.url === "/api/tasks") {
+        acknowledgeWorkCreation(entry.body);
+        window.dispatchEvent(new CustomEvent(WORK_ACKNOWLEDGED_EVENT, {
+          detail: { actorId: entry.body?.expectedActorId, commandId: entry.body?.commandId },
+        }));
+      }
       return {ok:response.ok,status:response.status,message:receipt?.message};
     },
   };
@@ -41,18 +49,20 @@ function captureActor(user:any):QueueActor {
 }
 async function replay() {
   if(!replayRunning) replayRunning=replayOfflineWork(browserIO()).then(result=>{
-    if(result.acknowledged) void queryClient.invalidateQueries({predicate:q=>
-      ["/api/tasks","/api/daily-briefing","/api/dashboard","/api/analytics"].some(prefix=>String(q.queryKey[0]).startsWith(prefix))});
+    if(result.acknowledged) void invalidateWorkFacts();
     return result;
   }).finally(()=>{replayRunning=null;});
   return replayRunning;
 }
 export function useOfflineQueue() {
   const {user}=useAuth();
+  const contextKey=JSON.stringify(protectedScope(user));
+  const contextRef=useRef(contextKey);contextRef.current=contextKey;
   const [queueCount,setQueueCount]=useState<number|null>(null);
   const [queueError,setQueueError]=useState<string|null>(null);
   const [reviewCount,setReviewCount]=useState(0);
   const updateCount=useCallback(()=>{
+    if(contextRef.current!==contextKey)return;
     try {
       if(!user?.id) {setQueueCount(null);return;}
       const own=readOfflineQueue(browserIO()).filter(entry=>entry.actorId===user.id);
@@ -60,13 +70,16 @@ export function useOfflineQueue() {
       setReviewCount(own.filter(entry=>!!entry.blockedReason || !isReplayableWork(entry) ||
         entry.accountVersion!==user.accountVersion).length);
     } catch(error) {setQueueCount(null);setQueueError((error as Error).message);}
-  },[user?.id,user?.accountVersion]);
+  },[user?.id,user?.accountVersion,contextKey]);
   const retryQueue=useCallback(async()=>{
     setQueueError(null);
-    try {await replay();} catch(error) {setQueueError((error as Error).message);}
+    try {await replay();} catch(error) {
+      if(contextRef.current===contextKey)setQueueError((error as Error).message);
+    }
     updateCount();
-  },[updateCount]);
+  },[updateCount,contextKey]);
   useEffect(()=>{
+    setQueueError(null);
     updateCount();
     const online=()=>void retryQueue();
     window.addEventListener("online",online);
@@ -115,9 +128,10 @@ export function useOfflineQueue() {
       if(creating) acknowledgeWorkCreation(body); // Verified durable local entry owns the UUID.
       return {ok:false,queued:true,reason:entry.blockedReason || "Saved locally only; server confirmation is still pending."};
     } catch(error) {
-      const reason=(error as Error).message;setQueueError(reason);
+      const reason=(error as Error).message;
+      if(contextRef.current===contextKey)setQueueError(reason);
       return {ok:false,queued:false,reason};
     }
-  },[user,enqueue]);
+  },[user,enqueue,contextKey]);
   return {queueCount,queueError,reviewCount,retryQueue,enqueue,executeOrQueue};
 }

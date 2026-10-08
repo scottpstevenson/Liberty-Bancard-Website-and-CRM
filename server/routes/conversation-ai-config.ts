@@ -9,6 +9,9 @@ import { getAllBotContexts } from "../services/sdr/conversation-ai";
 import { addTag, updateCustomFields, disableConversationAi, isSdrGhlConfigured } from "../services/sdr/ghl-client";
 import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 import { serverError } from "../utils/server-error";
+import { authorizeContactAccess } from "../services/crm-object-access";
+import { bindWorkActor, WorkCommandError } from "../services/work-item-command";
+import { readCompanies } from "../services/company-authority";
 
 const DEFAULT_BOT_SEEDS = [
   {
@@ -394,14 +397,19 @@ export function registerConversationAiConfigRoutes(app: Express) {
   // ─── M&A Events ────────────────────────────────────────────────────────────
   app.get("/api/ma-events", isDashboardUser, async (req, res) => {
     try {
-      const entityType = req.query.entityType as string;
-      const entityId = Number(req.query.entityId);
-      if (!entityType || !entityId) return res.status(400).json({ message: "entityType and entityId required" });
+      const input = z.object({entityType:z.enum(["contact","company"]),
+        entityId:z.string().regex(/^[1-9]\d*$/).transform(Number).refine(Number.isSafeInteger)}).safeParse(req.query);
+      if (!input.success) return res.status(400).json({message:"Valid entityType and entityId required"});
+      const {entityType,entityId} = input.data;
+      if(entityType==="contact") {
+        if(!await authorizeContactAccess(req,res,entityId)) return;
+      } else await readCompanies(bindWorkActor(req.user),entityId);
       const rows = await db.select().from(maEvents)
         .where(and(eq(maEvents.entityType, entityType), eq(maEvents.entityId, entityId)))
         .orderBy(desc(maEvents.createdAt));
       res.json(rows);
     } catch (err: any) {
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });

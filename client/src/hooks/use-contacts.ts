@@ -3,6 +3,7 @@ import { useToast } from "@/hooks/use-toast";
 import { api, buildUrl } from "@shared/routes";
 import { apiRequest, protectedScope } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { useRef } from "react";
 import type { z } from "zod";
 
 type CreateContactInput = z.infer<typeof api.contacts.create.input>;
@@ -85,6 +86,12 @@ export function useContacts(params?: {
       const res = await fetch(url, { credentials: "include", signal });
       if (!res.ok) throw new Error("Failed to fetch contacts");
       const json = await res.json();
+      if (!json || !Array.isArray(json.data) || !Number.isSafeInteger(json.limit) || json.limit <= 0
+        || !Number.isSafeInteger(json.offset) || json.offset < 0
+        || typeof json.scope !== "string" || !json.filters || typeof json.filters !== "object"
+        || !json.data.every((row: any) => row && Number.isSafeInteger(row.id) && row.id > 0)) {
+        throw new Error("Invalid contacts response; retry the authorized search");
+      }
       // Server returns rows-only (no total/facets) — those come from useContactsFacets.
       return json as {
         data: any[]; limit: number; offset: number;
@@ -147,12 +154,20 @@ export function useContactsFacets(params?: Parameters<typeof useContacts>[0]) {
     queryFn: async ({ signal }) => {
       const res = await fetch(facetsUrl, { credentials: "include", signal });
       if (!res.ok) throw new Error("Facets unavailable");
-      return res.json() as Promise<{
+      const data=await res.json();
+      if(!data || !Number.isSafeInteger(data.total) || data.total<0 ||
+        typeof data.asOf!=="string" || !Number.isFinite(Date.parse(data.asOf)) ||
+        !data.byRecordClass || !data.byEmailHealth ||
+        ![data.byRecordClass,data.byEmailHealth].every(values=>typeof values==="object" && !Array.isArray(values) &&
+          Object.values(values).every(value=>Number.isSafeInteger(value) && (value as number)>=0))) {
+        throw new Error("Invalid authorized facets response; retry the scoped read");
+      }
+      return data as {
         total: number;
         byRecordClass: Record<string, number>;
         byEmailHealth:  Record<string, number>;
         asOf: string;
-      }>;
+      };
     },
     // Retry once after 4 s on failure; don't block contact rows.
     retry: 1,
@@ -180,17 +195,33 @@ export function useContact(id: number) {
 export function useCreateContact() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const scope = JSON.stringify(protectedScope(user));
+  const scopeRef = useRef(scope); scopeRef.current = scope;
+  const intent = useRef<{ payload: string; id: string } | null>(null);
   return useMutation({
+    onMutate: () => ({ scope }),
     mutationFn: async (data: CreateContactInput) => {
-      const res = await apiRequest(api.contacts.create.method as "POST", api.contacts.create.path, data);
+      const payload = JSON.stringify([scope,data]);
+      if(intent.current?.payload!==payload)intent.current={payload,id:crypto.randomUUID()};
+      const commandId=intent.current.id;
+      const res = await apiRequest(api.contacts.create.method as "POST", api.contacts.create.path, data,
+        {"Idempotency-Key":commandId});
       if (!res.ok) {
         const error = await res.json().catch(() => ({}));
         throw new Error(error.message || "Failed to create contact");
       }
-      return res.json();
+      const contact=await res.json();
+      if(!Number.isSafeInteger(contact?.id) || contact.id<=0)throw new Error("Creation receipt unavailable. Retry the same intent.");
+      if(scopeRef.current!==scope)throw new Error("Creation belongs to the previous employee context.");
+      if(scopeRef.current===scope && intent.current?.id===commandId)intent.current=null;
+      return contact;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.contacts.list.path] }),
-    onError: (err: Error) => {
+    onSuccess: (_contact,_data,context) => {
+      if(context?.scope===scopeRef.current)void queryClient.invalidateQueries({ queryKey: [api.contacts.list.path] });
+    },
+    onError: (err: Error,_data,context) => {
+      if(context?.scope!==scopeRef.current)return;
       toast({ title: "Failed to create contact", description: err.message, variant: "destructive" });
     },
   });

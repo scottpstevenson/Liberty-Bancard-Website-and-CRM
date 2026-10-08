@@ -14,7 +14,7 @@ export function GhlSyncStatus({ contact, ghlSyncStatus, resyncToGhlMutation }: P
   const ghlId = ghlSyncStatus?.ghlContactId || contact.ghlContactId;
   const lastSyncedAt = ghlSyncStatus?.lastSyncedAt;
   return (
-    <div className="flex items-center gap-3 p-3 rounded-lg border bg-card" data-testid="section-ghl-sync-status">
+    <div className="flex flex-wrap items-center gap-3 p-3 rounded-lg border bg-card" data-testid="section-ghl-sync-status">
       {isSynced ? (
         <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
       ) : (
@@ -23,10 +23,10 @@ export function GhlSyncStatus({ contact, ghlSyncStatus, resyncToGhlMutation }: P
       <div className="flex-1 min-w-0">
         <Badge
           variant={isSynced ? "default" : "secondary"}
-          className={isSynced ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"}
+          className={isSynced ? "whitespace-normal bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" : "whitespace-normal bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"}
           data-testid="badge-ghl-sync-status"
         >
-          {isSynced ? "GHL Synced" : "Sync Pending"}
+          {isSynced ? "Recent GHL sync receipt" : ghlSyncStatus ? "No recent GHL sync receipt" : "GHL sync status unavailable"}
         </Badge>
         {ghlId && (
           <span className="ml-2 text-xs text-muted-foreground font-mono" data-testid="text-ghl-contact-id">
@@ -42,14 +42,17 @@ export function GhlSyncStatus({ contact, ghlSyncStatus, resyncToGhlMutation }: P
       <Button
         variant="outline"
         size="sm"
-        onClick={() => resyncToGhlMutation.mutate()}
-        disabled={resyncToGhlMutation.isPending}
+        disabled
+        aria-describedby="ghl-write-hold-reason"
         className="shrink-0"
         data-testid="button-resync-ghl"
       >
         <RefreshCw className={`h-3.5 w-3.5 mr-1 ${resyncToGhlMutation.isPending ? "animate-spin" : ""}`} />
         Re-sync to GHL
       </Button>
+      <p id="ghl-write-hold-reason" className="basis-full text-xs">
+        Writes to GHL are unavailable: synchronization is incoming-only. This does not pause incoming synchronization.
+      </p>
     </div>
   );
 }

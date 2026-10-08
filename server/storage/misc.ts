@@ -202,7 +202,8 @@ import { coerceDateFields } from "../utils/date-coerce";
 
   async getCalendarEventsByDateRange(start: Date, end: Date): Promise<CalendarEvent[]> {
     return db.select().from(calendarEvents)
-      .where(and(gte(calendarEvents.startTime, start), lte(calendarEvents.startTime, end)))
+      .where(sql`${calendarEvents.startTime} < ${end} AND
+        COALESCE(${calendarEvents.endTime},${calendarEvents.startTime}) >= ${start}`)
       .orderBy(asc(calendarEvents.startTime));
   }
 

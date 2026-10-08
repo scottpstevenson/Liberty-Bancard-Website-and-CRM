@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { DashboardLayout } from "@/pages/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,9 +11,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, AlertTriangle, Phone, Mail, FileText, Shield, RefreshCw } from "lucide-react";
+import { AlertTriangle, Phone, Mail, FileText, Shield, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
+import { CrmPage, CrmPageHeader } from "@/components/crm/CrmPresentation";
+import { useCrmQuery } from "@/hooks/use-crm-query";
+import { useOutboundPauseObservation } from "@/hooks/use-outbound-pause-observation";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -95,26 +97,33 @@ function contactName(row: NbaRow): string {
 
 export default function NbaPriorityPage() {
   const { toast } = useToast();
+  const pause = useOutboundPauseObservation();
   const qc = useQueryClient();
   const [filter, setFilter] = useState<string>("none");
 
   const safeFilter = filter === "none" ? undefined : filter;
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useCrmQuery<{items:NbaRow[]}>({
     queryKey: ["/api/nba/priority", safeFilter],
-    queryFn: () =>
-      apiRequest("GET", `/api/nba/priority?limit=100${safeFilter ? `&filter=${safeFilter}` : ""}`)
-        .then(r => r.json()),
+    queryFn: async ({signal}) => {
+      const data=await (await apiRequest("GET", `/api/nba/priority?limit=100${safeFilter ? `&filter=${safeFilter}` : ""}`,undefined,undefined,signal)).json();
+      if(!data || !Array.isArray(data.items) || !data.items.every((row:any)=>Number.isSafeInteger(row.contact_id)))
+        throw new Error("Invalid authorized recommendation queue");
+      return data;
+    },
     refetchInterval: 60_000,
   });
 
   const executeMutation = useMutation({
-    mutationFn: (contactId: number) =>
-      apiRequest("POST", `/api/contacts/${contactId}/nba/execute`),
+    mutationFn: (contactId: number) => {
+      if(pause.blocked) throw new Error(pause.reason);
+      return apiRequest("POST", `/api/contacts/${contactId}/nba/execute`);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/nba/priority"] });
       toast({ title: "Action marked as completed" });
     },
+    onError: (err: Error) => toast({ title: "Action was not completed", description: err.message, variant: "destructive" }),
   });
 
   const dismissMutation = useMutation({
@@ -124,6 +133,7 @@ export default function NbaPriorityPage() {
       qc.invalidateQueries({ queryKey: ["/api/nba/priority"] });
       toast({ title: "Recommendation dismissed" });
     },
+    onError: (err: Error) => toast({ title: "Recommendation was not dismissed", description: err.message, variant: "destructive" }),
   });
 
   const items: NbaRow[] = data?.items ?? [];
@@ -135,27 +145,16 @@ export default function NbaPriorityPage() {
   }
 
   return (
-    <DashboardLayout>
-      <div className="p-6 space-y-6 max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Next Best Action</h1>
-            <p className="text-muted-foreground text-sm mt-1">
-              Priority queue of recommended actions across all active contacts.
-            </p>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
-        </div>
+    <CrmPage className="space-y-6">
+        <p role="status" data-testid="nba-pause-reason">{pause.reason}</p>
+        <CrmPageHeader title="Next best action" description="Priority queue of recommended actions across active contacts."
+          primaryAction={<Button variant="outline" onClick={() => void refetch()}><RefreshCw className="h-4 w-4 mr-2" />Refresh</Button>} />
 
         {/* Urgency summary chips */}
         <div className="flex gap-3 flex-wrap">
           {(["critical", "high", "normal", "low"] as const).map(u => (
             <div key={u} className={`px-3 py-1.5 rounded-full border text-sm font-medium ${URGENCY_COLORS[u]}`}>
-              {counts[u]} {u}
+              {isLoading ? "Loading" : isError ? "Unavailable" : `${counts[u]} on page`} {u}
             </div>
           ))}
         </div>
@@ -180,8 +179,18 @@ export default function NbaPriorityPage() {
         {/* Table */}
         {isLoading ? (
           <div className="flex items-center justify-center h-32">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <div className="w-full space-y-3" aria-label="Loading recommendations">
+              <div className="h-12 animate-pulse rounded-md bg-muted" />
+              <div className="h-24 animate-pulse rounded-md bg-muted" />
+              <div className="h-24 animate-pulse rounded-md bg-muted" />
+            </div>
           </div>
+        ) : isError ? (
+          <Card role="alert"><CardContent className="py-8 text-center">
+            <p className="font-medium">Recommendations are unavailable</p>
+            <p className="mt-1 text-sm text-muted-foreground">{(error as Error)?.message || "The authorized queue did not respond."}</p>
+            <Button className="mt-4" variant="outline" onClick={() => void refetch()}>Retry</Button>
+          </CardContent></Card>
         ) : items.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground">
@@ -258,7 +267,7 @@ export default function NbaPriorityPage() {
                           size="sm"
                           variant="outline"
                           onClick={() => executeMutation.mutate(row.contact_id)}
-                          disabled={executeMutation.isPending}
+                          disabled={pause.blocked || executeMutation.isPending}
                         >
                           Done
                         </Button>
@@ -279,7 +288,6 @@ export default function NbaPriorityPage() {
             })}
           </div>
         )}
-      </div>
-    </DashboardLayout>
+    </CrmPage>
   );
 }

@@ -207,7 +207,7 @@ export default function MobileContacts() {
   return (
     <div className="flex flex-col h-full">
       <div className="bg-white dark:bg-gray-900 px-4 pb-3 sticky top-0 z-10 border-b border-gray-100 dark:border-gray-800" style={{ paddingTop: "calc(env(safe-area-inset-top) + 12px)" }}>
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 pr-14">
           <h1 className="text-xl font-bold text-gray-900 dark:text-white">Contacts</h1>
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-400">{data?.total || contacts.length} total</span>

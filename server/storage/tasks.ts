@@ -4,7 +4,7 @@
 import type { InternalTaskInsert } from "../types/task-types";
 import { legacyTaskStatusToAuthorityState, authorityStateToLegacyTaskStatus } from "@shared/work-item-commands";
 export { legacyTaskStatusToAuthorityState, authorityStateToLegacyTaskStatus } from "@shared/work-item-commands";
-import { taskReadPredicate, type TaskReadScope } from "../services/task-read-authority";
+import { taskReadPredicate, taskStateSql, type TaskReadScope } from "../services/task-read-authority";
 import {
   liveChats, liveChatMessages,
   type LiveChat, type InsertLiveChat, type LiveChatMessage, type InsertLiveChatMessage,
@@ -102,10 +102,17 @@ import {
   roleplayExchanges, type RoleplayExchange, type InsertRoleplayExchange,
   leaderboardSettings, type LeaderboardSettings,
 } from "@shared/schema";
-import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
+import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count, getTableColumns } from "drizzle-orm";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
 export const TASK_AUTHORITY_STATES = ["open", "in_progress", "completed", "cancelled"] as const;
+type TaskReadRow = typeof tasks.$inferSelect & { effectiveState: typeof TASK_AUTHORITY_STATES[number] };
+const taskReadColumns = { ...getTableColumns(tasks), effectiveState: sql<TaskReadRow["effectiveState"]>`${taskStateSql}` };
+// Compatibility status is an output of the existing read authority. Never let
+// a stale legacy column override the effective state in a desktop/mobile row.
+const projectTaskRead = (row: TaskReadRow) => ({
+  ...row, status: authorityStateToLegacyTaskStatus(row.effectiveState),
+});
 export type TaskAuthorityState = typeof TASK_AUTHORITY_STATES[number];
 
 // Explicit compatibility mapping for legacy task readers and writers.
@@ -113,14 +120,15 @@ export type TaskAuthorityState = typeof TASK_AUTHORITY_STATES[number];
   export class TasksStorage {
     async getTasks(opts?: { limit?: number; offset?: number; source?: "sla" | "manual"; scope?: TaskReadScope }) {
     const whereClause = taskReadPredicate({ asOf: new Date(), timezone: "UTC", ...opts?.scope, source: opts?.source ?? opts?.scope?.source });
-    let query = db.select().from(tasks).where(whereClause).orderBy(desc(tasks.createdAt)) as any;
+    let query = db.select(taskReadColumns).from(tasks).where(whereClause).orderBy(desc(tasks.createdAt)) as any;
     if (opts?.limit) query = query.limit(opts.limit);
     if (opts?.offset) query = query.offset(opts.offset);
-    return await query;
+    return (await query as TaskReadRow[]).map(projectTaskRead);
   }
 
   async getTasksByDeal(dealId: number, scope?: TaskReadScope) {
-    return db.select().from(tasks).where(taskReadPredicate({ asOf: new Date(), timezone: "UTC", ...scope, dealId })).orderBy(asc(tasks.createdAt));
+    const rows = await db.select(taskReadColumns).from(tasks).where(taskReadPredicate({ asOf: new Date(), timezone: "UTC", ...scope, dealId })).orderBy(asc(tasks.createdAt));
+    return rows.map(projectTaskRead);
   }
 
   async getTaskById(id: number) {

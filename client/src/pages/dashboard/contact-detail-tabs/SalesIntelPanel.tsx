@@ -105,16 +105,20 @@ export function SalesIntelPanel({ contact, nextFollowUp }: SalesIntelPanelProps)
         ? new Date(contact.lastContactedAt).toLocaleString()
         : "No outreach recorded",
     },
-    ...(nextFollowUpStr ? [{
+    {
       label: "Next Follow-Up",
       icon: <Calendar className="h-3.5 w-3.5 text-green-500" />,
-      value: (
+      value: nextFollowUp === undefined ? (
+        <span className="text-xs text-muted-foreground">Unknown</span>
+      ) : nextFollowUpStr ? (
         <span className="text-xs text-foreground">
           {new Date(nextFollowUpStr).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
         </span>
+      ) : (
+        <span className="text-xs text-muted-foreground">None scheduled</span>
       ),
-      tooltip: new Date(nextFollowUpStr).toLocaleString(),
-    }] : []),
+      tooltip: nextFollowUpStr ? new Date(nextFollowUpStr).toLocaleString() : nextFollowUp === undefined ? "Not loaded for this section" : "No next follow-up scheduled",
+    },
     {
       label: "Engagement",
       icon: <TrendingUp className="h-3.5 w-3.5 text-blue-400" />,

@@ -1,0 +1,25 @@
+{
+  "status": "Both untouched merged C1 and current candidate executed; same two assertion failures retained, no whole-lane acceptance",
+  "baselineSource": "353cb381ed500dc2acf793b3b2e91a61b3aeade0",
+  "command": "node node_modules/tsx/dist/cli.mjs scripts/run-sfp2060-predeploy-disposable.ts --only scripts/test-import-reconciliation.ts",
+  "construction": "Detached untouched worktree, same locked dependencies, launcher-owned fresh PostgreSQL/Redis and private denied application; no shared or production database",
+  "baselineExit": 1,
+  "baselineAssertionsPassed": 97,
+  "baselineAssertionsFailed": 2,
+  "baselineFailures": [
+    "Scenario 4: all 4 provider rows are deferred with zero direct inserts (inserted=4, deferred=0)",
+    "Scenario 6: provider row is deferred with zero direct inserts (inserted=1, deferred=0)"
+  ],
+  "candidateSource": "cb93d040c34397378b88511f67675e7e5b81d6f1",
+  "candidateInputHash": "828229dca0cbd9a2663179fdfc0c7f306326c25d0d5c4e6592b61489f206d2cc",
+  "candidateExit": 1,
+  "candidateAssertionsPassed": 97,
+  "candidateAssertionsFailed": 2,
+  "candidateFailures": [
+    "Scenario 4: all 4 provider rows are deferred with zero direct inserts (inserted=4, deferred=0)",
+    "Scenario 6: provider row is deferred with zero direct inserts (inserted=1, deferred=0)"
+  ],
+  "candidateTeardownObservation": "After the gate wrote its failing receipt, shutdown logged an esbuild service-stopped rejection. Launcher setup/teardown and shared-launcher failure counts were zero. This warning is retained separately from the two executed assertion failures.",
+  "interpretation": "The paired execution reproduces identical assertion totals and symptoms on merged C1 and this candidate. It does not establish comprehensive cause equality, later-lane success, or permission to change import semantics/provider policy. Subsequent UI-only source changes do not turn this receipt into a fresh whole-candidate lane pass.",
+  "remainingOwner": "Existing import/certification authority; no ingestion semantics, provider controls or paid-provider policy changed"
+}

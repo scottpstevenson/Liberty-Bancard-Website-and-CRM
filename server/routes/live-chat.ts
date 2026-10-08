@@ -2,14 +2,13 @@ import type { Express } from "express";
 import { storage } from "../storage";
 import { db } from "../db";
 import { isAuthenticated, isDashboardUser } from "../replit_integrations/auth";
-import { authorizeContactAccess, denyCrmObject } from "../services/crm-object-access";
+import { authorizeContactAccess, authorizeLiveChatAccess } from "../services/crm-object-access";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { contacts } from "@shared/schema";
 import { and, eq, ilike, isNull, or } from "drizzle-orm";
 import { createContactLocalFirst } from "../services/contact-writer";
 import { sendCriticalEmailNotification } from "../services/digest-service";
-import type { LiveChat } from "../../shared/schema";
 import { serverError } from "../utils/server-error";
 
 interface AuthUser {
@@ -17,23 +16,6 @@ interface AuthUser {
   firstName?: string;
   lastName?: string;
   email?: string;
-}
-
-async function authorizeLiveChatAccess(
-  req: any,
-  res: any,
-  chat: LiveChat | undefined,
-  options: { exactAssignment?: boolean } = {},
-): Promise<LiveChat | false> {
-  if (!chat) return denyCrmObject(res);
-  const role = (req.user as AuthUser | undefined)?.role;
-  // Anonymous chats are actionable only by privileged staff so they can be
-  // triaged and linked. Agents never receive an unowned conversation.
-  if (!chat.contactId) {
-    return role === "admin" || role === "manager" ? chat : denyCrmObject(res);
-  }
-  const contact = await authorizeContactAccess(req, res, chat.contactId, options);
-  return contact ? chat : false;
 }
 
 function isBusinessHours(): boolean {

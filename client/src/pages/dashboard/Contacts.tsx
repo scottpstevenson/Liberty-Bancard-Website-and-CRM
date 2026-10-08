@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ResponsiveTable } from "@/components/ui/responsive-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket, Download, CheckSquare, ExternalLink, Users, Merge, ChevronRight, Archive, RotateCcw, Star, UserCheck, Filter, Calendar, RefreshCw, BellOff, PhoneMissed, Trash2, ShieldAlert } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -28,7 +27,7 @@ import { exportToCSV } from "@/lib/export-csv";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { destinationUrl, peopleState } from "@/lib/crm-destination-state";
-import { CrmPage, CrmPageHeader, CrmFilterPanel } from "@/components/crm/CrmPresentation";
+import { CrmPage, CrmPageHeader, CrmFilterPanel, CrmDataTable } from "@/components/crm/CrmPresentation";
 import DashboardErrorState from "@/components/DashboardErrorState";
 import { VERTICALS } from "@shared/schema";
 import { resolveContactTargetVertical, SFP_CONTACT_VERTICAL_IDS } from "@shared/contact-vertical-taxonomy";
@@ -1053,7 +1052,7 @@ export default function Contacts() {
         <div className="flex items-center gap-2 flex-wrap">
           {/* #566 — Sort select */}
           <Select value={activitySort || "__default__"} onValueChange={v => setActivitySort(v === "__default__" ? "" : v)}>
-            <SelectTrigger className="h-8 w-[160px] text-xs" data-testid="select-contact-sort">
+            <SelectTrigger aria-label="Sort contacts" className="h-8 w-[160px] text-xs" data-testid="select-contact-sort">
               <SelectValue placeholder="Sort by…" />
             </SelectTrigger>
             <SelectContent>
@@ -1600,7 +1599,7 @@ export default function Contacts() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>First Name</FormLabel>
-                        <FormControl><Input {...field} /></FormControl>
+                        <FormControl><Input {...field} data-testid="input-create-contact-first-name" /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -1611,7 +1610,7 @@ export default function Contacts() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Last Name</FormLabel>
-                        <FormControl><Input {...field} /></FormControl>
+                        <FormControl><Input {...field} data-testid="input-create-contact-last-name" /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -1623,7 +1622,7 @@ export default function Contacts() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Email</FormLabel>
-                      <FormControl><Input {...field} type="email" /></FormControl>
+                      <FormControl><Input {...field} type="email" data-testid="input-create-contact-email" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -1634,7 +1633,7 @@ export default function Contacts() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Phone</FormLabel>
-                      <FormControl><Input {...field} /></FormControl>
+                      <FormControl><Input {...field} data-testid="input-create-contact-phone" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -1645,7 +1644,7 @@ export default function Contacts() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Company</FormLabel>
-                      <FormControl><Input {...field} /></FormControl>
+                      <FormControl><Input {...field} data-testid="input-create-contact-company" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -1927,7 +1926,7 @@ export default function Contacts() {
             </div>
           ) : (
             <>
-              {/* Select-all bar — sits above the table so it works with ResponsiveTable's string-only headers */}
+              {/* Page-only selection stays owned by this authorized directory. */}
               <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/30 text-sm text-muted-foreground" data-testid="contacts-select-all-bar">
                 <Checkbox
                   checked={
@@ -1950,9 +1949,9 @@ export default function Contacts() {
                     : "Select all"}
                 </span>
               </div>
-              <ResponsiveTable
+              <CrmDataTable
                 containerResponsive
-              data={sortedContacts ?? []}
+               rows={sortedContacts ?? []}
               columns={[
                 {
                   header: "",
@@ -1969,6 +1968,7 @@ export default function Contacts() {
                       }}
                       onClick={(e: React.MouseEvent) => e.stopPropagation()}
                       data-testid={`checkbox-contact-${contact.id}`}
+                      aria-label={`Select contact #${contact.id}`}
                     />
                   ),
                 },
@@ -1982,7 +1982,7 @@ export default function Contacts() {
                           {contact.firstName?.[0] ?? '?'}{contact.lastName?.[0] ?? ''}
                         </div>
                         <a href={`/dashboard/contacts/${contact.id}`} onClick={e=>e.stopPropagation()}
-                          className={`inline-flex min-h-11 items-center hover:underline ${isArchived ? "line-through" : ""}`}
+                          className={`inline-flex min-h-11 items-center text-foreground hover:underline ${isArchived ? "line-through" : ""}`}
                           data-testid={`link-contact-${contact.id}`}>{contact.firstName} {contact.lastName}</a>
                         {confirmationFailedMap.has(contact.id) && (
                           <Badge variant="destructive" className="text-xs gap-1 cursor-pointer no-default-hover-elevate no-default-active-elevate"
@@ -2141,6 +2141,7 @@ export default function Contacts() {
                       }}
                       onClick={e => e.stopPropagation()}
                       data-testid={`select-assigned-rep-${contact.id}`}
+                      aria-label={`Assigned representative for contact #${contact.id}`}
                       className="text-xs border border-border rounded px-1.5 py-0.5 bg-background text-foreground max-w-[120px]"
                     >
                       <option value="">Unassigned</option>
@@ -2233,8 +2234,9 @@ export default function Contacts() {
                     );
                   },
                 },
-              ]}
-              keyExtractor={(c: any) => c.id}
+               ].map((column,index)=>({id:String(index),label:column.header,
+                 render:(row:any)=>column.cell ? column.cell(row) : String(row[column.accessorKey!] ?? "—"),
+                 headerClassName:column.className,cellClassName:column.className}))}
               onRowClick={(c: any) => setLocation(`/dashboard/contacts/${c.id}`)}
               mobileCard={(contact: any) => {
                 const isArchived = !!contact.archivedAt;
@@ -2252,6 +2254,7 @@ export default function Contacts() {
                       onClick={(e: React.MouseEvent) => e.stopPropagation()}
                       className="mt-1 shrink-0"
                       data-testid={`checkbox-contact-mobile-${contact.id}`}
+                      aria-label={`Select contact #${contact.id}`}
                     />
                     <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">
                       {contact.firstName?.[0] ?? '?'}{contact.lastName?.[0] ?? ''}
@@ -2259,7 +2262,7 @@ export default function Contacts() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1 flex-wrap">
                         <a href={`/dashboard/contacts/${contact.id}`} onClick={e=>e.stopPropagation()}
-                          className={`inline-flex min-h-11 items-center font-medium text-sm hover:underline ${isArchived ? "line-through" : ""}`}
+                          className={`inline-flex min-h-11 items-center font-medium text-sm text-foreground hover:underline ${isArchived ? "line-through" : ""}`}
                           data-testid={`link-contact-card-${contact.id}`}>{contact.firstName} {contact.lastName}</a>
                         {(contact as any).isDecisionMaker && <Star className="h-3 w-3 fill-amber-400 text-amber-400" />}
                         {/* #542 — DNC flag */}
@@ -2280,7 +2283,7 @@ export default function Contacts() {
                   </div>
                 );
               }}
-              testId="contacts-table"
+               testId="contacts-table"
             />
             </>
           )}

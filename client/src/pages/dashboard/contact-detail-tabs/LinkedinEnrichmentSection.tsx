@@ -97,7 +97,7 @@ export function LinkedinEnrichmentSection({
                   </span>
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-xs">
-                  <p className="text-xs">Proxycurl API key not configured. Go to <strong>Settings → Integrations</strong> to add your key.</p>
+                  <p className="text-xs">Direct LinkedIn enrichment is retired. Adding a provider key does not re-enable this action. Historical evidence remains available.</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

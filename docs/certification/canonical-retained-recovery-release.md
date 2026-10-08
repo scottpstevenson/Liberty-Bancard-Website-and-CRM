@@ -102,3 +102,12 @@ After the owner publishes the release containing this record:
    production evidence.
 5. Keep outbound paused and ZeroBounce selective; keep the existing task open
    until that acceptance is established.
+
+## Separate C2 consumer status — 2026-10-08
+
+C2 presentation/action work has bounded passing API and contract checks but
+failed current browser/action and supported stock lanes. It remains open; see
+[the exact C2 verification receipt](stage3-c2/verification-status.md). No merge,
+serving/runtime equality, native recovery acceptance, or release GO follows from
+that progress. Outbound pause, proposal Hold for Review and independently owned
+incoming synchronization boundaries are unchanged.

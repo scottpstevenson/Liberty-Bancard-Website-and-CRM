@@ -11,6 +11,9 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2, ArrowRight, Pencil, Loader2, Zap } from "lucide-react";
+import { useCrmQuery } from "@/hooks/use-crm-query";
+import { useToolCapability } from "@/hooks/use-tool-capabilities";
+import { CrmPage, CrmPageHeader, CrmDataState } from "@/components/crm/CrmPresentation";
 
 const SALES_STAGES = ["New Lead", "Statement Received", "Review In Progress", "Call Booked", "Proposal Sent", "Negotiation / Follow-Up", "Verbal Commit", "Nurture / Not Now", "Closed Won", "Closed Lost"];
 const ONBOARDING_STAGES = ["Application Submitted", "Application Started", "Underwriting Submitted", "Approved", "Terminal Ordered", "Go-Live Scheduled", "Live (First Batch)", "Active (7 Days)", "Active (30 Days)"];
@@ -88,6 +91,7 @@ function getEmptyAction(type: string): ActionConfig {
 
 export default function StageRules() {
   const { toast } = useToast();
+  const capability = useToolCapability("ai");
   const [createOpen, setCreateOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<StageRule | null>(null);
 
@@ -97,12 +101,19 @@ export default function StageRules() {
   const [toStage, setToStage] = useState("");
   const [actions, setActions] = useState<ActionConfig[]>([]);
 
-  const { data: rules, isLoading } = useQuery<StageRule[]>({
+  const { data: rules, isLoading, isError, refetch } = useCrmQuery<StageRule[]>({
     queryKey: ["/api/stage-rules"],
+    queryFn:async({signal})=>{
+      const data=await (await apiRequest("GET","/api/stage-rules",undefined,undefined,signal)).json();
+      if(!Array.isArray(data) || !data.every(row=>Number.isSafeInteger(row.id)&&Array.isArray(row.actions)))
+        throw new Error("Invalid stage-rule response");
+      return data;
+    },
   });
 
-  const { data: sequences } = useQuery<Sequence[]>({
+  const { data: sequences, isError: sequenceError } = useCrmQuery<Sequence[]>({
     queryKey: ["/api/sequences"],
+    enabled:createOpen,
   });
 
   const createMutation = useMutation({
@@ -137,6 +148,7 @@ export default function StageRules() {
 
   const toggleMutation = useMutation({
     mutationFn: async ({ id, enabled }: { id: number; enabled: boolean }) => {
+      if(capability.blocked) throw new Error("Automation activation is unavailable in this isolated candidate.");
       const res = await apiRequest("PUT", `/api/stage-rules/${id}`, { enabled });
       return res.json();
     },
@@ -201,6 +213,7 @@ export default function StageRules() {
   }
 
   function handleSave() {
+    if(capability.blocked) return;
     if (!name || !toStage) return;
     const body = {
       name,
@@ -221,14 +234,9 @@ export default function StageRules() {
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <div className="space-y-6" data-testid="page-stage-rules">
+    <CrmPage className="space-y-6" data-testid="page-stage-rules">
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h2 className="text-xl font-semibold" data-testid="text-stage-rules-title">Stage Automation Rules</h2>
-          <p className="text-sm text-muted-foreground" data-testid="text-stage-rules-description">
-            Automatically trigger actions when deals move between stages
-          </p>
-        </div>
+        <CrmPageHeader title="Stage Automation Rules" description="Existing stage automation; configuration, activation and delivery authority remain separate." />
         <Dialog open={createOpen} onOpenChange={(open) => { if (!open) closeDialog(); else setCreateOpen(true); }}>
           <DialogTrigger asChild>
             <Button className="gap-2" data-testid="button-create-rule">
@@ -243,9 +251,11 @@ export default function StageRules() {
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-4 pt-2">
+              {sequenceError && <CrmDataState state="unavailable" message="Sequence choices are unavailable, not empty." />}
               <div className="space-y-2">
-                <Label>Name</Label>
+                <Label htmlFor="rule-name">Name</Label>
                 <Input
+                  id="rule-name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g., Welcome email on closed won"
@@ -254,9 +264,9 @@ export default function StageRules() {
               </div>
 
               <div className="space-y-2">
-                <Label>Pipeline</Label>
+                <Label htmlFor="rule-pipeline">Pipeline</Label>
                 <Select value={pipeline} onValueChange={(v) => { setPipeline(v); setFromStage("any"); setToStage(""); }}>
-                  <SelectTrigger data-testid="select-pipeline">
+                  <SelectTrigger id="rule-pipeline" data-testid="select-pipeline">
                     <SelectValue placeholder="Select pipeline..." />
                   </SelectTrigger>
                   <SelectContent>
@@ -268,9 +278,9 @@ export default function StageRules() {
               </div>
 
               <div className="space-y-2">
-                <Label>From Stage</Label>
+                <Label htmlFor="rule-from-stage">From Stage</Label>
                 <Select value={fromStage} onValueChange={setFromStage}>
-                  <SelectTrigger data-testid="select-from-stage">
+                  <SelectTrigger id="rule-from-stage" data-testid="select-from-stage">
                     <SelectValue placeholder="Select stage..." />
                   </SelectTrigger>
                   <SelectContent>
@@ -283,9 +293,9 @@ export default function StageRules() {
               </div>
 
               <div className="space-y-2">
-                <Label>To Stage</Label>
+                <Label htmlFor="rule-to-stage">To Stage</Label>
                 <Select value={toStage} onValueChange={setToStage}>
-                  <SelectTrigger data-testid="select-to-stage">
+                  <SelectTrigger id="rule-to-stage" data-testid="select-to-stage">
                     <SelectValue placeholder="Select stage..." />
                   </SelectTrigger>
                   <SelectContent>
@@ -316,7 +326,7 @@ export default function StageRules() {
                       </div>
 
                       <Select value={action.type} onValueChange={(v) => updateAction(idx, { type: v })}>
-                        <SelectTrigger data-testid={`select-action-type-${idx}`}>
+                        <SelectTrigger aria-label={`Action ${idx+1} type`} data-testid={`select-action-type-${idx}`}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -471,7 +481,7 @@ export default function StageRules() {
               <Button
                 className="w-full"
                 onClick={handleSave}
-                disabled={!name || !toStage || isSaving}
+                disabled={capability.blocked || !name || !toStage || isSaving}
                 data-testid="button-save-rule"
               >
                 {isSaving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
@@ -482,11 +492,12 @@ export default function StageRules() {
         </Dialog>
       </div>
 
+      {capability.blocked && <p role="status" data-testid="stage-activation-reason">Automation activation is unavailable in this isolated candidate. Preview and Cancel remain safe; no rules are activated for UI proof.</p>}
       {isLoading ? (
         <div className="flex items-center justify-center h-48">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" data-testid="loading-spinner" />
         </div>
-      ) : !rules || rules.length === 0 ? (
+      ) : isError ? <CrmDataState state="unavailable" message="Stage rules unavailable." onRetry={()=>refetch()} /> : !rules || rules.length === 0 ? (
         <Card data-testid="card-empty-state">
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <Zap className="w-10 h-10 text-muted-foreground mb-3" />
@@ -525,6 +536,7 @@ export default function StageRules() {
                   <div className="flex items-center gap-2 shrink-0">
                     <Switch
                       checked={rule.enabled}
+                      disabled={capability.blocked}
                       onCheckedChange={(checked) => toggleMutation.mutate({ id: rule.id, enabled: checked })}
                       data-testid={`switch-rule-enabled-${rule.id}`}
                     />
@@ -547,6 +559,6 @@ export default function StageRules() {
           ))}
         </div>
       )}
-    </div>
+    </CrmPage>
   );
 }

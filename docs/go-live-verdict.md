@@ -1,5 +1,18 @@
 # Liberty Bancard AI BOS — Go/No-Go Verdict
 
+## Liberty Stage 3 C2 — 2026-10-08 scoped closeout
+
+C2 implementation is handed off at the user's explicit no-more-full-suites
+boundary. **This entry grants no release GO and closes no global finding.**
+The compiled C2 browser construction at `4df9b86e` passed 335 bounded
+observations with zero external effects. Final source refinements at `e44b40ea`
+have syntax evidence only. The C1 input-speed failure, final typecheck timeout,
+unattributed controls and remaining acceptance/owner boundaries are retained in
+[the C2 closeout](certification/stage3-c2/closeout.md) and
+[verification status](certification/stage3-c2/verification-status.md).
+No publication, production mutation or outbound policy change occurred.
+The June verdict below is historical, not acceptance of this C2 candidate.
+
 **Run date:** 2026-06-26  
 **Operator:** Release QA Agent (Wave 12 Task #667)  
 **Environment:** Replit dev server (`http://localhost:5000`) + PostgreSQL DB  

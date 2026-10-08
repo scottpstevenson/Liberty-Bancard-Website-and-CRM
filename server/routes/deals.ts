@@ -13,7 +13,7 @@ import { generateDealBlueprint } from "../services/deal-blueprint";
 import { estimateFromContact, estimateFromDeal, estimateFromProspect } from "../services/volume-estimator";
 import { createPreferenceAwareNotification, sendCriticalEmailNotification } from "../services/digest-service";
 import { sendGhlEmailForMerchant, isGhlConfigured } from "../services/ghl";
-import { advanceDealStage } from "../services/deal-stage-service";
+import { advanceDealStage, DealStageConflictError, DealStageIllegalTransitionError } from "../services/deal-stage-service";
 import { classifyAiError, logAiCredentialError } from "../services/ai-audit-logger";
 import { updateContactLocalFirst } from "../services/contact-writer";
 import { parse } from "csv-parse/sync";
@@ -26,7 +26,7 @@ import { updateCustomFields } from "../services/sdr/ghl-client";
 import { serverError } from "../utils/server-error";
 import { GO_LIVE_GATE_STAGES, checkGoLiveReadiness, GoLiveGateError } from "../services/go-live-gate";
 import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
-import { agentOwnershipEmail, authorizeDealAccess, denyCrmObject, parseStrictPagination } from "../services/crm-object-access";
+import { agentOwnershipEmail, authorizeContactAccess, authorizeDealAccess, denyCrmObject, parseStrictPagination } from "../services/crm-object-access";
 import { readRevenueDeals } from "../services/revenue-read-authority";
 import { decideCr06SequenceLifecycle } from "../services/cr06-promotional-lifecycle-decision";
 
@@ -75,7 +75,21 @@ export function registerDealsRoutes(app: Express) {
         });
       }
       const { limit, offset } = pagination;
-      const result = await readRevenueDeals(req.user as any, { pipeline, limit, offset });
+      const parsedFilters=z.object({
+        includeArchived:z.enum(["true","false"]).optional(),
+        noFollowUp:z.enum(["true","false"]).optional(),
+        unassigned:z.enum(["true","false"]).optional(),
+        pastGoLive:z.enum(["true","false"]).optional(),
+        assignedTo:z.string().trim().min(1).max(320).optional(),
+        vertical:z.string().trim().min(1).max(160).optional(),
+        offerPath:z.string().trim().min(1).max(160).optional(),
+        groupContactId:z.string().regex(/^[1-9][0-9]*$/).transform(Number).refine(Number.isSafeInteger).optional(),
+      }).safeParse(req.query);
+      if(!parsedFilters.success)return res.status(400).json({message:"Invalid deal scope filters",code:"INVALID_DEAL_FILTERS",correlationId});
+      const {includeArchived,noFollowUp,unassigned,pastGoLive,...dealFilters}=parsedFilters.data;
+      if(dealFilters.groupContactId && !await authorizeContactAccess(req,res,dealFilters.groupContactId))return;
+      const result = await readRevenueDeals(req.user as any, { pipeline, limit, offset,...dealFilters,includeArchived:includeArchived==="true",
+        noFollowUp:noFollowUp==="true",unassigned:unassigned==="true",pastGoLive:pastGoLive==="true" });
       // REV-05A: Serialize each deal — masks mid and sanitizes boardingLog.
       const { serializeDeal: _serializeDeal2 } = await import("../utils/mask-mid");
       const maskedResult = {
@@ -158,7 +172,10 @@ export function registerDealsRoutes(app: Express) {
       // REV-05A: `mid` must never be written via the generic deal PUT — all MID changes must go
       // through assignMerchantMidToCanonical() via PUT /api/admin/merchants/:id/mid. Strip it here
       // so a dashboard user cannot bypass the canonical MID service.
-      const { stage: newStageRaw, overrideReason, mid: _strippedMid, ...otherFields } = req.body as Record<string, unknown>;
+      const { stage: newStageRaw, overrideReason, expectedStage, mid: _strippedMid, ...otherFields } = req.body as Record<string, unknown>;
+      if(expectedStage!==undefined && (typeof expectedStage!=="string" || !expectedStage.trim())) {
+        return res.status(400).json({message:"expectedStage must be the displayed stage"});
+      }
       const newStage = typeof newStageRaw === "string" ? newStageRaw : undefined;
       const stageChanging = newStage !== undefined && newStage !== old.stage;
 
@@ -216,18 +233,18 @@ export function registerDealsRoutes(app: Express) {
           && old.pipeline === "onboarding";
 
         if (isGoLiveGate) {
-          updated = await advanceDealStage(dealId, newStage!, "put_route", goLiveOverrideCtx);
+          updated = await advanceDealStage(dealId, newStage!, "put_route", goLiveOverrideCtx, expectedStage as string|undefined);
           if (!updated) return res.status(404).json({ message: "Not found" });
           if (Object.keys(otherFields).length > 0) {
             const merged = await storage.updateDeal(dealId, otherFields, { userId });
             if (merged) updated = merged;
           }
         } else {
-          if (Object.keys(otherFields).length > 0) {
-            await storage.updateDeal(dealId, otherFields, { userId });
-          }
-          updated = await advanceDealStage(dealId, newStage!, "put_route", goLiveOverrideCtx);
+          updated = await advanceDealStage(dealId, newStage!, "put_route", goLiveOverrideCtx, expectedStage as string|undefined);
           if (!updated) return res.status(404).json({ message: "Not found" });
+          if (Object.keys(otherFields).length > 0) {
+            updated = await storage.updateDeal(dealId, otherFields, { userId }) ?? updated;
+          }
         }
       }
 
@@ -431,6 +448,9 @@ export function registerDealsRoutes(app: Express) {
       res.json(_serializeDealUpdate(updated as any));
     } catch (err: any) {
       // Surface go-live gate blocks as 422 rather than 500
+      if(err instanceof DealStageConflictError) return res.status(409).json({
+        code:err.code,message:"Displayed deal stage changed. Reload before moving.",dealId:err.dealId,currentStage:err.actual,expectedStage:err.expected});
+      if(err instanceof DealStageIllegalTransitionError) return res.status(422).json({code:err.code,message:err.message,dealId:err.dealId,currentStage:err.from});
       if (err instanceof GoLiveGateError) {
         return res.status(422).json({
           code: "GO_LIVE_GATE_FAILED",

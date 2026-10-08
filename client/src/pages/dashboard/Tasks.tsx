@@ -1,7 +1,10 @@
-import { useState, Fragment } from "react";
+import { useState, useEffect, useRef, Fragment, type ReactNode } from "react";
 import { useWorkCommands, invalidateWorkFacts } from "@/hooks/use-work-commands";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useMutation } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { useAuth } from "@/hooks/use-auth";
+import { useToolCapability } from "@/hooks/use-tool-capabilities";
+import { apiRequest, queryClient, protectedScope } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -14,7 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Plus, ArrowRight, Sparkles, Loader2, ChevronDown, UserPlus, CheckCircle, Trash2, MessageSquare, Pencil } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useToast } from "@/hooks/use-toast";
+import { useOwnedToast as useToast } from "@/hooks/use-owned-toast";
 import Comments from "@/components/Comments";
 import SavedFilterBar from "@/components/SavedFilterBar";
 import DashboardErrorState from "@/components/DashboardErrorState";
@@ -24,8 +27,18 @@ import { toastError } from "@/lib/toast-helpers";
 import type { Task } from "@shared/schema";
 import { isSlaGeneratedTask } from "@/lib/task-source";
 
-const STATUS_OPTIONS = ["pending", "in_progress", "completed"] as const;
+const STATUS_OPTIONS = ["pending", "in_progress", "completed", "cancelled"] as const;
 const PRIORITY_OPTIONS = ["normal", "high", "urgent"] as const;
+
+function TasksHeader({ embedded, title, subtitle, actions, testId }: {
+  embedded: boolean; title: string; subtitle?: string; actions?: ReactNode; testId?: string;
+}) {
+  if (!embedded) return <PageHeader title={title} subtitle={subtitle} actions={actions} testId={testId} />;
+  return <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between" data-testid={testId}>
+    <div><h2 className="text-lg font-semibold">{title}</h2>{subtitle && <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>}</div>
+    {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+  </div>;
+}
 
 function isValidDate(value: unknown): value is Date {
   return value instanceof Date && !isNaN(value.getTime());
@@ -34,12 +47,12 @@ function isValidDate(value: unknown): value is Date {
 function formatDueDate(dueDate: Task["dueDate"]): string {
   if (!dueDate) return "No due date";
   const parsed = new Date(dueDate);
-  return isValidDate(parsed) ? parsed.toLocaleDateString() : "No due date";
+  return isValidDate(parsed) ? parsed.toLocaleString(undefined, { timeZone: "UTC", timeZoneName: "short" }) : "Invalid due date";
 }
 
 function isOverdue(task: Task): boolean {
   if (!task.dueDate) return false;
-  if (task.status === "completed") return false;
+  if (task.status === "completed" || task.status==="cancelled") return false;
   const due = new Date(task.dueDate);
   if (!isValidDate(due)) return false;
   return new Date() > due;
@@ -94,8 +107,10 @@ function getNextStatus(status: string | null): string | null {
   }
 }
 
-export default function Tasks() {
+export default function Tasks({ embedded = false }: { embedded?: boolean }) {
   const { toast } = useToast();
+  const {user}=useAuth();
+  const aiCapability=useToolCapability("ai");
   const [createOpen, setCreateOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterSource, setFilterSource] = useState<string>("all");
@@ -141,106 +156,131 @@ export default function Tasks() {
     contactId: "",
     ticketId: "",
   });
+  const actorContext=JSON.stringify(protectedScope(user));
+  const commandContext=JSON.stringify([actorContext,filterSource,filterStatus,createOpen,editTaskId,[...selectedTaskIds].sort()]);
+  const currentContext=useRef(commandContext);currentContext.current=commandContext;
+  const mutationBoundary={onMutate:()=>commandContext};
+  const accepts=(submitted:string|undefined)=>submitted===currentContext.current;
+  useEffect(()=>{
+    setSelectedTaskIds(new Set());setSelectAll(false);setCreateOpen(false);setEditTaskId(null);
+    setBulkAssignOpen(false);setBulkDeleteConfirmOpen(false);setExpandedTaskId(null);setBulkAssignTo("");
+    setNewTask({title:"",description:"",assignedTo:"",dueDate:"",priority:"normal",dealId:"",contactId:"",ticketId:""});
+    setEditTaskFields({title:"",description:"",assignedTo:"",dueDate:"",priority:"normal"});
+  },[actorContext]);
 
   const { data: tasks, isLoading, isError, refetch } = useQuery<Task[]>({
     queryKey: ["/api/tasks", filterSource],
-    queryFn: async () => {
+    queryFn: async ({signal}) => {
       const params = new URLSearchParams();
       if (filterSource === "sla" || filterSource === "manual") {
         params.set("source", filterSource);
       }
       const url = params.toString() ? `/api/tasks?${params.toString()}` : "/api/tasks";
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch tasks");
-      return res.json();
+      const data=await (await apiRequest("GET",url,undefined,undefined,signal)).json();
+      if(!Array.isArray(data)||!data.every(task=>Number.isSafeInteger(task.id)&&Number.isInteger(task.authorityFence)
+        &&typeof task.title==="string"&&typeof task.status==="string"))throw new Error("Invalid authorized task collection");
+      return data;
     },
   });
 
   const workCommands = useWorkCommands("task", selectedTaskIds, tasks);
   const createTaskMutation = useMutation({
+    ...mutationBoundary,
     mutationFn: async (data: Record<string, unknown>) => {
-      const res = await apiRequest("POST", "/api/tasks", data);
+      const res = await apiRequest("POST", "/api/tasks", workCommands.create(data));
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+    onSuccess: (_data,_variables,submitted) => {
+      workCommands.finishCreate(_variables);
+      invalidateWorkFacts();if(!accepts(submitted))return;
       setCreateOpen(false);
       setNewTask({ title: "", description: "", assignedTo: "", dueDate: "", priority: "normal", dealId: "", contactId: "", ticketId: "" });
       toast({ title: "Task created successfully" });
     },
-    onError: (err: Error) => {
+    onError: (err: Error,_variables,submitted) => {
+      if(!accepts(submitted))return;
       toastError(err, { title: "Failed to create task" });
     },
   });
 
   const updateTaskMutation = useMutation({
+    ...mutationBoundary,
     mutationFn: async ({ id, ...data }: { id: number } & Record<string, unknown>) => {
       const res = await apiRequest("PUT", `/api/tasks/${id}`, data);
       return res.json();
     },
-    onSuccess: () => {
-      invalidateWorkFacts();
+    onSuccess: (_data,_variables,submitted) => {
+      invalidateWorkFacts();if(!accepts(submitted))return;
       toast({ title: "Task updated" });
     },
-    onError: (err: Error) => {
+    onError: (err: Error,_variables,submitted) => {
+      if(!accepts(submitted))return;
       toastError(err, { title: "Failed to update task" });
     },
   });
 
   const generateTasksMutation = useMutation({
+    ...mutationBoundary,
     mutationFn: async () => {
+      if(aiCapability.blocked)throw new Error(aiCapability.reason);
       const res = await apiRequest("POST", "/api/ai/generate-tasks");
       return res.json();
     },
-    onSuccess: (data: { generated: number }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+    onSuccess: (data: { generated: number },_variables,submitted) => {
+      invalidateWorkFacts();if(!accepts(submitted))return;
       toast({ title: `AI generated ${data.generated} new tasks`, description: "Tasks created based on stalling deals, SLA breaches, and cold leads." });
     },
-    onError: (err: Error) => {
+    onError: (err: Error,_variables,submitted) => {
+      if(!accepts(submitted))return;
       toastError(err, { title: "AI task generation failed" });
     },
   });
 
   const bulkAssignMutation = useMutation({
+    ...mutationBoundary,
     mutationFn: async ({ taskIds, assignedTo }: { taskIds: number[]; assignedTo: string }) => {
       const res = await apiRequest("POST", "/api/tasks/bulk-assign", workCommands.bulk(taskIds, { assignedTo }));
       return res.json();
     },
-    onSuccess: (data) => {
-      invalidateWorkFacts();
+    onSuccess: (data,_variables,submitted) => {
+      invalidateWorkFacts();if(!accepts(submitted))return;
       setSelectedTaskIds(new Set());
       setBulkAssignOpen(false);
       setBulkAssignTo("");
       toast({ title: data.replayed ? "Assignment already saved" : `${data.count} tasks reassigned` });
     },
-    onError: (err: Error) => {
+    onError: (err: Error,_variables,submitted) => {
+      if(!accepts(submitted))return;
       toastError(err, { title: "Failed to assign tasks" });
     },
   });
 
   const bulkCompleteMutation = useMutation({
+    ...mutationBoundary,
     mutationFn: async (taskIds: number[]) => {
       const res = await apiRequest("POST", "/api/tasks/bulk-complete", workCommands.bulk(taskIds));
       return res.json();
     },
-    onSuccess: (data) => {
-      invalidateWorkFacts();
+    onSuccess: (data,_variables,submitted) => {
+      invalidateWorkFacts();if(!accepts(submitted))return;
       setSelectedTaskIds(new Set());
       toast({ title: data.replayed ? "Completion already saved" : `${data.changed} tasks completed` });
     },
-    onError: (err: Error) => {
+    onError: (err: Error,_variables,submitted) => {
+      if(!accepts(submitted))return;
       toastError(err, { title: "Failed to complete tasks" });
     },
   });
 
   const bulkDeleteMutation = useMutation({
+    ...mutationBoundary,
     mutationFn: async (taskIds: number[]): Promise<{ deleted: number; requested: number; replayed:boolean }> => {
       const res = await apiRequest("POST", "/api/tasks/bulk-delete", workCommands.bulk(taskIds));
       const data = await res.json();
       return { deleted: data.deleted, requested: taskIds.length,replayed:data.replayed };
     },
-    onSuccess: ({ deleted, requested,replayed }) => {
-      invalidateWorkFacts();
+    onSuccess: ({ deleted, requested,replayed },_variables,submitted) => {
+      invalidateWorkFacts();if(!accepts(submitted))return;
       setSelectedTaskIds(new Set());
       setBulkDeleteConfirmOpen(false);
       if (replayed) {
@@ -251,7 +291,8 @@ export default function Tasks() {
         toast({ title: `${deleted} task${deleted !== 1 ? "s" : ""} deleted` });
       }
     },
-    onError: (err: Error) => {
+    onError: (err: Error,_variables,submitted) => {
+      if(!accepts(submitted))return;
       setBulkDeleteConfirmOpen(false);
       toastError(err, { title: "Failed to delete tasks" });
     },
@@ -326,7 +367,7 @@ export default function Tasks() {
     updateTaskMutation.mutate(
       { id: editTaskId, ...workCommands.edit({ id: editTaskId, authorityFence: editTaskFence }, payload) },
       {
-        onSuccess: () => setEditTaskId(null),
+        onSuccess: (_data,_variables,submitted) => {if(accepts(submitted))setEditTaskId(null);},
       }
     );
   };
@@ -395,13 +436,14 @@ export default function Tasks() {
 
   return (
     <div className="space-y-6" data-testid="tasks-page">
-      <PageHeader
+      <TasksHeader
+        embedded={embedded}
         title="Tasks"
         testId="text-tasks-title"
         actions={
           <>
             <Select value={filterSource} onValueChange={handleSourceFilterChange}>
-              <SelectTrigger className="w-[180px]" data-testid="select-filter-source">
+              <SelectTrigger aria-label="Filter tasks by source" className="w-[180px]" data-testid="select-filter-source">
                 <SelectValue placeholder="Source" />
               </SelectTrigger>
               <SelectContent>
@@ -411,7 +453,7 @@ export default function Tasks() {
               </SelectContent>
             </Select>
             <Select value={filterStatus} onValueChange={handleStatusFilterChange}>
-              <SelectTrigger className="w-[160px]" data-testid="select-filter-status">
+              <SelectTrigger aria-label="Filter tasks by effective status" className="w-[160px]" data-testid="select-filter-status">
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
               <SelectContent>
@@ -426,7 +468,7 @@ export default function Tasks() {
               data-testid="button-ai-generate-tasks"
               className="gap-2"
               onClick={() => generateTasksMutation.mutate()}
-              disabled={generateTasksMutation.isPending}
+              disabled={generateTasksMutation.isPending || aiCapability.blocked}
             >
               {generateTasksMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
               AI Generate Tasks
@@ -450,6 +492,7 @@ export default function Tasks() {
                     onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
                     placeholder="Task title"
                     data-testid="input-task-title"
+                    aria-label="Task title"
                   />
                 </div>
                 <div className="space-y-2">
@@ -459,6 +502,7 @@ export default function Tasks() {
                     onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
                     placeholder="Task description..."
                     data-testid="input-task-description"
+                    aria-label="Task description"
                   />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -467,8 +511,9 @@ export default function Tasks() {
                     <Input
                       value={newTask.assignedTo}
                       onChange={(e) => setNewTask({ ...newTask, assignedTo: e.target.value })}
-                      placeholder="Name"
+                      placeholder="Existing owner email or user ID"
                       data-testid="input-task-assigned"
+                      aria-label="Task owner email or user ID"
                     />
                   </div>
                   <div className="space-y-2">
@@ -478,6 +523,7 @@ export default function Tasks() {
                       value={newTask.dueDate}
                       onChange={(e) => setNewTask({ ...newTask, dueDate: e.target.value })}
                       data-testid="input-task-duedate"
+                      aria-label="Task due date and time in your device timezone"
                     />
                   </div>
                 </div>
@@ -485,6 +531,7 @@ export default function Tasks() {
                   <Label>Priority</Label>
                   <Select value={newTask.priority} onValueChange={(v) => setNewTask({ ...newTask, priority: v })}>
                     <SelectTrigger data-testid="select-task-priority">
+                      <span className="sr-only">Task priority</span>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -502,6 +549,7 @@ export default function Tasks() {
                       onChange={(e) => setNewTask({ ...newTask, dealId: e.target.value })}
                       placeholder="Optional"
                       data-testid="input-task-deal-id"
+                      aria-label="Linked deal ID"
                     />
                   </div>
                   <div className="space-y-2">
@@ -511,6 +559,7 @@ export default function Tasks() {
                       onChange={(e) => setNewTask({ ...newTask, contactId: e.target.value })}
                       placeholder="Optional"
                       data-testid="input-task-contact-id"
+                      aria-label="Linked contact ID"
                     />
                   </div>
                   <div className="space-y-2">
@@ -520,6 +569,7 @@ export default function Tasks() {
                       onChange={(e) => setNewTask({ ...newTask, ticketId: e.target.value })}
                       placeholder="Optional"
                       data-testid="input-task-ticket-id"
+                      aria-label="Linked ticket ID"
                     />
                   </div>
                 </div>
@@ -739,12 +789,18 @@ export default function Tasks() {
         }}
       />
 
+      <p role="status" data-testid="work-ai-capability-reason">{aiCapability.reason}</p>
+      <p className="text-xs" data-testid="work-reader-coverage">
+        {tasks?.length ?? 0} tasks returned by the authorized array reader; {filteredTasks.length} match these loaded filters.
+        No server paging or whole-population selection is claimed. Due times use {Intl.DateTimeFormat().resolvedOptions().timeZone}.
+      </p>
       <div className="overflow-x-auto border rounded-md" data-testid="tasks-table">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead className="w-10">
                 <Checkbox
+                    aria-label="Select all tasks in this filtered collection"
                   checked={filteredTasks.length > 0 && selectedTaskIds.size === filteredTasks.length}
                   onCheckedChange={toggleAllTasks}
                   data-testid="checkbox-select-all-tasks"
@@ -784,6 +840,7 @@ export default function Tasks() {
                 <TableRow data-testid={`row-task-${task.id}`}>
                   <TableCell>
                     <Checkbox
+                      aria-label={`Select task ${task.id}: ${task.title}`}
                       checked={selectedTaskIds.has(task.id)}
                       onCheckedChange={() => toggleTaskSelection(task.id)}
                       data-testid={`checkbox-task-${task.id}`}
@@ -857,6 +914,7 @@ export default function Tasks() {
                         title="Edit task"
                         onClick={() => openEditTask(task)}
                         data-testid={`button-edit-task-${task.id}`}
+                        aria-label={`Edit task #${task.id}`}
                       >
                         <Pencil className="w-3 h-3" />
                       </Button>
@@ -866,6 +924,7 @@ export default function Tasks() {
                         className="gap-1"
                         onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
                         data-testid={`button-comments-${task.id}`}
+                        aria-label={`Comments for task #${task.id}`}
                       >
                         <MessageSquare className="w-3 h-3" />
                       </Button>

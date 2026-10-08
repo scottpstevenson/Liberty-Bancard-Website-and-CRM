@@ -4,6 +4,7 @@
  * its server and public artifacts without ever logging matched secret values.
  */
 import { spawnSync } from "node:child_process";
+import { writeCandidateIdentity, captureCandidateSource } from "./fixtures/candidate-build-identity";
 
 function run(command: string, args: string[]): void {
   const result = spawnSync(command, args, { stdio: "inherit", env: process.env });
@@ -14,10 +15,14 @@ function run(command: string, args: string[]): void {
 }
 
 try {
+  const source=await captureCandidateSource();
   run(process.execPath, ["node_modules/typescript/bin/tsc", "--noEmit"]);
   run(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "build"]);
   run(process.execPath, ["node_modules/tsx/dist/cli.mjs", "scripts/inventory-artifact-dependencies.ts", "--output", "dist/dependency-inventory.json"]);
   run(process.execPath, ["node_modules/tsx/dist/cli.mjs", "scripts/scan-build-artifacts.ts"]);
+  // Inventory is emitted after npm build; finalize only once every gated
+  // output exists, otherwise reuse would correctly reject that extra file.
+  await writeCandidateIdentity(process.cwd(),source);
   console.log("release-artifact-gate: PASS — typecheck, production build, dependency inventory, and redacting artifact scan completed");
 } catch (error) {
   console.error(

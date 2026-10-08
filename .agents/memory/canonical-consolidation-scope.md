@@ -21,6 +21,17 @@ or equate disposable certification with production execution. When diagnosis
 proves the defect, continue with the correction and its tests rather than
 stopping at an evidence report.
 
+Continue available implementation and verification after a failed check; do
+not turn an intermediate failure into a request for permission to resume.
+
+**Why:** The user explicitly corrected an unsolicited stop: “I never told you
+to stop.” Existing failures still need truthful qualification, not abandonment
+of independent in-scope work.
+
+**How to apply:** Change the diagnostic approach when retries do not establish
+the cause, continue safe independent work, and request user input only for an
+actual access, authorization or scope decision.
+
 **Why:** The user repeatedly rejected stopping at intermediate local milestones
 and requesting incremental publishes without end-to-end progress, and explicitly
 rejected stopping after identifying a confirmed production deadlock.

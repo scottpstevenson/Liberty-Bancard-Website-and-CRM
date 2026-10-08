@@ -5,6 +5,8 @@ import { contactTargetVerticalSql, resolveContactTargetVertical } from "@shared/
 import { CLASSIFIER_VERSION } from "./cro03/sfp-vertical-classifier";
 import { effectiveContactVerticalSql,effectiveContactVerticalStatusSql } from "@shared/effective-vertical";
 import { syntheticQaIdentitySql } from "@shared/synthetic-qa-identity";
+import { crmFactRevision } from "./crm-fact-freshness";
+import { sql, type SQL } from "drizzle-orm";
 
 export type RevenueUser = { role?: string; email?: string | null };
 export type RevenueFilters = {
@@ -14,9 +16,29 @@ export type RevenueFilters = {
   contactedToday?: boolean; hasAssignee?: boolean; leadSource?: string; lifecycle?: string;
   stale?: boolean; recentlyUpdated?: boolean; neverContacted?: boolean; notContactedIn30?: boolean;
   noDeal?: boolean; createdThisWeek?: boolean; pipeline?: string;
+  includeArchived?: boolean; groupContactId?: number; offerPath?: string;
+  noFollowUp?:boolean; unassigned?:boolean; pastGoLive?:boolean;
+  isParentAccount?:boolean;
 };
 
 const privileged = (user: RevenueUser) => user.role === "admin" || user.role === "manager";
+/** Drizzle consumer adapter for the existing parameterized reader predicate.
+ * No second scope SQL. Each parameter is rebound, never interpolated as text. */
+export function revenuePredicateSql(user:RevenueUser, domain:"contact"|"deal", filters:Partial<RevenueFilters>={}):SQL {
+  const values:unknown[]=[];
+  const text=domain==="contact"
+    ? contactReadPredicate(user,{limit:50,offset:0,...filters},values,"contacts")
+    : dealReadPredicate(user,filters,values,"deals");
+  const chunks:SQL[]=[];
+  let position=0;
+  for(const match of text.matchAll(/\$(\d+)/g)) {
+    chunks.push(sql.raw(text.slice(position,match.index)));
+    chunks.push(sql`${values[Number(match[1])-1]}`);
+    position=match.index!+match[0].length;
+  }
+  chunks.push(sql.raw(text.slice(position)));
+  return sql.join(chunks,sql``);
+}
 const observeRevenueSubjects = async (
   user: RevenueUser,
   subjects: Array<{ subjectType: "contact" | "deal"; subjectId: number }>,
@@ -80,6 +102,7 @@ function addContactFilters(filters: RevenueFilters, values: unknown[], alias = "
   if (filters.tag) { values.push(filters.tag); where.push(`$${values.length} = ANY(COALESCE(${alias}.tags, ARRAY[]::text[]))`); }
   if (filters.contactedToday) where.push(`${alias}.last_contacted_at >= CURRENT_DATE AND ${alias}.last_contacted_at < CURRENT_DATE + INTERVAL '1 day'`);
   if (filters.hasAssignee) where.push(`${alias}.assigned_to IS NOT NULL`);
+  if(filters.isParentAccount)where.push(`${alias}.is_parent_account=TRUE`);
   if (filters.leadSource) { values.push(filters.leadSource); where.push(`${alias}.lead_source = $${values.length}`); }
   if (filters.lifecycle) { values.push(filters.lifecycle); where.push(`${alias}.lifecycle_state = $${values.length}`); }
   if (filters.stale) where.push(`COALESCE(${alias}.last_contacted_at, ${alias}.updated_at, ${alias}.created_at, to_timestamp(0)) < CURRENT_TIMESTAMP - INTERVAL '30 days'`);
@@ -99,8 +122,9 @@ export function contactReadPredicate(user: RevenueUser, filters: RevenueFilters,
 }
 
 /** Same production/nonarchived/owned-or-unassigned population as the deal list. */
-export function dealReadPredicate(user: RevenueUser, filters: Pick<RevenueFilters, "pipeline">, values: unknown[], alias = "d"): string {
-  const where = [`${alias}.archived_at IS NULL`, `${alias}.record_class='production'`];
+export function dealReadPredicate(user: RevenueUser, filters: Pick<RevenueFilters, "pipeline"|"includeArchived"|"assignedTo"|"vertical"|"groupContactId"|"offerPath"|"noFollowUp"|"unassigned"|"pastGoLive">, values: unknown[], alias = "d"): string {
+  const where = [`${alias}.record_class='production'`];
+  if(!filters.includeArchived)where.push(`${alias}.archived_at IS NULL`);
   if (filters.pipeline) {
     values.push(filters.pipeline);
     where.push(`${alias}.pipeline=$${values.length}`);
@@ -108,6 +132,32 @@ export function dealReadPredicate(user: RevenueUser, filters: Pick<RevenueFilter
   if (!privileged(user)) {
     values.push(user.email ?? "");
     where.push(`(LOWER(${alias}.owner)=LOWER($${values.length}) OR ${alias}.owner IS NULL)`);
+  }
+  if(filters.assignedTo) {
+    values.push(filters.assignedTo);
+    where.push(`LOWER(${alias}.owner)=LOWER($${values.length})`);
+  }
+  if(filters.offerPath) {
+    values.push(filters.offerPath);
+    where.push(`${alias}.offer_path=$${values.length}`);
+  }
+  if(filters.noFollowUp)where.push(`${alias}.next_follow_up IS NULL`);
+  if(filters.unassigned)where.push(`${alias}.owner IS NULL`);
+  if(filters.pastGoLive)where.push(`${alias}.expected_go_live_date < CURRENT_TIMESTAMP AND LOWER(COALESCE(${alias}.boarding_status,'')) NOT IN ('live','approved')`);
+  if(filters.vertical) {
+    values.push(filters.vertical);
+    const parameter=`$${values.length}`;
+    where.push(`(${alias}.vertical=${parameter} OR EXISTS(
+      SELECT 1 FROM contacts vertical_contact WHERE vertical_contact.id=${alias}.contact_id AND vertical_contact.vertical=${parameter}))`);
+  }
+  if(filters.groupContactId) {
+    values.push(filters.groupContactId);
+    const parameter=`$${values.length}`;
+    // Reuse the contact authority; group membership does not grant access to
+    // a foreign contact or widen the deal-owner predicate above.
+    const contactPredicate=contactReadPredicate(user,{limit:50,offset:0},values,"group_contact");
+    where.push(`EXISTS(SELECT 1 FROM contacts group_contact WHERE group_contact.id=${alias}.contact_id
+      AND (group_contact.id=${parameter} OR group_contact.parent_contact_id=${parameter}) AND ${contactPredicate})`);
   }
   return where.join(" AND ");
 }
@@ -150,17 +200,19 @@ function camelize(value: unknown): any {
 // half if still over limit).  TTL: 30 seconds.
 // ---------------------------------------------------------------------------
 interface FacetCacheEntry { value: FacetResult; expiresAt: number }
-type FacetResult = { total: number; byRecordClass: Record<string, number>; byEmailHealth: Record<string, number>; asOf: string };
+type FacetResult = { total: number; byRecordClass: Record<string, number>; byEmailHealth: Record<string, number>; asOf: string;
+  stageDistribution?:Record<string,number> };
 
 const _facetCache  = new Map<string, FacetCacheEntry>();
 const _facetFlight = new Map<string, Promise<FacetResult>>();   // in-flight single-flight
 const FACET_CACHE_TTL_MS  = 30_000;
 const FACET_CACHE_MAX     = 200;
 
-function _facetCacheKey(user: RevenueUser, filters: RevenueFilters): string {
+function _facetCacheKey(user: RevenueUser, filters: RevenueFilters, factRevision:string): string {
   // Include every field that influences the WHERE predicate, plus role scope.
   const scope = privileged(user) ? "all" : (user.email ?? "anon");
   const key = {
+    factRevision,
     scope,
     search: filters.search ?? null,
     status: filters.status ?? null,
@@ -175,6 +227,7 @@ function _facetCacheKey(user: RevenueUser, filters: RevenueFilters): string {
     tag: filters.tag ?? null,
     contactedToday: filters.contactedToday ?? false,
     hasAssignee: filters.hasAssignee ?? false,
+    isParentAccount:filters.isParentAccount??false,
     leadSource: filters.leadSource ?? null,
     lifecycle: filters.lifecycle ?? null,
     stale: filters.stale ?? false,
@@ -268,7 +321,7 @@ export async function readPeople(user: RevenueUser, filters: RevenueFilters) {
  *    reported as an authoritative zero.
  */
 export async function readPeopleFacets(user: RevenueUser, filters: RevenueFilters): Promise<FacetResult> {
-  const cacheKey = _facetCacheKey(user, filters);
+  const cacheKey = _facetCacheKey(user, filters, await crmFactRevision());
 
   // 1. Warm cache hit — no DB call.
   const cached = _getCachedFacet(cacheKey);
@@ -359,7 +412,7 @@ export async function readRevenueLeads(user: RevenueUser, filters: RevenueFilter
   // Key includes scope + all filter fields that affect the predicate.
   // Revenue leads have an additional open-sales-deal predicate. Never reuse
   // the People facet total for this narrower population (or vice versa).
-  const cacheKey = `revenue-leads:v1:${JSON.stringify(OPEN_SALES_LEAD_STAGES)}:${_facetCacheKey(user, { ...filters, archived: false, recordClass: "production" })}`;
+  const cacheKey = `revenue-leads:v1:${JSON.stringify(OPEN_SALES_LEAD_STAGES)}:${_facetCacheKey(user, { ...filters, archived: false, recordClass: "production" }, await crmFactRevision())}`;
   const _cachedLeads = _getCachedFacet(cacheKey);
   let countRow: { total: number; as_of: string | Date } = _cachedLeads
     ? { total: _cachedLeads.total, as_of: _cachedLeads.asOf }
@@ -399,9 +452,9 @@ export async function readRevenueLeads(user: RevenueUser, filters: RevenueFilter
 /**
  * Canonical production deal list used by Pipeline and other operational readers.
  *
- * Single connection, READ ONLY REPEATABLE READ. Data query uses ORDER BY +
- * LIMIT directly on the deals table (no MATERIALIZED CTE). Count uses the same
- * predicate over deals only (no contact join needed for counting).
+ * Data and cached count are separate reads, not one transaction snapshot.
+ * Data query uses ORDER BY + LIMIT directly on the deals table. Counts and
+ * stage distribution use the exact same existing-owner predicate.
  */
 export async function readRevenueDeals(user: RevenueUser, filters: RevenueFilters) {
   const values: unknown[] = [];
@@ -414,11 +467,12 @@ export async function readRevenueDeals(user: RevenueUser, filters: RevenueFilter
   const offsetParam = value(filters.offset ?? 0);
 
   // 1. Paginated data — connection auto-released after query.
+  const dataReadStartedAt=new Date().toISOString();
   const dataResult = await pool.query(
     `SELECT d.*,
        CONCAT_WS(' ', c.first_name, c.last_name) AS contact_name,
        c.company_name, c.email AS contact_email, c.phone AS contact_phone,
-       c.employee_count AS contact_employee_count, c.lead_source AS contact_lead_source
+        c.employee_count AS contact_employee_count, c.lead_source AS contact_lead_source,c.vertical AS contact_vertical
      FROM deals d LEFT JOIN contacts c ON c.id = d.contact_id
      WHERE ${predicate}
      ORDER BY d.updated_at DESC NULLS LAST, d.id DESC
@@ -426,28 +480,35 @@ export async function readRevenueDeals(user: RevenueUser, filters: RevenueFilter
     values,
   );
   const dataRows: Record<string, unknown>[] = dataResult.rows;
+  const dataReadCompletedAt=new Date().toISOString();
 
   // 2. Total count — cached 30 s.
-  // Key covers scope + pipeline filter (the only predicate-changing fields for deals).
+  // Every predicate-changing field participates; offsets do not change totals.
   const dealsCacheScope = privileged(user) ? "all" : (user.email ?? "anon");
-  const dealsCacheKey = `deals-count:v2:${JSON.stringify({ scope: dealsCacheScope, pipeline: filters.pipeline ?? null })}`;
+  const normalizedFilters={pipeline:filters.pipeline??null,includeArchived:filters.includeArchived??false,
+    assignedTo:filters.assignedTo??null,vertical:filters.vertical??null,groupContactId:filters.groupContactId??null,offerPath:filters.offerPath??null,
+    noFollowUp:filters.noFollowUp??false,unassigned:filters.unassigned??false,pastGoLive:filters.pastGoLive??false};
+  const dealsCacheKey = `deals-count:v3:${JSON.stringify({ factRevision:await crmFactRevision(),scope: dealsCacheScope,...normalizedFilters })}`;
   const _cachedDeals = _getCachedFacet(dealsCacheKey);
-  let countRow: { total: number; as_of: string | Date } = _cachedDeals
-    ? { total: _cachedDeals.total, as_of: _cachedDeals.asOf }
-    : { total: 0, as_of: new Date() };
+  let countRow: { total: number; as_of: string | Date; stage_distribution:Record<string,number> } = _cachedDeals
+    ? { total: _cachedDeals.total, as_of: _cachedDeals.asOf,stage_distribution:_cachedDeals.stageDistribution! }
+    : { total: 0, as_of: new Date(),stage_distribution:{} };
   if (!_cachedDeals) {
     const countResult = await pool.query(
-      `SELECT COUNT(*)::int AS total, CURRENT_TIMESTAMP AS as_of
-       FROM deals d WHERE ${predicate}`,
+      `SELECT COALESCE(SUM(stage_count),0)::int AS total,
+       COALESCE(jsonb_object_agg(stage,stage_count),'{}'::jsonb) AS stage_distribution, CURRENT_TIMESTAMP AS as_of
+       FROM (SELECT d.stage,COUNT(*)::int AS stage_count FROM deals d WHERE ${predicate} GROUP BY d.stage) counted`,
       countValues,
     );
-    const countResultRow = countResult.rows[0] ?? { total: 0, as_of: new Date() };
+    const countResultRow = countResult.rows[0];
+    if(!countResultRow || !countResultRow.stage_distribution)throw new Error("DEAL_COUNT_DTO_UNAVAILABLE");
     countRow = countResultRow;
     _setCachedFacet(dealsCacheKey, {
       total: Number(countResultRow.total ?? 0),
       byRecordClass: {},
       byEmailHealth: {},
       asOf: new Date(countResultRow.as_of as string | Date).toISOString(),
+       stageDistribution:countResultRow.stage_distribution,
     });
   }
 
@@ -456,11 +517,13 @@ export async function readRevenueDeals(user: RevenueUser, filters: RevenueFilter
   return {
     data,
     total: Number(countRow.total ?? 0),
+    stageDistribution:countRow.stage_distribution,
     limit: filters.limit ?? 100,
     offset: filters.offset ?? 0,
-    filters: { pipeline: filters.pipeline ?? null, archived: false, recordClass: "production" },
+    filters: { ...normalizedFilters,archived:filters.includeArchived?"included":false,recordClass: "production" },
     scope: privileged(user) ? "all" : "owned_or_unassigned",
     asOf: new Date(countRow.as_of).toISOString(),
+    dataReadWindow:{startedAt:dataReadStartedAt,completedAt:dataReadCompletedAt},
   };
 }
 

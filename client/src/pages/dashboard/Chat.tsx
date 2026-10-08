@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useSearch } from "wouter";
+import { useSearch, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Send, Loader2, Bot, User, Briefcase, Headphones, ClipboardCheck, Megaphone, DollarSign, Shield, BarChart3, Tag, X, Search } from "lucide-react";
@@ -10,8 +10,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
-import { apiRequest } from "@/lib/queryClient";
-import { useQuery } from "@tanstack/react-query";
+import { apiRequest, protectedScope } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
+import { useContacts } from "@/hooks/use-contacts";
+import { useContextualContact } from "@/hooks/use-contextual-contact";
+import { useToolCapability } from "@/hooks/use-tool-capabilities";
+import { safeParams } from "@/lib/crm-destination-state";
+import { CrmPage, CrmPageHeader, CrmDataState } from "@/components/crm/CrmPresentation";
 import type { Contact } from "@shared/schema";
 
 interface Message {
@@ -124,11 +129,26 @@ export default function Chat() {
   const [vertical, setVertical] = useState<string>("");
   const [contactPickerOpen, setContactPickerOpen] = useState(false);
   const [contactSearch, setContactSearch] = useState("");
-  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [selectedContactId, setSelectedContactId] = useState("");
   const [loadedFromContact, setLoadedFromContact] = useState<string | null>(null);
+  const [clearSerial,setClearSerial]=useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const search = useSearch();
+  const [, setLocation] = useLocation();
+  const { user } = useAuth();
+  const capability = useToolCapability("ai");
+  const exactContact = useContextualContact(selectedContactId, "overview");
+  const selectedContact = exactContact.data?.contact ?? null;
+  const contextKey = JSON.stringify([protectedScope(user), selectedContactId, department, vertical,clearSerial]);
+  const currentContext = useRef(contextKey);
+  currentContext.current = contextKey;
+  useEffect(() => {
+    setMessages([]); setInputValue(""); setIsLoading(false);
+  }, [contextKey]);
+  useEffect(() => {
+    setSelectedContactId(safeParams(search, ["contactId"]).get("contactId") ?? "");
+  }, [search]);
   useEffect(() => {
     const params = new URLSearchParams(search);
     const vParam = params.get("vertical");
@@ -138,18 +158,8 @@ export default function Chat() {
     }
   }, [search]);
 
-  const { data: contactsData } = useQuery<{ data: Contact[] }>({
-    queryKey: ["/api/contacts", { limit: 200 }],
-    queryFn: () => fetch("/api/contacts?limit=200").then(r => r.json()),
-  });
-
-  const filteredContacts = (contactsData?.data || []).filter(c => {
-    if (!contactSearch.trim()) return false;
-    const q = contactSearch.toLowerCase();
-    const name = `${c.firstName} ${c.lastName}`.toLowerCase();
-    const company = (c.companyName || "").toLowerCase();
-    return name.includes(q) || company.includes(q);
-  }).slice(0, 8);
+  const contactsQuery = useContacts({ limit: 50, offset: 0, search: contactSearch.trim() || undefined });
+  const filteredContacts: Contact[] = contactSearch.trim().length >= 2 ? contactsQuery.data?.data ?? [] : [];
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -161,7 +171,8 @@ export default function Chat() {
 
   const handleSend = async () => {
     const text = inputValue.trim();
-    if (!text || isLoading) return;
+    if (!text || isLoading || capability.blocked || (selectedContactId && !exactContact.isSuccess)) return;
+    const submittedContext = contextKey;
 
     const userMessage: Message = { role: "user", content: text };
     const updatedMessages = [...messages, userMessage];
@@ -177,27 +188,32 @@ export default function Chat() {
         contactId: selectedContact?.id ?? undefined,
       });
       const data = await res.json();
+      if (currentContext.current !== submittedContext) return;
       if (data?.error) {
         setMessages(prev => [...prev, { role: "assistant", content: data.message || "The AI assistant is temporarily unavailable. Please try again later." }]);
       } else {
         setMessages(prev => [...prev, { role: "assistant", content: data.response || "No response generated." }]);
       }
     } catch (err: any) {
+      if (currentContext.current !== submittedContext) return;
       setMessages(prev => [
         ...prev,
         { role: "assistant", content: "Sorry, I encountered an error. Please try again." },
       ]);
     } finally {
-      setIsLoading(false);
+      if (currentContext.current === submittedContext) setIsLoading(false);
     }
   };
 
   const handleClear = () => {
-    setMessages([]);
+    setClearSerial(value=>value+1);setMessages([]);
   };
 
   const handleSelectContact = useCallback((contact: Contact) => {
-    setSelectedContact(contact);
+    setSelectedContactId(String(contact.id));
+    const params = safeParams(search, ["contactId", "vertical"]);
+    params.set("contactId", String(contact.id));
+    setLocation(`/dashboard/chat?${params.toString()}`);
     const mapped = matchContactVertical(contact.vertical);
     if (mapped) {
       setVertical(mapped);
@@ -207,11 +223,13 @@ export default function Chat() {
     }
     setContactPickerOpen(false);
     setContactSearch("");
-  }, []);
+  }, [search, setLocation]);
 
   const handleClearVertical = () => {
     setVertical("");
-    setSelectedContact(null);
+    setSelectedContactId("");
+    const params = safeParams(search, ["vertical"]);
+    setLocation(`/dashboard/chat${params.size ? `?${params}` : ""}`);
     setLoadedFromContact(null);
   };
 
@@ -220,14 +238,9 @@ export default function Chat() {
   const verticalSuggestions = vertical ? (VERTICAL_SUGGESTIONS[vertical] || []) : [];
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col" data-testid="chat-page">
+    <CrmPage className="min-w-0 flex flex-col" data-testid="chat-page">
       <div className="mb-4 flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h2 className="text-2xl font-bold text-primary" data-testid="text-chat-title">AI Business Advisor</h2>
-          <p className="text-sm text-muted-foreground">
-            Department-specific guidance for Liberty Bancard operations.
-          </p>
-        </div>
+        <CrmPageHeader title="AI Business Advisor" description="Department-specific guidance for Liberty Bancard operations." />
         <div className="flex items-center gap-2 flex-wrap">
           {departments.map((dept) => {
             const Icon = dept.icon;
@@ -279,7 +292,7 @@ export default function Chat() {
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-72 p-0" align="start">
-              <Command>
+              <Command shouldFilter={false}>
                 <CommandInput
                   placeholder="Search by name or company..."
                   value={contactSearch}
@@ -288,7 +301,9 @@ export default function Chat() {
                 />
                 <CommandList>
                   <CommandEmpty>
-                    {contactSearch.length < 2
+                    {contactsQuery.isError ? "Contact search unavailable — retry."
+                      : contactsQuery.isFetching ? "Searching authorized contacts…"
+                      : contactSearch.length < 2
                       ? "Type to search contacts..."
                       : "No contacts found."}
                   </CommandEmpty>
@@ -298,7 +313,7 @@ export default function Chat() {
                       return (
                         <CommandItem
                           key={c.id}
-                          value={`${c.firstName} ${c.lastName} ${c.companyName || ""}`}
+                           value={`contact:${c.id}`}
                           onSelect={() => handleSelectContact(c)}
                           data-testid={`contact-option-${c.id}`}
                         >
@@ -317,6 +332,8 @@ export default function Chat() {
                     })}
                   </CommandGroup>
                 </CommandList>
+                {contactsQuery.isError && <Button onClick={() => contactsQuery.refetch()}>Retry search</Button>}
+                {filteredContacts.length === 50 && <p className="p-2 text-xs">First 50 matches; refine your search.</p>}
               </Command>
             </PopoverContent>
           </Popover>
@@ -337,7 +354,7 @@ export default function Chat() {
           {activeVertical && (
             <Badge variant="secondary" className="text-xs" data-testid="badge-active-vertical">
               {activeVertical.label} context active
-              {loadedFromContact && <span className="ml-1 opacity-70">· {loadedFromContact}</span>}
+              {selectedContact && <span className="ml-1 opacity-70">· {selectedContact.firstName} {selectedContact.lastName}{selectedContact.companyName ? ` — ${selectedContact.companyName}` : ""}</span>}
             </Badge>
           )}
         </div>
@@ -458,6 +475,8 @@ export default function Chat() {
           <div ref={messagesEndRef} />
         </ScrollArea>
 
+        {selectedContactId && exactContact.isError && <CrmDataState state="unavailable" message="Selected contact unavailable or denied." onRetry={() => exactContact.refetch()} />}
+        <p role="status" className="px-4 py-2 text-sm" data-testid="chat-capability-reason">{capability.reason}</p>
         <div className="p-4 border-t flex items-center gap-2">
           <Input
             value={inputValue}
@@ -472,7 +491,7 @@ export default function Chat() {
             onClick={handleSend}
             size="icon"
             aria-label="Send message"
-            disabled={!inputValue.trim() || isLoading}
+            disabled={!inputValue.trim() || isLoading || capability.blocked || (!!selectedContactId && !exactContact.isSuccess)}
             data-testid="button-send-message"
           >
             <Send className="w-4 h-4" />
@@ -485,6 +504,6 @@ export default function Chat() {
           </p>
         </div>
       </Card>
-    </div>
+    </CrmPage>
   );
 }

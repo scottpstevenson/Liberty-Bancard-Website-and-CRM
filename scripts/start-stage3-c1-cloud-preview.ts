@@ -16,27 +16,12 @@ import {launchSfp2060DisposableRedis} from "./sfp2060-disposable-redis";
 import {isPrivateDisposableGateEnvironment} from "./pre-deploy";
 import {stage3BHttpFixture} from "./fixtures/stage3-b-http";
 import {installC1CompiledSsrAssets} from "./fixtures/c1-compiled-ssr-assets";
+import {verifyCandidateIdentity} from "./fixtures/candidate-build-identity";
 
 const readyFile=path.resolve(".local/tasks/c1-cloud-preview-ready.json");
 const tsx=path.resolve("node_modules/tsx/dist/cli.mjs");
 async function verifyReusableBuild(){
-  const inputs=execFileSync("git",["ls-files","-z","client","server","shared",
-    "package.json","package-lock.json","vite.config.ts","tailwind.config.ts",
-    "tailwind-legacy-theme.json","tsconfig.json","script/build.ts"],{encoding:"utf8"})
-    .split("\0").filter(Boolean).sort();
-  const html=await stat("dist/public/index.html");
-  await stat("dist/index.cjs");
-  const hash=createHash("sha256");
-  for(const file of inputs){
-    assert.ok((await stat(file)).mtimeMs<=html.mtimeMs,
-      `Compiled candidate is older than ${file}; a fresh build is required`);
-    hash.update(file+"\0");hash.update(await readFile(file));hash.update("\0");
-  }
-  const outputs=createHash("sha256");
-  outputs.update(await readFile("dist/public/index.html"));
-  outputs.update(await readFile("dist/index.cjs"));
-  return {inputHash:hash.digest("hex"),entryOutputsHash:outputs.digest("hex"),
-    compiledHtmlAt:html.mtime.toISOString(),qualification:"Compiled client; registered source handlers; not deployed"};
+  return verifyCandidateIdentity();
 }
 async function childServer(){
   const password=process.env.C1_BROWSER_FIXTURE_PASSWORD;
@@ -49,6 +34,11 @@ async function childServer(){
       ["message-drafts","registerMessageDraftRoutes"],["residuals","registerResidualsRoutes"],
       ["analytics","registerAnalyticsRoutes"],["terminal-economics","registerTerminalEconomicsRoutes"],
       ["admin","registerAdminRoutes"],["permissions-audit","registerPermissionsAuditRoutes"],
+       ["deals","registerDealsRoutes"],["activity","registerActivityRoutes"],
+       ["daily-briefing","registerDailyBriefingRoutes"],["my-day","registerMyDayRoutes"],
+       ["toolkit","registerToolkitRoutes"],["inbox","registerInboxRoutes"],
+       ["conversation-ai-config","registerConversationAiConfigRoutes"],
+       ["ai","registerAiRoutes"],["nba","registerNbaRoutes"],
     ]){
       console.log(`C1 registering ${file}`);
       const module=await import(`../server/routes/${file}.ts`);
@@ -72,6 +62,7 @@ async function childServer(){
     FROM generate_series(1,61) AS n`,[h.prefix,h.email("agent")]);
    const pendingReadyFile=readyFile+".pending";
    await writeFile(pendingReadyFile,JSON.stringify({base:h.base,isolated:true,syntheticVolume:61,
+     build:await verifyReusableBuild(),
     sourceHead:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim()}),{mode:0o600});
    await rename(pendingReadyFile,readyFile);
   console.log("C1 isolated candidate ready; synthetic accounts; real login; provider transports denied");
@@ -108,7 +99,10 @@ async function launch(){
     upstream.on("error",()=>{if(!res.headersSent)res.writeHead(502);res.end("Isolated candidate unavailable");});
     req.on("aborted",()=>upstream.destroy());req.pipe(upstream);
   });
-  await new Promise<void>((resolve,reject)=>{proxy.once("error",reject);proxy.listen(5000,"0.0.0.0",resolve);});
+   const portArgument=process.argv.find(arg=>arg.startsWith("--public-port="));
+   const publicPort=portArgument ? Number(portArgument.split("=")[1]) : 5000;
+   assert.ok(Number.isInteger(publicPort) && publicPort>=1024 && publicPort<=65535,"Valid explicit public preview port required");
+   await new Promise<void>((resolve,reject)=>{proxy.once("error",reject);proxy.listen(publicPort,"0.0.0.0",resolve);});
   const env=buildLocalRehearsalEnvironment();
   const cluster=await launchLocalPostgres16(env);
   let redis:Awaited<ReturnType<typeof launchSfp2060DisposableRedis>>|undefined;
@@ -166,7 +160,7 @@ async function launch(){
       await new Promise(resolve=>setTimeout(resolve,100));
     }
     assert.ok(target,"Isolated candidate readiness unavailable");
-    console.log("Authenticated isolated preview available on port 5000; no session injection");
+     console.log(`Authenticated isolated preview available on port ${publicPort}; no session injection`);
     await new Promise<void>(resolve=>child!.once("exit",()=>resolve()));
   }finally{await stop();}
 }

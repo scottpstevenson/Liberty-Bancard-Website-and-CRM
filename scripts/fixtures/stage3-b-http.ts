@@ -19,6 +19,9 @@ export async function stage3BHttpFixture(register: (app: Express) => Promise<voi
   const originalFetch = globalThis.fetch;
   let externalCalls = 0;
   let base = "";
+  let responseLoss:{method:string;path:string;mode:"socket"|"truncate"}|null=null;
+  let responseLossCount=0;
+  const responseFaultEvents:Array<{event:string;method:string;path:string;status?:number;mode?:string}>=[];
   // Deny before database-bound application/auth/route imports, not only once
   // the listener is ready. Test isolation never restores product approval gates.
   globalThis.fetch = (async (input: any, init: any) => {
@@ -53,6 +56,33 @@ export async function stage3BHttpFixture(register: (app: Express) => Promise<voi
     const app = express(); app.use(express.json()); app.use(cookieParser());
     await setupAuth(app,authDependencies); registerAuthRoutes(app);
     app.get("/api/csrf-token", csrfTokenEndpoint);
+    // Same order as production: session/auth and CSRF (setupAuth), then the
+    // global object fence, then registered CRM handlers. No inline-check inference.
+    const { crmObjectAccessGuard } = await import("../../server/services/crm-object-access");
+    app.use(crmObjectAccessGuard);
+    // Drop one successful reply only AFTER the real registered handler has
+    // completed its writes. This proves response-loss recovery, not a mocked
+    // success or a request denied before dispatch.
+    app.use((req,res,next)=>{
+      const json=res.json.bind(res);
+      const method=req.method,path=new URL(req.originalUrl,"http://isolated.invalid").pathname;
+      res.json=((body:unknown)=>{
+        if(responseLoss?.path===path)responseFaultEvents.push({event:"matched-path",method,path,status:res.statusCode,mode:responseLoss.mode});
+        if(responseLoss?.method===method && responseLoss.path===path && res.statusCode<300){
+          const mode=responseLoss.mode;responseLoss=null;responseLossCount++;
+          responseFaultEvents.push({event:"executed",method,path,status:res.statusCode,mode});
+          if(mode==="socket")res.destroy();
+          else {res.setHeader("Content-Type","application/json");res.end('{"receipt":');}
+          return res;
+        }
+        return json(body);
+      }) as typeof res.json;
+      next();
+    });
+    // Freshness wraps the final transport-loss shim, so the actual owner's
+    // cache/version contract completes even when the socket reply is lost.
+    const { crmFactFreshnessMiddleware } = await import("../../server/services/crm-fact-freshness");
+    app.use(crmFactFreshnessMiddleware);
     await register(app);
     server = await new Promise<any>(resolve => {
       const listener = app.listen(0, "127.0.0.1", () => resolve(listener));
@@ -84,6 +114,13 @@ export async function stage3BHttpFixture(register: (app: Express) => Promise<voi
     }
     for (const role of roles) await login(role);
     return { app, db, pool, prefix, password, passwordHash, base, userId, email, roles,
-      request, login, sessions, close, originalFetch, externalCalls: () => externalCalls };
+      request, login, sessions, close, originalFetch, externalCalls: () => externalCalls,
+      responseLossCount:()=>responseLossCount,
+      responseFaultEvents,
+      loseNextSuccessfulResponse:(method:string,path:string,mode:"socket"|"truncate"="socket")=>{
+        assert.equal(responseLoss,null,"An armed response fault must execute before another is installed");
+        responseLoss={method,path,mode};
+        responseFaultEvents.push({event:"armed",method,path,mode});
+      } };
   } catch (error) { await close(); throw error; }
 }

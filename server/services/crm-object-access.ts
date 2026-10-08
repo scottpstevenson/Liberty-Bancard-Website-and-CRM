@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { getInboxItem,getInboxAccessMetadata } from "../storage/inbox";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import type { LiveChat } from "../../shared/schema";
 
 type DashboardUser = { role?: string; email?: string | null };
 
@@ -23,6 +24,22 @@ export function denyCrmObject(res: Response): false {
   return false;
 }
 
+/** Existing live-chat access owner, shared by its routes and exact Inbox read. */
+export async function authorizeLiveChatAccess(
+  req: Request,
+  res: Response,
+  chat: LiveChat | undefined,
+  options: { exactAssignment?: boolean } = {},
+): Promise<LiveChat | false> {
+  if (!chat) return denyCrmObject(res);
+  const role = (req.user as DashboardUser | undefined)?.role;
+  if (!chat.contactId) {
+    return role === "admin" || role === "manager" ? chat : denyCrmObject(res);
+  }
+  const contact = await authorizeContactAccess(req, res, chat.contactId, options);
+  return contact ? chat : false;
+}
+
 export async function authorizeContactAccess(
   req: Request,
   res: Response,
@@ -41,11 +58,11 @@ export async function authorizeDealAccess(
   req: Request,
   res: Response,
   dealId: number,
-  options: { exactAssignment?: boolean } = {},
+  options: { exactAssignment?: boolean; includeArchived?: boolean } = {},
 ) {
   if (!Number.isInteger(dealId) || dealId <= 0) return denyCrmObject(res);
   const deal = await storage.getDeal(dealId);
-  if (!deal || deal.archivedAt || !canAccessOwner(req.user as DashboardUser | undefined, deal.owner, !!options.exactAssignment)) {
+  if (!deal || (deal.archivedAt && !options.includeArchived) || !canAccessOwner(req.user as DashboardUser | undefined, deal.owner, !!options.exactAssignment)) {
     return denyCrmObject(res);
   }
   return deal;
@@ -111,7 +128,10 @@ export async function crmObjectAccessGuard(req: Request, res: Response, next: Ne
 
     const dealMatch = req.path.match(/^\/api\/deals\/(\d+)(?:\/|$)/);
     if (dealMatch) {
-      if (!await authorizeDealAccess(req, res, Number(dealMatch[1]))) return;
+      // Restore must reach the existing action owner for an archived record.
+      // This is not permission to read/mutate its other archived subresources.
+      const restoring=req.method==="POST" && req.path===`/api/deals/${dealMatch[1]}/restore`;
+      if (!await authorizeDealAccess(req, res, Number(dealMatch[1]),{includeArchived:restoring})) return;
     }
     return next();
   } catch (error) {

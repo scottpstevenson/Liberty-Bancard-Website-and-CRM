@@ -1,13 +1,15 @@
 import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { useState, useEffect } from "react";
-import { useParams, useLocation, Link } from "wouter";
+import { useParams, useLocation, Link, useSearch } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUpdateContact } from "@/hooks/use-contacts";
-import { apiRequest, getCsrfToken } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
+import { apiRequest, getCsrfToken, protectedContextToken } from "@/lib/queryClient";
+import { useOwnedToast as useToast } from "@/hooks/use-owned-toast";
 import { useAuth } from "@/hooks/use-auth";
 import {useRetainedLocalIntent} from "@/hooks/use-retained-local-intent";
-import type { Contact, Deal, Ticket as TicketType, Task as TaskType, Note, Company, ContactCompany, Document, Agent } from "@shared/schema";
+import { useOutboundPauseObservation } from "@/hooks/use-outbound-pause-observation";
+import { invalidateWorkFacts } from "@/hooks/use-work-commands";
+import type { Contact, Deal, Ticket as TicketType, Task as TaskType, Company, ContactCompany, Document, Agent } from "@shared/schema";
 import { VERTICALS, OFFER_PATHS } from "@shared/schema";
 import RfiTab from "@/components/RfiTab";
 
@@ -39,8 +41,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import Comments from "@/components/Comments";
 import { EmailComposer } from "@/components/EmailComposer";
 import { ReadinessCard } from "@/components/ReadinessCard";
-import { CrmDataState, RecordHeader, CrmPageHeader } from "@/components/crm/CrmPresentation";
-import { parseLocalEntityId } from "@/lib/crm-destination-state";
+import { CrmDataState, CrmPage, RecordHeader, CrmPageHeader, CrmAreaNav, CrmDetailDrawer } from "@/components/crm/CrmPresentation";
+import { contactAreaSections, contactAreas, contactSectionArea, contactSections, contactWorkspaceState, buildContactWorkspaceHref, parseLocalEntityId, type ContactArea, type ContactSection } from "@/lib/crm-destination-state";
 import { useEmployeeCrm } from "@/components/crm/employee-crm-context";
 
 // #240 — One-click copy button for phone/email
@@ -585,17 +587,20 @@ function NpsScoreBadge({ score }: { score: number }) {
 }
 
 function NpsHistoryPanel({ contactId }: { contactId: number }) {
-  const { data: responses = [], isLoading } = useQuery<NpsResponse[]>({
+  const { data: responses = [], isLoading, isError, refetch } = useQuery<NpsResponse[]>({
     queryKey: ["/api/contacts", contactId, "nps-responses"],
     queryFn: async ({ signal }) => {
       const res = await fetch(`/api/contacts/${contactId}/nps-responses`, { credentials: "include", signal });
-      if (!res.ok) return [];
-      return res.json();
+      if (!res.ok) throw new Error("NPS history unavailable");
+      const data=await res.json();
+      if(!Array.isArray(data))throw new Error("Invalid NPS history response");
+      return data;
     },
     enabled: !!contactId,
   });
 
   if (isLoading) return <div className="p-6 text-center text-muted-foreground text-sm">Loading NPS history…</div>;
+  if (isError) return <CrmDataState state="unavailable" message="Survey history unavailable. This does not mean no surveys exist." onRetry={()=>void refetch()}/>;
 
   if (responses.length === 0) {
     return (
@@ -1218,6 +1223,8 @@ function DocumentAccessHistory({ contactId }: { contactId: number }) {
 
 export default function ContactDetail() {
   const params = useParams<{ id: string }>();
+  useAuth();
+  const requested=contactWorkspaceState(useSearch());
   if (!parseLocalEntityId("contactId", params.id ?? "")) {
     return <div className="crm-page">
       <CrmPageHeader title="Contact unavailable" description="The Contact reference is not a valid local Contact ID." />
@@ -1226,13 +1233,23 @@ export default function ContactDetail() {
         data-testid="link-invalid-contact-people">Back to People</Link>
     </div>;
   }
-  return <ContactDetailRecord />;
+  if(requested.issues.length) return <CrmPage>
+    <CrmPageHeader title="Contact view unavailable" description="The requested area, section or drawer is invalid or conflicting." />
+    <CrmDataState state="unavailable" message="No protected record or child reads were opened for this URL." />
+    <Link href={`/dashboard/contacts/${params.id}`} className="inline-flex min-h-11 items-center underline">Open contact overview</Link>
+  </CrmPage>;
+  return <ContactDetailRecord key={`${params.id}:${protectedContextToken()}`} />;
 }
 
 function ContactDetailRecord() {
+  const outbound=useOutboundPauseObservation();
   const employeeCrm = useEmployeeCrm();
   const params = useParams<{ id: string }>();
+  const search = useSearch();
   const contactId = Number(params.id);
+  const requestedDrawer = contactWorkspaceState(search).drawer;
+  const requestedWorkspace = contactWorkspaceState(search);
+  const requestedSection = requestedWorkspace.section ?? "overview";
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -1240,18 +1257,18 @@ function ContactDetailRecord() {
   const { user } = useAuth();
   const noteIntents=useRetainedLocalIntent();
   const isManagerOrAdmin = user?.role === "admin" || user?.role === "manager";
+  const [isEditing, setIsEditing] = useState(false);
 
   const { data: agentsList } = useQuery<Agent[]>({
     queryKey: ["/api/agents"],
     queryFn: async ({ signal }) => {
       const res = await fetch("/api/agents", { credentials: "include", signal });
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error("Agent list unavailable");
       return res.json();
     },
-    enabled: isManagerOrAdmin,
+    enabled: isManagerOrAdmin && isEditing,
   });
 
-  const [isEditing, setIsEditing] = useState(false);
   const [editFields, setEditFields] = useState<Record<string, string | null | undefined>>({});
   const [tagInput, setTagInput] = useState("");
   const [editSupportedVerticals, setEditSupportedVerticals] = useState<string[]>([]); // #1443
@@ -1271,26 +1288,18 @@ function ContactDetailRecord() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [isEditing]);
 
-  // #260 — auto-save contact edits every 30 seconds
-  useEffect(() => {
-    if (!isEditing) return;
-    const interval = setInterval(() => {
-      saveEdit().catch(() => {/* silently ignore autosave errors */});
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [isEditing, editFields]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Edits remain local until Save. A remote autosave cannot satisfy Cancel's
+  // zero-write contract; abandoning the form must not modify the record.
   const [noteContent, setNoteContent] = useState("");
-  const [activeTab, setActiveTab] = useState("overview");
 
   const [showLinkedinHistory, setShowLinkedinHistory] = useState(false);
 
   const [showDealDialog, setShowDealDialog] = useState(false);
   const [dealForm, setDealForm] = useState({ pipeline: "sales", stage: "New Lead", offerPath: "", notes: "" });
 
-  const { data: proxycurlStatus } = useQuery<{ configured: boolean }>({
-    queryKey: ["/api/proxycurl/status"],
-  });
-  const proxycurlConfigured = proxycurlStatus?.configured ?? true;
+  // Retirement is not a configuration problem. Do not probe a retired
+  // provider on record mount or suggest a key can restore this action.
+  const proxycurlConfigured = false;
 
   const enrichLinkedInMutation = useMutation({
     mutationFn: async () => {
@@ -1305,16 +1314,7 @@ function ContactDetailRecord() {
       }
     },
     onError: (err: Error) => {
-      const isKeyMissing = err.message?.toLowerCase().includes("proxycurl") || err.message?.toLowerCase().includes("api key");
-      if (isKeyMissing) {
-        toast({
-          title: "Proxycurl API key not configured",
-          description: "Add your Proxycurl API key in Settings → Integrations to enable LinkedIn enrichment.",
-          variant: "destructive",
-        });
-      } else {
-        toast({ title: "LinkedIn enrichment failed", description: err.message, variant: "destructive" });
-      }
+      toast({ title: "Direct LinkedIn enrichment retired", description: err.message, variant: "destructive" });
     },
   });
 
@@ -1323,6 +1323,8 @@ function ContactDetailRecord() {
 
   const [showTaskDialog, setShowTaskDialog] = useState(false);
   const [taskForm, setTaskForm] = useState({ title: "", description: "", dueDate: "" });
+  const [taskSaving,setTaskSaving]=useState(false);
+  const [taskSaveError,setTaskSaveError]=useState<string|null>(null);
 
   const [emailComposerOpen, setEmailComposerOpen] = useState(false);
   const [logCallOpen, setLogCallOpen] = useState(false); // #1475
@@ -1335,44 +1337,42 @@ function ContactDetailRecord() {
   const [newCompanyForm, setNewCompanyForm] = useState({ legalName: "", dba: "", vertical: "", website: "" });
   const [companySearch, setCompanySearch] = useState("");
 
-  const { data, isLoading, error } = useQuery<ContactDetailData>({
-    queryKey: ["/api/contacts", contactId, "detail"],
+  const { data, isLoading, error, refetch } = useQuery<ContactDetailData>({
+    queryKey: ["/api/contacts", contactId, "detail", requestedSection],
     queryFn: async ({ signal }) => {
-      const res = await fetch(`/api/contacts/${contactId}/detail`, { credentials: "include", signal });
+      const res = await fetch(`/api/contacts/${contactId}/detail?section=${encodeURIComponent(requestedSection)}`, { credentials: "include", signal });
       if (!res.ok) throw new Error("Failed to fetch contact details");
       return res.json();
     },
     enabled: !!contactId,
   });
+  const detailAuthorized = Boolean(data?.contact && !error);
+  const sectionReadAllowed = (section: ContactSection) => {
+    if (!detailAuthorized || requestedSection !== section) return false;
+    if (section === "company-intelligence") return !!data?.contact?.isParentAccount;
+    if (section === "call-assist") return user?.role === "agent" || user?.role === "manager" || user?.role === "admin";
+    if (section === "onboarding-stages") return data?.capabilities?.hasOnboarding === true;
+    return true;
+  };
 
-  const { data: activityEvents } = useQuery<ActivityEvent[]>({
+  const { data: activityEvents, isLoading: activityLoading, isError: activityError, refetch: retryActivity } = useQuery<ActivityEvent[]>({
     queryKey: ["/api/contacts", contactId, "activity"],
     queryFn: async ({ signal }) => {
       const res = await fetch(`/api/contacts/${contactId}/activity`, { credentials: "include", signal });
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error("Contact activity is unavailable");
       return res.json();
     },
-    enabled: !!contactId,
+    enabled: detailAuthorized && requestedDrawer === "activity",
   });
 
-  const { data: notesList,isError:notesError,refetch:retryNotes } = useQuery<Note[]>({
-    queryKey: ["/api/notes", "contact", contactId],
-    queryFn: async ({ signal }) => {
-      const res = await fetch(`/api/notes?entityType=contact&entityId=${contactId}`, { credentials: "include", signal });
-      if (!res.ok) throw new Error("Contact notes unavailable");
-      return res.json();
-    },
-    enabled: !!contactId,
-  });
-
-  const { data: contactCompanies = [] } = useQuery<ContactCompany[]>({
+  const { data: contactCompanies, isLoading: contactCompaniesLoading, isError: contactCompaniesError, refetch: retryContactCompanies } = useQuery<ContactCompany[]>({
     queryKey: ["/api/contacts", contactId, "companies"],
     queryFn: async ({ signal }) => {
       const res = await fetch(`/api/contacts/${contactId}/companies`, { credentials: "include", signal });
       if (!res.ok) throw new Error("Contact company associations unavailable");
       return res.json();
     },
-    enabled: !!contactId,
+    enabled: sectionReadAllowed("overview") || (detailAuthorized && showCompanyDialog),
   });
 
   type RateReviewEntry = {
@@ -1385,14 +1385,14 @@ function ContactDetailRecord() {
     dealId: number | null;
     document?: { id: number; fileName: string } | null;
   };
-  const { data: rateReviews = [], refetch: refetchRateReviews } = useQuery<RateReviewEntry[]>({
+  const { data: rateReviews, isError: rateReviewsError, isLoading: rateReviewsLoading, refetch: refetchRateReviews } = useQuery<RateReviewEntry[]>({
     queryKey: ["/api/rate-reviews/contact", contactId],
     queryFn: async ({ signal }) => {
       const res = await fetch(`/api/rate-reviews/contact/${contactId}`, { credentials: "include", signal });
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error("Rate review status unavailable");
       return res.json();
     },
-    enabled: !!contactId,
+    enabled: sectionReadAllowed("overview"),
   });
 
   const markRateReviewViewedMutation = useMutation({
@@ -1420,14 +1420,9 @@ function ContactDetailRecord() {
     },
   });
 
-  const { data: allCompanies = [] } = useQuery<Company[]>({
+  const { data: allCompanies = [], isLoading: companiesLoading, isError: companiesError, refetch: retryCompanies } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
-  });
-
-  const { data: salesPrepStatus } = useQuery<{ sdrSourced: boolean }>({
-    queryKey: [`/api/contacts/${contactId}/sales-prep`],
-    staleTime: Infinity,
-    enabled: !!contactId,
+    enabled: detailAuthorized && showCompanyDialog,
   });
 
   const { data: confirmationResult } = useQuery<{
@@ -1438,10 +1433,10 @@ function ContactDetailRecord() {
     queryKey: ["/api/contacts", contactId, "confirmation-status"],
     queryFn: async ({ signal }) => {
       const res = await fetch(`/api/contacts/${contactId}/confirmation-status`, { credentials: "include", signal });
-      if (!res.ok) return null;
+      if (!res.ok) throw new Error("Contact confirmation status unavailable");
       return res.json();
     },
-    enabled: !!contactId,
+    enabled: sectionReadAllowed("overview"),
   });
 
   const addCompanyAssociation = useMutation({
@@ -1492,48 +1487,28 @@ function ContactDetailRecord() {
     },
     refetchInterval: 60000,
     staleTime: 30000,
+    enabled: sectionReadAllowed("overview"),
   });
 
   const { data: repsList = [] } = useQuery<{ id: string; email: string; firstName: string; lastName: string; role: string }[]>({
     queryKey: ["/api/users/reps"],
     queryFn: async ({ signal }) => {
       const res = await fetch("/api/users/reps", { credentials: "include", signal });
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error("Representative list unavailable");
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
+    enabled: detailAuthorized && isEditing,
   });
 
   const { data: parentAccount } = useQuery<Contact | null>({
     queryKey: ["/api/contacts", contactId, "parent"],
     queryFn: async ({ signal }) => {
       const res = await fetch(`/api/contacts/${contactId}/parent`, { credentials: "include", signal });
-      if (!res.ok) return null;
+      if (!res.ok) throw new Error("Parent account context unavailable");
       return res.json();
     },
-    enabled: !!contactId,
-    staleTime: 30000,
-  });
-
-  const { data: childLocations = [] } = useQuery<Contact[]>({
-    queryKey: ["/api/contacts", contactId, "locations"],
-    queryFn: async ({ signal }) => {
-      const res = await fetch(`/api/contacts/${contactId}/locations`, { credentials: "include", signal });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    enabled: !!contactId,
-    staleTime: 30000,
-  });
-
-  const { data: contactDocuments = [] } = useQuery<Document[]>({
-    queryKey: ["/api/merchant-documents/contact", contactId],
-    queryFn: async ({ signal }) => {
-      const res = await fetch(`/api/merchant-documents/contact/${contactId}`, { credentials: "include", signal });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    enabled: !!contactId,
+    enabled: sectionReadAllowed("overview"),
     staleTime: 30000,
   });
 
@@ -1608,17 +1583,53 @@ function ContactDetailRecord() {
         <Button variant="ghost" onClick={() => setLocation("/dashboard/contacts")} data-testid="button-back-error">
           <ArrowLeft className="h-4 w-4 mr-2" /> Back to Contacts
         </Button>
-        <CrmDataState state="unavailable" message="Contact not found." />
+        <CrmDataState state="unavailable" message={error instanceof Error ? error.message : "Contact not found."} onRetry={() => void refetch()} />
       </div>
     );
   }
 
-  const { contact, deals, tickets, tasks, notes: detailNotes } = data;
-  const allNotes = notesList ?? detailNotes ?? [];
+  const { contact } = data;
+  const dealsLoaded = data.loaded?.deals ?? Array.isArray(data.deals);
+  const ticketsLoaded = data.loaded?.tickets ?? Array.isArray(data.tickets);
+  const tasksLoaded = data.loaded?.tasks ?? Array.isArray(data.tasks);
+  const notesLoaded = data.loaded?.notes ?? Array.isArray(data.notes);
+  const deals = data.deals ?? [];
+  const tickets = data.tickets ?? [];
+  const tasks = data.tasks ?? [];
+  const allNotes = notesLoaded ? data.notes ?? [] : [];
+  const notes = notesLoaded ? data.notes ?? [] : undefined;
   const sortedNotes = [...allNotes].sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
 
-  const openTickets = tickets.filter(t => t.status !== "Resolved" && t.status !== "Closed");
-  const pendingTasks = tasks.filter(t => t.status === "pending");
+  const openTickets = ticketsLoaded ? tickets.filter(t => t.status !== "Resolved" && t.status !== "Closed") : undefined;
+  const pendingTasks = tasksLoaded
+    ? tasks.filter(task => (task as typeof task & { effectiveState?: string }).effectiveState === "open")
+    : undefined;
+  const totalDealVolume = dealsLoaded ? (() => {
+    const activeDeals = deals.filter(deal => !deal.archivedAt);
+    if (!activeDeals.length) return 0;
+    const volumes = activeDeals.map(deal => {
+      const raw = deal.totalVolume ?? (deal as any).monthlyVolume;
+      if (raw == null || String(raw).trim() === "") return null;
+      const value = Number.parseFloat(String(raw));
+      return Number.isFinite(value) ? value : null;
+    });
+    return volumes.some(volume => volume === null)
+      ? null
+      : volumes.reduce<number>((sum, volume) => sum + (volume ?? 0), 0);
+  })() : null;
+  const hasHeaderActiveDealFact = !!data.headerDealFacts && Object.prototype.hasOwnProperty.call(data.headerDealFacts, "activeDeal");
+  const activeHeaderDeal = hasHeaderActiveDealFact
+    ? data.headerDealFacts?.activeDeal ?? null
+    : dealsLoaded
+      ? deals.find(deal => !deal.archivedAt && deal.stage !== "Closed Won" && deal.stage !== "Closed Lost") ?? null
+      : undefined;
+  const headerActiveDealKnown = hasHeaderActiveDealFact || dealsLoaded;
+  const hasHeaderNextFollowUpFact = !!data.headerDealFacts && Object.prototype.hasOwnProperty.call(data.headerDealFacts, "nextFollowUp");
+  const nextFollowUp = hasHeaderNextFollowUpFact
+    ? data.headerDealFacts?.nextFollowUp ?? null
+    : dealsLoaded
+      ? deals.find(deal => deal.nextFollowUp && !deal.archivedAt)?.nextFollowUp?.toString() ?? null
+      : undefined;
 
   const startEdit = () => {
     setEditFields({
@@ -1742,7 +1753,6 @@ function ContactDetailRecord() {
         content: noteContent.trim(),
       }));
       noteIntents.accepted(`create:${contactId}`);
-      queryClient.invalidateQueries({ queryKey: ["/api/notes", "contact", contactId] });
       queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "detail"] });
       setNoteContent("");
       toast({ title: "Note added" });
@@ -1793,22 +1803,78 @@ function ContactDetailRecord() {
   };
 
   const createTask = async () => {
-    if (!taskForm.title) return;
+    if(taskSaving)return;
+    if (!taskForm.title.trim()) {setTaskSaveError("Task title is required.");return;}
+    setTaskSaving(true);setTaskSaveError(null);
     try {
-      await apiRequest("POST", "/api/tasks", {
+      const response=await apiRequest("POST", "/api/tasks", noteIntents.payload("task",{
         contactId,
-        title: taskForm.title,
+        title: taskForm.title.trim(),
         description: taskForm.description || undefined,
         dueDate: taskForm.dueDate ? new Date(taskForm.dueDate).toISOString() : undefined,
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "detail"] });
+      }));
+      const saved=await response.json();
+      if(!Number.isSafeInteger(saved?.id)||saved.contactId!==contactId)throw new Error("Task confirmation did not match this record.");
+      noteIntents.accepted("task");invalidateWorkFacts();
       setShowTaskDialog(false);
       setTaskForm({ title: "", description: "", dueDate: "" });
       toast({ title: "Task created" });
-    } catch {
-      toast({ title: "Failed to create task", variant: "destructive" });
-    }
+    } catch(error) {
+      const message=error instanceof Error?error.message:"Task confirmation unavailable";
+      setTaskSaveError(`${message} Save is not confirmed. Retry the unchanged intent to avoid duplicating a committed task.`);
+    } finally {setTaskSaving(false);}
   };
+
+  const permittedSections = contactSections.filter((section) => {
+    if (section === "activity" || section === "history") return true;
+    if (section === "call-assist") return user?.role === "agent" || user?.role === "manager" || user?.role === "admin";
+    if (section === "company-intelligence") return !!contact?.isParentAccount;
+    if (section === "sales-prep") return data.capabilities?.sdrSourced === true;
+    if (section === "onboarding-stages") return data.capabilities?.hasOnboarding === true;
+    return true;
+  });
+  const workspace = contactWorkspaceState(search, permittedSections);
+  const activeTab = workspace.section ?? "";
+  const setActiveTab = (section: string) => {
+    if (!contactSections.includes(section as ContactSection) || section === "activity" || section === "history") return;
+    const area = contactSectionArea(section as ContactSection);
+    if (!area) return;
+    setLocation(buildContactWorkspaceHref(window.location.href, { area, section: section as ContactSection, drawer: null }));
+  };
+  const setDrawer = (drawer: "activity" | "history" | null) => {
+    setLocation(buildContactWorkspaceHref(window.location.href, { drawer }));
+  };
+  const areaLabels: Record<ContactArea, string> = {
+    overview: "Overview",
+    "sales-work": "Sales work",
+    conversations: "Conversations",
+    lifecycle: "Lifecycle",
+    "service-performance": "Service & performance",
+  };
+  const sectionLabels: Record<ContactSection, string> = {
+    overview: "Summary", relationships: "Relationships", locations: "Locations", "company-intelligence": "Company intelligence",
+    deals: "Deals", tasks: "Tasks", "call-logs": "Calls & VMs", "call-assist": "Call assist",
+    "offer-intelligence": "Offer intelligence", "sales-prep": "Sales prep", "comm-timeline": "Communication timeline",
+    "comm-health": "Communication health", "delivery-log": "Delivery log", notes: "Notes", comments: "Comments",
+    documents: "Documents", "onboarding-stages": "Onboarding stages", rfis: "RFIs", tickets: "Tickets",
+    "live-processing": "Live processing", chargebacks: "Chargebacks", "churn-risk": "Churn risk", nps: "NPS",
+    activity: "Activity", history: "History",
+  };
+  const areaEntries = contactAreas.map((area) => {
+    const first = contactAreaSections[area].find(section => workspace.permittedSections.includes(section));
+    return {
+      label: areaLabels[area],
+      href: first ? buildContactWorkspaceHref(window.location.href, { area, section: first, drawer: null }) : "#",
+      allowed: !!first,
+      reason: "No sections are available for this Contact.",
+    };
+  });
+  const currentAreaFirst = workspace.area
+    ? contactAreaSections[workspace.area].find(section => workspace.permittedSections.includes(section))
+    : undefined;
+  const currentAreaHref = workspace.area && currentAreaFirst
+    ? buildContactWorkspaceHref(window.location.href, { area: workspace.area, section: currentAreaFirst, drawer: null })
+    : "";
 
   return (
     <div className={`${employeeCrm ? "crm-page" : ""} space-y-6 pb-20 md:pb-6`} data-testid="contact-detail-page">
@@ -1909,10 +1975,13 @@ function ContactDetailRecord() {
                   ) : (
                     <span className="flex items-center gap-1 group">
                       <a
-                        href={`tel:${contact.phone}`}
+                        href={outbound.blocked ? undefined : `tel:${contact.phone}`}
+                        aria-disabled={outbound.blocked}
+                        title={outbound.reason}
                         className="hover:underline"
                         data-testid="link-phone-call"
-                        onClick={() => {
+                        onClick={(event) => {
+                          if(outbound.blocked){event.preventDefault();return;}
                           // Public analytics endpoint — authenticated session but
                           // fire-and-forget; CSRF token attached for authenticated mutation safety.
                           const _csrfToken = getCsrfToken();
@@ -2098,15 +2167,16 @@ function ContactDetailRecord() {
                 </Badge>
               )}
               {/* #490 — In Active Deal badge */}
-              {deals && deals.filter((d: any) => !d.archivedAt && d.stage !== "Closed Won" && d.stage !== "Closed Lost").length > 0 && (
+              {headerActiveDealKnown && activeHeaderDeal && (
                 <Badge
                   className="border-0 bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
                   data-testid="badge-in-active-deal"
-                  title={`Active deal: ${deals.find((d: any) => !d.archivedAt && d.stage !== "Closed Won" && d.stage !== "Closed Lost")?.stage}`}
+                  title={`Active deal: ${activeHeaderDeal.stage}`}
                 >
-                  In Deal · {deals.find((d: any) => !d.archivedAt && d.stage !== "Closed Won" && d.stage !== "Closed Lost")?.stage}
+                  In Deal · {activeHeaderDeal.stage}
                 </Badge>
               )}
+              {!headerActiveDealKnown && <Badge variant="outline" data-testid="badge-active-deal-unknown">Deal status · Unknown</Badge>}
               {/* #1390 — Lifecycle stage badge */}
               {(contact as any).lifecycleState && (
                 <Badge
@@ -2258,7 +2328,12 @@ function ContactDetailRecord() {
       )}
 
       {/* Rate Review Banner */}
-      {rateReviews.filter(r => r.status !== "resolved").map((review) => {
+      {requestedSection === "overview" && rateReviewsError && <div className="rounded-md border border-destructive/40 p-3 text-sm" role="alert">
+        Rate review status is unavailable.
+        <Button size="sm" variant="outline" className="ml-2" onClick={() => void refetchRateReviews()}>Retry</Button>
+      </div>}
+      {requestedSection === "overview" && rateReviewsLoading && <div className="h-12 animate-pulse rounded bg-muted" role="status" aria-label="Loading rate review status" />}
+      {(rateReviews ?? []).filter(r => r.status !== "resolved").map((review) => {
         const statusLabels: Record<string, string> = {
           requested: "Submitted — Awaiting Review",
           analysis_pending: "Analyzing Statement…",
@@ -2383,7 +2458,7 @@ function ContactDetailRecord() {
                 className="w-28"
                 data-testid="input-add-tag"
               />
-              <Button type="submit" size="sm" variant="outline" data-testid="button-add-tag">
+              <Button type="submit" size="sm" variant="outline" aria-label="Add contact tag" data-testid="button-add-tag">
                 <Plus className="h-3.5 w-3.5" />
               </Button>
             </form>
@@ -2422,7 +2497,7 @@ function ContactDetailRecord() {
       </div>
 
       {/* Associated Companies */}
-      <Card data-testid="section-associated-companies">
+      {requestedSection === "overview" && <Card data-testid="section-associated-companies">
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
           <CardTitle className="text-base flex items-center gap-2">
             <Building2 className="h-4 w-4" /> Associated Companies
@@ -2440,7 +2515,11 @@ function ContactDetailRecord() {
           </Button>
         </CardHeader>
         <CardContent>
-          {contactCompanies.length === 0 ? (
+          {contactCompaniesLoading ? <p className="text-sm text-muted-foreground">Loading company links…</p>
+            : contactCompaniesError ? <div className="text-sm" role="alert">
+              Company links could not be read. <Button size="sm" variant="outline" onClick={() => void retryContactCompanies()}>Retry</Button>
+            </div>
+            : !contactCompanies?.length ? (
             <p className="text-sm text-muted-foreground" data-testid="text-no-companies">No companies linked yet</p>
           ) : (
             <div className="space-y-2">
@@ -2493,7 +2572,7 @@ function ContactDetailRecord() {
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card>}
 
       {/* Quick actions */}
       <div className="flex flex-wrap gap-2" data-testid="section-quick-actions">
@@ -2518,7 +2597,7 @@ function ContactDetailRecord() {
       <div className="fixed bottom-0 left-0 right-0 z-40 block sm:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 px-4 py-2 flex items-center gap-2" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}>
         <button
           onClick={() => setLogCallOpen(true)}
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[44px] text-green-600 dark:text-green-400 active:opacity-70"
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[44px] text-green-800 dark:text-green-300 active:opacity-70"
           data-testid="mobile-action-log-call"
         >
           <Phone className="h-5 w-5" />
@@ -2569,136 +2648,70 @@ function ContactDetailRecord() {
         </button>
       </div>
 
-      {/* Next Best Action Card */}
-      <ContactNbaCard contactId={contactId} />
-
-      {/* #1475 — Sales Intelligence Panel */}
-      <SalesIntelPanel
-        contact={contact}
-        nextFollowUp={deals.find(d => d.nextFollowUp && !d.archivedAt)?.nextFollowUp?.toString() ?? null}
-      />
-
-      {/* Tabs */}
+      {workspace.issues.length > 0 && <div className="crm-state-panel" role="status" data-testid="contact-selection-notice">
+        <span className="crm-state-kicker">Selection adjusted</span><p>{workspace.issues[0].reason}</p>
+      </div>}
+      {/* Five destination areas keep the complete authorized section set, while
+          inactive interiors remain unmounted by Radix TabsContent. */}
+      <CrmAreaNav entries={areaEntries} current={currentAreaHref} className="crm-contact-area-nav" />
+      <div className="crm-contact-drawer-actions">
+        <Button variant="outline" onClick={() => setDrawer("activity")} aria-expanded={workspace.drawer === "activity"}>Activity</Button>
+        <Button variant="outline" onClick={() => setDrawer("history")} aria-expanded={workspace.drawer === "history"}>History</Button>
+      </div>
+      {/* Section selector is deliberately scoped to the current area. */}
       <Tabs value={activeTab} onValueChange={setActiveTab} data-testid="contact-tabs">
-        <div className="sticky top-0 z-20 bg-background -mx-4 px-4 md:mx-0 md:px-0 pt-1 pb-1 border-b border-border/50 md:border-0 md:static md:z-auto md:bg-transparent">
-        <div className="overflow-x-auto">
-        <TabsList className="flex flex-nowrap md:flex-wrap h-auto gap-1 w-max md:w-auto" data-testid="contact-tabs-list">
-          <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
-          <TabsTrigger value="deals" data-testid="tab-deals">Deals ({deals.length})</TabsTrigger>
-          <TabsTrigger value="tickets" data-testid="tab-tickets">Tickets ({tickets.length})</TabsTrigger>
-          <TabsTrigger value="tasks" data-testid="tab-tasks">Tasks ({tasks.length})</TabsTrigger>
-          <TabsTrigger value="notes" data-testid="tab-notes">Notes ({sortedNotes.length})</TabsTrigger>
-          <TabsTrigger value="documents" data-testid="tab-documents">
-            <FolderOpen className="h-3.5 w-3.5 mr-1" />
-            Documents {contactDocuments.length > 0 && `(${contactDocuments.length})`}
-          </TabsTrigger>
-          <TabsTrigger value="live-processing" data-testid="tab-live-processing">
-            <Activity className="h-3.5 w-3.5 mr-1" />
-            Live Processing
-          </TabsTrigger>
-          <TabsTrigger value="chargebacks" data-testid="tab-chargebacks">Chargebacks</TabsTrigger>
-          <TabsTrigger value="activity" data-testid="tab-activity">Activity</TabsTrigger>
-          {/* #1475 — Calls & Voicemails tab */}
-          <TabsTrigger value="call-logs" data-testid="tab-call-logs">
-            <Phone className="h-3.5 w-3.5 mr-1" />
-            Calls &amp; VMs
-          </TabsTrigger>
-          {(user?.role === "agent" || user?.role === "manager" || user?.role === "admin") && (
-            <TabsTrigger value="call-assist" data-testid="tab-call-assist">Call Assist</TabsTrigger>
-          )}
-          <TabsTrigger value="relationships" data-testid="tab-relationships">
-            <GitFork className="h-3.5 w-3.5 mr-1" />
-            Relationships
-          </TabsTrigger>
-          <TabsTrigger value="locations" data-testid="tab-locations">
-            <MapPin className="h-3.5 w-3.5 mr-1" />
-            Locations {childLocations.length > 0 && `(${childLocations.length})`}
-          </TabsTrigger>
-          <TabsTrigger value="history" data-testid="tab-history">History</TabsTrigger>
-          <TabsTrigger value="comments" data-testid="tab-comments">Comments</TabsTrigger>
-          <TabsTrigger value="churn-risk" data-testid="tab-churn-risk">
-            <Brain className="h-3.5 w-3.5 mr-1" />
-            Churn Risk
-          </TabsTrigger>
-          <TabsTrigger value="delivery-log" data-testid="tab-delivery-log">
-            <SendHorizonal className="h-3.5 w-3.5 mr-1" />
-            Delivery Log
-          </TabsTrigger>
-          <TabsTrigger value="comm-timeline" data-testid="tab-comm-timeline">
-            <Mail className="h-3.5 w-3.5 mr-1" />
-            Comm. Timeline
-          </TabsTrigger>
-          <TabsTrigger value="comm-health" data-testid="tab-comm-health">
-            Comm. Health
-          </TabsTrigger>
-          <TabsTrigger value="offer-intelligence" data-testid="tab-offer-intelligence">
-            <GitFork className="h-3.5 w-3.5 mr-1" />
-            Offer Intelligence
-          </TabsTrigger>
-          {contact.isParentAccount && (
-            <TabsTrigger value="company-intelligence" data-testid="tab-company-intelligence">
-              <Store className="h-3.5 w-3.5 mr-1" />
-              Co. Intelligence
-            </TabsTrigger>
-          )}
-          {salesPrepStatus?.sdrSourced && (
-            <TabsTrigger value="sales-prep" data-testid="tab-sales-prep">
-              <Bot className="h-3.5 w-3.5 mr-1" />
-              Sales Prep
-            </TabsTrigger>
-          )}
-          {deals.some(d => d.pipeline === "onboarding" && !d.archivedAt) && (
-            <TabsTrigger value="onboarding-stages" data-testid="tab-onboarding-stages">
-              <ClipboardList className="h-3.5 w-3.5 mr-1" />
-              Onboarding Checklist
-            </TabsTrigger>
-          )}
-          <TabsTrigger value="rfis" data-testid="tab-rfis">
-            <FileText className="h-3.5 w-3.5 mr-1" />
-            RFIs
-          </TabsTrigger>
-          <TabsTrigger value="nps" data-testid="tab-nps">
-            <BarChart2 className="h-3.5 w-3.5 mr-1" />
-            NPS
-          </TabsTrigger>
-        </TabsList>
-        </div>
+        <div className="crm-contact-section-nav">
+          <TabsList data-testid="contact-tabs-list">
+            {(workspace.area ? contactAreaSections[workspace.area] : []).filter(section => workspace.permittedSections.includes(section)).map(section =>
+              <TabsTrigger key={section} value={section} data-testid={`tab-${section}`}>
+                {sectionLabels[section]}
+                {section === "deals" ? ` (${dealsLoaded ? deals.length : "Unknown"})` : section === "tasks" ? ` (${tasksLoaded ? tasks.length : "Unknown"})` :
+                  section === "tickets" ? ` (${ticketsLoaded ? tickets.length : "Unknown"})` : section === "notes" ? ` (${notesLoaded ? sortedNotes.length : "Unknown"})` :
+                  ""}
+              </TabsTrigger>
+            )}
+          </TabsList>
         </div>
 
         <TabsContent value="overview" data-testid="tab-content-overview">
+          <div className="mb-4 space-y-3">
+            <ContactNbaCard contactId={contactId} />
+            <SalesIntelPanel contact={contact} nextFollowUp={nextFollowUp} />
+          </div>
           <OverviewTab
             contact={contact}
-            dealsCount={deals.length}
-            openTicketsCount={openTickets.length}
-            pendingTasksCount={pendingTasks.length}
+            dealsCount={dealsLoaded ? deals.length : null}
+            totalDealVolume={totalDealVolume}
+            openTicketsCount={openTickets?.length ?? null}
+            pendingTasksCount={pendingTasks?.length ?? null}
             onOpenTicketsClick={() => setActiveTab("tickets")}
           />
         </TabsContent>
 
         <TabsContent value="deals" data-testid="tab-content-deals">
-          <DealsTab
+          {dealsLoaded ? <DealsTab
             deals={deals}
             contactId={contactId}
             isManagerOrAdmin={isManagerOrAdmin}
             agentsList={agentsList}
             setLocation={setLocation}
-          />
+          /> : <CrmDataState state="unavailable" message="Deal details were not included in this section response." />}
         </TabsContent>
 
         <TabsContent value="live-processing" data-testid="tab-content-live-processing">
-          <LiveProcessingTabBody deals={deals} />
+          {dealsLoaded ? <LiveProcessingTabBody deals={deals} /> : <CrmDataState state="unavailable" message="Deal details were not included in this section response." />}
         </TabsContent>
 
         <TabsContent value="tickets" data-testid="tab-content-tickets">
-          <TicketsTab tickets={tickets} contactId={contact.id} />
+          {ticketsLoaded ? <TicketsTab tickets={tickets} contactId={contact.id} /> : <CrmDataState state="unavailable" message="Ticket details were not included in this section response." />}
         </TabsContent>
 
         <TabsContent value="tasks" data-testid="tab-content-tasks">
-          <TasksTab tasks={tasks} />
+          {tasksLoaded ? <TasksTab tasks={tasks} /> : <CrmDataState state="unavailable" message="Task details were not included in this section response." />}
         </TabsContent>
 
         <TabsContent value="notes" data-testid="tab-content-notes">
-          {notesError?<div role="alert">Notes unavailable. Your edit has not been saved. <Button onClick={()=>void retryNotes()}>Retry notes</Button></div>:
+          {!notesLoaded ? <CrmDataState state="unavailable" message="Notes were not included in this section response." onRetry={() => void refetch()} /> :
           <NotesTab
             sortedNotes={sortedNotes}
             noteContent={noteContent}
@@ -2706,29 +2719,29 @@ function ContactDetailRecord() {
             addNote={addNote}
             onUpdateNote={async (noteId, content) => {
               // #243 — inline note editing via PATCH /api/notes/:id
-              const note=notesList?.find(row=>row.id===noteId);
+              const note=notes?.find(row=>row.id===noteId);
               if(!note) throw new Error("Note version unavailable. Reload notes.");
               const res = await apiRequest("PATCH", `/api/notes/${noteId}`,noteIntents.payload(`edit:${noteId}`,{content,expectedVersion:note.version}));
               if (!res.ok) throw new Error("Failed to update note");
               noteIntents.accepted(`edit:${noteId}`);
-              queryClient.invalidateQueries({ queryKey: ["/api/notes", "contact", contactId] });
+              queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "detail"] });
               toast({ title: "Note updated" });
             }}
             onPinNote={async (noteId, pinned) => {
               // #1475 — pin/unpin note
-              const note=notesList?.find(row=>row.id===noteId);
+              const note=notes?.find(row=>row.id===noteId);
               if(!note) throw new Error("Note version unavailable. Reload notes.");
               const res = await apiRequest("PATCH", `/api/contacts/${contactId}/notes/${noteId}/pin`,noteIntents.payload(`pin:${noteId}`,{pinned,expectedVersion:note.version}));
               if (!res.ok) throw new Error("Failed to update pin state");
               noteIntents.accepted(`pin:${noteId}`);
-              queryClient.invalidateQueries({ queryKey: ["/api/notes", "contact", contactId] });
+              queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "detail"] });
             }}
             onDeleteNote={async noteId=>{
-              const note=notesList?.find(row=>row.id===noteId);
+              const note=notes?.find(row=>row.id===noteId);
               if(!note) throw new Error("Note version unavailable. Reload notes.");
               await apiRequest("DELETE",`/api/notes/${noteId}`,noteIntents.payload(`delete:${noteId}`,{expectedVersion:note.version}));
               noteIntents.accepted(`delete:${noteId}`);
-              void queryClient.invalidateQueries({queryKey:["/api/notes","contact",contactId]});
+              void queryClient.invalidateQueries({queryKey:["/api/contacts",contactId,"detail"]});
             }}
           />}
         </TabsContent>
@@ -2751,10 +2764,6 @@ function ContactDetailRecord() {
 
         <TabsContent value="chargebacks" data-testid="tab-content-chargebacks">
           <ContactChargebacksTab contactId={contactId} />
-        </TabsContent>
-
-        <TabsContent value="activity" data-testid="tab-content-activity">
-          <ActivityTimelineFull events={activityEvents ?? []} />
         </TabsContent>
 
         {/* #1475 — Calls & Voicemails tab */}
@@ -2780,10 +2789,6 @@ function ContactDetailRecord() {
 
         <TabsContent value="locations" data-testid="tab-content-locations">
           <LocationsTab contact={contact} />
-        </TabsContent>
-
-        <TabsContent value="history" data-testid="tab-content-history">
-          <ChangeHistoryTab entityType="contact" entityId={contactId} />
         </TabsContent>
 
         <TabsContent value="comments" data-testid="tab-content-comments">
@@ -2820,16 +2825,17 @@ function ContactDetailRecord() {
           </TabsContent>
         )}
 
-        {salesPrepStatus?.sdrSourced && (
+        {data.capabilities?.sdrSourced === true && (
           <TabsContent value="sales-prep" data-testid="tab-content-sales-prep">
             <SalesPrepTab contactId={contactId} />
           </TabsContent>
         )}
-        {deals.some(d => d.pipeline === "onboarding" && !d.archivedAt) && (
+        {data.capabilities?.hasOnboarding === true && (
           <TabsContent value="onboarding-stages" data-testid="tab-content-onboarding-stages">
-            {deals.filter(d => d.pipeline === "onboarding" && !d.archivedAt).map(deal => (
-              <OnboardingStagesChecklist key={deal.id} dealId={deal.id} />
-            ))}
+            {!dealsLoaded ? <CrmDataState state="unavailable" message="Onboarding deal stages were not included in this section response." /> :
+              deals.filter(d => d.pipeline === "onboarding" && !d.archivedAt).map(deal => (
+                <OnboardingStagesChecklist key={deal.id} dealId={deal.id} />
+              ))}
           </TabsContent>
         )}
 
@@ -2842,6 +2848,20 @@ function ContactDetailRecord() {
           <NpsHistoryPanel contactId={contactId} />
         </TabsContent>
       </Tabs>
+
+      <CrmDetailDrawer open={workspace.drawer === "activity"} onOpenChange={(open) => setDrawer(open ? "activity" : null)}
+        title="Activity" description={`Record-bound events for ${contact.firstName} ${contact.lastName} · Contact #${contact.id}`}>
+        {activityLoading ? <div role="status" className="space-y-2"><div className="h-12 animate-pulse rounded bg-muted" /><div className="h-12 animate-pulse rounded bg-muted" /></div>
+          : activityError ? <div role="alert" className="space-y-3 rounded-md border p-4 text-sm">
+            <p>Contact activity could not be read. No events are assumed absent.</p>
+            <Button variant="outline" onClick={() => void retryActivity()}>Retry activity</Button>
+          </div>
+            : <ActivityTimelineFull events={activityEvents ?? []} />}
+      </CrmDetailDrawer>
+      <CrmDetailDrawer open={workspace.drawer === "history"} onOpenChange={(open) => setDrawer(open ? "history" : null)}
+        title="Change history" description={`Immutable record history · Contact #${contact.id}`}>
+        {workspace.drawer === "history" && <ChangeHistoryTab entityType="contact" entityId={contactId} />}
+      </CrmDetailDrawer>
 
       {/* Mobile sticky action bar — replaces scattered quick-action buttons on small screens */}
       <div
@@ -2896,6 +2916,8 @@ function ContactDetailRecord() {
           showTaskDialog={showTaskDialog}
           setShowTaskDialog={setShowTaskDialog}
           taskForm={taskForm}
+          taskSaving={taskSaving}
+          taskSaveError={taskSaveError}
           setTaskForm={setTaskForm}
           createTask={createTask}
           showCompanyDialog={showCompanyDialog}
@@ -2913,7 +2935,10 @@ function ContactDetailRecord() {
           companyIsPrimary={companyIsPrimary}
           setCompanyIsPrimary={setCompanyIsPrimary}
           allCompanies={allCompanies}
-          contactCompanies={contactCompanies}
+          companiesLoading={companiesLoading}
+          companiesError={companiesError}
+          retryCompanies={() => void retryCompanies()}
+          contactCompanies={contactCompanies ?? []}
           addCompanyAssociation={addCompanyAssociation}
           createAndLinkCompany={createAndLinkCompany}
         />
@@ -2929,8 +2954,8 @@ function ContactDetailRecord() {
       {/* #1475 — Next Steps sticky widget */}
       <NextStepsWidget
         contactId={contactId}
-        dealId={deals.find(d => !d.archivedAt)?.id ?? null}
-        nextFollowUp={deals.find(d => d.nextFollowUp && !d.archivedAt)?.nextFollowUp?.toString() ?? null}
+        dealId={activeHeaderDeal?.id}
+        nextFollowUp={nextFollowUp}
       />
     </div>
   );

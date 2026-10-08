@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation, type InfiniteData, type QueryKey } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { useCrmInfiniteQuery } from "@/hooks/use-crm-infinite-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import { trackPhoneCallClick } from "@/lib/analytics";
@@ -14,11 +16,13 @@ import {useRetainedLocalIntent} from "@/hooks/use-retained-local-intent";
 import { useToast } from "@/hooks/use-toast";
 
 const CACHE_KEY = "mobile_deals_cache";
-function getCached() {
-  try { return JSON.parse(localStorage.getItem(CACHE_KEY) || "null"); } catch { return null; }
+function getCached(actorId: string) {
+  if (!actorId) return null;
+  try { return JSON.parse(localStorage.getItem(`${CACHE_KEY}_${actorId}`) || "null"); } catch { return null; }
 }
-function setCached(data: any) {
-  try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch {}
+function setCached(actorId: string, data: any) {
+  if (!actorId) return;
+  try { localStorage.setItem(`${CACHE_KEY}_${actorId}`, JSON.stringify(data)); } catch {}
 }
 
 const STAGE_COLORS: Record<string, string> = {
@@ -82,12 +86,12 @@ function CreateDealSheet({
     return () => clearTimeout(t);
   }, [contactSearch]);
 
-  const { data: contactResults, isFetching: searchingContacts } = useQuery<{ data: any[] }>({
+  const { data: contactResults, isFetching: searchingContacts, isError: contactsError } = useQuery<{ data: any[] }>({
     queryKey: ["/api/contacts", { search: debouncedSearch }],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!debouncedSearch.trim()) return { data: [] };
-      const res = await fetch(`/api/contacts?search=${encodeURIComponent(debouncedSearch)}&limit=10`, { credentials: "include" });
-      if (!res.ok) return { data: [] };
+      const res = await fetch(`/api/contacts?search=${encodeURIComponent(debouncedSearch)}&limit=10`, { credentials: "include", signal });
+      if (!res.ok) throw new Error("Contact search unavailable.");
       return res.json();
     },
     enabled: debouncedSearch.trim().length > 0,
@@ -168,6 +172,11 @@ function CreateDealSheet({
               />
               {searchingContacts && (
                 <Loader2 className="w-4 h-4 animate-spin text-gray-400 absolute right-3 top-1/2 -translate-y-1/2" />
+              )}
+              {contactsError && (
+                <p className="mt-2 text-xs text-destructive" role="alert">
+                  Contact lookup failed; existing contact choices are not assumed complete.
+                </p>
               )}
               {showContactList && contacts.length > 0 && (
                 <div className="absolute top-full mt-1 left-0 right-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg z-10 max-h-48 overflow-y-auto">
@@ -351,8 +360,9 @@ function StageSection({ stage, deals, onDealTap }: {
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export default function MobilePipeline() {
-  const cached = getCached();
   const { user } = useAuth();
+  const cached = getCached(user?.id ?? "");
+  const { toast } = useToast();
   const noteIntents=useRetainedLocalIntent();
   const [, setLocation] = useLocation();
   const [selectedDeal, setSelectedDeal] = useState<any>(null);
@@ -364,28 +374,54 @@ export default function MobilePipeline() {
   const [myDealsOnly, setMyDealsOnly] = useState(false);
   const [showCreateDeal, setShowCreateDeal] = useState(false);
 
+  type MobileDealPage = { data: any[]; total: number };
   const {
-    data,
+    data: dealPages,
     isLoading,
-    isError: dealsError,
+    isError,
     isFetching: dealsFetching,
+    isFetchingNextPage,
+    isFetchNextPageError,
+    hasNextPage,
+    fetchNextPage,
     refetch: refetchDeals,
     dataUpdatedAt,
-  } = useQuery<{ data: any[]; total: number }>({
-    queryKey: ["/api/deals"],
+  } = useCrmInfiniteQuery<MobileDealPage, Error, InfiniteData<MobileDealPage>, QueryKey, number>({
+    queryKey: ["/api/deals", { mobilePipeline: true }],
+    initialPageParam: 0,
+    queryFn: async ({ pageParam, signal }) => {
+      const response = await fetch(`/api/deals?limit=250&offset=${pageParam}`, { credentials: "include", signal });
+      if (!response.ok) throw new Error("Deal board could not be loaded");
+      return response.json();
+    },
+    getNextPageParam: (lastPage, pages) => {
+      const offset = pages.reduce((total, page) => total + page.data.length, 0);
+      return offset < lastPage.total ? offset : undefined;
+    },
     staleTime: 1000 * 60 * 3,
     retry: false,
   });
+  const data = dealPages?.pages.length ? {
+    data: dealPages.pages.flatMap(page => page.data),
+    total: dealPages.pages[dealPages.pages.length - 1].total,
+  } : undefined;
+  const dealsError = isError || isFetchNextPageError;
 
   useEffect(() => {
-    if (data) setCached(data);
-  }, [data]);
+    if (data && data.data.length === data.total) setCached(user?.id ?? "", data);
+  }, [data, user?.id]);
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage && !isFetchNextPageError) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage, dealPages?.pages.length]);
 
   // When the API fails: show cached data (labeled stale) rather than silent zero.
   // When the API is loading for the first time and there's no cache: show spinner.
   // Never render zero deals from a failed fetch.
-  const isUsingCachedData = dealsError && cached?.data;
-  const deals: any[] | null = data?.data ?? (isUsingCachedData ? cached!.data : null);
+  const completeSnapshot = Boolean(data && data.data.length === data.total);
+  const isUsingCachedData = dealsError && !completeSnapshot && cached?.data;
+  const deals: any[] | null = completeSnapshot
+    ? data!.data
+    : isUsingCachedData ? cached!.data : data?.data ?? null;
   const salesDeals = (deals ?? []).filter((d: any) => d.pipeline === "sales" || !d.pipeline);
 
   const myOwnerNames = useMemo(() => {
@@ -420,13 +456,35 @@ export default function MobilePipeline() {
   }
 
   const updateStageMutation = useMutation({
-    mutationFn: async ({ dealId, stage }: { dealId: number; stage: string }) => {
-      const res = await apiRequest("PUT", `/api/deals/${dealId}`, { stage });
+    mutationFn: async ({ dealId, stage, expectedStage }: { dealId: number; stage: string; expectedStage: string }) => {
+      const res = await apiRequest("PUT", `/api/deals/${dealId}`, { stage, expectedStage });
       return res.json();
     },
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
       setSelectedDeal((prev: any) => prev ? { ...prev, ...updated } : prev);
+    },
+    onError: async (error: Error, variables) => {
+      let readback = "";
+      try {
+        const response = await apiRequest("GET", `/api/deals/${variables.dealId}`);
+        const authoritativeDeal = await response.json();
+        setSelectedDeal((current: any) => current?.id === authoritativeDeal.id ? authoritativeDeal : current);
+        queryClient.setQueriesData({ queryKey: ["/api/deals"] }, (old: any) => {
+          if (!old) return old;
+          if (Array.isArray(old.pages)) return {
+            ...old,
+            pages: old.pages.map((page: any) => ({ ...page, data: page.data?.map((deal: any) => deal.id === authoritativeDeal.id ? authoritativeDeal : deal) })),
+          };
+          if (Array.isArray(old.data)) return { ...old, data: old.data.map((deal: any) => deal.id === authoritativeDeal.id ? authoritativeDeal : deal) };
+          return old;
+        });
+        readback = ` Server read-back confirms stage “${authoritativeDeal.stage}”.`;
+      } catch {
+        readback = " Server read-back was unavailable; current stage remains unconfirmed.";
+      }
+      void queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      toast({ title: "Stage move not confirmed", description: `${error.message}${readback}`, variant: "destructive" });
     },
   });
 
@@ -484,7 +542,7 @@ export default function MobilePipeline() {
       {/* Header */}
       <div className="bg-white dark:bg-gray-900 px-4 pb-3 border-b border-gray-100 dark:border-gray-800"
         style={{ paddingTop: "calc(env(safe-area-inset-top) + 12px)" }}>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between pr-14">
           <h1 className="text-xl font-bold text-gray-900 dark:text-white">Pipeline</h1>
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-500" data-testid="text-deal-count">
@@ -541,6 +599,15 @@ export default function MobilePipeline() {
           >
             <RefreshCw className={`w-3 h-3 ${dealsFetching ? "animate-spin" : ""}`} />
             Retry
+          </button>
+        </div>
+      )}
+      {dealsError && !isUsingCachedData && deals !== null && (
+        <div className="mx-4 mt-2 flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800" role="status">
+          <span className="flex-1">Partial board read: {data?.data.length ?? 0} of {data?.total ?? "unknown"} deals loaded. The list is not complete.</span>
+          <button type="button" className="font-semibold underline" disabled={dealsFetching}
+            onClick={() => isFetchNextPageError ? void fetchNextPage() : void refetchDeals()}>
+            {dealsFetching ? "Loading…" : "Retry"}
           </button>
         </div>
       )}
@@ -675,7 +742,7 @@ export default function MobilePipeline() {
                     <button key={stage}
                       data-testid={`button-move-stage-${stage.replace(/\s+/g, "-").toLowerCase()}`}
                       disabled={stage === selectedDeal.stage || updateStageMutation.isPending}
-                      onClick={() => updateStageMutation.mutate({ dealId: selectedDeal.id, stage })}
+                      onClick={() => updateStageMutation.mutate({ dealId: selectedDeal.id, stage, expectedStage: selectedDeal.stage })}
                       className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-colors ${
                         stage === selectedDeal.stage
                           ? "border-blue-500 bg-blue-500 text-white"

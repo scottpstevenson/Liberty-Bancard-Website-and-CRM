@@ -1,0 +1,48 @@
+Inbox
+6 unread
+All
+Unread · 6
+Needs Reply
+
+Partial source window. A partial list is not treated as empty.
+
+CP
+C2 Person 601 Synthetic
+10m ago
+(No subject)
+Email
+S
+stage3b-26389e42-ce86-43a1-b45b-a3467ddf3eab591@example.test
+10m ago
+(No subject)
+Email
+CP
+C2 Person 601 Synthetic
+10m ago
+(No subject)
+Email
+CP
+C2 Person 601 Synthetic
+10m ago
+(No subject)
+Email
+CP
+C2 Person 601 Synthetic
+10m ago
+(No subject)
+Email
+CP
+C2 Person 601 Synthetic
+10m ago
+(No subject)
+Email
+Load more
+
+6 matching messages loaded · total not exact
+
+?
+Home
+Contacts
+Pipeline
+Sequences
+More

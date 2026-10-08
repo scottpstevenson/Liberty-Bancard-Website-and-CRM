@@ -1,9 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useSearch } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, protectedScope } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,6 +23,13 @@ import {
 import type { Contact, Deal, CollateralPacket } from "@shared/schema";
 import { computeSmsEligibility } from "@shared/sms-eligibility";
 import { SmsFollowUpSection } from "@/components/call-outcome/SmsFollowUpSection";
+import { useContacts } from "@/hooks/use-contacts";
+import { useContextualContact } from "@/hooks/use-contextual-contact";
+import { useOutboundPauseObservation } from "@/hooks/use-outbound-pause-observation";
+import { useToolCapability } from "@/hooks/use-tool-capabilities";
+import { invalidateWorkFacts } from "@/hooks/use-work-commands";
+import { safeParams } from "@/lib/crm-destination-state";
+import { CrmPage, CrmPageHeader, CrmDataState } from "@/components/crm/CrmPresentation";
 
 const OUTCOMES = [
   "Connected - Send Review Summary",
@@ -72,7 +81,16 @@ interface FollowUpDrafts {
 
 export default function CallOutcome() {
   const { toast } = useToast();
-  const [selectedContactId, setSelectedContactId] = useState<string>("");
+  const { user } = useAuth();
+  const search = useSearch();
+  const initial = safeParams(search, ["contactId", "dealId"]);
+  const [selectedContactId, setSelectedContactId] = useState(initial.get("contactId") ?? "");
+  const [contactSearch, setContactSearch] = useState("");
+  const pause = useOutboundPauseObservation();
+  const generation = useToolCapability("followups");
+  const [logging, setLogging] = useState(false);
+  const logCommand = useRef<{key:string;payload:Record<string,unknown>;attempted:boolean} | null>(null);
+  const logBusy = useRef(false);
   const [step, setStep] = useState<"log" | "review" | "sent">("log");
   const [drafts, setDrafts] = useState<FollowUpDrafts | null>(null);
   const [editEmailSubject, setEditEmailSubject] = useState("");
@@ -86,8 +104,8 @@ export default function CallOutcome() {
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      contactId: "",
-      dealId: "",
+      contactId: initial.get("contactId") ?? "",
+      dealId: initial.get("dealId") ?? "",
       outcome: "",
       notes: "",
       firefliesRecap: "",
@@ -99,28 +117,45 @@ export default function CallOutcome() {
       packetId: "auto",
     },
   });
+  const selectedDealId = form.watch("dealId");
+  const context = JSON.stringify([protectedScope(user), selectedContactId, selectedDealId]);
+  const selection = useRef(context);
+  selection.current = context;
+  useEffect(() => {setStep("log");setDrafts(null);setSendResult(null);},[context]);
+  const actorContext=JSON.stringify(protectedScope(user));
+  useEffect(()=>{
+    const target=safeParams(search,["contactId","dealId"]);
+    const contactId=target.get("contactId") ?? "";
+    form.reset({...form.formState.defaultValues,contactId,dealId:target.get("dealId") ?? ""});
+    setSelectedContactId(contactId);logCommand.current=null;setContactSearch("");setEditEmailSubject("");setEditEmailBody("");setEditSmsBody("");
+  },[actorContext,form]);
 
-  const { data: contactsRes, isLoading: contactsLoading } = useQuery<{ data: Contact[]; total: number }>({
-    queryKey: ["/api/contacts"],
-  });
-  const contacts = contactsRes?.data;
-
-  const { data: dealsRes, isLoading: dealsLoading } = useQuery<{ data: Deal[]; total: number }>({
-    queryKey: ["/api/deals"],
-  });
-  const deals = dealsRes?.data;
+  const contactsQuery = useContacts({ limit:50, offset:0, search:contactSearch.trim() || undefined });
+  const recordQuery = useContextualContact(selectedContactId);
+  const selectedContact = recordQuery.data?.contact;
+  const contacts: Contact[] = selectedContact && !contactsQuery.data?.data.some(row => row.id === selectedContact.id)
+    ? [selectedContact, ...(contactsQuery.data?.data ?? [])] : contactsQuery.data?.data ?? [];
+  const contactsLoading = contactsQuery.isLoading;
+  const dealsLoading = !!selectedContactId && recordQuery.isLoading;
 
   const { data: collateralPackets } = useQuery<CollateralPacket[]>({
     queryKey: ["/api/collateral-packets"],
   });
   const activePackets = (collateralPackets || []).filter((p) => p.isActive !== false);
 
-  const contactDeals = deals?.filter(
-    (d) => d.contactId === Number(selectedContactId)
-  ) || [];
+  const contactDeals = recordQuery.data?.deals?.filter(deal => !deal.archivedAt) ?? [];
+  const validAssociation = recordQuery.isSuccess && contactDeals.some(deal => String(deal.id) === selectedDealId);
+  useEffect(() => {
+    const params = safeParams(search, ["contactId", "dealId"]);
+    setSelectedContactId(params.get("contactId") ?? "");
+    form.setValue("contactId", params.get("contactId") ?? "");
+    form.setValue("dealId", params.get("dealId") ?? "");
+  }, [search, form]);
 
   const generateMutation = useMutation({
+    onMutate:()=>({context}),
     mutationFn: async (values: FormValues) => {
+      if (generation.blocked || !validAssociation) throw new Error(generation.blocked ? generation.reason : "Select an authorized linked deal.");
       const res = await apiRequest("POST", "/api/call-follow-ups/generate", {
         contactId: Number(values.contactId),
         dealId: values.dealId ? Number(values.dealId) : undefined,
@@ -131,20 +166,24 @@ export default function CallOutcome() {
       });
       return res.json();
     },
-    onSuccess: (data: FollowUpDrafts) => {
+    onSuccess: (data: FollowUpDrafts,_variables,submitted) => {
+      if(selection.current !== submitted?.context) return;
       setDrafts(data);
       setEditEmailSubject(data.email.subject);
       setEditEmailBody(data.email.body);
       setEditSmsBody(data.sms.body);
       setStep("review");
     },
-    onError: (err: Error) => {
+    onError: (err: Error,_variables,submitted) => {
+      if(selection.current !== submitted?.context) return;
       toast({ title: "Couldn't generate follow-ups", description: err.message, variant: "destructive" });
     },
   });
 
   const sendMutation = useMutation({
+    onMutate:()=>({context}),
     mutationFn: async () => {
+      if (pause.blocked || !validAssociation) throw new Error(pause.blocked ? pause.reason : "Select an authorized linked deal.");
       const values = form.getValues();
       const res = await apiRequest("POST", "/api/call-follow-ups/send", {
         contactId: Number(values.contactId),
@@ -169,7 +208,8 @@ export default function CallOutcome() {
       });
       return res.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (data,_variables,submitted) => {
+      if(selection.current !== submitted?.context) return;
       setSendResult(data);
       setStep("sent");
       queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
@@ -184,7 +224,8 @@ export default function CallOutcome() {
         variant: data.smsResult === "failed" || data.smsResult === "not_configured" ? "destructive" : undefined,
       });
     },
-    onError: (err: Error) => {
+    onError: (err: Error,_variables,submitted) => {
+      if(selection.current !== submitted?.context) return;
       toast({ title: "Failed to send follow-ups", description: err.message, variant: "destructive" });
     },
   });
@@ -194,36 +235,49 @@ export default function CallOutcome() {
   };
 
   const handleLogOnly = async () => {
+    if (logBusy.current) return;
+    logBusy.current = true;
+    if (!await form.trigger(["contactId","dealId","outcome"]) || !validAssociation) {logBusy.current=false;return;}
     const values = form.getValues();
+    const submittedContact = selectedContactId;
+    const submittedContext = context;
+    const payload = {
+      contactId:Number(values.contactId),dealId:Number(values.dealId),direction:"outbound",
+      outcome:values.outcome,summary:values.notes || null,
+      duration:values.duration ? Number(values.duration) * 60 : null,
+      metadata:{firefliesRecap:values.firefliesRecap || null,nextFollowUpRequested:values.nextFollowUpDate || null,
+        interestedIn0Percent:values.interestedIn0Percent,needsTerminal:values.needsTerminal,
+        disposition:"local_log_only; no stage/task/packet/send/enrollment effect"},
+    };
+    if (payload.duration !== null && (!Number.isSafeInteger(payload.duration) || payload.duration < 0)) {
+      toast({title:"Invalid duration",description:"Use a nonnegative number of minutes.",variant:"destructive"});logBusy.current=false;return;
+    }
+    const key = JSON.stringify([context,payload]);
+    if (logCommand.current?.key !== key) logCommand.current = {key,payload:{...payload,idempotencyKey:crypto.randomUUID()},attempted:false};
+    const command = logCommand.current;
+    const readback = async () => {
+      const rows = await (await apiRequest("GET", `/api/call-logs/contact/${submittedContact}`)).json();
+      if (!Array.isArray(rows)) throw new Error("Call-log readback unavailable; outcome remains unconfirmed.");
+      return rows.find(row => row.idempotencyKey === command.payload.idempotencyKey);
+    };
+    setLogging(true);
     try {
-      const res = await apiRequest("POST", "/api/call-follow-ups/send", {
-        contactId: Number(values.contactId),
-        dealId: values.dealId ? Number(values.dealId) : undefined,
-        outcome: values.outcome,
-        callNotes: values.notes || undefined,
-        firefliesRecap: values.firefliesRecap || undefined,
-        duration: values.duration ? Number(values.duration) : undefined,
-        sendEmail: false,
-        sendSms: false,
-        callSummary: "",
-        nextSteps: "",
-        sentiment: "neutral",
-        nextFollowUpDate: values.nextFollowUpDate || undefined,
-        interestedIn0Percent: values.interestedIn0Percent,
-        needsTerminal: values.needsTerminal,
-        sendPacketNow: values.sendPacketNow,
-        packetId: values.sendPacketNow && values.packetId !== "auto" ? Number(values.packetId) : undefined,
-      });
-      const data = await res.json();
+      let data = command.attempted ? await readback() : undefined;
+      if (!data) {
+        command.attempted = true;
+        try { data = await (await apiRequest("POST","/api/call-logs",command.payload)).json(); }
+        catch(error) { data = await readback(); if(!data) throw error; }
+      }
+      if (!Number.isSafeInteger(data?.id) || data.contactId !== Number(submittedContact)) throw new Error("Saved call readback is invalid.");
+      if (selection.current !== submittedContext) return;
       setSendResult(data);
       setStep("sent");
-      queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/call-logs"] });
-      toast({ title: "Call logged (no follow-ups sent)", description: `Stage updated to: ${data.newStage || "unchanged"}` });
+      invalidateWorkFacts();
+      toast({ title: "Local call log saved", description: "No stage changes, tasks, packets, sends or enrollments were performed." });
     } catch (err: any) {
-      toast({ title: "Failed to log call", description: err.message, variant: "destructive" });
-    }
+      if(selection.current === submittedContext) toast({ title: "Call-log outcome unconfirmed", description: `${err.message} Retry preserves the same intent and checks its saved UUID first.`, variant: "destructive" });
+    } finally { logBusy.current=false;setLogging(false); }
   };
 
   const getContactLabel = (c: Contact) =>
@@ -231,12 +285,11 @@ export default function CallOutcome() {
 
   const selectedOutcome = form.watch("outcome");
   const outcomeInfo = selectedOutcome ? OUTCOME_LABELS[selectedOutcome] : null;
-  const selectedContact = contacts?.find(c => c.id === Number(selectedContactId));
 
   // Proactive SMS eligibility gate — this is a UX improvement only. The
   // backend /api/call-follow-ups/send remains the final authority on
   // whether an SMS actually sends (it re-checks phone/consent itself).
-  const smsEligibility = computeSmsEligibility({
+  const smsEligibility = pause.blocked ? {eligible:false,checking:pause.isLoading,reason:pause.reason} : computeSmsEligibility({
     selectedContactId,
     contactsLoading,
     contact: selectedContact,
@@ -270,14 +323,16 @@ export default function CallOutcome() {
 
   if (step === "sent") {
     return (
-      <div className="max-w-2xl mx-auto" data-testid="calloutcome-sent">
+      <CrmPage className="max-w-2xl" data-testid="calloutcome-sent">
+        <CrmPageHeader title="Call outcome" description="Confirmed local result" />
         <Card>
           <CardContent className="pt-8 pb-8">
             <div className="text-center space-y-4">
               <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center mx-auto">
                 <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
               </div>
-              <h2 className="text-2xl font-bold" data-testid="text-sent-heading">Call Logged & Follow-Ups Processed</h2>
+              <h2 className="text-lg font-semibold" data-testid="text-sent-heading">{sendResult?.id ? "Local Call Log Saved" : "Call Logged & Follow-Ups Processed"}</h2>
+              {sendResult?.id && <p>No stage changes, tasks, packets, sends or enrollments were performed.</p>}
               <div className="space-y-2 text-sm text-muted-foreground">
                 {sendResult?.emailSent && (
                   <div className="flex items-center justify-center gap-2">
@@ -352,13 +407,15 @@ export default function CallOutcome() {
             </div>
           </CardContent>
         </Card>
-      </div>
+      </CrmPage>
     );
   }
 
   if (step === "review" && drafts) {
     return (
-      <div className="max-w-3xl mx-auto space-y-4" data-testid="calloutcome-review">
+      <CrmPage className="max-w-3xl space-y-4" data-testid="calloutcome-review">
+        <CrmPageHeader title="Call outcome" description="Review drafts; outbound authority remains separate." />
+        <p role="status">{pause.reason}</p>
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -400,6 +457,7 @@ export default function CallOutcome() {
                 <div className="flex items-center gap-2">
                   <Checkbox
                     checked={sendEmail}
+                    disabled={pause.blocked}
                     onCheckedChange={(v) => setSendEmail(!!v)}
                     data-testid="checkbox-send-email"
                   />
@@ -447,7 +505,7 @@ export default function CallOutcome() {
             <div className="flex items-center gap-3 pt-2">
               <Button
                 onClick={() => sendMutation.mutate()}
-                disabled={sendMutation.isPending || (!sendEmail && !sendSms)}
+                disabled={pause.blocked || sendMutation.isPending || (!sendEmail && !sendSms) || !validAssociation}
                 className="flex-1 gap-2"
                 data-testid="button-approve-send"
               >
@@ -461,6 +519,7 @@ export default function CallOutcome() {
               <Button
                 variant="outline"
                 onClick={handleLogOnly}
+                disabled={logging || !validAssociation}
                 className="gap-2"
                 data-testid="button-log-only"
               >
@@ -470,12 +529,18 @@ export default function CallOutcome() {
             </div>
           </CardContent>
         </Card>
-      </div>
+      </CrmPage>
     );
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-4" data-testid="calloutcome-page">
+    <CrmPage className="max-w-2xl space-y-4" data-testid="calloutcome-page">
+      <CrmPageHeader title="Sales Call Outcome" description="Record an existing call or prepare follow-ups through the existing authorities." />
+      <p role="status" data-testid="call-outcome-pause-reason">{pause.reason}</p>
+      <p role="status">{generation.reason} Log Only saves a local call record; it does not change stages or create follow-up tasks.</p>
+      {(contactsQuery.isError || recordQuery.isError) && <CrmDataState state="unavailable" message="Authorized contact search or exact record is unavailable." onRetry={() => {contactsQuery.refetch();if(selectedContactId)recordQuery.refetch();}} />}
+      <Input aria-label="Search authorized contacts" value={contactSearch} onChange={event => setContactSearch(event.target.value)} data-testid="call-outcome-contact-search" placeholder="Search all authorized contacts…" />
+      <p className="text-xs text-muted-foreground">Up to 50 matches; refine search for more. The selected record is read by exact ID.</p>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2" data-testid="text-calloutcome-title">
@@ -710,6 +775,7 @@ export default function CallOutcome() {
                         <Checkbox
                           checked={field.value}
                           onCheckedChange={field.onChange}
+                          disabled={pause.blocked}
                           data-testid="checkbox-send-packet"
                         />
                       </FormControl>
@@ -753,7 +819,7 @@ export default function CallOutcome() {
               <div className="flex items-center gap-3 pt-2">
                 <Button
                   type="submit"
-                  disabled={generateMutation.isPending}
+                  disabled={generation.blocked || generateMutation.isPending || !validAssociation}
                   className="flex-1 gap-2"
                   data-testid="button-generate-followups"
                 >
@@ -768,6 +834,7 @@ export default function CallOutcome() {
                   type="button"
                   variant="outline"
                   onClick={handleLogOnly}
+                  disabled={logging || !validAssociation}
                   className="gap-2"
                   data-testid="button-log-only-skip"
                 >
@@ -779,6 +846,6 @@ export default function CallOutcome() {
           </Form>
         </CardContent>
       </Card>
-    </div>
+    </CrmPage>
   );
 }

@@ -1,0 +1,102 @@
+{
+  "identity": {
+    "sourceHead": "1f66a9296c3f626c2683dd53fbcb8b3296c07d71",
+    "inputHash": "bbf2153349e91968e958013c12d3aec90d4094cafd0bfa8ae627aa2c9c318d01",
+    "outputHash": "e96955908169bdc68800e2cbcf7fb6ef3851175ba190b4087bbf328588ab5897"
+  },
+  "status": "failed lanes retained; no readiness waiver",
+  "infrastructure": "launcher-owned PostgreSQL/Redis and nonce-verified denied application; replacement environment",
+  "rows": [
+    {
+      "command": "node node_modules/tsx/dist/cli.mjs scripts/test-dependency-policy-evidence.ts",
+      "exit": 0,
+      "elapsedMs": 1959,
+      "inputHash": "bbf2153349e91968e958013c12d3aec90d4094cafd0bfa8ae627aa2c9c318d01",
+      "outputHash": "e96955908169bdc68800e2cbcf7fb6ef3851175ba190b4087bbf328588ab5897"
+    },
+    {
+      "command": "node node_modules/tsx/dist/cli.mjs scripts/test-inventory-artifact-dependencies.ts",
+      "exit": 0,
+      "elapsedMs": 1796,
+      "inputHash": "bbf2153349e91968e958013c12d3aec90d4094cafd0bfa8ae627aa2c9c318d01",
+      "outputHash": "e96955908169bdc68800e2cbcf7fb6ef3851175ba190b4087bbf328588ab5897"
+    },
+    {
+      "command": "node node_modules/tsx/dist/cli.mjs scripts/ci-suite-manifest.ts --check",
+      "exit": 0,
+      "elapsedMs": 1844,
+      "inputHash": "bbf2153349e91968e958013c12d3aec90d4094cafd0bfa8ae627aa2c9c318d01",
+      "outputHash": "e96955908169bdc68800e2cbcf7fb6ef3851175ba190b4087bbf328588ab5897"
+    },
+    {
+      "command": "node node_modules/tsx/dist/cli.mjs scripts/run-ci-suites.ts --capability deterministic-static",
+      "exit": 1,
+      "elapsedMs": 13351,
+      "inputHash": "bbf2153349e91968e958013c12d3aec90d4094cafd0bfa8ae627aa2c9c318d01",
+      "outputHash": "e96955908169bdc68800e2cbcf7fb6ef3851175ba190b4087bbf328588ab5897"
+    },
+    {
+      "command": "node node_modules/tsx/dist/cli.mjs scripts/run-ci-suites.ts --capability external-security",
+      "exit": 1,
+      "elapsedMs": 4357,
+      "inputHash": "bbf2153349e91968e958013c12d3aec90d4094cafd0bfa8ae627aa2c9c318d01",
+      "outputHash": "e96955908169bdc68800e2cbcf7fb6ef3851175ba190b4087bbf328588ab5897"
+    },
+    {
+      "command": "node node_modules/tsx/dist/cli.mjs scripts/run-ci-suites.ts --capability writable-build",
+      "exit": 0,
+      "elapsedMs": 293281,
+      "inputHash": "bbf2153349e91968e958013c12d3aec90d4094cafd0bfa8ae627aa2c9c318d01",
+      "outputHash": "e96955908169bdc68800e2cbcf7fb6ef3851175ba190b4087bbf328588ab5897"
+    },
+    {
+      "command": "node node_modules/tsx/dist/cli.mjs scripts/test-certification-process-env.ts",
+      "exit": 0,
+      "elapsedMs": 2082,
+      "inputHash": "bbf2153349e91968e958013c12d3aec90d4094cafd0bfa8ae627aa2c9c318d01",
+      "outputHash": "e96955908169bdc68800e2cbcf7fb6ef3851175ba190b4087bbf328588ab5897"
+    },
+    {
+      "command": "node node_modules/tsx/dist/cli.mjs scripts/test-certification-provider-deny.ts",
+      "exit": 0,
+      "elapsedMs": 1897,
+      "inputHash": "bbf2153349e91968e958013c12d3aec90d4094cafd0bfa8ae627aa2c9c318d01",
+      "outputHash": "e96955908169bdc68800e2cbcf7fb6ef3851175ba190b4087bbf328588ab5897"
+    },
+    {
+      "command": "node node_modules/tsx/dist/cli.mjs scripts/test-certification-server-readiness.ts",
+      "exit": 0,
+      "elapsedMs": 1890,
+      "inputHash": "bbf2153349e91968e958013c12d3aec90d4094cafd0bfa8ae627aa2c9c318d01",
+      "outputHash": "e96955908169bdc68800e2cbcf7fb6ef3851175ba190b4087bbf328588ab5897"
+    },
+    {
+      "command": "node node_modules/tsx/dist/cli.mjs scripts/test-certification-redis-reservation.ts",
+      "exit": 0,
+      "elapsedMs": 2042,
+      "inputHash": "bbf2153349e91968e958013c12d3aec90d4094cafd0bfa8ae627aa2c9c318d01",
+      "outputHash": "e96955908169bdc68800e2cbcf7fb6ef3851175ba190b4087bbf328588ab5897"
+    },
+    {
+      "command": "node node_modules/tsx/dist/cli.mjs scripts/run-guarded-canonical-migration.ts",
+      "exit": 0,
+      "elapsedMs": 10149,
+      "inputHash": "bbf2153349e91968e958013c12d3aec90d4094cafd0bfa8ae627aa2c9c318d01",
+      "outputHash": "e96955908169bdc68800e2cbcf7fb6ef3851175ba190b4087bbf328588ab5897"
+    },
+    {
+      "command": "node node_modules/tsx/dist/cli.mjs scripts/run-guarded-canonical-migration.ts",
+      "exit": 0,
+      "elapsedMs": 3106,
+      "inputHash": "bbf2153349e91968e958013c12d3aec90d4094cafd0bfa8ae627aa2c9c318d01",
+      "outputHash": "e96955908169bdc68800e2cbcf7fb6ef3851175ba190b4087bbf328588ab5897"
+    },
+    {
+      "command": "node node_modules/tsx/dist/cli.mjs scripts/run-ci-suites.ts --capability deterministic-integration",
+      "exit": 1,
+      "elapsedMs": 92490,
+      "inputHash": "bbf2153349e91968e958013c12d3aec90d4094cafd0bfa8ae627aa2c9c318d01",
+      "outputHash": "e96955908169bdc68800e2cbcf7fb6ef3851175ba190b4087bbf328588ab5897"
+    }
+  ]
+}

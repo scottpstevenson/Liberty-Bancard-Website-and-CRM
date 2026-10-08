@@ -1,13 +1,17 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useMutation } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { apiRequest, queryClient, protectedScope } from "@/lib/queryClient";
+import { useToolCapability } from "@/hooks/use-tool-capabilities";
+import { useOutboundPauseObservation } from "@/hooks/use-outbound-pause-observation";
 import { Link } from "wouter";
+import { CrmPage, CrmPageHeader, ScopedMetricStrip } from "@/components/crm/CrmPresentation";
 import {
   Users, Ticket, TrendingUp, CheckCircle, AlertTriangle, Clock,
   Target, ArrowUpRight, ArrowDownRight, Loader2, Brain, Sparkles,
@@ -57,7 +61,7 @@ function DailyBriefing({ userId }: { userId: string }) {
       const response = await apiRequest("POST", "/api/overview/daily-briefing/refresh");
       return response.json() as Promise<DailyBriefingData>;
     },
-    onSuccess: (briefing) => queryClient.setQueryData(["/api/overview/daily-briefing"], briefing),
+    onSuccess: (briefing) => queryClient.setQueriesData({ queryKey: ["/api/overview/daily-briefing"] }, () => briefing),
   });
 
   if (dismissed) return null;
@@ -81,7 +85,7 @@ function DailyBriefing({ userId }: { userId: string }) {
 
   return (
     <div
-      className="rounded-xl border border-sky-200 dark:border-sky-800 bg-gradient-to-r from-sky-50 to-indigo-50/50 dark:from-sky-950/30 dark:to-indigo-950/20 p-4"
+      className="rounded-lg border border-border bg-card p-4"
       data-testid="card-daily-briefing"
     >
       <div className="flex items-start justify-between gap-3">
@@ -93,7 +97,7 @@ function DailyBriefing({ userId }: { userId: string }) {
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 text-[10px] text-sky-600 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-900/30 px-2"
+            className="text-xs text-foreground hover:bg-muted px-2"
             disabled={refreshBriefing.isPending}
             onClick={() => refreshBriefing.mutate()}
           >
@@ -105,7 +109,7 @@ function DailyBriefing({ userId }: { userId: string }) {
               localStorage.setItem(localKey, "1");
               setDismissed(true);
             }}
-            className="text-sky-500 hover:text-sky-700 dark:hover:text-sky-300 p-0.5 rounded"
+            className="text-foreground hover:bg-muted p-2 rounded"
             aria-label="Dismiss briefing"
           >
             <span className="text-xs">✕</span>
@@ -183,32 +187,9 @@ function DailyBriefing({ userId }: { userId: string }) {
 }
 
 // #221 — Animated stat counter (count-up on first viewport entry)
-function useCountUp(end: number, duration = 1200) {
-  const [count, setCount] = useState(0);
-  const [started, setStarted] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const observer = new IntersectionObserver(([e]) => { if (e.isIntersecting && !started) setStarted(true); }, { threshold: 0.3 });
-    if (ref.current) observer.observe(ref.current);
-    return () => observer.disconnect();
-  }, [started]);
-  useEffect(() => {
-    if (!started || end === 0) return;
-    const steps = 50;
-    const inc = end / steps;
-    let cur = 0;
-    const t = setInterval(() => {
-      cur += inc;
-      if (cur >= end) { setCount(end); clearInterval(t); } else { setCount(Math.round(cur)); }
-    }, duration / steps);
-    return () => clearInterval(t);
-  }, [started, end, duration]);
-  return { count, ref };
-}
-
-function AnimatedStat({ value, "data-testid": testId }: { value: number; "data-testid"?: string }) {
-  const { count, ref } = useCountUp(value);
-  return <div className="text-2xl font-bold" data-testid={testId} ref={ref}>{count}</div>;
+function FactualStat({ value, "data-testid": testId }: { value?: number|null; "data-testid"?: string }) {
+  return <div className="text-[28px] leading-8 font-semibold tabular-nums" data-testid={testId}
+    role={value==null?"status":undefined}>{value==null?"Unavailable":value}</div>;
 }
 
 function formatInsights(text: string) {
@@ -256,6 +237,10 @@ function getGreeting(hour: number): string {
 
 export default function Overview() {
   const { user } = useAuth();
+  const aiCapability=useToolCapability("ai");
+  const pause=useOutboundPauseObservation();
+  const actorContext=JSON.stringify(protectedScope(user));
+  const currentActor=useRef(actorContext);currentActor.current=actorContext;
   const greeting = useMemo(() => getGreeting(new Date().getHours()), []);
   const [insights, setInsights] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -274,6 +259,9 @@ export default function Overview() {
     overdueTaskCount: number;
     sourceBreakdown: Record<string, number>;
   } | null>(null);
+  useEffect(()=>{
+    setInsights(null);setLastUpdated(null);setDigestResult(null);setDigestSending(false);
+  },[actorContext]);
 
   const { data: outboundSettings } = useQuery<OutboundSettings>({
     queryKey: ["/api/system/outbound-settings"],
@@ -282,12 +270,15 @@ export default function Overview() {
   });
 
   const insightsMutation = useMutation({
+    onMutate:()=>({actorContext}),
     mutationFn: async () => {
+      if(aiCapability.blocked)throw new Error(aiCapability.reason);
       const res = await apiRequest("POST", "/api/ai/insights");
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return await res.json() as any;
     },
-    onSuccess: (data) => {
+    onSuccess: (data,_variables,submitted) => {
+      if(currentActor.current!==submitted?.actorContext)return;
       if (data?.error) {
         setInsights(data.message || "The AI assistant is temporarily unavailable.");
       } else {
@@ -301,7 +292,7 @@ export default function Overview() {
     pipeline: { totalActive: number; closedWon30d: number; closedLost30d: number; conversionRate: number; stagesBreakdown: Record<string, number>; newLeads7d: number };
     onboarding: { active: number; live: number };
     support: { openTickets: number; breachedSla: number; avgResolutionHours: number | null };
-    tasks: { pending: number; overdue: number };
+    tasks: { pending: number; overdue: number; meta?:{asOf?:string;timezone?:string} };
     contacts: { total: number; new30d: number; noOutreach24h: number }; // #1063 — noOutreach24h is a full-table server aggregate
     revenue: { totalEstVolume: number; totalEstResidual: number; totalEstProfit: number; avgDealProfit: number };
     topRepsByPipeline: Array<{ owner: string; openDeals: number }>; // #1144 — full-table server aggregate
@@ -374,17 +365,26 @@ export default function Overview() {
 
   if (kpiLoading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
+      <CrmPage className="space-y-6">
+        <CrmPageHeader title="Today" description="Your authorized sales work, current as of the latest available reads." />
+        <div className="space-y-3" role="status" aria-label="Loading Today workspace">
+          <div className="h-24 animate-pulse rounded-lg bg-muted" />
+          <div className="h-40 animate-pulse rounded-lg bg-muted" />
+          <div className="h-56 animate-pulse rounded-lg bg-muted" />
+        </div>
+      </CrmPage>
     );
   }
 
   if (isError) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <p className="text-muted-foreground">Unable to load dashboard data. Please try again.</p>
-      </div>
+      <CrmPage className="space-y-6">
+        <CrmPageHeader title="Today" description="Your authorized sales work, current as of the latest available reads." />
+        <div className="crm-state-panel" role="alert"><span className="crm-state-kicker">Today unavailable</span>
+          <p>The summary could not be refreshed. No zero values are being substituted.</p>
+          <Button className="mt-3" variant="outline" onClick={() => void queryClient.invalidateQueries({ queryKey: ["/api/kpi/summary"] })}>Retry summary</Button>
+        </div>
+      </CrmPage>
     );
   }
 
@@ -406,15 +406,17 @@ export default function Overview() {
   const activeDeals = deals?.filter((d: Deal) => d.pipeline === "sales" && d.stage !== "Closed Won" && d.stage !== "Closed Lost").slice(0, 5) || [];
 
   const handleSendDigest = async () => {
+    if(pause.blocked || digestSending)return;
+    const submittedActor=actorContext;
     setDigestSending(true);
     try {
       const res = await apiRequest("POST", "/api/analytics/weekly-digest", {});
       const data = await res.json();
-      setDigestResult(data);
+      if(currentActor.current===submittedActor)setDigestResult(data);
     } catch {
-      setDigestResult(null);
+      if(currentActor.current===submittedActor)setDigestResult(null);
     } finally {
-      setDigestSending(false);
+      if(currentActor.current===submittedActor)setDigestSending(false);
     }
   };
 
@@ -422,7 +424,23 @@ export default function Overview() {
   const maxTrendLeads = dailyData?.trend ? Math.max(...dailyData.trend.map(t => t.leads), 1) : 1;
 
   return (
-    <div className="space-y-8">
+    <CrmPage className="space-y-7">
+      <CrmPageHeader title="Today" description={`A focused briefing for ${user?.firstName || "your sales workspace"}.`}
+        primaryAction={<Link href="/dashboard/tasks-appointments" className="inline-flex min-h-11 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground">Open Work</Link>} />
+      <ScopedMetricStrip className="crm-today-metrics" availability={kpi
+        ? [kpi.tasks?.pending,kpi.tasks?.overdue,kpi.pipeline?.totalActive,kpi.pipeline?.newLeads7d,kpi.support?.openTickets].every(Number.isFinite)?"available":"partial"
+        : "unknown"} sourceLabel="KPI summary · separate statements · UTC" asOf={kpi?.tasks?.meta?.asOf}>
+        {[
+          { label: "Pending tasks", value: kpi?.tasks?.pending },
+          { label: "Overdue tasks", value: kpi?.tasks?.overdue },
+          { label: "Open sales deals", value: kpi?.pipeline?.totalActive },
+          { label: "New leads · 7 days", value: kpi?.pipeline?.newLeads7d },
+          { label: "Open tickets", value: kpi?.support?.openTickets },
+        ].map(metric => <div key={metric.label} className="rounded-lg border bg-card p-4 shadow-[var(--shadow-card)]">
+          <FactualStat value={metric.value} />
+          <div className="mt-1 text-xs text-muted-foreground">{metric.label}</div>
+        </div>)}
+      </ScopedMetricStrip>
       {/* #319 — Personalized time-of-day greeting */}
       {user?.firstName && (
         <p className="text-lg font-medium text-muted-foreground" data-testid="text-overview-greeting">
@@ -471,7 +489,7 @@ export default function Overview() {
               variant="outline"
               size="sm"
               onClick={handleSendDigest}
-              disabled={digestSending}
+              disabled={digestSending || pause.blocked}
               data-testid="button-send-digest"
             >
               {digestSending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Mail className="w-4 h-4 mr-2" />}
@@ -482,7 +500,7 @@ export default function Overview() {
                 variant="outline"
                 size="sm"
                 onClick={() => insightsMutation.mutate()}
-                disabled={insightsMutation.isPending}
+                disabled={insightsMutation.isPending || aiCapability.blocked}
                 data-testid="button-get-insights"
               >
                 {insightsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
@@ -491,7 +509,7 @@ export default function Overview() {
             ) : (
               <Button
                 onClick={() => insightsMutation.mutate()}
-                disabled={insightsMutation.isPending}
+                disabled={insightsMutation.isPending || aiCapability.blocked}
                 size="sm"
                 data-testid="button-get-insights"
               >
@@ -502,6 +520,8 @@ export default function Overview() {
           </div>
         </CardHeader>
         <CardContent>
+          <p role="status" data-testid="today-ai-capability-reason">{aiCapability.reason}</p>
+          <p role="status" data-testid="today-digest-pause-reason">{pause.reason}</p>
           {insightsMutation.isPending && !insights && (
             <div className="flex items-center gap-2 text-muted-foreground py-4">
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -539,7 +559,8 @@ export default function Overview() {
       </Card>
 
       {/* ── SECTION 1: ACTUAL PERFORMANCE ── */}
-      <div data-testid="section-actual-performance">
+      <details data-testid="section-actual-performance">
+        <summary className="min-h-11 cursor-pointer text-sm font-medium">Additional performance details</summary>
         <div className="flex items-center gap-3 mb-4">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Actual Performance</h2>
           <div className="flex-1 h-px bg-border" />
@@ -553,8 +574,8 @@ export default function Overview() {
                 <CalendarDays className="w-4 h-4 text-primary" />
               </CardHeader>
               <CardContent>
-                <AnimatedStat value={dailyData?.todayLeads || 0} data-testid="text-today-leads" />
-                <p className="text-xs text-muted-foreground mt-1" data-testid="text-today-deals">{dailyData?.todayDeals || 0} deals created</p>
+                <FactualStat value={dailyData?.todayLeads} data-testid="text-today-leads" />
+                <p className="text-xs text-muted-foreground mt-1" data-testid="text-today-deals">{dailyData?.todayDeals==null?"Deal count unavailable":`${dailyData.todayDeals} deals created`}</p>
               </CardContent>
             </Card>
 
@@ -564,8 +585,8 @@ export default function Overview() {
                 <TrendingUp className="w-4 h-4 text-primary" />
               </CardHeader>
               <CardContent>
-                <AnimatedStat value={kpi?.pipeline.totalActive || 0} data-testid="text-active-pipeline" />
-                <p className="text-xs text-muted-foreground mt-1" data-testid="text-new-leads">{kpi?.pipeline.newLeads7d || 0} new this week</p>
+                <FactualStat value={kpi?.pipeline.totalActive} data-testid="text-active-pipeline" />
+                <p className="text-xs text-muted-foreground mt-1" data-testid="text-new-leads">{kpi?.pipeline.newLeads7d==null?"New-lead count unavailable":`${kpi.pipeline.newLeads7d} new this week`}</p>
               </CardContent>
             </Card>
 
@@ -575,8 +596,8 @@ export default function Overview() {
                 <Target className="w-4 h-4 text-green-600" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-conversion-rate">{kpi?.pipeline.conversionRate || 0}%</div>
-                <p className="text-xs text-muted-foreground mt-1" data-testid="text-won-lost">{kpi?.pipeline.closedWon30d || 0}W / {kpi?.pipeline.closedLost30d || 0}L</p>
+                <div className="text-[28px] leading-8 font-semibold tabular-nums" data-testid="text-conversion-rate">{kpi?.pipeline.conversionRate==null?"Unavailable":`${kpi.pipeline.conversionRate}%`}</div>
+                <p className="text-xs text-muted-foreground mt-1" data-testid="text-won-lost">{kpi?.pipeline.closedWon30d==null || kpi?.pipeline.closedLost30d==null?"Won/lost counts unavailable":`${kpi.pipeline.closedWon30d}W / ${kpi.pipeline.closedLost30d}L`}</p>
               </CardContent>
             </Card>
 
@@ -586,14 +607,14 @@ export default function Overview() {
                 <Ticket className="w-4 h-4 text-orange-500" />
               </CardHeader>
               <CardContent>
-                <AnimatedStat value={kpi?.support.openTickets || 0} data-testid="text-open-tickets" />
+                <FactualStat value={kpi?.support.openTickets} data-testid="text-open-tickets" />
                 {(kpi?.support.breachedSla || 0) > 0 ? (
                   <p className="text-xs text-destructive mt-1 flex items-center gap-1" data-testid="text-sla-breach">
                     <AlertTriangle className="w-3 h-3" />
                     {kpi?.support.breachedSla} SLA breaches
                   </p>
                 ) : (
-                  <p className="text-xs text-muted-foreground mt-1" data-testid="text-sla-ok">All within SLA</p>
+                  <p className="text-xs text-muted-foreground mt-1" data-testid="text-sla-ok">{kpi?.support.breachedSla==null?"SLA status unavailable":"All within SLA"}</p>
                 )}
                 <p className="text-xs text-muted-foreground mt-1" data-testid="text-avg-resolution">
                   Avg resolution: <span className="font-medium">{formatResolutionTime(kpi?.support.avgResolutionHours)}</span>
@@ -607,7 +628,7 @@ export default function Overview() {
                 <Clock className="w-4 h-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                {kpi?.tasks.pending == null ? <p role="status">Tasks unavailable</p> : <AnimatedStat value={kpi.tasks.pending} data-testid="text-pending-tasks" />}
+                <FactualStat value={kpi?.tasks.pending} data-testid="text-pending-tasks" />
                 {kpi?.tasks.overdue == null ? <p className="text-xs text-muted-foreground mt-1">Overdue count unavailable</p> : kpi.tasks.overdue > 0 ? (
                   <p className="text-xs text-destructive mt-1" data-testid="text-overdue-tasks">{kpi?.tasks.overdue} overdue</p>
                 ) : (
@@ -633,8 +654,8 @@ export default function Overview() {
                     <AlertTriangle className="w-4 h-4 text-amber-500" />
                   </CardHeader>
                   <CardContent>
-                    <AnimatedStat value={stale} data-testid="text-stale-deals" />
-                    <p className="text-xs text-muted-foreground mt-1">Active deals with no update</p>
+                     <FactualStat value={stale} data-testid="text-stale-deals" />
+                     <p className="text-xs text-muted-foreground mt-1">Loaded active deals with no update · not a population total</p>
                   </CardContent>
                 </Card>
               );
@@ -655,8 +676,8 @@ export default function Overview() {
                     <CalendarDays className="w-4 h-4 text-amber-500" />
                   </CardHeader>
                   <CardContent>
-                    <AnimatedStat value={dueToday} data-testid="text-follow-ups-today" />
-                    <p className="text-xs text-muted-foreground mt-1">Deals due for follow-up</p>
+                     <FactualStat value={dueToday} data-testid="text-follow-ups-today" />
+                     <p className="text-xs text-muted-foreground mt-1">Loaded deals due for follow-up · browser timezone · not a total</p>
                   </CardContent>
                 </Card>
               );
@@ -899,7 +920,7 @@ export default function Overview() {
             </Card>
           </div>
         </div>
-      </div>
+      </details>
 
       {/* #596 — Weekly outreach count metric */}
       {weeklyOutreach && weeklyOutreach.total > 0 && (
@@ -1311,6 +1332,6 @@ export default function Overview() {
           )}
         </div>
       </div>
-    </div>
+    </CrmPage>
   );
 }

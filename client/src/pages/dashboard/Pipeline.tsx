@@ -1,8 +1,10 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { useSearch, useLocation } from "wouter";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useMutation, type InfiniteData } from "@tanstack/react-query";
+import { useCrmInfiniteQuery } from "@/hooks/use-crm-infinite-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { apiRequest, queryClient, protectedContextToken, protectedScope } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +37,8 @@ import Comments from "@/components/Comments";
 import SavedFilterBar from "@/components/SavedFilterBar";
 import DashboardErrorState from "@/components/DashboardErrorState";
 import { useConfirmationFailedBatch, type ConfirmationFailedStatus } from "@/hooks/use-confirmation-failed-batch";
+import { CrmPage, CrmPageHeader, CrmDataState } from "@/components/crm/CrmPresentation";
+import { AuthorizedContactPicker, type ContactChoice } from "@/components/crm/AuthorizedContactPicker";
 import {
   DndContext,
   DragOverlay,
@@ -79,6 +83,22 @@ interface MidSummary {
   sparkline: number[];
   latestDate: string | null;
   fetchedAt: string | null;
+}
+
+type BulkStageOutcome = "confirmed" | "blocked" | "unknown" | "unattempted";
+interface BulkStageResult {
+  id: number;
+  outcome: BulkStageOutcome;
+  reason?: string | null;
+  currentStage?: string | null;
+}
+interface BulkStageResponse {
+  advanced: number;
+  blocked: number;
+  blockedDealIds: number[];
+  results: BulkStageResult[];
+  confirmedDealIds: number[];
+  unresolvedDealIds: number[];
 }
 
 function fmtCompactCurrency(n: unknown): string {
@@ -260,6 +280,27 @@ function DealQuickEditSheet({
   onClose: () => void;
 }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const contextKey=JSON.stringify([protectedScope(user),open,deal?.id,deal?.contactId]);
+  const currentContext=useRef(contextKey);currentContext.current=contextKey;
+  const hydratedContext=useRef<string|null>(null);
+  const [confirmedDealKey,setConfirmedDealKey]=useState<string|null>(null);
+  const contactRead=useQuery<Record<string,any>>({
+    queryKey:["/api/contacts",deal?.contactId],
+    enabled:open&&!!deal?.contactId,
+    queryFn:async({signal})=>{
+      const row=await (await apiRequest("GET",`/api/contacts/${deal!.contactId}`,undefined,undefined,signal)).json();
+      if(!row || row.id!==deal?.contactId)throw new Error("Exact linked contact response unavailable");
+      for(const key of ["firstName","lastName","email","phone"]){
+        if(!Object.hasOwn(row,key) || row[key]!==null && typeof row[key]!=="string"){
+          throw new Error("Exact linked contact response is malformed");
+        }
+      }
+      return row;
+    },
+    retry:false,
+    staleTime:0,
+  });
   const [contactFields, setContactFields] = useState({
     firstName: "",
     lastName: "",
@@ -280,23 +321,22 @@ function DealQuickEditSheet({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [contactId, setContactId] = useState<number | null>(null);
 
-  // Load contact when sheet opens
+  // Reset edits on the exact protected context; no prior entity placeholders.
   useEffect(() => {
-    if (!open || !deal) return;
+    hydratedContext.current=null;
+    setConfirmedDealKey(null);setSaving(false);
+    setContactFields(previous=>Object.fromEntries(Object.keys(previous).map(key=>[key,""])) as typeof previous);
+    setContactId(open&&deal ? deal.contactId : null);
     setErrors({});
     setDealFields({
-      name: (deal as any).name ?? "",
-      offerPath: (deal as any).offerPath ?? "",
+      name: (deal as any)?.name ?? "",
+      offerPath: (deal as any)?.offerPath ?? "",
     });
-    if (!deal.contactId) {
-      setContactId(null);
-      return;
-    }
-    setContactId(deal.contactId);
-    fetch(`/api/contacts/${deal.contactId}`, { credentials: "include" })
-      .then((r) => r.ok ? r.json() : null)
-      .then((c) => {
-        if (!c) return;
+  }, [contextKey]);
+  useEffect(()=>{
+        const c=contactRead.data;
+        if(!open || contactRead.isError || !c || c.id!==deal?.contactId || hydratedContext.current===contextKey)return;
+        hydratedContext.current=contextKey;
         setContactFields({
           firstName: c.firstName ?? "",
           lastName: c.lastName ?? "",
@@ -309,25 +349,26 @@ function DealQuickEditSheet({
           leadSource: c.leadSource ?? "",   // correct column name
           preferredChannel: c.preferredChannel ?? "",
         });
-      })
-      .catch(() => {});
-  }, [open, deal]);
+  },[contactRead.data,contactRead.isError,contextKey]);
 
   const validate = () => {
     const errs: Record<string, string> = {};
     // firstName/lastName/companyName: at least one identifier required
-    if (!contactFields.firstName.trim() && !contactFields.lastName.trim() && !contactFields.companyName.trim()) {
+    if (contactId && !contactFields.firstName.trim() && !contactFields.lastName.trim() && !contactFields.companyName.trim()) {
       errs.name = "At least first name, last name, or company name is required.";
     }
     // email and phone are NOT NULL in the schema — cannot be cleared to null
-    if (!contactFields.email.trim()) errs.email = "Email is required.";
-    if (!contactFields.phone.trim()) errs.phone = "Phone is required.";
+    if (contactId && !contactFields.email.trim()) errs.email = "Email is required.";
+    if (contactId && !contactFields.phone.trim()) errs.phone = "Phone is required.";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
 
   const handleSave = async () => {
-    if (!deal || !validate()) return;
+    if (!deal || (deal.contactId && (contactRead.isError || !contactRead.data)) || !validate()) return;
+    const submittedContext=contextKey;
+    const dealKey=JSON.stringify([submittedContext,dealFields]);
+    let dealConfirmed=confirmedDealKey===dealKey;
     setSaving(true);
     try {
       // Save deal fields.
@@ -336,11 +377,16 @@ function DealQuickEditSheet({
         name: dealFields.name.trim() || null,
         offerPath: dealFields.offerPath || null,
       };
-      const dr = await apiRequest("PUT", `/api/deals/${deal.id}`, dealPayload);
-      if (!dr.ok) {
-        const body = await dr.json().catch(() => ({}));
-        throw new Error(body.message || "Failed to save deal");
+      if(!dealConfirmed){
+        const dr = await apiRequest("PUT", `/api/deals/${deal.id}`, dealPayload);
+        const receipt=await dr.json();
+        if(receipt?.id!==deal.id)throw new Error("Deal confirmation unavailable. Read back before retrying.");
+        dealConfirmed=true;
+        void queryClient.invalidateQueries({queryKey:["/api/deals"]});
+        if(currentContext.current!==submittedContext)return;
+        setConfirmedDealKey(dealKey);
       }
+      if(currentContext.current!==submittedContext)return;
       // Save contact fields.
       // NOT NULL columns (firstName, lastName, email, phone): only include when non-empty
       //   (omitting preserves the existing DB value; validation above already ensured they're set).
@@ -362,19 +408,23 @@ function DealQuickEditSheet({
           preferredChannel: contactFields.preferredChannel || null,
         };
         const cr = await apiRequest("PUT", `/api/contacts/${contactId}`, contactPayload);
-        if (!cr.ok) {
-          const body = await cr.json().catch(() => ({}));
-          throw new Error(body.message || "Failed to save contact");
-        }
+        const receipt=await cr.json();
+        if(receipt?.id!==contactId)throw new Error("Contact save confirmation unavailable");
       }
       queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
       queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
-      toast({ title: "Lead updated", description: "Changes saved successfully." });
+      if(currentContext.current!==submittedContext)return;
+      toast({ title: "Lead updated", description: "Deal and requested contact changes confirmed." });
       onClose();
     } catch (err: any) {
-      toast({ title: "Failed to save", description: err?.message, variant: "destructive" });
+      if(currentContext.current!==submittedContext)return;
+      const message=dealConfirmed
+        ? `Deal changes confirmed. Contact changes are not confirmed. ${err?.message} Retry only the remaining contact save; do not undo the committed deal.`
+        : `Deal changes are not confirmed. ${err?.message}`;
+      setErrors(previous=>({...previous,save:message}));
+      toast({ title: "Save not fully confirmed", description:message, variant: "destructive" });
     } finally {
-      setSaving(false);
+      if(currentContext.current===submittedContext)setSaving(false);
     }
   };
 
@@ -384,7 +434,10 @@ function DealQuickEditSheet({
         <SheetHeader>
           <SheetTitle>Edit Lead</SheetTitle>
         </SheetHeader>
-        <div className="mt-6 space-y-5">
+        {deal?.contactId && contactRead.isLoading && <CrmDataState state="loading" message="Loading the exact authorized linked contact."/>}
+        {deal?.contactId && contactRead.isError && <CrmDataState state="unavailable" message="Linked contact could not be loaded. Editing is unavailable; no empty record is assumed." onRetry={()=>void contactRead.refetch()}/>}
+        {(!deal?.contactId || contactRead.data && !contactRead.isError) && <div className="mt-6 space-y-5">
+          {errors.save && <p role="alert" className="text-sm text-destructive">{errors.save}</p>}
           {/* Contact name */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
@@ -535,7 +588,7 @@ function DealQuickEditSheet({
               {saving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</> : "Save Changes"}
             </Button>
           </div>
-        </div>
+        </div>}
       </SheetContent>
     </Sheet>
   );
@@ -615,6 +668,7 @@ function SortableDealCard({
         <CardContent className="p-3 space-y-2">
           <div className="flex items-start gap-2">
             <Checkbox
+              aria-label={`Select deal ${deal.id}`}
               checked={selectedDealIds.has(deal.id)}
               onCheckedChange={() => toggleDealSelection(deal.id)}
               onClick={(e) => e.stopPropagation()}
@@ -674,6 +728,10 @@ function SortableDealCard({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
+          <Button variant="outline" className="w-full" aria-label={`Open deal ${deal.id}: ${identity.primary}`} data-testid={`button-open-deal-${deal.id}`}
+            onClick={event=>{event.stopPropagation();openDealDetail(deal);}}>
+            Open deal
+          </Button>
           {isDealArchived && (
             <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-archived-deal-${deal.id}`}>
               <Archive className="w-3 h-3 mr-1" /> Archived
@@ -937,7 +995,7 @@ function SortableDealCard({
             return null;
           })() : proposalsFailed ? (
             <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-              <Badge variant="outline" className="text-xs bg-muted text-muted-foreground border-dashed no-default-hover-elevate no-default-active-elevate" data-testid={`badge-proposal-unavailable-${deal.id}`} title="Could not load proposal status for this deal">
+              <Badge variant="outline" className="text-xs bg-muted text-foreground border-dashed no-default-hover-elevate no-default-active-elevate" data-testid={`badge-proposal-unavailable-${deal.id}`} title="Could not load proposal status for this deal">
                 Details unavailable
               </Badge>
               <Button
@@ -1097,7 +1155,8 @@ function DroppableColumn({
 }) {
   return (
     <div className="w-[270px] max-w-[300px] flex-shrink-0" data-testid={`stage-column-${stage.replace(/\s+/g, "-").toLowerCase()}`}>{/* #233 — kanban column max-width cap */}
-      <div className={`${colorClass} text-white px-3 py-2 rounded-md mb-3 flex items-center justify-between gap-2`}>
+      <div className="bg-primary text-primary-foreground px-3 py-2 rounded-md mb-3 flex items-center justify-between gap-2">
+        <span aria-hidden="true" className={`${colorClass} h-2 w-2 rounded-full shrink-0`}/>
         <span className="text-sm font-semibold truncate">{stage}</span>
         <div className="flex items-center gap-1">
           {/* #367 — Stage estimated revenue total · #469 — avg deal value tooltip */}
@@ -1228,16 +1287,18 @@ function DealCompetitorsSection({ dealId }: { dealId: number }) {
 
 function DealChangeHistory({ dealId }: { dealId: number }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  const { data: logs, isLoading } = useQuery<Array<{
+  const { data: logs, isLoading, isError, refetch } = useQuery<Array<{
     id: number; action: string; beforeState: Record<string, unknown> | null;
     afterState: Record<string, unknown> | null; actorType: string | null;
     actorId: string | null; userId: string | null; createdAt: string;
   }>>({
     queryKey: ["/api/audit-logs/entity", "deal", dealId],
-    queryFn: async () => {
-      const res = await fetch(`/api/audit-logs/entity/deal/${dealId}?limit=50`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+    queryFn: async ({signal}) => {
+      const res = await fetch(`/api/audit-logs/entity/deal/${dealId}?limit=50`, { credentials: "include",signal });
+      if (!res.ok) throw new Error("Deal change history unavailable");
+      const data=await res.json();
+      if(!Array.isArray(data))throw new Error("Invalid deal change history response");
+      return data;
     },
     enabled: !!dealId,
     staleTime: 30000,
@@ -1263,6 +1324,7 @@ function DealChangeHistory({ dealId }: { dealId: number }) {
   }
 
   if (isLoading) return <div className="py-4 text-sm text-muted-foreground">Loading history...</div>;
+  if (isError) return <CrmDataState state="unavailable" message="Immutable deal history could not be loaded; this is not an empty history." onRetry={()=>void refetch()}/>;
   if (!logs || logs.length === 0) return <div className="py-4 text-sm text-muted-foreground italic">No change history recorded yet.</div>;
 
   return (
@@ -1315,6 +1377,11 @@ function DealChangeHistory({ dealId }: { dealId: number }) {
 }
 
 export default function Pipeline() {
+  useAuth();
+  return <PipelineWorkspace key={protectedContextToken()} />;
+}
+
+function PipelineWorkspace() {
   const { toast } = useToast();
   const { user } = useAuth();
   const isManagerOrAdmin = user?.role === "admin" || user?.role === "manager";
@@ -1324,15 +1391,19 @@ export default function Pipeline() {
   );
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
+  const selectedDealRef = useRef(selectedDeal);
+  selectedDealRef.current = selectedDeal;
   const [quickEditDeal, setQuickEditDeal] = useState<Deal | null>(null);
   // #1445 — Underwriting checklist tasks for the currently open deal
-  const { data: uwTasks = [], refetch: refetchUwTasks } = useQuery<any[]>({
+  const { data: uwTasks = [], isError: uwTasksError, isLoading: uwTasksLoading, refetch: refetchUwTasks } = useQuery<any[]>({
     queryKey: ["/api/deals", selectedDeal?.id, "underwriting-tasks"],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!selectedDeal?.id) return [];
-      const res = await fetch(`/api/deals/${selectedDeal.id}/underwriting-tasks`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json() as Promise<any[]>;
+      const res = await fetch(`/api/deals/${selectedDeal.id}/underwriting-tasks`, { credentials: "include", signal });
+      if (!res.ok) throw new Error("Underwriting work unavailable");
+      const tasks: unknown = await res.json();
+      if (!Array.isArray(tasks)) throw new Error("Invalid underwriting work response");
+      return tasks;
     },
     enabled: !!selectedDeal?.id && !!selectedDeal?.stage?.toLowerCase().includes("underwriting"),
     staleTime: 0,
@@ -1452,6 +1523,9 @@ export default function Pipeline() {
   const [proposalsRetryingByDeal, setProposalsRetryingByDeal] = useState<Record<string, boolean>>({});
 
   const [selectedDealIds, setSelectedDealIds] = useState<Set<number>>(new Set());
+  const [bulkStageResults, setBulkStageResults] = useState<BulkStageResult[] | null>(null);
+  const [bulkUnresolvedIds, setBulkUnresolvedIds] = useState<Set<number>>(new Set());
+  const hasUncertainStageSelection = Array.from(selectedDealIds).some(id => bulkUnresolvedIds.has(id));
   // #191 — Initialise filters from URL so bookmarks and back-nav work
   const _initParams = new URLSearchParams(search);
   const [showArchived, setShowArchivedRaw] = useState(() => _initParams.get("archived") === "true");
@@ -1510,57 +1584,90 @@ export default function Pipeline() {
   const [repPeriod, setRepPeriod] = useState<30 | 60 | 90>(30); // #1443 — period toggle for rep summary bar
   // #427 — Notes dialog handled inside NotesExpandButton (self-contained)
 
-  const fetchSingleDealProposals = async (dealId: number): Promise<CoBrandedProposal[] | null> => {
+  const fetchSingleDealProposals = useCallback(async (dealId: number): Promise<CoBrandedProposal[] | null> => {
+    const context=protectedContextToken();
     try {
-      const pRes = await fetch(`/api/deals/${dealId}/co-branded-proposals`, { credentials: "include" });
+      const pRes = await fetch(`/api/deals/${dealId}/co-branded-proposals`, { credentials: "include",signal:AbortSignal.timeout(10000) });
       if (pRes.ok) {
         const data: CoBrandedProposal[] = await pRes.json();
+        if(context!==protectedContextToken()) return null;
         setProposalsByDeal(prev => ({ ...prev, [String(dealId)]: data }));
         setProposalsFailedByDeal(prev => { const next = { ...prev }; delete next[String(dealId)]; return next; });
         return data;
       } else {
+        if(context!==protectedContextToken()) return null;
         // Clear stale cached proposals so the failure badge always takes precedence over old data
         setProposalsByDeal(prev => { const next = { ...prev }; delete next[String(dealId)]; return next; });
         setProposalsFailedByDeal(prev => ({ ...prev, [String(dealId)]: true }));
         return null;
       }
     } catch (err) {
+      if(context!==protectedContextToken()) return null;
       console.error(`Error fetching proposals for deal ${dealId}:`, err);
       // Clear stale cached proposals so the failure badge always takes precedence over old data
       setProposalsByDeal(prev => { const next = { ...prev }; delete next[String(dealId)]; return next; });
       setProposalsFailedByDeal(prev => ({ ...prev, [String(dealId)]: true }));
       return null;
     }
-  };
+  }, []);
 
-  const retryDealProposals = async (dealId: number) => {
+  const retryDealProposals = useCallback(async (dealId: number) => {
+    const context=protectedContextToken();
     setProposalsRetryingByDeal(prev => ({ ...prev, [String(dealId)]: true }));
     await fetchSingleDealProposals(dealId);
+    if(context!==protectedContextToken()) return;
     setProposalsRetryingByDeal(prev => { const next = { ...prev }; delete next[String(dealId)]; return next; });
-  };
+  }, [fetchSingleDealProposals]);
 
-  const { data: dealsResult, isLoading: dealsLoading, isError: dealsError, refetch: refetchDeals } = useQuery<{ data: Deal[]; total: number }>({
-    queryKey: ["/api/deals", { pipeline: "sales" }],
-    queryFn: async () => {
-      const res = await fetch("/api/deals?pipeline=sales&limit=2000", { credentials: "include" });
+  const dealScopeFilters={pipeline:"sales",includeArchived:String(showArchived),
+    noFollowUp:String(showNoFollowUpOnly),unassigned:String(showUnassignedOnly),pastGoLive:String(sortMode==="past_golive"),
+    ...(repEmailFilter?{assignedTo:repEmailFilter}:{}),...(verticalFilter?{vertical:verticalFilter}:{}),
+    ...(offerPathFilter?{offerPath:offerPathFilter}:{}),...(groupFilterContactId?{groupContactId:String(groupFilterContactId)}:{})};
+  const dealPagesQueryKey = ["/api/deals", dealScopeFilters] as const;
+  type DealPage = { data: Deal[]; total: number; stageDistribution:Record<string,number> };
+  const { data: dealPages, isLoading: firstPageLoading, isFetchingNextPage, isFetchNextPageError, hasNextPage, fetchNextPage, isError: dealsError, refetch: refetchDeals } = useCrmInfiniteQuery<
+    DealPage,
+    Error,
+    InfiniteData<DealPage, number>,
+    typeof dealPagesQueryKey,
+    number
+  >({
+    queryKey: dealPagesQueryKey,
+    initialPageParam: 0,
+    queryFn: async ({ pageParam, signal }) => {
+      const params=new URLSearchParams({limit:"250",offset:String(pageParam)});
+      for(const [key,value] of Object.entries(dealScopeFilters))if(value!==undefined)params.set(key,value);
+      const res = await fetch(`/api/deals?${params}`, { credentials: "include", signal });
       if (!res.ok) throw new Error("Failed to fetch deals");
       const result = await res.json();
-      
-      // Batch fetch proposals for all deals to show badges — reuses shared fetch/update path
-      if (result.data && result.data.length > 0) {
-        (async () => {
-          await Promise.all(result.data.map((deal: Deal) => fetchSingleDealProposals(deal.id)));
-        })();
-      }
-      
+      if(!result || !Array.isArray(result.data) || !Number.isInteger(result.total) || result.total<0 ||
+        !result.stageDistribution || typeof result.stageDistribution!=="object" || Array.isArray(result.stageDistribution) ||
+        Object.values(result.stageDistribution).some(value=>!Number.isInteger(value)||Number(value)<0) ||
+        result.data.some((deal:Deal)=>!Number.isInteger(deal.id)||typeof deal.stage!=="string"))
+        throw new Error("Malformed Pipeline page/count response; no empty state is assumed.");
       return result;
     },
+    getNextPageParam: (lastPage, pages) => {
+      const offset = pages.reduce((total, page) => total + page.data.length, 0);
+      return offset < lastPage.total ? offset : undefined;
+    },
   });
+  const allDealPages = dealPages?.pages ?? [];
+  const dealsResult = allDealPages.length ? {
+    data: allDealPages.flatMap(page => page.data),
+    total: allDealPages[allDealPages.length - 1].total,
+    stageDistribution:allDealPages[allDealPages.length-1].stageDistribution,
+  } : undefined;
+  const dealsLoading = firstPageLoading || isFetchingNextPage;
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage && !isFetchNextPageError) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage, allDealPages.length]);
   const deals = dealsResult?.data;
   const hasCompleteDealSnapshot = Boolean(deals && dealsResult?.total === deals.length);
   const { data: pipelineMetrics } = useQuery<{
     sales: { total: number; stageDistribution: Record<string, number>; wonLast30Days: number };
   }>({
+    enabled:user?.role==="admin"||user?.role==="manager",
     queryKey: ["/api/analytics/pipeline"],
     queryFn: async () => {
       const res = await fetch("/api/analytics/pipeline", { credentials: "include" });
@@ -1576,37 +1683,31 @@ export default function Pipeline() {
   );
   const { failedMap: confirmationFailedMap } = useConfirmationFailedBatch(dealContactIds);
 
-  const { data: contactsResult } = useQuery<{ data: Contact[]; total: number }>({
-    queryKey: ["/api/contacts"],
-    queryFn: async () => {
-      const res = await fetch("/api/contacts", { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch contacts");
-      return res.json();
-    },
-  });
-  const contacts = contactsResult?.data;
+  // Linked facts are supplied by the authorized deal reader. Picker search has
+  // its own scoped/paged read; page one is never a linked-contact inventory.
+  const contacts=useMemo(()=>[...new Map((deals??[]).filter(deal=>deal.contactId!=null).map(deal=>{
+    const facts=deal as Deal&{contactName?:string;contactVertical?:string;contactEmployeeCount?:number;contactLeadSource?:string};
+    return [deal.contactId,{id:deal.contactId,firstName:facts.contactName??"",lastName:"",
+      vertical:facts.contactVertical,employeeCount:facts.contactEmployeeCount,leadSource:facts.contactLeadSource} as Contact] as const;
+  })).values()],[deals]);
 
-  const { data: midSummaryData } = useQuery<{ summaries: Record<string, MidSummary>; days: number }>({
+  const { data: midSummaryData, isError: midSummaryError, refetch: refetchMidSummaries } = useQuery<{ summaries: Record<string, MidSummary>; days: number }>({
     queryKey: ["/api/mid-stats/pipeline-summary"],
     queryFn: async () => {
       const res = await fetch("/api/mid-stats/pipeline-summary?days=30", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch MID summaries");
-      return res.json();
+      const result=await res.json();
+      if(!result||!result.summaries||typeof result.summaries!=="object"||Array.isArray(result.summaries))
+        throw new Error("Processing summaries are unavailable");
+      return result;
     },
     staleTime: 5 * 60 * 1000,
   });
   const midSummaries = midSummaryData?.summaries || {};
 
-  // Derive group contact IDs for the selected parent account filter
-  const groupFilterContactIds = groupFilterContactId && contacts
-    ? new Set([
-        groupFilterContactId,
-        ...(contacts.filter(c => c.parentContactId === groupFilterContactId).map(c => c.id)),
-      ])
-    : null;
-
   // Parent accounts available in the filter dropdown
-  const parentAccountContacts = (contacts || []).filter(c => c.isParentAccount);
+  const [newDealContactChoice,setNewDealContactChoice]=useState<ContactChoice|null>(null);
+  const [groupPickerOpen,setGroupPickerOpen]=useState(false);
 
   const { data: pipelineStages } = useQuery<PipelineStage[]>({
     queryKey: ["/api/pipeline-stages", configPipeline],
@@ -1617,12 +1718,14 @@ export default function Pipeline() {
     },
   });
 
-  const { data: agentsList } = useQuery<Agent[]>({
+  const { data: agentsList, isError: agentsError, refetch: refetchAgents } = useQuery<Agent[]>({
     queryKey: ["/api/agents"],
-    queryFn: async () => {
-      const res = await fetch("/api/agents", { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+    queryFn: async ({signal}) => {
+      const res = await fetch("/api/agents", { credentials: "include",signal });
+      if (!res.ok) throw new Error("Rep choices unavailable");
+      const data=await res.json();
+      if(!Array.isArray(data))throw new Error("Invalid rep choices response");
+      return data;
     },
     enabled: isManagerOrAdmin,
   });
@@ -1741,6 +1844,13 @@ export default function Pipeline() {
   });
 
   const sortedStages = (pipelineStages || []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+  // Presentation only: retain every actual recorded stage without inventing a
+  // transition registry or silently dropping a legal legacy deal from both views.
+  const displayStages = [...new Set<string>([
+    ...SALES_STAGES, ...Object.keys(dealsResult?.stageDistribution ?? {}),
+    ...(deals ?? []).map(deal=>deal.stage).filter((stage):stage is string=>typeof stage==="string"&&stage.length>0),
+  ])];
+  const hasLoadedSignalFilter=sortMode==="trending_down"||sortMode==="no_activity";
 
   const handleDragStart = (event: DragStartEvent) => {
     const deal = deals?.find((d) => d.id === event.active.id);
@@ -1773,17 +1883,7 @@ export default function Pipeline() {
     const activeDealObj = deals?.find((d) => d.id === activeDealId);
     if (!activeDealObj || activeDealObj.stage === newStage) return;
 
-    queryClient.setQueryData(["/api/deals", { pipeline: "sales" }], (old: any) => {
-      if (!old) return old;
-      return {
-        ...old,
-        data: old.data.map((d: Deal) =>
-          d.id === activeDealId ? { ...d, stage: newStage } : d
-        ),
-      };
-    });
-
-    updateDealMutation.mutate({ id: activeDealId, stage: newStage });
+    updateDealMutation.mutate({ id: activeDealId, stage: newStage, expectedStage: activeDealObj.stage });
   };
 
   const getDealsInStage = (stageName: string) => {
@@ -1840,18 +1940,68 @@ export default function Pipeline() {
   });
 
   const updateDealMutation = useMutation({
-    mutationFn: async ({ id, ...data }: { id: number } & Record<string, unknown>) => {
+    onMutate: async variables => {
+      const context = protectedContextToken();
+      const scopedKey = [...dealPagesQueryKey, protectedScope(user)];
+      await queryClient.cancelQueries({ queryKey: scopedKey, exact: true });
+      if (context !== protectedContextToken()) throw new Error("Workspace changed; review the deal before saving.");
+      const previous = queryClient.getQueryData<InfiniteData<DealPage, number>>(scopedKey);
+      const previousDeal = previous?.pages.flatMap(page => page.data).find(deal => deal.id === variables.id);
+      if (typeof variables.stage === "string") {
+        queryClient.setQueryData<InfiniteData<DealPage, number>>(scopedKey, old => old ? ({
+          ...old, pages: old.pages.map(page => ({
+            ...page, data: page.data.map(deal => deal.id === variables.id
+              ? { ...deal, stage: variables.stage as string } : deal),
+          })),
+        }) : old);
+      }
+      return { context, scopedKey, previousDeal };
+    },
+    mutationFn: async ({ id, ...data }: { id: number; expectedStage?: string } & Record<string, unknown>) => {
       const res = await apiRequest("PUT", `/api/deals/${id}`, data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables, context) => {
+      if (context?.context !== protectedContextToken()) return;
       queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
-      setDetailOpen(false);
-      setSelectedDeal(null);
+      if (selectedDealRef.current?.id === variables.id) {
+        setDetailOpen(false);
+        setSelectedDeal(current => current?.id === variables.id ? null : current);
+      }
       toast({ title: "Deal updated successfully" });
     },
-    onError: (err: Error) => {
-      toast({ title: "Failed to update deal", description: err.message, variant: "destructive" });
+    onError: async (err: Error, variables, context) => {
+      if (context?.context !== protectedContextToken()) return;
+      if (context.previousDeal) {
+        queryClient.setQueryData<InfiniteData<DealPage, number>>(context.scopedKey, old => old ? ({
+          ...old, pages: old.pages.map(page => ({
+            ...page, data: page.data.map(deal => deal.id === variables.id ? context.previousDeal! : deal),
+          })),
+        }) : old);
+      }
+      let readbackNote = "";
+      if (typeof variables.stage === "string") {
+        try {
+          const response = await apiRequest("GET", `/api/deals/${variables.id}`);
+          const authoritativeDeal = await response.json() as Deal;
+          if (context.context !== protectedContextToken()) return;
+          queryClient.setQueryData<InfiniteData<DealPage, number>>(context.scopedKey, old => old ? ({
+            ...old,
+            pages: old.pages.map(page => ({
+              ...page,
+              data: page.data.map(deal => deal.id === authoritativeDeal.id ? authoritativeDeal : deal),
+            })),
+          }) : old);
+          setSelectedDeal(current => current?.id === authoritativeDeal.id ? authoritativeDeal : current);
+          if (selectedDealRef.current?.id === authoritativeDeal.id) setEditStage(authoritativeDeal.stage);
+          readbackNote = ` Server read-back confirms the current stage is “${authoritativeDeal.stage}”.`;
+        } catch {
+          readbackNote = " Server read-back was unavailable; the board is being refreshed before another move.";
+        }
+      }
+      if (context.context !== protectedContextToken()) return;
+      void queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      toast({ title: "Deal update not confirmed", description: `${err.message} The board is being refreshed to restore the saved state.${readbackNote}`, variant: "destructive" });
     },
   });
 
@@ -1874,35 +2024,57 @@ export default function Pipeline() {
   });
 
   const bulkStageMutation = useMutation({
+    onMutate:()=>({context:protectedContextToken()}),
     mutationFn: async ({ dealIds, stage }: { dealIds: number[]; stage: string }) => {
-      const res = await apiRequest("POST", "/api/deals/bulk-stage", { dealIds, stage });
+      const expectedStages=Object.fromEntries(dealIds.map(id=>{
+        const displayed=deals?.find(deal=>deal.id===id);
+        if(!displayed)throw new Error("A selected deal has no displayed stage. Read back the board before moving it.");
+        return [id,displayed.stage];
+      }));
+      const res = await apiRequest("POST", "/api/deals/bulk-stage", { dealIds, stage,expectedStages });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.message || "Failed to move deals");
       }
-      return res.json() as Promise<{ advanced: number; blocked: number; blockedDealIds: number[] }>;
+      return res.json() as Promise<BulkStageResponse>;
     },
-    onSuccess: (result) => {
+    onSuccess: (result,_variables,context) => {
+      if(context?.context!==protectedContextToken())return;
       queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
-      setSelectedDealIds(new Set());
-      if (result.blocked === 0) {
-        toast({ title: `${result.advanced} deal${result.advanced !== 1 ? "s" : ""} moved successfully` });
-      } else if (result.advanced === 0) {
-        toast({
-          title: "No deals moved — Go-Live prerequisites not met",
-          description: `${result.blocked} deal${result.blocked !== 1 ? "s" : ""} blocked by the Go-Live gate. Complete the checklist, assign a MID, and confirm terminal status before advancing.`,
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          title: `${result.advanced} moved, ${result.blocked} blocked`,
-          description: `${result.blocked} deal${result.blocked !== 1 ? "s" : ""} could not advance: Go-Live prerequisites not met. An admin can override from the Onboarding page.`,
-          variant: "destructive",
-        });
-      }
+      const confirmedIds = new Set(result.confirmedDealIds ?? []);
+      const unresolvedIds = new Set(result.unresolvedDealIds ?? result.results
+        .filter(row => row.outcome === "unknown" || row.outcome === "unattempted")
+        .map(row => row.id));
+      setSelectedDealIds(current => new Set([...current].filter(id => !confirmedIds.has(id))));
+      setBulkUnresolvedIds(previous => new Set([...previous, ...unresolvedIds]));
+      setBulkStageResults(previous => {
+        const byDealId = new Map((previous ?? []).map(row => [row.id, row]));
+        (result.results ?? []).forEach(row => byDealId.set(row.id, row));
+        return Array.from(byDealId.values());
+      });
+      const unknownCount = result.results.filter(row => row.outcome === "unknown").length;
+      const unattemptedCount = result.results.filter(row => row.outcome === "unattempted").length;
+      const blockedCount = result.results.filter(row => row.outcome === "blocked").length;
+      const confirmedCount = confirmedIds.size;
+      toast({
+        title: unknownCount || unattemptedCount
+          ? `${confirmedCount} confirmed · batch stopped for reconciliation`
+          : `${confirmedCount} confirmed · ${blockedCount} blocked`,
+        description: `${confirmedCount} confirmed deal${confirmedCount === 1 ? "" : "s"} removed from selection. Blocked, unknown, and unattempted deals remain selected with their server reasons.`,
+        variant: unknownCount || unattemptedCount || blockedCount ? "destructive" : "default",
+      });
     },
-    onError: (err: Error) => {
-      toast({ title: "Failed to move deals", description: err.message, variant: "destructive" });
+    onError: (err: Error,variables,context) => {
+      if(context?.context!==protectedContextToken())return;
+      // Middleware denies these requests before any per-record dispatch.
+      // Keep the selection, but do not invent an unknown partial outcome.
+      if(/^(401|403):/.test(err.message)){
+        toast({title:"Stage move denied",description:`${err.message} No stage movement was authorized. Selection retained.`,variant:"destructive"});
+        return;
+      }
+      setBulkUnresolvedIds(previous=>new Set([...previous,...variables.dealIds]));
+      void queryClient.invalidateQueries({queryKey:["/api/deals"]});
+      toast({ title: "Move outcome unconfirmed", description: `${err.message} Selection retained. Read back before retrying; do not replay the uncertain batch.`, variant: "destructive" });
     },
   });
 
@@ -1942,6 +2114,29 @@ export default function Pipeline() {
     } else {
       setSelectedDealIds(new Set(deals.map((d) => d.id)));
     }
+  };
+
+  const reconcileUnresolvedBulkMoves = async () => {
+    const refreshed = await refetchDeals();
+    const pages = refreshed.data?.pages ?? [];
+    const latestPage = pages[pages.length - 1];
+    const currentDeals = pages.flatMap(page => page.data);
+    if (refreshed.isError || !latestPage || latestPage.total !== currentDeals.length) {
+      toast({
+        title: "Stage reconciliation incomplete",
+        description: "The deal list is not a complete read-back. Unknown and unattempted deals remain selected and cannot be moved again yet.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const stageById = new Map(currentDeals.map(deal => [deal.id, deal.stage]));
+    setBulkStageResults(previous => previous?.map(row =>
+      bulkUnresolvedIds.has(row.id) && stageById.has(row.id)
+        ? { ...row, currentStage: stageById.get(row.id) }
+        : row,
+    ) ?? null);
+    setBulkUnresolvedIds(new Set());
+    toast({ title: "Current stages read back", description: "Review the reported stages and reasons before choosing another move." });
   };
 
   const contactsMap = new Map<number, Contact>();
@@ -2063,7 +2258,12 @@ export default function Pipeline() {
       return;
     }
 
-    updateDealMutation.mutate({ id: selectedDeal.id, ...updates });
+    const displayedStage = selectedDeal.stage;
+    updateDealMutation.mutate({
+      id: selectedDeal.id,
+      ...updates,
+      ...(typeof updates.stage === "string" && updates.stage !== displayedStage ? { expectedStage: displayedStage } : {}),
+    });
     setCloseReasonOpen(false);
     setCloseReasonDraft("");
   };
@@ -2091,6 +2291,9 @@ export default function Pipeline() {
     setDetailOpen(true);
     setTerminalEcon(null);
     setDealProposalsFailed(false);
+    if (!Object.prototype.hasOwnProperty.call(proposalsByDeal, String(deal.id)) && !proposalsFailedByDeal[String(deal.id)]) {
+      void retryDealProposals(deal.id);
+    }
     if ((deal as any).partnerOrgId) {
       setDealProposals([]);
       loadDealProposals(deal.id).catch(err => console.error("[Pipeline] loadDealProposals", err));
@@ -2166,33 +2369,17 @@ export default function Pipeline() {
       if (d.stage !== stage) return false;
       const isArchived = !!(d as any).archivedAt;
       if (!showArchived && isArchived) return false;
-      if (groupFilterContactIds && !groupFilterContactIds.has(d.contactId!)) return false;
-      // #361 — vertical filter
-      if (verticalFilter) {
-        const contactVertical = d.contactId ? getContactVertical(d.contactId) : "";
-        const dealVertical = (d as any).vertical || "";
-        if (contactVertical !== verticalFilter && dealVertical !== verticalFilter) return false;
-      }
-      // #405 — offer path filter
-      if (offerPathFilter && (d as any).offerPath !== offerPathFilter) return false;
-      // #475 — no follow-up filter
-      if (showNoFollowUpOnly && d.nextFollowUp) return false;
-      // #623 — unassigned deals filter
-      if (showUnassignedOnly && (d as any).assignedToId) return false;
+      // Group membership and all population filters are resolved by the
+      // existing authorized reader, not the first contact page.
       // #1055 — past expected go-live date filter (overdue, not yet closed/live)
       if ((d as any).showPastGoLiveOnly) { /* handled as sort mode */ }
-      // #739 — rep filter: match on deal.owner (email) or deal.assignedTo
-      if (repEmailFilter) {
-        const dealOwner = (d as any).owner || (d as any).assignedTo || "";
-        if (dealOwner !== repEmailFilter) return false;
-      }
       if (sortMode === "trending_down") {
         const s = midSummaries[String(d.id)];
         if (!s || s.totalVolume <= 0 || s.trendPct >= 0) return false;
       } else if (sortMode === "no_activity") {
         if (!d.mid) return false;
         const s = midSummaries[String(d.id)];
-        if (s && s.totalVolume > 0) return false;
+        if (!s || s.totalVolume > 0) return false;
       } else if (sortMode === "past_golive") {
         // #1055 — filter to deals where expected go-live is in the past and not already closed/live
         const egl = (d as any).expectedGoLiveDate;
@@ -2230,14 +2417,8 @@ export default function Pipeline() {
 
   if (dealsLoading) {
     return (
-      <div className="space-y-6" data-testid="pipeline-loading">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-8 w-40" />
-          <div className="flex gap-2">
-            <Skeleton className="h-9 w-28" />
-            <Skeleton className="h-9 w-28" />
-          </div>
-        </div>
+      <CrmPage className="space-y-6">
+        <CrmPageHeader title="Pipeline" description="A stage-by-stage view of authorized sales opportunities." />
         <div className="flex gap-4 overflow-x-auto pb-4">
           {Array.from({ length: 5 }).map((_, colIdx) => (
             <div key={colIdx} className="flex-shrink-0 w-72 space-y-3">
@@ -2252,28 +2433,30 @@ export default function Pipeline() {
             </div>
           ))}
         </div>
-      </div>
+      </CrmPage>
     );
   }
 
   if (dealsError) {
-    return <DashboardErrorState title="Failed to load pipeline" onRetry={() => refetchDeals()} />;
+    return <CrmPage className="space-y-5"><CrmPageHeader title="Pipeline" description="Sales opportunities in your authorized scope." />
+      <DashboardErrorState title="Pipeline unavailable" message="The deal list could not be refreshed; counts and stages are not assumed to be empty." onRetry={() => void refetchDeals()} />
+    </CrmPage>;
   }
 
   return (
-    <div className="space-y-6" data-testid="pipeline-page">
+    <CrmPage className="space-y-6">
       {(selectedRecord.isError || selectedRecord.invalid) && <div role="alert">Requested record unavailable.
         {!selectedRecord.invalid && <Button onClick={()=>void selectedRecord.refetch()}>Retry selected record</Button>}
       </div>}
       {/* #190 — Sticky header on scroll */}
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 -mx-2 px-2 pb-3">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <h2 className="text-2xl font-bold" data-testid="text-pipeline-title">
+          <h1 className="text-2xl font-semibold" data-testid="text-pipeline-title">
             Sales Pipeline
             {dealsResult?.total != null && (
               <span className="ml-2 text-base font-normal text-muted-foreground" data-testid="text-pipeline-total-count">({dealsResult.total})</span>
             )}
-          </h2>
+          </h1>
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2" data-testid="toggle-show-archived-deals">
             <Switch
@@ -2327,7 +2510,7 @@ export default function Pipeline() {
             </Button>
           </div>
           <Select value={sortMode} onValueChange={(v) => setSortMode(v as any)}>
-            <SelectTrigger className="h-9 w-[180px]" data-testid="select-pipeline-sort">
+            <SelectTrigger aria-label="Sort pipeline deals" className="h-9 w-[180px]" data-testid="select-pipeline-sort">
               <ArrowUpDown className="w-3.5 h-3.5 mr-1.5 opacity-70" />
               <SelectValue placeholder="Sort / Filter" />
             </SelectTrigger>
@@ -2343,7 +2526,7 @@ export default function Pipeline() {
           {/* #739 — Rep filter */}
           {agentsList && agentsList.length > 0 && (
             <Select value={repEmailFilter || "__all__"} onValueChange={v => setRepEmailFilter(v === "__all__" ? "" : v)}>
-              <SelectTrigger className="h-9 w-[160px]" data-testid="select-pipeline-rep-filter">
+              <SelectTrigger aria-label="Filter pipeline by representative" className="h-9 w-[160px]" data-testid="select-pipeline-rep-filter">
                 <SelectValue placeholder="All reps" />
               </SelectTrigger>
               <SelectContent>
@@ -2358,7 +2541,7 @@ export default function Pipeline() {
           )}
           {/* #361 — Vertical filter on pipeline board */}
           <Select value={verticalFilter || "__all__"} onValueChange={v => setVerticalFilter(v === "__all__" ? "" : v)}>
-            <SelectTrigger className="h-9 w-[150px]" data-testid="select-pipeline-vertical-filter">
+            <SelectTrigger aria-label="Filter pipeline by vertical" className="h-9 w-[150px]" data-testid="select-pipeline-vertical-filter">
               <SelectValue placeholder="All verticals" />
             </SelectTrigger>
             <SelectContent>
@@ -2368,7 +2551,7 @@ export default function Pipeline() {
           </Select>
           {/* #405 — Offer path filter on pipeline board */}
           <Select value={offerPathFilter || "__all__"} onValueChange={v => setOfferPathFilter(v === "__all__" ? "" : v)}>
-            <SelectTrigger className="h-9 w-[150px]" data-testid="select-pipeline-offerpath-filter">
+            <SelectTrigger aria-label="Filter pipeline by offer path" className="h-9 w-[150px]" data-testid="select-pipeline-offerpath-filter">
               <SelectValue placeholder="All paths" />
             </SelectTrigger>
             <SelectContent>
@@ -2388,24 +2571,16 @@ export default function Pipeline() {
           >
             No follow-up
           </button>
-          {parentAccountContacts.length > 0 && (
-            <Select
-              value={groupFilterContactId ? String(groupFilterContactId) : "all"}
-              onValueChange={(v) => setGroupFilterContactId(v === "all" ? null : Number(v))}
-            >
-              <SelectTrigger className="h-9 w-[180px]" data-testid="select-pipeline-group-filter">
-                <SelectValue placeholder="All groups" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" data-testid="group-filter-all">All groups</SelectItem>
-                {parentAccountContacts.map(c => (
-                  <SelectItem key={c.id} value={String(c.id)} data-testid={`group-filter-${c.id}`}>
-                    {c.companyName || `${c.firstName} ${c.lastName}`}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+          <Dialog open={groupPickerOpen} onOpenChange={setGroupPickerOpen}>
+            <DialogTrigger asChild><Button type="button" variant="outline" data-testid="select-pipeline-group-filter">
+              {groupFilterContactId?`Account group ${groupFilterContactId}`:"All groups"}
+            </Button></DialogTrigger>
+            <DialogContent><DialogHeader><DialogTitle>Filter by authorized account group</DialogTitle></DialogHeader>
+              <AuthorizedContactPicker parentOnly label="account groups" value={null} testId="pipeline-group"
+                onSelect={choice=>{setGroupFilterContactId(choice?.id??null);setGroupPickerOpen(false);}}/>
+              <Button type="button" variant="outline" onClick={()=>{setGroupFilterContactId(null);setGroupPickerOpen(false);}} data-testid="group-filter-all">All groups</Button>
+            </DialogContent>
+          </Dialog>
           <Button
             size="sm"
             variant="outline"
@@ -2478,18 +2653,8 @@ export default function Pipeline() {
             <div className="space-y-4 pt-2">
               <div className="space-y-2">
                 <Label>Contact</Label>
-                <Select value={newDeal.contactId} onValueChange={(v) => setNewDeal({ ...newDeal, contactId: v })}>
-                  <SelectTrigger data-testid="select-contact">
-                    <SelectValue placeholder="Select a contact" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {contacts?.map((c) => (
-                      <SelectItem key={c.id} value={String(c.id)} data-testid={`select-contact-${c.id}`}>
-                        {c.firstName} {c.lastName} {c.companyName ? `- ${c.companyName}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <AuthorizedContactPicker value={newDeal.contactId?newDealContactChoice:null} testId="new-deal-contact"
+                  onSelect={choice=>{setNewDealContactChoice(choice);setNewDeal({...newDeal,contactId:choice?String(choice.id):""});}}/>
               </div>
               <div className="space-y-2">
                 <Label>Pipeline</Label>
@@ -2560,6 +2725,9 @@ export default function Pipeline() {
 
       {selectedDealIds.size > 0 && (
         <div className="flex items-center gap-3 flex-wrap" data-testid="pipeline-bulk-bar">
+          {!isManagerOrAdmin && <p className="text-sm text-muted-foreground">
+            Bulk stage movement requires an admin or manager. Open a deal for its authorized individual stage editor.
+          </p>}
           <span className="text-sm text-muted-foreground" data-testid="text-selected-count">
             {selectedDealIds.size} deal{selectedDealIds.size > 1 ? "s" : ""} selected
           </span>
@@ -2572,13 +2740,16 @@ export default function Pipeline() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger data-testid="button-bulk-move-stage">
+                <DropdownMenuSubTrigger disabled={!isManagerOrAdmin || hasUncertainStageSelection}
+                  title={!isManagerOrAdmin ? "Bulk movement requires an admin or manager. Open a deal to use its authorized individual editor." : undefined}
+                  data-testid="button-bulk-move-stage">
                   Move to Stage
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
                   {SALES_STAGES.map((stage) => (
                     <DropdownMenuItem
                       key={stage}
+                      disabled={hasUncertainStageSelection || bulkStageMutation.isPending}
                       data-testid={`button-bulk-stage-${stage.replace(/\s+/g, "-").toLowerCase()}`}
                       onClick={() => bulkStageMutation.mutate({ dealIds: Array.from(selectedDealIds), stage })}
                     >
@@ -2634,7 +2805,44 @@ export default function Pipeline() {
           >
             Clear Selection
           </Button>
+          {hasUncertainStageSelection && <span className="basis-full text-xs text-amber-700" role="status">
+            Stage moves are paused for unknown or unattempted deals. Read back the complete board before another move.
+          </span>}
         </div>
+      )}
+
+      {bulkStageResults && bulkStageResults.length > 0 && (
+        <Card className="border-amber-300" data-testid="pipeline-bulk-stage-results">
+          <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
+            <div>
+              <CardTitle className="text-sm">Bulk stage results</CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Only server-confirmed moves were removed from selection. Other outcomes remain selected.
+              </p>
+            </div>
+            {bulkUnresolvedIds.size > 0 && (
+              <Button size="sm" variant="outline" disabled={firstPageLoading || isFetchingNextPage}
+                onClick={() => void reconcileUnresolvedBulkMoves()} data-testid="button-reconcile-bulk-stage">
+                {firstPageLoading || isFetchingNextPage ? "Reading…" : "Read back current stages"}
+              </Button>
+            )}
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {bulkStageResults.map(row => (
+              <div key={row.id} className="flex flex-wrap items-start justify-between gap-2 border-t pt-2 text-xs" data-testid={`bulk-stage-result-${row.id}`}>
+                <div>
+                  <span className="font-semibold">Deal #{row.id}</span>
+                  <Badge variant={row.outcome === "confirmed" ? "secondary" : row.outcome === "blocked" ? "outline" : "destructive"} className="ml-2 capitalize">
+                    {row.outcome}
+                  </Badge>
+                  {row.currentStage && <span className="ml-2 text-muted-foreground">Current stage: {row.currentStage}</span>}
+                  {row.reason && <p className="mt-1 text-muted-foreground">{row.reason}</p>}
+                </div>
+                {bulkUnresolvedIds.has(row.id) && <span className="text-amber-700">Reconcile before retry</span>}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       )}
 
       <SavedFilterBar
@@ -2644,19 +2852,23 @@ export default function Pipeline() {
           setShowArchived(filters.showArchived === "true");
         }}
       />
+      {hasLoadedSignalFilter&&<CrmDataState state={midSummaryError?"unavailable":"degraded"}
+        message={`${midSummaryError?"Processing summaries unavailable.":"Loaded processing-signal filter."} Only deals with known processing summaries are classified. Missing summaries are unknown, not zero activity; matching population totals are unavailable.`}
+        onRetry={midSummaryError?()=>void refetchMidSummaries():undefined}/>}
+      {agentsError&&<CrmDataState state="unavailable" message="Rep choices unavailable. The current Pipeline scope remains in effect; this is not an empty team." onRetry={()=>void refetchAgents()}/>}
 
       {/* #228 — Stage count summary bar above the kanban board */}
-      {SALES_STAGES.length > 0 && deals && (
+      {displayStages.length > 0 && deals && (
         <div className="flex flex-wrap gap-2 text-xs" data-testid="pipeline-stage-summary">
-          {SALES_STAGES.map(stage => {
+          {displayStages.map(stage => {
             const stageDealsArr = getDealsByStage(stage);
-            const count = pipelineMetrics?.sales.stageDistribution[stage] ?? 0;
+            const count = dealsResult && !hasLoadedSignalFilter ? dealsResult.stageDistribution[stage] ?? 0 : undefined;
             const stageRevenue = stageDealsArr.reduce((s, d) => s + ((d as any).totalVolume || (d as any).estMonthlyRevenue || 0), 0);
             return (
               <span key={stage} className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 bg-muted/50">
                 <span className={`w-2 h-2 rounded-full ${STAGE_COLORS[stage] || "bg-gray-500"}`} />
                 <span className="text-muted-foreground">{stage}:</span>
-                <span className="font-semibold">{count}</span>
+                <span className="font-semibold">{count ?? "Unavailable"}</span>
                 {hasCompleteDealSnapshot && stageRevenue > 0 && <span className="text-muted-foreground/70 ml-0.5">~${Math.round(stageRevenue / 1000)}k</span>}
               </span>
             );
@@ -2678,7 +2890,8 @@ export default function Pipeline() {
             );
           })()}
           {/* #645 — Won this month */}
-          {pipelineMetrics && (() => {
+          {pipelineMetrics && !showArchived && !repEmailFilter && !verticalFilter && !offerPathFilter &&
+            !groupFilterContactId && !showNoFollowUpOnly && !showUnassignedOnly && sortMode==="default" && (() => {
             const wonCount = pipelineMetrics.sales.wonLast30Days;
             const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
             const wonVolume = (deals || []).filter((d: any) => d.stage === "Closed Won" && d.updatedAt && new Date(d.updatedAt) >= thirtyDaysAgo)
@@ -2706,7 +2919,7 @@ export default function Pipeline() {
             ) : null;
           })()}
           <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 px-2 py-0.5 bg-primary/5 text-primary font-medium ml-auto">
-            Total: {pipelineMetrics?.sales.total ?? dealsResult?.total ?? 0}
+            Total: {hasLoadedSignalFilter?"Unavailable (loaded signal filter)":dealsResult?.total ?? "Unavailable"}
             {hasCompleteDealSnapshot && deals && (() => {
               const totalRev = deals.reduce((s: number, d: any) => s + ((d.totalVolume || d.estMonthlyRevenue || 0) as number), 0);
               return totalRev > 0 ? <span className="ml-1 text-primary/70">~${Math.round(totalRev / 1000)}k</span> : null;
@@ -2730,7 +2943,7 @@ export default function Pipeline() {
       {hasCompleteDealSnapshot && deals && (() => {
         const now = Date.now();
         const cutoff = now - repPeriod * 24 * 60 * 60 * 1000;
-        const allFiltered = SALES_STAGES.flatMap(s => getDealsByStage(s));
+        const allFiltered = displayStages.flatMap(s => getDealsByStage(s));
         // Snapshot (current): all deals; Period: only deals created within the period
         const periodDeals = allFiltered.filter((d: any) => d.createdAt && new Date(d.createdAt).getTime() >= cutoff);
         const repCounts: Record<string, number> = {};
@@ -2773,7 +2986,7 @@ export default function Pipeline() {
 
       {/* #450 — Flat list view of deals */}
       {viewMode === "list" && (() => {
-        const allVisibleDeals = SALES_STAGES.flatMap(s => getDealsByStage(s));
+        const allVisibleDeals = displayStages.flatMap(s => getDealsByStage(s));
         const sorted = [...allVisibleDeals].sort((a, b) => {
           if (listSortField === "volume") return ((b as any).totalVolume || 0) - ((a as any).totalVolume || 0);
           if (listSortField === "stage") return (a.stage || "").localeCompare(b.stage || "");
@@ -2834,8 +3047,8 @@ export default function Pipeline() {
         onDragEnd={handleDragEnd}
       >
         <ScrollArea className={`w-full ${viewMode === "list" ? "hidden" : ""}`} data-testid="pipeline-board">
-          <div className="flex gap-4 pb-4" style={{ minWidth: `${SALES_STAGES.length * 280}px` }}>
-            {SALES_STAGES.filter(stage => !hideEmptyStages || getDealsByStage(stage).length > 0).map((stage) => {
+          <div className="flex gap-4 pb-4" style={{ minWidth: `${displayStages.length * 280}px` }}>
+            {displayStages.filter(stage => !hideEmptyStages || getDealsByStage(stage).length > 0).map((stage) => {
               const stageDeals = getDealsByStage(stage);
               const colorClass = STAGE_COLORS[stage] || "bg-gray-500";
               return (
@@ -2960,7 +3173,7 @@ export default function Pipeline() {
               <div className="space-y-2">
                 <Label>Stage</Label>
                 <Select value={editStage} onValueChange={setEditStage}>
-                  <SelectTrigger data-testid="select-edit-stage">
+                  <SelectTrigger aria-label="Deal stage" data-testid="select-edit-stage">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -2977,7 +3190,7 @@ export default function Pipeline() {
                   value={editVertical || "none"}
                   onValueChange={(v) => setEditVertical(v === "none" ? "" : v)}
                 >
-                  <SelectTrigger data-testid="select-edit-vertical">
+                  <SelectTrigger aria-label="Deal vertical" data-testid="select-edit-vertical">
                     <SelectValue placeholder="Select vertical (optional)" />
                   </SelectTrigger>
                   <SelectContent>
@@ -3095,7 +3308,7 @@ export default function Pipeline() {
                         });
                       }}
                     >
-                      <SelectTrigger data-testid="select-assign-agent" className="flex-1">
+                      <SelectTrigger aria-label="Assigned agent" data-testid="select-assign-agent" className="flex-1">
                         <SelectValue placeholder="Unassigned" />
                       </SelectTrigger>
                       <SelectContent>
@@ -3143,13 +3356,18 @@ export default function Pipeline() {
                   <p className="text-sm font-medium flex items-center gap-2">
                     <ListChecks className="w-4 h-4 text-primary" />
                     Underwriting Checklist
-                    {uwTasks.length > 0 && (
+                    {!uwTasksError && !uwTasksLoading && uwTasks.length > 0 && (
                       <Badge variant="secondary" className="ml-auto text-xs">
                         {uwTasks.filter((t: any) => t.status === "completed").length}/{uwTasks.length} done
                       </Badge>
                     )}
                   </p>
-                  {uwTasks.length === 0 ? (
+                  {uwTasksError ? (
+                    <div role="alert" className="text-sm">
+                      Underwriting work unavailable; no empty checklist is assumed.
+                      <Button variant="outline" onClick={() => void refetchUwTasks()}>Retry</Button>
+                    </div>
+                  ) : uwTasksLoading ? <p role="status">Loading underwriting work…</p> : uwTasks.length === 0 ? (
                     <p className="text-xs text-muted-foreground">
                       No checklist items yet. Items are auto-created when this deal enters an underwriting stage.
                     </p>
@@ -3742,6 +3960,6 @@ export default function Pipeline() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </CrmPage>
   );
 }

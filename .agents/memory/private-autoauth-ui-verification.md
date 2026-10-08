@@ -42,3 +42,13 @@ responsive report without changing routing, but did not certify native queues.
 desktop-view proof as native mobile workflow certification. Stop Chromium's
 dedicated process group before deleting its profile, since utility children can
 continue writing after the main process exits.
+
+Chromium's capture browser rejects port 6000 as an unsafe port.
+
+**Why:** A healthy authenticated isolated preview on that port failed capture
+before any HTTP request. Its verified private backend port rendered normally.
+
+**How to apply:** For a capture, use the existing isolated backend loopback
+port from its readiness receipt after verifying the isolation/origin fields.
+Do not mistake the browser's port refusal for an application failure, weaken
+authentication, or expose an automatic-session proxy to work around it.

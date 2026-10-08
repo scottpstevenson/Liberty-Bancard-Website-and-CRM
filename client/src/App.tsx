@@ -513,6 +513,11 @@ function Router() {
         <Route path="/mobile/contacts" component={MobileApp} />
         <Route path="/mobile/pipeline" component={MobileApp} />
         <Route path="/mobile/tasks" component={MobileApp} />
+        <Route path="/mobile/inbox" component={MobileApp} />
+        <Route path="/mobile/more" component={MobileApp} />
+        <Route path="/mobile/sequences" component={MobileApp} />
+        <Route path="/mobile/outreach" component={MobileApp} />
+        <Route path="/mobile/field-day" component={MobileApp} />
         <Route path="/mobile/profile" component={MobileApp} />
         <Route path="/mobile" component={MobileApp} />
 

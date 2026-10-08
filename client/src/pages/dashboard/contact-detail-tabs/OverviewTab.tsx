@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,9 +14,10 @@ import { DetailRow } from "./shared";
 
 interface OverviewTabProps {
   contact: Contact;
-  dealsCount: number;
-  openTicketsCount: number;
-  pendingTasksCount: number;
+  dealsCount: number | null;
+  totalDealVolume: number | null;
+  openTicketsCount: number | null;
+  pendingTasksCount: number | null;
   onOpenTicketsClick?: () => void; // #602 — navigate to tickets tab
 }
 
@@ -204,7 +206,7 @@ function DecisionMakerCard({ contact }: { contact: Contact }) {
   );
 }
 
-export function OverviewTab({ contact, dealsCount, openTicketsCount, pendingTasksCount, onOpenTicketsClick }: OverviewTabProps) {
+export function OverviewTab({ contact, dealsCount, totalDealVolume, openTicketsCount, pendingTasksCount, onOpenTicketsClick }: OverviewTabProps) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -270,24 +272,15 @@ export function OverviewTab({ contact, dealsCount, openTicketsCount, pendingTask
             <CardContent className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Total Deals</span>
-                <span className="font-medium" data-testid="text-deal-count">{dealsCount}</span>
+                <span className="font-medium" data-testid="text-deal-count">{dealsCount ?? "Unknown"}</span>
               </div>
-              {/* #436 — Total deal value for this contact */}
-              {(contact as any).deals && Array.isArray((contact as any).deals) && (() => {
-                const dealValues = ((contact as any).deals as any[])
-                  .filter(d => !d.archivedAt)
-                  .map(d => parseFloat(d.totalVolume || d.monthlyVolume || "0") || 0);
-                const totalVal = dealValues.reduce((s, v) => s + v, 0);
-                if (totalVal <= 0) return null;
-                return (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Total Deal Volume</span>
-                    <span className="font-medium" data-testid="text-total-deal-volume">
-                      ${totalVal.toLocaleString(undefined, { maximumFractionDigits: 0 })}/mo
-                    </span>
-                  </div>
-                );
-              })()}
+              {/* Deal volume is unknown until the authorized overview projection includes deals. */}
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Total Deal Volume</span>
+                <span className="font-medium" data-testid="text-total-deal-volume">
+                  {totalDealVolume === null ? "Unknown" : `$${totalDealVolume.toLocaleString(undefined, { maximumFractionDigits: 0 })}/mo`}
+                </span>
+              </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Open Tickets</span>
                 {/* #602 — click to jump to Tickets tab */}
@@ -296,14 +289,14 @@ export function OverviewTab({ contact, dealsCount, openTicketsCount, pendingTask
                     onClick={onOpenTicketsClick}
                     className="font-medium text-primary underline-offset-2 hover:underline"
                     data-testid="text-open-tickets"
-                  >{openTicketsCount}</button>
+                  >{openTicketsCount ?? "Unknown"}</button>
                 ) : (
-                  <span className="font-medium" data-testid="text-open-tickets">{openTicketsCount}</span>
+                  <span className="font-medium" data-testid="text-open-tickets">{openTicketsCount ?? "Unknown"}</span>
                 )}
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Pending Tasks</span>
-                <span className="font-medium" data-testid="text-pending-tasks">{pendingTasksCount}</span>
+                <span className="font-medium" data-testid="text-pending-tasks">{pendingTasksCount ?? "Unknown"}</span>
               </div>
               {/* #475 — Days since created */}
               <div className="flex justify-between">

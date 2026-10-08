@@ -1,14 +1,18 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
-import { useOfflineQueue } from "@/hooks/use-offline-queue";
-import { CheckSquare, Plus, Loader2, AlertTriangle, Clock, CheckCircle2, X } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { protectedScope } from "@/lib/queryClient";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { useOfflineQueue, WORK_ACKNOWLEDGED_EVENT } from "@/hooks/use-offline-queue";
+import { CheckSquare, Plus, Loader2, AlertTriangle, Clock, CheckCircle2 } from "lucide-react";
 import type { Task } from "@shared/schema";
 import { useWorkCommands, invalidateWorkFacts } from "@/hooks/use-work-commands";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { apiRequest } from "@/lib/queryClient";
+import { decodeTaskRows, isPendingTask, taskPresentationState } from "@/lib/task-source";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
 function isOverdue(task: Task): boolean {
-  if (!task.dueDate || task.status === "completed") return false;
+  if (!task.dueDate || !isPendingTask(task)) return false;
   return new Date() > new Date(task.dueDate);
 }
 
@@ -19,41 +23,54 @@ function isToday(dateStr: string | null | undefined): boolean {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 }
 
-function formatDue(dateStr: string | null | undefined): string {
+function formatDue(dateStr: string | null | undefined, pending: boolean): string {
   if (!dateStr) return "";
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return "";
-  const now = new Date();
-  const diff = d.getTime() - now.getTime();
-  const days = Math.round(diff / (1000 * 60 * 60 * 24));
-  if (days < 0) return `${Math.abs(days)}d overdue`;
-  if (days === 0) return "Due today";
-  if (days === 1) return "Due tomorrow";
-  return `Due in ${days}d`;
+  return `${pending && d < new Date() ? "Overdue" : "Due"} · ${d.toLocaleString([], {dateStyle:"medium",timeStyle:"short"})}`;
 }
 
 const PRIORITY_OPTIONS = ["normal", "high", "urgent"] as const;
 
 export default function MobileTasks() {
   const workCommands = useWorkCommands("task");
+  const { user } = useAuth();
   const { toast } = useToast();
   const [addOpen, setAddOpen] = useState(false);
-  const [filter, setFilter] = useState<"today" | "all" | "completed">("today");
+  const [filter, setFilter] = useState<"today" | "all" | "completed" | "cancelled">("today");
   const [newTitle, setNewTitle] = useState("");
   const [newPriority, setNewPriority] = useState<"normal" | "high" | "urgent">("normal");
   const [newDueDate, setNewDueDate] = useState("");
   const [newDesc, setNewDesc] = useState("");
+  const addButtonRef = useRef<HTMLButtonElement>(null);
 
-  const { data: tasks, isLoading } = useQuery<Task[]>({
+  const { data: tasks, isLoading, isError, refetch } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
+    queryFn: async ({ signal }) => decodeTaskRows(await (await apiRequest("GET", "/api/tasks", undefined, undefined, signal)).json()),
     staleTime: 1000 * 30,
   });
 
   const { executeOrQueue } = useOfflineQueue();
   const [completingIds, setCompletingIds] = useState<Set<number>>(new Set());
   const [creating, setCreating] = useState(false);
+  const taskCreateCommand = useRef<{ key: string; commandId: string } | null>(null);
+  const actorContext=JSON.stringify(protectedScope(user));
+  const actorRef=useRef(actorContext);actorRef.current=actorContext;
+  useEffect(()=>{
+    taskCreateCommand.current=null;setCompletingIds(new Set());setCreating(false);
+    setAddOpen(false);setNewTitle("");setNewPriority("normal");setNewDueDate("");setNewDesc("");
+  },[actorContext]);
+  useEffect(()=>{
+    const acknowledged=(event:Event)=>{
+      const receipt=(event as CustomEvent).detail;
+      if(receipt?.actorId===user?.id && receipt.commandId===taskCreateCommand.current?.commandId)taskCreateCommand.current=null;
+    };
+    window.addEventListener(WORK_ACKNOWLEDGED_EVENT,acknowledged);
+    return ()=>window.removeEventListener(WORK_ACKNOWLEDGED_EVENT,acknowledged);
+  },[user?.id]);
 
   async function completeTask(id: number) {
+    const submittedActor=actorContext;
     const task = tasks?.find(t => t.id === id);
     if (!task || !Number.isInteger(task.authorityFence)) {
       return toast({ title: "Work version unavailable", description: "Reload before completing this task.", variant: "destructive" });
@@ -61,85 +78,131 @@ export default function MobileTasks() {
     setCompletingIds(prev => new Set(prev).add(id));
     try {
       const result = await executeOrQueue("PUT", `/api/tasks/${id}`, workCommands.edit(task, { status: "completed" }), invalidateWorkFacts);
+      if(actorRef.current!==submittedActor)return;
       toast({ title: result.ok ? "Task completed" : result.queued ? "Completion queued, not yet saved" : "Completion not saved",
         description: result.ok ? undefined : result.reason || "Keep the work open until its server confirmation is available.", variant: result.ok || result.queued ? "default" : "destructive" });
     } catch (error) {
+      if(actorRef.current!==submittedActor)return;
       toast({ title: "Completion not saved", description: (error as Error).message, variant: "destructive" });
     } finally {
-      setCompletingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+      if(actorRef.current===submittedActor)setCompletingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
     }
   }
 
   async function createTask(data: { title: string; priority: string; dueDate?: string; description?: string }) {
+    const submittedActor=actorContext;
+    if (!user?.id) {
+      toast({ title: "Task not saved", description: "Your signed-in actor is unavailable. Reload before creating work.", variant: "destructive" });
+      return;
+    }
+    const due=data.dueDate ? new Date(data.dueDate) : null;
+    if(due && !Number.isFinite(due.getTime())) {
+      toast({title:"Task not saved",description:"Choose a valid due date and time.",variant:"destructive"});
+      return;
+    }
     setCreating(true);
     const body = {
       title: data.title,
       priority: data.priority,
-      dueDate: data.dueDate ? new Date(data.dueDate).toISOString() : undefined,
+      dueDate: due?.toISOString(),
       description: data.description || undefined,
       status: "pending",
+      expectedActorId: user.id,
+      expectedAccountVersion:user.accountVersion,
+      recordClass: "production",
     };
-    const { ok, queued } = await executeOrQueue("POST", "/api/tasks", body);
-    if (ok || queued) {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-      setAddOpen(false);
-      setNewTitle("");
-      setNewPriority("normal");
-      setNewDueDate("");
-      setNewDesc("");
+    const key = JSON.stringify([user.id, body]);
+    if (taskCreateCommand.current?.key !== key) taskCreateCommand.current = { key, commandId: crypto.randomUUID() };
+    const commandBody = { ...body, commandId: taskCreateCommand.current.commandId };
+    try {
+      const { ok, queued, reason } = await executeOrQueue("POST", "/api/tasks", commandBody);
+      if(actorRef.current!==submittedActor)return;
+      if (ok || queued) {
+        if (ok) taskCreateCommand.current = null;
+        void invalidateWorkFacts();
+        setAddOpen(false);
+        setNewTitle("");
+        setNewPriority("normal");
+        setNewDueDate("");
+        setNewDesc("");
+      }
+      toast({ title: ok ? "Task created" : queued ? "Task queued for sync" : "Task not saved",
+        description: ok ? undefined : reason || (queued ? "It is not confirmed on the server yet." : "Try again when connectivity is restored."),
+        variant: ok || queued ? "default" : "destructive" });
+    } catch (error) {
+      if(actorRef.current!==submittedActor)return;
+      toast({ title: "Task not saved", description: (error as Error).message, variant: "destructive" });
+    } finally {
+      if(actorRef.current===submittedActor)setCreating(false);
     }
-    setCreating(false);
   }
 
   const allTasks = tasks || [];
-  const todayTasks = allTasks.filter(t => t.status !== "completed" && (isToday(t.dueDate as any) || isOverdue(t)));
-  const pendingTasks = allTasks.filter(t => t.status !== "completed");
-  const completedTasks = allTasks.filter(t => t.status === "completed");
+  const todayTasks = allTasks.filter(t => isPendingTask(t) && (isToday(t.dueDate as any) || isOverdue(t)));
+  const pendingTasks = allTasks.filter(isPendingTask);
+  const completedTasks = allTasks.filter(t => taskPresentationState(t) === "completed");
+  const cancelledTasks = allTasks.filter(t => taskPresentationState(t) === "cancelled");
 
-  const displayTasks = filter === "today" ? todayTasks : filter === "completed" ? completedTasks : pendingTasks;
+  const displayTasks = filter === "today" ? todayTasks : filter === "completed" ? completedTasks :
+    filter === "cancelled" ? cancelledTasks : pendingTasks;
 
   return (
     <div>
       <div className="bg-white dark:bg-gray-900 px-4 pb-3 border-b border-gray-100 dark:border-gray-800" style={{ paddingTop: "calc(env(safe-area-inset-top) + 12px)" }}>
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 pr-14">
           <h1 className="text-xl font-bold text-gray-900 dark:text-white">Tasks</h1>
           <button
             data-testid="button-add-task"
+            ref={addButtonRef}
+            aria-label="Create a task"
             onClick={() => setAddOpen(true)}
-            className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center active:scale-90 transition-transform"
+            className="w-11 h-11 bg-blue-600 rounded-xl flex items-center justify-center active:scale-90 transition-transform"
           >
             <Plus className="w-5 h-5 text-white" />
           </button>
         </div>
 
-        <div className="flex gap-2">
-          {(["today", "all", "completed"] as const).map((f) => (
+        <div className="flex flex-wrap gap-2">
+          {(["today", "all", "completed", "cancelled"] as const).map((f) => (
             <button
               key={f}
               data-testid={`filter-${f}`}
+              aria-pressed={filter===f}
               onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors capitalize ${
+              className={`min-h-11 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors capitalize ${
                 filter === f
                   ? "bg-blue-600 text-white"
                   : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
               }`}
             >
-              {f === "today" ? `Today (${todayTasks.length})` : f === "all" ? `Pending (${pendingTasks.length})` : `Done (${completedTasks.length})`}
+              {f === "today" ? `Today (${todayTasks.length})` : f === "all" ? `Pending (${pendingTasks.length})` :
+                f === "cancelled" ? `Cancelled (${cancelledTasks.length})` : `Done (${completedTasks.length})`}
             </button>
           ))}
         </div>
       </div>
+      {!isError && !isLoading && <p className="px-4 pt-3 text-xs text-gray-500 dark:text-gray-400">
+        {allTasks.length} tasks returned by your authorized reader. Loaded counts, not a paged total.
+        {" "}Due times use {Intl.DateTimeFormat().resolvedOptions().timeZone}.
+      </p>}
 
       <div className="py-2">
         {isLoading ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+          <div className="px-4 space-y-3 py-4" role="status" aria-label="Loading tasks">
+            {[1, 2, 3].map(index => <div key={index} className="h-20 animate-pulse rounded-2xl bg-muted" />)}
+          </div>
+        ) : isError ? (
+          <div className="mx-4 my-8 rounded-xl border p-4 text-center" role="alert">
+            <AlertTriangle className="mx-auto mb-2 h-6 w-6 text-destructive" />
+            <p className="text-sm">Tasks could not be loaded. No empty state is assumed.</p>
+            <button type="button" className="min-h-11 mt-3 text-sm font-semibold underline" onClick={() => void refetch()}>Retry</button>
           </div>
         ) : displayTasks.length === 0 ? (
           <div className="text-center py-12 px-4">
             <CheckSquare className="w-12 h-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
             <p className="text-gray-500 dark:text-gray-400 text-sm">
-              {filter === "today" ? "No tasks due today — great job!" : filter === "completed" ? "No completed tasks" : "No pending tasks"}
+              {filter === "today" ? "No tasks due today" : filter === "completed" ? "No completed tasks" :
+                filter === "cancelled" ? "No cancelled tasks" : "No pending tasks"}
             </p>
           </div>
         ) : (
@@ -154,21 +217,22 @@ export default function MobileTasks() {
               >
                 <button
                   data-testid={`button-complete-${task.id}`}
+                  aria-label={`Complete task: ${task.title}`}
                   onClick={() => completeTask(task.id)}
-                  disabled={task.status === "completed" || completingIds.has(task.id)}
-                  className={`mt-0.5 w-6 h-6 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
-                    task.status === "completed"
-                      ? "border-green-500 bg-green-500"
+                  disabled={!isPendingTask(task) || completingIds.has(task.id)}
+                  className={`mt-0.5 w-11 h-11 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
+                    taskPresentationState(task) === "completed"
+                      ? "border-green-600 bg-green-600"
                       : isOverdue(task)
-                      ? "border-red-400"
-                      : "border-gray-300 dark:border-gray-600"
+                      ? "border-red-700 dark:border-red-400"
+                      : "border-gray-500 dark:border-gray-400"
                   }`}
                 >
-                  {task.status === "completed" && <CheckCircle2 className="w-4 h-4 text-white" />}
+                  {taskPresentationState(task) === "completed" && <CheckCircle2 className="w-4 h-4 text-white" />}
                 </button>
 
                 <div className="flex-1 min-w-0">
-                  <div className={`font-medium text-sm ${task.status === "completed" ? "line-through text-gray-400" : "text-gray-900 dark:text-white"}`}>
+                  <div className={`font-medium text-sm ${!isPendingTask(task) ? "line-through text-gray-500 dark:text-gray-400" : "text-gray-900 dark:text-white"}`}>
                     {task.title}
                   </div>
                   {task.description && (
@@ -176,9 +240,9 @@ export default function MobileTasks() {
                   )}
                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                     {task.dueDate && (
-                      <span className={`text-xs flex items-center gap-1 ${isOverdue(task) ? "text-red-500" : "text-gray-400"}`}>
+                      <span className={`text-xs flex items-center gap-1 ${isOverdue(task) ? "text-red-700 dark:text-red-400" : "text-gray-500 dark:text-gray-400"}`}>
                         {isOverdue(task) ? <AlertTriangle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                        {formatDue(task.dueDate as any)}
+                        {formatDue(task.dueDate as any,isPendingTask(task))}
                       </span>
                     )}
                     {task.priority !== "normal" && (
@@ -191,7 +255,7 @@ export default function MobileTasks() {
                       </span>
                     )}
                     {task.assignedTo && (
-                      <span className="text-xs text-gray-400 dark:text-gray-500">{task.assignedTo}</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">{task.assignedTo}</span>
                     )}
                   </div>
                 </div>
@@ -201,18 +265,16 @@ export default function MobileTasks() {
         )}
       </div>
 
-      {addOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={() => setAddOpen(false)}>
-          <div
-            className="bg-white dark:bg-gray-900 rounded-t-3xl w-full p-6 max-h-[85vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
+      <Sheet open={addOpen} onOpenChange={setAddOpen}>
+          <SheetContent side="bottom"
+            aria-describedby={undefined}
+            data-testid="mobile-task-editor"
+            onCloseAutoFocus={event => { event.preventDefault(); addButtonRef.current?.focus(); }}
+            className="bg-white dark:bg-gray-900 rounded-t-3xl w-full p-6 max-h-[85vh] overflow-y-auto [&>button]:min-h-11 [&>button]:min-w-11"
           >
             <div className="w-10 h-1 bg-gray-300 dark:bg-gray-600 rounded-full mx-auto mb-5" />
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-gray-900 dark:text-white">New Task</h2>
-              <button onClick={() => setAddOpen(false)} className="text-gray-400 active:opacity-70">
-                <X className="w-5 h-5" />
-              </button>
+              <SheetTitle className="text-lg font-bold text-gray-900 dark:text-white">New Task</SheetTitle>
             </div>
 
             <div className="space-y-4">
@@ -220,11 +282,13 @@ export default function MobileTasks() {
                 <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Title *</label>
                 <input
                   data-testid="input-task-title"
+                  aria-label="Task title"
                   type="text"
+                  maxLength={500}
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="Task title..."
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
@@ -235,11 +299,12 @@ export default function MobileTasks() {
                     <button
                       key={p}
                       data-testid={`button-priority-${p}`}
+                      aria-pressed={newPriority===p}
                       onClick={() => setNewPriority(p)}
-                      className={`flex-1 py-2.5 rounded-xl text-xs font-semibold capitalize border transition-colors ${
+                      className={`min-h-11 flex-1 py-2.5 rounded-xl text-xs font-semibold capitalize border transition-colors ${
                         newPriority === p
                           ? p === "urgent" ? "bg-red-600 border-red-600 text-white"
-                            : p === "high" ? "bg-orange-500 border-orange-500 text-white"
+                            : p === "high" ? "bg-orange-100 border-orange-700 text-orange-900 dark:bg-orange-950 dark:text-orange-100"
                             : "bg-blue-600 border-blue-600 text-white"
                           : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800"
                       }`}
@@ -254,10 +319,11 @@ export default function MobileTasks() {
                 <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Due Date</label>
                 <input
                   data-testid="input-task-due-date"
+                  aria-label="Task due date and time"
                   type="datetime-local"
                   value={newDueDate}
                   onChange={(e) => setNewDueDate(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
@@ -265,11 +331,12 @@ export default function MobileTasks() {
                 <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Notes</label>
                 <textarea
                   data-testid="input-task-notes"
+                  aria-label="Task notes"
                   value={newDesc}
                   onChange={(e) => setNewDesc(e.target.value)}
                   placeholder="Optional notes..."
                   rows={2}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-base resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
@@ -283,9 +350,8 @@ export default function MobileTasks() {
                 Create Task
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </SheetContent>
+      </Sheet>
     </div>
   );
 }

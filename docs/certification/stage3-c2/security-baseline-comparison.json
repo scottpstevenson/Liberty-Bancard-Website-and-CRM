@@ -1,0 +1,15 @@
+{
+  "status": "Affected G11 external-security lane remains failed; no waiver or whole-task acceptance",
+  "baselineSource": "353cb381ed500dc2acf793b3b2e91a61b3aeade0",
+  "baselineConstruction": "Untouched detached Git worktree; same locked node_modules via temporary symlink; actual external-security runner; no application startup, DB or Redis",
+  "candidateQualification": "Working C2 source, not a clean committed candidate",
+  "command": "node node_modules/tsx/dist/cli.mjs scripts/run-ci-suites.ts --capability external-security",
+  "candidateExit": 1,
+  "baselineExit": 1,
+  "candidateFindingCounts": {"critical": 0, "high": 2},
+  "baselineFindingCounts": {"critical": 0, "high": 2},
+  "candidateAndBaselineLockSha256": "4284ac14d4f475a2065b4f4505a2e05e0048d34a3f7f7b78d54a919a1db0f8a3",
+  "baselineLogSha256": "04731f5ef9220c5c06d560cfa7086dc38796e392d02d85348f221976477325c7",
+  "interpretation": "Same observed rejection counts and identical lockfile on merged C1 and current C2. No dependency upgrade, policy waiver, comprehensive vulnerability equivalence, or release approval is inferred.",
+  "remainingOwner": "Existing dependency-policy/security owner; unrelated dependency upgrades are outside C2"
+}

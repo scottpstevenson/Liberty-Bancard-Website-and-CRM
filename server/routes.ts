@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { csrfTokenEndpoint } from "./middleware/csrf";
+import { crmFactFreshnessMiddleware } from "./services/crm-fact-freshness";
 
 import { registerContactsRoutes } from "./routes/contacts";
 import { registerCanonicalEnrichmentRoutes } from "./routes/canonical-enrichment";
@@ -133,6 +134,7 @@ export async function registerRoutes(
   // session is restored and before any CRM handler, so a new subresource cannot
   // accidentally become an agent IDOR route by omitting a local check.
   app.use(crmObjectAccessGuard);
+  app.use(crmFactFreshnessMiddleware);
 
   registerPartnerOrgsRoutes(app);
   registerContactsRoutes(app);

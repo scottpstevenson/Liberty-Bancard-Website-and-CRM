@@ -1,0 +1,39 @@
+{
+  "identity": {
+    "sourceHead": "1f66a9296c3f626c2683dd53fbcb8b3296c07d71",
+    "inputHash": "5b098056f5ca97c0002c97848dd6b163737d6e73b6ec4039cbf476dc3d2bc8fa",
+    "outputHash": "4be71e5daf78faa4f5529de7ae9115d6718062498e90a0f2a3b2dc111b90b5d1"
+  },
+  "status": "failed lanes retained; no readiness waiver",
+  "infrastructure": "launcher-owned PostgreSQL/Redis and nonce-verified denied application; replacement environment",
+  "rows": [
+    {
+      "command": "node node_modules/tsx/dist/cli.mjs scripts/run-guarded-canonical-migration.ts",
+      "exit": 0,
+      "elapsedMs": 8379,
+      "inputHash": "5b098056f5ca97c0002c97848dd6b163737d6e73b6ec4039cbf476dc3d2bc8fa",
+      "outputHash": "4be71e5daf78faa4f5529de7ae9115d6718062498e90a0f2a3b2dc111b90b5d1"
+    },
+    {
+      "command": "node node_modules/tsx/dist/cli.mjs scripts/run-guarded-canonical-migration.ts",
+      "exit": 0,
+      "elapsedMs": 3151,
+      "inputHash": "5b098056f5ca97c0002c97848dd6b163737d6e73b6ec4039cbf476dc3d2bc8fa",
+      "outputHash": "4be71e5daf78faa4f5529de7ae9115d6718062498e90a0f2a3b2dc111b90b5d1"
+    },
+    {
+      "command": "node node_modules/tsx/dist/cli.mjs scripts/run-ci-suites.ts --capability deterministic-integration",
+      "exit": 1,
+      "elapsedMs": 112095,
+      "inputHash": "5b098056f5ca97c0002c97848dd6b163737d6e73b6ec4039cbf476dc3d2bc8fa",
+      "outputHash": "4be71e5daf78faa4f5529de7ae9115d6718062498e90a0f2a3b2dc111b90b5d1"
+    },
+    {
+      "command": "node node_modules/tsx/dist/cli.mjs scripts/run-ci-suites.ts --capability server-required",
+      "exit": 1,
+      "elapsedMs": 5702,
+      "inputHash": "5b098056f5ca97c0002c97848dd6b163737d6e73b6ec4039cbf476dc3d2bc8fa",
+      "outputHash": "4be71e5daf78faa4f5529de7ae9115d6718062498e90a0f2a3b2dc111b90b5d1"
+    }
+  ]
+}

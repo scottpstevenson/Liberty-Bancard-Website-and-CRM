@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { protectedContextToken } from "@/lib/queryClient";
 import { Switch, Route, useLocation, Redirect } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Loader2, Home, Users, LayoutList, Zap, MoreHorizontal, WifiOff } from "lucide-react";
@@ -15,6 +16,7 @@ import MobileSequences from "./MobileSequences";
 import MobileMore from "./MobileMore";
 import MobileOutreach from "./MobileOutreach";
 import MobileFieldDay from "./MobileFieldDay";
+import {EmployeeCrmProvider} from "@/components/crm/employee-crm-context";
 
 const PREFER_DESKTOP_KEY = "prefer_desktop";
 
@@ -118,9 +120,10 @@ function AvatarOverlay() {
       data-testid="button-avatar-overlay"
       onClick={() => setLocation("/mobile/profile")}
       aria-label="Go to profile"
-      className="fixed right-4 z-[55] flex items-center justify-center w-9 h-9 rounded-full shadow-md active:scale-90 transition-transform"
+      className="fixed z-20 flex items-center justify-center w-11 h-11 rounded-full shadow-md active:scale-90 transition-transform"
       style={{
         top: "calc(env(safe-area-inset-top) + 12px)",
+        right: "max(16px, calc((100vw - 448px) / 2 + 16px))",
         ...avatarStyle,
       }}
     >
@@ -131,8 +134,6 @@ function AvatarOverlay() {
 
 function MobileShell() {
   const { user, isLoading } = useAuth();
-  const online = useOnlineStatus();
-  const { queueCount,queueError,reviewCount,retryQueue } = useOfflineQueue();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -150,25 +151,33 @@ function MobileShell() {
   }
 
   if (!user) return null;
+  if(!["admin","manager","agent"].includes(user.role??""))return <div className="crm-theme crm-page" role="alert">
+    <h1>Employee workspace unavailable</h1><p>This mobile workspace requires an employee account.</p>
+  </div>;
+  return <EmployeeCrmProvider enabled><MobileEmployeeShell key={protectedContextToken()} /></EmployeeCrmProvider>;
+}
 
+function MobileEmployeeShell(){
+  const online=useOnlineStatus();
+  const {queueCount,queueError,reviewCount,retryQueue}=useOfflineQueue();
   return (
     <div
-      className="min-h-screen bg-gray-50 dark:bg-gray-950 max-w-md mx-auto relative"
+      className="crm-theme min-h-screen bg-gray-50 dark:bg-gray-950 max-w-md mx-auto relative"
       style={{ paddingBottom: "calc(64px + env(safe-area-inset-bottom))" }}
     >
       {(queueError || reviewCount>0 || (online && (queueCount ?? 0)>0)) && <div
         className="bg-amber-50 text-amber-950 text-sm px-3 py-2" role="status">
         <p>{queueError || (reviewCount>0 ? `${reviewCount} local changes require review; they will not replay automatically. Open the current work before retrying.` :
           `${queueCount} local changes still await server confirmation.`)}</p>
-        <button type="button" className="underline mt-1" onClick={()=>void retryQueue()}>Retry connection</button>
+        <button type="button" data-testid="button-retry-offline-work" className="min-h-11 underline mt-1" onClick={()=>void retryQueue()}>Retry connection</button>
       </div>}
       {!online && (
         <div
-          className="bg-amber-500 text-white text-xs text-center py-1.5 px-3 flex items-center justify-center gap-1.5 sticky top-0 z-40"
+          className="bg-amber-50 text-amber-950 text-xs text-center py-1.5 px-3 flex items-center justify-center gap-1.5 sticky top-0 z-40"
           data-testid="offline-banner"
         >
           <WifiOff className="w-3 h-3" />
-          Offline — showing cached data
+          Offline — reads may be unavailable; local changes await server confirmation
           {(queueCount ?? 0) > 0 && (
             <span className="bg-white/30 rounded-full px-1.5 py-0.5 font-bold ml-1">
               {queueCount} pending

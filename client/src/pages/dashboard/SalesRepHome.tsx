@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import QRCode from "qrcode";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -23,7 +24,8 @@ import {
 } from "lucide-react";
 import { SALES_STAGES } from "@shared/schema";
 import { trackPhoneCallClick } from "@/lib/analytics";
-import { PageHeader } from "@/components/ui/page-header";
+import { CrmPage, CrmPageHeader, ScopedMetricStrip } from "@/components/crm/CrmPresentation";
+import { useOutboundPauseObservation } from "@/hooks/use-outbound-pause-observation";
 
 interface Appointment {
   id: string;
@@ -39,13 +41,37 @@ interface Appointment {
   locationName: string | null;
 }
 
+interface AppointmentResponse {
+  appointments: Appointment[];
+  configured: boolean;
+  status?: string;
+  source?: string;
+  completeness?: string;
+  exact?: boolean;
+  queueLimit?: number;
+  scope?: string;
+  asOf?: string;
+  sourceStatus?: Array<{ source: string; status: string; fetched?: number; truncated?: boolean }>;
+}
+
 function UpcomingMeetingsWidget() {
-  const { data, isLoading } = useQuery<{ appointments: Appointment[]; configured: boolean }>({
+  const { data, isLoading, isError, refetch } = useQuery<AppointmentResponse>({
     queryKey: ["/api/appointments"],
+    queryFn: async ({ signal }) => {
+      const response = await apiRequest("GET", "/api/appointments", undefined, undefined, signal);
+      return response.json();
+    },
     refetchInterval: 5 * 60 * 1000,
   });
 
-  const appointments = data?.appointments || [];
+  const appointments = data?.appointments ?? [];
+  const partial = Boolean(data && (
+    (typeof data.exact !== "boolean" && !data.completeness) ||
+    data.exact === false ||
+    Boolean(data.completeness && !["complete", "all_sources_exhausted"].includes(data.completeness)) ||
+    Boolean(data.status && ["failed", "error", "unavailable", "partial"].includes(data.status.toLowerCase())) ||
+    data.sourceStatus?.some(source => source.status === "failed" || source.truncated)
+  ));
 
   function formatApptTime(ts: string | number | null): string {
     if (ts === null || ts === undefined || ts === "") return "—";
@@ -70,13 +96,18 @@ function UpcomingMeetingsWidget() {
               <Skeleton key={i} className="h-12 w-full" />
             ))}
           </div>
+        ) : isError ? (
+          <div className="py-4 text-center text-xs text-destructive" role="alert">
+            Appointment provider read failed; no empty list is assumed.
+            <Button size="sm" variant="outline" className="mt-2 block mx-auto" onClick={() => void refetch()}>Retry</Button>
+          </div>
         ) : !data?.configured ? (
           <p className="text-xs text-muted-foreground text-center py-4">
             Configure GHL calendar to see upcoming meetings
           </p>
         ) : appointments.length === 0 ? (
-          <p className="text-xs text-muted-foreground text-center py-4">
-            No upcoming appointments scheduled
+          <p className="text-xs text-muted-foreground text-center py-4" role="status">
+            {partial ? "No matching meetings in this partial provider window." : "No upcoming appointments scheduled"}
           </p>
         ) : (
           <div className="space-y-2">
@@ -119,6 +150,12 @@ function UpcomingMeetingsWidget() {
             ))}
           </div>
         )}
+        {data && <p className="pt-2 text-[10px] text-muted-foreground" data-testid="text-appointments-source">
+          {data.source || data.scope || "Appointment source"}
+          {data.status ? ` · ${data.status}` : ""}
+          {data.asOf ? ` · read ${new Date(data.asOf).toLocaleString()}` : ""}
+          {partial ? " · bounded/incomplete" : ""}
+        </p>}
       </CardContent>
     </Card>
   );
@@ -163,8 +200,8 @@ function formatRevenueShort(val: number): string {
 function YourRankCard() {
   const { data, isLoading } = useQuery<LeaderboardResponse>({
     queryKey: ["/api/leaderboard", "month"],
-    queryFn: async () => {
-      const res = await fetch("/api/leaderboard?period=month", { credentials: "include" });
+    queryFn: async ({ signal }) => {
+      const res = await fetch("/api/leaderboard?period=month", { credentials: "include", signal });
       if (!res.ok) throw new Error("Failed to load leaderboard");
       return res.json();
     },
@@ -380,6 +417,7 @@ interface MyDayData {
     status: string | null;
     priority: string | null;
   }>;
+  taskQueue?: {limit:number;returned:number;total:number;timezone?:string;asOf?:string;availability:string};
   recentActivity: Array<{
     id: number;
     contactId: number | null;
@@ -517,7 +555,7 @@ function MoveStageDialog({
   const [stage, setStage] = useState(currentStage);
 
   const moveMutation = useMutation({
-    mutationFn: () => apiRequest("PATCH", `/api/my-day/deals/${dealId}/stage`, { stage }),
+    mutationFn: () => apiRequest("PATCH", `/api/my-day/deals/${dealId}/stage`, { stage,expectedStage:currentStage }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/my-day"] });
       toast({ title: "Deal stage updated" });
@@ -734,13 +772,14 @@ function MobileAppCard() {
 }
 
 export default function SalesRepHome() {
+  const outbound=useOutboundPauseObservation();
   const { user } = useAuth();
   const { toast } = useToast();
   const [logActivityContact, setLogActivityContact] = useState<{ id: number; name: string } | null>(null);
   const [moveStageDeal, setMoveStageDeal] = useState<{ id: number; stage: string } | null>(null);
   const [onePagerOpen, setOnePagerOpen] = useState(false);
 
-  const { data, isLoading, isError } = useQuery<MyDayData>({
+  const { data, isLoading, isError, refetch } = useQuery<MyDayData>({
     queryKey: ["/api/my-day"],
     refetchInterval: 60000,
   });
@@ -789,7 +828,8 @@ export default function SalesRepHome() {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4" data-testid="my-day-error">
         <AlertTriangle className="w-10 h-10 text-muted-foreground" />
-        <p className="text-muted-foreground">Could not load your dashboard. Please refresh.</p>
+        <p className="text-muted-foreground">Could not load your dashboard. Existing results are not replaced with zeros.</p>
+        <Button variant="outline" onClick={() => void refetch()}>Retry</Button>
       </div>
     );
   }
@@ -815,13 +855,12 @@ export default function SalesRepHome() {
     : null;
 
   return (
-    <div className="space-y-6" data-testid="my-day-page">
+    <CrmPage className="space-y-6" data-testid="my-day-page">
       {/* Header */}
-      <PageHeader
-        title={`Good morning, ${user?.firstName || "there"}`}
-        subtitle={today}
-        testId="text-my-day-title"
-        actions={
+      <div data-testid="text-my-day-title"><CrmPageHeader
+        title="My Day"
+        description={`Good morning, ${user?.firstName || "there"} · ${today}`}
+        secondaryActions={
           <>
             <Button variant="outline" size="sm" onClick={() => setOnePagerOpen(true)} data-testid="button-generate-link">
               <Link2 className="w-4 h-4 mr-2" />
@@ -835,15 +874,15 @@ export default function SalesRepHome() {
             </Button>
           </>
         }
-      />
+      /></div>
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <ScopedMetricStrip className="md:grid-cols-4 xl:grid-cols-4" scopeId="owned-my-day" sourceLabel="Owned daily view. Contact and deal figures describe loaded records, not whole-population totals.">
         <Card data-testid="stat-contacts-today">
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
               <Users className="w-3.5 h-3.5" />
-              Contacts to Call
+               Contacts in call view
             </div>
             <div className="text-2xl font-bold" data-testid="text-contacts-count">{contacts.length}</div>
           </CardContent>
@@ -852,14 +891,33 @@ export default function SalesRepHome() {
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
               <TrendingUp className="w-3.5 h-3.5" />
-              Open Deals
+              Open deals in view
             </div>
             <div className="text-2xl font-bold" data-testid="text-open-deals-count">
               {Object.values(dealsByStage).flat().length}
             </div>
           </CardContent>
         </Card>
-        {/* #979 — Win streak: consecutive Closed Won deals from server-provided history */}
+        <Card data-testid="stat-tasks-due">
+          <CardContent className="pt-4 pb-3">
+            <div className="text-xs text-muted-foreground">Due and overdue work</div>
+            <div className="text-2xl font-semibold tabular-nums" data-testid="text-tasks-count">{data?.taskQueue?.total ?? "—"}</div>
+            <p className="text-xs text-muted-foreground">
+              {tasksToday.length} queued · {overdueTasks.length} overdue in queue · {data?.taskQueue?.timezone ?? "timezone unavailable"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card data-testid="stat-closed-won">
+          <CardContent className="pt-4 pb-3">
+            <div className="text-xs text-muted-foreground">Closed won this month</div>
+            <div className="text-2xl font-semibold tabular-nums" data-testid="text-closed-won-count">{closedWonThisMonth}</div>
+          </CardContent>
+        </Card>
+      </ScopedMetricStrip>
+      <details className="rounded-lg border p-4">
+        <summary className="min-h-11 cursor-pointer font-semibold">Sales insights and handoffs</summary>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {/* Retain the original secondary capabilities without nine primary summary cards. */}
         {(() => {
           // closedDealsHistory is pre-sorted by close date desc by the server
           let streak = 0;
@@ -869,60 +927,33 @@ export default function SalesRepHome() {
           }
           if (streak === 0) return null;
           return (
-            <Card data-testid="stat-win-streak">
-              <CardContent className="pt-4 pb-3">
+            <div data-testid="stat-win-streak">
+              <div>
                 <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
-                  🔥 Win Streak
+                  Consecutive wins in loaded history
                 </div>
                 <div className="text-2xl font-bold text-amber-500" data-testid="text-win-streak">{streak}</div>
                 <div className="text-xs text-muted-foreground">consecutive wins</div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           );
         })()}
         {/* #1107 — Rep first-contact rate: server supplies both numerator and denominator across full population */}
         {totalAssignedContacts > 0 && (() => {
           const rate = Math.round((contactedCount / totalAssignedContacts) * 100);
           return (
-            <Card data-testid="stat-contact-rate">
-              <CardContent className="pt-4 pb-3">
+            <div data-testid="stat-contact-rate">
+              <div>
                 <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   Contact Rate
                 </div>
                 <div className="text-2xl font-bold" data-testid="text-contact-rate">{rate}%</div>
                 <div className="text-xs text-muted-foreground">{contactedCount}/{totalAssignedContacts} reached</div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           );
         })()}
-        <Card data-testid="stat-tasks-due">
-          <CardContent className="pt-4 pb-3">
-            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
-              <ClipboardList className="w-3.5 h-3.5" />
-              Tasks Due
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="text-2xl font-bold" data-testid="text-tasks-count">{tasksToday.length}</div>
-              {overdueTasks.length > 0 && (
-                <Badge variant="destructive" className="text-xs" data-testid="badge-overdue-tasks">
-                  {overdueTasks.length} overdue
-                </Badge>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-        <Card data-testid="stat-closed-won">
-          <CardContent className="pt-4 pb-3">
-            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
-              <Star className="w-3.5 h-3.5 text-green-600" />
-              Closed Won (MTD)
-            </div>
-            <div className="text-2xl font-bold text-green-600" data-testid="text-closed-won-count">
-              {closedWonThisMonth}
-            </div>
-          </CardContent>
-        </Card>
         {/* #1027 — Pending proposals awaiting response */}
         {(() => {
           const awaitingProposals = Object.values(dealsByStage).flat().filter((d: any) =>
@@ -930,8 +961,8 @@ export default function SalesRepHome() {
           );
           if (awaitingProposals.length === 0) return null;
           return (
-            <Card data-testid="stat-pending-proposals">
-              <CardContent className="pt-4 pb-3">
+            <div data-testid="stat-pending-proposals">
+              <div>
                 <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
                   <FileText className="w-3.5 h-3.5 text-purple-500" />
                   Proposals Pending
@@ -939,8 +970,8 @@ export default function SalesRepHome() {
                 <div className="text-2xl font-bold text-purple-600" data-testid="text-pending-proposal-count">
                   {awaitingProposals.length}
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           );
         })()}
         {/* #944 — Deals in Underwriting */}
@@ -950,8 +981,8 @@ export default function SalesRepHome() {
             .reduce((sum, [, stageDeals]) => sum + stageDeals.length, 0);
           if (underwritingCount === 0) return null;
           return (
-            <Card data-testid="stat-underwriting-deals">
-              <CardContent className="pt-4 pb-3">
+            <div data-testid="stat-underwriting-deals">
+              <div>
                 <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
                   <Activity className="w-3.5 h-3.5 text-blue-500" />
                   In Underwriting
@@ -959,14 +990,14 @@ export default function SalesRepHome() {
                 <div className="text-2xl font-bold text-blue-600" data-testid="text-underwriting-count">
                   {underwritingCount}
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           );
         })()}
         {/* #598 — Deals closing this month */}
         {closingThisMonth != null && closingThisMonth.count > 0 && (
-          <Card data-testid="stat-closing-this-month">
-            <CardContent className="pt-4 pb-3">
+          <div data-testid="stat-closing-this-month">
+            <div>
               <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
                 <CalendarDays className="w-3.5 h-3.5 text-violet-500" />
                 Closing This Month
@@ -974,10 +1005,11 @@ export default function SalesRepHome() {
               <div className="text-2xl font-bold text-violet-600" data-testid="text-closing-count">
                 {closingThisMonth.count}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         )}
-      </div>
+        </div>
+      </details>
 
       {/* #1445 — Save Cases priority card: open retention cases assigned to this rep */}
       {openSaveCases.length > 0 && (
@@ -1091,10 +1123,12 @@ export default function SalesRepHome() {
                           )}
                           <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
                             <a
-                              href={`tel:${contact.phone}`}
+                              href={outbound.blocked ? undefined : `tel:${contact.phone}`}
+                              aria-disabled={outbound.blocked}
+                              title={outbound.reason}
                               className="flex items-center gap-1 hover:text-primary"
                               data-testid={`link-call-${contact.id}`}
-                              onClick={() => trackPhoneCallClick({ contactId: contact.id, sourcePage: "/dashboard/sales-rep" })}
+                              onClick={event=>{if(outbound.blocked){event.preventDefault();return;}trackPhoneCallClick({ contactId: contact.id, sourcePage: "/dashboard/sales-rep" });}}
                             >
                               <Phone className="w-3 h-3" />
                               {formatPhone(contact.phone)}
@@ -1127,8 +1161,8 @@ export default function SalesRepHome() {
                               View
                             </Link>
                           </Button>
-                          <a href={`mailto:${contact.email}`} data-testid={`link-email-${contact.id}`}>
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0">
+                          <a href={outbound.blocked ? undefined : `mailto:${contact.email}`} aria-disabled={outbound.blocked} title={outbound.reason} data-testid={`link-email-${contact.id}`}>
+                            <Button disabled={outbound.blocked} size="sm" variant="ghost" className="h-7 w-7 p-0">
                               <Mail className="w-3 h-3" />
                             </Button>
                           </a>
@@ -1556,6 +1590,6 @@ export default function SalesRepHome() {
         onClose={() => setOnePagerOpen(false)}
         agentName={agentName}
       />
-    </div>
+    </CrmPage>
   );
 }

@@ -3,6 +3,7 @@ import path from "node:path";
 import { buildCertificationEnvironment } from "./certification-process-env";
 
 export interface CertificationChildOptions {
+  sourceEnv?: NodeJS.ProcessEnv;
   env?: NodeJS.ProcessEnv;
   stdio?: "inherit" | "pipe";
   profile?: "stateful" | "stateless";
@@ -15,7 +16,7 @@ export function spawnCertificationTsx(
   options: CertificationChildOptions = {},
 ): ChildProcess {
   const environment = buildCertificationEnvironment(
-    process.env,
+    options.sourceEnv ?? process.env,
     options.env,
     options.profile ?? "stateful",
   );

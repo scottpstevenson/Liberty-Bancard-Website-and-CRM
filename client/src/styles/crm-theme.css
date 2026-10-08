@@ -165,6 +165,92 @@
   font-size: var(--crm-body-size);
   line-height: var(--crm-body-line);
 }
+.crm-theme :is(h1,h2,h3,h4) { color: hsl(var(--foreground)); }
+.crm-page > :first-child { margin-top: 0; }
+/* The mounted shared page owns its gutter. Keep shell padding for unadopted
+ * Financial/Operator and contextual interiors. */
+.crm-theme [data-testid="dashboard-main"]:has(.crm-page) { padding: 0; }
+.crm-page :is(button,a,[role="tab"],[role="combobox"]) { transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease, transform 140ms ease; }
+.crm-page :is(button,a,[role="tab"]):active { transform: translateY(1px); }
+.crm-page [data-testid="contact-detail-page"] { max-width: 1280px; }
+.crm-workspace-hero {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 0 20px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.crm-workspace-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 -12px;
+  width: 3px;
+  background: hsl(var(--brand-red));
+}
+.crm-workspace-eyebrow,.crm-state-kicker {
+  display: block;
+  color: hsl(var(--muted-foreground));
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 16px;
+  letter-spacing: .075em;
+  text-transform: uppercase;
+}
+.crm-state-panel {
+  border: 1px solid hsl(var(--border));
+  border-left: 3px solid hsl(var(--accent));
+  border-radius: var(--crm-surface-radius);
+  background: hsl(var(--card));
+  padding: 18px;
+  color: hsl(var(--foreground));
+}
+.crm-state-panel p { margin: 4px 0 0; color: hsl(var(--muted-foreground)); }
+.crm-inline-retry {
+  margin-top: 12px;
+  min-height: 44px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--crm-control-radius);
+  padding: 0 12px;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+}
+.crm-contact-area-nav {
+  display: grid;
+  grid-template-columns: repeat(5,minmax(0,1fr));
+  gap: 4px;
+  border-bottom: 1px solid hsl(var(--border));
+  padding: 8px 0;
+}
+.crm-contact-area-nav button {
+  min-width: 0;
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--crm-control-radius);
+  padding: 8px 10px;
+  text-align: left;
+  color: hsl(var(--muted-foreground));
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+}
+.crm-contact-area-nav button[aria-current="page"] {
+  color: hsl(var(--foreground));
+  background: hsl(var(--muted));
+  box-shadow: inset 0 -2px hsl(var(--brand-red));
+}
+.crm-contact-section-nav { overflow-x: auto; padding: 8px 0 12px; }
+.crm-contact-section-nav [role="tablist"] { display: flex; width: max-content; min-width: 100%; flex-wrap: wrap; gap: 4px; }
+.crm-contact-drawer-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.crm-data-table tbody tr:hover { background: hsl(var(--muted) / .58); }
+.crm-data-table tbody tr:focus-within { background: hsl(var(--accent) / .1); }
+.crm-page [data-testid="comms-hub"] { min-height: min(680px, calc(100dvh - 190px)); height: min(760px, calc(100dvh - 190px)); }
+.crm-page [data-testid="card-item-list"] { width: 320px; flex: 0 0 320px; }
+.crm-page [data-testid="card-thread-panel"] { min-width: 0; }
+.crm-page [data-testid="inbox-partial-state"] { border-left: 2px solid hsl(var(--brand-red)); padding-left: 8px; }
+.crm-page [data-crm-paused="true"] { border: 1px solid hsl(var(--brand-red) / .4); background: hsl(var(--brand-red) / .07); color: hsl(var(--foreground)); }
+.crm-page .crm-record-id { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .crm-worklist-cards { display: none; }
 .crm-worklist-table { display: block; max-height: min(640px, 70dvh); overflow-y: auto; }
 .crm-worklist-table thead { position: sticky; top: 0; z-index: 1; background: hsl(var(--card)); }
@@ -173,6 +259,8 @@
 .crm-page [data-testid="contacts-pagination"] { flex-wrap: wrap; gap: 12px; padding: 16px; }
 .crm-page [data-testid="contacts-pagination"] > div { flex-wrap: wrap; }
 .crm-theme :is(button, [role="button"], [role="tab"], [role="combobox"]) { min-height: 44px; }
+.crm-theme [role="tab"][data-state="inactive"],
+.crm-portal [role="tab"][data-state="inactive"] { color: hsl(var(--foreground)); }
 .crm-theme :is(button[aria-label], [data-testid="button-sidebar-toggle"]) { min-width: 44px; }
 .crm-theme [data-sidebar="menu-button"] { min-height: 44px; }
 .crm-theme [data-sidebar="sidebar"] { font-family: var(--font-body); }
@@ -196,6 +284,17 @@
 .crm-page textarea { min-height: 96px; padding: 12px; line-height: 20px; }
 @media (max-width: 767px) {
   .crm-page :is(input,select,textarea), .crm-portal :is(input,select,textarea) { font-size: 16px; }
+}
+@media (max-width: 1023px) {
+  .crm-page [data-testid="comms-hub"] { height: calc(100dvh - 190px); min-height: 460px; }
+  .crm-page [data-testid="card-item-list"] { width: auto; flex: 1 1 auto; }
+}
+@media (max-width: 639px) {
+  .crm-workspace-hero { align-items: flex-start; flex-direction: column; }
+  .crm-workspace-hero::before { left: -12px; }
+  .crm-contact-area-nav { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .crm-contact-area-nav button:last-child { grid-column: 1 / -1; }
+  .crm-page [data-testid="comms-hub"] { min-height: 480px; height: calc(100dvh - 210px); }
 }
 @container (max-width: 767px) {
   .crm-worklist-cards { display: block; }
@@ -257,4 +356,18 @@
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Inbox bounds are interior-width based, not body overflow masking. Radix's
+ * viewport table wrapper otherwise inherits unbroken message min-content. */
+.crm-inbox-workspace { min-width: 0; width: 100%; max-width: 100%; }
+.crm-inbox-container { container-type: inline-size; width: 100%; max-width: 100%; }
+.crm-inbox-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; min-width: 0; height: 100%; }
+.crm-inbox-list, .crm-inbox-thread { width: 100%; max-width: 100%; min-width: 0; }
+.crm-inbox-workspace [data-radix-scroll-area-viewport] > div { display: block !important; min-width: 0; max-width: 100%; }
+.crm-inbox-thread p, .crm-inbox-thread a, .crm-inbox-thread pre { overflow-wrap: anywhere; word-break: break-word; }
+.crm-inbox-thread textarea { min-width: 0; max-width: 100%; }
+@container (max-width: 960px) {
+  .crm-inbox-layout { grid-template-columns: minmax(0, 1fr); }
+  .crm-inbox-list-selected, .crm-inbox-thread-unselected { display: none; }
 }

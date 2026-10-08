@@ -263,6 +263,8 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
     filters?: Parameters<typeof readPeople>[1];
   } {
     const emailStatus = req.query.emailStatus ? String(req.query.emailStatus) : undefined;
+    if(req.query.isParentAccount!==undefined&&!["true","false"].includes(req.query.isParentAccount))
+      return {error:{code:"INVALID_PARENT_ACCOUNT_FILTER",message:"isParentAccount must be true or false"}};
     const ownerEmail = agentOwnershipEmail(req.user);
     const assignedTo = req.query.assignedToMe === "true"
       ? ownerEmail
@@ -301,6 +303,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
         tag: req.query.tag ? String(req.query.tag) : undefined,
         contactedToday: req.query.contactedToday === "true",
         hasAssignee: req.query.hasAssignee === "true",
+        isParentAccount:req.query.isParentAccount==="true",
         leadSource: req.query.leadSource ? String(req.query.leadSource) : undefined,
         lifecycle: req.query.lifecycle ? String(req.query.lifecycle) : undefined,
         stale: req.query.stale === "true",
@@ -2018,9 +2021,8 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
       const contact = await storage.getContact(contactId);
       if (!contact) return res.status(404).json({ message: "Contact not found" });
 
-      const sdrRows = await db.select({ id: sdrLeadState.id }).from(sdrLeadState)
-        .where(eq(sdrLeadState.contactId, contactId)).limit(1);
-      const sdrSourced = sdrRows.length > 0;
+      const {isSdrSourcedContact}=await import("../services/sales-prep");
+      const sdrSourced = await isSdrSourcedContact(contactId);
 
       if (!sdrSourced) {
         return res.json({ sdrSourced: false, cached: null, cacheKey: null, generatedAt: null, canGenerate: false });

@@ -1,10 +1,13 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
+import { useSearch } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
+import { useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient, protectedScope } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
+import { invalidateWorkFacts } from "@/hooks/use-work-commands";
+import { useOwnedToast as useToast } from "@/hooks/use-owned-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +15,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Loader2 } from "lucide-react";
-import type { Contact, Deal } from "@shared/schema";
+import type { Contact } from "@shared/schema";
+import { useContacts } from "@/hooks/use-contacts";
+import { useCrmQuery } from "@/hooks/use-crm-query";
+import type { ContactDetailData } from "./contact-detail-tabs/shared";
+import { CrmPage, CrmPageHeader } from "@/components/crm/CrmPresentation";
+import { safeParams } from "@/lib/crm-destination-state";
+import { useContextualContact } from "@/hooks/use-contextual-contact";
 
 const RECOMMENDED_PATHS = [
   "Wholesale",
@@ -46,13 +55,21 @@ type FormValues = z.infer<typeof formSchema>;
 
 export default function ReviewComplete() {
   const { toast } = useToast();
-  const [selectedContactId, setSelectedContactId] = useState<string>("");
+  const {user}=useAuth();
+  const search = useSearch();
+  const params = safeParams(search,["contactId","dealId"]);
+  const initialContactId = params.get("contactId") ?? "";
+  const initialDealId = params.get("dealId") ?? "";
+  const [selectedContactId, setSelectedContactId] = useState<string>(initialContactId);
+  const [contactSearch, setContactSearch] = useState("");
+  const taskCommand = useRef<{ commandId: string; payload: Record<string, unknown>; key: string } | null>(null);
+  const [partialOutcome, setPartialOutcome] = useState<string | null>(null);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      contactId: "",
-      dealId: "",
+      contactId: initialContactId,
+      dealId: initialDealId,
       effectiveRate: "",
       totalVolume: "",
       totalFees: "",
@@ -66,28 +83,52 @@ export default function ReviewComplete() {
       fundingNotes: "",
     },
   });
+  const selectedDealId=form.watch("dealId");
+  const context=JSON.stringify([protectedScope(user),selectedContactId,selectedDealId]);
+  const currentContext=useRef(context);currentContext.current=context;
+  const actorContext=JSON.stringify(protectedScope(user));
+  useEffect(()=>{
+    const target=safeParams(search,["contactId","dealId"]);
+    const contactId=target.get("contactId") ?? "";
+    form.reset({...form.formState.defaultValues,contactId,dealId:target.get("dealId") ?? ""});
+    setSelectedContactId(contactId);taskCommand.current=null;setPartialOutcome(null);setContactSearch("");
+  },[actorContext,form]);
+  useEffect(()=>{
+    setSelectedContactId(initialContactId);form.setValue("contactId",initialContactId);form.setValue("dealId",initialDealId);
+  },[search,form]);
 
-  const { data: contactsRes, isLoading: contactsLoading } = useQuery<{ data: Contact[]; total: number }>({
-    queryKey: ["/api/contacts"],
-  });
-  const contacts = contactsRes?.data;
-
-  const { data: dealsRes, isLoading: dealsLoading } = useQuery<{ data: Deal[]; total: number }>({
-    queryKey: ["/api/deals"],
-  });
-  const deals = dealsRes?.data;
-
-  const contactDeals = deals?.filter(
-    (d) => d.contactId === Number(selectedContactId)
-  ) || [];
+  const contactsQuery = useContacts({ limit: 50, offset: 0, search: contactSearch.trim() || undefined });
+  const selectedContactQuery = useContextualContact(selectedContactId);
+  const selectedContact=selectedContactQuery.data?.contact;
+  const contacts:Contact[]=selectedContact && !contactsQuery.data?.data.some(row=>row.id===selectedContact.id)
+    ? [selectedContact,...(contactsQuery.data?.data ?? [])] : contactsQuery.data?.data ?? [];
+  const contactDeals = selectedContactQuery.data?.deals?.filter(deal => deal.contactId === Number(selectedContactId) && !deal.archivedAt) ?? [];
+  const contactsLoading = contactsQuery.isLoading || (!!selectedContactId && selectedContactQuery.isLoading);
+  const dealsLoading = !!selectedContactId && selectedContactQuery.isLoading;
 
   const submitMutation = useMutation({
+    onMutate:()=>({context,scope:protectedScope(user)}),
     mutationFn: async (values: FormValues) => {
       const dealId = Number(values.dealId);
+      const displayedDeal = contactDeals.find(deal => deal.id === dealId);
+      if (!displayedDeal || typeof displayedDeal.stage !== "string") {
+        throw new Error("The displayed deal stage is unavailable. Reload the authorized deal details before submitting.");
+      }
       const topCostDrivers = [values.costDriver1, values.costDriver2, values.costDriver3].filter(Boolean);
 
+      const taskKey = JSON.stringify([protectedScope(user),values]);
+      if (!taskCommand.current || taskCommand.current.key !== taskKey) {
+        if(partialOutcome) throw new Error("Resolve the unconfirmed submission by retrying its unchanged intent before creating another follow-up.");
+        taskCommand.current = {
+          commandId: crypto.randomUUID(),key:taskKey,
+          payload: {dealId,contactId:Number(values.contactId),title:"Call / follow up to present options",priority:"high",
+            dueDate:new Date(Date.now()+24*60*60*1000).toISOString(),expectedActorId:user?.id,expectedAccountVersion:user?.accountVersion},
+        };
+      }
+      const command=taskCommand.current;
       await apiRequest("PUT", `/api/deals/${dealId}`, {
         stage: "Proposal Sent",
+        expectedStage: displayedDeal.stage,
         effectiveRate: values.effectiveRate,
         totalVolume: values.totalVolume,
         totalFees: values.totalFees,
@@ -98,23 +139,45 @@ export default function ReviewComplete() {
         notes: [values.optionASummary ? `Option A: ${values.optionASummary}` : "", values.optionBSummary ? `Option B: ${values.optionBSummary}` : ""].filter(Boolean).join("\n"),
       });
 
-      await apiRequest("POST", "/api/tasks", {
-        dealId,
-        contactId: Number(values.contactId),
-        title: "Call / follow up to present options",
-        priority: "high",
-        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      });
+      try {
+        const taskResponse = await apiRequest("POST", "/api/tasks", { ...command.payload, commandId: command.commandId });
+        if (!taskResponse.ok) throw new Error("The task service did not confirm creation.");
+        const saved=await taskResponse.json();
+        if(!Number.isSafeInteger(saved?.id) || saved.dealId!==dealId || saved.contactId!==Number(values.contactId))
+          throw new Error("Follow-up task confirmation did not match the submitted record.");
+      } catch (error) {
+        throw new Error(`PARTIAL: Deal #${dealId} was updated, but the follow-up task is not confirmed. Retry will reuse the same task command identity. ${error instanceof Error ? error.message : ""}`);
+      }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+    onSuccess: (_data,_values,submitted) => {
+      if(currentContext.current!==submitted?.context)return;
+      taskCommand.current = null;
+      setPartialOutcome(null);
+      invalidateWorkFacts();
       toast({ title: "Review complete", description: "Deal updated to Proposal Sent. Follow-up task created." });
       form.reset();
       setSelectedContactId("");
     },
-    onError: (err: Error) => {
-      toast({ title: "Failed to save review", description: err.message, variant: "destructive" });
+    onError: async (err: Error, values, submitted) => {
+      if(currentContext.current!==submitted?.context)return;
+      const dealId = Number(values.dealId);
+      let stageReadback = "";
+      try {
+        const response = await apiRequest("GET", `/api/deals/${dealId}`);
+        const authoritativeDeal = await response.json();
+        if(currentContext.current!==submitted?.context)return;
+        if(authoritativeDeal.id!==dealId || authoritativeDeal.contactId!==Number(values.contactId)) throw new Error("Invalid exact-deal readback");
+        queryClient.setQueryData(["/api/contacts", Number(values.contactId), "detail",{section:"deals"},submitted.scope], (old: any) => old
+          ? { ...old, deals: old.deals?.map((deal: any) => deal.id === authoritativeDeal.id ? authoritativeDeal : deal) }
+          : old);
+        stageReadback = ` Server read-back confirms the current deal stage is “${authoritativeDeal.stage}”.`;
+      } catch {
+        stageReadback = " Server read-back was unavailable; deal stage remains unconfirmed.";
+      }
+      if(currentContext.current!==submitted?.context)return;
+      void queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      if (err.message.startsWith("PARTIAL:")) setPartialOutcome(err.message.replace("PARTIAL: ", ""));
+      toast({ title: err.message.startsWith("PARTIAL:") ? "Review partially saved" : "Review not saved", description: `${err.message.replace("PARTIAL: ", "")}${stageReadback}`, variant: "destructive" });
     },
   });
 
@@ -127,19 +190,28 @@ export default function ReviewComplete() {
 
   if (contactsLoading || dealsLoading) {
     return (
-      <div className="flex items-center justify-center h-64" data-testid="reviewcomplete-loading">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
+      <CrmPage className="max-w-3xl space-y-5">
+        <CrmPageHeader title="Statement review" description="Loading authorized contact and deal context." />
+        <div className="w-full space-y-3" aria-label="Loading review context" role="status">
+          <div className="h-14 animate-pulse rounded bg-muted" /><div className="h-14 animate-pulse rounded bg-muted" />
+          <div className="h-14 animate-pulse rounded bg-muted" /><div className="h-32 animate-pulse rounded bg-muted" />
+        </div>
+      </CrmPage>
     );
   }
 
   return (
-    <div className="max-w-2xl mx-auto" data-testid="reviewcomplete-page">
+    <CrmPage className="max-w-3xl space-y-5">
+      <CrmPageHeader title="Statement review" description="Record the reviewed offer and create its follow-up task." />
       <Card>
         <CardHeader>
-          <CardTitle data-testid="text-reviewcomplete-title">LB - Statement Review Complete</CardTitle>
+          <CardTitle data-testid="text-reviewcomplete-title">Review complete</CardTitle>
         </CardHeader>
         <CardContent>
+          {selectedContactQuery.isError && <div className="mb-4 rounded-md border border-destructive/40 p-3 text-sm" role="alert">
+            {selectedContactQuery.error.message} <Button variant="outline" className="ml-2" onClick={() => void selectedContactQuery.refetch()}>Retry</Button>
+          </div>}
+          {partialOutcome && <div className="mb-4 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm" role="status">{partialOutcome}</div>}
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
               <FormField
@@ -148,12 +220,14 @@ export default function ReviewComplete() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Contact</FormLabel>
+                    <Input value={contactSearch} onChange={event => setContactSearch(event.currentTarget.value)}
+                      placeholder="Search name, company, email" aria-label="Search contacts" className="mb-2" />
                     <Select
                       value={field.value}
                       onValueChange={(v) => {
                         field.onChange(v);
                         setSelectedContactId(v);
-                        form.setValue("dealId", "");
+                        form.setValue("dealId", v === initialContactId ? initialDealId : "");
                       }}
                     >
                       <FormControl>
@@ -162,11 +236,14 @@ export default function ReviewComplete() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {contacts?.map((c) => (
+                        {contactsQuery.isError && <SelectItem value="__contact-search-error" disabled>Contact search unavailable; retry the search</SelectItem>}
+                        {contactsQuery.isLoading && <SelectItem value="__contact-search-loading" disabled>Searching authorized contacts…</SelectItem>}
+                        {[...new Map([...(selectedContactQuery.data?.contact ? [selectedContactQuery.data.contact] : []), ...(contacts ?? [])].map(contact => [contact.id, contact])).values()].map((c) => (
                           <SelectItem key={c.id} value={String(c.id)} data-testid={`select-contact-${c.id}`}>
                             {getContactLabel(c)}
                           </SelectItem>
                         ))}
+                        {!contactsQuery.isError && !contactsQuery.isLoading && !contacts?.length && !selectedContactQuery.data?.contact && <SelectItem value="__contact-empty" disabled>No authorized contacts match this search</SelectItem>}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -192,6 +269,7 @@ export default function ReviewComplete() {
                             Deal #{d.id} - {d.stage} ({d.pipeline})
                           </SelectItem>
                         ))}
+                        {!contactDeals.length && selectedContactId && !selectedContactQuery.isError && <SelectItem value="__deals-empty" disabled>No linked active deals are available for this contact</SelectItem>}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -392,6 +470,6 @@ export default function ReviewComplete() {
           </Form>
         </CardContent>
       </Card>
-    </div>
+    </CrmPage>
   );
 }

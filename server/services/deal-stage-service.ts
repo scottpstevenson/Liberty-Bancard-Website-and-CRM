@@ -96,6 +96,7 @@ export async function advanceDealStage(
   newStage: string,
   trigger: string,
   overrideContext?: { reason: string; actor: string; expectedStage?: string },
+  displayedStage?: string,
 ): Promise<Deal | null> {
   let stagedDeal: Deal | null = null;
   let applied = false;
@@ -112,8 +113,9 @@ export async function advanceDealStage(
       mid: string | null; terminal_status: string | null;
     } | undefined;
     if (!dealRow) return;
-    if (overrideContext?.expectedStage && dealRow.stage !== overrideContext.expectedStage) {
-      throw new DealStageConflictError(dealId, overrideContext.expectedStage, dealRow.stage);
+    const expected = displayedStage ?? overrideContext?.expectedStage;
+    if (expected && dealRow.stage !== expected) {
+      throw new DealStageConflictError(dealId, expected, dealRow.stage);
     }
     if (dealRow.stage === newStage) {
       stagedDeal = (await tx.select().from(deals).where(eq(deals.id, dealId)).limit(1))[0] ?? null;

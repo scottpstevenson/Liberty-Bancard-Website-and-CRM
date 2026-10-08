@@ -157,3 +157,14 @@ Actual refused native-restore output before restart:
 6. After separately approved owner publication, verify API and worker identities, safety, ordinary committed cycles, every original row's current evidence-backed outcome, and eventual convergence.
 
 The original recovery acceptance remains open. No production write, deployment, credential change, control change, manual replay, or paid-provider execution was performed by this implementation work.
+
+## C2 employee-workspace progress — 2026-10-08
+
+The separate C2 consumer work remains **NOT COMPLETE**. Its current bounded
+handler and contract checks pass, but the expanded browser/action gate failed
+and supported stock lanes retain failures. See
+[C2 verification status](stage3-c2/verification-status.md) for exact identities,
+counts, current versus historical receipts and remaining owners. These UI
+fixtures do not certify retained native recovery, ordinary restart, full-population
+outcomes, production sync, publication or release readiness. All existing recovery
+requirements above remain unchanged.

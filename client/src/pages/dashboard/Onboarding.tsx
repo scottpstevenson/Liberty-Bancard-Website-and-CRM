@@ -171,7 +171,7 @@ export default function Onboarding() {
   const contacts = contactsResult?.data;
 
   const updateDealMutation = useMutation({
-    mutationFn: async ({ id, ...data }: { id: number } & Record<string, unknown>) => {
+    mutationFn: async ({ id, ...data }: { id: number; expectedStage?: string } & Record<string, unknown>) => {
       const res = await apiRequest("PUT", `/api/deals/${id}`, data);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -190,8 +190,24 @@ export default function Onboarding() {
       setPendingStage(null);
       toast({ title: "Deal updated successfully" });
     },
-    onError: (err: Error) => {
-      toast({ title: "Failed to update deal", description: err.message, variant: "destructive" });
+    onError: async (err: Error, variables) => {
+      let readbackMessage = "";
+      if (typeof variables.stage === "string") {
+        try {
+          const response = await apiRequest("GET", `/api/deals/${variables.id}`);
+          const authoritativeDeal = await response.json() as Deal;
+          setSelectedDeal(current => current?.id === authoritativeDeal.id ? authoritativeDeal : current);
+          setEditStage(authoritativeDeal.stage);
+          queryClient.setQueriesData({ queryKey: ["/api/deals"] }, (old: any) => old && Array.isArray(old.data)
+            ? { ...old, data: old.data.map((deal: Deal) => deal.id === authoritativeDeal.id ? authoritativeDeal : deal) }
+            : old);
+          readbackMessage = ` Server read-back confirms the current stage is “${authoritativeDeal.stage}”.`;
+        } catch {
+          readbackMessage = " Server read-back was unavailable; current stage remains unconfirmed.";
+        }
+      }
+      void queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      toast({ title: "Deal update not confirmed", description: `${err.message}${readbackMessage}`, variant: "destructive" });
     },
   });
 
@@ -255,7 +271,11 @@ export default function Onboarding() {
       return; // wait for user to confirm in the preflight dialog
     }
 
-    updateDealMutation.mutate({ id: selectedDeal.id, ...updates });
+    updateDealMutation.mutate({
+      id: selectedDeal.id,
+      ...updates,
+      ...(stageIsChanging ? { expectedStage: selectedDeal.stage } : {}),
+    });
   };
 
   const handlePreflightConfirm = () => {
@@ -265,7 +285,11 @@ export default function Onboarding() {
 
     const updates = buildUpdatePayload(hasBlocking && isManagerOrAdmin ? overrideReason.trim() : undefined);
     if (!updates) return;
-    updateDealMutation.mutate({ id: selectedDeal.id, ...updates });
+    updateDealMutation.mutate({
+      id: selectedDeal.id,
+      ...updates,
+      ...(editStage !== selectedDeal.stage ? { expectedStage: selectedDeal.stage } : {}),
+    });
   };
 
   const handlePreflightCancel = () => {

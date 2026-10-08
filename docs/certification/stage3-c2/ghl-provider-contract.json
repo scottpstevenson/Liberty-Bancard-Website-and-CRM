@@ -1,0 +1,25 @@
+{
+  "receiptRecordedAt": "2026-10-07T22:53:03.479Z",
+  "qualification": "Official pages fetched during this task; not production native-message verification",
+  "sources": [
+    {
+      "sha256": "2afcd365e6d4c6cb40aeef27cf984c8da0eecf634fa57cdccd1f432e426456e8",
+      "title": "Search Conversations | HighLevel API",
+      "truncated": false,
+      "url": "https://marketplace.gohighlevel.com/docs/ghl/conversations/search-conversation"
+    },
+    {
+      "sha256": "dddd1236701f4a4c1c6e38cc8e4a79a17553e5dd677cc6ce5c23dc4a3b2252d4",
+      "title": "Get messages by conversation id | HighLevel API",
+      "truncated": false,
+      "url": "https://marketplace.gohighlevel.com/docs/ghl/conversations/get-messages/index.html"
+    }
+  ],
+  "contracts": [
+    "Conversation search lastMessageType is a projection, not an occurrence identity or an unread/inbound channel guess.",
+    "Get messages example uses messageType SMS with numeric type, locationId, conversationId, id, dateAdded, direction and attachments.",
+    "Message identity is provider/location/message. Distinct messages with the same body remain distinct.",
+    "A completed/inbound/missed call does not establish voicemail. Unknown types are not guessed.",
+    "Native voicemail/media fixtures and live native qualification remain separate from this documentation receipt."
+  ]
+}
