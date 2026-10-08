@@ -18,6 +18,7 @@
 - [Queue runtime decisions](queue-runtime-index.md) — BullMQ infrastructure, retained job deduplication, and partial initialization lessons.
 - [GHL token & circuit breaker](ghl-token-ops.md) — 401 on expired PIT token, regenerate in GHL settings; breaker persists closed/open/half-open via classifyGhlSyncError().
 - [GHL data-sync authority](ghl-data-sync-authority.md) — One-way GHL-to-production contact sync; no GHL record writes, and outbound communications stay paused.
+- [GHL appointment calendar](ghl-appointment-calendar.md) — User selected Sales Meeting for appointment reads; keep selection independent of outbound booking configuration.
 - [Idempotent migration FK pattern](idempotent-migration-fk.md) — duplicate FK migrations: wrap ADD CONSTRAINT with DROP CONSTRAINT IF EXISTS first.
 - [Enrichment worker OOM crash](enrichment-oom.md) — fix needs all 3: re-entrancy flags on enrichment batches, capped streaming body reads, SUNBIZ_ENRICHMENT_ENABLED gating (prod-default).
 - [Wave 10 draft persistence](wave10-draft-persistence.md) — Draft hash; never autosave EIN/SSN/bank. Final dedupe is EIN-only; prefill Map TTL is 24h.

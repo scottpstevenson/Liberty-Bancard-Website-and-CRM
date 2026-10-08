@@ -4,7 +4,7 @@ import { writeFile } from "node:fs/promises";
 const base = "https://services.leadconnectorhq.com";
 const token = process.env.GHL_PRIVATE_INTEGRATION_TOKEN;
 const location = process.env.GHL_LOCATION_ID;
-const calendar = process.env.GHL_CALENDAR_ID;
+const calendar = process.env.GHL_APPOINTMENT_CALENDAR_ID || process.env.GHL_CALENDAR_ID;
 if (!token || !location) throw new Error("Provider configuration unavailable");
 async function read(path: string) {
   const response = await fetch(base + path, {
@@ -17,12 +17,12 @@ async function read(path: string) {
 const inventory = await read(`/calendars/?locationId=${encodeURIComponent(location)}`);
 const calendars = inventory.body?.calendars;
 const configured = calendar ? await read(`/calendars/${encodeURIComponent(calendar)}`) : null;
-const window = `locationId=${encodeURIComponent(location)}&startTime=${Date.now()-86400000}&endTime=${Date.now()+30*86400000}&limit=50`;
+const window = `locationId=${encodeURIComponent(location)}&startTime=${Date.now()-86400000}&endTime=${Date.now()+30*86400000}`;
 const events = await read(`/calendars/events?${window}${calendar ? `&calendarId=${encodeURIComponent(calendar)}` : ""}`);
 const coverage = Array.isArray(calendars) ? await Promise.all(calendars.map(async (c: any) => {
   if (typeof c.id !== "string" || c.locationId !== location) return { locationMatches: false };
-  const result = await read(`/calendars/events?${window}&calendarId=${encodeURIComponent(c.id)}`);
-  const withoutLimit = await read(`/calendars/events?${window.replace("&limit=50", "")}&calendarId=${encodeURIComponent(c.id)}`);
+  const result = await read(`/calendars/events?${window}&limit=50&calendarId=${encodeURIComponent(c.id)}`);
+  const withoutLimit = await read(`/calendars/events?${window}&calendarId=${encodeURIComponent(c.id)}`);
   return { locationMatches: true, status: result.status,
     eventCount: Array.isArray(result.body?.events) ? result.body.events.length : null,
     rejectsLimitParameter: JSON.stringify(result.body?.message ?? "").includes("limit"),
@@ -36,6 +36,8 @@ const report = {
   locationMatchesSampleNamespace: location === "BbcWy2xmyg4izLjlFfLQ",
   inventoryStatus: inventory.status,
   calendarCount: Array.isArray(calendars) ? calendars.length : null,
+  selectedCalendarName: Array.isArray(calendars) ? calendars.find((c: any) => c.id === calendar)?.name ?? null : null,
+  selectionSource: process.env.GHL_APPOINTMENT_CALENDAR_ID ? "appointment_reader_override" : "legacy_booking_calendar",
   configuredCalendarInInventory: Array.isArray(calendars) ? calendars.some((c: any) => c.id === calendar) : null,
   configuredCalendarStatus: configured?.status,
   configuredCalendarLocationMatches: configured?.body?.calendar?.locationId === location,

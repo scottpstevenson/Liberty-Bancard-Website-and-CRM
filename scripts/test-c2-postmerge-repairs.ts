@@ -111,6 +111,22 @@ assertions++;
 const contact = readFileSync("client/src/pages/dashboard/ContactDetail.tsx", "utf8");
 check(/const pendingTasks = tasksLoaded\s*\? tasks\.filter\(isPendingTask\)\s*:\s*undefined/.test(contact),
   "Contact consumes canonical predicate and retains unavailable state");
+
+const toolkit = readFileSync("server/routes/toolkit.ts", "utf8");
+const toolkitAst = ts.createSourceFile("toolkit.ts",toolkit,ts.ScriptTarget.Latest,true);
+const configFunction = toolkitAst.statements.find(node=>ts.isFunctionDeclaration(node) && node.name?.text==="getGhlConfig");
+assert.ok(configFunction);
+const configCode = ts.transpileModule(configFunction.getText(toolkitAst),{
+  compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None},
+}).outputText;
+const config = new Function("process",`${configCode}; return getGhlConfig();`);
+const env = {GHL_API_KEY:"fixture-not-a-credential",GHL_LOCATION_ID:"fixture-location",
+  GHL_CALENDAR_ID:"legacy-booking-calendar",GHL_APPOINTMENT_CALENDAR_ID:"reader-only-calendar"};
+check(config({env}).calendarId==="reader-only-calendar","appointment reader override wins");
+check(env.GHL_CALENDAR_ID==="legacy-booking-calendar","reader selection never rewrites booking configuration");
+check(config({env:{...env,GHL_APPOINTMENT_CALENDAR_ID:undefined}}).calendarId==="legacy-booking-calendar",
+  "existing legacy configuration remains compatible without an override");
+check(config({env:{...env,GHL_API_KEY:undefined}})===null,"calendar selection cannot bypass missing credentials");
 console.log(JSON.stringify({ status: "pass", assertions, timezone: process.env.TZ,
   effects: "no database, provider, authentication or outbound effects",
   limits: "mutation persistence is an injected store, not live SQL/browser acceptance" }));

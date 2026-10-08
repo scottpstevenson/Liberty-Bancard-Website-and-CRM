@@ -49,9 +49,20 @@ reports no provider-side limit, while retaining its local 10-item queue bound,
 role/contact owner filtering and explicit unavailable/error state. Actual
 registered-handler fixtures test mapped-owner coverage, foreign/unmapped
 exclusion for agents, management scope, successful reads and malformed-provider
-failures. No calendar selection was silently substituted. The remaining
-configuration decision is which valid calendar the owner intends to use;
-changing that configured value was not performed.
+failures. No calendar selection was silently substituted.
+
+The owner subsequently selected **Liberty Bancard — Sales Meeting**. That
+choice is applied through the non-sensitive, reader-specific configuration
+`GHL_APPOINTMENT_CALENDAR_ID`; the existing booking-link calendar secret is
+unchanged. This prevents an appointment-read selection from changing outbound
+booking configuration. The reader retains its legacy fallback when no override
+is configured.
+
+After applying the selection, live read-only checks confirm that the selected
+calendar is in the location inventory, exact calendar lookup returns HTTP 200,
+the calendar's location matches, and events return HTTP 200 with two appointments.
+The published app still needs a publish to receive the code/configuration update;
+these live provider checks are not claimed as a published authenticated UI check.
 
 ### Inbox
 
@@ -86,8 +97,10 @@ elapsed duration, explicit invalid-time replacement, read-only/provider denial,
 event/deal namespace separation, injected-store persistence/reload, failure
 without a success toast, task states and unavailable-state handling.
 
-Passes: 42 helper/mutation assertions in UTC, 44 in America/New_York and 42 in
-America/Los_Angeles. These are repeated timezone assertions, not 128 unique
+Passes after the selection update: 46 helper/mutation/configuration assertions in
+UTC, 48 in America/New_York and 46 in America/Los_Angeles. The additional assertions
+verify reader override precedence, unchanged booking configuration, legacy
+fallback and missing-credential denial. These are repeated timezone assertions, not unique
 production controls. The new helper's focused TypeScript check and whitespace
 validation pass. The production build succeeds, retaining existing warnings.
 
@@ -126,7 +139,7 @@ results are not reclassified as passing.
 
 ## Existing acceptance owners
 
-Calendar selection and any future approved intake/linking of the sampled Inbox
-contact remain under their existing owners; neither is a new task ladder.
+Calendar selection is complete. Any future approved intake/linking of the sampled
+Inbox contact remains under its existing owner; it is not a new task ladder.
 The causes and safe read boundaries are established. Incoming GHL synchronization
 remains independent of outbound pause; neither was modified.

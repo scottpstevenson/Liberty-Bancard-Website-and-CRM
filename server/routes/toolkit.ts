@@ -17,7 +17,8 @@ function getGhlConfig() {
   const apiKey = process.env.GHL_PRIVATE_INTEGRATION_TOKEN || process.env.GHL_API_KEY;
   const locationId = process.env.GHL_LOCATION_ID;
   if (!apiKey || !locationId) return null;
-  return { apiKey, locationId, calendarId: process.env.GHL_CALENDAR_ID };
+  // Reader selection is independent of the legacy booking-link calendar.
+  return { apiKey, locationId, calendarId: process.env.GHL_APPOINTMENT_CALENDAR_ID || process.env.GHL_CALENDAR_ID };
 }
 
 async function ghlFetch(path: string, options: RequestInit = {}): Promise<any> {
