@@ -1,0 +1,83 @@
+DAILY WORK
+Overview
+Contacts & Leads
+Pipeline
+Messages & Inbox
+Tasks & Appointments
+AI Advisor
+MERCHANT OPS
+Portfolio
+Applications
+Statement Reviews
+Documents
+Underwriting
+Onboarding
+Merchant Risk
+Boarding
+OUTBOUND
+Canonical Enrichment
+Lead Ops Center
+Ready for Outreach
+Outreach
+Lead Imports
+REPORTS
+Reports
+Leaderboard
+Settings
+PARTNERS
+RESOURCES
+U
+stage3b-8a74e04d-0d30-478d-a54d-a51d967a6190-admin@example.test
+Dev Mode
+Replay Tour
+Sign Out
+Toggle Sidebar
+Reports
+Ctrl+K
+Security warning: Your admin account does not have two-factor authentication enabled. Enable 2FA immediately to protect your account.
+Set up 2FA
+Reports
+
+Business performance, outreach, operations and financial views in the same authorized scope.
+
+Sales & Growth
+Operations
+Outreach
+Financial
+Overview
+Growth Metrics
+Win/Loss
+Win/Loss Analysis
+
+Track competitive outcomes and understand why deals are won or lost
+
+Add Competitor Entry
+Total Tracked Deals
+0
+
+0 won / 0 lost
+
+Win Rate
+0%
+
+Based on tracked outcomes
+
+Top Competitor
+N/A
+
+No data yet
+
+Most Common Loss Reason
+N/A
+
+No losses recorded
+
+Results
+No competitor entries yet. Add your first entry to start tracking.
+Step 1 of 8
+Welcome to Liberty Bancard
+
+You're now set up as an admin — the highest level of access on the platform. This short tour covers the key areas you'll use every day so you can hit the ground running.
+
+Next →
+Skip tour

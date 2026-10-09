@@ -52,8 +52,7 @@
     },
     {
       "path": "/api/deals",
-      "method": "GET",
-      "status": 200
+      "method": "GET"
     },
     {
       "path": "/api/kpi/pipeline-stats",
@@ -62,63 +61,51 @@
     },
     {
       "path": "/api/kpi/comparative",
-      "method": "GET",
-      "status": 200
+      "method": "GET"
     },
     {
       "path": "/api/analytics/lead-sources",
-      "method": "GET",
-      "status": 200
+      "method": "GET"
     },
     {
       "path": "/api/admin/rep-activity/today",
-      "method": "GET",
-      "status": 501
+      "method": "GET"
     },
     {
       "path": "/api/admin/rep-activity/inactive",
-      "method": "GET",
-      "status": 501
+      "method": "GET"
     },
     {
       "path": "/api/analytics/lifecycle-distribution",
-      "method": "GET",
-      "status": 200
+      "method": "GET"
     },
     {
       "path": "/api/analytics/weekly-outreach",
-      "method": "GET",
-      "status": 200
+      "method": "GET"
     },
     {
       "path": "/api/analytics/conversion-funnel",
-      "method": "GET",
-      "status": 200
+      "method": "GET"
     },
     {
       "path": "/api/analytics/daily-leads",
-      "method": "GET",
-      "status": 200
+      "method": "GET"
     },
     {
       "path": "/api/sms-inbox/unread-count",
-      "method": "GET",
-      "status": 200
+      "method": "GET"
     },
     {
       "path": "/api/merchant-applications/pending-count",
-      "method": "GET",
-      "status": 501
+      "method": "GET"
     },
     {
       "path": "/api/notifications/count",
-      "method": "GET",
-      "status": 200
+      "method": "GET"
     },
     {
       "path": "/api/live-chat/sessions",
-      "method": "GET",
-      "status": 200
+      "method": "GET"
     },
     {
       "path": "/api/tasks/overdue-count",
@@ -127,13 +114,7 @@
     },
     {
       "path": "/api/outreach-queue/count",
-      "method": "GET",
-      "status": 501
-    },
-    {
-      "path": "/api/overview/daily-briefing",
-      "method": "GET",
-      "status": 200
+      "method": "GET"
     },
     {
       "path": "/api/auth/user",
@@ -326,16 +307,6 @@
       "status": 501
     },
     {
-      "path": "/api/contacts/1/zerobounce-history",
-      "method": "GET",
-      "status": 200
-    },
-    {
-      "path": "/api/contacts/1/sfp-readiness",
-      "method": "GET",
-      "status": 200
-    },
-    {
       "path": "/api/contacts/1/nba",
       "method": "GET",
       "status": 501
@@ -419,16 +390,6 @@
       "path": "/api/outreach-queue/count",
       "method": "GET",
       "status": 501
-    },
-    {
-      "path": "/api/contacts/1/zerobounce-history",
-      "method": "GET",
-      "status": 200
-    },
-    {
-      "path": "/api/contacts/1/sfp-readiness",
-      "method": "GET",
-      "status": 200
     },
     {
       "path": "/api/contacts/1/nba",

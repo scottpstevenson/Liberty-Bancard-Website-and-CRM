@@ -1,6 +1,6 @@
 import type { Express } from "express";
-import { strictRecordId, taskEditCommand, ticketEditCommand, taskCreateCommand } from "@shared/work-item-commands";
-import { commandWorkItems, WorkCommandError, bindWorkActor, createHumanTask } from "../services/work-item-command";
+import { strictRecordId, taskEditCommand, ticketEditCommand, taskCreateCommand,ticketCreateCommand } from "@shared/work-item-commands";
+import { commandWorkItems, WorkCommandError, bindWorkActor, createHumanTask,createHumanTicket } from "../services/work-item-command";
 import { isDashboardUser } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
@@ -33,13 +33,14 @@ export function registerTicketsTasksRoutes(app: Express) {
 
   app.post("/api/tickets", isDashboardUser, async (req, res) => {
     try {
-      const input = insertTicketSchema.parse(req.body);
-      if (input.contactId && !await authorizeContactAccess(req, res, input.contactId, { exactAssignment: true })) return;
-      if (!input.contactId && (req.user as any)?.role === "agent") return void denyCrmObject(res);
-      const ticket = await storage.createAuthorityTicket(input, { producer: "dashboard" });
-      res.status(201).json(ticket);
+      const {commandId,expectedActorId,expectedAccountVersion,...fields}=ticketCreateCommand.parse(req.body);
+      const result=await createHumanTicket({commandId,fields,
+        actor:bindWorkActor(req.user,expectedActorId,expectedAccountVersion)});
+      res.status(result.replayed||result.reused?200:201).json({...result.ticket,
+        command:{id:commandId,replayed:result.replayed,reused:result.reused,nativeDelivery:"not_attempted"}});
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });

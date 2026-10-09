@@ -1,4 +1,5 @@
 import {and,desc,eq,getTableColumns,sql,type SQL} from "drizzle-orm";
+import {alias} from "drizzle-orm/pg-core";
 import {db} from "../db";
 import {users,notifications,notificationPreferences,notificationActorStates,tasks,tickets,rfis,contacts,deals} from "@shared/schema";
 import {taskReadPredicate} from "./task-read-authority";
@@ -211,4 +212,22 @@ export async function readActorRfi(userId:string,id:number) {
     AND EXISTS(SELECT 1 FROM users u WHERE u.id=${actor.id} AND u.account_state='active'
       AND u.account_version=${actor.accountVersion} AND u.role IS NOT DISTINCT FROM ${actor.role})`);
   return row;
+}
+/** Complete retained collection using the same resource authority as exact
+ * RFI/notification reads. Aliased outer IDs must remain correlated. */
+export async function readActorRfis(userId:string,contactId?:number){
+  const actor=await currentActor(userId);
+  if(!["admin","manager","agent"].includes(actor.role??""))throw new Error("RFI collection authority unavailable");
+  const visible=alias(rfis,"visible_rfi");
+  const principal=alias(users,"rfi_reader");
+  const rows=await db.select({actorId:principal.id,record:getTableColumns(visible)})
+    .from(principal).leftJoin(visible,and(
+      resourceAllowed(actor,"rfi",sql`${visible.id}`),
+      contactId===undefined?undefined:eq(visible.contactId,contactId)))
+    .where(sql`${principal.id}=${actor.id} AND ${principal.accountState}='active'
+      AND ${principal.accountVersion}=${actor.accountVersion}
+      AND ${principal.role} IS NOT DISTINCT FROM ${actor.role}`)
+    .orderBy(desc(visible.createdAt),desc(visible.id));
+  if(!rows.length)throw new Error("Current RFI read authority changed; reload required");
+  return rows.flatMap(row=>row.record?.id?[row.record]:[]);
 }

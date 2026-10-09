@@ -1,8 +1,12 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { useSearch } from "wouter";
+import { parseLocalEntityId } from "@/lib/crm-destination-state";
+import { CrmDataState } from "@/components/crm/CrmPresentation";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +18,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Loader2 } from "lucide-react";
 import type { Contact, Deal } from "@shared/schema";
+import type { OnboardingPreparationFields, OnboardingPreparationStatus } from "@shared/onboarding-preparation";
+import { onboardingPreparationFields } from "@shared/onboarding-preparation";
+import { useAuth } from "@/hooks/use-auth";
+import { actorIdentity } from "@/lib/queryClient";
 
 const UNDERWRITING_DOCS = [
   "Business License",
@@ -26,9 +34,9 @@ const UNDERWRITING_DOCS = [
 const formSchema = z.object({
   contactId: z.string().min(1, "Contact is required"),
   dealId: z.string().min(1, "Deal is required"),
-  terminalNeeded: z.string().min(1, "Terminal selection is required"),
-  goLiveDate: z.string().min(1, "Go-live target date is required"),
-  fundingNotes: z.string().optional(),
+  terminalNeeded: onboardingPreparationFields.shape.terminalNeeded,
+  goLiveDate: onboardingPreparationFields.shape.goLiveDate,
+  fundingNotes: z.string().max(2000).optional(),
   underwritingDocs: z.array(z.string()).default([]),
 });
 
@@ -36,90 +44,139 @@ type FormValues = z.infer<typeof formSchema>;
 
 export default function OnboardingKickoff() {
   const { toast } = useToast();
-  const [selectedContactId, setSelectedContactId] = useState<string>("");
+  const {user}=useAuth();
+  const actor=actorIdentity(user),actorRef=useRef(actor);actorRef.current=actor;
+  const intent=useRef<{id:string;actor:string;dealId:number;fields:OnboardingPreparationFields}|null>(null);
+  const [captured,setCaptured]=useState(false);
+  const [result,setResult]=useState<OnboardingPreparationStatus|null>(null);
+  useEffect(()=>{intent.current=null;setCaptured(false);setResult(null);},[actor]);
+  const context=new URLSearchParams(useSearch());
+  const contextContact=parseLocalEntityId("contactId",context.get("contactId") ?? "")?.value;
+  const contextDeal=parseLocalEntityId("dealId",context.get("dealId") ?? "")?.value;
+  const [selectedContactId, setSelectedContactId] = useState<string>(contextContact ? String(contextContact) : "");
+  const [contactSearch,setContactSearch]=useState("");
+  const [contactOffset,setContactOffset]=useState(0);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      contactId: "",
-      dealId: "",
-      terminalNeeded: "",
+      contactId: contextContact ? String(contextContact) : "",
+      dealId: contextDeal ? String(contextDeal) : "",
+      terminalNeeded: undefined,
       goLiveDate: "",
       fundingNotes: "",
       underwritingDocs: [],
     },
   });
 
-  const { data: contactsRes, isLoading: contactsLoading } = useQuery<{ data: Contact[]; total: number }>({
-    queryKey: ["/api/contacts"],
+  const { data: contactsRes, isLoading: contactsLoading, isError: contactsError, refetch: retryContacts } = useQuery<{ data: Contact[]; limit:number; offset:number }>({
+    queryKey: ["/api/contacts",{search:contactSearch,limit:50,offset:contactOffset,recordClass:"production"}],
+    queryFn:async({signal})=>{
+      const params=new URLSearchParams({search:contactSearch,limit:"50",offset:String(contactOffset),recordClass:"production"});
+      const data=await (await apiRequest("GET",`/api/contacts?${params}`,undefined,undefined,signal)).json();
+      if(!Array.isArray(data.data) || data.limit!==50 || data.offset!==contactOffset)
+        throw new Error("Contact page identity unavailable");
+      return data;
+    },
   });
-  const contacts = contactsRes?.data;
+  const exactContact=useQuery<Contact>({
+    queryKey:["/api/contacts",selectedContactId,"kickoff-exact"],
+    queryFn:async({signal})=>(await apiRequest("GET",`/api/contacts/${selectedContactId}`,undefined,undefined,signal)).json(),
+    enabled:!!selectedContactId,
+  });
+  const contacts = [...(contactsRes?.data ?? []),
+    ...(exactContact.data && !contactsRes?.data.some(contact=>contact.id===exactContact.data.id) ? [exactContact.data] : [])];
 
-  const { data: dealsRes, isLoading: dealsLoading } = useQuery<{ data: Deal[]; total: number }>({
-    queryKey: ["/api/deals"],
+  const { data: dealsRes, isLoading: dealsLoading, isError: dealsError, refetch: retryDeals } = useQuery<{ deals: Deal[] }>({
+    queryKey: ["/api/contacts",selectedContactId,"detail",{section:"deals"}],
+    queryFn:async({signal})=>(await apiRequest("GET",`/api/contacts/${selectedContactId}/detail?section=deals`,undefined,undefined,signal)).json(),
+    enabled:!!selectedContactId,
   });
-  const deals = dealsRes?.data;
+  const deals = dealsRes?.deals;
 
   const contactDeals = deals?.filter(
     (d) => d.contactId === Number(selectedContactId)
   ) || [];
+  const selectedDealId=Number(form.watch("dealId"));
+  useEffect(()=>setResult(null),[selectedContactId,selectedDealId]);
+  const preparation=useQuery<{expectedSourceVersion:string;sourceDealId:number;selectedDealId:number;
+    contactId:number;onboardingDealId:number|null;latestCommand:OnboardingPreparationStatus|null}>({
+    queryKey:["/api/deals",selectedDealId,"onboarding-preparation"],
+    queryFn:async({signal})=>{
+      const data=await (await apiRequest("GET",`/api/deals/${selectedDealId}/onboarding-preparation`,undefined,undefined,signal)).json();
+      if(typeof data.expectedSourceVersion!=="string" || data.contactId!==Number(selectedContactId) ||
+        data.selectedDealId!==selectedDealId)throw new Error("Exact preparation context unavailable");
+      return data;
+    },enabled:!!selectedDealId && !!selectedContactId,
+  });
+  const refresh=async()=>{
+    await Promise.all([
+      queryClient.invalidateQueries({queryKey:["/api/deals"]}),
+      queryClient.invalidateQueries({queryKey:["/api/tasks"]}),
+      queryClient.invalidateQueries({queryKey:["/api/contacts",selectedContactId,"detail"]}),
+      queryClient.invalidateQueries({queryKey:["/api/onboarding"]}),
+    ]);
+  };
 
   const submitMutation = useMutation({
     mutationFn: async (values: FormValues) => {
       const contactId = Number(values.contactId);
-      const needsTerminal = values.terminalNeeded === "yes";
-
-      const newDeal = await apiRequest("POST", "/api/deals", {
-        contactId,
-        pipeline: "onboarding",
-        stage: "Contract Sent",
-        goLiveDate: new Date(values.goLiveDate).toISOString(),
-        fundingNotes: values.fundingNotes || undefined,
-        terminalRecommendation: needsTerminal ? "Needs terminal" : "Existing ok",
-        notes: values.underwritingDocs.length
-          ? `Underwriting docs checklist: ${values.underwritingDocs.join(", ")}`
-          : undefined,
-      });
-      const dealData = await newDeal.json();
-      const newDealId = dealData.id;
-
-      await apiRequest("POST", "/api/tasks", {
-        dealId: newDealId,
-        contactId,
-        title: "Collect underwriting docs",
-        priority: "high",
-        dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
-      });
-
-      if (needsTerminal) {
-        await apiRequest("POST", "/api/tasks", {
-          dealId: newDealId,
-          contactId,
-          title: "Order terminal",
-          priority: "normal",
-          dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
-        });
-      }
-
-      await apiRequest("POST", "/api/tasks", {
-        dealId: newDealId,
-        contactId,
-        title: "Schedule go-live",
-        priority: "normal",
-        dueDate: new Date(values.goLiveDate).toISOString(),
-      });
+      const source=contactDeals.find(deal=>deal.id===Number(values.dealId));
+      if(!source || source.contactId!==contactId || source.archivedAt)
+        throw new Error("Selected source deal relationship unavailable. Reload exact context.");
+      if(!preparation.data || preparation.isError || !user || !Number.isInteger(user.accountVersion))
+        throw new Error("Reload exact actor and source preparation authority.");
+      const fields=onboardingPreparationFields.parse({contactId,terminalNeeded:values.terminalNeeded,
+        goLiveDate:values.goLiveDate,fundingNotes:values.fundingNotes,underwritingDocs:values.underwritingDocs,
+        expectedSourceVersion:preparation.data.expectedSourceVersion,expectedActorId:user.id,
+        expectedAccountVersion:user.accountVersion});
+      const stored=intent.current;
+      if(stored && (stored.actor!==actor || stored.dealId!==source.id || JSON.stringify(stored.fields)!==JSON.stringify(fields)))
+        throw new Error("Captured intent differs. Read its accepted status rather than submitting changed input.");
+      const current=stored ?? {id:crypto.randomUUID(),actor,dealId:source.id,fields};
+      intent.current=current;setCaptured(true);
+      const data=await (await apiRequest("POST",`/api/deals/${source.id}/onboarding-preparation`,current.fields,
+        {"Idempotency-Key":current.id})).json();
+      if(!data.accepted || !data.command || data.command.commandId!==current.id)
+        throw new Error("Acceptance response unavailable. Read back the captured intent.");
+      return {command:data.command as OnboardingPreparationStatus,actor:current.actor};
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-      toast({ title: "Onboarding started", description: "New onboarding deal and tasks created successfully." });
-      form.reset();
-      setSelectedContactId("");
+    onSuccess: async(data) => {
+      if(data.actor!==actorRef.current)return;
+      setResult(data.command);
+      toast({ title: "Local preparation recorded", description: "Linked deal and accepted local steps only. No sending, enrollment or activation requested." });
+      await refresh();
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to start onboarding", description: err.message, variant: "destructive" });
+      toast({ title: "Preparation not confirmed", description: err.message, variant: "destructive" });
     },
   });
+  const readbackMutation=useMutation({
+    mutationFn:async(resume:boolean)=>{
+      const command=intent.current ? {commandId:intent.current.id,selectedDealId:intent.current.dealId} :
+        result ?? preparation.data?.latestCommand;
+      if(!command || !user)throw new Error("No captured or retained command is available");
+      const capturedActor=actor;
+      const path=`/api/deals/${command.selectedDealId}/onboarding-preparation`;
+      const data=resume ? await (await apiRequest("POST",`${path}/${command.commandId}/resume`,
+        {expectedActorId:user.id,expectedAccountVersion:user.accountVersion},{"Idempotency-Key":command.commandId})).json() :
+        await (await apiRequest("GET",`${path}?commandId=${command.commandId}`)).json();
+      if(!resume && data.accepted===false && data.commandId===command.commandId)
+        return {command:null,actor:capturedActor};
+      if(!data.command || data.command.commandId!==command.commandId)throw new Error("Retained command unavailable");
+      return {command:data.command as OnboardingPreparationStatus,actor:capturedActor};
+    },
+    onSuccess:async(data)=>{
+      if(data.actor!==actorRef.current)return;
+      setResult(data.command);
+      if(!data.command){intent.current=null;setCaptured(false);toast({title:"No accepted intent",description:"The current authorized source has no accepted command for this key. The unsent form is editable; no rollback or native outcome is implied."});}
+      else toast({title:data.command.state==="prepared" ? "Local preparation recorded" : "Accepted intent read back",
+        description:"Exact local identities refreshed. No native receipt, sending, enrollment or activation is implied."});
+      await refresh();
+    },
+    onError:(error:Error)=>toast({title:"Preparation read/retry unavailable",description:error.message,variant:"destructive"}),
+  });
+  const visibleCommand=result ?? preparation.data?.latestCommand;
 
   const onSubmit = (values: FormValues) => {
     submitMutation.mutate(values);
@@ -128,7 +185,7 @@ export default function OnboardingKickoff() {
   const getContactLabel = (c: Contact) =>
     `${c.firstName} ${c.lastName}${c.companyName ? ` - ${c.companyName}` : ""}`;
 
-  if (contactsLoading || dealsLoading) {
+  if (contactsLoading || (selectedContactId && dealsLoading)) {
     return (
       <div className="flex items-center justify-center h-64" data-testid="onboardingkickoff-loading">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -138,6 +195,29 @@ export default function OnboardingKickoff() {
 
   return (
     <div className="max-w-2xl mx-auto" data-testid="onboardingkickoff-page">
+      <p className="text-sm mb-4">Closed Won Sales → linked Onboarding preparation. Sales stays unchanged. Only missing local checklist/task preparation is retried; completed work is never reset. No native, sending, enrollment or activation effects are requested.</p>
+      {preparation.isLoading && selectedDealId>0 && <CrmDataState state="loading" message="Reading exact linked preparation authority"/>}
+      {preparation.isError && <CrmDataState state="unavailable" message="Selected deal is unavailable or not eligible for linked local preparation" onRetry={()=>void preparation.refetch()}/>}
+      {(captured || visibleCommand) && <section aria-label="Retained local preparation" className="border rounded-lg p-4 mb-4 space-y-3">
+        <h2 className="font-semibold">{visibleCommand ? `Local preparation: ${visibleCommand.state}` : "Acceptance outcome unknown—read back before retrying"}</h2>
+        {visibleCommand && <><p>Sales #{visibleCommand.sourceDealId} → Onboarding #{visibleCommand.onboardingDealId}</p>
+          <p>Retained target date: {visibleCommand.targetGoLiveDate} (date-only planning; not a live date)</p>
+          <ul>{visibleCommand.steps.map(step=><li key={step.key}>{step.key}: {step.unavailable ? "Recorded identity unavailable—review required":step.accepted ? "Local preparation recorded":"Not yet recorded"}{step.taskId ? ` · Task #${step.taskId}`:""}{step.checklistIds ? ` · Checklist IDs ${step.checklistIds.join(", ")}`:""}</li>)}</ul>
+          <a className="underline" href={`/dashboard/onboarding?tab=board&contactId=${visibleCommand.contactId}&dealId=${visibleCommand.onboardingDealId}`}>Open exact linked Onboarding context</a></>}
+        <Button type="button" data-testid="button-read-preparation" variant="outline" disabled={readbackMutation.isPending || submitMutation.isPending} onClick={()=>readbackMutation.mutate(false)}>Read accepted intent</Button>
+        <Button type="button" data-testid="button-retry-preparation" disabled={!visibleCommand || visibleCommand.state!=="partial" || visibleCommand.steps.some(s=>s.unavailable) || readbackMutation.isPending || submitMutation.isPending}
+          onClick={()=>readbackMutation.mutate(true)}>Retry unfinished local preparation</Button>
+      </section>}
+      {contactsError && <CrmDataState state="unavailable" message="Contact search unavailable" onRetry={()=>void retryContacts()}/>}
+      {exactContact.isError && <CrmDataState state="unavailable" message="Exact selected contact unavailable" onRetry={()=>void exactContact.refetch()}/>}
+      {dealsError && <CrmDataState state="unavailable" message="Exact selected-contact deals unavailable" onRetry={()=>void retryDeals()}/>}
+      <label className="text-sm">Search authorized contacts<Input value={contactSearch}
+        onChange={event=>{setContactSearch(event.target.value);setContactOffset(0);}}/></label>
+      <nav aria-label="Contact search pages" className="flex gap-3 flex-wrap">
+        <Button variant="outline" disabled={contactOffset===0} onClick={()=>setContactOffset(Math.max(0,contactOffset-50))}>Previous contacts</Button>
+        <Button variant="outline" disabled={contactsLoading || contactsError || !contactsRes || contactsRes.data.length<50} onClick={()=>setContactOffset(contactOffset+50)}>Check next contacts</Button>
+        <p className="text-sm">{contactsRes && !contactsError ? `${contactsRes.data.length} loaded contacts in the authorized page; total unavailable from this row reader` : "Contact page and total unavailable"}</p>
+      </nav>
       <Card>
         <CardHeader>
           <CardTitle data-testid="text-onboardingkickoff-title">LB - Onboarding Kickoff</CardTitle>
@@ -153,6 +233,7 @@ export default function OnboardingKickoff() {
                     <FormLabel>Contact</FormLabel>
                     <Select
                       value={field.value}
+                      disabled={captured || submitMutation.isPending || readbackMutation.isPending}
                       onValueChange={(v) => {
                         field.onChange(v);
                         setSelectedContactId(v);
@@ -183,7 +264,7 @@ export default function OnboardingKickoff() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Deal</FormLabel>
-                    <Select value={field.value} onValueChange={field.onChange} disabled={!selectedContactId}>
+                    <Select value={field.value} onValueChange={field.onChange} disabled={!selectedContactId || captured || submitMutation.isPending || readbackMutation.isPending}>
                       <FormControl>
                         <SelectTrigger data-testid="select-deal">
                           <SelectValue placeholder={selectedContactId ? "Select a deal" : "Select a contact first"} />
@@ -293,13 +374,16 @@ export default function OnboardingKickoff() {
 
               <Button
                 type="submit"
-                disabled={submitMutation.isPending}
+                disabled={submitMutation.isPending || readbackMutation.isPending || captured || !preparation.data || preparation.isError || !!visibleCommand}
                 className="w-full"
                 data-testid="button-submit-onboarding"
               >
                 {submitMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                {submitMutation.isPending ? "Starting..." : "Start Onboarding"}
+                Prepare linked Onboarding locally
               </Button>
+              <p className="text-sm text-muted-foreground">Terminal, target date and document selections remain planning metadata, not hardware recommendations, live dates or verified uploads. Only a new linked deal receives funding notes; existing linked deals are not overwritten.</p>
+              <Button type="button" data-testid="button-cancel-preparation" variant="outline" disabled={captured || submitMutation.isPending || readbackMutation.isPending}
+                onClick={()=>{form.reset();setSelectedContactId("");setResult(null);}}>Cancel unsent preparation (no write)</Button>
             </form>
           </Form>
         </CardContent>

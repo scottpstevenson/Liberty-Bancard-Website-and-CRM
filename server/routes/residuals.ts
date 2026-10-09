@@ -8,6 +8,8 @@ import { sendGhlInternalNotification } from "../services/ghl";
 import { sql, eq, isNotNull } from "drizzle-orm";
 import { serverError } from "../utils/server-error";
 import { applyPercentToMinor, minorToCurrency, parseCurrencyToMinor } from "../services/money";
+import { readResidualGroupScope } from "../services/revenue-read-authority";
+import {projectPayoutLedger} from "../services/payout-ledger-projection";
 
 
 function parseNum(v: any): number {
@@ -776,19 +778,28 @@ export function registerResidualsRoutes(app: Express) {
   app.get("/api/payouts", requireRole("admin", "manager"), async (req, res) => {
     const VALID_STATUSES = new Set(["pending", "approved", "paid"]);
     try {
+      for(const key of ["status","month","read"])
+        if(req.query[key]!==undefined&&typeof req.query[key]!=="string")
+          return res.status(400).json({message:`Invalid ${key}: one scalar value is required`});
+      if(req.query.read!==undefined&&req.query.read!=="1")
+        return res.status(400).json({message:"Invalid read metadata selection"});
       const statusRaw = typeof req.query.status === "string" ? req.query.status : undefined;
       if (statusRaw && !VALID_STATUSES.has(statusRaw)) {
         return res.status(400).json({ message: "Invalid status filter. Must be one of: pending, approved, paid" });
       }
       const month = typeof req.query.month === "string" ? req.query.month : undefined;
-      if (month && !/^\d{4}-\d{2}$/.test(month)) {
+      if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
         return res.status(400).json({ message: "Invalid month filter. Must be YYYY-MM format" });
       }
       const rows = await storage.getAgentPayouts({
         status: statusRaw || undefined,
         periodMonth: month || undefined,
       });
-      res.json(rows);
+      rows.sort((a,b)=>b.periodMonth.localeCompare(a.periodMonth)||a.id-b.id);
+      const read=projectPayoutLedger(rows,{month:month||null,status:statusRaw||null},new Date().toISOString());
+      res.set("X-CRM-Read-Snapshot",read.read.snapshotIdentity);
+      res.set("X-CRM-Read-AsOf",read.read.asOf);
+      res.json(req.query.read==="1"?read:rows);
     } catch (err: any) {
       serverError(res, err);
     }
@@ -863,27 +874,22 @@ export function registerResidualsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/residuals/by-partner", requireRole("admin", "manager"), async (req, res) => {
+  app.get("/api/residuals/by-partner", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const { merchantResiduals, deals, partnerOrganizations } = await import("@shared/schema");
-      const rows = await db
-        .select({
-          orgId: partnerOrganizations.id,
-          orgName: partnerOrganizations.name,
-          orgSlug: partnerOrganizations.slug,
-          totalGrossResidual: sql<string>`COALESCE(SUM(${merchantResiduals.revenue}::numeric), 0)`,
-          totalNetResidual: sql<string>`COALESCE(SUM(${merchantResiduals.netRevenue}::numeric), 0)`,
-          totalPartnerCommission: sql<string>`COALESCE(SUM(${merchantResiduals.partnerCommission}::numeric), 0)`,
-          activeMerchants: sql<number>`COUNT(DISTINCT ${merchantResiduals.dealId})`,
-        })
-        .from(merchantResiduals)
-        .innerJoin(deals, eq(deals.id, merchantResiduals.dealId))
-        .innerJoin(partnerOrganizations, eq(partnerOrganizations.id, deals.partnerOrgId))
-        .where(sql`${deals.partnerOrgId} IS NOT NULL`)
-        .groupBy(partnerOrganizations.id, partnerOrganizations.name, partnerOrganizations.slug)
-        .orderBy(sql`SUM(${merchantResiduals.netRevenue}::numeric) DESC`);
-
-      res.json(rows);
+      // Compatibility entrance retains its default all-period array contract.
+      // The Reports child consumes this same A projection with its exact
+      // selected parent/search/period, not this unfiltered compatibility URL.
+      const read=await readResidualGroupScope(req.user as any);
+      res.set("X-CRM-Read-Snapshot",read.snapshotIdentity);
+      res.set("X-CRM-Read-AsOf",read.asOf);
+      res.set("X-CRM-Observation-Cohort","locally-confirmed-import-records");
+      res.set("X-CRM-Count-Unit","registered-mid-ids-not-active-merchants");
+      res.json(read.observationPartners.rows.map(row=>({
+        ...row,activeMerchants:row.registeredMidCount,
+        totalGrossResidual:row.totalGrossResidual?.toString()??null,
+        totalNetResidual:row.totalNetResidual?.toString()??null,
+        totalPartnerCommission:row.totalPartnerCommission?.toString()??null,
+      })));
     } catch (err: any) {
       console.error("[Residuals ByPartner]", err);
       serverError(res, err);

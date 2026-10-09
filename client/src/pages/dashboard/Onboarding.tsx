@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { readCompleteCrmCollection, readExactCrmContacts } from "@/lib/crm-complete-read";
+import { CrmDataState } from "@/components/crm/CrmPresentation";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
 import { getDealCardIdentity } from "@/lib/deal-identity";
@@ -141,32 +144,28 @@ export default function Onboarding() {
   const [overrideReason, setOverrideReason] = useState("");
   const [pendingStage, setPendingStage] = useState<string | null>(null);
 
-  const { data: dealsResult, isLoading: dealsLoading } = useQuery<{ data: Deal[]; total: number }>({
+  const { data: dealsResult, isLoading: dealsLoading, isError: dealsError, refetch: retryDeals } = useQuery<{ data: Deal[]; total: number }>({
     queryKey: ["/api/deals", { pipeline: "onboarding" }],
-    queryFn: async () => {
-      const res = await fetch("/api/deals?pipeline=onboarding&limit=500", { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch deals");
-      return res.json();
-    },
+    queryFn: ({signal})=>readCompleteCrmCollection<Deal>("/api/deals",{pipeline:"onboarding"},signal),
   });
   const deals = dealsResult?.data;
 
-  const { data: onboardingStatuses } = useQuery<OnboardingStatus[]>({
+  const { data: onboardingStatuses, isError: statusError, refetch: retryStatuses } = useQuery<OnboardingStatus[]>({
     queryKey: ["/api/ai/onboarding-status"],
-    queryFn: async () => {
-      const res = await fetch("/api/ai/onboarding-status", { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+    queryFn: async ({signal}) => {
+      const res = await fetch("/api/ai/onboarding-status", { credentials: "include",signal });
+      if (!res.ok) throw new Error("Onboarding status unavailable");
+      const rows=await res.json();
+      if (!Array.isArray(rows)) throw new Error("Invalid onboarding status collection");
+      return rows;
     },
   });
 
-  const { data: contactsResult } = useQuery<{ data: Contact[]; total: number }>({
-    queryKey: ["/api/contacts", { limit: 5000 }],
-    queryFn: async () => {
-      const res = await fetch("/api/contacts?limit=5000", { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch contacts");
-      return res.json();
-    },
+  const contactIds=(deals ?? []).flatMap(deal=>deal.contactId ? [deal.contactId] : []).sort((a,b)=>a-b);
+  const { data: contactsResult, isError: contactsError, isLoading: contactsLoading, refetch: retryContacts } = useQuery<{ data: Contact[] }>({
+    queryKey: ["/api/contacts", { exactIds:contactIds }],
+    queryFn:({signal})=>readExactCrmContacts<Contact>(contactIds,signal),
+    enabled:!!dealsResult,
   });
   const contacts = contactsResult?.data;
 
@@ -316,11 +315,14 @@ export default function Onboarding() {
   };
 
   const totalDeals = deals?.length || 0;
-  const avgProgress = onboardingStatuses?.length
-    ? Math.round(onboardingStatuses.reduce((sum, s) => sum + s.progress, 0) / onboardingStatuses.length)
-    : 0;
-  const atRiskDeals = onboardingStatuses?.filter(s => s.daysSinceSignup > 7 && s.progress < 50).length || 0;
-  const pendingDocsCount = onboardingStatuses?.filter(s => s.docReadiness && s.docReadiness.score < 100).length || 0;
+  const dealIds=new Set((deals ?? []).map(deal=>deal.id));
+  const scopedStatuses=onboardingStatuses?.filter(status=>dealIds.has(status.dealId));
+  const statusComplete=!statusError && !!scopedStatuses && scopedStatuses.length===dealIds.size;
+  const avgProgress = statusComplete && scopedStatuses.length>0
+    ? Math.round(scopedStatuses.reduce((sum, s) => sum + s.progress, 0) / scopedStatuses.length)
+    : null;
+  const atRiskDeals = statusComplete ? scopedStatuses.filter(s => s.daysSinceSignup > 7 && s.progress < 50).length : "Unavailable";
+  const pendingDocsCount = statusComplete ? scopedStatuses.filter(s => s.docReadiness && s.docReadiness.score < 100).length : "Unavailable";
 
   if (dealsLoading) {
     return (
@@ -329,9 +331,13 @@ export default function Onboarding() {
       </div>
     );
   }
+  if (dealsError) return <CrmDataState state="unavailable" message="Onboarding deal population unavailable; no empty pipeline conclusion." onRetry={()=>void retryDeals()}/>;
 
   return (
     <div className="space-y-6" data-testid="onboarding-page">
+      {statusError && <CrmDataState state="unavailable" message="Onboarding status unavailable; deal population remains independently readable." onRetry={()=>void retryStatuses()}/>}
+      {contactsError && <CrmDataState state="unavailable" message="Exact contact relationships unavailable. Names and assignments are not confirmed." onRetry={()=>void retryContacts()}/>}
+      {contactsLoading && <CrmDataState state="loading" message="Reading exact onboarding contact relationships…"/>}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold" data-testid="text-onboarding-title">Onboarding Pipeline</h2>
@@ -367,7 +373,7 @@ export default function Onboarding() {
               <ArrowRight className="w-5 h-5 text-green-600 dark:text-green-400" />
             </div>
             <div>
-              <p className="text-2xl font-bold" data-testid="text-avg-progress">{avgProgress}%</p>
+              <p className="text-2xl font-bold" data-testid="text-avg-progress">{avgProgress===null ? "Unavailable" : `${avgProgress}%`}</p>
               <p className="text-xs text-muted-foreground">Avg Progress</p>
             </div>
           </CardContent>

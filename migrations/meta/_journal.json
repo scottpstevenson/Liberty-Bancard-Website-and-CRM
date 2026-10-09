@@ -2450,6 +2450,13 @@
       "when":1800000017000,
       "tag":"0346_rep_invite_purpose",
       "breakpoints":true
+    },
+    {
+      "idx":350,
+      "version":"7",
+      "when":1800100017000,
+      "tag":"0347_rfi_work_commands",
+      "breakpoints":true
     }
   ]
 }

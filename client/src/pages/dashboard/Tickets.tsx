@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useWorkCommands, invalidateWorkFacts } from "@/hooks/use-work-commands";
+import {useTicketCreateCommand} from "@/hooks/use-rfi-command";
 import { useSearch } from "wouter";
 import {useAuthorizedSelectedRecord} from "@/hooks/use-authorized-selected-record";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -415,17 +416,23 @@ export default function Tickets() {
   });
 
   const workCommands = useWorkCommands("ticket", selectedTicketIds, tickets);
+  const ticketCreation=useTicketCreateCommand();
+  useEffect(()=>{
+    setCreateOpen(false);
+    setNewTicket({contactId:"",subject:"",description:"",category:"Other",priority:"Normal"});
+  },[ticketCreation.context]);
+  function acceptTicketCreation(result:any){
+    void invalidateWorkFacts();
+    setCreateOpen(false);
+    setNewTicket({contactId:"",subject:"",description:"",category:"Other",priority:"Normal"});
+    toast({title:result.command.reused?"Existing active ticket retained":"Local ticket creation confirmed",
+      description:"No native delivery was attempted."});
+  }
   const createTicketMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
-      const res = await apiRequest("POST", "/api/tickets", data);
-      return res.json();
+      return ticketCreation.execute(data);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
-      setCreateOpen(false);
-      setNewTicket({ contactId: "", subject: "", description: "", category: "Other", priority: "Normal" });
-      toast({ title: "Ticket created successfully" });
-    },
+    onSuccess:acceptTicketCreation,
     onError: (err: Error) => {
       toastError(err, { title: "Failed to create ticket" });
     },
@@ -527,11 +534,19 @@ export default function Tickets() {
 
   return (
     <div className="space-y-6" data-testid="tickets-page">
+      {ticketCreation.uncertain.includes("create")&&<div role="alert" data-testid="ticket-create-unconfirmed" className="rounded-lg border p-4">
+        Local ticket intent is unconfirmed. Its original payload/version is retained; this is not a delivery receipt.
+        <Button data-testid="button-retry-ticket-create" onClick={()=>void ticketCreation.retry("create")
+          .then(acceptTicketCreation).catch(error=>toastError(error,{title:"Ticket intent remains unconfirmed"}))}>
+          Retry frozen intent
+        </Button>
+      </div>}
       {(selectedRecord.isError || selectedRecord.invalid) && <div role="alert">Requested record unavailable.
         {!selectedRecord.invalid && <Button onClick={()=>void selectedRecord.refetch()}>Retry selected record</Button>}
       </div>}
       <PageHeader
-        title={`Support Tickets${tickets ? ` (${tickets.length})` : ""}`}
+      title={ticketCreation.uncertain.includes("create")?"Support Tickets · Intent unconfirmed":
+        `Support Tickets${tickets ? ` (${tickets.length} loaded)` : ""}`}
         testId="text-tickets-title"
         actions={
           <>
@@ -636,7 +651,7 @@ export default function Tickets() {
                 <Button variant="outline" onClick={() => setCreateOpen(false)} data-testid="button-cancel-ticket">
                   Cancel
                 </Button>
-                <Button onClick={handleCreateTicket} disabled={createTicketMutation.isPending} data-testid="button-submit-ticket">
+                <Button onClick={handleCreateTicket} disabled={createTicketMutation.isPending||ticketCreation.uncertain.includes("create")} data-testid="button-submit-ticket">
                   {createTicketMutation.isPending ? "Creating..." : "Create Ticket"}
                 </Button>
               </div>
@@ -772,8 +787,10 @@ export default function Tickets() {
                       query={{ isLoading, isError, data: tickets, refetch }}
                       testId="tickets"
                       errorTitle="Failed to load tickets"
-                      emptyTitle="No tickets yet"
-                      emptyMessage="Support tickets will appear here once submitted."
+                      emptyTitle={ticketCreation.uncertain.includes("create")?"List snapshot is unconfirmed":"No tickets yet"}
+                      emptyMessage={ticketCreation.uncertain.includes("create")?
+                        "The last authorized list may predate the intent. Reconcile its frozen identity; no empty population is assumed.":
+                        "Support tickets will appear here once submitted."}
                       emptyAction={
                         <Button size="sm" className="gap-1 mt-1" onClick={() => setCreateOpen(true)} data-testid="button-empty-create-ticket">
                           <Plus className="w-3.5 h-3.5" /> Create Ticket

@@ -32,7 +32,7 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
   const requests:Array<{url:string;method:string;documentId?:string;status?:number;failed?:string}>=[];
   const requestIndexes=new Map<string,number>();
   const readFaults:Array<{path:string;status:number}>=[];
-  let serial=0,failPath:string|null=null,delayPath:string|null=null,delayMs=0,acceptDialog=false,closing=false;
+  let serial=0,failPath:string|null=null,failExact=false,delayPath:string|null=null,delayMs=0,acceptDialog=false,closing=false;
   const close=async()=>{
     closing=true;
     for(const operation of pending.values())operation.reject(new Error("Owned browser closed"));
@@ -87,7 +87,9 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
         try {
         if(delayPath && request.url.startsWith(base+delayPath))
           await new Promise(resolve=>setTimeout(resolve,delayMs));
-        if(failPath && request.url.startsWith(base+failPath)) {
+        if(failPath && (failExact
+          ? request.url.startsWith(base+"/") && new URL(request.url).pathname === failPath
+          : request.url.startsWith(base+failPath))) {
           await call("Fetch.fulfillRequest",{requestId,responseCode:503,
             responseHeaders:[{name:"Content-Type",value:"application/json"}],body:Buffer.from('{"message":"Fixture source unavailable"}').toString("base64")});
           readFaults.push({path:new URL(request.url).pathname,status:503});
@@ -125,7 +127,8 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
     };
     const waitFor=async(pattern:RegExp)=>{
       for(let i=0;i<120;i++){if(pattern.test(await text()))return;await new Promise(resolve=>setTimeout(resolve,100));}
-      await screenshot("failure");await writeFile(`${screenshotDirectory}/failure.txt`,await text());
+      await screenshot("failure");await writeFile(`${screenshotDirectory}/failure.txt`,
+        (await text()).split("\n").map(line=>line.trimEnd()).join("\n"));
       throw new Error(`Browser text unavailable: ${pattern.source}`);
     };
     const click=async(selector:string)=>{
@@ -135,10 +138,18 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
       }
       const point=await evaluate(`(async()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.getClientRects().length);if(!e)return null;
         e.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});
-        await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-        const r=e.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
-        const hit=document.elementFromPoint(x,y);
-        return x>=0&&x<innerWidth&&y>=0&&y<innerHeight&&(hit===e||e.contains(hit))?{x,y}:null;})()`);
+        let previous=null;
+        for(let attempt=0;attempt<24;attempt++){
+          await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+          if(!e.isConnected)return null;
+          const r=e.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2,hit=document.elementFromPoint(x,y);
+          const ready=r.width>0&&r.height>0&&!e.disabled&&e.getAttribute("aria-disabled")!=="true"&&
+            getComputedStyle(e).pointerEvents!=="none"&&x>=0&&x<innerWidth&&y>=0&&y<innerHeight&&(hit===e||e.contains(hit));
+          if(ready&&previous&&Math.abs(previous.x-x)<1&&Math.abs(previous.y-y)<1)return {x,y};
+          previous=ready?{x,y}:null;
+          await new Promise(resolve=>setTimeout(resolve,25));
+        }
+        return null;})()`);
       if(!point){
         const diagnostic=await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return {reason:'absent'};
           const r=e.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2,hit=document.elementFromPoint(x,y);
@@ -167,7 +178,7 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
       await call("Input.insertText",{text:value});
     };
     return {call,evaluate,text,waitFor,click,set,screenshot,close,exceptions,requests,readFaults,
-      failRead:(path:string|null)=>{failPath=path;},
+      failRead:(path:string|null,options:{exact?:boolean}={})=>{failPath=path;failExact=options.exact===true;},
       delayRead:(path:string|null,ms=0)=>{delayPath=path;delayMs=ms;},
       acceptDialogs:(accept:boolean)=>{acceptDialog=accept;},
       navigate:(pathname:string)=>call("Page.navigate",{url:base+pathname})};

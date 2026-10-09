@@ -188,14 +188,16 @@ export interface IStorage {
   getDealsByContactIds(contactIds: number[]): Promise<typeof deals.$inferSelect[]>;
   getDealsByPipeline(pipeline: string, params?: PaginationParams): Promise<PaginatedResult<typeof deals.$inferSelect>>;
   getDealsByContact(contactId: number): Promise<typeof deals.$inferSelect[]>;
-  createDeal(deal: InsertDeal, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof deals.$inferSelect>;
+  createDeal(deal: InsertDeal, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null },
+    existingTx?: Parameters<Parameters<typeof db.transaction>[0]>[0]): Promise<typeof deals.$inferSelect>;
   updateDeal(id: number, deal: UpdateDealRequest, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof deals.$inferSelect | undefined>;
 
   getTickets(params?: PaginationParams): Promise<PaginatedResult<typeof tickets.$inferSelect>>;
   getTicket(id: number): Promise<typeof tickets.$inferSelect | undefined>;
   createTicket(ticket: InsertTicket): Promise<typeof tickets.$inferSelect>;
   getTicketsForActor(email: string, params?: PaginationParams): Promise<PaginatedResult<typeof tickets.$inferSelect>>;
-  createAuthorityTicket(ticket: InsertTicket, authority?: { producer?: string; commandKey?: string; issueKey?: string; generation?: number }): Promise<typeof tickets.$inferSelect>;
+  createAuthorityTicket(ticket: InsertTicket, authority?: { producer?: string; commandKey?: string; issueKey?: string; generation?: number },
+    existingTx?: Parameters<Parameters<typeof db.transaction>[0]>[0]): Promise<typeof tickets.$inferSelect>;
   transitionAuthorityTicket(id: number, input: { toState: import("./storage/tasks").TaskAuthorityState; expectedFence: number; producer: string; eventKey: string; commandKey?: string; terminalReason?: string | null; canonicalAssignee?: string | null }): Promise<typeof tickets.$inferSelect | null>;
   updateTicket(id: number, ticket: UpdateTicketRequest): Promise<typeof tickets.$inferSelect | undefined>;
 
@@ -520,7 +522,7 @@ export interface IStorage {
   getNpsResponsesByContact(contactId: number): Promise<NpsResponse[]>;
   createNpsResponse(response: InsertNpsResponse): Promise<NpsResponse>;
   updateNpsResponse(id: number, updates: Partial<InsertNpsResponse>): Promise<NpsResponse | undefined>;
-  getNpsStats(): Promise<{ total: number; submitted: number; avgScore: number; promoters: number; detractors: number; passives: number; npsScore: number }>;
+  getNpsStats(): Promise<import("../shared/nps-observation").NpsStatsRead>;
 
   getMerchantReferrals(referrerProfileId?: number): Promise<MerchantReferral[]>;
   getMerchantReferral(id: number): Promise<MerchantReferral | undefined>;
@@ -553,7 +555,8 @@ export interface IStorage {
   getOnboardingChecklistItem(dealId: number, itemKey: string): Promise<OnboardingChecklistItem | undefined>;
   upsertOnboardingChecklistItem(item: InsertOnboardingChecklistItem): Promise<OnboardingChecklistItem>;
   updateOnboardingChecklistItemStatus(dealId: number, itemKey: string, status: string, documentId?: number | null, notes?: string | null): Promise<OnboardingChecklistItem | undefined>;
-  initializeOnboardingChecklist(dealId: number): Promise<OnboardingChecklistItem[]>;
+  initializeOnboardingChecklist(dealId: number,
+    existingTx?: Parameters<Parameters<typeof db.transaction>[0]>[0]): Promise<OnboardingChecklistItem[]>;
   getOnboardingKpis(): Promise<{ totalActive: number; pendingDocs: number; overdueItems: number; completedThisMonth: number }>;
 
   getConsentAuditLogs(): Promise<ConsentAuditLog[]>;
@@ -723,14 +726,14 @@ export interface IStorage {
   resolveSyncConflict(id: number, resolution: "kept-internal" | "kept-ghl" | "manual"): Promise<import("@shared/schema").SyncConflict | undefined>;
 
   // Churn Scores
-  getMerchantHealthScores(filters?: { riskTier?: string; vertical?: string; agentOwner?: string }): Promise<import("@shared/schema").MerchantHealthScore[]>;
+  getMerchantHealthScores(filters?: { riskTier?: string; vertical?: string; agentOwner?: string; readActor?:{role?:string;email?:string|null} }): Promise<import("@shared/schema").MerchantHealthScore[]>;
   getMerchantHealthScoreByContact(contactId: number): Promise<import("@shared/schema").MerchantHealthScore | undefined>;
   upsertMerchantHealthScore(data: import("@shared/schema").InsertMerchantHealthScore): Promise<import("@shared/schema").MerchantHealthScore>;
   updateMerchantHealthScore(id: number, updates: Partial<import("@shared/schema").InsertMerchantHealthScore>): Promise<import("@shared/schema").MerchantHealthScore | undefined>;
-  getChurnScoreWeights(): Promise<import("@shared/schema").ChurnScoreWeight[]>;
+  getChurnScoreWeights(options?:{seedDefaults?:boolean}): Promise<import("@shared/schema").ChurnScoreWeight[]>;
   upsertChurnScoreWeight(signalKey: string, weight: number, label?: string, description?: string): Promise<import("@shared/schema").ChurnScoreWeight>;
   getMerchantHealthScoresByTier(tier: string): Promise<import("@shared/schema").MerchantHealthScore[]>;
-  getChurnRiskSummary(): Promise<{ tier: string; count: number }[]>;
+  getChurnRiskSummary(readActor?:{role?:string;email?:string|null}): Promise<{ tier: string; count: number }[]>;
 
   // Deal Backfill
   getOrphanContactCount(filters: { source?: string; vertical?: string; minScore?: number }): Promise<number>;

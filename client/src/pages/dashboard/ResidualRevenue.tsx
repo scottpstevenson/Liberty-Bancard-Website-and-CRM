@@ -1,4 +1,6 @@
 import { useState, useMemo, useRef } from "react";
+import { useSearch, useLocation } from "wouter";
+import { selectValue, safeParams, safeContextKeys, destinationUrl, revenueViews,revenueFilterState,revenueFilterUrl,revenueFilterKeys,preserveRevenueFilters } from "@/lib/crm-destination-state";
 import { getCsrfToken } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,10 +14,15 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui/table";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { CrmDataState } from "@/components/crm/CrmPresentation";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { exportToCSV } from "@/lib/export-csv";
+import {residualExportCell} from "@/lib/residual-observation-export";
+import { residualPayeeObservationsSchema, type ResidualPayeeObservation } from "@shared/residual-payee-observation";
+import { residualPartnerObservationsSchema, type ResidualPartnerObservations } from "@shared/residual-partner-observation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -68,14 +75,14 @@ interface MerchantResidual {
   id: number;
   merchantName: string;
   mid: string;
-  volume: number;
-  volumeChange: number;
-  revenue: number;
-  revenueChange: number;
-  cost: number;
-  netRevenue: number;
+  volume: number|null;
+  volumeChange: number|null;
+  revenue: number|null;
+  revenueChange: number|null;
+  cost: number|null;
+  netRevenue: number|null;
   agent: string;
-  agentCommission: string;
+  agentCommission: number|null;
   flags: string[];
 }
 
@@ -127,28 +134,32 @@ interface ResidualImportRow {
 }
 
 function formatCurrency(value: number | string | null | undefined): string {
-  if (value == null) return "—";
-  const num = typeof value === "string" ? parseFloat(value) : value;
+  if (value == null || (typeof value==="string"&&!value.trim())) return "Unavailable";
+  const num = typeof value === "string" ? Number(value) : value;
+  if(!Number.isFinite(num))return "Unavailable";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
-  }).format(isNaN(num) ? 0 : num);
+  }).format(num);
 }
 
 function formatCurrencyDetailed(value: number | string | null | undefined): string {
-  if (value == null) return "—";
-  const num = typeof value === "string" ? parseFloat(value) : value;
+  if (value == null || (typeof value==="string"&&!value.trim())) return "Unavailable";
+  if(typeof value==="string"&&!/^[+-]?\d+(?:\.\d+)?$/.test(value.trim()))return "Unavailable";
+  const num = typeof value === "string" ? Number(value) : value;
+  if(!Number.isFinite(num))return "Unavailable";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(isNaN(num) ? 0 : num);
+  }).format(num);
 }
 
-function ChangeIndicator({ value }: { value: number }) {
+function ChangeIndicator({ value }: { value: number|null }) {
+  if(value==null || !Number.isFinite(value))return <span className="text-xs text-muted-foreground">Unavailable</span>;
   if (value === 0) return <span className="text-muted-foreground text-xs">--</span>;
   const isPositive = value > 0;
   return (
@@ -204,29 +215,19 @@ function TableSkeleton({ rows = 5, cols = 9 }: { rows?: number; cols?: number })
   );
 }
 
-interface PartnerResidualRow {
-  orgId: number;
-  orgName: string;
-  orgSlug: string;
-  totalGrossResidual: string;
-  totalNetResidual: string;
-  activeMerchants: number;
-  totalPartnerCommission?: string;
-}
-
-function ByPartnerTab() {
-  const { data: rows = [], isLoading } = useQuery<PartnerResidualRow[]>({
-    queryKey: ["/api/residuals/by-partner"],
-  });
+function ByPartnerTab({data,isLoading,isError,onRetry,provenance}:{
+  data?:ResidualPartnerObservations;isLoading:boolean;isError:boolean;onRetry:()=>void;provenance:string;
+}) {
+  const rows=data?.rows??[];
 
   return (
     <TabsContent value="by-partner" className="space-y-4" data-testid="tab-content-by-partner">
+      {isError && <CrmDataState state="unavailable" message="Confirmed partner attribution unavailable; no zero-payout or no-partner conclusion." onRetry={onRetry}/>}
       <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-3 flex gap-2 items-start text-xs text-amber-800 dark:text-amber-300">
         <span className="shrink-0 mt-0.5">⚠</span>
         <span>
-          This view shows residuals from <strong>confirmed imports only</strong>, attributed to partner organizations via deal links.
-          Individual affiliate partners appear in the <strong>Partner Portal</strong>.
-          To confirm pending imports or mark rows as ready, use the <strong>Import &amp; Reconcile</strong> tab.
+          Stored observations from locally confirmed import records, attributed by exact authorized observation-deal and partner organization IDs.
+          Local confirmation is not a native processor or payment receipt. USD is a display assumption; currency is unrecorded.
         </span>
       </div>
       <Card>
@@ -236,19 +237,25 @@ function ByPartnerTab() {
             Residuals by Partner Organization
           </CardTitle>
           <p className="text-xs text-muted-foreground">
-            Aggregated from confirmed residual imports. Only rows matched to deals with a linked partner organization are included.
+            {provenance}
           </p>
+          {!isError&&!isLoading&&data&&<p className="text-xs text-muted-foreground">
+            {data.confirmedObservationCount} confirmed observation records; {data.unconfirmedOrUnlinkedImportCount} records outside that import cohort;
+            {" "}{data.unattributedObservationCount} authorized records without a partner organization;
+            {" "}{data.unavailableRelationshipCount} records with unavailable relationship evidence. These are records, not merchant or payout totals.
+          </p>}
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
             <div className="p-6 space-y-3">
               {[1, 2, 3].map(i => <Skeleton key={i} className="h-10 w-full" />)}
             </div>
-          ) : rows.length === 0 ? (
+          ) : isError ? <p role="alert">Partner observations unavailable.</p> : rows.length === 0 ? (
             <div className="p-8 text-center">
               <Users className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
               <p className="text-sm text-muted-foreground" data-testid="text-by-partner-empty">
-                No partner-attributed residuals yet. Link deals to partner organizations and import residuals to see data here.
+                No confirmed stored observations with an authorized partner organization in this exact scope.
+                This does not establish no partners, zero revenue or native ingestion completeness.
               </p>
             </div>
           ) : (
@@ -257,7 +264,7 @@ function ByPartnerTab() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Partner Organization</TableHead>
-                    <TableHead className="text-right">Active Merchants</TableHead>
+                    <TableHead className="text-right">Registered MIDs observed</TableHead>
                     <TableHead className="text-right">Gross Residual</TableHead>
                     <TableHead className="text-right">Net Residual</TableHead>
                     <TableHead className="text-right">Partner Commission</TableHead>
@@ -272,9 +279,9 @@ function ByPartnerTab() {
                           <span className="text-xs text-muted-foreground font-mono">{row.orgSlug}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-right">{row.activeMerchants}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(row.totalGrossResidual)}</TableCell>
-                      <TableCell className="text-right font-semibold text-foreground">{formatCurrency(row.totalNetResidual)}</TableCell>
+                      <TableCell className="text-right">{row.registeredMidCount}<span className="block text-xs text-muted-foreground">{row.observationCount} records</span></TableCell>
+                      <TableCell className="text-right">{formatCurrencyDetailed(row.totalGrossResidual)}</TableCell>
+                      <TableCell className="text-right font-semibold text-foreground">{formatCurrencyDetailed(row.totalNetResidual)}</TableCell>
                        <TableCell className="text-right font-semibold text-emerald-600 dark:text-emerald-400">{formatCurrencyDetailed(row.totalPartnerCommission)}</TableCell>
                     </TableRow>
                   ))}
@@ -308,7 +315,7 @@ function ImportHistoryRow({ imp, onReimport }: { imp: ResidualImport; onReimport
   const [expanded, setExpanded] = useState(false);
 
   // #1285/#1445 — Reconciliation: compare CSV row count vs actual DB row count
-  const { data: recon } = useQuery<{
+  const { data: recon, isError:reconError, isLoading:reconLoading, refetch:retryRecon } = useQuery<{
     importId: number;
     csvRowCount: number;
     dbRowCount: number;
@@ -316,19 +323,19 @@ function ImportHistoryRow({ imp, onReimport }: { imp: ResidualImport; onReimport
     difference: number;
   }>({
     queryKey: ["/api/residuals/imports", imp.id, "reconciliation"],
-    queryFn: async () => {
-      const res = await fetch(`/api/residuals/imports/${imp.id}/reconciliation`, { credentials: "include" });
-      if (!res.ok) return null as any;
+    queryFn: async ({signal}) => {
+      const res = await fetch(`/api/residuals/imports/${imp.id}/reconciliation`, { credentials: "include",signal });
+      if (!res.ok) throw new Error("Reconciliation source unavailable");
       return res.json();
     },
     enabled: imp.status === "confirmed",
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: detail, isLoading: detailLoading } = useQuery<ResidualImport>({
+  const { data: detail, isLoading: detailLoading, isError:detailError, refetch:retryDetail } = useQuery<ResidualImport>({
     queryKey: ["/api/residuals/imports", imp.id],
-    queryFn: async () => {
-      const res = await fetch(`/api/residuals/imports/${imp.id}`, { credentials: "include" });
+    queryFn: async ({signal}) => {
+      const res = await fetch(`/api/residuals/imports/${imp.id}`, { credentials: "include",signal });
       if (!res.ok) throw new Error("Failed to load import detail");
       return res.json() as Promise<ResidualImport>;
     },
@@ -367,7 +374,9 @@ function ImportHistoryRow({ imp, onReimport }: { imp: ResidualImport; onReimport
         <TableCell>
           <div className="flex flex-col gap-1">
             <ImportStatusBadge status={imp.status} />
-            {recon && (
+            {reconError && <CrmDataState state="unavailable" message="Reconciliation unavailable; no reconciled/clear status is inferred." onRetry={()=>void retryRecon()}/>}
+            {imp.status==="confirmed" && reconLoading && <p role="status">Reading reconciliation…</p>}
+            {!reconError && recon && (
               <Badge
                 variant="outline"
                 className={`text-xs whitespace-nowrap ${recon.reconciled ? "border-green-400 text-green-700 dark:text-green-400" : "border-amber-400 text-amber-700 dark:text-amber-400"}`}
@@ -398,7 +407,7 @@ function ImportHistoryRow({ imp, onReimport }: { imp: ResidualImport; onReimport
         <TableRow data-testid={`row-history-detail-${imp.id}`}>
           <TableCell colSpan={10} className="p-0 border-b bg-muted/10">
             <div className="px-6 py-4 space-y-4">
-              {detailLoading ? (
+              {detailError ? <CrmDataState state="unavailable" message="Import detail unavailable; no empty matched/unmatched row conclusion." onRetry={()=>void retryDetail()}/> : detailLoading ? (
                 <div className="space-y-2">
                   {[1, 2, 3].map(i => <Skeleton key={i} className="h-8 w-full" />)}
                 </div>
@@ -490,9 +499,23 @@ function ImportHistoryRow({ imp, onReimport }: { imp: ResidualImport; onReimport
 }
 
 export default function ResidualRevenue() {
-  const [activeTab, setActiveTab] = useState("dashboard");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [groupFilterParentId, setGroupFilterParentId] = useState<number | null>(null);
+  const search=useSearch();
+  const [,navigate]=useLocation();
+  const view=selectValue(new URLSearchParams(search),"revenueView",revenueViews,"dashboard");
+  const activeTab=view.value;
+  const setActiveTab=(next:string)=>{
+    if(!revenueViews.includes(next as typeof activeTab))return;
+    const params=safeParams(search,[...safeContextKeys,...revenueFilterKeys]);
+    preserveRevenueFilters(search,params);
+    params.set("tab","financial");params.set("financialTab","revenue");params.set("revenueView",next);
+    navigate(destinationUrl("/dashboard/reporting",params,window.location.hash));
+  };
+  const filters=revenueFilterState(search);
+  const searchQuery=filters.query,observationPeriod=filters.period,groupFilterParentId=filters.parentContactId;
+  const setFilters=(next:Partial<Omit<typeof filters,"issues">>)=>navigate(revenueFilterUrl(search,window.location.hash,{...filters,...next}));
+  const setSearchQuery=(query:string)=>setFilters({query});
+  const setObservationPeriod=(period:string)=>setFilters({period});
+  const setGroupFilterParentId=(parentContactId:number|null)=>setFilters({parentContactId});
   const [uploadMonth, setUploadMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -507,55 +530,31 @@ export default function ResidualRevenue() {
   const fileRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  const { data: contactsResult } = useQuery<{ data: Array<{ id: number; companyName: string | null; firstName: string; lastName: string; isParentAccount: boolean | null; parentContactId: number | null }> }>({
-    queryKey: ["/api/contacts"],
-    queryFn: async () => {
-      const res = await fetch("/api/contacts?limit=500", { credentials: "include" });
-      if (!res.ok) return { data: [] };
-      return res.json();
-    },
-    staleTime: 60000,
+  const membership=useQuery<{observationPartners:ResidualPartnerObservations;observationPayees:ResidualPayeeObservation[];parents:Array<{id:number;companyName:string|null;firstName:string;lastName:string}>;residualIds:number[];observations:MerchantResidual[];observationSeries:Array<{month:string;totalRevenue:number|null}>;observationSummary:{revenue:number|null;averageRevenuePerRegisteredMid:number|null;registeredMidCount:number;period:string;currency:string;source:string;nativeExecution:string};asOf:string;completeness:string;snapshotIdentity:string}>({
+    queryKey:["/api/revenue/residual-group-scope",{parentId:groupFilterParentId,search:searchQuery,period:observationPeriod,issues:filters.issues}],
+    enabled:filters.issues.length===0,
+    queryFn:async({signal})=>{
+      const params=new URLSearchParams(groupFilterParentId ? {parentId:String(groupFilterParentId)} : {});
+      params.set("search",searchQuery);params.set("period",observationPeriod);
+      const res=await apiRequest("GET",`/api/revenue/residual-group-scope?${params}`,undefined,undefined,signal);
+      const data=await res.json();
+      if(data?.completeness!=="complete_exact_relationship" || !Array.isArray(data.parents) || !Array.isArray(data.residualIds) || !Array.isArray(data.observations) || !Array.isArray(data.observationSeries) || !data.observationSummary || typeof data.snapshotIdentity!=="string" || !/^[a-f0-9]{64}$/.test(data.snapshotIdentity))
+        throw new Error("Residual relationship completeness unavailable");
+      data.observationPayees = residualPayeeObservationsSchema.parse(data.observationPayees);
+      data.observationPartners = residualPartnerObservationsSchema.parse(data.observationPartners);
+      return data;
+    },staleTime:0,
   });
-  const allContacts = contactsResult?.data ?? [];
-  const parentAccountsList = allContacts.filter(c => c.isParentAccount);
+  const parentAccountsList=membership.data?.parents ?? [];
+  const groupResidualIds=useMemo(()=>groupFilterParentId && membership.data && !membership.isError ?
+    new Set(membership.data.residualIds) : null,[groupFilterParentId,membership.data,membership.isError]);
 
-  const { data: allDealsResult } = useQuery<{ data: Array<{ id: number; contactId: number; mid: string | null }> }>({
-    queryKey: ["/api/deals"],
-    queryFn: async () => {
-      const res = await fetch("/api/deals?limit=1000", { credentials: "include" });
-      if (!res.ok) return { data: [] };
-      return res.json();
-    },
-    staleTime: 60000,
-    enabled: !!groupFilterParentId,
-  });
-  const allDeals = allDealsResult?.data ?? [];
+  const merchantResiduals=membership.data?.observations;
+  const residualsLoading=membership.isLoading;
+  const residualsError=membership.isError||filters.issues.length>0;
+  const retryResiduals=membership.refetch;
 
-  // Compute group MIDs when a parent filter is active
-  const groupMidSet = useMemo<Set<string> | null>(() => {
-    if (!groupFilterParentId) return null;
-    const groupContactIds = new Set([
-      groupFilterParentId,
-      ...allContacts.filter(c => c.parentContactId === groupFilterParentId).map(c => c.id),
-    ]);
-    const mids = new Set<string>();
-    for (const deal of allDeals) {
-      if (groupContactIds.has(deal.contactId) && deal.mid) {
-        mids.add(deal.mid);
-      }
-    }
-    return mids;
-  }, [groupFilterParentId, allContacts, allDeals]);
-
-  const { data: reports, isLoading: reportsLoading, isError: reportsError } = useQuery<ResidualReport[]>({
-    queryKey: ["/api/residual-reports"],
-  });
-
-  const { data: merchantResiduals, isLoading: residualsLoading } = useQuery<MerchantResidual[]>({
-    queryKey: ["/api/merchant-residuals"],
-  });
-
-  const { data: midStats, isLoading: midStatsLoading } = useQuery<{
+  const { data: midStats, isLoading: midStatsLoading, isError:midStatsError, refetch:retryMidStats } = useQuery<{
     stats: Array<{
       mid: string;
       midMasked?: string | null; // REV-05A: server returns masked value; prefer midMasked when present
@@ -576,20 +575,20 @@ export default function ResidualRevenue() {
     queryKey: ["/api/mid-stats/summary"],
     queryFn: async () => {
       const res = await fetch("/api/mid-stats/summary", { credentials: "include" });
-      if (!res.ok) return { stats: [], latestFetch: null, totalMids: 0, activeMids: 0 };
+      if (!res.ok) throw new Error("Native MID observation source unavailable");
       return res.json();
     },
   });
 
-  const { data: agents, isLoading: agentsLoading } = useQuery<Agent[]>({
+  const { data: agents, isLoading: agentsLoading, isError:agentsError, refetch:retryAgents } = useQuery<Agent[]>({
     queryKey: ["/api/agents"],
   });
 
-  const { data: imports, isLoading: importsLoading } = useQuery<ResidualImport[]>({
+  const { data: imports, isLoading: importsLoading, isError: importsError, refetch: retryImports } = useQuery<ResidualImport[]>({
     queryKey: ["/api/residuals/imports"],
   });
 
-  const { data: selectedImport, isLoading: selectedImportLoading } = useQuery<ResidualImport | null>({
+  const { data: selectedImport, isLoading: selectedImportLoading, isError: selectedImportError, refetch: retrySelectedImport } = useQuery<ResidualImport | null>({
     queryKey: ["/api/residuals/imports", selectedImportId],
     queryFn: async (): Promise<ResidualImport | null> => {
       if (!selectedImportId) return null;
@@ -695,22 +694,18 @@ export default function ResidualRevenue() {
     uploadMutation.mutate(fd);
   };
 
-  const currentMonth = reports && reports.length > 0 ? reports[0] : null;
-  const last6Months = reports?.slice(0, 6).reverse() || [];
-  const maxRevenue = last6Months.length > 0 ? Math.max(...last6Months.map((r) => r.totalRevenue)) : 0;
+  const last6Months = !residualsError ? membership.data?.observationSeries.slice(-6)??[] : [];
+  const maxRevenue = last6Months.reduce((m,r)=>Math.max(m,Math.abs(r.totalRevenue??0)),0);
 
-  const totalRevenue = currentMonth?.totalRevenue;
-  const activeMerchants = currentMonth?.activeMerchants;
-  const avgRevenuePerMerchant = totalRevenue != null && activeMerchants != null && activeMerchants > 0
-    ? totalRevenue / activeMerchants
-    : null;
-  const attritionRate = currentMonth?.attritionRate;
-  const hasData = !!reports && reports.length > 0;
+  const totalRevenue = residualsError?undefined:membership.data?.observationSummary.revenue;
+  const activeMerchants = residualsError?undefined:membership.data?.observationSummary.registeredMidCount;
+  const avgRevenuePerMerchant = residualsError?null:membership.data?.observationSummary.averageRevenuePerRegisteredMid;
+  const hasData = !!merchantResiduals?.length;
 
   const filteredMerchants = useMemo(() => {
-    if (!merchantResiduals) return [];
-    const sorted = [...merchantResiduals].sort((a, b) => b.revenue - a.revenue);
-    const afterGroup = groupMidSet ? sorted.filter(m => groupMidSet.has(m.mid)) : sorted;
+    if (residualsError || !merchantResiduals) return [];
+    const sorted = [...merchantResiduals].sort((a, b) => (b.revenue??-Infinity)-(a.revenue??-Infinity) || a.id-b.id);
+    const afterGroup = groupFilterParentId ? (groupResidualIds ? sorted.filter(m => groupResidualIds.has(m.id)) : []) : sorted;
     if (!searchQuery) return afterGroup;
     const q = searchQuery.toLowerCase();
     return afterGroup.filter(
@@ -719,25 +714,9 @@ export default function ResidualRevenue() {
         m.mid.toLowerCase().includes(q) ||
         m.agent.toLowerCase().includes(q)
     );
-  }, [merchantResiduals, searchQuery, groupMidSet]);
+  }, [merchantResiduals, searchQuery, groupResidualIds, groupFilterParentId]);
 
-  const agentSummary = useMemo(() => {
-    if (agents && agents.length > 0) return agents;
-    if (!merchantResiduals) return [];
-    const agentMap = new Map<string, { totalDeals: number; revenueManaged: number; commissionEarned: number }>();
-    merchantResiduals.forEach((m) => {
-      const existing = agentMap.get(m.agent) || { totalDeals: 0, revenueManaged: 0, commissionEarned: 0 };
-      existing.totalDeals += 1;
-      existing.revenueManaged += m.revenue;
-      existing.commissionEarned += parseFloat(m.agentCommission || "0");
-      agentMap.set(m.agent, existing);
-    });
-    return Array.from(agentMap.entries()).map(([name, data], i) => ({
-      id: i,
-      name,
-      ...data,
-    }));
-  }, [agents, merchantResiduals]);
+  const agentSummary = membership.data?.observationPayees ?? [];
 
   const matchedRows = selectedImport?.rows?.filter(r => r.isMatched) || [];
   const unmatchedRows = selectedImport?.rows?.filter(r => !r.isMatched) || [];
@@ -745,25 +724,22 @@ export default function ResidualRevenue() {
 
   const agentReconciliation = useMemo(() => {
     if (!matchedRows.length) return [];
-    const map = new Map<string, { agentName: string; agentId: number | null; expectedTotal: number; actualTotal: number; variance: number; count: number }>();
-    for (const row of matchedRows) {
-      const key = row.agentName || "Unassigned";
-      const existing = map.get(key) || { agentName: key, agentId: row.agentId, expectedTotal: 0, actualTotal: 0, variance: 0, count: 0 };
-      existing.expectedTotal += parseFloat(row.expectedResidual || "0");
-      existing.actualTotal += parseFloat(row.netResidual || "0");
-      existing.variance += parseFloat(row.variance || "0");
-      existing.count++;
-      map.set(key, existing);
-    }
-    return Array.from(map.values()).sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance));
+    // No A-owned typed payee aggregate yet: names cannot establish identity,
+    // absent source amounts cannot become zero, and model/actual differ.
+    return [] as {agentName:string;agentId:number|null;expectedTotal:number;actualTotal:number;variance:number;count:number}[];
   }, [matchedRows]);
 
   return (
     <div className="space-y-6" data-testid="page-residual-revenue">
+      {view.issues.length>0 && <p role="status" className="border rounded p-3 text-sm">{view.issues[0].reason}</p>}
+      {membership.isError && <CrmDataState state="unavailable" message="Financial parent/member/MID scope unavailable. A selected group cannot be treated as empty or exported." onRetry={()=>void membership.refetch()}/>}
+      {groupFilterParentId && membership.isLoading && <CrmDataState state="loading" message="Reading exact group/MID scope…"/>}
+      {filters.issues.length>0 && <CrmDataState state="unavailable" message={filters.issues.map(i=>i.reason).join(" ")}/>}
+      {!residualsError && membership.data && <p className="text-xs text-muted-foreground">A-owned registry-linked observation population: {membership.data.completeness} · source {membership.data.observationSummary.source} · read asOf {membership.data.asOf}. Summary, worklist, recorded-period chart and export share parent/search/period scope ({membership.data.observationSummary.period}); recorded period strings are not assumed event-time windows. Source currency is not recorded; USD is a display assumption. Native execution/ingestion completeness is unverified. Legacy import/history facts are separate named populations, not this filtered aggregate.</p>}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
           <div>
-            <h1 className="text-2xl font-bold" data-testid="text-page-title">Residual Revenue</h1>
+            <h2 className="text-2xl font-bold" data-testid="text-page-title">Residual Revenue</h2>
             <p className="text-muted-foreground mt-1 text-sm">
               Portfolio performance, reconciliation, and agent commissions
             </p>
@@ -783,67 +759,87 @@ export default function ResidualRevenue() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => exportToCSV(filteredMerchants, "residual_revenue", [
+              onClick={() => exportToCSV(filteredMerchants.map(row=>Object.fromEntries(Object.entries({...row,
+                readAsOf:membership.data?.asOf,source:membership.data?.observationSummary.source,
+                periodScope:membership.data?.observationSummary.period,parentContactId:groupFilterParentId??"all",
+                searchScope:searchQuery,sourceCurrency:"not_recorded",displayCurrencyAssumption:"USD",
+                nativeExecution:"unverified",amountAvailability:row.revenue==null?"unavailable":"stored_observation",
+                snapshotIdentity:membership.data?.snapshotIdentity,periodTimezone:"not_recorded",
+              }).map(([key,value])=>[key,residualExportCell(value)]))), "residual_revenue", [
+                {key:"id",label:"Observation ID"},{key:"registeredMidId",label:"Registered MID record ID"},
+                {key:"registeredMidContactId",label:"Registered MID contact ID"},
+                {key:"observationContactId",label:"Observation contact ID"},
+                {key:"observationDealId",label:"Observation deal ID"},
+                {key:"registeredMidDealId",label:"Registered MID deal ID"},
+                {key:"reportId",label:"Report ID"},{key:"importId",label:"Import ID"},
+                {key:"month",label:"Raw recorded period"},
                 { key: "merchantName", label: "Merchant" },
                 { key: "mid", label: "MID" },
                 { key: "volume", label: "Volume" },
                 { key: "revenue", label: "Revenue" },
                 { key: "revenueChange", label: "Change %" },
+                {key:"source",label:"Source"},{key:"readAsOf",label:"Read asOf"},
+                {key:"periodScope",label:"Recorded period scope"},{key:"parentContactId",label:"Parent contact ID scope"},
+                {key:"searchScope",label:"Search scope"},{key:"sourceCurrency",label:"Source currency"},
+                {key:"displayCurrencyAssumption",label:"Display currency assumption"},
+                {key:"nativeExecution",label:"Native execution proof"},{key:"amountAvailability",label:"Amount availability"},
+                {key:"snapshotIdentity",label:"Authorized read snapshot identity"},{key:"periodTimezone",label:"Source period timezone"},
               ])}
               data-testid="button-export-revenue"
+              disabled={residualsError || residualsLoading}
             >
               <Download className="w-4 h-4 mr-1" /> Export Revenue Data
             </Button>
           </div>
 
-          {reportsError ? (
+          {residualsError ? (
             <Card className="border-destructive/50" data-testid="card-residuals-unavailable">
-              <CardContent className="py-8 text-center text-destructive">Residual report data is unavailable. No portfolio totals are shown.</CardContent>
+                <CardContent className="py-8 text-center text-destructive">Scoped observation data is unavailable. No zero amounts or empty merchant population are inferred.</CardContent>
             </Card>
-          ) : !hasData && !reportsLoading && (
+          ) : !hasData && !residualsLoading && (
             <Card className="bg-primary/5 dark:bg-primary/10" data-testid="card-no-data">
               <CardContent className="py-8 text-center">
                 <AlertTriangle className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
                 <p className="text-muted-foreground" data-testid="text-no-data">
-                  Import residual data to see revenue metrics
+                  No registry-linked observations match this parent/search/recorded-period scope. Native ingestion completeness and actual revenue remain unavailable.
                 </p>
               </CardContent>
             </Card>
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" data-testid="section-kpi-cards">
-            {reportsLoading ? (
+            {residualsLoading ? (
               <><KPISkeleton /><KPISkeleton /><KPISkeleton /><KPISkeleton /></>
             ) : (
               <>
                 <Card data-testid="card-kpi-total-revenue">
                   <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Total Portfolio Revenue</CardTitle>
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Stored reported revenue</CardTitle>
                     <DollarSign className="w-4 h-4 text-green-600" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold" data-testid="text-total-revenue">{formatCurrency(totalRevenue)}</div>
-                    <p className="text-xs text-muted-foreground mt-1">This month</p>
+                    <div className="text-2xl font-bold" data-testid="text-total-revenue">{formatCurrencyDetailed(totalRevenue)}</div>
+                    <p className="text-xs text-muted-foreground mt-1">Applied parent/search/recorded-period population</p>
                   </CardContent>
                 </Card>
                 <Card data-testid="card-kpi-active-merchants">
                   <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Active Merchants</CardTitle>
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Observed registered MIDs</CardTitle>
                     <Users className="w-4 h-4 text-primary" />
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold" data-testid="text-active-merchants">{activeMerchants?.toLocaleString() ?? "—"}</div>
-                    <p className="text-xs text-muted-foreground mt-1">Processing merchants</p>
+                    <p className="text-xs text-muted-foreground mt-1">Distinct registered MID IDs with captured observations; not active processing or merchant count</p>
                   </CardContent>
                 </Card>
                 <Card data-testid="card-kpi-avg-revenue">
                   <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Avg Revenue Per Merchant</CardTitle>
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Avg Stored Revenue per Registered MID</CardTitle>
                     <TrendingUp className="w-4 h-4 text-green-600" />
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold" data-testid="text-avg-revenue">{formatCurrencyDetailed(avgRevenuePerMerchant)}</div>
-                    <p className="text-xs text-muted-foreground mt-1">Per merchant average</p>
+                    <p className="text-xs text-muted-foreground mt-1">Stored reported revenue / distinct registered MID IDs across selected periods; not a monthly forecast</p>
                   </CardContent>
                 </Card>
                 <Card data-testid="card-kpi-attrition">
@@ -852,8 +848,8 @@ export default function ResidualRevenue() {
                     <Percent className="w-4 h-4 text-orange-500" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold" data-testid="text-attrition-rate">{attritionRate == null ? "—" : `${attritionRate.toFixed(1)}%`}</div>
-                    <p className="text-xs text-muted-foreground mt-1">Monthly merchant churn</p>
+                    <div className="text-2xl font-bold" data-testid="text-attrition-rate">Unavailable</div>
+                    <p className="text-xs text-muted-foreground mt-1">A time-windowed population transition is not supplied by these stored observations</p>
                   </CardContent>
                 </Card>
               </>
@@ -864,11 +860,11 @@ export default function ResidualRevenue() {
             <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 <BarChart3 className="w-5 h-5 text-primary" />
-                <CardTitle className="text-base">Revenue Trend (Last 6 Months)</CardTitle>
+                <CardTitle className="text-base">Stored revenue by recorded period (last 6 raw values)</CardTitle>
               </div>
             </CardHeader>
             <CardContent>
-              {reportsLoading ? (
+              {residualsError ? <CrmDataState state="unavailable" message="Scoped recorded-period series unavailable; no zero revenue or empty series is inferred."/> : residualsLoading ? (
                 <div className="flex items-end gap-3 h-48">
                   {Array.from({ length: 6 }).map((_, i) => (
                     <div key={i} className="flex-1 flex flex-col items-center gap-2">
@@ -880,19 +876,25 @@ export default function ResidualRevenue() {
               ) : last6Months.length > 0 ? (
                 <div className="flex items-end gap-3 h-48" data-testid="chart-revenue-bars">
                   {last6Months.map((report) => {
-                    const height = maxRevenue > 0 ? (report.totalRevenue / maxRevenue) * 100 : 0;
+                    const height = maxRevenue > 0 && report.totalRevenue!=null ? (Math.abs(report.totalRevenue) / maxRevenue) * 100 : 0;
                     return (
-                      <div key={`${report.month}-${report.year}`} className="flex-1 flex flex-col items-center gap-2">
+                      <div key={report.month} className="flex-1 flex flex-col items-center gap-2">
                         <span className="text-xs font-medium text-muted-foreground">{formatCurrency(report.totalRevenue)}</span>
-                        <div className="w-full bg-primary/80 dark:bg-primary/60 rounded-md transition-all" style={{ height: `${Math.max(height, 4)}%` }} />
+                        {report.totalRevenue!=null && <div className={`w-full rounded-md transition-all ${report.totalRevenue<0?"bg-destructive":"bg-primary/80 dark:bg-primary/60"}`} style={{ height: `${Math.max(height, 4)}%` }} />}
                         <span className="text-xs text-muted-foreground">{report.month}</span>
                       </div>
                     );
                   })}
                 </div>
               ) : (
-                <div className="flex items-center justify-center h-48 text-muted-foreground">No revenue data available</div>
+                <div className="flex items-center justify-center h-48 text-muted-foreground">No recorded period buckets in this observed scope. Native revenue completeness remains unavailable.</div>
               )}
+              {!residualsError && !residualsLoading && last6Months.length>0 && <div className="overflow-x-auto mt-4">
+                <Table aria-label="Recorded period chart data alternative">
+                  <TableHeader><TableRow><TableHead>Raw recorded period</TableHead><TableHead>Stored reported revenue (USD display assumption)</TableHead></TableRow></TableHeader>
+                  <TableBody>{last6Months.map(row=><TableRow key={row.month}><TableCell>{row.month}</TableCell><TableCell className="tabular-nums">{formatCurrencyDetailed(row.totalRevenue)}</TableCell></TableRow>)}</TableBody>
+                </Table>
+              </div>}
             </CardContent>
           </Card>
 
@@ -922,11 +924,18 @@ export default function ResidualRevenue() {
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
                     placeholder="Search merchants..."
+                    aria-label="Search complete scoped captured observations (merchant label, masked MID, agent label)"
+                    maxLength={200}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9 w-64"
+                    className="pl-9 w-full sm:w-64 min-h-11"
                     data-testid="input-search-merchants"
                   />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="residual-recorded-period" className="text-xs">Recorded period (blank = all)</Label>
+                  <Input id="residual-recorded-period" type="month" value={observationPeriod==="all"?"":observationPeriod}
+                    onChange={e=>setObservationPeriod(e.target.value||"all")} className="min-h-11 w-44"/>
                 </div>
               </div>
             </CardHeader>
@@ -947,7 +956,7 @@ export default function ResidualRevenue() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {residualsLoading ? (
+                  {residualsError ? <TableRow><TableCell colSpan={9}><CrmDataState state="unavailable" message="Merchant residual observations unavailable; worklist and export cannot assert a complete population." onRetry={()=>void retryResiduals()}/></TableCell></TableRow> : residualsLoading ? (
                     <TableSkeleton rows={5} cols={9} />
                   ) : filteredMerchants.length > 0 ? (
                     filteredMerchants.map((merchant) => (
@@ -969,7 +978,7 @@ export default function ResidualRevenue() {
                         <TableCell className="text-right">{formatCurrencyDetailed(merchant.cost)}</TableCell>
                         <TableCell className="text-right font-medium">{formatCurrencyDetailed(merchant.netRevenue)}</TableCell>
                         <TableCell>{merchant.agent}</TableCell>
-                        <TableCell className="text-right">{formatCurrencyDetailed(parseFloat(merchant.agentCommission || "0"))}</TableCell>
+                        <TableCell className="text-right">{formatCurrencyDetailed(merchant.agentCommission)}</TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-1">
                             {merchant.flags.length > 0 ? (
@@ -1022,14 +1031,14 @@ export default function ResidualRevenue() {
                   </Badge>
                 );
               })()}
-              {midStats && !midStats.latestFetch && !midStatsLoading && (
+              {midStats && !midStats.latestFetch && !midStatsLoading && !midStatsError && (
                 <Badge variant="outline" className="flex items-center gap-1 text-xs text-muted-foreground" data-testid="badge-mid-data-never-synced">
                   <Clock className="w-3 h-3" /> Never synced
                 </Badge>
               )}
             </CardHeader>
             <CardContent>
-              {midStatsLoading ? (
+              {midStatsError ? <CrmDataState state="unavailable" message="Native MID observations unavailable. No active-MID count or zero-observation conclusion." onRetry={()=>void retryMidStats()}/> : midStatsLoading ? (
                 <div className="flex gap-6">
                   <Skeleton className="h-12 w-32 rounded" />
                   <Skeleton className="h-12 w-32 rounded" />
@@ -1121,34 +1130,42 @@ export default function ResidualRevenue() {
 
           <Card data-testid="card-agent-commissions">
             <CardHeader>
-              <CardTitle className="text-base">Agent Commission Summary</CardTitle>
+              <CardTitle className="text-base">Stored Agent Attribution</CardTitle>
             </CardHeader>
             <CardContent>
+              <p className="text-xs text-muted-foreground mb-3">
+                Same complete parent/search/recorded-period scope and read snapshot as the observations above.
+                Agent IDs use the agents namespace, not user or Contact IDs. Labels never merge identities.
+                Revenue and commission are stored observations, not earned or paid receipts; source currency is
+                not recorded, USD display is an assumption, and native execution remains unverified.
+              </p>
               <div className="overflow-x-auto">
               <Table data-testid="table-agent-commissions">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Agent Name</TableHead>
-                    <TableHead className="text-right">Total Deals</TableHead>
-                    <TableHead className="text-right">Revenue Managed</TableHead>
-                    <TableHead className="text-right">Commission Earned</TableHead>
+                    <TableHead>Stored Agent Identity</TableHead>
+                    <TableHead className="text-right">Observation Records</TableHead>
+                    <TableHead className="text-right">Stored Revenue</TableHead>
+                    <TableHead className="text-right">Stored Commission</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {agentsLoading || residualsLoading ? (
+                  {membership.isError || filters.issues.length>0 ? <TableRow><TableCell colSpan={4}><CrmDataState state="unavailable" message="Scoped agent observations unavailable; no zero commissions or substitute roster totals are inferred." onRetry={()=>void membership.refetch()}/></TableCell></TableRow> : membership.isLoading ? (
                     <TableSkeleton rows={3} cols={4} />
                   ) : agentSummary.length > 0 ? (
                     agentSummary.map((agent) => (
-                      <TableRow key={agent.id} data-testid={`row-agent-${agent.id}`}>
-                        <TableCell className="font-medium">{agent.name}</TableCell>
-                        <TableCell className="text-right">{agent.totalDeals}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(agent.revenueManaged)}</TableCell>
-                        <TableCell className="text-right font-medium">{formatCurrencyDetailed(agent.commissionEarned)}</TableCell>
+                      <TableRow key={agent.agentId ?? "unattributed"} data-testid={`row-agent-${agent.agentId ?? "unattributed"}`}>
+                        <TableCell className="font-medium">{agent.agentLabel}
+                          {agent.agentId !== null && <div className="text-xs text-muted-foreground">Agent ID {agent.agentId}</div>}
+                        </TableCell>
+                        <TableCell className="text-right">{agent.observationCount} · {agent.registeredMidCount} registered MIDs</TableCell>
+                        <TableCell className="text-right">{agent.revenue === null ? "Unavailable" : formatCurrencyDetailed(agent.revenue)}</TableCell>
+                        <TableCell className="text-right font-medium">{agent.agentCommission === null ? "Unavailable" : formatCurrencyDetailed(agent.agentCommission)}</TableCell>
                       </TableRow>
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No agent commission data available</TableCell>
+                      <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No stored observation records in this exact scope. No zero earnings or payment conclusion is inferred.</TableCell>
                     </TableRow>
                   )}
                 </TableBody>
@@ -1159,7 +1176,10 @@ export default function ResidualRevenue() {
         </TabsContent>
 
         {/* ── BY PARTNER TAB ──────────────────────────────────────────────── */}
-        <ByPartnerTab />
+        <ByPartnerTab data={membership.data?.observationPartners} isLoading={membership.isLoading}
+          isError={membership.isError||(!membership.isLoading&&!membership.data)}
+          onRetry={()=>void membership.refetch()}
+          provenance={`Same selected parent, search and recorded period as the merchant worklist; single read snapshot ${membership.data?.snapshotIdentity??"unavailable"}; asOf ${membership.data?.asOf??"unavailable"} UTC. Source: merchant_residuals / residual_imports / authorized observation deals / partner_organizations. Native ingestion and settlement unverified.`}/>
 
         {/* ── PAYOUTS TAB ─────────────────────────────────────────────────── */}
         <PayoutsTab />
@@ -1167,6 +1187,7 @@ export default function ResidualRevenue() {
         {/* ── IMPORT & RECONCILE TAB ─────────────────────────────────────── */}
 
         <TabsContent value="reconcile" className="space-y-6">
+          {selectedImportError && <CrmDataState state="unavailable" message="Selected import/reconciliation unavailable. No rows or confirmation state can be inferred." onRetry={()=>void retrySelectedImport()}/>}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Upload Panel */}
             <Card className="lg:col-span-1" data-testid="card-upload">
@@ -1244,7 +1265,7 @@ export default function ResidualRevenue() {
                 <CardTitle className="text-base">Pending Reconciliations</CardTitle>
               </CardHeader>
               <CardContent>
-                {importsLoading ? (
+                {importsError ? <CrmDataState state="unavailable" message="Import source unavailable; no no-pending-reconciliations conclusion." onRetry={()=>void retryImports()}/> : importsLoading ? (
                   <div className="space-y-2">
                     {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}
                   </div>
@@ -1367,6 +1388,7 @@ export default function ResidualRevenue() {
                 )}
 
                 {/* Agent reconciliation summary */}
+                <CrmDataState state="unavailable" message="Typed payee-bound import aggregate unavailable. Captured rows remain below; names do not establish payee identity and missing amounts are not zero."/>
                 {agentReconciliation.length > 0 && (
                   <div>
                     <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5"><Users className="w-4 h-4 text-primary" />Per-Agent Reconciliation</h3>
@@ -1682,17 +1704,28 @@ function PayoutsTab() {
   const [statusFilter, setStatusFilter] = useState("all");
   const { toast } = useToast();
 
-  const { data: payouts = [], isLoading, refetch } = useQuery<AgentPayout[]>({
-    queryKey: ["/api/payouts", { month: selectedMonth, status: statusFilter }],
-    queryFn: async () => {
+  const { data: payoutRead, isLoading, isError, refetch } = useQuery<{
+    rows:AgentPayout[];groups:Array<{period:string;rowIds:number[];totalAgent:string|null;totalGross:string|null}>;
+    read:{asOf:string;snapshotIdentity:string;population:string;source:string;completeness:string;filters:{month:string|null;status:string|null}};
+  }>({
+    queryKey: ["/api/payouts", { month: selectedMonth, status: statusFilter,read:"1" }],
+    queryFn: async ({signal}) => {
       const params = new URLSearchParams();
+      params.set("read","1");
       if (selectedMonth) params.set("month", selectedMonth);
       if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
-      const res = await fetch(`/api/payouts?${params}`, { credentials: "include" });
+      const res = await fetch(`/api/payouts?${params}`, { credentials: "include",signal });
       if (!res.ok) throw new Error("Failed to load payouts");
-      return res.json();
+      const data=await res.json();
+      if(!Array.isArray(data?.rows)||!Array.isArray(data?.groups)||!data?.read?.snapshotIdentity||
+        !Number.isFinite(Date.parse(data?.read?.asOf))||data.read.population!=="administrative_global_ledger"||
+        data.read.completeness!=="complete_returned_ledger_rows"||
+        data.read.filters?.month!==(selectedMonth||null)||data.read.filters?.status!==(statusFilter==="all"?null:statusFilter))
+        throw new Error("Payout ledger scope/provenance unavailable");
+      return data;
     },
   });
+  const payouts=payoutRead?.rows??[];
 
   const generateMutation = useMutation({
     mutationFn: async (month: string) => {
@@ -1724,25 +1757,23 @@ function PayoutsTab() {
       const res = await apiRequest("PATCH", `/api/payouts/${id}/mark-paid`);
       return res.json();
     },
-    onSuccess: () => { toast({ title: "Payout marked as paid" }); refetch(); },
+    onSuccess: () => { toast({ title: "Ledger status recorded as paid",description:"This status is not proof of a native funds transfer." }); refetch(); },
     onError: (err: Error) => toast({ title: "Update failed", description: err.message, variant: "destructive" }),
   });
 
-  // Group by period for totals
-  const byPeriod = useMemo(() => {
-    const map = new Map<string, { rows: AgentPayout[]; totalAgent: number; totalGross: number }>();
-    for (const p of payouts) {
-      const existing = map.get(p.periodMonth) ?? { rows: [], totalAgent: 0, totalGross: 0 };
-      existing.rows.push(p);
-      existing.totalAgent += parseFloat(p.agentShare || "0");
-      existing.totalGross += parseFloat(p.grossResidual || "0");
-      map.set(p.periodMonth, existing);
-    }
-    return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [payouts]);
+  const byPeriod=(payoutRead?.groups??[]).map(group=>[group.period,{
+    rows:payouts.filter(row=>group.rowIds.includes(row.id)),totalAgent:group.totalAgent,totalGross:group.totalGross,
+  }] as const);
 
   return (
     <TabsContent value="payouts" className="space-y-6" data-testid="tab-content-payouts">
+      {isError && <CrmDataState state="unavailable" message="Payout ledger unavailable; no zero/unpaid/disbursed conclusion." onRetry={()=>void refetch()}/>}
+      {payoutRead&&!isError&&<p className="text-xs text-muted-foreground">
+        Stored allocations and recorded statuses, not native transfer or settlement receipts. Administrative global ledger,
+        filtered only by its month/status controls; selected merchant parent/search/MID filters above do not apply.
+        Source {payoutRead.read.source}; read asOf {payoutRead.read.asOf}; {payoutRead.read.completeness}.
+        Recorded period strings do not establish an event-time timezone; source currency is unknown, USD display assumed.
+      </p>}
       <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800 p-3 flex gap-2 items-start text-xs text-blue-800 dark:text-blue-300">
         <span className="shrink-0 mt-0.5">💡</span>
         <span>
@@ -1802,11 +1833,11 @@ function PayoutsTab() {
         <Card><CardContent className="p-6 space-y-3">
           {[1,2,3].map(i => <Skeleton key={i} className="h-10 w-full" />)}
         </CardContent></Card>
-      ) : payouts.length === 0 ? (
+      ) : isError||!payoutRead ? null : payouts.length === 0 ? (
         <Card><CardContent className="py-12 text-center">
           <Banknote className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
           <p className="text-sm text-muted-foreground" data-testid="text-no-payouts">
-            No payout records for this period / filter. Generate payouts after confirming an import.
+            No stored allocation records in this ledger month/status filter. This is not a zero-income or transfer conclusion.
           </p>
         </CardContent></Card>
       ) : (
@@ -1819,7 +1850,7 @@ function PayoutsTab() {
                   <div className="flex gap-4 text-xs text-muted-foreground">
                     <span>Gross: <strong className="text-foreground">{formatCurrencyDetailed(group.totalGross)}</strong></span>
                     <span>Total Agent Share: <strong className="text-green-600">{formatCurrencyDetailed(group.totalAgent)}</strong></span>
-                    <span>{group.rows.length} agent(s)</span>
+                    <span>{group.rows.length} allocation record(s)</span>
                   </div>
                 </div>
               </CardHeader>

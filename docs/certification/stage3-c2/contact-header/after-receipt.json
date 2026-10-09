@@ -54,9 +54,9 @@
       "status": 201
     }
   ],
-  "sourceHead": "b20e7a1ec40c70714e77738b4b892a5fc4924aef",
-  "compiledInputHash": "7347a06dc73f215ed7fc1f9f4997e5793772744c5ecafbaa54dfe64206132a29",
-  "compiledOutputHash": "05f3124d88867f7614b75cbf847f202b9658770eb6850ea25909878c8f6d27f1",
+  "sourceHead": "33a3a924a0d887edc94c2671c2c352b4d9e54e3e",
+  "compiledInputHash": "9c740c8b7aa8c1cac401f282f7fae38b3a48e161e6264864a9f655ecc2c59814",
+  "compiledOutputHash": "ab109ce66c064a2332cf36324cd18d8bf8122c679f85465f89f3a4869ff5aee9",
   "requests": [
     {
       "path": "/api/auth/user",
@@ -85,7 +85,8 @@
     },
     {
       "path": "/api/save-cases/my",
-      "method": "GET"
+      "method": "GET",
+      "status": 501
     },
     {
       "path": "/api/sms-inbox/unread-count",
@@ -107,10 +108,6 @@
     },
     {
       "path": "/api/outreach-queue/count",
-      "method": "GET"
-    },
-    {
-      "path": "/api/leaderboard?period=month",
       "method": "GET"
     },
     {
@@ -195,7 +192,8 @@
     },
     {
       "path": "/api/contacts/1/sfp-readiness",
-      "method": "GET"
+      "method": "GET",
+      "status": 200
     },
     {
       "path": "/api/tasks",
@@ -258,12 +256,12 @@
       "status": 200
     },
     {
-      "path": "/api/live-chat/sessions?status=active",
+      "path": "/api/message-drafts?contextType=contact&contextId=1&channel=email",
       "method": "GET",
       "status": 200
     },
     {
-      "path": "/api/message-drafts?contextType=contact&contextId=1&channel=email",
+      "path": "/api/live-chat/sessions?status=active",
       "method": "GET",
       "status": 200
     },
@@ -579,7 +577,8 @@
     },
     {
       "path": "/api/inbox/send-state",
-      "method": "GET"
+      "method": "GET",
+      "status": 200
     },
     {
       "path": "/api/my-day",
@@ -631,8 +630,7 @@
     },
     {
       "path": "/api/deals",
-      "method": "GET",
-      "status": 200
+      "method": "GET"
     },
     {
       "path": "/api/field-sales/status",

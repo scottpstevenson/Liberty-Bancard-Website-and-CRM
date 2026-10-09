@@ -1,4 +1,6 @@
 import { pool } from "../db";
+import { projectResidualObservations } from "./residual-observation-projection";
+import {createHash} from "node:crypto";
 import { OPEN_SALES_LEAD_STAGES } from "@shared/schema";
 import { authorizeCommercialUseBatch } from "./commercial-resolution";
 import { contactTargetVerticalSql, resolveContactTargetVertical } from "@shared/contact-vertical-taxonomy";
@@ -22,6 +24,72 @@ export type RevenueFilters = {
 };
 
 const privileged = (user: RevenueUser) => user.role === "admin" || user.role === "manager";
+
+/** Complete, exact residual relationship projection. Reuses the contact/deal
+ * population owners and the MID registry, not capped browser list samples.
+ * Returns row identities for filtering without introducing a full-MID read. */
+export async function readResidualGroupScope(user:RevenueUser,parentId?:number,filter:{search?:string;period?:string}={}) {
+  const client=await pool.connect();
+  try {
+    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    const parentValues:unknown[]=[];
+    const parentPredicate=contactReadPredicate(user,{limit:100,offset:0,recordClass:"production",isParentAccount:true},parentValues,"c");
+    const parents=await client.query(`SELECT c.id,c.company_name AS "companyName",c.first_name AS "firstName",
+      c.last_name AS "lastName" FROM contacts c WHERE ${parentPredicate} ORDER BY c.id`,parentValues);
+    if(parentId && !parents.rows.some(row=>row.id===parentId))
+      throw new Error("RESIDUAL_GROUP_TARGET_UNAVAILABLE");
+    let memberIds:number[]=[];
+    let residualIds:number[]=[];
+    if(parentId) {
+      const values:unknown[]=[parentId];
+      const contactPredicate=contactReadPredicate(user,{limit:100,offset:0,recordClass:"production"},values,"c");
+      const members=await client.query(`SELECT c.id FROM contacts c WHERE
+        (c.id=$1 OR c.parent_contact_id=$1) AND ${contactPredicate} ORDER BY c.id`,values.slice(0,values.length));
+      memberIds=members.rows.map(row=>row.id);
+      const dealPredicate=dealReadPredicate(user,{},values,"d");
+      // Member MID registration is authoritative even when an old deal.mid is
+      // absent. A deal-linked MID must retain the deal's independent scope.
+      const residuals=await client.query(`SELECT DISTINCT r.id FROM merchant_residuals r
+        JOIN merchant_mids mm ON mm.mid=r.merchant_mid JOIN contacts c ON c.id=mm.contact_id
+        LEFT JOIN deals d ON d.id=mm.deal_id
+        WHERE (c.id=$1 OR c.parent_contact_id=$1) AND ${contactPredicate}
+          AND (mm.deal_id IS NULL OR (${dealPredicate})) ORDER BY r.id`,values);
+      residualIds=residuals.rows.map(row=>row.id);
+    }
+    const observationValues:unknown[]=parentId?[parentId]:[];
+    const observationContactPredicate=contactReadPredicate(user,{limit:100,offset:0,recordClass:"production"},observationValues,"c");
+    const observationDealPredicate=dealReadPredicate(user,{},observationValues,"d");
+    const capturedDealPredicate=dealReadPredicate(user,{},observationValues,"od");
+    const observations=await client.query(`SELECT r.*,mm.id AS registered_mid_id,
+      mm.deal_id AS registered_mid_deal_id,c.id AS member_contact_id,
+      COALESCE(c.company_name,concat_ws(' ',c.first_name,c.last_name)) AS member_label,
+      concat_ws(' ',a.first_name,a.last_name) AS agent_label,
+      ri.status AS confirmed_import_status,od.id AS authorized_observation_deal_id,
+      od.partner_org_id AS observation_partner_org_id,
+      po.id AS partner_org_id,po.name AS partner_org_name,po.slug AS partner_org_slug
+      FROM merchant_residuals r JOIN merchant_mids mm ON mm.mid=r.merchant_mid
+      JOIN contacts c ON c.id=mm.contact_id LEFT JOIN deals d ON d.id=mm.deal_id
+      LEFT JOIN agents a ON a.id=r.agent_id
+      LEFT JOIN residual_imports ri ON ri.id=r.import_id
+      LEFT JOIN deals od ON od.id=r.deal_id AND (${capturedDealPredicate})
+      LEFT JOIN partner_organizations po ON po.id=od.partner_org_id
+      WHERE ${parentId?"(c.id=$1 OR c.parent_contact_id=$1) AND ":""} ${observationContactPredicate}
+        AND (mm.deal_id IS NULL OR (${observationDealPredicate}))
+      ORDER BY r.month DESC,r.id DESC`,observationValues);
+    const projection=projectResidualObservations(observations.rows,filter);
+    const timestamp=await client.query("SELECT CURRENT_TIMESTAMP::text AS as_of");
+    await client.query("COMMIT");
+    const snapshotIdentity=createHash("sha256").update(JSON.stringify({
+      asOf:timestamp.rows[0].as_of,parentId:parentId??null,filter,observations:projection.rows,payees:projection.payees,partners:projection.partners,
+    })).digest("hex");
+    return {snapshotIdentity,parents:parents.rows,memberIds,residualIds,parentId:parentId??null,observations:projection.rows,
+      observationSummary:projection.summary,observationSeries:projection.series,observationPayees:projection.payees,
+      observationPartners:projection.partners,
+      completeness:"complete_exact_relationship" as const,source:"contacts/merchant_mids/merchant_residuals",
+      asOf:timestamp.rows[0].as_of,scope:privileged(user) ? "all" : "owned_or_unassigned"};
+  } catch(error) {await client.query("ROLLBACK");throw error;}
+  finally {client.release();}
+}
 /** Drizzle consumer adapter for the existing parameterized reader predicate.
  * No second scope SQL. Each parameter is rebound, never interpolated as text. */
 export function revenuePredicateSql(user:RevenueUser, domain:"contact"|"deal", filters:Partial<RevenueFilters>={}):SQL {

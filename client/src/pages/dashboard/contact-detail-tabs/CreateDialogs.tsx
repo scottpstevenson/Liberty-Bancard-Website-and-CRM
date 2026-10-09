@@ -26,6 +26,9 @@ interface Props {
   ticketForm: TicketForm;
   setTicketForm: Dispatch<SetStateAction<TicketForm>>;
   createTicket: () => void;
+  ticketSaving?:boolean;
+  ticketUnconfirmed?:boolean;
+  retryTicketCreation?:()=>void;
   onTicketCloseAutoFocus?: ComponentPropsWithoutRef<typeof DialogContent>["onCloseAutoFocus"];
 
   showTaskDialog: boolean;
@@ -127,6 +130,11 @@ export function CreateDialogs(p: Props) {
           <DialogHeader>
             <DialogTitle>Create Ticket</DialogTitle>
           </DialogHeader>
+          {p.ticketUnconfirmed&&<div role="alert" className="rounded-lg border p-3 text-sm">
+            Local ticket intent is unconfirmed. Its original payload/version is retained; this is not a delivery receipt.
+            <Button variant="outline" disabled={p.ticketSaving} onClick={p.retryTicketCreation}
+              data-testid="button-retry-contact-ticket">Retry frozen intent</Button>
+          </div>}
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Subject</label>
@@ -163,8 +171,8 @@ export function CreateDialogs(p: Props) {
               <Button variant="outline" onClick={() => p.setShowTicketDialog(false)} data-testid="button-cancel-ticket">
                 Cancel
               </Button>
-              <Button onClick={p.createTicket} disabled={!p.ticketForm.subject || !p.ticketForm.description} data-testid="button-submit-ticket">
-                Create Ticket
+              <Button onClick={p.createTicket} disabled={p.ticketSaving||p.ticketUnconfirmed||!p.ticketForm.subject || !p.ticketForm.description} data-testid="button-submit-ticket">
+                {p.ticketSaving?"Saving local ticket…":"Create Ticket"}
               </Button>
             </div>
           </div>

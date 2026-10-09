@@ -27,7 +27,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import { useCrmQuery } from "@/hooks/use-crm-query";
+import { CrmDataState } from "@/components/crm/CrmPresentation";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Trophy, XCircle, BarChart, Users, Plus, Loader2 } from "lucide-react";
 import type { DealCompetitor } from "@shared/schema";
@@ -45,7 +47,7 @@ export default function WinLoss() {
   const [notes, setNotes] = useState("");
   const { toast } = useToast();
 
-  const { data: competitors = [], isLoading } = useQuery<DealCompetitor[]>({
+  const { data: competitors = [], isLoading, isError, refetch } = useCrmQuery<DealCompetitor[]>({
     queryKey: ["/api/deal-competitors"],
   });
 
@@ -120,11 +122,12 @@ export default function WinLoss() {
     );
   }
 
+  if (isError) return <CrmDataState state="unavailable" message="Win/Loss observations are unavailable. No zero totals or empty result are inferred." onRetry={()=>void refetch()}/>;
   return (
     <div className="space-y-8" data-testid="page-win-loss">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">Win/Loss Analysis</h1>
+          <h2 className="text-2xl font-bold" data-testid="text-page-title">Win/Loss Analysis</h2>
           <p className="text-sm text-muted-foreground mt-1" data-testid="text-page-subtitle">
             Track competitive outcomes and understand why deals are won or lost
           </p>

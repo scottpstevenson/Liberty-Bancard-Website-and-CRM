@@ -1,5 +1,7 @@
-import { useState, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useMemo, useEffect } from "react";
+import {portfolioFollowupDay,portfolioFollowupDays,portfolioFollowupCarrier} from "@/lib/portfolio-followup-date";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -58,6 +60,7 @@ interface PortfolioSummary {
 
 interface PortfolioResponse {
   data: PortfolioRow[];
+  total: number;
   summary: PortfolioSummary;
 }
 
@@ -101,10 +104,9 @@ function fmtDate(val: string | null): string {
 
 function fmtFollowUp(val: string | null): string {
   if (!val) return "—";
-  const d = new Date(val);
-  if (isNaN(d.getTime())) return "—";
-  const now = new Date();
-  const diffDays = Math.floor((d.getTime() - now.getTime()) / 86_400_000);
+  const d = portfolioFollowupDay(val);
+  const diffDays=portfolioFollowupDays(val);
+  if(!d || diffDays===null)return "Unavailable";
   if (diffDays < 0) return `${Math.abs(diffDays)}d overdue`;
   if (diffDays === 0) return "Today";
   if (diffDays === 1) return "Tomorrow";
@@ -113,9 +115,8 @@ function fmtFollowUp(val: string | null): string {
 
 function followUpClass(val: string | null): string {
   if (!val) return "";
-  const d = new Date(val);
-  if (isNaN(d.getTime())) return "";
-  const diffDays = Math.floor((d.getTime() - Date.now()) / 86_400_000);
+  const diffDays=portfolioFollowupDays(val);
+  if(diffDays===null)return "";
   if (diffDays < 0) return "text-red-600 dark:text-red-400 font-medium";
   if (diffDays <= 1) return "text-orange-600 dark:text-orange-400";
   return "";
@@ -134,14 +135,11 @@ function subName(row: PortfolioRow): string {
 
 /**
  * Converts the local date selected by the user into a UTC-noon ISO string.
- * Storing at UTC noon (12:00Z) keeps the calendar date stable in all timezones
- * from UTC-12 to UTC+12 — `new Date(isoString)` will always land on the intended day.
+ * UTC noon is only a compatibility carrier. All calendar-day display/due
+ * comparisons parse the explicit YYYY-MM-DD, never its shifted local instant.
  */
 function toUtcNoonIso(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}T12:00:00.000Z`;
+  return portfolioFollowupCarrier(d);
 }
 
 /**
@@ -150,10 +148,7 @@ function toUtcNoonIso(d: Date): string {
  * calendar always highlights the correct day regardless of stored UTC offset.
  */
 function parseFollowUpForCalendar(val: string | null): Date | undefined {
-  if (!val) return undefined;
-  const match = val.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) return undefined;
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return portfolioFollowupDay(val);
 }
 
 // ── Inline Follow-Up Date Picker ─────────────────────────────────────────────
@@ -180,7 +175,7 @@ function FollowUpCell({ row, overrideDate, onSave, saving }: FollowUpCellProps) 
 
   function handleSelect(day: Date | undefined) {
     if (!row.editableDealId) return;
-    // Send UTC-noon so the calendar date is stable across all timezones
+    // Compatibility carrier for the explicitly parsed calendar day.
     const iso = day ? toUtcNoonIso(day) : null;
     setOpen(false);
     onSave(row.editableDealId, iso);
@@ -247,23 +242,33 @@ export default function MerchantPortfolio() {
   const [search, setSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState("all");
   const [ownerFilter, setOwnerFilter] = useState("all");
+  const [offset, setOffset] = useState(0);
+  const [pageSize, setPageSize] = useState<25 | 50 | 100>(50);
 
   // Optimistic follow-up overrides keyed by dealId
   const [optimisticDates, setOptimisticDates] = useState<Record<number, string | null>>({});
   // Which dealId is currently saving
   const [savingDealId, setSavingDealId] = useState<number | null>(null);
+  useEffect(()=>{
+    setOffset(0);setOwnerFilter("all");setRiskFilter("all");setSearch("");
+    setOptimisticDates({});setSavingDealId(null);
+  },[user?.id,user?.accountVersion,user?.role]);
 
   // Server-side sort for the primary sort key used in the API
   const apiSort = sortKey === "risk" ? "risk" : sortKey === "lastContact" ? "lastContact" : sortKey === "nextFollowUp" ? "nextFollowUp" : "risk";
 
   const ownerParam = role === "agent" ? "" : ownerFilter !== "all" ? `&owner=${encodeURIComponent(ownerFilter)}` : "";
 
-  const { data, isLoading, isError } = useQuery<PortfolioResponse>({
-    queryKey: ["/api/portfolio", apiSort, ownerFilter],
-    queryFn: async () => {
-      const res = await fetch(`/api/portfolio?sort=${apiSort}${ownerParam}`, { credentials: "include" });
+  const { data, isLoading, isError, refetch } = useQuery<PortfolioResponse>({
+    queryKey: ["/api/portfolio", apiSort, ownerFilter, pageSize, offset],
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/portfolio?sort=${apiSort}${ownerParam}&limit=${pageSize}&offset=${offset}`, { credentials: "include", signal });
       if (!res.ok) throw new Error(await res.text());
-      return res.json();
+      const value=await res.json();
+      if(!Array.isArray(value.data) || !Number.isSafeInteger(value.total) || value.total<0 ||
+        typeof value.summary!=="object" || value.summary.total!==value.total)
+        throw new Error("Portfolio population/completeness unavailable");
+      return value;
     },
     staleTime: 60_000,
   });
@@ -462,10 +467,10 @@ export default function MerchantPortfolio() {
                 className="pl-9"
                 placeholder="Search by name, company, or rep email…"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                    onChange={(e) => {setSearch(e.target.value);setOffset(0);}}
               />
             </div>
-            <Select value={riskFilter} onValueChange={setRiskFilter}>
+            <Select value={riskFilter} onValueChange={value=>{setRiskFilter(value);setOffset(0);}}>
               <SelectTrigger className="w-full sm:w-44">
                 <SelectValue placeholder="All risk tiers" />
               </SelectTrigger>
@@ -479,7 +484,7 @@ export default function MerchantPortfolio() {
               </SelectContent>
             </Select>
             {(role === "admin" || role === "manager") && (
-              <Select value={ownerFilter} onValueChange={setOwnerFilter}>
+              <Select value={ownerFilter} onValueChange={value=>{setOwnerFilter(value);setOffset(0);}}>
                 <SelectTrigger className="w-full sm:w-56">
                   <SelectValue placeholder="All reps" />
                 </SelectTrigger>
@@ -496,7 +501,30 @@ export default function MerchantPortfolio() {
           </div>
 
           {/* Table */}
-          <div className="overflow-x-auto rounded-lg border">
+          <div className="crm-portfolio-cards gap-3" aria-label="Merchant cards">
+            {isLoading ? <p role="status">Loading authorized merchant page…</p> :
+              isError ? <p role="alert">Merchant page unavailable. No empty Portfolio is inferred.</p> :
+              rows.length===0 ? <p>{search || riskFilter!=="all" ? "No merchants match the loaded-page filters." : "No merchants returned on this authorized page."}</p> :
+              rows.map(row=><article key={row.id} className="rounded-lg border bg-card p-4 space-y-3" data-contact-id={row.id}>
+                <Link href={`/dashboard/contacts/${row.id}`}><a className="min-h-11 flex flex-col justify-center font-medium">
+                  <span>{row.companyName || `${row.firstName} ${row.lastName}`}</span>
+                  {row.companyName && <span className="text-xs text-muted-foreground">{row.firstName} {row.lastName}</span>}
+                </a></Link>
+                <dl className="grid grid-cols-2 gap-3 text-sm">
+                  <div><dt className="text-muted-foreground">Risk</dt><dd>{row.riskTier || "Unknown"}</dd></div>
+                  <div><dt className="text-muted-foreground">Score</dt><dd className="tabular-nums">{row.riskTier==="unknown" || !Number.isFinite(row.churnScore) ? "Unassessed" : Math.round(row.churnScore)}</dd></div>
+                  <div><dt className="text-muted-foreground">Open tasks</dt><dd className="tabular-nums">{Number.isFinite(row.openTasks)?row.openTasks:"Unavailable"}</dd></div>
+                  <div><dt className="text-muted-foreground">Open tickets</dt><dd className="tabular-nums">{Number.isFinite(row.openTickets)?row.openTickets:"Unavailable"}</dd></div>
+                  <div><dt className="text-muted-foreground">Last contact</dt><dd>{fmtDate(row.lastContactedAt)}</dd></div>
+                  <div><dt className="text-muted-foreground">Sales stage</dt><dd>{row.dealStage ?? "No linked eligible sales deal"}</dd></div>
+                  {(role==="admin"||role==="manager") && <div className="col-span-2"><dt className="text-muted-foreground">Assigned rep</dt><dd className="break-words">{row.ownerEmail ?? "No assignment returned"}</dd></div>}
+                </dl>
+                <div><p className="text-sm text-muted-foreground">Next follow-up</p><FollowUpCell row={row}
+                  overrideDate={row.editableDealId!==null?optimisticDates[row.editableDealId]:undefined}
+                  onSave={handleSaveFollowUp} saving={row.editableDealId!==null&&savingDealId===row.editableDealId}/></div>
+              </article>)}
+          </div>
+          <div className="crm-portfolio-table overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-muted/50 border-b">
@@ -702,11 +730,21 @@ export default function MerchantPortfolio() {
             </table>
           </div>
 
-          {!isLoading && rows.length > 0 && (
-            <p className="text-xs text-muted-foreground text-right">
-              Showing {rows.length} of {data?.data?.length ?? 0} merchants
-            </p>
-          )}
+          <p className="text-xs text-muted-foreground" role="note">
+            Search, risk and secondary sorting apply to this loaded page only. Summary metrics cover the authorized owner scope.
+          </p>
+          <nav aria-label="Portfolio pages" className="flex flex-wrap items-center gap-3">
+            <label className="text-sm">Page size{" "}
+              <select className="min-h-11 rounded border bg-background px-3" value={pageSize}
+                onChange={event=>{setPageSize(Number(event.target.value) as 25 | 50 | 100);setOffset(0);}}>
+                {[25,50,100].map(size=><option key={size} value={size}>{size}</option>)}
+              </select>
+            </label>
+            <span className="text-sm">{data ? `${rows.length} displayed on page ${Math.floor(offset/pageSize)+1} · ${data.total} merchants in owner scope` : "Total unavailable"}</span>
+            <Button variant="outline" disabled={isLoading || offset===0} onClick={()=>setOffset(Math.max(0,offset-pageSize))}>Previous</Button>
+            <Button variant="outline" disabled={isLoading || isError || !data || offset+pageSize>=data.total} onClick={()=>setOffset(offset+pageSize)}>Next</Button>
+            {isError && <Button variant="outline" onClick={()=>void refetch()}>Retry page</Button>}
+          </nav>
         </CardContent>
       </Card>
     </div>

@@ -1,0 +1,101 @@
+DAILY WORK
+Overview
+Contacts & Leads
+Pipeline
+Messages & Inbox
+Tasks & Appointments
+3
+AI Advisor
+MERCHANT OPS
+Portfolio
+Applications
+Statement Reviews
+Documents
+Underwriting
+Onboarding
+Merchant Risk
+Boarding
+OUTBOUND
+Canonical Enrichment
+Lead Ops Center
+Ready for Outreach
+Outreach
+Lead Imports
+REPORTS
+Reports
+Leaderboard
+Settings
+PARTNERS
+RESOURCES
+U
+stage3b-8a6ca3de-919b-49b8-8949-cc4f24c04415-admin@example.test
+Dev Mode
+Replay Tour
+Sign Out
+Toggle Sidebar
+Tasks & Appointments
+Ctrl+K
+Security warning: Your admin account does not have two-factor authentication enabled. Enable 2FA immediately to protect your account.
+Set up 2FA
+Work
+
+Tasks and appointments in your authorized scope.
+
+Tasks
+Appointments
+Calendar
+Add Event
+
+Calendar source coverage
+
+Appointment provider read failed; appointments are not assumed absent.
+Retry
+
+October 2026
+Sun
+Mon
+Tue
+Wed
+Thu
+Fri
+Sat
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+Friday, October 9
+
+Some calendar sources could not be read; no-empty results are not assumed.
+
+Legend
+Meeting
+Call
+Follow-Up
+Demo

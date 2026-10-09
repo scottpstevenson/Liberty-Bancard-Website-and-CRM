@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { apiRequest } from "@/lib/queryClient";
 import { localCalendarDateAtTime, moveCalendarEventToDate } from "@/lib/calendar-date-repair";
+import { isCalendarStartInWindow } from "@/lib/calendar-window";
 import { useToast } from "@/hooks/use-toast";
 import type { CalendarEvent, Deal, Contact } from "@shared/schema";
 
@@ -135,14 +136,17 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
   });
 
   const startOfMonth = new Date(currentYear, currentMonth, 1);
-  const endOfMonth = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59);
-  const startParam = startOfMonth.toISOString().split("T")[0];
-  const endParam = endOfMonth.toISOString().split("T")[0];
+  // The reader's upper bound is exclusive. Preserve browser-local month
+  // boundaries as instants rather than slicing UTC dates (which shifts zones).
+  const endOfMonth = new Date(currentYear, currentMonth + 1, 1);
+  const startParam = startOfMonth.toISOString();
+  const endParam = endOfMonth.toISOString();
 
   const { data: calendarEvents, isLoading: eventsLoading, isError: eventsError, refetch: retryEvents } = useQuery<CalendarEvent[]>({
     queryKey: ["/api/calendar-events", startParam, endParam],
     queryFn: async ({ signal }) => {
-      const res = await fetch(`/api/calendar-events?start=${startParam}&end=${endParam}`, { credentials: "include", signal });
+      const params = new URLSearchParams({ start: startParam, end: endParam });
+      const res = await fetch(`/api/calendar-events?${params}`, { credentials: "include", signal });
       if (!res.ok) throw new Error("Calendar events are unavailable.");
       return res.json();
     },
@@ -264,7 +268,7 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
     (appointmentRead?.appointments ?? []).forEach(appt => {
       const dateValue = appt.startTime;
       const startDate = new Date(typeof dateValue === "number" ? dateValue : dateValue ?? "");
-      if (Number.isFinite(startDate.getTime()) && (startDate < startOfMonth || startDate > endOfMonth)) return;
+      if (Number.isFinite(startDate.getTime()) && !isCalendarStartInWindow(startDate, startOfMonth, endOfMonth)) return;
       items.push({
         id: `appointment_${appt.id}`,
         title: appt.title || appt.contactName || "Appointment",
@@ -288,7 +292,7 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
     allDeals?.forEach(deal => {
       if (deal.nextFollowUp) {
         const followUpDate = new Date(deal.nextFollowUp);
-        const isInRange = !isNaN(followUpDate.getTime()) && followUpDate >= startOfMonth && followUpDate <= endOfMonth;
+        const isInRange = isCalendarStartInWindow(followUpDate, startOfMonth, endOfMonth);
         // Invalid dates can't be range-checked — surface them regardless of month so they aren't silently dropped.
         if (isInRange || isNaN(followUpDate.getTime())) {
           items.push({

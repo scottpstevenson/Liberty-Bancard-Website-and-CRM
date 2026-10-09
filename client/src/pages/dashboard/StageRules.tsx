@@ -213,7 +213,9 @@ export default function StageRules() {
   }
 
   function handleSave() {
-    if(capability.blocked) return;
+    // Transport readiness controls execution, not manual inactive draft editing.
+    // Updating an enabled rule remains an activation-affecting operation.
+    if(capability.blocked && editingRule?.enabled) return;
     if (!name || !toStage) return;
     const body = {
       name,
@@ -221,7 +223,7 @@ export default function StageRules() {
       fromStage: fromStage === "any" ? null : fromStage,
       toStage,
       actions,
-      enabled: true,
+      enabled: editingRule?.enabled ?? false,
     };
     if (editingRule) {
       updateMutation.mutate({ id: editingRule.id, ...body });
@@ -481,11 +483,11 @@ export default function StageRules() {
               <Button
                 className="w-full"
                 onClick={handleSave}
-                disabled={capability.blocked || !name || !toStage || isSaving}
+                disabled={(capability.blocked && !!editingRule?.enabled) || !name || !toStage || isSaving}
                 data-testid="button-save-rule"
               >
                 {isSaving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                {editingRule ? "Update Rule" : "Save Rule"}
+                {editingRule ? "Update Rule" : "Save Inactive Draft"}
               </Button>
             </div>
           </DialogContent>

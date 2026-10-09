@@ -12,6 +12,7 @@ import { Upload, FolderOpen, Calendar, User, Download, Trash2, CheckCircle2, XCi
 import type { Document } from "@shared/schema";
 import { DOCUMENT_CATEGORIES } from "@shared/schema";
 import { formatDate, getDocCategoryColor, formatFileSize, DocFileIcon } from "./shared";
+import { CrmDataState } from "@/components/crm/CrmPresentation";
 
 const MERCHANT_EXPECTED_DOCS = [
   { category: "Application", label: "Merchant Application" },
@@ -51,12 +52,14 @@ export function ContactDocumentsTab({ contactId, userRole, isPartnerContact }: {
   const isAdminOrManager = userRole === 'admin' || userRole === 'manager';
   const expectedDocs = isPartnerContact ? PARTNER_EXPECTED_DOCS : MERCHANT_EXPECTED_DOCS;
 
-  const { data: docs = [], isLoading } = useQuery<Document[]>({
+  const { data: docs = [], isLoading, isError, refetch } = useQuery<Document[]>({
     queryKey: ["/api/merchant-documents/contact", contactId],
-    queryFn: async () => {
-      const res = await fetch(`/api/merchant-documents/contact/${contactId}`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+    queryFn: async ({signal}) => {
+      const res = await fetch(`/api/merchant-documents/contact/${contactId}`, { credentials: "include",signal });
+      if (!res.ok) throw new Error("Authorized documents unavailable");
+      const rows=await res.json();
+      if (!Array.isArray(rows)) throw new Error("Invalid document collection");
+      return rows;
     },
     enabled: !!contactId,
   });
@@ -154,6 +157,8 @@ export function ContactDocumentsTab({ contactId, userRole, isPartnerContact }: {
   const uploadedCategories = new Set(docs.map(d => d.category || "Other"));
   const missingDocs = expectedDocs.filter(d => !uploadedCategories.has(d.category));
 
+  if (isError) return <CrmDataState state="unavailable" message="Document information could not be read. Missing-file and checklist claims are unavailable." onRetry={()=>void refetch()}/>;
+  if (isLoading) return <CrmDataState state="loading" message="Reading authorized document versions. Checklist completeness is not yet known."/>;
   return (
     <div className="space-y-4" data-testid="contact-documents-tab">
       {/* Missing Document Placeholders */}

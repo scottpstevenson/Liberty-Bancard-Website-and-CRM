@@ -5,6 +5,7 @@ import {
   type ChurnScoreWeight, type InsertChurnScoreWeight,
 } from "@shared/schema";
 import { eq, desc, and, sql, inArray } from "drizzle-orm";
+import {revenuePredicateSql,type RevenueUser} from "../services/revenue-read-authority";
 
 const DEFAULT_WEIGHTS: InsertChurnScoreWeight[] = [
   { signalKey: "volume_trend", label: "Processing Volume Trend", weight: 1.5, description: "Declining processing volume signals churn risk" },
@@ -16,12 +17,14 @@ const DEFAULT_WEIGHTS: InsertChurnScoreWeight[] = [
 ];
 
 export class ChurnStorage {
-  async getMerchantHealthScores(filters?: { riskTier?: string; vertical?: string; agentOwner?: string }): Promise<MerchantHealthScore[]> {
+  async getMerchantHealthScores(filters?: { riskTier?: string; vertical?: string; agentOwner?: string; readActor?:RevenueUser }): Promise<MerchantHealthScore[]> {
     // Order by effective score: override takes precedence over computed score
     let rows = await db
       .select()
       .from(merchantHealthScores)
-      .orderBy(desc(sql<number>`COALESCE(${merchantHealthScores.overrideScore}, ${merchantHealthScores.churnScore})`));
+      .where(filters?.readActor?sql`EXISTS (SELECT 1 FROM contacts WHERE contacts.id=${merchantHealthScores.contactId}
+        AND ${revenuePredicateSql(filters.readActor,"contact",{recordClass:"production"})})`:undefined)
+      .orderBy(desc(sql<number>`COALESCE(${merchantHealthScores.overrideScore}, ${merchantHealthScores.churnScore})`),merchantHealthScores.id);
 
     if (!filters || (!filters.riskTier && !filters.vertical && !filters.agentOwner)) {
       return rows;
@@ -136,9 +139,9 @@ export class ChurnStorage {
     return updated;
   }
 
-  async getChurnScoreWeights(): Promise<ChurnScoreWeight[]> {
+  async getChurnScoreWeights(options?:{seedDefaults?:boolean}): Promise<ChurnScoreWeight[]> {
     const rows = await db.select().from(churnScoreWeights).orderBy(churnScoreWeights.signalKey);
-    if (rows.length === 0) {
+    if (rows.length === 0 && options?.seedDefaults!==false) {
       await this.seedDefaultWeights();
       return await db.select().from(churnScoreWeights).orderBy(churnScoreWeights.signalKey);
     }
@@ -179,13 +182,15 @@ export class ChurnStorage {
       .orderBy(desc(merchantHealthScores.churnScore));
   }
 
-  async getChurnRiskSummary(): Promise<{ tier: string; count: number }[]> {
+  async getChurnRiskSummary(readActor?:RevenueUser): Promise<{ tier: string; count: number }[]> {
     const rows = await db
       .select({
         tier: merchantHealthScores.riskTier,
         count: sql<number>`count(*)`,
       })
       .from(merchantHealthScores)
+      .where(readActor?sql`EXISTS (SELECT 1 FROM contacts WHERE contacts.id=${merchantHealthScores.contactId}
+        AND ${revenuePredicateSql(readActor,"contact",{recordClass:"production"})})`:undefined)
       .groupBy(merchantHealthScores.riskTier);
     return rows.map(r => ({ tier: r.tier, count: Number(r.count) }));
   }

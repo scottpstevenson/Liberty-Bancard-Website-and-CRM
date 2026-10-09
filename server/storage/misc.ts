@@ -459,7 +459,23 @@ import { coerceDateFields } from "../utils/date-coerce";
   }
 
 
-  async getAllLiveChats(params?: { limit?: number; offset?: number }): Promise<LiveChat[]> {
+  async getAllLiveChats(params?: { limit?: number; offset?: number; snapshotAt?:string;
+    before?:{at:string;id:number} }): Promise<Array<LiveChat & {inboxCursorAt?:string}>> {
+    if(params?.snapshotAt) {
+      const result=await db.execute(sql`
+        WITH pinned AS (
+          SELECT lc.*,COALESCE((SELECT max(lcm.created_at) FROM live_chat_messages lcm
+            WHERE lcm.chat_id=lc.id AND lcm.created_at<=${params.snapshotAt}::timestamp),lc.created_at) AS event_at
+          FROM live_chats lc WHERE lc.created_at<=${params.snapshotAt}::timestamp
+        )
+        SELECT id,session_id AS "sessionId",visitor_name AS "visitorName",visitor_email AS "visitorEmail",
+          page_url AS "pageUrl",status,contact_id AS "contactId",created_at AS "createdAt",
+          event_at AS "lastMessageAt",closed_at AS "closedAt",event_at::text AS "inboxCursorAt"
+        FROM pinned ${params.before ? sql`WHERE (event_at,id)<(${params.before.at}::timestamp,${params.before.id})` : sql``}
+        ORDER BY event_at DESC,id DESC LIMIT ${params.limit??1000}
+      `);
+      return result.rows as Array<LiveChat & {inboxCursorAt:string}>;
+    }
     return db.select().from(liveChats)
       .orderBy(desc(liveChats.lastMessageAt))
       .limit(params?.limit ?? 1000)
@@ -669,11 +685,13 @@ import { coerceDateFields } from "../utils/date-coerce";
     return row;
   }
 
-  async initializeOnboardingChecklist(dealId: number): Promise<typeof onboardingChecklistItems.$inferSelect[]> {
+  async initializeOnboardingChecklist(dealId: number,
+    existingTx?: Parameters<Parameters<typeof db.transaction>[0]>[0]): Promise<typeof onboardingChecklistItems.$inferSelect[]> {
+    const client=existingTx ?? db;
     const { ONBOARDING_CHECKLIST_ITEM_KEYS } = await import("../../shared/schema");
     const rows: typeof onboardingChecklistItems.$inferSelect[] = [];
     for (const itemKey of ONBOARDING_CHECKLIST_ITEM_KEYS) {
-      const [row] = await db.insert(onboardingChecklistItems)
+      const [row] = await client.insert(onboardingChecklistItems)
         .values({ dealId, itemKey, status: "not_requested", updatedAt: new Date() } as any)
         .onConflictDoNothing()
         .returning();

@@ -28,7 +28,7 @@ Settings
 PARTNERS
 RESOURCES
 U
-stage3b-47830e58-f72c-48d0-ad56-741255cd4091-admin@example.test
+stage3b-df11da39-b987-4129-91e4-37decb06f20d-admin@example.test
 Dev Mode
 Replay Tour
 Sign Out
@@ -39,68 +39,33 @@ Security warning: Your admin account does not have two-factor authentication ena
 Set up 2FA
 Back to Contacts
 Repair Fixture
-Added: 10/8/2026
-stage3b-47830e58-f72c-48d0-ad56-741255cd4091@example.test
-stage3b-47830e58-f72c-48d0-ad56-741255cd4091-agent@example.test
+stage3b-df11da39-b987-4129-91e4-37decb06f20d@example.test
+Owner: stage3b-df11da39-b987-4129-91e4-37decb06f20d-agent@example.test
 New
-Email unvalidated
-Prospect
-Lead Score:
-0
-✓
-Name
-✓
-Email
-✗
-Phone
-✗
-Company
-✗
-Website
-✗
-Vertical
-Ask AI Advisor
-Edit
-Compose Email
-GHL sync status unavailable
-Re-sync to GHL
+Lifecycle: Prospect
+Email consent: Not recorded
+SMS consent: Not recorded
+Email status: unvalidated
+Outbound paused
+No control row found — fail-closed default
 
-Writes to GHL are unavailable: synchronization is incoming-only. This does not pause incoming synchronization.
-
-Rate review status is unavailable.Retry
-Confirmation:
-Not Sent
-Email Validation:
-Not yet validated
-South Florida program (SFP) validation & readiness
-Separate from CRM
-
-This is an SFP-only decision, separate from the CRM Email Validation badge and history when present. An unvalidated CRM email plus a stored valid SFP outcome does not certify eligibility; a receipt is an eligible match only when it is matched, fresh, linked to the current employer, and the policy is eligible.
-
-No SFP validation decisions were returned for this contact. This is not a CRM validation result.
-
-Stage History
-Tags:
-Data Readiness
-
-Not yet scored. Readiness will be calculated by the active readiness backfill.
-
-↻ Re-score readiness
-Associated Companies
-Link Company
-
-No companies linked yet
+Next action: Complete task: C2 open
 
 Log Call
 Add Note
-Create Deal
-Create Task
-Create Ticket
+New Task
+More actions
 Overview
 Sales work
 Conversations
 Lifecycle
 Service & performance
+Validation, readiness & record diagnostics
+Associated Companies
+Link Company
+
+No companies linked yet
+
 Activity
 History
 Summary
@@ -139,7 +104,7 @@ No
 Do Not Contact
 No
 Assigned Rep
-stage3b-47830e58-f72c-48d0-ad56-741255cd4091-agent
+stage3b-df11da39-b987-4129-91e4-37decb06f20d-agent
 Lifecycle State
 PROSPECT
 Summary
@@ -164,4 +129,3 @@ Hard Bounce
 Complaint
 SMS Consent
 Mark Do Not Contact
-Set Next Step

@@ -32,10 +32,17 @@ try {
   }
   await run(["node_modules/tsx/dist/cli.mjs", "-e",
     'import("./server/db-migrate").then(m=>m.runDrizzleMigrations()).then(()=>import("./server/db")).then(d=>d.pool.end()).catch(()=>process.exit(1))']);
+  if(process.argv.includes("--c4-actions-only")) {
+    await run(["node_modules/tsx/dist/cli.mjs","scripts/test-stage3-c4-actions.ts"]);
+  } else if(process.argv.includes("--c4-browser")) {
+    await run(["node_modules/tsx/dist/cli.mjs","scripts/test-stage3-c4-browser.ts",
+      ...(process.argv.includes("--snapshot-hold") ? ["--snapshot-hold"] : [])]);
+  } else {
   const header = process.argv.includes("--header-before") || process.argv.includes("--header-after");
   if (!process.argv.includes("--browser-only") && !header)
     await run(["node_modules/tsx/dist/cli.mjs", "scripts/test-stage3-c2-actions.ts"]);
   await run(header
     ? ["node_modules/tsx/dist/cli.mjs", "scripts/test-c2-contact-header.ts", ...(process.argv.includes("--header-before") ? ["--before"] : [])]
     : ["node_modules/tsx/dist/cli.mjs", "scripts/test-c2-postmerge-browser.ts"]);
+  }
 } finally { await redis?.stop(); await cluster.stop(); }

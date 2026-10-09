@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import {useCrmQuery as useQuery} from "@/hooks/use-crm-query";
 import { Helmet } from "react-helmet-async";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -44,6 +45,8 @@ interface Submission {
 interface SubmissionsResponse {
   submissions: Submission[];
   counts: Record<string, number>;
+  read:{source:string;asOf:string;timezone:string;consistency:string;completeness:string;ownerScope:string;status:string;meaning:string};
+  snapshot:string;
   total: number;
 }
 
@@ -112,21 +115,28 @@ export default function BoardingTracker() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
 
-  const { data, isLoading } = useQuery<SubmissionsResponse>({
+  const { data, isLoading,isError,error,refetch } = useQuery<SubmissionsResponse>({
     queryKey: ["/api/boarding/submissions", statusFilter],
-    queryFn: async () => {
+    queryFn: async ({signal}) => {
       const url =
         statusFilter === "all"
           ? "/api/boarding/submissions"
           : `/api/boarding/submissions?status=${encodeURIComponent(statusFilter)}`;
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load boarding submissions");
-      return res.json();
+      const res = await fetch(url, { credentials: "include",signal });
+      if (!res.ok) throw new Error(`${res.status}: Boarding submissions unavailable`);
+      const read=await res.json();
+      if(!Array.isArray(read?.submissions)||read.submissions.some((row:any)=>!Number.isInteger(row?.dealId)||typeof row?.merchantName!=="string")||
+        !read?.counts||typeof read.counts!=="object"||Array.isArray(read.counts)||
+        read.read?.completeness!=="complete_authorized_recorded_cohort"||typeof read.read?.asOf!=="string"||
+        typeof read.snapshot!=="string"||
+        Object.values(read.counts).some(n=>!Number.isInteger(n)||Number(n)<0))
+        throw new Error("Boarding submissions/counts shape unavailable");
+      return read;
     },
   });
 
-  const submissions = data?.submissions || [];
-  const counts = data?.counts || {};
+  const submissions = isLoading||isError?[]:data?.submissions || [];
+  const counts = isLoading||isError?{}:data?.counts || {};
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -248,8 +258,8 @@ export default function BoardingTracker() {
           <Card key={s} data-testid={`kpi-${s}`}>
             <CardContent className="p-4">
               <p className="text-xs text-muted-foreground">{getStatusLabel(s)}</p>
-              <p className="text-2xl font-bold text-foreground mt-1">
-                {counts[s] ?? 0}
+              <p className={`${isLoading||isError?"text-sm":"text-2xl"} font-bold text-foreground mt-1 break-words`}>
+                {isLoading?"Loading":isError?"Unavailable":counts[s] ?? "—"}
               </p>
             </CardContent>
           </Card>
@@ -287,8 +297,15 @@ export default function BoardingTracker() {
         </TabsList>
       </Tabs>
 
+      {!isLoading&&!isError&&data&&<div className="space-y-1 text-xs text-muted-foreground">
+        <p>Recorded boarding state, not a processor refresh receipt. Counts follow the selected status; search filters returned records locally.</p>
+        <details><summary>Read scope and source</summary>
+          <p>{data.read.ownerScope} · production, nonarchived deals · complete authorized recorded cohort · UTC as of {data.read.asOf}</p>
+          <p className="break-all">Source: {data.read.source} · {data.read.consistency} · snapshot {data.snapshot}</p>
+        </details>
+      </div>}
       <DataState
-        query={{ isLoading, data: filtered }}
+        query={{ isLoading,isError,error,refetch, data: filtered }}
         emptyTitle="No boarding submissions found"
         emptyMessage={
           search || statusFilter !== "all"

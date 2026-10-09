@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { CrmDataState } from "@/components/crm/CrmPresentation";
+import { AgentReportsNavigation } from "@/components/crm/AgentReportsNavigation";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { PageHeader } from "@/components/ui/page-header";
 import { useAuth } from "@/hooks/use-auth";
@@ -41,19 +44,19 @@ interface LeaderboardEntry {
   initials: string;
   rank: number;
   dealsClosed: number;
-  revenueManaged: number;
+  revenueManaged: number | null;
   proposalsSent: number;
-  callsMade: number;
-  responseRate: number;
-  closeRate: number;   // #530
-  contactsCreated: number; // #910
+  callsMade: number | null;
+  responseRate: number | null;
+  closeRate: number | null;   // #530
+  contactsCreated: number | null; // #910
   prevDealsClosed: number;
-  prevRevenueManaged: number;
+  prevRevenueManaged: number | null;
   prevProposalsSent: number;
-  prevCallsMade: number;
-  prevResponseRate: number;
-  prevCloseRate: number; // #530
-  prevContactsCreated: number; // #910
+  prevCallsMade: number | null;
+  prevResponseRate: number | null;
+  prevCloseRate: number | null; // #530
+  prevContactsCreated: number | null; // #910
   isCurrentUser: boolean;
   goalProgress?: number;
 }
@@ -61,6 +64,15 @@ interface LeaderboardEntry {
 interface LeaderboardData {
   entries: LeaderboardEntry[];
   period: TimePeriod;
+  visibility: "visible" | "disabled_by_configuration";
+  read: {
+    source:string; asOf:string; timezone:string; currentStart:string; currentEnd:string;
+    completeness:"complete_returned_deal_population"|"incomplete_deal_population";
+    loadedDealCount:number; totalDealCount:number; consistency:string; attribution:string;
+    sources:{callLogs:"loaded"|"failed";creatorEvents:"loaded"|"failed"};
+    attributionCompleteness:"ambiguous_legacy_aliases"|"unique_legacy_aliases";
+    callAttribution:string;
+  };
   settings: {
     showDeals: boolean;
     showRevenue: boolean;
@@ -74,13 +86,14 @@ interface LeaderboardData {
 }
 
 const PERIOD_LABELS: Record<TimePeriod, string> = {
-  week: "This Week",
+  week: "Last 7 Days",
   month: "This Month",
   quarter: "This Quarter",
   all: "All Time",
 };
 
-function TrendIndicator({ current, prev }: { current: number; prev: number }) {
+function TrendIndicator({ current, prev }: { current: number | null; prev: number | null }) {
+  if(current==null||prev==null)return <span className="text-muted-foreground" aria-label="Comparison unavailable">—</span>;
   if (prev === 0 && current === 0) return <Minus className="w-3 h-3 text-muted-foreground" />;
   if (current > prev) return <TrendingUp className="w-3 h-3 text-green-600" />;
   if (current < prev) return <TrendingDown className="w-3 h-3 text-destructive" />;
@@ -94,10 +107,9 @@ function RankBadge({ rank }: { rank: number }) {
   return <span className="text-sm font-bold text-muted-foreground w-5 text-center" data-testid={`text-rank-${rank}`}>{rank}</span>;
 }
 
-function formatRevenue(val: number) {
-  if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(1)}M`;
-  if (val >= 1_000) return `$${(val / 1_000).toFixed(1)}K`;
-  return `$${val.toFixed(0)}`;
+function formatRevenue(val: number | null) {
+  if(val==null||!Number.isFinite(val))return "Unavailable";
+  return new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2}).format(val);
 }
 
 export default function Leaderboard() {
@@ -111,12 +123,18 @@ export default function Leaderboard() {
   const role = (user?.role as string) || "merchant";
   const isAdmin = role === "admin" || role === "manager";
 
-  const { data, isLoading } = useQuery<LeaderboardData>({
+  const { data, isLoading, isError, refetch } = useQuery<LeaderboardData>({
     queryKey: ["/api/leaderboard", period],
-    queryFn: async () => {
-      const res = await fetch(`/api/leaderboard?period=${period}`, { credentials: "include" });
+    queryFn: async ({signal}) => {
+      const res = await fetch(`/api/leaderboard?period=${period}`, { credentials: "include",signal });
       if (!res.ok) throw new Error("Failed to load leaderboard");
-      return res.json();
+      const data=await res.json();
+      if(!Array.isArray(data?.entries)||!data.read?.asOf||!data.read?.timezone||
+        !["complete_returned_deal_population","incomplete_deal_population"].includes(data.read?.completeness)||
+        !["loaded","failed"].includes(data.read?.sources?.callLogs)||!["loaded","failed"].includes(data.read?.sources?.creatorEvents)||
+        !["ambiguous_legacy_aliases","unique_legacy_aliases"].includes(data.read?.attributionCompleteness))
+        throw new Error("Leaderboard population response incomplete");
+      return data;
     },
   });
 
@@ -132,7 +150,8 @@ export default function Leaderboard() {
   });
 
   const settings = data?.settings;
-  const entries = data?.entries || [];
+  const complete=data?.read.completeness==="complete_returned_deal_population"&&data.read.attributionCompleteness==="unique_legacy_aliases";
+  const entries = complete ? data?.entries || [] : [];
 
   const metricKey: Record<string, keyof LeaderboardEntry> = {
     deals: "dealsClosed",
@@ -165,6 +184,7 @@ export default function Leaderboard() {
   const needsSeparator = currentUserEntry && currentUserEntry.rank > 10;
 
   const formatMetricValue = (entry: LeaderboardEntry, metric: string): string => {
+    if(entry[metricKey[metric]]==null)return "Unavailable";
     switch (metric) {
       case "deals": return `${entry.dealsClosed} deals`;
       case "revenue": return formatRevenue(entry.revenueManaged);
@@ -180,10 +200,10 @@ export default function Leaderboard() {
   type MetricTab = { key: string; label: string; icon: React.ElementType };
   const tabs = [
     settings?.showDeals !== false && { key: "deals", label: "Deals", icon: Trophy },
-    settings?.showRevenue !== false && { key: "revenue", label: "Revenue", icon: DollarSign },
+    settings?.showRevenue !== false && { key: "revenue", label: "Recorded Volume", icon: DollarSign },
     settings?.showProposals !== false && { key: "proposals", label: "Proposals", icon: Send },
     settings?.showCallsMade !== false && { key: "calls", label: "Calls", icon: PhoneCall },
-    settings?.showResponseRate && { key: "responseRate", label: "Response Rate", icon: Percent },
+    settings?.showResponseRate && { key: "responseRate", label: "Proposal Ratio (proxy)", icon: Percent },
     { key: "closeRate", label: "Close Rate", icon: Percent }, // #530
     { key: "contacts", label: "Contacts Added", icon: Users }, // #910
   ].filter(Boolean) as MetricTab[];
@@ -195,9 +215,10 @@ export default function Leaderboard() {
 
   return (
     <div className="space-y-6" data-testid="leaderboard-page">
+      {role==="agent"&&<AgentReportsNavigation />}
       <PageHeader
         title="Team Leaderboard"
-        subtitle="Top performers ranked by key sales metrics"
+        subtitle="Active agent roster and recorded operational observations"
         testId="text-leaderboard-title"
         actions={
           <>
@@ -212,7 +233,7 @@ export default function Leaderboard() {
               </SelectContent>
             </Select>
             {isAdmin && (
-              <Button variant="outline" size="icon" aria-label="Leaderboard settings" onClick={openSettings} data-testid="button-leaderboard-settings">
+              <Button variant="outline" size="icon" disabled={isError||isLoading||!settings} aria-label="Leaderboard settings" onClick={openSettings} data-testid="button-leaderboard-settings">
                 <Settings className="w-4 h-4" />
               </Button>
             )}
@@ -220,6 +241,15 @@ export default function Leaderboard() {
         }
       />
 
+      <p className="text-xs text-muted-foreground" data-testid="leaderboard-provenance">
+        Source: {data?.read.source??"unavailable"}; read asOf {data?.read.asOf??"unavailable"};
+        timezone {data?.read.timezone??"unavailable"}; current period {data?.read.currentStart??"unavailable"} through {data?.read.currentEnd??"unavailable"}.
+        {" "}Deal population {data?.read.loadedDealCount??"unavailable"} / {data?.read.totalDealCount??"unavailable"};
+        {" "}{data?.read.completeness??"unavailable"}; {data?.read.consistency??"no snapshot assumed"}.
+        {" "}Stored closed-won processing volume is not observed revenue or native receipts; USD is a display assumption.
+        {" "}Attribution: {data?.read.attribution??"unavailable"}. Call logs and immutable creator events are separate event populations, not merchant counts.
+        {" "}Call records {data?.read.sources.callLogs??"unavailable"}; per-agent call attribution unavailable because stored calls lack a canonical actor. Creator-event source {data?.read.sources.creatorEvents??"unavailable"}. Proposal ratio is a touched-deal proxy, not a prospect response receipt.
+      </p>
       {editingSettings && localSettings && (
         <Card data-testid="card-leaderboard-settings">
           <CardHeader>
@@ -234,10 +264,10 @@ export default function Leaderboard() {
               {(
                 [
                   { key: "showDeals" as BooleanSettingKey, label: "Show Deals Closed" },
-                  { key: "showRevenue" as BooleanSettingKey, label: "Show Revenue Managed" },
+                  { key: "showRevenue" as BooleanSettingKey, label: "Show Recorded Volume" },
                   { key: "showProposals" as BooleanSettingKey, label: "Show Proposals Sent" },
                   { key: "showCallsMade" as BooleanSettingKey, label: "Show Calls Made" },
-                  { key: "showResponseRate" as BooleanSettingKey, label: "Show Response Rate" },
+                  { key: "showResponseRate" as BooleanSettingKey, label: "Show Proposal Ratio (proxy)" },
                   { key: "visibleToAgents" as BooleanSettingKey, label: "Visible to All Reps" },
                 ] as { key: BooleanSettingKey; label: string }[]
               ).map(({ key, label }) => (
@@ -264,7 +294,7 @@ export default function Leaderboard() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-sm">Monthly Revenue Goal ($)</Label>
+                <Label className="text-sm">Modeled Monthly Volume Target (USD assumed)</Label>
                 <Input
                   type="number"
                   min={0}
@@ -296,7 +326,10 @@ export default function Leaderboard() {
 
         {tabs.map(({ key }) => (
           <TabsContent key={key} value={key} className="mt-4">
-            {isLoading ? (
+            {isError||(!isLoading&&!complete) ? <CrmDataState state="unavailable" message="Complete leaderboard population unavailable; no empty team or zero performance is inferred." onRetry={()=>void refetch()}/>
+            : data?.visibility==="disabled_by_configuration" ? <CrmDataState state="unavailable" message="Leaderboard visibility is disabled by configuration; the team is not assumed empty."/>
+            : entries.some(e=>e[metricKey[key]]==null) ? <CrmDataState state="unavailable" message="Required observations, attribution or ratio denominator unavailable; no zero performance or revenue ranking is inferred."/>
+            : isLoading ? (
               <Card>
                 <CardContent className="pt-4">
                   {Array.from({ length: 5 }).map((_, i) => (
@@ -365,10 +398,10 @@ export default function Leaderboard() {
                               <TrendIndicator current={metricVal} prev={prevVal} />
                             </div>
                             <span className="text-xs text-muted-foreground">
-                              {key === "deals" ? "deals" : key === "revenue" ? "revenue" : key === "proposals" ? "proposals" : key === "responseRate" ? "response rate" : key === "contacts" ? "contacts added" : "calls"}
+                              {key === "deals" ? "deals" : key === "revenue" ? "recorded volume" : key === "proposals" ? "proposals" : key === "responseRate" ? "proposal ratio (proxy)" : key === "contacts" ? "creator events" : "calls"}
                             </span>
                             {/* #1001 — Avg deal size when sorting by deals or revenue */}
-                            {(key === "deals" || key === "revenue") && entry.dealsClosed > 0 && (
+                            {(key === "deals" || key === "revenue") && entry.dealsClosed > 0 && entry.revenueManaged!=null && (
                               <span className="text-[10px] text-muted-foreground block" data-testid={`text-avg-deal-${entry.agentId}`}>
                                 avg {formatRevenue(Math.round(entry.revenueManaged / entry.dealsClosed))}
                               </span>

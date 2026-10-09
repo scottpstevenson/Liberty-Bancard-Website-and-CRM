@@ -160,17 +160,18 @@ function ChangeEntry({ entry }: { entry: AuditLogEntry }) {
 }
 
 export function ChangeHistoryTab({ entityType, entityId }: ChangeHistoryTabProps) {
-  const { data: logs, isLoading } = useQuery<AuditLogEntry[]>({
+  const { data: logs, isLoading, isError, refetch } = useQuery<AuditLogEntry[]>({
     queryKey: ["/api/audit-logs/entity", entityType, entityId],
     queryFn: async () => {
       const res = await fetch(`/api/audit-logs/entity/${entityType}/${entityId}?limit=100`, { credentials: "include" });
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error("Immutable change-history source unavailable");
       return res.json();
     },
     enabled: !!entityId,
     staleTime: 30000,
   });
 
+  if (isError) return <p role="alert" className="text-sm border rounded p-4">Change history unavailable; no empty-event conclusion. <button className="min-h-11 px-3" onClick={()=>void refetch()}>Retry history</button></p>;
   if (isLoading) {
     return (
       <Card>

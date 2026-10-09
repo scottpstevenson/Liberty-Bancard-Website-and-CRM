@@ -25,6 +25,14 @@ export class MerchantMidTransitionError extends Error {
   }
 }
 
+/** Exact case relationship; callers authorize both case contact/deal first.
+ * The MID registry, never a free-form client string, supplies submission MID. */
+export async function readChargebackMidOptions(contactId:number, dealId:number|null) {
+  return db.select({id:merchantMids.id,mid:merchantMids.mid,status:merchantMids.status})
+    .from(merchantMids).where(and(eq(merchantMids.contactId,contactId),
+      ...(dealId ? [sql`(${merchantMids.dealId} IS NULL OR ${merchantMids.dealId}=${dealId})`] : [])));
+}
+
 /** Mask a MID for audit logs — keeps last 4 digits, masks the rest. */
 function maskMid(mid: string): string {
   if (!mid || mid.length <= 4) return "****";

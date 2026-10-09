@@ -1,4 +1,6 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { CrmDataState } from "@/components/crm/CrmPresentation";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -218,20 +220,30 @@ function ABTestCard({ test }: { test: ABTestResult }) {
 export default function OutreachAnalytics() {
   const { toast } = useToast();
 
-  const { data: campaigns, isLoading: campaignsLoading, isError: campaignsError } = useQuery<Campaign[]>({
+  const { data: campaigns, isLoading: campaignsLoading, isError: campaignsError, refetch: retryCampaigns } = useQuery<Campaign[]>({
     queryKey: ["/api/campaigns"],
-  });
-
-  const { data: messages, isLoading: messagesLoading } = useQuery<OutboundMessage[]>({
-    queryKey: ["/api/outbound-messages", "?limit=50"],
-    queryFn: async () => {
-      const res = await fetch("/api/outbound-messages?limit=50", { credentials: "include" });
-      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
-      return res.json();
+    queryFn:async({signal})=>{
+      const response=await fetch("/api/campaigns",{credentials:"include",signal});
+      if(!response.ok)throw new Error("Campaign observations unavailable");
+      const rows=await response.json();
+      if(!Array.isArray(rows)||rows.some(c=>!Number.isInteger(c?.id)||typeof c?.name!=="string"))
+        throw new Error("Campaign collection shape unavailable");
+      return rows;
     },
   });
 
-  const { data: abTestResults, isLoading: abLoading } = useQuery<ABTestResult[]>({
+  const { data: messages, isLoading: messagesLoading, isError: messagesError, refetch: retryMessages } = useQuery<OutboundMessage[]>({
+    queryKey: ["/api/outbound-messages", "?limit=50"],
+    queryFn: async ({signal}) => {
+      const res = await fetch("/api/outbound-messages?limit=50", { credentials: "include",signal });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      const rows=await res.json();
+      if (!Array.isArray(rows)) throw new Error("Invalid outbound-message collection");
+      return rows;
+    },
+  });
+
+  const { data: abTestResults, isLoading: abLoading, isError: abError, refetch: retryAb } = useQuery<ABTestResult[]>({
     queryKey: ["/api/sequences/ab-test-results"],
   });
 
@@ -253,7 +265,7 @@ export default function OutreachAnalytics() {
   });
 
   const campaignMetricsAvailable = !!campaigns && campaigns.every(c =>
-    [c.totalSent, c.totalOpened, c.totalReplied, c.totalBounced].every(value => typeof value === "number"),
+    [c.totalSent, c.totalOpened, c.totalReplied, c.totalBounced].every(value => typeof value === "number"&&Number.isFinite(value)&&value>=0),
   );
   const totalCampaigns = campaigns?.length;
   const totalSent = campaignMetricsAvailable ? campaigns.reduce((sum, c) => sum + c.totalSent!, 0) : null;
@@ -276,39 +288,6 @@ export default function OutreachAnalytics() {
   const activeTests = (abTestResults || []).filter(t => !t.abTestResults.winnerSelected);
   const completedTests = (abTestResults || []).filter(t => !!t.abTestResults.winnerSelected);
 
-  const isLoading = campaignsLoading;
-
-  if (isLoading) {
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Card key={i}>
-              <CardHeader className="pb-2">
-                <Skeleton className="h-4 w-24" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-8 w-16" />
-                <Skeleton className="h-3 w-20 mt-2" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-        <Card>
-          <CardHeader>
-            <Skeleton className="h-5 w-48" />
-          </CardHeader>
-          <CardContent>
-            <Skeleton className="h-40 w-full" />
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-  if (campaignsError || !campaigns) {
-    return <div className="py-8 text-center text-destructive">Campaign reporting is unavailable. Please retry after the service recovers.</div>;
-  }
-
   return (
     <div className="space-y-6">
       <div>
@@ -318,7 +297,9 @@ export default function OutreachAnalytics() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      {campaignsLoading ? <CrmDataState state="loading" message="Loading campaign observations; independent report sections remain available."/>
+      : campaignsError||!campaigns ? <CrmDataState state="unavailable" message="Campaign reporting is unavailable; no empty campaign population or zero performance is inferred." onRetry={()=>void retryCampaigns()}/>
+      : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <Card data-testid="card-kpi-total-campaigns">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Loaded Campaigns</CardTitle>
@@ -373,13 +354,14 @@ export default function OutreachAnalytics() {
         </Card>
       </div>
 
+      }
       <Tabs defaultValue="campaigns" data-testid="outreach-tabs">
         <TabsList>
           <TabsTrigger value="campaigns" data-testid="tab-campaigns">Campaigns</TabsTrigger>
           <TabsTrigger value="ab-testing" data-testid="tab-ab-testing">
             <FlaskConical className="w-3.5 h-3.5 mr-1.5" />
             A/B Testing
-            {activeTests.length > 0 && (
+            {!abLoading&&!abError&&abTestResults&&activeTests.length > 0 && (
               <Badge variant="secondary" className="ml-1.5 text-xs">{activeTests.length}</Badge>
             )}
           </TabsTrigger>
@@ -395,7 +377,9 @@ export default function OutreachAnalytics() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0 overflow-x-auto">
-              <Table>
+              {campaignsLoading ? <CrmDataState state="loading" message="Loading campaign observations."/>
+              : campaignsError||!campaigns ? <CrmDataState state="unavailable" message="Campaign records unavailable; independent A/B results and message history remain selectable." onRetry={()=>void retryCampaigns()}/>
+              : <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Campaign</TableHead>
@@ -451,7 +435,7 @@ export default function OutreachAnalytics() {
                     })
                   )}
                 </TableBody>
-              </Table>
+              </Table>}
             </CardContent>
           </Card>
         </TabsContent>
@@ -470,7 +454,7 @@ export default function OutreachAnalytics() {
               {refreshAbMutation.isPending ? "Checking..." : "Refresh A/B Data"}
             </Button>
           </div>
-          {abLoading ? (
+          {abError ? <CrmDataState state="unavailable" message="A/B results unavailable; this is not a no-tests result." onRetry={()=>void retryAb()}/> : abLoading ? (
             <div className="space-y-4">
               {[1, 2].map(i => <Skeleton key={i} className="h-48 w-full" />)}
             </div>
@@ -521,7 +505,7 @@ export default function OutreachAnalytics() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0 overflow-x-auto">
-              {messagesLoading ? (
+              {messagesError ? <CrmDataState state="unavailable" message="Message source unavailable; this is not an empty history." onRetry={()=>void retryMessages()}/> : messagesLoading ? (
                 <div className="p-6 space-y-3">
                   {Array.from({ length: 5 }).map((_, i) => (
                     <Skeleton key={i} className="h-10 w-full" />

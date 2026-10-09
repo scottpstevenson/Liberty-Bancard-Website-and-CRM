@@ -81,3 +81,22 @@ These obligations must not be silently deferred to C2–C5 or treated as complet
 Unsafe persistent saved-filter editing/deletion remains a separate A/B owner repair;
 C1 has no dependent persistent UI. Native primary/convergence and recovery acceptance
 remain separate work and are not inferred from the disposable stock suite.
+
+## C4-owned nested selector extensions
+
+The existing C1 codec now declares `testimonialView` (pending, approved,
+rejected, all) beneath Merchant Success's `tab=testimonials` and `rfiView`
+(all, Open, In Progress, Waiting on Merchant, Responded, Closed) beneath
+Support's `tab=rfis`. These are implementation extensions, not assertions
+that the original C1 snapshot shipped them. They remain distinct from the
+outer workspace tab and from Review Queue's `reviewView`.
+
+Deliberate selections push; retained aliases replace. Registered context and
+safe fragments survive both. Invalid/conflicting child values are preserved
+through the alias to render an unavailable state without a default child
+request. Equal duplicate values resolve through the existing C1 selector.
+Closing selected RFI context removes only the existing generic `id`, retaining workspace/status
+and other registered context. URL metadata does not grant permission:
+canonical Merchant Success and Support remain admin/manager guarded; the
+existing A exact/collection RFI readers separately govern authorized employee
+record access. No new command or native acceptance follows from these codecs.

@@ -65,7 +65,19 @@ function ThreadView({ item, onBack }: { item: InboxItem; onBack: () => void }) {
     staleTime: 30000,
   });
 
-  const body = stripHtml(fullItem?.body || fullItem?.preview || item.preview || "");
+  const body = typeof fullItem?.body==="string" ? stripHtml(fullItem.body) : null;
+  const siteId=fullItem?.channel==="site" ? /^live_chat:local::session:([1-9]\d*)$/.exec(fullItem.id)?.[1] : undefined;
+  const siteMessages=useQuery<{messages:Array<{id:number;content:string;senderType:string;createdAt:string}>}>({
+    queryKey:["/api/live-chat/sessions",siteId,"messages"],
+    enabled:!!siteId,
+    queryFn:async({signal})=>{
+      const response=await apiRequest("GET",`/api/live-chat/sessions/${siteId}/messages`,undefined,undefined,signal);
+      const value=await response.json();
+      if(!Array.isArray(value.messages) || value.messages.some((message:any)=>!Number.isSafeInteger(message.id)||typeof message.content!=="string"))
+        throw new Error("Malformed captured site-chat messages");
+      return value;
+    },
+  });
   const name = item.contactName || "Unknown";
   const color = avatarColor(name);
   const initials = getInitials(name);
@@ -96,6 +108,15 @@ function ThreadView({ item, onBack }: { item: InboxItem; onBack: () => void }) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
+        {siteId && <section aria-label="Captured site-chat messages" className="space-y-3 mb-4">
+          {siteMessages.isLoading ? <p role="status">Reading authorized session messages…</p>
+            : siteMessages.isError ? <p role="alert">Session messages unavailable. <Button variant="outline" onClick={()=>void siteMessages.refetch()}>Retry messages</Button></p>
+            : siteMessages.data?.messages.length===0 ? <p>No messages captured for this authorized session.</p>
+            : siteMessages.data?.messages.map(message=><article key={message.id} className="rounded-xl border p-3 whitespace-pre-wrap">
+              <p className="text-xs text-muted-foreground">{message.senderType} · {new Date(message.createdAt).toLocaleString()}</p>
+              <p className="text-sm">{message.content}</p>
+            </article>)}
+        </section>}
         {isLoading ? (
           <div className="space-y-3" role="status" aria-label="Loading message">
             <div className="h-24 animate-pulse rounded-2xl bg-muted" />
@@ -119,7 +140,8 @@ function ThreadView({ item, onBack }: { item: InboxItem; onBack: () => void }) {
               </div>
             </div>
             <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed [overflow-wrap:anywhere]">
-              {body || "(No message body)"}
+              {body===null ? "The source did not capture a full message body. The list preview is not a conversation transcript." :
+                body || "(Captured message body is empty)"}
             </p>
           </div>
         )}

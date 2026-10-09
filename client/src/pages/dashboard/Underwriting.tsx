@@ -1,5 +1,9 @@
-import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useSearch, useLocation } from "wouter";
+import { selectValue, safeParams, safeContextKeys, destinationUrl, underwritingViews } from "@/lib/crm-destination-state";
+import { useMutation } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { CrmDataState } from "@/components/crm/CrmPresentation";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -86,7 +90,16 @@ function formatDate(d: string | null | undefined) {
 
 export default function UnderwritingPage() {
   const { toast } = useToast();
-  const [tab, setTab] = useState("queue");
+  const search=useSearch();
+  const [,navigate]=useLocation();
+  const view=selectValue(new URLSearchParams(search),"underwritingView",underwritingViews,"queue");
+  const tab=view.value;
+  const setTab=(next:string)=>{
+    if(!underwritingViews.includes(next as typeof tab))return;
+    const params=safeParams(search,safeContextKeys);
+    params.set("underwritingView",next);
+    navigate(destinationUrl("/dashboard/underwriting",params,window.location.hash));
+  };
   const [overrideDialog, setOverrideDialog] = useState<{
     dealId: number;
     action: "approve" | "reject";
@@ -95,24 +108,23 @@ export default function UnderwritingPage() {
   const [rulesForm, setRulesForm] = useState<Partial<RulesConfig>>({});
   const [blockedInput, setBlockedInput] = useState("");
 
-  const { data: stats, isLoading: statsLoading } = useQuery<StatsData>({
+  const { data: stats, isLoading: statsLoading, isError: statsError, refetch: retryStats } = useQuery<StatsData>({
     queryKey: ["/api/underwriting/stats"],
     refetchInterval: 60000,
   });
 
-  const { data: queue = [], isLoading: queueLoading, refetch: refetchQueue } = useQuery<QueueRow[]>({
+  const { data: queue = [], isLoading: queueLoading, isError: queueError, refetch: refetchQueue } = useQuery<QueueRow[]>({
     queryKey: ["/api/underwriting/queue"],
     refetchInterval: 60000,
   });
 
-  const { data: approvedToday = [], isLoading: approvedLoading } = useQuery<QueueRow[]>({
+  const { data: approvedToday = [], isLoading: approvedLoading, isError: approvedError, refetch: retryApproved } = useQuery<QueueRow[]>({
     queryKey: ["/api/underwriting/approved-today"],
     refetchInterval: 60000,
   });
 
-  const { data: rules, isLoading: rulesLoading } = useQuery<RulesConfig>({
+  const { data: rules, isLoading: rulesLoading, isError: rulesError, refetch: retryRules } = useQuery<RulesConfig>({
     queryKey: ["/api/underwriting/rules"],
-    onSuccess: (data: RulesConfig) => setRulesForm(data),
   } as any);
 
   const approveMutation = useMutation({
@@ -128,6 +140,7 @@ export default function UnderwritingPage() {
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
+  useEffect(()=>{if(rules && !rulesError)setRulesForm(rules);},[rules,rulesError]);
 
   const rejectMutation = useMutation({
     mutationFn: ({ dealId, note }: { dealId: number; note: string }) =>
@@ -172,6 +185,8 @@ export default function UnderwritingPage() {
   const reviewRows = queue.filter(r => r.decision === "review");
 
   return (
+    <>
+    {view.issues.length>0 && <p role="status" className="text-sm border rounded p-3">{view.issues[0].reason}</p>}
     <div className="space-y-6" data-testid="page-underwriting">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
@@ -188,7 +203,7 @@ export default function UnderwritingPage() {
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {statsLoading ? (
+        {statsError ? <CrmDataState state="unavailable" message="Underwriting statistics unavailable. No zero-population conclusion." onRetry={()=>void retryStats()}/> : statsLoading ? (
           Array.from({ length: 4 }).map((_, i) => (
             <Card key={i}><CardContent className="pt-4 pb-4"><Skeleton className="h-12 w-full" /></CardContent></Card>
           ))
@@ -258,7 +273,7 @@ export default function UnderwritingPage() {
 
         {/* ── Needs Review Tab ─────────────────────────────────────────── */}
         <TabsContent value="queue" className="mt-4 space-y-4">
-          {queueLoading ? (
+          {queueError ? <CrmDataState state="unavailable" message="Review queue unavailable. The queue is not confirmed clear." onRetry={()=>void refetchQueue()}/> : queueLoading ? (
             <div className="space-y-3">
               {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)}
             </div>
@@ -316,7 +331,7 @@ export default function UnderwritingPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {approvedLoading ? (
+          {approvedError ? <CrmDataState state="unavailable" message="Approved-today source unavailable." onRetry={()=>void retryApproved()}/> : approvedLoading ? (
                 <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
               ) : approvedToday.length === 0 ? (
                 <p className="text-muted-foreground text-sm text-center py-8">No auto-approvals yet today.</p>
@@ -379,6 +394,8 @@ export default function UnderwritingPage() {
 
         {/* ── Rules Config Tab ─────────────────────────────────────────── */}
         <TabsContent value="config" className="mt-4">
+          {rulesError ? <CrmDataState state="unavailable" message="Rules configuration unavailable; editing is blocked until a successful readback." onRetry={()=>void retryRules()}/> : null}
+          <fieldset disabled={rulesLoading || rulesError || !rules}>
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
@@ -506,6 +523,7 @@ export default function UnderwritingPage() {
               )}
             </CardContent>
           </Card>
+          </fieldset>
         </TabsContent>
       </Tabs>
 
@@ -556,6 +574,7 @@ export default function UnderwritingPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </>
   );
 }
 

@@ -1,0 +1,48 @@
+DAILY WORK
+Overview
+Contacts & Leads
+Pipeline
+Messages & Inbox
+Tasks & Appointments
+3
+AI Advisor
+MERCHANT OPS
+Portfolio
+Applications
+Statement Reviews
+Documents
+Underwriting
+Onboarding
+Merchant Risk
+Boarding
+OUTBOUND
+Canonical Enrichment
+Lead Ops Center
+Ready for Outreach
+Outreach
+Lead Imports
+REPORTS
+Reports
+Leaderboard
+Settings
+PARTNERS
+RESOURCES
+U
+stage3b-a82f45bb-f918-4ee7-8594-f7abe0eaf347-admin@example.test
+Dev Mode
+Replay Tour
+Sign Out
+Toggle Sidebar
+Reports
+Ctrl+K
+Security warning: Your admin account does not have two-factor authentication enabled. Enable 2FA immediately to protect your account.
+Set up 2FA
+Reports
+
+Business performance, outreach, operations and financial views in the same authorized scope.
+
+Sales & Growth
+Operations
+Outreach
+Financial
+Operations report unavailable: Failed to load operations reportRetry

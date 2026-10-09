@@ -1,0 +1,116 @@
+DAILY WORK
+Overview
+Contacts & Leads
+Pipeline
+Messages & Inbox
+Tasks & Appointments
+AI Advisor
+MERCHANT OPS
+Portfolio
+Applications
+Statement Reviews
+Documents
+Underwriting
+Onboarding
+Merchant Risk
+Boarding
+OUTBOUND
+Canonical Enrichment
+Lead Ops Center
+Ready for Outreach
+Outreach
+Lead Imports
+REPORTS
+Reports
+Leaderboard
+Settings
+PARTNERS
+RESOURCES
+U
+stage3b-06420f74-7326-4881-b1ab-a57e9866d0c2-admin@example.test
+Dev Mode
+Replay Tour
+Sign Out
+Toggle Sidebar
+Reports
+Ctrl+K
+Security warning: Your admin account does not have two-factor authentication enabled. Enable 2FA immediately to protect your account.
+Set up 2FA
+Reports
+
+Business performance, outreach, operations and financial views in the same authorized scope.
+
+Sales & Growth
+Operations
+Outreach
+Financial
+Revenue Dashboard
+Forecasting
+Terminal ROI
+
+A-owned registry-linked observation population: complete_exact_relationship · source merchant_residuals_stored_observations · read asOf 2026-10-09 14:13:10.489154+00. Summary, worklist, recorded-period chart and export share parent/search/period scope (2026-10); recorded period strings are not assumed event-time windows. Source currency is not recorded; USD is a display assumption. Native execution/ingestion completeness is unverified. Legacy import/history facts are separate named populations, not this filtered aggregate.
+
+Residual Revenue
+
+Portfolio performance, reconciliation, and agent commissions
+
+Dashboard
+By Partner
+Import & Reconcile
+History
+Payouts
+Export Revenue Data
+Stored reported revenue
+$10.10
+
+Applied parent/search/recorded-period population
+
+Observed registered MIDs
+1
+
+Distinct registered MID IDs with captured observations; not active processing or merchant count
+
+Avg Stored Revenue per Registered MID
+$10.10
+
+Stored reported revenue / distinct registered MID IDs across selected periods; not a monthly forecast
+
+Attrition Rate
+Unavailable
+
+A time-windowed population transition is not supplied by these stored observations
+
+Stored revenue by recorded period (last 6 raw values)
+$10
+2026-10
+Raw recorded period	Stored reported revenue (USD display assumption)
+2026-10	$10.10
+Merchant Residuals
+Recorded period (blank = all)
+Merchant Name	MID	Volume	Revenue	Cost	Net Revenue	Agent	Commission	Flags
+C4 Captured Financial Observation	••••c2-0
+$0
+Unavailable
+
+$10.10
+Unavailable
+	Unavailable	Unavailable	No captured agent attribution	$0.00
+--
+Live MID Processing Data
+Never synced
+
+No MIDs assigned yet. Approve deals with a MID to see live processing data here.
+
+Stored Agent Attribution
+
+Same complete parent/search/recorded-period scope and read snapshot as the observations above. Agent IDs use the agents namespace, not user or Contact IDs. Labels never merge identities. Revenue and commission are stored observations, not earned or paid receipts; source currency is not recorded, USD display is an assumption, and native execution remains unverified.
+
+Stored Agent Identity	Observation Records	Stored Revenue	Stored Commission
+No stored agent identity	1 · 1 registered MIDs	$10.10	$0.00
+Step 1 of 8
+Welcome to Liberty Bancard
+
+You're now set up as an admin — the highest level of access on the platform. This short tour covers the key areas you'll use every day so you can hit the ground running.
+
+Next →
+Skip tour

@@ -24,6 +24,7 @@ import { authorizeDealAccess, denyCrmObject } from "../services/crm-object-acces
 import { getPilotRepIdsAsync, invalidatePilotCache } from "./field-territories";
 import { registerContactLinkCoverageRoutes } from "./contact-link-coverage";
 import {registerImportLockDiagnosticRoutes} from "./import-lock-diagnostics";
+import {registerTestimonialRoutes} from "./testimonials";
 
 export function registerAdminRoutes(app: Express) {
   registerContactLinkCoverageRoutes(app);
@@ -1195,45 +1196,7 @@ export function registerAdminRoutes(app: Express) {
   });
 
   // === TESTIMONIAL SUBMISSIONS (staff review inbox) ===
-  app.get("/api/testimonial-submissions", isAuthenticated, async (req, res) => {
-    try {
-      const status = typeof req.query.status === "string" ? req.query.status : undefined;
-      const submissions = await storage.getTestimonialSubmissions(status);
-      res.json(submissions);
-    } catch (err: any) {
-      serverError(res, err);
-    }
-  });
-
-  app.get("/api/testimonial-submissions/:id", isAuthenticated, async (req, res) => {
-    try {
-      const submission = await storage.getTestimonialSubmission(Number(String(req.params.id)));
-      if (!submission) return res.status(404).json({ message: "Not found" });
-      res.json(submission);
-    } catch (err: any) {
-      serverError(res, err);
-    }
-  });
-
-  app.patch("/api/testimonial-submissions/:id", isAuthenticated, async (req, res) => {
-    try {
-      const allowed = ["status", "publish", "reviewNotes", "reviewedBy"] as const;
-      const updates: Record<string, any> = {};
-      for (const k of allowed) if (k in req.body) updates[k] = req.body[k];
-      if (updates.status && !["pending", "approved", "rejected"].includes(updates.status)) {
-        return res.status(400).json({ message: "Invalid status" });
-      }
-      const user: any = req.user;
-      if (updates.status && updates.status !== "pending" && !updates.reviewedBy) {
-        updates.reviewedBy = user?.email || user?.id || "staff";
-      }
-      const updated = await storage.updateTestimonialSubmission(Number(String(req.params.id)), updates);
-      if (!updated) return res.status(404).json({ message: "Not found" });
-      res.json(updated);
-    } catch (err: any) {
-      serverError(res, err);
-    }
-  });
+  registerTestimonialRoutes(app);
 
   app.get("/api/admin/processor-adapters", requireRole("admin", "manager"), async (_req, res) => {
     try {

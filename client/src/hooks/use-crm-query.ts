@@ -2,6 +2,12 @@ import { useQuery, skipToken, type UseQueryOptions, type QueryKey, type QueryFun
 import { getQueryFn, protectedScope } from "@/lib/queryClient";
 import { useAuth } from "./use-auth";
 
+/** Local selections/drafts must use the same owner identity as protected reads. */
+export function useCrmActorIdentity(){
+  const {user}=useAuth();
+  return JSON.stringify(protectedScope(user));
+}
+
 /** Adopted Contact reads keep their old family/id prefixes and explicit
  * request URL. Only cache identity receives the actor/permission generation. */
 export function useCrmQuery<T = unknown, E = Error, D = T>(

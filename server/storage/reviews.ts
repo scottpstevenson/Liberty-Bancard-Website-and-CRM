@@ -97,7 +97,14 @@ import {
   roleplayExchanges, type RoleplayExchange, type InsertRoleplayExchange,
   leaderboardSettings, type LeaderboardSettings,
 } from "@shared/schema";
-import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
+import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count, getTableColumns } from "drizzle-orm";
+import { npsStatsReadSchema } from "../../shared/nps-observation";
+
+// A-owned management read scope only. Public token reads and B writes are unchanged.
+const npsManagementReadScope = () => sql`
+  ${contacts.recordClass} = 'production' AND ${contacts.archivedAt} IS NULL
+  AND (${npsResponses.createdAt} IS NULL OR ${npsResponses.createdAt} <= statement_timestamp())
+  AND (${npsResponses.submittedAt} IS NULL OR ${npsResponses.submittedAt} <= statement_timestamp())`;
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class ReviewsStorage {
@@ -170,7 +177,10 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async getNpsResponses() {
-    return db.select().from(npsResponses).orderBy(desc(npsResponses.createdAt));
+    return db.select(getTableColumns(npsResponses)).from(npsResponses)
+      .innerJoin(contacts, eq(npsResponses.contactId, contacts.id))
+      .where(npsManagementReadScope())
+      .orderBy(desc(npsResponses.createdAt), desc(npsResponses.id));
   }
 
   async getNpsResponse(id: number) {
@@ -198,15 +208,35 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
   async getNpsStats() {
-    const all = await db.select().from(npsResponses).where(sql`submitted_at IS NOT NULL`);
-    const total = await db.select({ count: count() }).from(npsResponses);
-    const submitted = all.length;
-    const avgScore = submitted > 0 ? all.reduce((s, r) => s + (r.score ?? 0), 0) / submitted : 0;
-    const promoters = all.filter(r => (r.score ?? 0) >= 9).length;
-    const detractors = all.filter(r => (r.score ?? 0) <= 6).length;
-    const passives = submitted - promoters - detractors;
-    const npsScore = submitted > 0 ? Math.round(((promoters - detractors) / submitted) * 100) : 0;
-    return { total: total[0]?.count ?? 0, submitted, avgScore: Math.round(avgScore * 10) / 10, promoters, detractors, passives, npsScore };
+    const result = await db.execute(sql`
+      WITH scoped AS (
+        SELECT ${npsResponses.score} AS score, ${npsResponses.submittedAt} AS submitted_at
+        FROM ${npsResponses} INNER JOIN ${contacts}
+          ON ${npsResponses.contactId} = ${contacts.id}
+        WHERE ${npsManagementReadScope()}
+      ), sample AS (
+        SELECT count(*)::int AS total,
+          count(*) FILTER (WHERE submitted_at IS NOT NULL)::int AS submitted,
+          count(*) FILTER (WHERE submitted_at IS NOT NULL AND score BETWEEN 0 AND 10)::int AS scored,
+          round(avg(score) FILTER (WHERE submitted_at IS NOT NULL AND score BETWEEN 0 AND 10), 1)::float8 AS "avgScore",
+          count(*) FILTER (WHERE submitted_at IS NOT NULL AND score BETWEEN 9 AND 10)::int AS promoters,
+          count(*) FILTER (WHERE submitted_at IS NOT NULL AND score BETWEEN 0 AND 6)::int AS detractors,
+          count(*) FILTER (WHERE submitted_at IS NOT NULL AND score BETWEEN 7 AND 8)::int AS passives
+        FROM scoped
+      )
+      SELECT *, submitted - scored AS "invalidSubmitted",
+        CASE WHEN scored > 0 THEN round(100.0 * (promoters - detractors) / scored)::int ELSE NULL END AS "npsScore",
+        to_char(statement_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "asOf"
+      FROM sample`);
+    const row = result.rows[0];
+    return npsStatsReadSchema.parse({
+      ...row, metadata: {
+        source: "nps_responses", scope: "nonarchived_production_contact_surveys",
+        period: "all_stored_observations_up_to_asOf", timezone: "UTC",
+        asOf: row.asOf, snapshotConsistency: "single_statement",
+        units: "survey_records_not_unique_merchants",
+      },
+    });
   }
 
   // ── Merchant Referrals ─────────────────────────────────────────────────────

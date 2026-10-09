@@ -5,6 +5,7 @@ import { useMutation, type InfiniteData } from "@tanstack/react-query";
 import { useCrmInfiniteQuery } from "@/hooks/use-crm-infinite-query";
 import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { apiRequest, queryClient, protectedContextToken, protectedScope } from "@/lib/queryClient";
+import { requireDealTransitionObservation, DealTransitionObservationError } from "@/lib/deal-transition-observation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -1948,6 +1949,15 @@ function PipelineWorkspace() {
       const previous = queryClient.getQueryData<InfiniteData<DealPage, number>>(scopedKey);
       const previousDeal = previous?.pages.flatMap(page => page.data).find(deal => deal.id === variables.id);
       if (typeof variables.stage === "string") {
+        try {
+          if(typeof variables.expectedStage!=="string")throw new DealTransitionObservationError("Displayed source stage unavailable; no move was sent.");
+          const observed=await (await apiRequest("GET",`/api/deals/${variables.id}/transition-options`)).json();
+          requireDealTransitionObservation(observed,variables.id,variables.expectedStage,variables.stage);
+          if(context!==protectedContextToken())throw new DealTransitionObservationError("Workspace changed; review the deal before moving it.");
+        } catch(error) {
+          throw new DealTransitionObservationError(error instanceof DealTransitionObservationError?error.message:
+            "Structural transition read unavailable; no move was sent.",context);
+        }
         queryClient.setQueryData<InfiniteData<DealPage, number>>(scopedKey, old => old ? ({
           ...old, pages: old.pages.map(page => ({
             ...page, data: page.data.map(deal => deal.id === variables.id
@@ -1971,6 +1981,10 @@ function PipelineWorkspace() {
       toast({ title: "Deal updated successfully" });
     },
     onError: async (err: Error, variables, context) => {
+      if(err instanceof DealTransitionObservationError){
+        if(err.scope===protectedContextToken())toast({title:"Move not sent",description:err.message,variant:"destructive"});
+        return;
+      }
       if (context?.context !== protectedContextToken()) return;
       if (context.previousDeal) {
         queryClient.setQueryData<InfiniteData<DealPage, number>>(context.scopedKey, old => old ? ({
@@ -2262,7 +2276,7 @@ function PipelineWorkspace() {
     updateDealMutation.mutate({
       id: selectedDeal.id,
       ...updates,
-      ...(typeof updates.stage === "string" && updates.stage !== displayedStage ? { expectedStage: displayedStage } : {}),
+      ...(typeof updates.stage === "string" ? { expectedStage: displayedStage } : {}),
     });
     setCloseReasonOpen(false);
     setCloseReasonDraft("");

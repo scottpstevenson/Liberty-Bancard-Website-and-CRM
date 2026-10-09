@@ -1,11 +1,15 @@
-import { useState } from "react";
+import { useState,useEffect } from "react";
+import {useSearch,useLocation} from "wouter";
+import {c4WorkspaceSelection,testimonialViews,testimonialUrl} from "@/lib/crm-destination-state";
+import {useCrmQuery as useQuery,useCrmActorIdentity} from "@/hooks/use-crm-query";
+import {CrmDataState} from "@/components/crm/CrmPresentation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -38,7 +42,7 @@ function StatusBadge({ status }: { status: string }) {
     approved: { variant: "default", className: "bg-emerald-600 text-white dark:bg-emerald-600", label: "Approved" },
     rejected: { variant: "outline", className: "border-red-500/50 text-red-600 dark:text-red-400", label: "Rejected" },
   };
-  const cfg = map[status] || map.pending;
+  const cfg = map[status] || {variant:"outline",className:"",label:status?`Unknown: ${status}`:"Status unavailable"};
   return (
     <Badge variant={cfg.variant} className={cfg.className} data-testid={`badge-status-${status}`}>
       {cfg.label}
@@ -48,25 +52,35 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function TestimonialSubmissions() {
   const { toast } = useToast();
-  const [filter, setFilter] = useState<StatusFilter>("pending");
+  const viewState=c4WorkspaceSelection(useSearch(),"testimonialView",testimonialViews,"pending");
+  const filter=viewState.value;
+  const [,navigate]=useLocation();
+  const setFilter=(value:StatusFilter)=>navigate(testimonialUrl(window.location.search,window.location.hash,value));
   const [notesById, setNotesById] = useState<Record<number, string>>({});
+  const actorIdentity=useCrmActorIdentity();
+  useEffect(()=>setNotesById({}),[actorIdentity]);
 
   const queryKey = filter === "all" ? ["/api/testimonial-submissions"] : ["/api/testimonial-submissions", filter];
 
-  const { data: submissions, isLoading } = useQuery<TestimonialSubmission[]>({
+  const { data: submissions, isLoading,isError,error,refetch } = useQuery<TestimonialSubmission[]>({
     queryKey,
-    queryFn: async () => {
+    enabled:!viewState.issues.length,
+    queryFn: async ({signal}) => {
       const url = filter === "all"
         ? "/api/testimonial-submissions"
         : `/api/testimonial-submissions?status=${filter}`;
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load submissions");
-      return res.json();
+      const res = await fetch(url, { credentials: "include",signal });
+      if (!res.ok) throw new Error(`${res.status}: Story records unavailable`);
+      const rows=await res.json();
+      if(!Array.isArray(rows)||rows.some(row=>!Number.isInteger(row?.id)))throw new Error("Story record shape unavailable");
+      return rows;
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, updates }: { id: number; updates: SubmissionUpdate }) => {
+      if(viewState.issues.length||isLoading||isError||!submissions?.some(row=>row.id===id))
+        throw new Error("Current matching story read required");
       const res = await apiRequest("PATCH", `/api/testimonial-submissions/${id}`, updates);
       return await res.json();
     },
@@ -79,7 +93,8 @@ export default function TestimonialSubmissions() {
     },
   });
 
-  const list = submissions || [];
+  const readAvailable=!viewState.issues.length&&!isLoading&&!isError&&!!submissions;
+  const list = readAvailable?submissions || []:[];
   const counts = {
     pending: list.filter((s) => s.status === "pending").length,
     approved: list.filter((s) => s.status === "approved").length,
@@ -105,7 +120,7 @@ export default function TestimonialSubmissions() {
             <Clock className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-count-pending">{counts.pending}</div>
+            <div className={`${readAvailable?"text-2xl":"text-sm"} font-bold`} data-testid="text-count-pending">{isLoading?"Loading":readAvailable?counts.pending:"Unavailable"}</div>
           </CardContent>
         </Card>
         <Card data-testid="card-stat-approved">
@@ -114,7 +129,7 @@ export default function TestimonialSubmissions() {
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-count-approved">{counts.approved}</div>
+            <div className={`${readAvailable?"text-2xl":"text-sm"} font-bold`} data-testid="text-count-approved">{isLoading?"Loading":readAvailable?counts.approved:"Unavailable"}</div>
           </CardContent>
         </Card>
         <Card data-testid="card-stat-rejected">
@@ -123,7 +138,7 @@ export default function TestimonialSubmissions() {
             <XCircle className="w-4 h-4 text-red-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-count-rejected">{counts.rejected}</div>
+            <div className={`${readAvailable?"text-2xl":"text-sm"} font-bold`} data-testid="text-count-rejected">{isLoading?"Loading":readAvailable?counts.rejected:"Unavailable"}</div>
           </CardContent>
         </Card>
         <Card data-testid="card-stat-published">
@@ -132,7 +147,7 @@ export default function TestimonialSubmissions() {
             <Eye className="w-4 h-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-count-published">{counts.published}</div>
+            <div className={`${readAvailable?"text-2xl":"text-sm"} font-bold`} data-testid="text-count-published">{isLoading?"Loading":readAvailable?counts.published:"Unavailable"}</div>
           </CardContent>
         </Card>
       </div>
@@ -146,7 +161,10 @@ export default function TestimonialSubmissions() {
         </TabsList>
       </Tabs>
 
-      {isLoading ? (
+      <p className="text-xs text-muted-foreground">Counts describe returned story records in the selected status, not the merchant population. Publish counts are recorded flags, not an independent public-page receipt. Source: submitted-story store; period, timezone, shared snapshot clock and contact-class completeness are not supplied.</p>
+      {viewState.issues.length?<CrmDataState state="unavailable" message="Invalid/conflicting testimonial view; no default story read was requested."/>
+      :isError?<CrmDataState state={/^403:/.test(error?.message||"")?"denied":"unavailable"} message="Story records unavailable; this is not a no-submissions result." onRetry={()=>void refetch()}/>
+      :isLoading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>

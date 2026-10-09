@@ -63,7 +63,7 @@ async function ghlFetch(path: string, options: RequestInit = {}): Promise<any> {
 const INBOX_CURSOR_VERSION = 1;
 const MAX_INBOX_CURSOR_BYTES = 48 * 1024;
 const MAX_INBOX_CURSOR_REMAINDER = 10;
-type SourceCursor = { offset?: number; afterId?: string; highWater?: string; exhausted?: boolean };
+type SourceCursor = { offset?: number; afterId?: string; afterCreatedAt?:string; highWater?: string; exhausted?: boolean };
 type InboxCursorPayload = {
   v: number;
   query: string;
@@ -338,19 +338,25 @@ export function registerInboxRoutes(app: Express, readerDependencies?: {
       // 1. Inbound email events from audit_logs
       if (!drainRemainderOnly && (channel === "all" || channel === "email"))
       try {
+        const continuation=sourceContinuations.email_audit;
+        if(continuation?.offset && !continuation.afterCreatedAt)
+          return res.status(409).json({code:"INBOX_SOURCE_CURSOR_STALE",message:"Reload this source window before continuing."});
+        const boundary=continuation?.afterCreatedAt && continuation.afterId
+          ? sql`AND (al.created_at,al.id) < (${continuation.afterCreatedAt}::timestamp,${Number(continuation.afterId)})`
+          : sql``;
         const emailRows = await db.execute(sql`
           SELECT
             al.id,
             al.entity_id AS contact_id,
             al.details,
-            al.created_at
+            al.created_at,al.created_at::text AS cursor_created_at
           FROM audit_logs al
           WHERE al.action IN ('inbound_message_processed', 'inbound_email_received', 'email_inbound')
             AND al.created_at <= ${new Date(snapshotAt)}
             AND (al.action <> 'inbound_message_processed' OR al.details->>'channel' = 'email')
+            ${boundary}
           ORDER BY al.created_at DESC, al.id DESC
            LIMIT ${perSourceLimit}
-           OFFSET ${sourceContinuations.email_audit?.offset || 0}
         `);
 
         for (const row of emailRows.rows as any[]) {
@@ -386,8 +392,10 @@ export function registerInboxRoutes(app: Express, readerDependencies?: {
         }
          const emailFetched = emailRows.rows.length;
          const emailExhausted = emailFetched < perSourceLimit;
-         sourceContinuations.email_audit = {
-           offset: (sourceContinuations.email_audit?.offset || 0) + emailFetched,
+          const lastEmail=emailRows.rows.at(-1) as any;
+          sourceContinuations.email_audit = {
+            afterId:lastEmail ? String(lastEmail.id) : continuation?.afterId,
+            afterCreatedAt:lastEmail?.cursor_created_at ?? continuation?.afterCreatedAt,
            highWater: emailRows.rows[0] ? String((emailRows.rows[0] as any).created_at) : sourceContinuations.email_audit?.highWater,
            exhausted: emailExhausted,
          };
@@ -585,7 +593,12 @@ export function registerInboxRoutes(app: Express, readerDependencies?: {
       if (!drainRemainderOnly && (channel === "all" || channel === "site")) {
         try {
           const liveChatLimit = perSourceLimit;
-          const liveChats = await storage.getAllLiveChats({ limit: liveChatLimit, offset: sourceContinuations.live_chat?.offset || 0 });
+          const previous=sourceContinuations.live_chat;
+          if(previous?.offset && !previous.afterCreatedAt)
+            return res.status(409).json({code:"INBOX_CURSOR_STALE",reason:"Reload for stable local-session pagination"});
+          const liveChats = await storage.getAllLiveChats({ limit: liveChatLimit, snapshotAt,
+            before:previous?.afterCreatedAt && previous.afterId ?
+              {at:previous.afterCreatedAt,id:Number(previous.afterId)} : undefined });
           for (const chat of liveChats) {
             const contactName = chat.visitorName || chat.visitorEmail || "Site Visitor";
             const preview = `${chat.status === "active" ? "Active" : "Closed"} chat${chat.pageUrl ? ` from ${chat.pageUrl}` : ""}`;
@@ -596,7 +609,7 @@ export function registerInboxRoutes(app: Express, readerDependencies?: {
               companyName: "",
               channel: "site",
               direction: "inbound",
-              body: preview,
+              body: "",
               preview,
               receivedAt: chat.lastMessageAt instanceof Date ? chat.lastMessageAt.toISOString() : String(chat.lastMessageAt),
               intentLabel: null,
@@ -609,7 +622,8 @@ export function registerInboxRoutes(app: Express, readerDependencies?: {
           }
           const liveChatExhausted = liveChats.length < liveChatLimit;
           sourceContinuations.live_chat = {
-            offset: (sourceContinuations.live_chat?.offset || 0) + liveChats.length,
+            afterId:liveChats.at(-1)?.id.toString() ?? previous?.afterId,
+            afterCreatedAt:liveChats.at(-1)?.inboxCursorAt ?? previous?.afterCreatedAt,
             highWater: liveChats[0] ? String(liveChats[0].lastMessageAt) : sourceContinuations.live_chat?.highWater,
             exhausted: liveChatExhausted,
           };

@@ -109,6 +109,14 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
     timeoutSecs:900,requiresDisposableTestDatabase:true},
 ];
 export const MANDATORY_SUITES: Suite[] = [
+  {name:"Stage 3 C4 Source and Codec Contracts",script:"scripts/test-stage3-c4-contracts.ts",timeoutSecs:60},
+  {name:"Stage 3 C4 Real Handler Actions",script:"scripts/test-stage3-c4-actions.ts",timeoutSecs:240,requiresDisposableTestDatabase:true},
+  {name:"Stage 3 C4 Bounded Mounted Browser",script:"scripts/test-stage3-c4-browser.ts",timeoutSecs:480,requiresDisposableTestDatabase:true},
+  {name:"Stage 3 C4 Focused Health Read Browser",script:"scripts/test-stage3-c4-health-browser.ts",timeoutSecs:180,requiresDisposableTestDatabase:true},
+  {name:"C2 Postmerge Date and Task Helper Contracts",script:"scripts/test-c2-postmerge-repairs.ts",timeoutSecs:60},
+  {name:"C2 Postmerge Real Handler and Mounted Browser",script:"scripts/test-c2-postmerge-browser.ts",timeoutSecs:240,requiresDisposableTestDatabase:true},
+  {name:"C2 Compact Contact Header Mounted Browser",script:"scripts/test-c2-contact-header.ts",timeoutSecs:240,requiresDisposableTestDatabase:true},
+  {name:"Toast Viewport Frontend Browser",script:"scripts/test-toast-viewport-layout.mjs",timeoutSecs:120},
   {name:"Stage 3 C1 Protected Query Runtime",script:"scripts/test-stage3-c1-query-runtime.mjs",timeoutSecs:60},
   {name:"Stage 3 C2 Destination and Source Contracts",script:"scripts/test-stage3-c2-contracts.ts",timeoutSecs:60},
   {name:"Stage 3 C2 Real Handler Actions",script:"scripts/test-stage3-c2-actions.ts",timeoutSecs:240,requiresDisposableTestDatabase:true},

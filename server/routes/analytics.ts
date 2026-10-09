@@ -17,7 +17,9 @@ import { readPipelineAnalytics, contactReadPredicate, dealReadPredicate } from "
 // the primary cause of db:pool_pressure: up to 2 000 per-subject graph-resolution queries
 // at concurrency=8 ran on every analytics page load.
 
-export function registerAnalyticsRoutes(app: Express) {
+export function registerAnalyticsRoutes(app: Express, readOptions?: {
+  leaderboardQuery?:(source:"callLogs"|"creatorEvents",query:string)=>Promise<{rows:any[]}>;
+}) {
 
   // === SALES TOOL CLICK TRACKING ===
   app.post("/api/analytics/tool-click", publicLeadRateLimit, async (req, res) => {
@@ -904,6 +906,7 @@ export function registerAnalyticsRoutes(app: Express) {
   app.get("/api/leaderboard", isDashboardUser, async (req, res) => {
     try {
       const { period = "month" } = req.query as { period?: string };
+      if(!["week","month","quarter","all"].includes(period))return res.status(400).json({message:"Invalid leaderboard period"});
       const now = new Date();
 
       // Compute time windows for current and previous period
@@ -934,12 +937,38 @@ export function registerAnalyticsRoutes(app: Express) {
       const [allAgents, dealsResult, callLogsResult, contactCreateResult] = await Promise.all([
         storage.getAgents(),
         storage.getDeals({ limit: 10000, recordClass: "production" }),
-        pool.query(`SELECT assigned_to, created_at FROM call_logs WHERE assigned_to IS NOT NULL`).catch(() => ({ rows: [] as any[] })),
+        // Stored calls lack a canonical actor; read source availability without
+        // assigning calls using caller names, mutable owners or adjacent audits.
+        (readOptions?.leaderboardQuery?.("callLogs",`SELECT COUNT(*)::text AS record_count FROM call_logs`)
+          ??pool.query(`SELECT COUNT(*)::text AS record_count FROM call_logs`)).catch(()=>({rows:null})),
         // #910 — contact_created audit events carry the immutable creator (actor_id = users.id, matched via agent.userId)
-        pool.query(`SELECT actor_id, created_at FROM audit_logs WHERE action = 'contact_created' AND actor_type = 'user' AND actor_id IS NOT NULL`).catch(() => ({ rows: [] as any[] })),
+        (readOptions?.leaderboardQuery?.("creatorEvents",`SELECT actor_id, created_at FROM audit_logs WHERE action = 'contact_created' AND actor_type = 'user' AND actor_id IS NOT NULL`)
+          ??pool.query(`SELECT actor_id, created_at FROM audit_logs WHERE action = 'contact_created' AND actor_type = 'user' AND actor_id IS NOT NULL`)).catch(()=>({rows:null})),
       ]);
 
       const allDeals = dealsResult.data;
+      const activeAgents=allAgents.filter(a=>a.status==="active");
+      const aliasOwners=new Map<string,Set<number>>();
+      for(const agent of activeAgents)for(const alias of [`${agent.firstName} ${agent.lastName}`,agent.email]){
+        const key=alias?.trim().toLowerCase();
+        if(key){const owners=aliasOwners.get(key)??new Set<number>();owners.add(agent.id);aliasOwners.set(key,owners);}
+      }
+      const ambiguousAliasCount=[...aliasOwners.values()].filter(owners=>owners.size>1).length;
+      const read = {
+        source:"active agent roster / existing production deal reader / call-record availability / immutable creator events",
+        asOf:now.toISOString(),timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
+        currentStart:currentStart.toISOString(),currentEnd:now.toISOString(),
+        previousStart:prevStart.toISOString(),previousEnd:prevEnd.toISOString(),
+        consistency:"independent_reads_not_atomic_snapshot",
+        completeness:dealsResult.total===allDeals.length?"complete_returned_deal_population":"incomplete_deal_population",
+        loadedDealCount:allDeals.length,totalDealCount:dealsResult.total,
+        revenueMeasure:"stored_closed_won_processing_volume_not_revenue_or_native_receipts",
+        attribution:"existing_legacy_owner_aliases_and_immutable_creator_user_ids",
+        attributionCompleteness:ambiguousAliasCount?"ambiguous_legacy_aliases":"unique_legacy_aliases",
+        ambiguousAliasCount,
+        sources:{callLogs:callLogsResult.rows?"loaded":"failed",creatorEvents:contactCreateResult.rows?"loaded":"failed"},
+        callAttribution:"unavailable_no_canonical_call_actor",
+      };
 
       const currentUser = req.user as any;
       const currentUserId = currentUser?.id;
@@ -959,7 +988,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
       const role = currentUser?.role;
       if (role === "agent" && !settings.visibleToAgents) {
-        return res.json({ entries: [], period, settings });
+        return res.json({ entries: [], period, settings,read,visibility:"disabled_by_configuration" });
       }
 
       const isCurrent = (date: Date | string | null | undefined) => {
@@ -975,9 +1004,16 @@ export function registerAnalyticsRoutes(app: Express) {
       };
 
       const parseMoney = (v: string | null | undefined) => {
-        if (!v) return 0;
-        const n = parseFloat(v.replace(/[^0-9.]/g, ""));
-        return isNaN(n) ? 0 : n;
+        if (!v?.trim()) return null;
+        const raw=v.trim().replace(/^\$/, "").replace(/,/g,"");
+        if(!/^\d+(\.\d+)?$/.test(raw))return null;
+        const n=Number(raw);
+        return Number.isFinite(n)?n:null;
+      };
+      const recordedVolume=(records:typeof allDeals)=>{
+        const amounts=records.map(d=>parseMoney(d.totalVolume));
+        return amounts.length && amounts.every((n):n is number=>n!==null)
+          ? amounts.reduce((sum,n)=>sum+n,0) : null;
       };
 
       const entries = allAgents
@@ -999,25 +1035,21 @@ export function registerAnalyticsRoutes(app: Express) {
           const currentProposals = agentDeals.filter(d => isCurrent(d.proposalEmailSentAt));
           const prevProposals = agentDeals.filter(d => isPrev(d.proposalEmailSentAt));
 
-          const currentRevenue = currentDeals.reduce((s, d) => s + parseMoney(d.totalVolume), 0);
-          const prevRevenue = prevDeals.reduce((s, d) => s + parseMoney(d.totalVolume), 0);
+          const currentRevenue = recordedVolume(currentDeals);
+          const prevRevenue = recordedVolume(prevDeals);
 
           // Call logs (best effort)
-          const agentCalls = callLogsResult.rows.filter((r: any) => {
-            const assignedTo = (r.assigned_to || "").toLowerCase();
-            return assignedTo === `${agent.firstName} ${agent.lastName}`.toLowerCase() || assignedTo === agent.email?.toLowerCase();
-          });
-          const currentCalls = agentCalls.filter((r: any) => isCurrent(r.created_at)).length;
-          const prevCalls = agentCalls.filter((r: any) => isPrev(r.created_at)).length;
+          const currentCalls = null;
+          const prevCalls = null;
 
           // Contacts created — sourced from immutable contact_created audit events (actor_id = users.id matched via agent.userId)
           const agentContactEvents = agent.userId
-            ? contactCreateResult.rows.filter((r: any) => String(r.actor_id) === String(agent.userId))
-            : [];
-          const currentContactsCreated = agentContactEvents.filter((r: any) => isCurrent(r.created_at)).length;
-          const prevContactsCreated = agentContactEvents.filter((r: any) => isPrev(r.created_at)).length;
+            ? contactCreateResult.rows?.filter((r: any) => String(r.actor_id) === String(agent.userId))
+            : null;
+          const currentContactsCreated = agentContactEvents?.filter((r: any) => isCurrent(r.created_at)).length ?? null;
+          const prevContactsCreated = agentContactEvents?.filter((r: any) => isPrev(r.created_at)).length ?? null;
 
-          const isCurrentUser = !!(currentUserId && (agent.userId === currentUserId || agent.email === currentUser?.email));
+          const isCurrentUser = !!(currentUserId && agent.userId === currentUserId);
 
           // Response Rate = proposals sent / total deals touched in the period (as %)
           // "Touched" = deal exists in the period (created or updated)
@@ -1025,15 +1057,15 @@ export function registerAnalyticsRoutes(app: Express) {
           const prevTouched = agentDeals.filter(d => isPrev(d.createdAt || d.updatedAt));
           const currentResponseRate = currentTouched.length > 0
             ? Math.round((currentProposals.length / currentTouched.length) * 100)
-            : 0;
+            : null;
           const prevResponseRate = prevTouched.length > 0
             ? Math.round((prevProposals.length / prevTouched.length) * 100)
-            : 0;
+            : null;
 
           const currentAttempted = currentDeals.length + currentLostDeals.length;
           const prevAttempted = prevDeals.length + prevLostDeals.length;
-          const currentCloseRate = currentAttempted > 0 ? Math.round((currentDeals.length / currentAttempted) * 100) : 0;
-          const prevCloseRate = prevAttempted > 0 ? Math.round((prevDeals.length / prevAttempted) * 100) : 0;
+          const currentCloseRate = currentAttempted > 0 ? Math.round((currentDeals.length / currentAttempted) * 100) : null;
+          const prevCloseRate = prevAttempted > 0 ? Math.round((prevDeals.length / prevAttempted) * 100) : null;
 
           return {
             agentId: agent.id,
@@ -1062,7 +1094,7 @@ export function registerAnalyticsRoutes(app: Express) {
       entries.sort((a, b) => b.dealsClosed - a.dealsClosed);
       entries.forEach((e, i) => { e.rank = i + 1; });
 
-      res.json({ entries, period, settings });
+      res.json({ entries, period, settings,read,visibility:"visible" });
     } catch (err: any) {
       serverError(res, err);
     }

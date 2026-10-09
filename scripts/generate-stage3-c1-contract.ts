@@ -6,6 +6,7 @@ import crypto from "node:crypto";
 import assert from "node:assert/strict";
 import ts from "typescript";
 import {execFileSync} from "node:child_process";
+import {contactSections} from "../client/src/lib/crm-destination-state";
 
 const root = "docs/certification/stage3-c1";
 fs.mkdirSync(`${root}/inputs`,{recursive:true});
@@ -82,7 +83,8 @@ for(const m of app.matchAll(/const (\w+) = lazy\(\(\) => import\(["']([^"']+)["'
 function componentPolicies(component:string) {
   const file=imports.get(component);
   const text=file && fs.existsSync(file) ? fs.readFileSync(file,"utf8") : "";
-  const selectors=[...new Set([...text.matchAll(/<TabsTrigger[^>]*value=["']([^"']+)["']/g)].map(m=>m[1]))];
+  const selectors=component==="ContactDetail" ? [...contactSections] :
+    [...new Set([...text.matchAll(/<TabsTrigger[^>]*value=["']([^"']+)["']/g)].map(m=>m[1]))];
   const queryKeys=[...new Set([...text.matchAll(/(?:params|Params|searchParams|p|next)\.get\(["']([^"']+)["']\)/g)].map(m=>m[1]))];
   const children:Array<{selector:string;renderedComponents:string[];conditionExpressions:string[]}>=[];
   if(file && text){
@@ -111,8 +113,15 @@ function componentPolicies(component:string) {
 const specialQueries: Record<string,string[]> = {
   "/dashboard/contacts":["tab","search","sort","archived","status","recordClass","limit","offset","churnRisk","noOutreach","blocked","emailHealth","assignedToMe","vertical","tag","contactedToday","hasAssignee","leadSource","lifecycle","stale","recentlyUpdated","neverContacted","notContactedIn30","noDeal","createdThisWeek"],
   "/dashboard/contacts-leads":["tab","search","sort","archived","status","recordClass","limit","offset","churnRisk","noOutreach","blocked","emailHealth","assignedToMe","vertical","tag","contactedToday","hasAssignee","leadSource","lifecycle","stale","recentlyUpdated","neverContacted","notContactedIn30","noDeal","createdThisWeek"],
-  "/dashboard/reporting":["tab","financialTab","selectionIssue"],
-  "/dashboard/financial-hub":["tab","financialTab","selectionIssue"],
+  "/dashboard/reporting":["tab","financialTab","selectionIssue","revenueView","revenueQuery","revenueParentContactId","revenuePeriod"],
+  "/dashboard/financial-hub":["tab","financialTab","selectionIssue","revenueView","revenueQuery","revenueParentContactId","revenuePeriod"],
+  "/dashboard/merchant-risk":["tab","healthView"],
+  "/dashboard/merchant-health":["healthView"],
+  "/dashboard/underwriting":["underwritingView"],
+  "/dashboard/boarding":["status"],
+  "/dashboard/onboarding":["tab"],
+  "/dashboard/support-hub":["tab"],
+  "/dashboard/merchant-success":["tab"],
   "/dashboard/system-health":["tab","view","selectionIssue"],
   "/dashboard/operator":["tab","view","selectionIssue"],
 };

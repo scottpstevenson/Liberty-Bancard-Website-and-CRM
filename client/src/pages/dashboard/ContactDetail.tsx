@@ -7,6 +7,7 @@ import { apiRequest, getCsrfToken, protectedContextToken } from "@/lib/queryClie
 import { useOwnedToast as useToast } from "@/hooks/use-owned-toast";
 import { useAuth } from "@/hooks/use-auth";
 import {useRetainedLocalIntent} from "@/hooks/use-retained-local-intent";
+import {useTicketCreateCommand} from "@/hooks/use-rfi-command";
 import { useOutboundPauseObservation } from "@/hooks/use-outbound-pause-observation";
 import { invalidateWorkFacts } from "@/hooks/use-work-commands";
 import { isPendingTask } from "@/lib/task-source";
@@ -519,7 +520,7 @@ interface LifecycleHistoryEntry {
 function LifecycleHistorySection({ contactId }: { contactId: number }) {
   const [open, setOpen] = useState(false);
 
-  const { data: history = [], isLoading } = useQuery<LifecycleHistoryEntry[]>({
+  const { data: history = [], isLoading, isError, refetch } = useQuery<LifecycleHistoryEntry[]>({
     queryKey: ["/api/contacts", contactId, "lifecycle-history"],
     queryFn: async ({ signal }) => {
       const r = await fetch(`/api/contacts/${contactId}/lifecycle-history`, { credentials: "include", signal });
@@ -552,7 +553,8 @@ function LifecycleHistorySection({ contactId }: { contactId: number }) {
         {open && (
           <div className="mt-3 space-y-0" data-testid="list-lifecycle-history">
             {isLoading && <p className="text-xs text-muted-foreground">Loading…</p>}
-            {!isLoading && history.length === 0 && (
+            {isError && <p role="alert" className="text-sm">Stage history unavailable. <button className="min-h-11 px-3" onClick={()=>void refetch()}>Retry</button></p>}
+            {!isError && !isLoading && history.length === 0 && (
               <p className="text-xs text-muted-foreground">No stage transitions recorded yet.</p>
             )}
             {history.map(entry => (
@@ -731,11 +733,11 @@ function ChurnRiskPanel({ contactId, isManagerOrAdmin }: { contactId: number; is
   const [overrideScore, setOverrideScore] = useState<string>("");
   const [overrideNote, setOverrideNote] = useState<string>("");
 
-  const { data: score, isLoading, refetch } = useQuery<MerchantHealthScore | null>({
+  const { data: score, isLoading, isError, refetch } = useQuery<MerchantHealthScore | null>({
     queryKey: ["/api/churn-scores/contact", contactId],
     queryFn: async ({ signal }) => {
       const res = await fetch(`/api/churn-scores/contact/${contactId}`, { credentials: "include", signal });
-      if (!res.ok) return null;
+      if (!res.ok) throw new Error("Contact churn score unavailable");
       return res.json();
     },
     enabled: !!contactId,
@@ -818,6 +820,7 @@ function ChurnRiskPanel({ contactId, isManagerOrAdmin }: { contactId: number; is
     );
   }
 
+  if (isError) return <CrmDataState state="unavailable" message="Contact churn score unavailable; no unassessed/zero conclusion." onRetry={()=>void refetch()}/>;
   if (!score) {
     return (
       <Card data-testid="churn-panel-empty">
@@ -1349,6 +1352,13 @@ function ContactDetailRecord() {
 
   const [showTicketDialog, setShowTicketDialog] = useState(false);
   const [ticketForm, setTicketForm] = useState({ subject: "", description: "", priority: "Normal", category: "Other" });
+  const ticketCreation=useTicketCreateCommand(`contact:${contactId}`);
+  const ticketBusy=useRef(false);
+  const [ticketSaving,setTicketSaving]=useState(false);
+  useEffect(()=>{
+    setShowTicketDialog(false);
+    setTicketForm({subject:"",description:"",priority:"Normal",category:"Other"});
+  },[ticketCreation.context]);
 
   const [showTaskDialog, setShowTaskDialog] = useState(false);
   const [taskForm, setTaskForm] = useState({ title: "", description: "", dueDate: "" });
@@ -1830,9 +1840,10 @@ function ContactDetailRecord() {
   };
 
   const createTicket = async () => {
-    if (!ticketForm.subject || !ticketForm.description) return;
+    if (ticketBusy.current||!ticketForm.subject.trim() || !ticketForm.description.trim()) return;
+    ticketBusy.current=true;setTicketSaving(true);
     try {
-      await apiRequest("POST", "/api/tickets", {
+      const result=await ticketCreation.execute({
         contactId,
         subject: ticketForm.subject,
         description: ticketForm.description,
@@ -1842,10 +1853,23 @@ function ContactDetailRecord() {
       queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "detail"] });
       setShowTicketDialog(false);
       setTicketForm({ subject: "", description: "", priority: "Normal", category: "Other" });
-      toast({ title: "Ticket created" });
-    } catch {
-      toast({ title: "Failed to create ticket", variant: "destructive" });
-    }
+      toast({ title: result.command.reused?"Existing active ticket retained":"Local ticket creation confirmed",
+        description:"No native delivery was attempted." });
+    } catch(error:any) {
+      toast({ title: "Ticket creation failed or unconfirmed",description:error?.message, variant: "destructive" });
+    }finally{ticketBusy.current=false;setTicketSaving(false);}
+  };
+  const retryTicketCreation=async()=>{
+    if(ticketBusy.current)return;
+    ticketBusy.current=true;setTicketSaving(true);
+    try{
+      const result=await ticketCreation.retry("create");
+      queryClient.invalidateQueries({queryKey:["/api/contacts",contactId,"detail"]});
+      setShowTicketDialog(false);
+      setTicketForm({subject:"",description:"",priority:"Normal",category:"Other"});
+      toast({title:result.command.reused?"Existing active ticket retained":"Captured local ticket intent confirmed"});
+    }catch(error:any){toast({title:"Ticket intent remains unconfirmed",description:error?.message,variant:"destructive"});}
+    finally{ticketBusy.current=false;setTicketSaving(false);}
   };
 
   const createTask = async () => {
@@ -3012,6 +3036,9 @@ function ContactDetailRecord() {
           ticketForm={ticketForm}
           setTicketForm={setTicketForm}
           createTicket={createTicket}
+          ticketSaving={ticketSaving}
+          ticketUnconfirmed={ticketCreation.uncertain.includes("create")}
+          retryTicketCreation={retryTicketCreation}
           onDealCloseAutoFocus={restoreFocusOnClose(moreActionsButtonRef)}
           onTicketCloseAutoFocus={restoreFocusOnClose(moreActionsButtonRef)}
           onTaskCloseAutoFocus={restoreFocusOnClose(newTaskActionButtonRef)}

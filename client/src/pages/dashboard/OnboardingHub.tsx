@@ -2,19 +2,20 @@ import { useLocation, useSearch } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Onboarding from "./Onboarding";
 import OnboardingBoard from "./OnboardingBoard";
-
-const VALID_TABS = ["overview", "board"] as const;
-type Tab = typeof VALID_TABS[number];
+import { c4WorkspaceSelection, c4WorkspaceUrl, onboardingViews } from "@/lib/crm-destination-state";
 
 export default function OnboardingHub() {
   const search = useSearch();
-  const raw = new URLSearchParams(search).get("tab") ?? "";
-  const tab: Tab = (VALID_TABS as readonly string[]).includes(raw) ? (raw as Tab) : "overview";
+  const state = c4WorkspaceSelection(search, "tab", onboardingViews, "overview");
   const [, navigate] = useLocation();
-  const goTab = (v: string) => navigate(`/dashboard/onboarding?tab=${v}`);
+  const goTab = (value: string) => {
+    if ((onboardingViews as readonly string[]).includes(value))
+      navigate(c4WorkspaceUrl("/dashboard/onboarding", search, window.location.hash, "tab", onboardingViews, "overview", value as typeof onboardingViews[number]));
+  };
 
   return (
-    <Tabs value={tab} onValueChange={goTab} className="space-y-4">
+    <Tabs value={state.value} onValueChange={goTab} className="min-w-0 space-y-4">
+      {state.issues.length > 0 && <p className="rounded-md border-l-2 border-destructive bg-muted px-3 py-2 text-sm" role="status">{state.issues[0].reason}</p>}
       <TabsList>
         <TabsTrigger value="overview" data-testid="tab-onboarding-overview">Onboarding</TabsTrigger>
         <TabsTrigger value="board" data-testid="tab-onboarding-board">Board</TabsTrigger>

@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { operationsReportCsv } from "@/lib/operations-report-export";
+import { operationsReportSchema, parseOperationsSpend, type OperationsReportData } from "@shared/operations-report";
 import {
   DollarSign, TrendingUp, PhoneCall, FileCheck, Clock, AlertTriangle,
   Download, RefreshCw, Users, Zap, BarChart3, Filter,
@@ -18,91 +20,25 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface CplMetrics {
-  source: string;
-  leads: number;
-  bookedCalls: number;
-  signedMerchants: number;
-  cpl: number | null;
-  cpb: number | null;
-  cps: number | null;
-  costEstimate: true;
-}
-
-interface VerticalCloseRate {
-  vertical: string;
-  leads: number;
-  booked: number;
-  signed: number;
-  leadToBooked: number | null;
-  bookedToSigned: number | null;
-  leadToSigned: number | null;
-}
-
-interface SequenceReplyRate {
-  id: string;
-  name: string;
-  status: string;
-  enrolled: number;
-  replies: number | null;
-  replyRate: number | null;
-}
-
-interface FunnelStage {
-  stage: string;
-  count: number;
-  pct: number | null;
-}
-
-interface OverdueTask {
-  id: number;
-  title: string;
-  assignedTo: string | null;
-  dueDate: string;
-  daysOverdue: number;
-}
-
-interface IncidentSummary {
-  queueFailures7d: number;
-  ghlSyncFailures7d: number;
-  mostRecentQueueError: string | null;
-  mostRecentGhlError: string | null;
-}
-
-interface OperationsReportData {
-  days: number;
-  adSpend: number;
-  cplBySource: CplMetrics[];
-  closeRateByVertical: VerticalCloseRate[];
-  sequenceReplyRates: SequenceReplyRate[];
-  funnel: FunnelStage[];
-  overdueTasks: OverdueTask[];
-  incidentSummary: IncidentSummary;
-  meta: {
-    exact: boolean;
-    asOf: string;
-    scope: string;
-    snapshotConsistency: "unavailable";
-    sourceCapture: Record<string, { requestedAt: string; completedBy: string; consistency: string }>;
-    completeness: { sequenceReplies: string };
-    spendAllocation: { kind: "estimate"; assumption: string; authoritativeSpendSource: false };
-  };
-}
+type CplMetrics = OperationsReportData["cplBySource"][number];
+type VerticalCloseRate = OperationsReportData["closeRateByVertical"][number];
+type SequenceReplyRate = OperationsReportData["sequenceReplyRates"][number];
+type FunnelStage = OperationsReportData["funnel"][number];
+type OverdueTask = OperationsReportData["overdueTasks"][number];
+type IncidentSummary = OperationsReportData["incidentSummary"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmt$(n: number) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 }
 
 function fmtPct(n: number | null | undefined) {
   return n == null ? "—" : `${Math.round(n * 100)}%`;
 }
 
-function downloadCsv(filename: string, rows: string[][], headers: string[]) {
-  const csv = [headers, ...rows]
-    .map(row => row.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","))
-    .join("\n");
+function downloadCsv(filename: string, rows: (string | number | null)[][], headers: string[], report: OperationsReportData) {
+  const csv = operationsReportCsv(headers, rows, report);
   const blob = new Blob([csv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -114,20 +50,16 @@ function downloadCsv(filename: string, rows: string[][], headers: string[]) {
 
 // ─── Sub-sections ─────────────────────────────────────────────────────────────
 
-function CplTable({ rows, adSpend }: { rows: CplMetrics[]; adSpend: number }) {
+function CplTable({ report }: { report: OperationsReportData }) {
+  const { cplBySource: rows, adSpend } = report;
   const exportCsv = () => {
     downloadCsv(
       "cpl-by-source.csv",
       rows.map(r => [
         r.source,
-        String(r.leads),
-        String(r.bookedCalls),
-        String(r.signedMerchants),
-        r.cpl != null ? fmt$(r.cpl) : "N/A",
-        r.cpb != null ? fmt$(r.cpb) : "N/A",
-        r.cps != null ? fmt$(r.cps) : "N/A",
+        r.leads, r.bookedCalls, r.signedMerchants, r.cpl, r.cpb, r.cps,
       ]),
-      ["Source", "Leads", "Booked Calls", "Signed Merchants", "CPL", "Cost/Booked", "Cost/Signed"],
+      ["Source", "Lead contacts", "Currently booked deals", "Currently won deals", "Estimated CPL", "Estimated cost/booked deal", "Estimated cost/won deal"], report,
     );
   };
 
@@ -137,13 +69,13 @@ function CplTable({ rows, adSpend }: { rows: CplMetrics[]; adSpend: number }) {
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-base flex items-center gap-2">
-              <DollarSign className="w-4 h-4 text-green-600" /> Cost Per Lead / Booked / Signed
+              <DollarSign className="w-4 h-4 text-green-600" /> Estimated Cost Per Lead / Booked Deal / Won Deal
             </CardTitle>
             <CardDescription className="text-xs mt-0.5">
                {adSpend > 0 ? `Estimate only: $${adSpend.toLocaleString()} user-entered spend allocated proportionally by production lead volume` : "Enter user-supplied ad spend to estimate CPL/CPB/CPS; no authoritative spend source is connected"}
             </CardDescription>
           </div>
-          <Button size="sm" variant="outline" onClick={exportCsv}>
+          <Button size="sm" variant="outline" onClick={exportCsv} data-testid="button-export-operations-cpl">
             <Download className="w-3 h-3 mr-1" /> CSV
           </Button>
         </div>
@@ -162,8 +94,8 @@ function CplTable({ rows, adSpend }: { rows: CplMetrics[]; adSpend: number }) {
               <TableRow>
                 <TableHead>Source</TableHead>
                 <TableHead className="text-right">Leads</TableHead>
-                <TableHead className="text-right">Booked</TableHead>
-                <TableHead className="text-right">Signed</TableHead>
+                <TableHead className="text-right">Booked deals</TableHead>
+                <TableHead className="text-right">Won deals</TableHead>
                 <TableHead className="text-right">CPL</TableHead>
                 <TableHead className="text-right">Cost/Booked</TableHead>
                 <TableHead className="text-right">Cost/Signed</TableHead>
@@ -197,7 +129,7 @@ function CplTable({ rows, adSpend }: { rows: CplMetrics[]; adSpend: number }) {
   );
 }
 
-function CloseRateTable({ rows }: { rows: VerticalCloseRate[] }) {
+function CloseRateTable({ rows, report }: { rows: VerticalCloseRate[]; report: OperationsReportData }) {
   const exportCsv = () => {
     downloadCsv(
       "close-rate-by-vertical.csv",
@@ -206,11 +138,9 @@ function CloseRateTable({ rows }: { rows: VerticalCloseRate[] }) {
         String(r.leads),
         String(r.booked),
         String(r.signed),
-        fmtPct(r.leadToBooked),
-        fmtPct(r.bookedToSigned),
-        fmtPct(r.leadToSigned),
+        r.leadToBooked, r.bookedToSigned, r.leadToSigned,
       ]),
-      ["Vertical", "Leads", "Booked", "Signed", "Lead→Booked", "Booked→Signed", "Lead→Signed"],
+      ["Vertical", "Lead contacts", "Booked deals", "Won deals", "Booked/lead ratio", "Won/booked ratio", "Won/lead ratio"], report,
     );
   };
 
@@ -219,7 +149,7 @@ function CloseRateTable({ rows }: { rows: VerticalCloseRate[] }) {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-purple-600" /> Close Rate by Vertical
+            <TrendingUp className="w-4 h-4 text-purple-600" /> Current Deal-to-Lead Ratios by Vertical
           </CardTitle>
           <Button size="sm" variant="outline" onClick={exportCsv}>
             <Download className="w-3 h-3 mr-1" /> CSV
@@ -266,12 +196,12 @@ function CloseRateTable({ rows }: { rows: VerticalCloseRate[] }) {
   );
 }
 
-function SequenceReplyRateTable({ rows }: { rows: SequenceReplyRate[] }) {
+function SequenceReplyRateTable({ rows, report }: { rows: SequenceReplyRate[]; report: OperationsReportData }) {
   const exportCsv = () => {
     downloadCsv(
       "sequence-reply-rates.csv",
-       rows.map(r => [r.name, r.status, String(r.enrolled), r.replies == null ? "Unavailable" : String(r.replies), fmtPct(r.replyRate)]),
-       ["Sequence", "Status", "Enrolled", "Replies", "Reply Rate"],
+       rows.map(r => [r.id, r.name, r.status, r.enrolled, r.replies, r.replyRate]),
+       ["Sequence ID", "Sequence", "Status", "Enrollment records", "Replies", "Reply ratio"], report,
     );
   };
 
@@ -329,12 +259,12 @@ function SequenceReplyRateTable({ rows }: { rows: SequenceReplyRate[] }) {
   );
 }
 
-function FunnelTable({ stages }: { stages: FunnelStage[] }) {
+function FunnelTable({ stages, report }: { stages: FunnelStage[]; report: OperationsReportData }) {
   const exportCsv = () => {
     downloadCsv(
       "funnel-conversion.csv",
-      stages.map(s => [s.stage, String(s.count), fmtPct(s.pct)]),
-       ["Operational Fact", "Count", "vs. Leads"],
+      stages.map(s => [s.stage, s.count, s.pct]),
+       ["Operational Fact", "Count", "Fact/lead ratio"], report,
     );
   };
 
@@ -368,12 +298,12 @@ function FunnelTable({ stages }: { stages: FunnelStage[] }) {
   );
 }
 
-function OverdueTasksTable({ tasks }: { tasks: OverdueTask[] }) {
+function OverdueTasksTable({ tasks, report }: { tasks: OverdueTask[]; report: OperationsReportData }) {
   const exportCsv = () => {
     downloadCsv(
       "overdue-tasks.csv",
-      tasks.map(t => [t.title, t.assignedTo ?? "Unassigned", t.dueDate, String(t.daysOverdue)]),
-      ["Task", "Assigned To", "Due Date", "Days Overdue"],
+      tasks.map(t => [t.id, t.title, t.assignedTo ?? "Unassigned", t.dueDate, t.daysOverdue]),
+      ["Task ID", "Task", "Assigned To", "Due Date", "Days Overdue"], report,
     );
   };
 
@@ -382,7 +312,7 @@ function OverdueTasksTable({ tasks }: { tasks: OverdueTask[] }) {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">
-            <Clock className="w-4 h-4 text-red-500" /> Overdue Tasks
+            <Clock className="w-4 h-4 text-red-500" /> Loaded Overdue Tasks (up to 50)
             {tasks.length > 0 && <Badge variant="destructive">{tasks.length}</Badge>}
           </CardTitle>
           <Button size="sm" variant="outline" onClick={exportCsv} disabled={tasks.length === 0}>
@@ -444,8 +374,8 @@ function IncidentSummaryCard({ summary }: { summary: IncidentSummary }) {
             <p className={`text-2xl font-bold ${summary.queueFailures7d > 0 ? "text-red-600" : "text-green-600"}`}>
               {summary.queueFailures7d}
             </p>
-            {summary.mostRecentQueueError && (
-              <p className="text-xs text-muted-foreground truncate">{summary.mostRecentQueueError}</p>
+            {summary.mostRecentQueueIncident && (
+              <p className="text-xs text-muted-foreground">{summary.mostRecentQueueIncident.code} · {summary.mostRecentQueueIncident.category} · {new Date(summary.mostRecentQueueIncident.occurredAt).toLocaleString()}</p>
             )}
           </div>
           <div className="space-y-1">
@@ -453,8 +383,8 @@ function IncidentSummaryCard({ summary }: { summary: IncidentSummary }) {
             <p className={`text-2xl font-bold ${summary.ghlSyncFailures7d > 0 ? "text-orange-600" : "text-green-600"}`}>
               {summary.ghlSyncFailures7d}
             </p>
-            {summary.mostRecentGhlError && (
-              <p className="text-xs text-muted-foreground truncate">{summary.mostRecentGhlError}</p>
+            {summary.mostRecentGhlIncident && (
+              <p className="text-xs text-muted-foreground">{summary.mostRecentGhlIncident.code} · {summary.mostRecentGhlIncident.category} · {new Date(summary.mostRecentGhlIncident.occurredAt).toLocaleString()}</p>
             )}
           </div>
         </div>
@@ -476,22 +406,29 @@ export default function OperationsReport() {
   const [days, setDays] = useState("30");
   const [adSpend, setAdSpend] = useState("");
   const [adSpendApplied, setAdSpendApplied] = useState(0);
-
-  const spendVal = parseFloat(adSpend.replace(/[^0-9.]/g, "")) || 0;
+  const [spendError, setSpendError] = useState<string | null>(null);
 
   const { data, isLoading, isError, error, refetch } = useQuery<OperationsReportData>({
     queryKey: ["/api/reporting/operations", days, adSpendApplied],
-    queryFn: async () => {
+    queryFn: async ({signal}) => {
       const params = new URLSearchParams({ days, adSpend: String(adSpendApplied) });
-      const res = await fetch(`/api/reporting/operations?${params}`, { credentials: "include" });
+      const res = await fetch(`/api/reporting/operations?${params}`, { credentials: "include",signal });
       if (!res.ok) throw new Error("Failed to load operations report");
-      return res.json();
+      const parsed = operationsReportSchema.safeParse(await res.json());
+      if (!parsed.success || parsed.data.days !== Number(days) || parsed.data.adSpend !== adSpendApplied) {
+        throw new Error("Operations report response is malformed or belongs to a different filter.");
+      }
+      return parsed.data;
     },
   });
 
   const applyFilters = () => {
-    setAdSpendApplied(spendVal);
-    refetch();
+    try {
+      const spendVal = parseOperationsSpend(adSpend || "0");
+      setSpendError(null);
+      if (spendVal === adSpendApplied) void refetch();
+      else setAdSpendApplied(spendVal);
+    } catch (error) { setSpendError((error as Error).message); }
   };
 
   if (isLoading) {
@@ -503,7 +440,9 @@ export default function OperationsReport() {
   }
 
   if (isError || !data || !data.meta?.exact) {
-    return <div className="py-8 text-center text-destructive">Operations report unavailable: {error instanceof Error ? error.message : "failed to load data."}</div>;
+    return <div role="alert" className="py-8 text-center text-destructive">Operations report unavailable: {error instanceof Error ? error.message : "failed to load data."}
+      <Button variant="outline" onClick={() => void refetch()} data-testid="button-retry-operations" className="ml-3">Retry</Button>
+    </div>;
   }
 
   return (
@@ -513,9 +452,9 @@ export default function OperationsReport() {
         <CardContent className="pt-4 pb-4">
           <div className="flex flex-wrap items-end gap-4">
             <div className="space-y-1">
-              <Label className="text-xs">Date Range</Label>
+              <Label htmlFor="operations-period" className="text-xs">Date Range</Label>
               <Select value={days} onValueChange={setDays}>
-                <SelectTrigger className="w-32 h-8 text-xs">
+                <SelectTrigger id="operations-period" className="w-32 min-h-11 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -528,39 +467,43 @@ export default function OperationsReport() {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Total Ad Spend ($)</Label>
+              <Label htmlFor="operations-spend" className="text-xs">User-entered spend estimate (USD)</Label>
               <Input
-                className="w-36 h-8 text-xs"
+                id="operations-spend" data-testid="input-operations-spend" inputMode="decimal"
+                aria-invalid={!!spendError} aria-describedby={spendError ? "operations-spend-error" : undefined}
+                className="w-36 min-h-11 text-sm"
                 placeholder="e.g. 4500"
                 value={adSpend}
                 onChange={(e) => setAdSpend(e.target.value)}
               />
             </div>
-            <Button size="sm" onClick={applyFilters} className="h-8">
+            <Button size="sm" onClick={applyFilters} className="min-h-11" data-testid="button-apply-operations">
               <Filter className="w-3 h-3 mr-1" /> Apply
             </Button>
           </div>
+          {spendError && <p id="operations-spend-error" role="alert" className="mt-2 text-sm text-destructive">{spendError}</p>}
         </CardContent>
       </Card>
       <p className="text-xs text-muted-foreground">
         Captured around {new Date(data.meta.asOf).toLocaleString()} · Scope: {data.meta.scope}. Snapshot consistency is unavailable because sources are queried independently.
       </p>
       <p className="text-xs text-muted-foreground">Spend estimate assumption: {data.meta.spendAllocation.assumption}</p>
+      <p className="text-xs text-muted-foreground">UTC window: {data.meta.period.startInclusive} inclusive to {data.meta.period.endExclusive} exclusive. {data.meta.period.basis} Operational facts have independent denominators, not a cohort conversion funnel.</p>
 
       {/* CPL by source */}
-      <CplTable rows={data.cplBySource} adSpend={data.adSpend} />
+      <CplTable report={data}/>
 
       {/* Close rate by vertical */}
-      <CloseRateTable rows={data.closeRateByVertical} />
+      <CloseRateTable rows={data.closeRateByVertical} report={data}/>
 
       {/* Sequence reply rates */}
-      <SequenceReplyRateTable rows={data.sequenceReplyRates} />
+      <SequenceReplyRateTable rows={data.sequenceReplyRates} report={data}/>
 
       {/* Funnel conversion */}
-      <FunnelTable stages={data.funnel} />
+      <FunnelTable stages={data.funnel} report={data}/>
 
       {/* Overdue tasks */}
-      <OverdueTasksTable tasks={data.overdueTasks} />
+      <OverdueTasksTable tasks={data.overdueTasks} report={data}/>
 
       {/* Incident summary */}
       <IncidentSummaryCard summary={data.incidentSummary} />

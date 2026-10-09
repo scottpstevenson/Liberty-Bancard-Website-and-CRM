@@ -1,5 +1,7 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState,useEffect } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {useCrmQuery as useQuery,useCrmActorIdentity} from "@/hooks/use-crm-query";
+import {CrmDataState} from "@/components/crm/CrmPresentation";
 import { useLocation } from "wouter";
 import { apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -84,29 +86,34 @@ export default function DocumentVault() {
     failed: { id: number; filename?: string; reason: string }[];
   } | null>(null);
 
-  const { data: docs = [], isLoading: docsLoading } = useQuery<Document[]>({
+  const actorIdentity=useCrmActorIdentity();
+  useEffect(()=>{setSelectedIds(new Set());setDeleteTarget(null);setShowBulkDeleteConfirm(false);setBulkDeleteResult(null);},[actorIdentity]);
+  const { data: docs = [], isLoading: docsLoading,isError:docsError,error:docsReadError,refetch:retryDocuments } = useQuery<Document[]>({
     queryKey: ["/api/merchant-documents", categoryFilter, statusFilter],
-    queryFn: async () => {
+    queryFn: async ({signal}) => {
       const params = new URLSearchParams();
       if (categoryFilter !== "all") params.set("category", categoryFilter);
       if (statusFilter !== "all") params.set("status", statusFilter);
-      const res = await fetch(`/api/merchant-documents?${params}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch documents");
-      return res.json();
+      const res = await fetch(`/api/merchant-documents?${params}`, { credentials: "include",signal });
+      if (!res.ok) throw new Error(`${res.status}: Document records unavailable`);
+      const rows=await res.json();
+      if(!Array.isArray(rows)||rows.some(row=>!Number.isInteger(row?.id)))throw new Error("Document records shape unavailable");
+      return rows;
     },
   });
 
-  const { data: contactsRes } = useQuery<{ data: Contact[]; total: number }>({
+  const { data: contactsRes,isLoading:contactsLoading,isError:contactsError,refetch:retryContactNames } = useQuery<{ data: Contact[]; total: number }>({
     queryKey: ["/api/contacts"],
+    enabled:!docsLoading&&!docsError&&docs.some(doc=>doc.contactId!=null),
   });
-  const contacts = contactsRes?.data ?? [];
+  const contacts = contactsLoading||contactsError?[]:contactsRes?.data ?? [];
   const contactMap = new Map(contacts.map(c => [c.id, c]));
 
   const enrichedDocs: DocumentWithContact[] = docs.map(doc => {
     const contact = doc.contactId ? contactMap.get(doc.contactId) : undefined;
     return {
       ...doc,
-      contactName: contact ? `${contact.firstName} ${contact.lastName}` : undefined,
+      contactName: contact ? `${contact.firstName} ${contact.lastName}` : doc.contactId!=null?`Contact #${doc.contactId} — name unavailable in loaded directory`:undefined,
       companyName: contact?.companyName || undefined,
     };
   });
@@ -125,6 +132,7 @@ export default function DocumentVault() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
+      if(docsLoading||docsError||!docs.some(doc=>doc.id===id))throw new Error("Current document read required");
       await apiRequest("DELETE", `/api/merchant-documents/${id}`);
     },
     onSuccess: () => {
@@ -139,6 +147,7 @@ export default function DocumentVault() {
 
   const statusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: number; status: string }) => {
+      if(docsLoading||docsError||!docs.some(doc=>doc.id===id))throw new Error("Current document read required");
       await apiRequest("PATCH", `/api/merchant-documents/${id}/status`, { status });
     },
     onSuccess: () => {
@@ -176,6 +185,9 @@ export default function DocumentVault() {
   }
 
   async function handleBulkDelete() {
+    if(docsLoading||docsError||Array.from(selectedIds).some(id=>!docs.some(doc=>doc.id===id))){
+      toast({title:"Current document read required",variant:"destructive"});return;
+    }
     const ids = Array.from(selectedIds);
     if (!ids.length) return;
     setIsBulkDeleting(true);
@@ -217,6 +229,9 @@ export default function DocumentVault() {
   }
 
   async function handleBulkDownload() {
+    if(docsLoading||docsError||Array.from(selectedIds).some(id=>!docs.some(doc=>doc.id===id))){
+      toast({title:"Current document read required",variant:"destructive"});return;
+    }
     const ids = Array.from(selectedIds);
     if (!ids.length) return;
     setIsBulkDownloading(true);
@@ -284,7 +299,7 @@ export default function DocumentVault() {
               </Button>
             )}
             <div className="text-sm text-muted-foreground" data-testid="text-doc-count">
-              {docs.length} document{docs.length !== 1 ? "s" : ""} total
+              {docsLoading?"Document count loading":docsError?"Document count unavailable":`${docs.length} returned document${docs.length!==1?"s":""} in category/status scope`}
             </div>
           </div>
         }
@@ -294,18 +309,16 @@ export default function DocumentVault() {
       {(() => {
         const pendingKycCount = docs.filter(d => d.category === "KYC" && (!d.status || d.status === "pending")).length;
         const isKycPendingActive = categoryFilter === "KYC" && statusFilter === "pending";
+        const togglePending=()=>{
+          setCategoryFilter(isKycPendingActive?"all":"KYC");
+          setStatusFilter(isKycPendingActive?"all":"pending");
+        };
         return (
           <Card
-            className={`cursor-pointer transition-all hover:shadow-md border-amber-300 dark:border-amber-700 ${isKycPendingActive ? "ring-2 ring-amber-500" : ""}`}
-            onClick={() => {
-              if (isKycPendingActive) {
-                setCategoryFilter("all");
-                setStatusFilter("all");
-              } else {
-                setCategoryFilter("KYC");
-                setStatusFilter("pending");
-              }
-            }}
+            className={`cursor-pointer transition-all hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring border-amber-300 dark:border-amber-700 ${isKycPendingActive ? "ring-2 ring-amber-500" : ""}`}
+            role="button" tabIndex={0} aria-pressed={isKycPendingActive}
+            onClick={togglePending}
+            onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();togglePending();}}}
             data-testid="card-pending-kyc"
           >
             <CardContent className="py-3 flex items-center gap-3">
@@ -313,8 +326,8 @@ export default function DocumentVault() {
                 <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400" />
               </div>
               <div>
-                <div className="text-2xl font-bold text-amber-700 dark:text-amber-400" data-testid="count-pending-kyc">
-                  {pendingKycCount}
+                <div className={`${docsLoading||docsError?"text-sm":"text-2xl"} font-bold text-amber-700 dark:text-amber-400`} data-testid="count-pending-kyc">
+                  {docsLoading?"Loading":docsError?"Unavailable":pendingKycCount}
                 </div>
                 <div className="text-xs text-muted-foreground">Pending KYC</div>
               </div>
@@ -328,13 +341,15 @@ export default function DocumentVault() {
         {DOCUMENT_CATEGORIES.slice(0, 8).map(cat => (
           <Card
             key={cat}
-            className={`cursor-pointer transition-all hover:shadow-md ${categoryFilter === cat ? "ring-2 ring-primary" : ""}`}
+            className={`cursor-pointer transition-all hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring ${categoryFilter === cat ? "ring-2 ring-primary" : ""}`}
+            role="button" tabIndex={0} aria-pressed={categoryFilter===cat}
             onClick={() => setCategoryFilter(categoryFilter === cat ? "all" : cat)}
+            onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setCategoryFilter(categoryFilter===cat?"all":cat);}}}
             data-testid={`card-category-${cat.replace(/\s+/g, "-").toLowerCase()}`}
           >
             <CardContent className="py-3 text-center">
-              <div className="text-2xl font-bold" data-testid={`count-category-${cat.replace(/\s+/g, "-").toLowerCase()}`}>
-                {categoryCount[cat] || 0}
+              <div className={`${docsLoading||docsError?"text-sm":"text-2xl"} font-bold break-words`} data-testid={`count-category-${cat.replace(/\s+/g, "-").toLowerCase()}`}>
+                {docsLoading?"Loading":docsError?"Unavailable":categoryCount[cat] || 0}
               </div>
               <div className="text-xs text-muted-foreground mt-0.5 leading-tight">{cat}</div>
             </CardContent>
@@ -342,6 +357,8 @@ export default function DocumentVault() {
         ))}
       </div>
 
+      <p className="text-xs text-muted-foreground">Counts and search describe returned document records in the category/status scope. Contact names are optional matches from the loaded contact directory, not complete relationship coverage. No shared snapshot clock or contact-class completeness receipt is supplied.</p>
+      {contactsError&&<CrmDataState state="unavailable" message="Contact-name directory unavailable; document records remain independently readable." onRetry={()=>void retryContactNames()}/>}
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative flex-1 min-w-[200px]">
@@ -391,7 +408,8 @@ export default function DocumentVault() {
       </div>
 
       {/* Documents Table */}
-      {docsLoading ? (
+      {docsError ? <CrmDataState state={/^403:/.test(docsReadError?.message||"")?"denied":"unavailable"} message="Document records unavailable; this is not an empty vault." onRetry={()=>void retryDocuments()}/>
+      : docsLoading ? (
         <div className="space-y-3">
           {[1,2,3,4,5].map(i => <Skeleton key={i} className="h-16" />)}
         </div>

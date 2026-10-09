@@ -5,6 +5,17 @@ description: Recurring bug classes found during the Aug 2026 code hardening audi
 
 ## Recurring bug classes in this codebase
 
+### Creation versus edit input contracts
+Creation schemas derived from partial edit DTOs must restore required fields
+before reaching the writer; do not rely on database NOT NULL errors as validation.
+
+**Why:** A valid authorized creation intent reached SQL with an omitted required
+description and returned 500 instead of an explicit no-effect input rejection.
+
+**How to apply:** Compare create contracts with actual writer requirements,
+retain strict unknown-field handling, and prove missing required input is
+rejected before command receipts, notifications, audits or business writes.
+
 ### Security
 - `isAuthenticated` alone on PII routes is insufficient — always use `isDashboardUser` for dashboard endpoints that return contact/deal/merchant data. Merchants must not read other merchants' data.
 - `/api/merchant-applications/user/:userId` — URL param userId must be verified against `req.user.id` unless caller is admin/manager (IDOR).

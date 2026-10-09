@@ -1,6 +1,87 @@
 /** URL authority shared by C1 and later workspace owners. Metadata does not
  * authorize rendering; mounted wrappers retain their existing role guards. */
 export const financialViews = ["revenue", "forecasting", "terminal-roi"] as const;
+// C4-owned nested extensions. They are separate from outer Reporting.tab and
+// Financial.financialTab; existing six legacy report values do not change.
+export const revenueViews = ["dashboard","by-partner","reconcile","history","payouts"] as const;
+export const revenueFilterKeys=["revenueQuery","revenueParentContactId","revenuePeriod"] as const;
+export function preserveRevenueFilters(search:string,params:URLSearchParams){
+  for(const key of revenueFilterKeys){
+    params.delete(key);
+    for(const value of new URLSearchParams(search).getAll(key))params.append(key,value);
+  }
+  return params;
+}
+export type RevenueFilterState={query:string;parentContactId:number|null;period:string;issues:SelectionIssue[]};
+/** C4 extension through C1; invalid scope never authorizes a broader read. */
+export function revenueFilterState(search:string):RevenueFilterState {
+  const input=new URLSearchParams(search),issues:SelectionIssue[]=[];
+  function scalar(key:string,fallback:string,validate:(v:string)=>boolean){
+    const values=[...new Set(input.getAll(key))];
+    if(!values.length)return fallback;
+    const kind=values.length>1?"conflict":!validate(values[0])?"invalid":null;
+    if(kind){issues.push({key,kind,reason:`${key}: ${kind} filter. No broader population is fetched.`});return fallback;}
+    return values[0];
+  }
+  const parent=scalar("revenueParentContactId","",v=>!!parseLocalEntityId("contactId",v)&&Number(v)<=2147483647);
+  return {query:scalar("revenueQuery","",v=>v.length<=200&&!/[\u0000-\u001f\u007f]/.test(v)),
+    parentContactId:parent?Number(parent):null,
+    period:scalar("revenuePeriod","all",v=>v==="all"||/^\d{4}-(0[1-9]|1[0-2])$/.test(v)),issues};
+}
+export function revenueFilterUrl(search:string,hash:string,filter:Omit<RevenueFilterState,"issues">){
+  const params=safeParams(search,[...safeContextKeys,"revenueView"]);
+  params.set("tab","financial");params.set("financialTab","revenue");
+  if(filter.query)params.set("revenueQuery",filter.query);
+  if(filter.parentContactId!=null)params.set("revenueParentContactId",String(filter.parentContactId));
+  if(filter.period!=="all")params.set("revenuePeriod",filter.period);
+  if(revenueFilterState(params.toString()).issues.length)throw new Error("Invalid revenue filter selection");
+  return destinationUrl("/dashboard/reporting",params,hash);
+}
+export const underwritingViews = ["queue","approved","config"] as const;
+export const onboardingViews = ["overview", "board"] as const;
+export const supportViews = ["tickets", "rfis", "review-queue"] as const;
+/** C4 extension: nested Review Queue status is distinct from Support's tab. */
+export const reviewQueueViews = ["pending","approved","all"] as const;
+/** C4 extension: story status is distinct from Merchant Success's outer tab. */
+export const testimonialViews=["pending","approved","rejected","all"] as const;
+/** C4 extension: RFI status is distinct from Support's outer tab. */
+export const rfiViews=["all","Open","In Progress","Waiting on Merchant","Responded","Closed"] as const;
+export function rfiUrl(search:string,hash:string,value?:typeof rfiViews[number],closeSelected=false){
+  const params=new URLSearchParams(c4WorkspaceUrl("/dashboard/support-hub",search,"",
+    "tab",supportViews,"tickets","rfis").split("?")[1]||"");
+  if(value!==undefined)params.set("rfiView",value);
+  if(closeSelected)params.delete("id");
+  return destinationUrl("/dashboard/support-hub",params,hash);
+}
+export function testimonialAliasUrl(search:string,hash=""){
+  return c4WorkspaceUrl("/dashboard/merchant-success",search,hash,"tab",merchantSuccessViews,"reviews","testimonials");
+}
+export function testimonialUrl(search:string,hash:string,value:typeof testimonialViews[number]){
+  const params=new URLSearchParams(c4WorkspaceUrl("/dashboard/merchant-success",search,"",
+    "testimonialView",testimonialViews,"pending",value).split("?")[1]||"");
+  params.set("tab","testimonials");
+  return destinationUrl("/dashboard/merchant-success",params,hash);
+}
+export function reviewQueueUrl(search:string,hash:string,value:typeof reviewQueueViews[number]){
+  const params=new URLSearchParams(c4WorkspaceUrl("/dashboard/support-hub",search,"","reviewView",reviewQueueViews,"pending",value).split("?")[1]||"");
+  params.set("tab","review-queue");
+  return destinationUrl("/dashboard/support-hub",params,hash);
+}
+export const merchantRiskViews = ["chargebacks", "health"] as const;
+export const merchantHealthViews = ["alerts", "churn-risk", "nps", "signal-settings"] as const;
+export function merchantHealthUrl(search: string, hash: string, value: typeof merchantHealthViews[number]) {
+  const params = new URLSearchParams(c4WorkspaceUrl("/dashboard/merchant-risk", search, "", "healthView",
+    merchantHealthViews, "alerts", value).split("?")[1]);
+  params.set("tab", "health");
+  return destinationUrl("/dashboard/merchant-risk", params, hash);
+}
+export function merchantHealthAliasUrl(search: string, hash: string) {
+  const params = safeParams(search, safeContextKeys);
+  params.set("tab", "health");
+  for (const value of new URLSearchParams(search).getAll("healthView")) params.append("healthView", value);
+  return destinationUrl("/dashboard/merchant-risk", params, hash);
+}
+export const merchantSuccessViews = ["reviews", "testimonials", "nps", "retention"] as const;
 export const operatorViews = [
   "command-center", "lifecycle", "conversion", "stuck-leads", "lead-queue-health",
   "stage-health", "vertical-coverage", "statement-upload", "a-lead-queue", "sdr",
@@ -55,6 +136,50 @@ export function destinationUrl(path: string, params: URLSearchParams, hash = "")
   return path + (params.size ? `?${params.toString()}` : "") + safeFragment(hash);
 }
 
+/** Typed C4 child selection. Only registered entity context crosses a view
+ * change; arbitrary query state is never promoted into navigation authority. */
+export function c4WorkspaceSelection<T extends string>(
+  search: string,
+  key: string,
+  allowed: readonly T[],
+  fallback: T,
+) {
+  return selectValue(new URLSearchParams(search), key, allowed, fallback);
+}
+
+export function c4WorkspaceUrl<T extends string>(
+  path: string,
+  search: string,
+  hash: string,
+  key: string,
+  allowed: readonly T[],
+  fallback: T,
+  value: T,
+) {
+  if (!allowed.includes(value)) throw new Error(`Invalid ${key} selection`);
+  if (!allowed.includes(fallback)) throw new Error(`Invalid ${key} fallback`);
+  const params = safeParams(search, safeContextKeys);
+  if (path === "/dashboard/merchant-risk" && key === "tab" && value === "health") {
+    const input = new URLSearchParams(search);
+    for (const child of input.getAll("healthView")) params.append("healthView", child);
+  }
+  if(path==="/dashboard/support-hub"&&key==="tab"&&value==="review-queue"){
+    for(const child of new URLSearchParams(search).getAll("reviewView"))params.append("reviewView",child);
+  }
+  if(path==="/dashboard/support-hub"&&key==="tab"&&value==="rfis"){
+    for(const child of new URLSearchParams(search).getAll("rfiView"))params.append("rfiView",child);
+    // Existing selected-record context uses generic id. Keep it only for
+    // this typed destination, never in the global contact/deal allowlist.
+    // Preserve invalid/conflicting inputs for the selected reader's denial.
+    for(const id of new URLSearchParams(search).getAll("id"))params.append("id",id);
+  }
+  if(path==="/dashboard/merchant-success"&&key==="tab"&&value==="testimonials"){
+    for(const child of new URLSearchParams(search).getAll("testimonialView"))params.append("testimonialView",child);
+  }
+  params.set(key, value);
+  return destinationUrl(path, params, hash);
+}
+
 export function financialState(search: string) {
   const params = new URLSearchParams(search);
   // Explicit child wins even when a legacy tab also names another valid child.
@@ -64,9 +189,14 @@ export function financialState(search: string) {
 }
 export function financialUrl(search: string, hash = "", child?: typeof financialViews[number]) {
   const state = financialState(search);
-  const params = safeParams(search, safeContextKeys);
+  const params = safeParams(search, [...safeContextKeys,...revenueFilterKeys]);
+  // Keep malformed/conflicting scoped filters through alias replacement so the
+  // consumer can deny that read instead of silently broadening to All.
+  preserveRevenueFilters(search,params);
   params.set("tab", "financial");
   params.set("financialTab", child ?? (state.value === "financial" ? "revenue" : state.value));
+  if(params.get("financialTab")==="revenue" && new URLSearchParams(search).has("revenueView"))
+    params.set("revenueView",selectValue(new URLSearchParams(search),"revenueView",revenueViews,"dashboard").value);
   // Persist a machine-readable invalid/conflict reason across alias replacement.
   if (state.issues.length) params.set("selectionIssue", state.issues[0].kind);
   return destinationUrl("/dashboard/reporting", params, hash);

@@ -1,0 +1,87 @@
+DAILY WORK
+Overview
+Contacts & Leads
+Pipeline
+Messages & Inbox
+Tasks & Appointments
+3
+AI Advisor
+MERCHANT OPS
+Portfolio
+Applications
+Statement Reviews
+Documents
+Underwriting
+Onboarding
+Merchant Risk
+Boarding
+OUTBOUND
+Canonical Enrichment
+Lead Ops Center
+Ready for Outreach
+Outreach
+Lead Imports
+REPORTS
+Reports
+Leaderboard
+Settings
+PARTNERS
+RESOURCES
+U
+stage3b-f3bd77d1-1178-44b5-a55a-59bec89d5d3b-admin@example.test
+Dev Mode
+Replay Tour
+Sign Out
+Toggle Sidebar
+Support Hub
+Ctrl+K
+Security warning: Your admin account does not have two-factor authentication enabled. Enable 2FA immediately to protect your account.
+Set up 2FA
+WORKSPACE
+Merchant Operations
+PORTFOLIO
+Portfolio
+ACQUISITION
+Applications
+Statements
+Documents
+DELIVERY
+Underwriting
+Boarding
+Onboarding
+Onboarding Kickoff
+SERVICE
+Merchant Risk
+Merchant Success
+Support
+PARTNERS
+Referral Program
+Partner Orgs
+Partner Referrals
+Partner Portal Admin
+Co-branded Proposals
+Tickets
+RFIs
+Review Queue
+Review Queue
+
+Review RFI and quiz submissions before approval
+
+1
+Pending (all time)
+1
+Approved (all time)
+2
+Total (all time)
+
+Counts: independent recorded Review Queue aggregate, all time. Records: selected status reader. Source readers do not supply a shared snapshot clock, timezone or class-completeness receipt.
+
+Pending
+Approved
+All
+Type	Contact	Email	Source	Submitted	Progress	Status	
+
+Quiz	stage3b-f3bd77d1-1178-44b5-a55a-59bec89d5d3b pending review read	—	Quiz	10/9/2026	
+6/6
+	
+Pending	

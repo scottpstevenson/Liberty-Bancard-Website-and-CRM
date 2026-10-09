@@ -2,7 +2,10 @@ import type { Express } from "express";
 import { isAuthenticated,isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
-import { insertRfiSchema, insertWorkflowSchema } from "@shared/schema";
+import { insertWorkflowSchema } from "@shared/schema";
+import {rfiWorkCommand} from "@shared/rfi-work-command";
+import {commandRfi} from "../services/rfi-work-command";
+import {bindWorkActor,WorkCommandError} from "../services/work-item-command";
 import { executeWorkflowActions, triggerWorkflowsByEvent } from "../services/workflow-executor";
 import { parse } from "csv-parse/sync";
 import { requireInternalWebhookSecret } from "../middleware/internal-webhook-auth";
@@ -14,15 +17,14 @@ const positiveId = z.coerce.number().int().positive().safe();
 
 export function registerWorkflowsRoutes(app: Express) {
   // === RFIs ===
-  app.get("/api/rfis", isAuthenticated, async (req, res) => {
+  app.get("/api/rfis", isDashboardUser,requireRole("admin","manager","agent"), async (req, res) => {
     try {
-      const allRfis = await storage.getRfis();
-      const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
-      const filtered = contactId && !isNaN(contactId)
-        ? allRfis.filter((r) => r.contactId === contactId)
-        : allRfis;
-      res.json(filtered);
+      const {strictRecordId}=await import("@shared/work-item-commands");
+      const contactId=req.query.contactId===undefined?undefined:strictRecordId.parse(req.query.contactId);
+      const {readActorRfis}=await import("../services/notification-authority");
+      res.json(await readActorRfis((req.user as any).id,contactId));
     } catch (err: any) {
+      if(err instanceof z.ZodError)return res.status(400).json({message:"Invalid/conflicting contact ID"});
       serverError(res, err);
     }
   });
@@ -41,81 +43,28 @@ export function registerWorkflowsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/rfis", isAuthenticated, async (req, res) => {
+  app.post("/api/rfis", isDashboardUser,requireRole("admin","manager","agent"), async (req, res) => {
     try {
-      const input = insertRfiSchema.parse(req.body);
-      const rfi = await storage.createRfi(input);
-      await storage.createAuditLog({ action: "rfi_created", entityType: "rfi", entityId: rfi.id, details: { subject: rfi.subject, category: rfi.category } });
-      await storage.createNotification({
-        channel: "internal",
-        title: `New RFI: ${rfi.subject}`,
-        message: `Priority: ${rfi.priority} | Category: ${rfi.category} | Assigned to: ${rfi.assignedTo || "Unassigned"}`,
-        type: rfi.priority === "Urgent" ? "urgent" : "info",
-        metadata: { rfiId: rfi.id, contactId: rfi.contactId || undefined, dealId: rfi.dealId || undefined, entityType: "rfi", entityId: rfi.id },
-      });
-      (async () => {
-        let contactName: string | undefined;
-        let email: string | undefined;
-        let phone: string | undefined;
-        let ghlContactId: string | undefined;
-        if (rfi.contactId) {
-          const contact = await storage.getContact(rfi.contactId).catch(() => undefined);
-          if (contact) {
-            contactName = `${contact.firstName || ""} ${contact.lastName || ""}`.trim() || contact.email || undefined;
-            email = contact.email || undefined;
-            phone = contact.phone || undefined;
-            ghlContactId = contact.ghlContactId || undefined;
-          }
-        }
-        await storage.createReviewQueueItem({
-          sourceType: "rfi",
-          sourceId: rfi.id,
-          status: "pending",
-          checklistState: {},
-          metadata: {
-            subject: rfi.subject,
-            category: rfi.category,
-            priority: rfi.priority,
-            description: rfi.description,
-            requestedBy: rfi.requestedBy,
-            assignedTo: rfi.assignedTo,
-            source: "rfi",
-            contactId: rfi.contactId || undefined,
-            dealId: rfi.dealId || undefined,
-            contactName,
-            email,
-            phone,
-            ghlContactId,
-          },
-        });
-      })().catch((err: any) => console.error("[ReviewQueue] RFI enqueue failed:", err.message));
-      res.status(201).json(rfi);
+      const input=rfiWorkCommand.parse(req.body);
+      const result=await commandRfi(bindWorkActor(req.user,input.expectedActorId,input.expectedAccountVersion),"create",input);
+      res.status(result.replayed?200:201).json({...result.rfi,command:{
+        id:input.commandId,replayed:result.replayed,changed:result.changed,nativeDelivery:result.nativeDelivery}});
     } catch (err: any) {
+      if(err instanceof WorkCommandError)return res.status(err.status).json({message:err.message});
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);
     }
   });
 
-  app.put("/api/rfis/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/rfis/:id", isDashboardUser,requireRole("admin","manager","agent"), async (req, res) => {
     try {
-      const allowed = insertRfiSchema.partial().parse(req.body);
-      const old = await storage.getRfi(Number(req.params.id));
-      const updated = await storage.updateRfi(Number(req.params.id), allowed);
-      if (!updated) return res.status(404).json({ message: "Not found" });
-      if (old && old.status !== updated.status) {
-        await storage.createAuditLog({ action: "rfi_status_changed", entityType: "rfi", entityId: updated.id, details: { from: old.status, to: updated.status } });
-      }
-      if (allowed.response && !old?.response) {
-        await storage.createNotification({
-          channel: "internal",
-          title: `RFI Responded: ${updated.subject}`,
-          message: `RFI #${updated.id} has been responded to`,
-          type: "info",
-          metadata: { rfiId: updated.id, contactId: updated.contactId || undefined, dealId: updated.dealId || undefined, entityType: "rfi", entityId: updated.id },
-        });
-      }
-      res.json(updated);
+      const {strictRecordId}=await import("@shared/work-item-commands");
+      const id=strictRecordId.parse(req.params.id),input=rfiWorkCommand.parse(req.body);
+      const result=await commandRfi(bindWorkActor(req.user,input.expectedActorId,input.expectedAccountVersion),"edit",input,id);
+      res.json({...result.rfi,command:{id:input.commandId,replayed:result.replayed,
+        changed:result.changed,nativeDelivery:result.nativeDelivery}});
     } catch (err: any) {
+      if(err instanceof WorkCommandError)return res.status(err.status).json({message:err.message});
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);
     }

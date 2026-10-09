@@ -4,19 +4,20 @@ import ReviewRequests from "./ReviewRequests";
 import TestimonialSubmissions from "./TestimonialSubmissions";
 import NpsDashboard from "./NpsDashboard";
 import RetentionCampaigns from "./RetentionCampaigns";
-
-const VALID_TABS = ["reviews", "testimonials", "nps", "retention"] as const;
-type Tab = typeof VALID_TABS[number];
+import { c4WorkspaceSelection, c4WorkspaceUrl, merchantSuccessViews } from "@/lib/crm-destination-state";
 
 export default function MerchantSuccessHub() {
   const search = useSearch();
-  const raw = new URLSearchParams(search).get("tab") ?? "";
-  const tab: Tab = (VALID_TABS as readonly string[]).includes(raw) ? (raw as Tab) : "reviews";
+  const state = c4WorkspaceSelection(search, "tab", merchantSuccessViews, "reviews");
   const [, navigate] = useLocation();
-  const goTab = (v: string) => navigate(`/dashboard/merchant-success?tab=${v}`);
+  const goTab = (value: string) => {
+    if ((merchantSuccessViews as readonly string[]).includes(value))
+      navigate(c4WorkspaceUrl("/dashboard/merchant-success", search, window.location.hash, "tab", merchantSuccessViews, "reviews", value as typeof merchantSuccessViews[number]));
+  };
 
   return (
-    <Tabs value={tab} onValueChange={goTab} className="space-y-4">
+    <Tabs value={state.value} onValueChange={goTab} className="min-w-0 space-y-4">
+      {state.issues.length > 0 && <p className="rounded-md border-l-2 border-destructive bg-muted px-3 py-2 text-sm" role="status">{state.issues[0].reason}</p>}
       <TabsList>
         <TabsTrigger value="reviews" data-testid="tab-merchant-success-reviews">Review Requests</TabsTrigger>
         <TabsTrigger value="testimonials" data-testid="tab-merchant-success-testimonials">Testimonials</TabsTrigger>

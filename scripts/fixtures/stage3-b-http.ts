@@ -7,7 +7,7 @@ import { assertDisposableTestInfrastructure } from "../test-infrastructure-guard
  * customer/provider credentials. Call before importing application modules. */
 export async function stage3BHttpFixture(register: (app: Express) => Promise<void>,
   authDependencies?:Parameters<typeof import("../../server/replit_integrations/auth/replitAuth").setupAuth>[1],
-  options?:{interactivePassword?:string;emailPrefix?:string}) {
+  options?:{interactivePassword?:string;emailPrefix?:string;backgroundProfile?:"off"}) {
   // The canonical runner owns its suite namespace. This fixture owns a
   // separate descendant, just as canonical migration/server wrappers do.
   // Never reuse or release the runner's reservation.
@@ -16,6 +16,9 @@ export async function stage3BHttpFixture(register: (app: Express) => Promise<voi
   const isolation = await assertDisposableTestInfrastructure({
     operation: "Stage 3 B registered lifecycle/workflow fixture", requireRedis: true, reserveRedisNamespace: true,
   });
+  const previousBackgroundProfile=process.env.BACKGROUND_JOB_PROFILE;
+  // Only the verified owned test process may request no worker startup.
+  if(options?.backgroundProfile==="off")process.env.BACKGROUND_JOB_PROFILE="off";
   const originalFetch = globalThis.fetch;
   let externalCalls = 0;
   let base = "";
@@ -49,6 +52,10 @@ export async function stage3BHttpFixture(register: (app: Express) => Promise<voi
     if (server) await new Promise<void>(resolve => server!.close(() => resolve()));
     await isolation.releaseRedisReservation();
     await pool.end();
+    if(options?.backgroundProfile==="off"){
+      if(previousBackgroundProfile===undefined)delete process.env.BACKGROUND_JOB_PROFILE;
+      else process.env.BACKGROUND_JOB_PROFILE=previousBackgroundProfile;
+    }
   };
   try {
     for (const role of roles) await pool.query(`INSERT INTO users(id,email,password_hash,role,auth_provider,email_verified)

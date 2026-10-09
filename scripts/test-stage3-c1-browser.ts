@@ -151,7 +151,11 @@ try {
     await browser.waitFor(/C1 Synthetic/);
     assert.equal(await browser.evaluate("document.querySelectorAll('h1').length"),1);
     if(role==="admin"){
-      await browser.click('[data-testid="button-edit"]');
+       await browser.click('[data-testid="contact-more-actions"]');
+       await browser.waitFor(/Edit contact/i);
+       await browser.click('[data-testid="menu-action-edit"]');
+       // Current C2 editor is inline. The native input helper verifies the
+       // actual target; do not wait for a retired modal title.
       await browser.set('[data-testid="input-edit-firstname"]',"C1 Synthetic Updated");
       await browser.click('[data-testid="button-save-edit"]');
       await browser.waitFor(/C1 Synthetic Updated/);

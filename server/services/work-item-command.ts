@@ -61,7 +61,7 @@ export async function resolveWorkAssignee(identity: string, tx: Tx, locked?: Use
 
 /** Locks and authorizes actual/prospective endpoints, including explicit null
  * clears; classes/owners cannot change between validation and work commit. */
-async function validateLinks(tx: Tx, row: any, actor: UserRow | undefined, recordClass: string): Promise<{
+export async function validateLinks(tx: Tx, row: any, actor: UserRow | undefined, recordClass: string): Promise<{
   contact?: { id: number; assignedTo: string | null; ghlContactId: string | null };
   dealOwner?: string | null;
 }> {
@@ -316,5 +316,62 @@ export async function createHumanTask(input: {
       message:`"${task.title}" has been assigned to ${assignee.email}.`,type:"info",recipientId:assignee.id,
       metadata:{taskId:task.id,eventType:"task_assigned",assignedTo:assignee.email}});
     return {task,replayed:false};
+  });
+}
+
+/** Employee ticket intents compose the existing issue/generation writer.
+ * Reuse is explicit and never overwrites another active issue's fields. */
+export async function createHumanTicket(input:{actor:WorkActor;commandId:string;fields:Record<string,any>}) {
+  return db.transaction(async tx=>{
+    const commandKey=`human-ticket-create:${input.actor.id}:${input.commandId}`;
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${commandKey},0))`);
+    const target=input.fields.assignedTo;
+    const principals=await tx.select(workPrincipalFields).from(users).where(sql`${users.id}=${input.actor.id}
+      OR ${users.id}=${target??""} OR lower(${users.email})=lower(${target??""})`).orderBy(asc(users.id)).for("share");
+    const actor=principals.find(row=>row.id===input.actor.id);
+    if(!actor||actor.accountState!=="active"||actor.authEpoch!==input.actor.authEpoch||
+      actor.accountVersion!==input.actor.accountVersion||!["admin","manager","agent"].includes(actor.role??""))throw unavailable();
+    if(actor.role==="agent"&&!input.fields.contactId)throw unavailable();
+    const links=await validateLinks(tx,input.fields,actor,"production");
+    const identity=target===undefined&&actor.role==="agent"?actor.id:target;
+    const assignee=identity?await resolveWorkAssignee(identity,tx,principals):null;
+    const fields={...input.fields,assignedTo:assignee?.email??null};
+    if(assignee&&links.contact&&links.contact.assignedTo!==assignee.email)
+      throw new WorkCommandError("Assignee does not own the linked record. Use the approved ownership handoff first.",409);
+    const commandHash=hash(input);
+    const eventKey=`create-intent:${commandKey}`;
+    const [prior]=await tx.select().from(ticketAuthorityEvents).where(and(
+      eq(ticketAuthorityEvents.eventKey,eventKey),eq(ticketAuthorityEvents.producer,"dashboard")));
+    if(prior){
+      const [current]=await tx.select().from(tickets).where(eq(tickets.id,prior.ticketId)).for("update");
+      if(!current)throw unavailable();
+      await validateLinks(tx,current,actor,"production");
+      if((prior.payload as any)?.commandHash!==commandHash)
+        throw new WorkCommandError("Creation retry differs from the original ticket intent. No new ticket was created.",409);
+      return {ticket:current,replayed:true,reused:!!(prior.payload as any)?.reused};
+    }
+    const {storage}=await import("../storage");
+    const ticket=await storage.createAuthorityTicket(fields as any,{producer:"dashboard",commandKey},tx);
+    await validateLinks(tx,ticket,actor,"production");
+    const reused=ticket.commandKey!==commandKey;
+    if(reused){
+      // Keep the original active-issue identity, but never acknowledge changed
+      // data as a save just because category/subject happen to match.
+      for(const [key,value]of Object.entries(fields)){
+        if(hash(value)!==hash((ticket as any)[key]))
+          throw new WorkCommandError("An active ticket already exists with different fields. Open it; no ticket was created or changed.",409);
+      }
+    }else{
+      await auditChange({actorType:"user",userId:actor.id,action:"ticket_created",entityType:"ticket",entityId:ticket.id,
+        before:null,after:{id:ticket.id,contactId:ticket.contactId,status:ticket.status,
+          assignedTo:ticket.assignedTo,authorityFence:ticket.authorityFence}},tx);
+      if(assignee)await tx.insert(notifications).values({channel:"internal",title:"Ticket Assigned",
+        message:`Ticket #${ticket.id} has been assigned to ${assignee.email}.`,type:"info",recipientId:assignee.id,
+        metadata:{ticketId:ticket.id,eventType:"ticket_assigned",assignedTo:assignee.email}});
+    }
+    await tx.insert(ticketAuthorityEvents).values({ticketId:ticket.id,eventKey,eventType:"creation_intent_accepted",
+      producer:"dashboard",commandKey,fence:ticket.authorityFence,toState:ticket.authorityState,
+      payload:{commandHash,reused,actorId:actor.id}});
+    return {ticket,replayed:false,reused};
   });
 }

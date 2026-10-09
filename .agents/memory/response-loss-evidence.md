@@ -36,3 +36,25 @@ fault-execution receipts, this looked like an application false-empty regression
 For deterministic component failure tests, explicitly bypass the worker only for
 that test and restore it afterward. This is not service-worker acceptance; test the
 worker path separately when that behavior is required.
+
+A later rejected retry does not resolve uncertainty about the original lost reply.
+
+**Why:** A committed command can become unreadable after its target is archived,
+its assignment changes or its actor loses access. The retry's denial establishes
+no new effect for that request, not that the earlier command never committed.
+
+**How to apply:** Retain the original frozen intent when an unconfirmed operation's
+retry is denied. Reconcile under current authorized access; do not discard it,
+generate a replacement or relabel the original outcome as no-write from that denial.
+
+Refresh authorized facts after an unknown command outcome without treating the
+refreshed row/list as confirmation of that intent.
+
+**Why:** An inspected lost-reply state kept showing “0 / No tickets yet” from
+the pre-write snapshot even though the command had committed. Showing current
+facts avoids that false-empty claim, but row appearance alone does not prove
+which frozen UUID was accepted.
+
+**How to apply:** Refresh through existing scoped readers, label unresolved
+snapshot/count states honestly, and retain the original payload/version/UUID
+until its own authorized command confirmation or reconciliation is established.

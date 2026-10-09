@@ -1,5 +1,7 @@
-import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState,useEffect } from "react";
+import { useMutation } from "@tanstack/react-query";
+import {useCrmQuery as useQuery,useCrmActorIdentity} from "@/hooks/use-crm-query";
+import {CrmDataState} from "@/components/crm/CrmPresentation";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -130,14 +132,26 @@ function StatementOperationsPanel() {
   const [savingsOverride, setSavingsOverride] = useState("");
   const [followUpDraft, setFollowUpDraft] = useState("");
 
-  const { data: reviews = [], isLoading, refetch } = useQuery<StatementReviewRecord[]>({
+  const actorIdentity=useCrmActorIdentity();
+  useEffect(()=>{setSelectedReview(null);setAnalystNotes("");setSavingsOverride("");setFollowUpDraft("");},[actorIdentity]);
+  const { data: reviews = [], isLoading,isError,error, refetch } = useQuery<StatementReviewRecord[]>({
     queryKey: ["/api/statement-reviews"],
+    queryFn:async({signal})=>{
+      const response=await fetch("/api/statement-reviews",{credentials:"include",signal});
+      if(!response.ok)throw new Error(`${response.status}: Statement reviews unavailable`);
+      const rows=await response.json();
+      if(!Array.isArray(rows)||rows.some(row=>!Number.isInteger(row?.id)||!Number.isInteger(row?.version)))
+        throw new Error("Statement review identity/version shape unavailable");
+      return rows;
+    },
     refetchInterval: 60000,
   });
+  const selectionCurrent=!isLoading&&!isError&&!!selectedReview&&
+    reviews.some(row=>row.id===selectedReview.id&&row.version===selectedReview.version);
 
   const updateMutation = useMutation({
     mutationFn: async (updates: Record<string, any>) => {
-      if (!selectedReview) throw new Error("No review selected");
+      if (!selectedReview||!selectionCurrent) throw new Error("Current matching review/version read required");
       const res = await apiRequest("PATCH", `/api/statement-reviews/${selectedReview.id}`, {
         ...updates,
         version: selectedReview.version,
@@ -156,7 +170,7 @@ function StatementOperationsPanel() {
 
   const generateDraftMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedReview) throw new Error("No review selected");
+      if (!selectedReview||!selectionCurrent) throw new Error("Current matching review/version read required");
       const res = await apiRequest("POST", `/api/statement-reviews/${selectedReview.id}/follow-up-draft`);
       return res.json();
     },
@@ -222,7 +236,8 @@ function StatementOperationsPanel() {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            {isLoading ? (
+            {isError ? <CrmDataState state={/^403:/.test(error?.message||"")?"denied":"unavailable"} message="Statement reviews unavailable; this is not a no-reviews result." onRetry={()=>void refetch()}/>
+            : isLoading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
               </div>
@@ -271,7 +286,8 @@ function StatementOperationsPanel() {
 
         {/* Right: review detail */}
         <div className="lg:col-span-2">
-          {!selectedReview ? (
+          {selectedReview&&!selectionCurrent ? <CrmDataState state="unavailable" message="Selected review has no current matching authorized version. Reselect after retry; prior fields are not an editable placeholder." onRetry={()=>void refetch()}/>
+          : !selectedReview ? (
             <Card>
               <CardContent className="flex items-center justify-center py-16 text-muted-foreground">
                 <div className="text-center">

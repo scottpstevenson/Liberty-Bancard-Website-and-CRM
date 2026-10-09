@@ -20,7 +20,6 @@
 - [GHL token & circuit breaker](ghl-token-ops.md) — 401 on expired PIT token, regenerate in GHL settings; breaker persists closed/open/half-open via classifyGhlSyncError().
 - [GHL data-sync authority](ghl-data-sync-authority.md) — One-way GHL-to-production contact sync; no GHL record writes, and outbound communications stay paused.
 - [GHL appointment calendar](ghl-appointment-calendar.md) — User selected Sales Meeting for appointment reads; keep selection independent of outbound booking configuration.
-- [Idempotent migration FK pattern](idempotent-migration-fk.md) — duplicate FK migrations: wrap ADD CONSTRAINT with DROP CONSTRAINT IF EXISTS first.
 - [Enrichment worker OOM crash](enrichment-oom.md) — fix needs all 3: re-entrancy flags on enrichment batches, capped streaming body reads, SUNBIZ_ENRICHMENT_ENABLED gating (prod-default).
 - [Wave 10 draft persistence](wave10-draft-persistence.md) — Draft hash; never autosave EIN/SSN/bank. Final dedupe is EIN-only; prefill Map TTL is 24h.
 - [Finalize IIFE contact lookup](finalize-iife-contact-lookup.md) — Avoid limit-1000 lookup; select by email and capture req.ip before IIFE.
@@ -45,17 +44,13 @@
 - [Deal backfill async-runner pattern](deal-backfill-async-runner.md) — Backfill is fire-and-forget; track system_settings progress and retain the priorityBucket A/B orphan guard.
 - [Drizzle partial-index ON CONFLICT](drizzle-partial-index-on-conflict.md) — Drizzle omits targetWhere for partial-index conflicts; use raw SQL with ON CONFLICT ... WHERE.
 - [SLA task idempotency design](sla-task-idempotency.md) — source/automationKey identity columns + partial unique index; phased backfill-before-index rollout.
-- [Migration journal ordering](migration-when-collision.md) — High-water timestamps and integrity checks; [older context](drizzle-out-of-order-journal.md).
-- [executeSql DDL timeout + migration lock contention](executesql-ddl-timeout.md) — Large DDL may time out; crashed startup migrations can leave locks. Find and terminate blockers.
-- [Partial index scopes](partial-index-new-rows-only.md) — Safe uniqueness rollout; [generated predicates](generated-key-partial-index-predicates.md).
+- [Migration/publication lessons](migration-memory-index.md) — Journal/hash proof, locks, safe index rollout, legacy constraints, timeouts and production schema ownership.
 - [Intake Provenance System](intake-provenance.md) — writeContact() canonical writer; import_executions + contact_source_events; A→B→C DEFERRABLE transaction; all intake paths wired.
 - [Merchant portal access gaps](merchant-portal-access-gaps.md) — Redirect merchants via ProtectedRoute; onboarding uses isAuthenticated plus ownership.
 - [GHL client pitfalls](ghl-fetch-timeout.md) — AbortController per fetch (20s, retryable); email-422s sanitize to terminal skips; pause enforced at each client's fetch helper.
 - [tsx hot-reload stale route registration](tsx-stale-route.md) — new Express routes may 404 until a full server restart; probe with curl and restart to confirm.
-- [Drizzle-kit orphaned file deploy hang](drizzle-kit-orphaned-hang.md) — Unjournaled SQL in migrations/ root hangs drizzle-kit generate; journal it or move to migrations/guarded/.
 - [Communication Events Model](communication-events-model.md) — migration 0119; recordOutboundSend/recordInboundEvent are the only write paths; wired sites documented.
 - [Arbitration fail-closed](arbitration-fail-closed.md) — arbitration catch block returns suppressed:true on error (was fail-open); ARBITRATION_ERROR audit log written.
-- [Migration statement timeout bypass](migration-statement-timeout.md) — Use dedicated pg.Client with statement_timeout=0, not drizzle(pool), to protect large indexes.
 - [AI Memory Architecture](ai-memory-arch.md) — AI memory tables and /api/ai-memory routes; AI Learning Center is in OperatorDashboard.
 - [Save Cases auto-open](save-cases-auto-open.md) — openSaveCaseIfNeeded() fires after High/Critical nightly churn score; partial unique index prevents duplicate open cases per contact.
 - [Test fixture isolation](test-contact-prefixes.md) — Prefix/FK rules; [unique phones/EINs](test-phone-isolation.md) and [GHL cleanup](ghl-test-contact-cleanup.md).
@@ -80,10 +75,9 @@
 - [Commercial/channel authority axes](commercial-resolution-authority.md) — Keep resolution, channel evidence, and identity/provenance separate; shadow never replaces legacy pre-cutover.
 - [Multi-source cursor buffering](multi-source-cursor-buffering.md) — merged pagination must retain fetched-but-not-emitted items or cursors silently drop them.
 - [Source thread URL authority](source-thread-url-authority.md) — persisted selections need exact authorized reads outside loaded windows before mounting drafts.
+- [Typed child context](typed-child-context.md) — Selected identity belongs to its destination; do not infer keys or globally carry ambiguous IDs between readers.
 - [CR-06 immutable rollout versioning](cr06-immutable-rollout-versioning.md) — never edit an applied premium manifest in place; publish a new artifact identity/version.
-- [Publish/production schema ownership](production-schema-ownership.md) — Publish owns prod DDL; startup must not replay Drizzle migrations; inline NOT VALID constraints fail Publish.
 - [Inbound request authority](inbound-request-authority.md) — request occurrence owns classification, idempotency, held effects, assignment/SLA links, receipts.
-- [Migration ledger hash-only proof](migration-ledger-hash-proof.md) — row count in drizzle.__drizzle_migrations is NOT valid applied-migration proof; only exact content-hash match is sound.
 - [Dependency-free CRO03C constants module](cro03c-dependency-free-contracts.md) — contracts.ts has zero db import; never import live-execution.ts (eager db import) from DB-less CLI tools.
 - [Task agent isolated branch vs production deploy target](task-agent-isolated-branch.md) — task-agent `main` isn't what Publish deploys from; pushing to `origin` never updates the live app.
 - [Layering a new authority on immutable upstream systems](cro07-controlled-delivery.md) — one-active-chain-per-intent constraint; reply-vs-suppression matrix; CAS-locked decisions.
@@ -99,7 +93,6 @@
 - [Contact enrichment backlog reconnect](contact-enrichment-backlog-reconnect.md) — recurring-tick backlog pitfalls: predicate drift, retry starvation, wrong gateway status column.
 - [Free-enrichment queue UNION ALL indexing](free-enrichment-queue-union-all-indexing.md) — split an OR eligibility predicate into UNION ALL branches so each gets its own partial index.
 - [Dev/prod DB evidence](shell-psql-defaults-to-dev.md) — Production-scoped queries; [verify actual results](production-sql-result-verification.md).
-- [contacts/businesses NOT NULL convergence](contacts-notnull-convergence.md) — Check live NULLs before tightening schema; prod DDL goes through Publish schema diff.
 - [Canonical DBPR-family predicate](dbpr-canonical-predicate.md) — One TS+SQL DBPR predicate; ingestion/storage/lineage allowed, exclusions only at named boundaries.
 - [Sunbiz bootstrap claim idempotency](sunbiz-bootstrap-claim-idempotency.md) — filing_number claim row precedes org resolution; registry_id FK gotcha.
 - [CRO03C provider-hardening parity](cro03c-provider-hardening-parity.md) — Legacy/MI-05 and CRO03C are separate; both share provider_controls for Outscraper/OpenAI.
@@ -116,13 +109,10 @@
 - [Durable failure-write tx deadlock](durable-failure-write-tx-deadlock.md) — Do not reuse a failing tx's PK on another connection; write failures in the outer catch.
 - [Fixture isolation](cert-fixture-mutation-reuse.md) — No mutated fixture reuse; [shared SFP fixtures](sfp-shared-cert-fixtures.md).
 - [Cross-connection advisory lock deadlock](advisory-lock-cross-connection-deadlock.md) — never xact-lock a key a session-level lock on a different connection already holds.
-- [Schema.ts check constraint without a migration](schema-check-constraint-unmigrated.md) — `check()` needs a real migration; verify the applied constraint in a disposable DB.
 - [SFP paid-provider manifest gaps & reserved-keyword SQL](sfp-paid-provider-manifest-and-reserved-keyword.md) — List each shared-chain file in approvedCallers; quote `authorization` in SQL.
 - [Disposable-DB VFC diff-isolation certs need a clean tree](sfp-vfc-diff-isolation-clean-tree.md) — cert scripts assert diff isolation; stash uncommitted WIP first.
-- [Legacy-value CHECK-constraint migrations](legacy-check-constraint-migration.md) — prove a synthetic legacy row survives against the real applied constraint, not a reconstructed copy.
 - [Package-pinned ready_held staging pattern](sfp-ready-held-staging-pattern.md) — snapshot-bound preview/execute + idempotency + drift 409s is reusable for any "prepare but never send" boundary.
 - [Sunbiz bootstrap engine hardening](sunbiz-bootstrap-hardening.md) — fence every write boundary, not just batch-level; weak-signal identity needs corroboration.
-- [Pre-deploy gate cascade & baseline noise](pre-deploy-gate-notes.md) — new migrations need a journal entry or integrity check cascades broadly; large pre-existing baseline failure exists.
 - [SFP production admin-route trigger pattern](sfp-production-admin-route-trigger.md) — Use admin HTTP routes (login+CSRF) for prod writes; options must match the preview hash.
 - [SFP dual-taxonomy vertical classification](sfp-dual-taxonomy-classification.md) — classifier_version = taxonomy version; evidence-only admission needs admission_tier='resolved_high'.
 - [SFP frozen classification snapshot](sfp-frozen-classification-snapshot.md) — freeze the caller's exact selection+facts instead of scoping the hash tighter, to stop preview/run hash flapping.
@@ -137,10 +127,8 @@
 - [Provider contracts](provider-documentation-contracts.md) — Invalid GHL resources can mask request errors; Outscraper expiry looks Pending; Apollo billing is operation-specific.
 - [Provider facts versus eligibility](provider-facts-vs-eligibility.md) — Preserve dispatched receipts across authority drift; serialize authorization separately from network I/O and promotion.
 - [Lossless timestamp authority pins](lossless-timestamp-authority-pins.md) — PostgreSQL microseconds must survive review CAS; JavaScript Date rounding can immediately invalidate an approval.
-- [Private auto-auth UI verification](private-autoauth-ui-verification.md) — Keep session-injecting fixture proxies loopback; use an explicit-port screenshot instead of exposing admin authority.
-- [Fixture workflow Run groups](workflow-run-group.md) — autoStart=false can still add a configured fixture workflow to normal Run; inspect and preserve the parent group.
+- [Browser/fixture verification](browser-memory-index.md) — Private sessions, environment Chromium, overlay settling/dismissal, ESM loaders and fixture Run groups.
 - [Authority write pitfalls](authority-bootstrap-transfer.md) — Upserts trigger INSERT; [Drizzle dropped columns](drizzle-set-silent-drop.md).
-- [Publish-safe indexes](publish-nested-expression-indexes.md) — Round-trip definitions; [migration CONCURRENTLY restriction](concurrent-index-migration-fix.md).
 - [SFP published build identity](sfp-published-build-identity.md) — Routine publishes auto-handoff audited SFP authority; preserve retired-build fencing, explicit holds, and manual rollback.
 - [Existing email inventory diagnosis](email-inventory-diagnosis.md) — Count existing inventory and trace intake before attributing low recipient growth to discovery yield.
 - [Raw SQL contracts](raw-sql-index.md) — Driver array binding, boolean typing, correlated qualification, row casing, and lossless timestamp representations.
@@ -148,12 +136,9 @@
 - [Partial patch results](partial-patch-results.md) — A failed multi-file patch may retain successful edits; inspect per-file results before retrying.
 - [Dev startup mutation scope](dev-startup-mutation-scope.md) — Background profile off disables jobs, not all startup reconciliations; no-mutation verification needs separate care.
 - [Dependency upgrades and design](dependency-design-preservation.md) — Security upgrades must preserve Liberty's design; installs can reintroduce nonportable mirror sources.
-- [Browser runtime verification](browser-runtime-verification.md) — Use environment Chromium; [wait for overlay transitions](browser-overlay-settling.md) before target/focus assertions.
-- [Cloud browser sessions](cloud-browser-test-isolation.md) — Fresh Kernel sessions omit profile-save flags; filter credential-bearing connection metadata.
-- [Nested overlay dismissal](radix-overlay-context.md) — Radix overlays must share a dismissal context; prove nested Escape and focus return after dependency changes.
-- [ESM harness loader ownership](esm-harness-loader-ownership.md) — Run tsImport-based .mjs harnesses with Node; an extra tsx loader can cause timeouts.
 - [SFP owner lock ordering](sfp-owner-lock-order.md) — Pin selector → owner before graph locks; queued renewal and joined FOR SHARE make inconsistent ordering dangerous.
 - [TOTP verification](totp-functional-api.md) — Use configured functional verification and explicit validity; prove wrong-code rejection and actual continuation.
 - [Retained native snapshot parity](retained-native-snapshot-parity.md) — Distinguish absent source columns from NULLs; audit source/disposable constraints before restoring historical topology.
 - [Response-loss evidence](response-loss-evidence.md) — Prove the post-commit fault executed; persisted rows alone cannot certify confirmation-loss recovery.
 - [Useful-list evidence](useful-list-evidence.md) — Time visible hydrated records, not shell headings or offscreen DOM; declare volume, hardware, network and cache conditions.
+- [Merchant/report ownership](stage3-c4-ownership.md) — C4 owns shared Outreach presentation; A owns data, C3 reuses it, C2 retains Contact shell, C5 sidebar and D serving proof.

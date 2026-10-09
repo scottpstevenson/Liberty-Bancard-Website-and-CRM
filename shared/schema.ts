@@ -2291,6 +2291,7 @@ export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 
 export const rfis = pgTable("rfis", {
   id: serial("id").primaryKey(),
+  authorityFence: integer("authority_fence").notNull().default(0),
   contactId: integer("contact_id").references(() => contacts.id),
   dealId: integer("deal_id").references(() => deals.id),
   subject: text("subject").notNull(),
@@ -2308,8 +2309,18 @@ export const rfis = pgTable("rfis", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const rfiCommandReceipts=pgTable("rfi_command_receipts",{
+  actorId:varchar("actor_id").notNull().references(()=>users.id),
+  commandId:uuid("command_id").notNull(),
+  rfiId:integer("rfi_id").notNull().references(()=>rfis.id),
+  operation:text("operation").notNull().$type<"create"|"edit">(),
+  payloadHash:text("payload_hash").notNull(),result:jsonb("result").notNull(),
+  createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+},table=>[primaryKey({columns:[table.actorId,table.commandId]})]);
+
 export const insertRfiSchema = createInsertSchema(rfis).omit({
   id: true,
+  authorityFence:true,
   createdAt: true,
   updatedAt: true,
 });

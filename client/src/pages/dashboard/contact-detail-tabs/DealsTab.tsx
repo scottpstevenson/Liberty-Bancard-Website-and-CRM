@@ -62,11 +62,11 @@ function StatementAnalysisSection({ dealId, analysisStatus }: { dealId: number; 
   const queryClient = useQueryClient();
   const [reanalyzeCooledDown, setReanalyzeCooledDown] = React.useState(false);
 
-  const { data, isLoading } = useQuery<AnalysisData>({
+  const { data, isLoading, isError, refetch } = useQuery<AnalysisData>({
     queryKey: ["/api/deals", dealId, "analysis"],
     queryFn: async () => {
       const res = await fetch(`/api/deals/${dealId}/analysis`);
-      if (!res.ok) return { analysisStatus: "none", proposal: null };
+      if (!res.ok) throw new Error("Deal analysis unavailable");
       return res.json();
     },
     enabled: !!dealId,
@@ -106,7 +106,8 @@ function StatementAnalysisSection({ dealId, analysisStatus }: { dealId: number; 
   const currentStatus = data?.analysisStatus ?? analysisStatus ?? "none";
 
   // Don't show spinner unless there's likely something to show (pending deal status)
-  if (isLoading && currentStatus === "none") return null;
+  if (isError) return <div role="alert" className="text-sm rounded border p-3">Deal analysis unavailable; no absent-proposal conclusion. <button className="min-h-11 px-3" onClick={()=>void refetch()}>Retry</button></div>;
+  if (isLoading && currentStatus === "none") return <p role="status" className="text-sm">Reading deal analysis…</p>;
 
   if (currentStatus === "none" && !proposal && !hasStatementDoc) return null;
 
@@ -259,15 +260,16 @@ function StatementAnalysisSection({ dealId, analysisStatus }: { dealId: number; 
 
 function CoBrandedProposalsSection({ dealId }: { dealId: number }) {
   const { toast } = useToast();
-  const { data: proposals, isLoading } = useQuery<CoBrandedProposal[]>({
+  const { data: proposals, isLoading, isError, refetch } = useQuery<CoBrandedProposal[]>({
     queryKey: ["/api/deals", dealId, "co-branded-proposals"],
     queryFn: async () => {
       const res = await fetch(`/api/deals/${dealId}/co-branded-proposals`);
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error("Co-branded proposals unavailable");
       return res.json();
     }
   });
 
+  if (isError) return <p role="alert" className="text-sm">Co-branded proposals unavailable. <button className="min-h-11 px-3" onClick={()=>void refetch()}>Retry</button></p>;
   if (isLoading) return <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Loading proposals...</div>;
   if (!proposals || proposals.length === 0) return null;
 

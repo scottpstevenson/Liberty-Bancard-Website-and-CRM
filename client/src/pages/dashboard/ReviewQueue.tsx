@@ -1,5 +1,9 @@
-import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState,useEffect } from "react";
+import { useMutation } from "@tanstack/react-query";
+import {useCrmQuery as useQuery,useCrmActorIdentity} from "@/hooks/use-crm-query";
+import {useLocation,useSearch} from "wouter";
+import {c4WorkspaceSelection,reviewQueueViews,reviewQueueUrl} from "@/lib/crm-destination-state";
+import {CrmDataState} from "@/components/crm/CrmPresentation";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {Sheet,SheetContent,SheetTitle,SheetDescription} from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -261,52 +266,87 @@ function MetaDisplay({ meta }: { meta: ReviewQueueMeta }) {
 
 export default function ReviewQueue() {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<StatusTab>("pending");
+  const viewState=c4WorkspaceSelection(useSearch(),"reviewView",reviewQueueViews,"pending");
+  const activeTab=viewState.value;
+  const [,navigate]=useLocation();
+  const setActiveTab=(value:StatusTab)=>navigate(reviewQueueUrl(window.location.search,window.location.hash,value));
   const [selectedItem, setSelectedItem] = useState<ReviewQueueItem | null>(null);
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [selectedGhlWorkflow, setSelectedGhlWorkflow] = useState<string>("_none");
+  const actorIdentity=useCrmActorIdentity();
+  useEffect(()=>{setSelectedItem(null);setApproveDialogOpen(false);setSelectedGhlWorkflow("_none");},[actorIdentity]);
 
-  const { data: checklistItems = [], isLoading: checklistLoading } = useQuery<ChecklistItem[]>({
+  const { data: checklistItems = [], isLoading: checklistLoading,isError:checklistError,refetch:retryChecklist } = useQuery<ChecklistItem[]>({
     queryKey: ["/api/review-queue/checklist-items"],
+    queryFn:async({signal})=>{
+      const response=await fetch("/api/review-queue/checklist-items",{credentials:"include",signal});
+      if(!response.ok)throw new Error("Review checklist unavailable");
+      const rows=await response.json();
+      if(!Array.isArray(rows)||rows.some(row=>typeof row?.key!=="string"||typeof row?.label!=="string"))
+        throw new Error("Review checklist shape unavailable");
+      return rows;
+    },
     staleTime: Infinity,
   });
 
-  const { data: aggregates } = useQuery<{ count: number; pending: number; approved: number; total: number }>({
+  const { data: aggregates,isLoading:aggregatesLoading,isError:aggregatesError,refetch:retryAggregates } = useQuery<{ count: number; pending: number; approved: number; total: number }>({
     queryKey: ["/api/review-queue/pending-count"],
+    queryFn:async({signal})=>{
+      const response=await fetch("/api/review-queue/pending-count",{credentials:"include",signal});
+      if(!response.ok)throw new Error("Review aggregate unavailable");
+      const read=await response.json();
+      if(![read?.pending,read?.approved,read?.total].every(n=>Number.isInteger(n)&&n>=0))
+        throw new Error("Review aggregate shape unavailable");
+      return read;
+    },
     refetchInterval: 60000,
   });
 
-  const { data: items = [], isLoading } = useQuery<ReviewQueueItem[]>({
+  const { data: items = [], isLoading,isError:itemsError,error:itemsReadError,refetch:retryItems } = useQuery<ReviewQueueItem[]>({
     queryKey: ["/api/review-queue", activeTab],
-    queryFn: async () => {
+    enabled:!viewState.issues.length,
+    queryFn: async ({signal}) => {
       const url = activeTab === "all" ? "/api/review-queue" : `/api/review-queue?status=${activeTab}`;
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load");
-      return res.json();
+      const res = await fetch(url, { credentials: "include",signal });
+      if (!res.ok) throw new Error(`${res.status}: Review records read failed`);
+      const rows=await res.json();
+      if(!Array.isArray(rows)||rows.some(r=>!Number.isInteger(r?.id)))throw new Error("Review collection unavailable");
+      return rows;
     },
   });
 
-  const { data: ghlWorkflows = [] } = useQuery<GhlWorkflow[]>({
+  const { data: ghlWorkflows = [],isLoading:workflowsLoading,isError:workflowsError,refetch:retryWorkflows } = useQuery<GhlWorkflow[]>({
     queryKey: ["/api/integrations/ghl-workflow-registry"],
-    queryFn: async () => {
-      const res = await fetch("/api/integrations/ghl-workflow-registry", { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+    queryFn: async ({signal}) => {
+      const res = await fetch("/api/integrations/ghl-workflow-registry", { credentials: "include",signal });
+      if (!res.ok) throw new Error("Workflow registry unavailable");
+      const rows=await res.json();
+      if(!Array.isArray(rows))throw new Error("Workflow registry shape unavailable");
+      return rows;
     },
   });
 
-  const { data: selectedItemFresh } = useQuery<ReviewQueueItem>({
+  const { data: selectedItemFresh,isLoading:itemLoading,isFetching:itemFetching,isError:itemError,error:itemReadError,refetch:retryItem } = useQuery<ReviewQueueItem>({
     queryKey: ["/api/review-queue", selectedItem?.id],
-    queryFn: async () => {
-      const res = await fetch(`/api/review-queue/${selectedItem!.id}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load item");
-      return res.json();
+    queryFn: async ({signal}) => {
+      const res = await fetch(`/api/review-queue/${selectedItem!.id}`, { credentials: "include",signal });
+      if (!res.ok) throw new Error(`${res.status}: Selected review read failed`);
+      const item=await res.json();
+      if(item?.id!==selectedItem!.id)throw new Error("Selected review identity unavailable");
+      return item;
     },
     enabled: !!selectedItem,
+    staleTime:0,
+    refetchOnMount:"always",
     refetchInterval: false,
   });
 
-  const displayItem = selectedItemFresh ?? selectedItem;
+  // A row snapshot never regains edit authority after a failed/changed-actor read.
+  const displayItem = itemLoading||itemFetching||itemError ? undefined : selectedItemFresh;
+  const checklistAvailable=!checklistLoading&&!checklistError;
+  const canEditCurrent=!!displayItem&&checklistAvailable&&!viewState.issues.length;
+  const aggregatesAvailable=!aggregatesLoading&&!aggregatesError&&!!aggregates&&
+    [aggregates.pending,aggregates.approved,aggregates.total].every(value=>Number.isInteger(value)&&value>=0);
   const checklistState = displayItem ? getChecklistState(displayItem) : {};
   const totalCount = checklistItems.length;
   const checkedCount = getCheckedCount(checklistState, checklistItems);
@@ -314,6 +354,7 @@ export default function ReviewQueue() {
 
   const checklistMutation = useMutation({
     mutationFn: async ({ id, state }: { id: number; state: Record<string, boolean> }) => {
+      if(!canEditCurrent||displayItem?.id!==id)throw new Error("Current review/checklist read required");
       const res = await apiRequest("PATCH", `/api/review-queue/${id}/checklist`, { checklistState: state });
       return res.json() as Promise<ReviewQueueItem>;
     },
@@ -328,6 +369,7 @@ export default function ReviewQueue() {
 
   const approveMutation = useMutation({
     mutationFn: async ({ id, ghlWorkflowId }: { id: number; ghlWorkflowId?: string }) => {
+      if(!canEditCurrent||displayItem?.id!==id)throw new Error("Current review/checklist read required");
       const res = await apiRequest("POST", `/api/review-queue/${id}/approve`, {
         ghlWorkflowId: ghlWorkflowId || undefined,
       });
@@ -344,20 +386,26 @@ export default function ReviewQueue() {
   });
 
   function handleChecklistToggle(key: string, checked: boolean) {
-    if (!displayItem) return;
+    if (!displayItem||!canEditCurrent||checklistMutation.isPending||approveMutation.isPending) return;
     const newState = { ...checklistState, [key]: checked };
     checklistMutation.mutate({ id: displayItem.id, state: newState });
   }
 
   function handleApprove() {
-    if (!displayItem) return;
+    if (!displayItem||!canEditCurrent||!allChecked||checklistMutation.isPending||approveMutation.isPending) return;
     approveMutation.mutate({
       id: displayItem.id,
       ghlWorkflowId: selectedGhlWorkflow !== "_none" ? selectedGhlWorkflow : undefined,
     });
   }
 
-  const displayLoading = isLoading || checklistLoading;
+  function openReview(item:ReviewQueueItem,trigger:HTMLElement|null){
+    // C1's shared modal records this connected caller for focus return.
+    trigger?.focus();
+    setSelectedGhlWorkflow("_none");
+    setSelectedItem(item);
+  }
+  const displayLoading = isLoading;
 
   return (
     <div className="space-y-6" data-testid="page-review-queue">
@@ -376,7 +424,7 @@ export default function ReviewQueue() {
             </div>
             <div>
               <div className="text-2xl font-bold" data-testid="text-pending-count">
-                {aggregates == null ? "—" : aggregates.pending}
+                {!aggregatesAvailable ? (aggregatesLoading?"Loading":"Unavailable") : aggregates!.pending}
               </div>
               <div className="text-xs text-muted-foreground">Pending (all time)</div>
             </div>
@@ -389,7 +437,7 @@ export default function ReviewQueue() {
             </div>
             <div>
               <div className="text-2xl font-bold" data-testid="text-approved-count">
-                {aggregates == null ? "—" : aggregates.approved}
+                {!aggregatesAvailable ? (aggregatesLoading?"Loading":"Unavailable") : aggregates!.approved}
               </div>
               <div className="text-xs text-muted-foreground">Approved (all time)</div>
             </div>
@@ -402,7 +450,7 @@ export default function ReviewQueue() {
             </div>
             <div>
               <div className="text-2xl font-bold" data-testid="text-total-count">
-                {aggregates == null ? "—" : aggregates.total}
+                {!aggregatesAvailable ? (aggregatesLoading?"Loading":"Unavailable") : aggregates!.total}
               </div>
               <div className="text-xs text-muted-foreground">Total (all time)</div>
             </div>
@@ -410,6 +458,12 @@ export default function ReviewQueue() {
         </Card>
       </div>
 
+      <p className="text-xs text-muted-foreground">
+        Counts: independent recorded Review Queue aggregate, all time. Records: selected status reader.
+        Source readers do not supply a shared snapshot clock, timezone or class-completeness receipt.
+      </p>
+      {aggregatesError&&<CrmDataState state="unavailable" message="Review aggregate unavailable; successful record/checklist reads are independent." onRetry={()=>void retryAggregates()}/>}
+      {checklistError&&<CrmDataState state="unavailable" message="Review checklist definition unavailable; record rows remain readable, but completion and editing are unavailable." onRetry={()=>void retryChecklist()}/>}
       <div className="flex items-center gap-4">
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as StatusTab)}>
           <TabsList data-testid="tabs-status-filter">
@@ -420,7 +474,9 @@ export default function ReviewQueue() {
         </Tabs>
       </div>
 
-      {displayLoading ? (
+      {viewState.issues.length ? <CrmDataState state="unavailable" message="Invalid/conflicting Review Queue view. Select Pending, Approved or All; no default collection was requested."/>
+      : itemsError ? <CrmDataState state={/^403:/.test(itemsReadError?.message||"")?"denied":"unavailable"} message="Review records unavailable; this is not an empty or caught-up queue." onRetry={()=>void retryItems()}/>
+      : displayLoading ? (
         <Card><CardContent className="p-8 text-center text-muted-foreground">Loading...</CardContent></Card>
       ) : items.length === 0 ? (
         <Card>
@@ -429,7 +485,7 @@ export default function ReviewQueue() {
             <h3 className="font-semibold mb-2">No Items</h3>
             <p className="text-sm text-muted-foreground">
               {activeTab === "pending"
-                ? "No pending items in the queue. All caught up!"
+                 ? "No pending items returned by this status reader; aggregate and checklist availability are independent."
                 : activeTab === "approved"
                 ? "No approved items yet."
                 : "No items in the queue yet. RFI and quiz submissions will appear here."}
@@ -461,7 +517,7 @@ export default function ReviewQueue() {
                     <TableRow
                       key={item.id}
                       className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => setSelectedItem(item)}
+                      onClick={event=>openReview(item,event.currentTarget.querySelector("button"))}
                       data-testid={`row-queue-item-${item.id}`}
                     >
                       <TableCell>{typeBadge(item.sourceType)}</TableCell>
@@ -475,15 +531,19 @@ export default function ReviewQueue() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2 min-w-[80px]">
-                          <Progress value={totalCount > 0 ? (checked / totalCount) * 100 : 0} className="h-1.5 w-16" />
+                          {checklistAvailable&&<Progress value={totalCount > 0 ? (checked / totalCount) * 100 : 0} className="h-1.5 w-16" />}
                           <span className="text-xs text-muted-foreground whitespace-nowrap" data-testid={`text-progress-${item.id}`}>
-                            {checked}/{totalCount}
+                            {checklistAvailable?`${checked}/${totalCount}`:"Unavailable"}
                           </span>
                         </div>
                       </TableCell>
                       <TableCell>{statusBadge(item.status)}</TableCell>
                       <TableCell>
-                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                        <Button variant="ghost" className="h-11 w-11 p-0" aria-label={`Open review for ${getContactName(meta)}`}
+                          aria-haspopup="dialog" data-testid={`button-open-review-${item.id}`}
+                          onClick={event=>{event.stopPropagation();openReview(item,event.currentTarget);}}>
+                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   );
@@ -494,33 +554,26 @@ export default function ReviewQueue() {
         </Card>
       )}
 
-      {selectedItem && displayItem && (
-        <div className="fixed inset-0 z-50 flex">
-          <div
-            className="flex-1 bg-black/40"
-            onClick={() => setSelectedItem(null)}
-            data-testid="overlay-detail-panel"
-          />
-          <div className="w-full max-w-xl bg-background border-l shadow-xl flex flex-col h-full overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b">
+      {selectedItem && (
+        <Sheet open onOpenChange={open=>{if(!open){setSelectedItem(null);setApproveDialogOpen(false);}}}>
+          <SheetContent className="flex flex-col p-0" data-testid="sheet-review-record">
+            <div className="flex items-center justify-between gap-3 pl-6 pr-16 py-4 border-b">
               <div className="flex items-center gap-2">
-                {typeBadge(displayItem.sourceType)}
-                <h3 className="font-semibold text-base" data-testid="text-panel-title">
-                  {displayItem.sourceType === "rfi"
+                {displayItem&&typeBadge(displayItem.sourceType)}
+                <SheetTitle className="font-semibold text-base" data-testid="text-panel-title">
+                  {!displayItem?"Review item":displayItem.sourceType === "rfi"
                     ? (getMetadata(displayItem).subject ?? "RFI Review")
                     : `Quiz Lead — ${getContactName(getMetadata(displayItem))}`}
-                </h3>
+                </SheetTitle>
               </div>
-              <button
-                onClick={() => setSelectedItem(null)}
-                aria-label="Close detail panel"
-                data-testid="button-close-panel"
-                className="p-1 rounded hover:bg-muted"
-              >
-                <X className="w-4 h-4" />
-              </button>
             </div>
+            <SheetDescription className="sr-only">Current authorized review record. Closing this view does not save or approve.</SheetDescription>
+            {!displayItem&&<div className="p-6 space-y-4">
+              <CrmDataState state={itemError?(/^403:/.test(itemReadError?.message||"")?"denied":"unavailable"):"loading"} message="Selected review item has no current authorized read; no snapshot grants editing." onRetry={itemError?()=>void retryItem():undefined}/>
+              <Button variant="outline" onClick={()=>{setSelectedItem(null);setApproveDialogOpen(false);}} data-testid="button-cancel-review-read">Cancel selection</Button>
+            </div>}
 
+            {displayItem&&<>
             <ScrollArea className="flex-1">
               <div className="px-6 py-4 space-y-6">
                 <div>
@@ -554,7 +607,7 @@ export default function ReviewQueue() {
                           <Checkbox
                             id={`check-${ci.key}`}
                             checked={isChecked}
-                            disabled={isApproved || checklistMutation.isPending}
+                            disabled={isApproved || !canEditCurrent || checklistMutation.isPending||approveMutation.isPending}
                             onCheckedChange={(val) => handleChecklistToggle(ci.key, val === true)}
                             data-testid={`checkbox-${ci.key}`}
                           />
@@ -575,7 +628,7 @@ export default function ReviewQueue() {
                     <CheckCircle2 className="w-4 h-4 shrink-0" />
                     <span>
                       Approved{displayItem.approvedAt ? ` on ${new Date(displayItem.approvedAt).toLocaleDateString()}` : ""}
-                      {displayItem.ghlWorkflowId ? " — GHL workflow triggered" : ""}
+                       {displayItem.ghlWorkflowId ? " — workflow recorded; execution unverified" : ""}
                     </span>
                   </div>
                 )}
@@ -586,7 +639,7 @@ export default function ReviewQueue() {
               <div className="px-6 py-4 border-t">
                 <Button
                   className="w-full"
-                  disabled={!allChecked || approveMutation.isPending}
+                   disabled={!canEditCurrent||!allChecked || approveMutation.isPending||checklistMutation.isPending}
                   onClick={() => setApproveDialogOpen(true)}
                   data-testid="button-approve"
                 >
@@ -596,8 +649,9 @@ export default function ReviewQueue() {
                 </Button>
               </div>
             )}
-          </div>
-        </div>
+            </>}
+          </SheetContent>
+        </Sheet>
       )}
 
       <Dialog open={approveDialogOpen} onOpenChange={setApproveDialogOpen}>
@@ -611,7 +665,8 @@ export default function ReviewQueue() {
             </p>
             <div className="space-y-2">
               <Label>GHL Workflow (optional)</Label>
-              <Select value={selectedGhlWorkflow} onValueChange={setSelectedGhlWorkflow}>
+               {workflowsError&&<CrmDataState state="unavailable" message="Optional workflow registry unavailable; this is not a no-workflows result." onRetry={()=>void retryWorkflows()}/>}
+               <Select value={selectedGhlWorkflow} onValueChange={setSelectedGhlWorkflow} disabled={workflowsLoading||workflowsError}>
                 <SelectTrigger data-testid="select-ghl-workflow">
                   <SelectValue placeholder="Skip — no workflow" />
                 </SelectTrigger>
@@ -624,7 +679,7 @@ export default function ReviewQueue() {
                   ))}
                 </SelectContent>
               </Select>
-              {ghlWorkflows.filter((w) => w.isSet).length === 0 && (
+               {!workflowsLoading&&!workflowsError&&ghlWorkflows.filter((w) => w.isSet).length === 0 && (
                 <p className="text-xs text-muted-foreground">No GHL workflows configured. Configure them in GHL Workflow IDs.</p>
               )}
             </div>
@@ -635,7 +690,8 @@ export default function ReviewQueue() {
             </Button>
             <Button
               onClick={handleApprove}
-              disabled={approveMutation.isPending}
+               disabled={!canEditCurrent||!allChecked||approveMutation.isPending||checklistMutation.isPending||
+                 (selectedGhlWorkflow!=="_none"&&(workflowsLoading||workflowsError))}
               data-testid="button-confirm-approve"
             >
               {approveMutation.isPending ? "Approving..." : "Confirm Approval"}

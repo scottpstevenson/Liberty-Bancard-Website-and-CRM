@@ -54,6 +54,8 @@ export function registerReviewQueueRoutes(app: Express) {
 
   app.get("/api/review-queue", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
+      if(req.query.status!==undefined&&(typeof req.query.status!=="string"||!["pending","approved"].includes(req.query.status)))
+        return res.status(400).json({message:"Invalid review status: one pending or approved value is required"});
       const status = req.query.status as string | undefined;
       const items = await storage.getReviewQueue(status);
       res.json(items.map((item) => item.sourceType === "dead_letter_job"

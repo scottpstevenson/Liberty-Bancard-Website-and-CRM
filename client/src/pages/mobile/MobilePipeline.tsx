@@ -14,6 +14,7 @@ import { SALES_STAGES } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
 import {useRetainedLocalIntent} from "@/hooks/use-retained-local-intent";
 import { useToast } from "@/hooks/use-toast";
+import { useOutboundPauseObservation } from "@/hooks/use-outbound-pause-observation";
 
 const CACHE_KEY = "mobile_deals_cache";
 function getCached(actorId: string) {
@@ -360,6 +361,7 @@ function StageSection({ stage, deals, onDealTap }: {
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export default function MobilePipeline() {
+  const outbound=useOutboundPauseObservation();
   const { user } = useAuth();
   const cached = getCached(user?.id ?? "");
   const { toast } = useToast();
@@ -485,6 +487,16 @@ export default function MobilePipeline() {
       }
       void queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
       toast({ title: "Stage move not confirmed", description: `${error.message}${readback}`, variant: "destructive" });
+    },
+  });
+  const transitions=useQuery<{dealId:number;stage:string;stages:string[];capability:string}>({
+    queryKey:["/api/deals",selectedDeal?.id,"transition-options"],
+    enabled:!!selectedDeal?.id,
+    queryFn:async({signal})=>{
+      const value=await (await apiRequest("GET",`/api/deals/${selectedDeal.id}/transition-options`,undefined,undefined,signal)).json();
+      if(value.dealId!==selectedDeal.id || value.stage!==selectedDeal.stage || !Array.isArray(value.stages) || value.stages.some((stage:unknown)=>typeof stage!=="string") || value.capability!=="structural_policy_observation_only")
+        throw new Error("Stage transition observation unavailable");
+      return value;
     },
   });
 
@@ -667,14 +679,17 @@ export default function MobilePipeline() {
               {(selectedDeal.contactPhone || selectedDeal.contactEmail || selectedDeal.contactId) && (
                 <div className="flex gap-2 mb-4">
                   {selectedDeal.contactPhone && (
-                    <a href={`tel:${selectedDeal.contactPhone}`}
-                      onClick={() => trackPhoneCallClick({ contactId: selectedDeal.contactId ?? undefined, dealId: selectedDeal.id, sourcePage: "/mobile/pipeline" })}
+                    <a href={outbound.blocked ? undefined : `tel:${selectedDeal.contactPhone}`}
+                      aria-disabled={outbound.blocked} title={outbound.reason}
+                      onClick={event => {if(outbound.blocked){event.preventDefault();return;}trackPhoneCallClick({ contactId: selectedDeal.contactId ?? undefined, dealId: selectedDeal.id, sourcePage: "/mobile/pipeline" });}}
                       className="flex-1 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-xl py-2 flex items-center justify-center gap-1.5 text-xs font-semibold active:scale-95 transition-transform">
                       <Phone className="w-3.5 h-3.5" />Call
                     </a>
                   )}
                   {selectedDeal.contactEmail && (
-                    <a href={`mailto:${selectedDeal.contactEmail}`}
+                    <a href={outbound.blocked ? undefined : `mailto:${selectedDeal.contactEmail}`}
+                      aria-disabled={outbound.blocked} title={outbound.reason}
+                      onClick={event=>{if(outbound.blocked)event.preventDefault();}}
                       className="flex-1 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 rounded-xl py-2 flex items-center justify-center gap-1.5 text-xs font-semibold active:scale-95 transition-transform">
                       <Mail className="w-3.5 h-3.5" />Email
                     </a>
@@ -737,11 +752,16 @@ export default function MobilePipeline() {
               {/* Move to Stage */}
               <div className="mb-4">
                 <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Move to Stage</h3>
+                <p className="text-xs text-gray-500 mb-2" role="status">{transitions.isError
+                  ? "Transition policy unavailable; no move is admitted."
+                  : transitions.isLoading ? "Reading the existing command owner's transition policy…"
+                  : "Legal transitions are observed only. The existing owner still rechecks readiness, pause and the displayed stage."}</p>
                 <div className="flex flex-wrap gap-2">
                   {SALES_STAGES.map((stage) => (
                     <button key={stage}
                       data-testid={`button-move-stage-${stage.replace(/\s+/g, "-").toLowerCase()}`}
-                      disabled={stage === selectedDeal.stage || updateStageMutation.isPending}
+                      disabled={stage === selectedDeal.stage || updateStageMutation.isPending || transitions.isLoading ||
+                        transitions.isError || transitions.data?.stage!==selectedDeal.stage || !transitions.data?.stages.includes(stage)}
                       onClick={() => updateStageMutation.mutate({ dealId: selectedDeal.id, stage, expectedStage: selectedDeal.stage })}
                       className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-colors ${
                         stage === selectedDeal.stage

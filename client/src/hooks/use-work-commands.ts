@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/use-auth";
 type VersionedWork = { id: number; authorityFence: number };
 /** Capture selection versions, not whichever version a background refetch
  * happens to return when Save is clicked. Retry identical intent with its UUID. */
-export function useWorkCommands(kind: "task" | "ticket", selected?: Set<number>, records?: VersionedWork[]) {
+export function useWorkCommands(kind: "task" | "ticket" | "rfi", selected?: Set<number>, records?: VersionedWork[]) {
   const { user } = useAuth();
   const versions = useRef(new Map<number, number>());
   const commands = useRef(new Map<string, string>());
@@ -60,5 +60,5 @@ export function invalidateWorkFacts() {
 export const workFactFamilies = [
   "/api/tasks", "/api/tickets", "/api/analytics", "/api/overview/daily-briefing",
   "/api/my-day", "/api/kpi/summary", "/api/contacts", "/api/leads", "/api/deals",
-  "/api/notifications", "/api/calendar-events",
+  "/api/notifications", "/api/calendar-events", "/api/rfis", "/api/review-queue",
 ] as const;

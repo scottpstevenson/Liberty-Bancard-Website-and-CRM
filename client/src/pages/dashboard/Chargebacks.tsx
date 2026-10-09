@@ -2,6 +2,9 @@ import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useChargebackSubmission } from "@/hooks/use-chargeback-submission";
+import { ChargebackCommandStatus } from "@/components/crm/ChargebackCommandStatus";
+import { ChargebackMidSelect } from "@/components/crm/ChargebackMidSelect";
 import type { Chargeback } from "@shared/schema";
 import { CHARGEBACK_STATUSES, CHARGEBACK_CARD_BRANDS, CHARGEBACK_DEADLINE_DAYS } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -133,6 +136,8 @@ interface CopilotPanelProps {
 
 function CopilotPanel({ chargeback: cb, onClose }: CopilotPanelProps) {
   const { toast } = useToast();
+  const [submissionMid,setSubmissionMid]=useState("");
+  const {mutation:submission}=useChargebackSubmission(cb.id,cb.contactId);
   const existing = cb.aiEvidencePacket as AiPacket | null;
   const [packet, setPacket] = useState<AiPacket | null>(existing);
   const [editedRebuttal, setEditedRebuttal] = useState(existing?.editedRebuttal || existing?.rebuttalletter || "");
@@ -207,18 +212,13 @@ function CopilotPanel({ chargeback: cb, onClose }: CopilotPanelProps) {
   // #285 — Submit evidence packet to card brand
   const submitToCardBrandMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/chargebacks/${cb.id}/submit-to-card-brand`, {});
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || "Submission failed");
-      }
-      return res.json();
+      return submission.mutateAsync({midId:Number(submissionMid)});
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/chargebacks"] });
-      toast({ title: "Submitted to card brand", description: "The evidence packet has been transmitted. Status updated to Responded." });
+      toast({ title: "Evidence intent accepted", description: "Queued only. No transmission or final card-brand receipt is established." });
     },
-    onError: (err: any) => toast({ title: "Submission failed", description: err.message, variant: "destructive" }),
+      onError: (err: any) => toast({ title: "Acceptance not confirmed", description: `${err.message} Retry unchanged and refresh submission status.`, variant: "destructive" }),
   });
 
   const updateChecklistItem = (i: number, changes: Partial<ChecklistItem>) => {
@@ -435,10 +435,11 @@ function CopilotPanel({ chargeback: cb, onClose }: CopilotPanelProps) {
           </Button>
 
           {/* #285 — Submit evidence to card brand */}
+          {packet?.finalizedAt && <ChargebackMidSelect id={cb.id} value={submissionMid} onChange={setSubmissionMid} disabled={submission.isPending || submission.isSuccess}/>}
           {packet?.finalizedAt && (
             <Button
               onClick={() => submitToCardBrandMutation.mutate()}
-              disabled={submitToCardBrandMutation.isPending || cb.status === "responded"}
+              disabled={submitToCardBrandMutation.isPending || submission.isSuccess || !submissionMid.trim() || cb.status.toLowerCase() === "responded"}
               variant={cb.status === "responded" ? "outline" : "default"}
               size="sm"
               data-testid="button-submit-to-card-brand"
@@ -449,11 +450,12 @@ function CopilotPanel({ chargeback: cb, onClose }: CopilotPanelProps) {
                 : cb.status === "responded"
                   ? <Check className="w-3 h-3 mr-1 text-green-600" />
                   : <Send className="w-3 h-3 mr-1" />}
-              {cb.status === "responded" ? "Submitted ✓" : `Submit to ${cb.cardBrand || "Card Brand"}`}
+              {submission.isSuccess ? "Accepted / queued" : cb.status.toLowerCase() === "responded" ? "Final response recorded" : "Queue evidence intent"}
             </Button>
           )}
         </div>
       )}
+      <ChargebackCommandStatus id={cb.id}/>
     </div>
   );
 }

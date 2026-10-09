@@ -371,3 +371,105 @@
   .crm-inbox-layout { grid-template-columns: minmax(0, 1fr); }
   .crm-inbox-list-selected, .crm-inbox-thread-unselected { display: none; }
 }
+
+/* Merchant Operations is a local workspace rail, not a second global sidebar. */
+.crm-merchant-ops-layout {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+  width: 100%;
+  max-width: 1440px;
+  margin-inline: auto;
+}
+.crm-merchant-ops-rail {
+  position: sticky;
+  top: 12px;
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  padding: 10px 12px 16px 0;
+  border-right: 1px solid hsl(var(--border));
+}
+.crm-merchant-ops-rail-heading {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 4px 8px 12px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.crm-merchant-ops-rail-heading strong { font-size: 14px; line-height: 20px; }
+.crm-merchant-ops-group { margin-top: 12px; }
+.crm-merchant-ops-group h2 {
+  margin: 0 0 4px;
+  padding: 0 8px;
+  color: hsl(var(--muted-foreground));
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: .06em;
+  line-height: 18px;
+  text-transform: uppercase;
+}
+.crm-merchant-ops-group nav { display: grid; gap: 2px; }
+.crm-merchant-ops-link {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 9px;
+  border-radius: var(--crm-control-radius);
+  padding: 0 9px;
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  text-decoration: none;
+}
+.crm-merchant-ops-link svg { width: 16px; height: 16px; flex: 0 0 auto; color: hsl(var(--muted-foreground)); }
+.crm-merchant-ops-link:hover { background: hsl(var(--muted)); }
+.crm-merchant-ops-link.is-active {
+  background: hsl(var(--muted));
+  box-shadow: inset 3px 0 hsl(var(--brand-red));
+  font-weight: 600;
+}
+.crm-merchant-ops-link.is-active svg { color: hsl(var(--foreground)); }
+.crm-merchant-ops-content { min-width: 0; container-type:inline-size; container-name:merchant-content; }
+.crm-portfolio-cards { display:none; }
+@container merchant-content (max-width:720px) {
+  .crm-portfolio-cards { display:grid; }
+  .crm-portfolio-table { display:none; }
+}
+.crm-merchant-ops-layout { container-name: merchant-ops; container-type: inline-size; }
+.crm-merchant-ops-content :is(button,[role="tab"],[role="combobox"],input:not([type="checkbox"])) { min-height: 44px; }
+.crm-merchant-ops-content :is(.text-\[10px\],.text-\[11px\]) { font-size:12px; line-height:16px; }
+.crm-merchant-ops-content table { font-variant-numeric:tabular-nums; }
+.crm-merchant-ops-content [role="tablist"] { max-width:100%; overflow-x:auto; }
+.crm-merchant-ops-mobile { display: none; }
+@media (max-width: 900px) {
+  .crm-merchant-ops-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .crm-merchant-ops-rail { display: none; }
+  .crm-merchant-ops-mobile {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    padding: 0 0 12px;
+    border-bottom: 1px solid hsl(var(--border));
+  }
+  .crm-merchant-ops-mobile-crumb {
+    display: flex;
+    min-height: 24px;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    color: hsl(var(--muted-foreground));
+    font-size: 12px;
+  }
+  .crm-merchant-ops-mobile-crumb strong { color: hsl(var(--foreground)); font-weight: 600; }
+  .crm-merchant-ops-mobile label { font-size: 12px; font-weight: 600; }
+  .crm-merchant-ops-mobile select { width: 100%; min-height: 44px; background: hsl(var(--background)); color: hsl(var(--foreground)); }
+}
+/* The global sidebar reduces allocated width independently of the viewport. */
+@container merchant-ops (max-width: 900px) {
+  .crm-merchant-ops-rail { display:none; }
+  .crm-merchant-ops-content { grid-column:1 / -1; }
+  .crm-merchant-ops-mobile { display:grid; grid-column:1 / -1; gap:8px; margin-bottom:12px; }
+  .crm-merchant-ops-mobile select { min-height:44px; width:100%; background:hsl(var(--background));color:hsl(var(--foreground)); }
+  .crm-merchant-ops-mobile-crumb { font-size:12px;line-height:16px; }
+}

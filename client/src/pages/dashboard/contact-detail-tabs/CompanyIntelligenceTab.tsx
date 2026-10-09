@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { CrmDataState } from "@/components/crm/CrmPresentation";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -135,11 +136,12 @@ function ManagementTypeSection({ contact }: { contact: Contact }) {
 }
 
 function EmailHealthSection({ contactId }: { contactId: number }) {
-  const { data, isLoading } = useQuery<EmailHealthSummary>({
+  const { data, isLoading, isError, refetch } = useQuery<EmailHealthSummary>({
     queryKey: [`/api/contacts/${contactId}/email-health`],
   });
 
   if (isLoading) return <Skeleton className="h-24 w-full" />;
+  if(isError)return <p role="alert" className="text-sm p-3 border rounded">Email health unavailable; no healthy/zero conclusion. <button className="min-h-11 px-3" onClick={()=>void refetch()}>Retry email health</button></p>;
   if (!data) return null;
 
   return (
@@ -213,15 +215,22 @@ function CounterpartyPicker({
 }) {
   const [search, setSearch] = useState("");
 
-  const { data: results = [] } = useQuery<ContactSearchResult[]>({
+  const { data: results = [], isLoading, isError, refetch } = useQuery<ContactSearchResult[]>({
     queryKey: ["/api/contacts", { search }],
-    queryFn: () => fetch(`/api/contacts?search=${encodeURIComponent(search)}&limit=10`).then(r => r.json()),
+    queryFn: async({signal})=>{
+      const response=await fetch(`/api/contacts?search=${encodeURIComponent(search)}&limit=10`,{signal,credentials:"include"});
+      if(!response.ok)throw new Error("Counterparty source unavailable");
+      const value=await response.json();
+      if(!Array.isArray(value.data))throw new Error("Counterparty population malformed");
+      return value.data;
+    },
     enabled: search.length >= 2,
   });
 
   return (
     <div className="space-y-1">
       <Label>Counterparty (CRM Contact)</Label>
+      {search.length>=2 && (isError ? <p role="alert">Counterparty source unavailable. <button className="min-h-11 px-3" onClick={()=>void refetch()}>Retry</button></p> : isLoading ? <p role="status">Reading authorized matches…</p> : null)}
       {value ? (
         <div className="flex items-center justify-between border rounded px-3 py-2 bg-muted/30">
           <span className="text-sm font-medium">{value.name}</span>
@@ -278,9 +287,15 @@ function MaEventsSection({ contactId }: { contactId: number }) {
     note: "",
   });
 
-  const { data: events, isLoading } = useQuery<MaEvent[]>({
+  const { data: events, isLoading, isError, refetch } = useQuery<MaEvent[]>({
     queryKey: ["/api/ma-events", contactId],
-    queryFn: () => fetch(`/api/ma-events?entityType=contact&entityId=${contactId}`).then(r => r.json()),
+    queryFn: async ({signal}) => {
+      const res=await fetch(`/api/ma-events?entityType=contact&entityId=${contactId}`,{credentials:"include",signal});
+      if(!res.ok)throw new Error("M&A observations unavailable");
+      const data=await res.json();
+      if(!Array.isArray(data))throw new Error("M&A observation response incomplete");
+      return data;
+    },
   });
 
   const createEvent = useMutation({
@@ -373,7 +388,7 @@ function MaEventsSection({ contactId }: { contactId: number }) {
         </div>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
+        {isError ? <CrmDataState state="unavailable" message="M&A / ownership observations are unavailable; no empty history is inferred." onRetry={()=>void refetch()}/> : isLoading ? (
           <Skeleton className="h-16 w-full" />
         ) : !events || events.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-4" data-testid="no-ma-events">No M&amp;A events logged.</p>

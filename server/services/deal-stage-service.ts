@@ -61,6 +61,14 @@ function isLegalTransition(pipeline: string, from: string, to: string): boolean 
   return fromIndex >= 0 && toIndex >= 0 && toIndex > fromIndex;
 }
 
+/** Read-only structural projection of the command owner's exact policy.
+ * It does not authorize execution or bypass readiness/pause/object checks. */
+export function readDealStageTransitionOptions(pipeline:string,from:string) {
+  const order=pipeline==="onboarding" ? ONBOARDING_STAGE_ORDER : SALES_STAGE_ORDER;
+  return [...new Set<string>([...order,"Closed Lost","Nurture / Not Now"])]
+    .filter(to=>to!==from && isLegalTransition(pipeline,from,to));
+}
+
 function materialEffectTypes(stage: string, contactId: number | null): string[] {
   const effects: string[] = [];
   if (contactId) effects.push("lifecycle_projection");
@@ -285,7 +293,7 @@ export async function advanceDealsStageBatch(
  * Titles must stay stable — they are used as idempotency keys and are covered
  * by the DB unique partial index `tasks_onboarding_sla_title_unique`.
  */
-const CLOSED_WON_SLA_TASKS = [
+export const CLOSED_WON_SLA_TASKS = [
   { title: "Submit application to processor",  dueDays: 1,  priority: "high"   },
   { title: "Collect KYC documents",            dueDays: 3,  priority: "high"   },
   { title: "Order terminal/equipment",         dueDays: 5,  priority: "medium" },

@@ -461,6 +461,8 @@
         {
           "selector": "overview",
           "renderedComponents": [
+            "ContactNbaCard",
+            "SalesIntelPanel",
             "OverviewTab"
           ],
           "conditionExpressions": []
@@ -468,35 +470,39 @@
         {
           "selector": "deals",
           "renderedComponents": [
-            "DealsTab"
+            "DealsTab",
+            "CrmDataState"
           ],
           "conditionExpressions": []
         },
         {
           "selector": "live-processing",
           "renderedComponents": [
-            "LiveProcessingTabBody"
+            "LiveProcessingTabBody",
+            "CrmDataState"
           ],
           "conditionExpressions": []
         },
         {
           "selector": "tickets",
           "renderedComponents": [
-            "TicketsTab"
+            "TicketsTab",
+            "CrmDataState"
           ],
           "conditionExpressions": []
         },
         {
           "selector": "tasks",
           "renderedComponents": [
-            "TasksTab"
+            "TasksTab",
+            "CrmDataState"
           ],
           "conditionExpressions": []
         },
         {
           "selector": "notes",
           "renderedComponents": [
-            "Button",
+            "CrmDataState",
             "NotesTab"
           ],
           "conditionExpressions": []
@@ -518,13 +524,6 @@
           "selector": "chargebacks",
           "renderedComponents": [
             "ContactChargebacksTab"
-          ],
-          "conditionExpressions": []
-        },
-        {
-          "selector": "activity",
-          "renderedComponents": [
-            "ActivityTimelineFull"
           ],
           "conditionExpressions": []
         },
@@ -557,13 +556,6 @@
           "selector": "locations",
           "renderedComponents": [
             "LocationsTab"
-          ],
-          "conditionExpressions": []
-        },
-        {
-          "selector": "history",
-          "renderedComponents": [
-            "ChangeHistoryTab"
           ],
           "conditionExpressions": []
         },
@@ -626,16 +618,17 @@
             "SalesPrepTab"
           ],
           "conditionExpressions": [
-            "salesPrepStatus?.sdrSourced"
+            "data.capabilities?.sdrSourced === true"
           ]
         },
         {
           "selector": "onboarding-stages",
           "renderedComponents": [
+            "CrmDataState",
             "OnboardingStagesChecklist"
           ],
           "conditionExpressions": [
-            "deals.some(d => d.pipeline === \"onboarding\" && !d.archivedAt)"
+            "data.capabilities?.hasOnboarding === true"
           ]
         },
         {
@@ -1018,6 +1011,7 @@
     "entityParameters": [],
     "queryPolicy": {
       "allowed": [
+        "tab",
         "contactId",
         "companyId",
         "businessId",
@@ -1225,7 +1219,10 @@
     "componentPolicy": {
       "source": "client/src/pages/dashboard/CallOutcome.tsx",
       "selectors": [],
-      "queryKeys": [],
+      "queryKeys": [
+        "contactId",
+        "dealId"
+      ],
       "children": [],
       "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
     },
@@ -1235,9 +1232,9 @@
     "queryPolicy": {
       "allowed": [
         "contactId",
+        "dealId",
         "companyId",
         "businessId",
-        "dealId",
         "sourceId",
         "from"
       ],
@@ -1272,7 +1269,10 @@
     "componentPolicy": {
       "source": "client/src/pages/dashboard/ReviewComplete.tsx",
       "selectors": [],
-      "queryKeys": [],
+      "queryKeys": [
+        "contactId",
+        "dealId"
+      ],
       "children": [],
       "interpretation": "Source mount conditions are evidence, not an authorization grant; actual wrapper/handler and child tests remain required."
     },
@@ -1282,9 +1282,9 @@
     "queryPolicy": {
       "allowed": [
         "contactId",
+        "dealId",
         "companyId",
         "businessId",
-        "dealId",
         "sourceId",
         "from"
       ],
@@ -1916,9 +1916,7 @@
         "tasks",
         "calendar"
       ],
-      "queryKeys": [
-        "tab"
-      ],
+      "queryKeys": [],
       "children": [
         {
           "selector": "tasks",
@@ -1942,7 +1940,6 @@
     "entityParameters": [],
     "queryPolicy": {
       "allowed": [
-        "tab",
         "contactId",
         "companyId",
         "businessId",
@@ -2435,10 +2432,7 @@
       "selectors": [
         "overview",
         "growth",
-        "win-loss",
-        "outreach-analytics",
-        "operations",
-        "financial"
+        "win-loss"
       ],
       "queryKeys": [],
       "children": [
@@ -2498,6 +2492,10 @@
         "tab",
         "financialTab",
         "selectionIssue",
+        "revenueView",
+        "revenueQuery",
+        "revenueParentContactId",
+        "revenuePeriod",
         "contactId",
         "companyId",
         "businessId",
@@ -2508,10 +2506,7 @@
       "selectors": [
         "overview",
         "growth",
-        "win-loss",
-        "outreach-analytics",
-        "operations",
-        "financial"
+        "win-loss"
       ],
       "duplicates": "equal-collapse; conflict explicit safe fallback",
       "unknown": "not authority; adopted codecs strip unregistered keys"
@@ -3164,6 +3159,7 @@
     "entityParameters": [],
     "queryPolicy": {
       "allowed": [
+        "status",
         "contactId",
         "companyId",
         "businessId",
@@ -3284,7 +3280,7 @@
     "owner": "C4",
     "workspace": "C4 / Merchant Operations",
     "sourceDeclarations": [
-      "<Route path=\"/dashboard/merchant-health\">\n          <Redirect to=\"/dashboard/merchant-risk?tab=health\" />\n        </Route>"
+      "<Route path=\"/dashboard/merchant-health\">\n          <LegacyMerchantHealthRedirect />\n        </Route>"
     ],
     "renderOwner": "C4 / Merchant Operations",
     "actualWrapperKinds": [],
@@ -3301,6 +3297,7 @@
     "entityParameters": [],
     "queryPolicy": {
       "allowed": [
+        "healthView",
         "contactId",
         "companyId",
         "businessId",
@@ -6229,6 +6226,7 @@
         {
           "selector": "queue",
           "renderedComponents": [
+            "CrmDataState",
             "Skeleton",
             "Card",
             "CardContent",
@@ -6247,6 +6245,7 @@
             "CardTitle",
             "CheckCircle2",
             "CardContent",
+            "CrmDataState",
             "Skeleton",
             "Link",
             "LinkIcon",
@@ -6258,6 +6257,7 @@
         {
           "selector": "config",
           "renderedComponents": [
+            "CrmDataState",
             "Card",
             "CardHeader",
             "CardTitle",
@@ -6283,6 +6283,7 @@
     "entityParameters": [],
     "queryPolicy": {
       "allowed": [
+        "underwritingView",
         "contactId",
         "companyId",
         "businessId",
@@ -6706,6 +6707,7 @@
     "entityParameters": [],
     "queryPolicy": {
       "allowed": [
+        "tab",
         "contactId",
         "companyId",
         "businessId",
@@ -6834,6 +6836,7 @@
     "entityParameters": [],
     "queryPolicy": {
       "allowed": [
+        "tab",
         "contactId",
         "companyId",
         "businessId",
@@ -7080,6 +7083,10 @@
         "tab",
         "financialTab",
         "selectionIssue",
+        "revenueView",
+        "revenueQuery",
+        "revenueParentContactId",
+        "revenuePeriod",
         "contactId",
         "companyId",
         "businessId",
@@ -7534,6 +7541,8 @@
     "entityParameters": [],
     "queryPolicy": {
       "allowed": [
+        "tab",
+        "healthView",
         "contactId",
         "companyId",
         "businessId",

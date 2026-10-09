@@ -25,9 +25,51 @@ import {isSdrSourcedContact} from "../services/sales-prep";
 import { db } from "../db";
 import { tickets, tasks } from "@shared/schema";
 import { eq, getTableColumns } from "drizzle-orm";
+import { onboardingPreparationFields } from "@shared/onboarding-preparation";
+import { prepareOnboarding, readOnboardingPreparation } from "../services/onboarding-preparation-command";
+import { isUuidV4 } from "../services/chargeback-submission-service";
 
 export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDeleteTransport?: NativeTaskDeleteTransport;
-  relationshipExtractor?:(contactId:number)=>Promise<unknown> } = {}) {
+  relationshipExtractor?:(contactId:number)=>Promise<unknown>;
+  onboardingPreparationAfterStep?:(step:string)=>Promise<void> } = {}) {
+  const preparationError=(res:any,error:unknown)=>{
+    if(error instanceof z.ZodError)return res.status(400).json({message:error.errors[0].message});
+    if(error instanceof WorkCommandError)return res.status(error.status).json({message:error.message});
+    // An accepted local intent can outlive this response. Do not report rollback.
+    return res.status(503).json({message:"Preparation outcome unavailable. Read back the captured intent before retrying; no native effects were requested."});
+  };
+  app.get("/api/deals/:id/onboarding-preparation",isDashboardUser,async(req,res)=>{
+    try{
+      const id=strictRecordId.parse(req.params.id);
+      const commandId=req.query.commandId;
+      if(commandId!==undefined && (typeof commandId!=="string" || !isUuidV4(commandId)))
+        return res.status(400).json({message:"Use a UUIDv4 preparation command ID"});
+      res.json(await readOnboardingPreparation(bindWorkActor(req.user),id,(commandId as string|undefined)?.toLowerCase()));
+    }catch(error){preparationError(res,error);}
+  });
+  app.post("/api/deals/:id/onboarding-preparation",isDashboardUser,async(req,res)=>{
+    try{
+      const id=strictRecordId.parse(req.params.id);
+      const rawKey=req.get("Idempotency-Key");
+      if(!isUuidV4(rawKey))return res.status(400).json({message:"UUIDv4 Idempotency-Key required"});
+      const commandId=rawKey.toLowerCase();
+      const fields=onboardingPreparationFields.parse(req.body);
+      const result=await prepareOnboarding({selectedId:id,commandId,fields,
+        actor:bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion)},deps.onboardingPreparationAfterStep);
+      res.status(202).json({accepted:true,...result});
+    }catch(error){preparationError(res,error);}
+  });
+  app.post("/api/deals/:id/onboarding-preparation/:commandId/resume",isDashboardUser,async(req,res)=>{
+    try{
+      const id=strictRecordId.parse(req.params.id),commandId=z.string().parse(req.params.commandId).toLowerCase();
+      if(!isUuidV4(commandId) || req.get("Idempotency-Key")?.toLowerCase()!==commandId)
+        return res.status(400).json({message:"Use the unchanged UUIDv4 accepted intent"});
+      const fields=z.object({expectedActorId:z.string().min(1),expectedAccountVersion:z.number().int().nonnegative()}).strict().parse(req.body);
+      const result=await prepareOnboarding({selectedId:id,commandId,
+        actor:bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion)},deps.onboardingPreparationAfterStep);
+      res.status(202).json({accepted:true,...result});
+    }catch(error){preparationError(res,error);}
+  });
   app.post("/api/contacts/bulk-archive",requireRole("admin","manager"),async(req,res)=>{
     try {
       const fields=contactLifecycleFields.parse(req.body);
@@ -72,8 +114,11 @@ export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDele
       // Full MIDs are available only via dedicated receipted endpoints.
       const { serializeDeal } = await import("../utils/mask-mid");
       const contactDeals = loadDeals?rawDeals.map((d: any) => serializeDeal(d)):[];
-      const activeDeal=rawDeals.find(deal=>!deal.archivedAt);
-      const nextFollowUp=rawDeals.find(deal=>!deal.archivedAt && deal.nextFollowUp)?.nextFollowUp;
+      const activeDeals=rawDeals.filter(deal=>!deal.archivedAt &&
+        !["Closed Won","Closed Lost"].includes(deal.stage)).sort((a,b)=>
+          new Date(b.updatedAt ?? b.createdAt ?? 0).getTime()-new Date(a.updatedAt ?? a.createdAt ?? 0).getTime() || b.id-a.id);
+      const activeDeal=activeDeals[0];
+      const nextFollowUp=activeDeals.find(deal=>deal.nextFollowUp)?.nextFollowUp;
 
       res.json({ contact, deals: contactDeals, tickets: contactTickets, tasks: contactTasks, notes: contactNotes,
         capabilities:{hasOnboarding:rawDeals.some(deal=>deal.pipeline==="onboarding" && !deal.archivedAt),

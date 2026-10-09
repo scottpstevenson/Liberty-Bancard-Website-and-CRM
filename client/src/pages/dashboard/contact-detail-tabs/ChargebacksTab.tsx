@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,41 +10,70 @@ import { Textarea } from "@/components/ui/textarea";
 import { ShieldAlert, Send, Loader2, CheckCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import type { Chargeback } from "@shared/schema";
+import { useAuth } from "@/hooks/use-auth";
+import { actorIdentity } from "@/lib/queryClient";
+import { CrmDataState } from "@/components/crm/CrmPresentation";
+import { ChargebackCommandStatus } from "@/components/crm/ChargebackCommandStatus";
+import { observeChargebackBeforeNewKey } from "@/lib/chargeback-intent-readback";
+import { ChargebackMidSelect } from "@/components/crm/ChargebackMidSelect";
 
 export function ContactChargebacksTab({ contactId }: { contactId: number }) {
   const queryClient = useQueryClient();
+  const {user}=useAuth();
+  const actor=actorIdentity(user);
+  const intents=useRef<{actor:string;contactId:number;requests:Map<number,{key:string;payload:{midId:number;evidenceNotes?:string;caseNumber?:string}}>}>({actor,contactId,requests:new Map()});
+  if (intents.current.actor!==actor || intents.current.contactId!==contactId) intents.current={actor,contactId,requests:new Map()};
   const [expandedSubmit, setExpandedSubmit] = useState<number | null>(null);
+  const mounted=useRef(true);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false}},[]);
   const [submitMid, setSubmitMid] = useState<Record<number, string>>({});
   const [submitNotes, setSubmitNotes] = useState<Record<number, string>>({});
+  const [submitCase, setSubmitCase] = useState<Record<number,string>>({});
   const [submitResult, setSubmitResult] = useState<Record<number, { success: boolean; message: string; caseId?: string }>>({});
 
-  const { data: chargebacks = [], isLoading } = useQuery<Chargeback[]>({
+  const { data: chargebacks = [], isLoading, isError, refetch } = useQuery<Chargeback[]>({
     queryKey: ["/api/chargebacks/contact", contactId],
-    queryFn: async () => {
-      const res = await fetch(`/api/chargebacks/contact/${contactId}`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+    queryFn: async ({signal}) => {
+      const res = await fetch(`/api/chargebacks/contact/${contactId}`, { credentials: "include",signal });
+      if (!res.ok) throw new Error("Authorized chargebacks unavailable");
+      const rows=await res.json();
+      if (!Array.isArray(rows)) throw new Error("Invalid chargeback collection");
+      return rows;
     },
     enabled: !!contactId,
   });
 
   const submitMutation = useMutation({
+    onMutate:()=>({boundary:intents.current}),
     mutationFn: async ({ id, mid, evidenceNotes }: { id: number; mid: string; evidenceNotes?: string }) => {
-      const res = await apiRequest("POST", `/api/chargebacks/${id}/submit-to-card-brand`, {
-        mid,
-        evidenceNotes,
-      });
-      return res.json();
+       const captured=intents.current;
+      const payload={midId:Number(mid),evidenceNotes,caseNumber:submitCase[id]?.trim() || undefined};
+      if (!Number.isSafeInteger(payload.midId) || payload.midId<=0) throw new Error("An authorized MID is required");
+      let intent=intents.current.requests.get(id);
+       if(!intent){
+         await observeChargebackBeforeNewKey(id);
+         if(!mounted.current || captured!==intents.current)throw new Error("Contact or actor changed; no new submission was sent.");
+         intent=intents.current.requests.get(id);
+       }
+      if (!intent) {intent={key:crypto.randomUUID(),payload};intents.current.requests.set(id,intent);}
+      if (JSON.stringify(payload)!==JSON.stringify(intent.payload)) throw new Error("Unresolved intent: retry the unchanged payload and read back status.");
+      const res = await apiRequest("POST", `/api/chargebacks/${id}/submit-to-card-brand`, intent.payload,{"Idempotency-Key":intent.key});
+      const receipt=await res.json();
+      if (receipt?.accepted!==true || receipt.command?.chargebackId!==id) throw new Error("Acceptance unknown; retry unchanged.");
+      return receipt;
     },
-    onSuccess: (data, variables) => {
+    onSuccess: (data, variables, context) => {
+      if(!mounted.current || context?.boundary!==intents.current)return;
       setSubmitResult(prev => ({
         ...prev,
-        [variables.id]: { success: true, message: data.message || "Submitted successfully", caseId: data.caseId },
+        [variables.id]: { success: true, message: "Accepted / queued. No final transmission receipt.", caseId: data.command.id },
       }));
       setExpandedSubmit(null);
       queryClient.invalidateQueries({ queryKey: ["/api/chargebacks/contact", contactId] });
+      queryClient.invalidateQueries({queryKey:[`/api/chargebacks/${variables.id}/submission-commands`]});
     },
-    onError: (err: any, variables) => {
+    onError: (err: any, variables, context) => {
+      if(!mounted.current || context?.boundary!==intents.current)return;
       setSubmitResult(prev => ({
         ...prev,
         [variables.id]: { success: false, message: err?.message || "Submission failed" },
@@ -64,6 +93,7 @@ export function ContactChargebacksTab({ contactId }: { contactId: number }) {
   if (isLoading) {
     return <div className="py-8 text-center text-muted-foreground">Loading chargebacks...</div>;
   }
+  if (isError) return <CrmDataState state="unavailable" message="Chargebacks could not be read. This is not an empty case list." onRetry={()=>void refetch()}/>;
 
   const renderChargebackCard = (cb: Chargeback) => {
     const isOverdue = !["Won", "Lost", "Responded"].includes(cb.status) && cb.responseDeadline && new Date(cb.responseDeadline) < now;
@@ -101,7 +131,7 @@ export function ContactChargebacksTab({ contactId }: { contactId: number }) {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="gap-1.5 text-xs h-7"
+                    className="gap-1.5 text-xs min-h-11"
                     onClick={() => setExpandedSubmit(isExpanded ? null : cb.id)}
                     data-testid={`button-cb-submit-${cb.id}`}
                   >
@@ -119,19 +149,16 @@ export function ContactChargebacksTab({ contactId }: { contactId: number }) {
                 <p className="text-xs font-medium">Submit evidence packet to card brand</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label className="text-xs">Merchant MID <span className="text-red-500">*</span></Label>
-                    <Input
-                      placeholder="e.g. 123456789"
-                      value={submitMid[cb.id] ?? ""}
-                      onChange={e => setSubmitMid(prev => ({ ...prev, [cb.id]: e.target.value }))}
-                      className="h-8 text-xs"
-                      data-testid={`input-cb-mid-${cb.id}`}
-                    />
+                    <ChargebackMidSelect id={cb.id} value={submitMid[cb.id] ?? ""}
+                      disabled={submitMutation.isPending || !!result?.success}
+                      onChange={value=>setSubmitMid(prev=>({...prev,[cb.id]:value}))}/>
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Case / Reference Number</Label>
                     <Input
                       placeholder="Card brand case # (optional)"
+                      value={submitCase[cb.id] ?? ""}
+                      onChange={event=>setSubmitCase(previous=>({...previous,[cb.id]:event.target.value}))}
                       className="h-8 text-xs"
                       data-testid={`input-cb-case-${cb.id}`}
                     />
@@ -150,8 +177,8 @@ export function ContactChargebacksTab({ contactId }: { contactId: number }) {
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"
-                    className="gap-1.5 h-7 text-xs"
-                    disabled={!submitMid[cb.id]?.trim() || submitMutation.isPending}
+                    className="gap-1.5 min-h-11 text-xs"
+                    disabled={!submitMid[cb.id]?.trim() || submitMutation.isPending || result?.success}
                     onClick={() =>
                       submitMutation.mutate({
                         id: cb.id,
@@ -166,17 +193,18 @@ export function ContactChargebacksTab({ contactId }: { contactId: number }) {
                     ) : (
                       <Send className="w-3 h-3" />
                     )}
-                    {submitMutation.isPending ? "Submitting..." : "Submit to Card Brand"}
+                    {submitMutation.isPending ? "Accepting..." : "Queue evidence intent"}
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-7 text-xs"
+                    className="min-h-11 text-xs"
                     onClick={() => setExpandedSubmit(null)}
                   >
                     Cancel
                   </Button>
                 </div>
+                <ChargebackCommandStatus id={cb.id}/>
               </div>
             )}
 
@@ -197,6 +225,7 @@ export function ContactChargebacksTab({ contactId }: { contactId: number }) {
                 </span>
               </div>
             )}
+            {result?.success && <ChargebackCommandStatus id={cb.id}/>}
           </div>
         </CardContent>
       </Card>

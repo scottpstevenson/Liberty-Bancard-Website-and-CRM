@@ -17,7 +17,7 @@ export async function advanceCrmFacts() {
     VALUES('crm_fact_cache_revision',${JSON.stringify(revision)}::jsonb,NOW())
     ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=EXCLUDED.updated_at`);
 }
-const commandFamilies = /^\/api\/(?:contacts|companies|deals|tasks|tickets|notes|call-logs|calendar-events|my-day|crm)(?:\/|$)/;
+const commandFamilies = /^\/api\/(?:contacts|companies|deals|tasks|tickets|rfis|notes|call-logs|calendar-events|my-day|crm)(?:\/|$)/;
 export const crmFactFreshnessMiddleware: RequestHandler = (req, res, next) => {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method) || !commandFamilies.test(req.originalUrl.split("?")[0])) return next();
   // Invalidate also on an error: a multi-step legacy command may already have

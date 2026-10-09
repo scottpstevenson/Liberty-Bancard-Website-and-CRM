@@ -29,6 +29,14 @@ export const workCommandEnvelope = z.object({
 });
 export const taskEditCommand = taskEditFields.merge(workCommandEnvelope).strict();
 export const ticketEditCommand = ticketEditFields.merge(workCommandEnvelope).strict();
+export const ticketCreateCommand=ticketEditFields.omit({status:true}).extend({
+  subject:z.string().trim().min(1).max(500),
+  description:z.string().trim().min(1).max(20000),
+  priority:z.enum(["Low","Normal","High","Urgent"]).optional(),
+  commandId:z.string().uuid().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i).transform(value=>value.toLowerCase()),
+  expectedActorId:z.string().min(1).max(190),
+  expectedAccountVersion:z.number().int().positive(),
+}).strict();
 export const taskCreateCommand = taskEditFields.extend({
   title:z.string().trim().min(1).max(500),commandId:z.string().uuid(),
   expectedActorId:z.string().min(1).max(190),

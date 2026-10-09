@@ -1,4 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { CrmDataState } from "@/components/crm/CrmPresentation";
+import { AgentReportsNavigation } from "@/components/crm/AgentReportsNavigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -25,14 +27,16 @@ interface AgentPayout {
   createdAt: string;
 }
 
-function formatCurrency(value: string | number): string {
-  const num = typeof value === "string" ? parseFloat(value) : value;
+function formatCurrency(value: string | number | null | undefined): string {
+  if(value==null || (typeof value==="string"&&!/^[-+]?\d+(\.\d+)?$/.test(value.trim())))return "Unavailable";
+  const num = typeof value === "string" ? Number(value) : value;
+  if(!Number.isFinite(num))return "Unavailable";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(isNaN(num) ? 0 : num);
+  }).format(num);
 }
 
 function PayoutStatusBadge({ status }: { status: string }) {
@@ -58,34 +62,42 @@ function PayoutStatusBadge({ status }: { status: string }) {
 }
 
 export default function MyEarnings() {
-  const { data: payouts = [], isLoading } = useQuery<AgentPayout[]>({
+  const { data: payouts = [], isLoading, isError, refetch, dataUpdatedAt } = useQuery<AgentPayout[]>({
     queryKey: ["/api/payouts/my"],
+    queryFn:async({signal})=>{
+      const response=await fetch("/api/payouts/my",{credentials:"include",signal});
+      if(!response.ok)throw new Error("Your payout ledger is unavailable");
+      const data=await response.json();
+      if(!Array.isArray(data) || data.some(p=>typeof p.agentShare!=="string" || !/^[-+]?\d+(\.\d+)?$/.test(p.agentShare.trim()) || !Number.isFinite(Number(p.agentShare)) || !["pending","approved","paid"].includes(p.status)))
+        throw new Error("Payout amount observation incomplete");
+      return data;
+    },
   });
 
-  const totalPaid = payouts
-    .filter((p) => p.status === "paid")
-    .reduce((acc, p) => acc + parseFloat(p.agentShare || "0"), 0);
-
-  const totalPending = payouts
-    .filter((p) => p.status !== "paid")
-    .reduce((acc, p) => acc + parseFloat(p.agentShare || "0"), 0);
+  const paidObservations=payouts.filter(p=>p.status==="paid");
+  const pendingObservations=payouts.filter(p=>p.status!=="paid");
+  const totalPaid = paidObservations.length ? paidObservations.reduce((acc,p)=>acc+Number(p.agentShare),0) : null;
+  const totalPending = pendingObservations.length ? pendingObservations.reduce((acc,p)=>acc+Number(p.agentShare),0) : null;
 
   const latestPayout = payouts[0] ?? null;
 
   return (
-    <div className="space-y-6 p-6" data-testid="page-my-earnings">
+    <div className="space-y-6" data-testid="page-my-earnings">
+      <AgentReportsNavigation />
       <div>
-        <h1 className="text-2xl font-bold" data-testid="text-page-title">My Earnings</h1>
+        <h1 className="text-2xl leading-8 font-semibold" data-testid="text-page-title">My Earnings</h1>
         <p className="text-muted-foreground mt-1 text-sm">
           Your residual commission history — period by period
         </p>
+        <p className="text-xs text-muted-foreground">Source: authorized /api/payouts/my ledger; client read {dataUpdatedAt?new Date(dataUpdatedAt).toISOString():"unavailable"}. USD display assumption; periods are the returned ledger periods. Recorded paid status is not a native settlement receipt or a complete earnings forecast.</p>
       </div>
+      {isError ? <CrmDataState state="unavailable" message="Your payout ledger is unavailable; no zero earnings, empty history or pending assignment is inferred." onRetry={()=>void refetch()}/> : <>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" data-testid="section-earnings-kpis">
         <Card data-testid="card-total-paid">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Paid Out</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Recorded Paid Share</CardTitle>
             <Banknote className="w-4 h-4 text-green-600" />
           </CardHeader>
           <CardContent>
@@ -93,10 +105,10 @@ export default function MyEarnings() {
               <Skeleton className="h-8 w-24" />
             ) : (
               <div className="text-2xl font-bold text-green-600" data-testid="text-total-paid">
-                {formatCurrency(totalPaid)}
+                {payouts.length?formatCurrency(totalPaid):"Unavailable"}
               </div>
             )}
-            <p className="text-xs text-muted-foreground mt-1">Across all paid periods</p>
+            <p className="text-xs text-muted-foreground mt-1">Returned ledger records marked paid; not native settlement</p>
           </CardContent>
         </Card>
 
@@ -110,16 +122,16 @@ export default function MyEarnings() {
               <Skeleton className="h-8 w-24" />
             ) : (
               <div className="text-2xl font-bold" data-testid="text-pending-earnings">
-                {formatCurrency(totalPending)}
+                {payouts.length?formatCurrency(totalPending):"Unavailable"}
               </div>
             )}
-            <p className="text-xs text-muted-foreground mt-1">Awaiting disbursement</p>
+            <p className="text-xs text-muted-foreground mt-1">Returned records marked pending or approved; not a payment forecast</p>
           </CardContent>
         </Card>
 
         <Card data-testid="card-latest-period">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Latest Period</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Latest Returned Record</CardTitle>
             <TrendingUp className="w-4 h-4 text-primary" />
           </CardHeader>
           <CardContent>
@@ -147,7 +159,7 @@ export default function MyEarnings() {
             Payout History
           </CardTitle>
           <p className="text-xs text-muted-foreground">
-            Residual commissions generated from confirmed imports. Contact your admin if you have questions about a period.
+            Stored payout ledger records. Local status does not prove native payment or complete imported earnings.
           </p>
         </CardHeader>
         <CardContent className="p-0">
@@ -158,9 +170,9 @@ export default function MyEarnings() {
           ) : payouts.length === 0 ? (
             <div className="py-12 text-center" data-testid="text-no-earnings">
               <DollarSign className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
-              <p className="text-sm text-muted-foreground">No payout records yet.</p>
+              <p className="text-sm text-muted-foreground">No payout records returned in your authorized ledger.</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Payouts are generated by your admin after each monthly residual import is confirmed.
+                This does not establish zero earnings or native ingestion completeness.
               </p>
             </div>
           ) : (
@@ -209,6 +221,7 @@ export default function MyEarnings() {
           )}
         </CardContent>
       </Card>
+      </>}
     </div>
   );
 }

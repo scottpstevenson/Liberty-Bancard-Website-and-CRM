@@ -105,6 +105,7 @@ import {
 } from "@/components/ui/sidebar";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { EmployeeCrmProvider } from "@/components/crm/employee-crm-context";
+import { canShowMerchantOperationsNav, isMerchantOperationsPath, MerchantOperationsLayout } from "@/components/crm/MerchantOperationsNav";
 
 export interface DashboardLayoutProps {
   children: ReactNode;
@@ -415,7 +416,9 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
   const isAdoptedPage = isContactRecordRoute || isPeopleRoute ||
     ["/dashboard","/dashboard/my-day","/dashboard/pipeline","/dashboard/comms-hub",
       "/dashboard/tasks-appointments","/dashboard/contacts-leads","/dashboard/my-leads","/dashboard/nba",
-      "/dashboard/chat","/dashboard/call-outcome","/dashboard/review-complete","/dashboard/bin-lookup","/dashboard/stage-rules"].includes(location) ||
+      "/dashboard/chat","/dashboard/call-outcome","/dashboard/review-complete","/dashboard/bin-lookup","/dashboard/stage-rules",
+      "/dashboard/reporting","/dashboard/my-earnings","/dashboard/leaderboard"].includes(location) ||
+    isMerchantOperationsPath(location) ||
     /^\/dashboard\/companies\/[^/]+$/.test(location);
 
   // Admin dev-mode toggle — persisted in localStorage; off by default
@@ -869,9 +872,11 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
           )}
           <GhlAlertBanner role={role} />
           <div className="flex flex-1 overflow-hidden min-h-0">
-            <main className={`flex-1 overflow-y-auto overflow-x-hidden max-w-7xl mx-auto w-full${isContactRecordRoute || isPeopleRoute ? "" : " p-3 sm:p-6"}`} data-testid="dashboard-main">
+            <main className={`flex-1 overflow-y-auto overflow-x-hidden max-w-7xl mx-auto w-full${isContactRecordRoute || isPeopleRoute || location === "/dashboard/reporting" ? "" : " p-3 sm:p-6"}`} data-testid="dashboard-main">
               <ErrorBoundary key={location}>
-                {children}
+                {canShowMerchantOperationsNav(role, location) ? (
+                  <MerchantOperationsLayout role={role} path={location}>{children}</MerchantOperationsLayout>
+                ) : children}
               </ErrorBoundary>
             </main>
             {aiChatOpen && (

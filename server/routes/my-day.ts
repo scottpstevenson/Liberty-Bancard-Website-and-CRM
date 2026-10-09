@@ -11,6 +11,7 @@ import { z } from "zod";
 import { taskReadPredicate, taskStateSql, readTaskMetrics } from "../services/task-read-authority";
 import { revenuePredicateSql } from "../services/revenue-read-authority";
 import { crmDayWindow } from "@shared/crm-time-window";
+import { authorityStateToLegacyTaskStatus } from "@shared/work-item-commands";
 
 const ALLOWED_ACTIVITY_TYPES = ["call", "email", "sms", "meeting", "voicemail"] as const;
 
@@ -268,7 +269,8 @@ export function registerMyDayRoutes(app: Express) {
         openDeals,
         quota: quotaWithActuals,
         closedWonThisMonth: closedWonThisMonth.length,
-        tasksToday: myTasks,
+        tasksToday: myTasks.map(task=>({...task,
+          status:authorityStateToLegacyTaskStatus(task.effectiveState as "open" | "in_progress" | "completed" | "cancelled")})),
         taskQueue: {limit:20, returned:myTasks.length, total:metrics.rows[0].total,
           ...metrics.meta, window:"overdue_and_due_before_next_day", dueBefore:endOfToday.toISOString(), availability:"available"},
         recentActivity,

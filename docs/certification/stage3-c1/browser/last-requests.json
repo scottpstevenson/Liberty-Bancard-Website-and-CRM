@@ -2,136 +2,989 @@
   {
     "url": "/api/auth/user",
     "method": "GET",
-    "documentId": "DF1D9DD6274478E4E3AC4B63F0005A19",
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
     "status": 401
   },
   {
     "url": "/api/auth/login",
     "method": "POST",
-    "documentId": "DF1D9DD6274478E4E3AC4B63F0005A19",
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
     "status": 200
   },
   {
     "url": "/api/auth/user",
     "method": "GET",
-    "documentId": "DF1D9DD6274478E4E3AC4B63F0005A19",
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
     "status": 200
+  },
+  {
+    "url": "/api/admin/ghl-health",
+    "method": "GET",
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 200
+  },
+  {
+    "url": "/api/tools/capabilities",
+    "method": "GET",
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 501
   },
   {
     "url": "/api/inbox/send-state",
     "method": "GET",
-    "documentId": "DF1D9DD6274478E4E3AC4B63F0005A19"
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 501
   },
   {
-    "url": "/api/my-day",
+    "url": "/api/system/outbound-settings",
     "method": "GET",
-    "documentId": "DF1D9DD6274478E4E3AC4B63F0005A19"
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 501
   },
   {
-    "url": "/api/analytics/deals-closing-this-month",
+    "url": "/api/kpi/summary",
     "method": "GET",
-    "documentId": "DF1D9DD6274478E4E3AC4B63F0005A19"
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 200
   },
   {
-    "url": "/api/save-cases/my",
+    "url": "/api/contacts",
     "method": "GET",
-    "documentId": "DF1D9DD6274478E4E3AC4B63F0005A19"
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 200
+  },
+  {
+    "url": "/api/deals",
+    "method": "GET",
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 501
+  },
+  {
+    "url": "/api/kpi/pipeline-stats",
+    "method": "GET",
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 200
+  },
+  {
+    "url": "/api/kpi/comparative",
+    "method": "GET",
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 200
+  },
+  {
+    "url": "/api/analytics/lead-sources",
+    "method": "GET",
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 200
+  },
+  {
+    "url": "/api/admin/rep-activity/today",
+    "method": "GET",
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 200
+  },
+  {
+    "url": "/api/admin/rep-activity/inactive",
+    "method": "GET",
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 200
+  },
+  {
+    "url": "/api/analytics/lifecycle-distribution",
+    "method": "GET",
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 200
+  },
+  {
+    "url": "/api/analytics/weekly-outreach",
+    "method": "GET",
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 200
+  },
+  {
+    "url": "/api/analytics/conversion-funnel",
+    "method": "GET",
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 200
+  },
+  {
+    "url": "/api/analytics/daily-leads",
+    "method": "GET",
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 200
   },
   {
     "url": "/api/sms-inbox/unread-count",
     "method": "GET",
-    "documentId": "DF1D9DD6274478E4E3AC4B63F0005A19"
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 501
+  },
+  {
+    "url": "/api/merchant-applications/pending-count",
+    "method": "GET",
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 501
   },
   {
     "url": "/api/notifications/count",
     "method": "GET",
-    "documentId": "DF1D9DD6274478E4E3AC4B63F0005A19"
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B"
   },
   {
     "url": "/api/live-chat/sessions?status=active",
     "method": "GET",
-    "documentId": "DF1D9DD6274478E4E3AC4B63F0005A19"
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 501
   },
   {
     "url": "/api/tasks/overdue-count",
     "method": "GET",
-    "documentId": "DF1D9DD6274478E4E3AC4B63F0005A19"
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 200
   },
   {
     "url": "/api/outreach-queue/count",
     "method": "GET",
-    "documentId": "DF1D9DD6274478E4E3AC4B63F0005A19"
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B",
+    "status": 501
+  },
+  {
+    "url": "/api/overview/daily-briefing",
+    "method": "GET",
+    "documentId": "5F52462EF49BB9B325EC5117B6D7875B"
   },
   {
     "url": "/api/auth/user",
     "method": "GET",
-    "documentId": "CD7025E201D254AF41685B88B6515C1C",
+    "documentId": "E6A5DA704C115DBE8AC9116A9AB6958C",
+    "status": 200
+  },
+  {
+    "url": "/api/admin/ghl-health",
+    "method": "GET",
+    "documentId": "E6A5DA704C115DBE8AC9116A9AB6958C",
     "status": 200
   },
   {
     "url": "/api/contacts?limit=50&offset=0&recordClass=production",
     "method": "GET",
-    "documentId": "CD7025E201D254AF41685B88B6515C1C",
+    "documentId": "E6A5DA704C115DBE8AC9116A9AB6958C",
     "status": 200
   },
   {
     "url": "/api/contacts/facets?recordClass=production",
     "method": "GET",
-    "documentId": "CD7025E201D254AF41685B88B6515C1C",
+    "documentId": "E6A5DA704C115DBE8AC9116A9AB6958C",
     "status": 200
   },
   {
     "url": "/api/agents",
     "method": "GET",
-    "documentId": "CD7025E201D254AF41685B88B6515C1C",
-    "status": 403
+    "documentId": "E6A5DA704C115DBE8AC9116A9AB6958C",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/class-counts",
+    "method": "GET",
+    "documentId": "E6A5DA704C115DBE8AC9116A9AB6958C",
+    "status": 200
   },
   {
     "url": "/api/sms-inbox/unread-count",
     "method": "GET",
-    "documentId": "CD7025E201D254AF41685B88B6515C1C",
+    "documentId": "E6A5DA704C115DBE8AC9116A9AB6958C",
+    "status": 501
+  },
+  {
+    "url": "/api/merchant-applications/pending-count",
+    "method": "GET",
+    "documentId": "E6A5DA704C115DBE8AC9116A9AB6958C",
     "status": 501
   },
   {
     "url": "/api/notifications/count",
     "method": "GET",
-    "documentId": "CD7025E201D254AF41685B88B6515C1C",
+    "documentId": "E6A5DA704C115DBE8AC9116A9AB6958C",
     "status": 200
   },
   {
     "url": "/api/live-chat/sessions?status=active",
     "method": "GET",
-    "documentId": "CD7025E201D254AF41685B88B6515C1C",
+    "documentId": "E6A5DA704C115DBE8AC9116A9AB6958C",
     "status": 501
   },
   {
     "url": "/api/tasks/overdue-count",
     "method": "GET",
-    "documentId": "CD7025E201D254AF41685B88B6515C1C",
+    "documentId": "E6A5DA704C115DBE8AC9116A9AB6958C",
     "status": 200
   },
   {
     "url": "/api/outreach-queue/count",
     "method": "GET",
-    "documentId": "CD7025E201D254AF41685B88B6515C1C",
+    "documentId": "E6A5DA704C115DBE8AC9116A9AB6958C",
     "status": 501
   },
   {
     "url": "/api/contacts/confirmation-status/batch",
     "method": "POST",
-    "documentId": "CD7025E201D254AF41685B88B6515C1C",
+    "documentId": "E6A5DA704C115DBE8AC9116A9AB6958C",
+    "status": 200
+  },
+  {
+    "url": "/api/auth/user",
+    "method": "GET",
+    "documentId": "A0D846FEFD7C688C3D37936705C78FB0",
+    "status": 200
+  },
+  {
+    "url": "/api/admin/ghl-health",
+    "method": "GET",
+    "documentId": "A0D846FEFD7C688C3D37936705C78FB0",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts?limit=50&offset=0&recordClass=production",
+    "method": "GET",
+    "documentId": "A0D846FEFD7C688C3D37936705C78FB0",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/facets?recordClass=production",
+    "method": "GET",
+    "documentId": "A0D846FEFD7C688C3D37936705C78FB0",
+    "status": 200
+  },
+  {
+    "url": "/api/agents",
+    "method": "GET",
+    "documentId": "A0D846FEFD7C688C3D37936705C78FB0",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/class-counts",
+    "method": "GET",
+    "documentId": "A0D846FEFD7C688C3D37936705C78FB0",
+    "status": 200
+  },
+  {
+    "url": "/api/sms-inbox/unread-count",
+    "method": "GET",
+    "documentId": "A0D846FEFD7C688C3D37936705C78FB0",
+    "status": 501
+  },
+  {
+    "url": "/api/merchant-applications/pending-count",
+    "method": "GET",
+    "documentId": "A0D846FEFD7C688C3D37936705C78FB0",
+    "status": 501
+  },
+  {
+    "url": "/api/notifications/count",
+    "method": "GET",
+    "documentId": "A0D846FEFD7C688C3D37936705C78FB0",
+    "status": 200
+  },
+  {
+    "url": "/api/live-chat/sessions?status=active",
+    "method": "GET",
+    "documentId": "A0D846FEFD7C688C3D37936705C78FB0",
+    "status": 501
+  },
+  {
+    "url": "/api/tasks/overdue-count",
+    "method": "GET",
+    "documentId": "A0D846FEFD7C688C3D37936705C78FB0",
+    "status": 200
+  },
+  {
+    "url": "/api/outreach-queue/count",
+    "method": "GET",
+    "documentId": "A0D846FEFD7C688C3D37936705C78FB0",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts/confirmation-status/batch",
+    "method": "POST",
+    "documentId": "A0D846FEFD7C688C3D37936705C78FB0",
+    "status": 200
+  },
+  {
+    "url": "/api/auth/user",
+    "method": "GET",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
+    "status": 200
+  },
+  {
+    "url": "/api/admin/ghl-health",
+    "method": "GET",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts?limit=50&offset=0&recordClass=production",
+    "method": "GET",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/facets?recordClass=production",
+    "method": "GET",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
+    "status": 200
+  },
+  {
+    "url": "/api/agents",
+    "method": "GET",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/class-counts",
+    "method": "GET",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
+    "status": 200
+  },
+  {
+    "url": "/api/sms-inbox/unread-count",
+    "method": "GET",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
+    "status": 501
+  },
+  {
+    "url": "/api/merchant-applications/pending-count",
+    "method": "GET",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
+    "status": 501
+  },
+  {
+    "url": "/api/notifications/count",
+    "method": "GET",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
+    "status": 200
+  },
+  {
+    "url": "/api/live-chat/sessions?status=active",
+    "method": "GET",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
+    "status": 501
+  },
+  {
+    "url": "/api/tasks/overdue-count",
+    "method": "GET",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
+    "status": 200
+  },
+  {
+    "url": "/api/outreach-queue/count",
+    "method": "GET",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts/confirmation-status/batch",
+    "method": "POST",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
     "status": 200
   },
   {
     "url": "/api/contacts?limit=50&offset=50&recordClass=production",
     "method": "GET",
-    "documentId": "CD7025E201D254AF41685B88B6515C1C",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
     "status": 200
   },
   {
     "url": "/api/contacts/confirmation-status/batch",
     "method": "POST",
-    "documentId": "CD7025E201D254AF41685B88B6515C1C",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
     "status": 200
+  },
+  {
+    "url": "/api/contacts?limit=50&offset=0&search=C1+Synthetic+61&recordClass=production",
+    "method": "GET",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/facets?search=C1+Synthetic+61&recordClass=production",
+    "method": "GET",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/confirmation-status/batch",
+    "method": "POST",
+    "documentId": "B5EE9780DA08F4F36BF9316EF4B72E33",
+    "status": 200
+  },
+  {
+    "url": "/api/auth/user",
+    "method": "GET",
+    "documentId": "A348F4D728F45A918D3C0EC77273D416",
+    "status": 200
+  },
+  {
+    "url": "/api/admin/ghl-health",
+    "method": "GET",
+    "documentId": "A348F4D728F45A918D3C0EC77273D416",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts?limit=50&offset=0&recordClass=production",
+    "method": "GET",
+    "documentId": "A348F4D728F45A918D3C0EC77273D416",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/facets?recordClass=production",
+    "method": "GET",
+    "documentId": "A348F4D728F45A918D3C0EC77273D416",
+    "status": 200
+  },
+  {
+    "url": "/api/agents",
+    "method": "GET",
+    "documentId": "A348F4D728F45A918D3C0EC77273D416",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/class-counts",
+    "method": "GET",
+    "documentId": "A348F4D728F45A918D3C0EC77273D416",
+    "status": 200
+  },
+  {
+    "url": "/api/sms-inbox/unread-count",
+    "method": "GET",
+    "documentId": "A348F4D728F45A918D3C0EC77273D416",
+    "status": 501
+  },
+  {
+    "url": "/api/merchant-applications/pending-count",
+    "method": "GET",
+    "documentId": "A348F4D728F45A918D3C0EC77273D416",
+    "status": 501
+  },
+  {
+    "url": "/api/notifications/count",
+    "method": "GET",
+    "documentId": "A348F4D728F45A918D3C0EC77273D416",
+    "status": 200
+  },
+  {
+    "url": "/api/live-chat/sessions?status=active",
+    "method": "GET",
+    "documentId": "A348F4D728F45A918D3C0EC77273D416",
+    "status": 501
+  },
+  {
+    "url": "/api/tasks/overdue-count",
+    "method": "GET",
+    "documentId": "A348F4D728F45A918D3C0EC77273D416",
+    "status": 200
+  },
+  {
+    "url": "/api/outreach-queue/count",
+    "method": "GET",
+    "documentId": "A348F4D728F45A918D3C0EC77273D416",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts/confirmation-status/batch",
+    "method": "POST",
+    "documentId": "A348F4D728F45A918D3C0EC77273D416",
+    "status": 200
+  },
+  {
+    "url": "/api/auth/user",
+    "method": "GET",
+    "documentId": "C989234BBA0A4CC03D76490E3490DFD4",
+    "status": 200
+  },
+  {
+    "url": "/api/admin/ghl-health",
+    "method": "GET",
+    "documentId": "C989234BBA0A4CC03D76490E3490DFD4",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts?limit=50&offset=0&search=Synthetic&recordClass=production",
+    "method": "GET",
+    "documentId": "C989234BBA0A4CC03D76490E3490DFD4",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/facets?search=Synthetic&recordClass=production",
+    "method": "GET",
+    "documentId": "C989234BBA0A4CC03D76490E3490DFD4",
+    "status": 503
+  },
+  {
+    "url": "/api/agents",
+    "method": "GET",
+    "documentId": "C989234BBA0A4CC03D76490E3490DFD4",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/class-counts",
+    "method": "GET",
+    "documentId": "C989234BBA0A4CC03D76490E3490DFD4",
+    "status": 200
+  },
+  {
+    "url": "/api/sms-inbox/unread-count",
+    "method": "GET",
+    "documentId": "C989234BBA0A4CC03D76490E3490DFD4",
+    "status": 501
+  },
+  {
+    "url": "/api/merchant-applications/pending-count",
+    "method": "GET",
+    "documentId": "C989234BBA0A4CC03D76490E3490DFD4",
+    "status": 501
+  },
+  {
+    "url": "/api/notifications/count",
+    "method": "GET",
+    "documentId": "C989234BBA0A4CC03D76490E3490DFD4",
+    "status": 200
+  },
+  {
+    "url": "/api/live-chat/sessions?status=active",
+    "method": "GET",
+    "documentId": "C989234BBA0A4CC03D76490E3490DFD4",
+    "status": 501
+  },
+  {
+    "url": "/api/tasks/overdue-count",
+    "method": "GET",
+    "documentId": "C989234BBA0A4CC03D76490E3490DFD4",
+    "status": 200
+  },
+  {
+    "url": "/api/outreach-queue/count",
+    "method": "GET",
+    "documentId": "C989234BBA0A4CC03D76490E3490DFD4",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts/confirmation-status/batch",
+    "method": "POST",
+    "documentId": "C989234BBA0A4CC03D76490E3490DFD4",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/facets?search=Synthetic&recordClass=production",
+    "method": "GET",
+    "documentId": "C989234BBA0A4CC03D76490E3490DFD4",
+    "status": 503
+  },
+  {
+    "url": "/api/auth/user",
+    "method": "GET",
+    "documentId": "95F0C96DC7222FEAC85E84B189A2C120",
+    "status": 200
+  },
+  {
+    "url": "/api/admin/ghl-health",
+    "method": "GET",
+    "documentId": "95F0C96DC7222FEAC85E84B189A2C120",
+    "status": 200
+  },
+  {
+    "url": "/api/sms-inbox/unread-count",
+    "method": "GET",
+    "documentId": "95F0C96DC7222FEAC85E84B189A2C120",
+    "status": 501
+  },
+  {
+    "url": "/api/merchant-applications/pending-count",
+    "method": "GET",
+    "documentId": "95F0C96DC7222FEAC85E84B189A2C120",
+    "status": 501
+  },
+  {
+    "url": "/api/notifications/count",
+    "method": "GET",
+    "documentId": "95F0C96DC7222FEAC85E84B189A2C120",
+    "status": 200
+  },
+  {
+    "url": "/api/live-chat/sessions?status=active",
+    "method": "GET",
+    "documentId": "95F0C96DC7222FEAC85E84B189A2C120",
+    "status": 501
+  },
+  {
+    "url": "/api/tasks/overdue-count",
+    "method": "GET",
+    "documentId": "95F0C96DC7222FEAC85E84B189A2C120",
+    "status": 200
+  },
+  {
+    "url": "/api/outreach-queue/count",
+    "method": "GET",
+    "documentId": "95F0C96DC7222FEAC85E84B189A2C120",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts?limit=50&offset=0&recordClass=production",
+    "method": "GET",
+    "documentId": "95F0C96DC7222FEAC85E84B189A2C120",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/facets?recordClass=production",
+    "method": "GET",
+    "documentId": "95F0C96DC7222FEAC85E84B189A2C120",
+    "status": 200
+  },
+  {
+    "url": "/api/agents",
+    "method": "GET",
+    "documentId": "95F0C96DC7222FEAC85E84B189A2C120",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/class-counts",
+    "method": "GET",
+    "documentId": "95F0C96DC7222FEAC85E84B189A2C120",
+    "status": 200
+  },
+  {
+    "url": "/api/sms-inbox/unread-count",
+    "method": "GET",
+    "documentId": "95F0C96DC7222FEAC85E84B189A2C120",
+    "status": 501
+  },
+  {
+    "url": "/api/merchant-applications/pending-count",
+    "method": "GET",
+    "documentId": "95F0C96DC7222FEAC85E84B189A2C120",
+    "status": 501
+  },
+  {
+    "url": "/api/outreach-queue/count",
+    "method": "GET",
+    "documentId": "95F0C96DC7222FEAC85E84B189A2C120",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts/confirmation-status/batch",
+    "method": "POST",
+    "documentId": "95F0C96DC7222FEAC85E84B189A2C120",
+    "status": 200
+  },
+  {
+    "url": "/api/auth/user",
+    "method": "GET",
+    "documentId": "D8784BC7A8627A07767A1C6DBED8A954",
+    "status": 200
+  },
+  {
+    "url": "/api/admin/ghl-health",
+    "method": "GET",
+    "documentId": "D8784BC7A8627A07767A1C6DBED8A954",
+    "status": 200
+  },
+  {
+    "url": "/api/sms-inbox/unread-count",
+    "method": "GET",
+    "documentId": "D8784BC7A8627A07767A1C6DBED8A954",
+    "status": 501
+  },
+  {
+    "url": "/api/merchant-applications/pending-count",
+    "method": "GET",
+    "documentId": "D8784BC7A8627A07767A1C6DBED8A954",
+    "status": 501
+  },
+  {
+    "url": "/api/notifications/count",
+    "method": "GET",
+    "documentId": "D8784BC7A8627A07767A1C6DBED8A954",
+    "status": 200
+  },
+  {
+    "url": "/api/live-chat/sessions?status=active",
+    "method": "GET",
+    "documentId": "D8784BC7A8627A07767A1C6DBED8A954",
+    "status": 501
+  },
+  {
+    "url": "/api/tasks/overdue-count",
+    "method": "GET",
+    "documentId": "D8784BC7A8627A07767A1C6DBED8A954",
+    "status": 200
+  },
+  {
+    "url": "/api/outreach-queue/count",
+    "method": "GET",
+    "documentId": "D8784BC7A8627A07767A1C6DBED8A954",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts?limit=50&offset=0&recordClass=production",
+    "method": "GET",
+    "documentId": "D8784BC7A8627A07767A1C6DBED8A954",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/facets?recordClass=production",
+    "method": "GET",
+    "documentId": "D8784BC7A8627A07767A1C6DBED8A954",
+    "status": 200
+  },
+  {
+    "url": "/api/agents",
+    "method": "GET",
+    "documentId": "D8784BC7A8627A07767A1C6DBED8A954",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/class-counts",
+    "method": "GET",
+    "documentId": "D8784BC7A8627A07767A1C6DBED8A954",
+    "status": 200
+  },
+  {
+    "url": "/api/sms-inbox/unread-count",
+    "method": "GET",
+    "documentId": "D8784BC7A8627A07767A1C6DBED8A954",
+    "status": 501
+  },
+  {
+    "url": "/api/merchant-applications/pending-count",
+    "method": "GET",
+    "documentId": "D8784BC7A8627A07767A1C6DBED8A954",
+    "status": 501
+  },
+  {
+    "url": "/api/outreach-queue/count",
+    "method": "GET",
+    "documentId": "D8784BC7A8627A07767A1C6DBED8A954",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts/confirmation-status/batch",
+    "method": "POST",
+    "documentId": "D8784BC7A8627A07767A1C6DBED8A954",
+    "status": 200
+  },
+  {
+    "url": "/api/auth/user",
+    "method": "GET",
+    "documentId": "355D91D14C1152205EA47B738781E1F1",
+    "status": 200
+  },
+  {
+    "url": "/api/admin/ghl-health",
+    "method": "GET",
+    "documentId": "355D91D14C1152205EA47B738781E1F1",
+    "status": 200
+  },
+  {
+    "url": "/api/sms-inbox/unread-count",
+    "method": "GET",
+    "documentId": "355D91D14C1152205EA47B738781E1F1",
+    "status": 501
+  },
+  {
+    "url": "/api/merchant-applications/pending-count",
+    "method": "GET",
+    "documentId": "355D91D14C1152205EA47B738781E1F1",
+    "status": 501
+  },
+  {
+    "url": "/api/notifications/count",
+    "method": "GET",
+    "documentId": "355D91D14C1152205EA47B738781E1F1",
+    "status": 200
+  },
+  {
+    "url": "/api/live-chat/sessions?status=active",
+    "method": "GET",
+    "documentId": "355D91D14C1152205EA47B738781E1F1",
+    "status": 501
+  },
+  {
+    "url": "/api/tasks/overdue-count",
+    "method": "GET",
+    "documentId": "355D91D14C1152205EA47B738781E1F1",
+    "status": 200
+  },
+  {
+    "url": "/api/outreach-queue/count",
+    "method": "GET",
+    "documentId": "355D91D14C1152205EA47B738781E1F1",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts?limit=50&offset=0&recordClass=production",
+    "method": "GET",
+    "documentId": "355D91D14C1152205EA47B738781E1F1",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/facets?recordClass=production",
+    "method": "GET",
+    "documentId": "355D91D14C1152205EA47B738781E1F1",
+    "status": 200
+  },
+  {
+    "url": "/api/agents",
+    "method": "GET",
+    "documentId": "355D91D14C1152205EA47B738781E1F1",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/class-counts",
+    "method": "GET",
+    "documentId": "355D91D14C1152205EA47B738781E1F1",
+    "status": 200
+  },
+  {
+    "url": "/api/sms-inbox/unread-count",
+    "method": "GET",
+    "documentId": "355D91D14C1152205EA47B738781E1F1",
+    "status": 501
+  },
+  {
+    "url": "/api/merchant-applications/pending-count",
+    "method": "GET",
+    "documentId": "355D91D14C1152205EA47B738781E1F1",
+    "status": 501
+  },
+  {
+    "url": "/api/outreach-queue/count",
+    "method": "GET",
+    "documentId": "355D91D14C1152205EA47B738781E1F1",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts/confirmation-status/batch",
+    "method": "POST",
+    "documentId": "355D91D14C1152205EA47B738781E1F1",
+    "status": 200
+  },
+  {
+    "url": "/api/auth/user",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 200
+  },
+  {
+    "url": "/api/admin/ghl-health",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 200
+  },
+  {
+    "url": "/api/inbox/send-state",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts/1/detail?section=overview",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 200
+  },
+  {
+    "url": "/api/sms-inbox/unread-count",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 501
+  },
+  {
+    "url": "/api/merchant-applications/pending-count",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 501
+  },
+  {
+    "url": "/api/notifications/count",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 200
+  },
+  {
+    "url": "/api/live-chat/sessions?status=active",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 501
+  },
+  {
+    "url": "/api/tasks/overdue-count",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 200
+  },
+  {
+    "url": "/api/outreach-queue/count",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts/1/nba",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts/1/suppression-status",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 200
+  },
+  {
+    "url": "/api/contacts/1/companies",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 200
+  },
+  {
+    "url": "/api/rate-reviews/contact/1",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts/1/confirmation-status",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 200
+  },
+  {
+    "url": "/api/ghl/sync-status/contact/1",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 501
+  },
+  {
+    "url": "/api/contacts/1/parent",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 200
+  },
+  {
+    "url": "/api/agents",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 200
+  },
+  {
+    "url": "/api/users/reps",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 200
+  },
+  {
+    "url": "/api/live-chat/sessions?status=active",
+    "method": "GET",
+    "documentId": "8DB96E9551542C3F4A50E5DF2EF93862",
+    "status": 501
   }
 ]

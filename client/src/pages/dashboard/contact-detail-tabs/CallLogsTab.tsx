@@ -117,25 +117,25 @@ function VoicemailCard({ vm }: { vm: VoicemailEvent }) {
 }
 
 export function CallLogsTab({ contactId }: { contactId: number }) {
-  const { data: callLogs, isLoading: loadingCalls } = useQuery<CallLog[]>({
+  const { data: callLogs, isLoading: loadingCalls, isError:callsError, refetch:retryCalls } = useQuery<CallLog[]>({
     queryKey: ["/api/call-logs/contact", contactId],
     queryFn: async () => {
       const res = await fetch(`/api/call-logs/contact/${contactId}`, { credentials: "include" });
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error("Call logs unavailable");
       return res.json();
     },
   });
 
-  const { data: voicemails, isLoading: loadingVms } = useQuery<VoicemailEvent[]>({
+  const { data: voicemails, isLoading: loadingVms, isError:vmsError, refetch:retryVms } = useQuery<VoicemailEvent[]>({
     queryKey: ["/api/contacts", contactId, "voicemails"],
     queryFn: async () => {
       const res = await fetch(`/api/contacts/${contactId}/voicemails`, { credentials: "include" });
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error("Voicemails unavailable");
       return res.json();
     },
   });
 
-  const isLoading = loadingCalls || loadingVms;
+  const isLoading = loadingCalls && loadingVms;
 
   if (isLoading) {
     return (
@@ -150,7 +150,7 @@ export function CallLogsTab({ contactId }: { contactId: number }) {
   const totalCalls = callLogs?.length ?? 0;
   const totalVms = voicemails?.length ?? 0;
 
-  if (totalCalls === 0 && totalVms === 0) {
+  if (!callsError && !vmsError && !loadingCalls && !loadingVms && totalCalls === 0 && totalVms === 0) {
     return (
       <Card>
         <CardContent className="py-10 text-center text-muted-foreground" data-testid="call-logs-empty">
@@ -186,11 +186,14 @@ export function CallLogsTab({ contactId }: { contactId: number }) {
           <PhoneCall className="h-4 w-4" />
           Calls &amp; Voicemails
           <span className="text-muted-foreground font-normal text-sm">
-            ({totalCalls} call{totalCalls !== 1 ? "s" : ""}{totalVms > 0 ? `, ${totalVms} voicemail${totalVms !== 1 ? "s" : ""}` : ""})
+            ({callsError || loadingCalls ? "Calls unavailable/unloaded" : `${totalCalls} calls`} · {vmsError || loadingVms ? "Voicemails unavailable/unloaded" : `${totalVms} voicemails`})
           </span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-0 p-0" data-testid="call-log-list">
+        {callsError && <p role="alert" className="p-4 text-sm">Call logs unavailable. <button className="min-h-11 px-3" onClick={()=>void retryCalls()}>Retry calls</button></p>}
+        {vmsError && <p role="alert" className="p-4 text-sm">Voicemails unavailable. <button className="min-h-11 px-3" onClick={()=>void retryVms()}>Retry voicemails</button></p>}
+        {(loadingCalls || loadingVms) && <p role="status" className="p-4 text-sm">Remaining source loading; displayed source is independent.</p>}
         {merged.map((entry) => {
           if (entry.kind === "voicemail") {
             return <VoicemailCard key={`vm-${entry.item.id}`} vm={entry.item} />;

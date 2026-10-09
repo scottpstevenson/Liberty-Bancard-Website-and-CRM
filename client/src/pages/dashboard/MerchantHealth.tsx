@@ -1,12 +1,19 @@
-import { useState } from "react";
-import { useLocation } from "wouter";
+import { useState, useEffect } from "react";
+import { useAuth } from "@/hooks/use-auth";
+import { useLocation, useSearch } from "wouter";
+import { c4WorkspaceSelection, merchantHealthUrl, merchantHealthViews } from "@/lib/crm-destination-state";
+import { readNpsStats, readNpsRecords } from "@/lib/nps-observation-reader";
+import { isScoredNpsRecord } from "@shared/nps-observation";
+import {readChurnObservations,churnSummarySchema,churnWeightsSchema,churnScoresSchema,type ChurnRead} from "@/lib/churn-observation-reader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { CrmDataState } from "@/components/crm/CrmPresentation";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -119,12 +126,12 @@ function ChurnScoreBreakdownTooltip({
 }) {
   const effective = score.overrideScore !== null ? score.overrideScore : score.churnScore;
   const components = [
-    { label: "Volume Trend", value: score.volumeTrendScore ?? 0 },
-    { label: "Chargeback Trend", value: score.chargebackTrendScore ?? 0 },
-    { label: "Ticket Velocity", value: score.ticketVelocityScore ?? 0 },
-    { label: "NPS Score", value: score.npsScore ?? 0 },
-    { label: "Portal Activity", value: score.portalActivityScore ?? 0 },
-    { label: "Outreach Response", value: score.outreachResponseScore ?? 0 },
+    { label: "Volume Trend", value: score.volumeTrendScore },
+    { label: "Chargeback Trend", value: score.chargebackTrendScore },
+    { label: "Ticket Velocity", value: score.ticketVelocityScore },
+    { label: "NPS Score", value: score.npsScore },
+    { label: "Portal Activity", value: score.portalActivityScore },
+    { label: "Outreach Response", value: score.outreachResponseScore },
   ];
   return (
     <TooltipProvider>
@@ -149,15 +156,15 @@ function ChurnScoreBreakdownTooltip({
           </div>
           {components.map(c => {
             const wKey = SIGNAL_WEIGHT_KEYS[c.label];
-            const weight = wKey ? (weightsMap[wKey] ?? 1.0) : 1.0;
+            const weight = wKey ? weightsMap[wKey] : undefined;
             return (
               <div key={c.label} className="space-y-0.5">
                 <div className="grid grid-cols-3 gap-x-2 text-xs items-center">
                   <span className="text-muted-foreground">{c.label}</span>
-                  <span className="font-medium text-center">{Math.round(c.value)}</span>
-                  <span className="text-right text-muted-foreground">×{weight.toFixed(2)}</span>
+                  <span className="font-medium text-center">{typeof c.value==="number"&&Number.isFinite(c.value)?Math.round(c.value):"Unassessed"}</span>
+                  <span className="text-right text-muted-foreground">{typeof weight==="number"&&Number.isFinite(weight)?`×${weight.toFixed(2)}`:"Unavailable"}</span>
                 </div>
-                <ScoreBar value={c.value} max={30} colorClass="bg-primary" />
+                {typeof c.value==="number"&&Number.isFinite(c.value)&&<ScoreBar value={c.value} max={30} colorClass="bg-primary" />}
               </div>
             );
           })}
@@ -170,46 +177,57 @@ function ChurnScoreBreakdownTooltip({
 export default function MerchantHealth() {
   const [, setLocation] = useLocation();
   const [activeFilter, setActiveFilter] = useState("all");
-  const [activeTab, setActiveTab] = useState("alerts");
+  const {user}=useAuth();
+  const search = useSearch();
+  const healthSelection = c4WorkspaceSelection(search, "healthView", merchantHealthViews, "alerts");
+  const activeTab = healthSelection.value;
+  const setActiveTab = (value: string) => {
+    if ((merchantHealthViews as readonly string[]).includes(value))
+      setLocation(merchantHealthUrl(search, window.location.hash, value as typeof merchantHealthViews[number]));
+  };
   const [churnTierFilter, setChurnTierFilter] = useState<string>("all");
   const [churnVerticalFilter, setChurnVerticalFilter] = useState<string>("all");
   const [churnAgentFilter, setChurnAgentFilter] = useState<string>("all");
 
-  const { data: alerts = [], isLoading: alertsLoading } = useQuery<HealthAlert[]>({
+  const { data: alerts = [], isLoading: alertsLoading, isError:alertsError, refetch:retryAlerts } = useQuery<HealthAlert[]>({
     queryKey: ["/api/health-alerts"],
   });
 
-  const { data: agentsList = [] } = useQuery<Agent[]>({
+  const { data: agentsList = [], isLoading:agentsLoading, isError:agentsError, refetch:retryAgents } = useQuery<Agent[]>({
     queryKey: ["/api/agents"],
   });
 
-  const { data: churnScores = [], isLoading: churnLoading, refetch: refetchChurn } = useQuery<EnrichedChurnScore[]>({
+  const { data: churnRead, isLoading: churnLoading, isError:churnError, refetch: refetchChurn } = useQuery<ChurnRead<EnrichedChurnScore>>({
     queryKey: ["/api/churn-scores", churnTierFilter, churnVerticalFilter, churnAgentFilter],
-    queryFn: async () => {
+    queryFn: async ({signal}) => {
       const params = new URLSearchParams();
       if (churnTierFilter !== "all") params.set("riskTier", churnTierFilter);
       if (churnVerticalFilter !== "all") params.set("vertical", churnVerticalFilter);
       if (churnAgentFilter !== "all") params.set("agentOwner", churnAgentFilter);
       const qs = params.toString();
       const url = qs ? `/api/churn-scores?${qs}` : "/api/churn-scores";
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch churn scores");
-      return res.json();
+      return readChurnObservations<EnrichedChurnScore>(url,signal,churnScoresSchema);
     },
   });
 
-  const { data: churnSummary = [] } = useQuery<{ tier: string; count: number }[]>({
+  const churnScores=churnRead?.rows??[];
+  const { data: summaryRead, isLoading: summaryLoading, isError: summaryError, refetch:retrySummary } = useQuery<ChurnRead<{tier:string;count:number}>>({
     queryKey: ["/api/churn-scores/summary"],
+    queryFn:({signal})=>readChurnObservations("/api/churn-scores/summary",signal,churnSummarySchema),
   });
+  const churnSummary=summaryRead?.rows??[];
+  const summaryUnavailable=summaryError||summaryLoading||!summaryRead;
 
-  const { data: churnWeights = [] } = useQuery<{ signalKey: string; weight: number }[]>({
+  const { data: weightsRead, isLoading:weightsLoading, isError:weightsError, refetch:retryWeights } = useQuery<ChurnRead<{signalKey:string;weight:number}>>({
     queryKey: ["/api/churn-score-weights"],
+    queryFn:({signal})=>readChurnObservations("/api/churn-score-weights",signal,churnWeightsSchema),
   });
+  const churnWeights=weightsRead?.rows??[];
   const weightsMap = Object.fromEntries(churnWeights.map(w => [w.signalKey, w.weight]));
 
   const { toast } = useToast();
 
-  const { data: attritionThresholds } = useQuery<{ volumeDropPct: number; cbRatioPct: number }>({
+  const { data: attritionThresholds, isLoading:thresholdLoading, isError:thresholdError, refetch:retryThresholds } = useQuery<{ volumeDropPct: number; cbRatioPct: number }>({
     queryKey: ["/api/admin/settings/attrition-thresholds"],
   });
 
@@ -217,11 +235,15 @@ export default function MerchantHealth() {
   const [cbDraft, setCbDraft] = useState<string>("");
   const [thresholdInitialized, setThresholdInitialized] = useState(false);
 
-  if (!thresholdInitialized && attritionThresholds) {
-    setVolDraft(String(attritionThresholds.volumeDropPct));
-    setCbDraft(String(attritionThresholds.cbRatioPct));
-    setThresholdInitialized(true);
-  }
+  useEffect(()=>{
+    setThresholdInitialized(false);setVolDraft("");setCbDraft("");
+  },[user?.id,user?.accountVersion]);
+  useEffect(()=>{
+    if(!thresholdInitialized && attritionThresholds && !thresholdError){
+      setVolDraft(String(attritionThresholds.volumeDropPct));
+      setCbDraft(String(attritionThresholds.cbRatioPct));setThresholdInitialized(true);
+    }
+  },[attritionThresholds,thresholdInitialized,thresholdError]);
 
   const saveThresholdsMutation = useMutation({
     mutationFn: async () => {
@@ -260,10 +282,12 @@ export default function MerchantHealth() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/health-alerts"] }),
   });
 
-  const criticalCount = alerts.filter(a => a.severity === "critical" || a.severity === "urgent").length;
-  const warningCount = alerts.filter(a => a.severity === "warning").length;
-  const healthyCount = Math.max(0, 100 - alerts.length);
-  const avgHealthScore = alerts.length > 0 ? Math.max(0, 100 - alerts.length * 5) : 100;
+  const criticalCount = alertsError || alertsLoading ? "Unavailable" : alerts.filter(a => a.severity === "critical" || a.severity === "urgent").length;
+  const warningCount = alertsError || alertsLoading ? "Unavailable" : alerts.filter(a => a.severity === "warning").length;
+  // Alerts do not supply an assessed eligible-population denominator or an
+  // observed health score. Absence of alerts is not proof of health.
+  const healthyCount = "Unavailable";
+  const avgHealthScore = "Unavailable";
 
   const filteredAlerts = (activeFilter === "all" ? alerts : alerts.filter(a => a.alertType === activeFilter))
     .sort((a, b) => (SEVERITY_ORDER[a.severity || "info"] ?? 2) - (SEVERITY_ORDER[b.severity || "info"] ?? 2));
@@ -272,15 +296,10 @@ export default function MerchantHealth() {
   const churnHighCount = churnSummary.find(s => s.tier === "High")?.count ?? 0;
   const churnMediumCount = churnSummary.find(s => s.tier === "Medium")?.count ?? 0;
   const churnLowCount = churnSummary.find(s => s.tier === "Low")?.count ?? 0;
-  const totalScored = churnCriticalCount + churnHighCount + churnMediumCount + churnLowCount;
 
-  const filteredChurnScores = churnTierFilter === "all"
-    ? churnScores
-    : churnScores.filter(s => {
-        const effective = s.overrideScore !== null ? s.overrideScore : s.churnScore;
-        const tier = effective > 85 ? "Critical" : effective > 70 ? "High" : effective >= 40 ? "Medium" : "Low";
-        return tier === churnTierFilter;
-      });
+  // The reader owns persisted tier selection. A presentation recomputation
+  // can silently discard an authorized observation using competing thresholds.
+  const filteredChurnScores = churnScores;
 
   return (
     <div className="space-y-8" data-testid="page-merchant-health">
@@ -289,6 +308,11 @@ export default function MerchantHealth() {
         subtitle="Proactive alerts, churn prediction scoring, and at-risk merchant intelligence"
         testId="text-page-title"
       />
+      {!summaryError&&summaryRead&&<p className="text-xs text-muted-foreground" data-testid="churn-summary-provenance">
+        Summary source: {summaryRead.read.source}. Read observed at {summaryRead.read.asOf} (UTC);
+        unpaged authorized, nonarchived production-contact score records. Model computation times remain per record;
+        this is not a frozen snapshot or an assessed eligible-merchant denominator.
+      </p>}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card data-testid="card-kpi-critical">
@@ -320,7 +344,7 @@ export default function MerchantHealth() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-healthy-count">{healthyCount}</div>
-            <p className="text-xs text-muted-foreground mt-1">Operating normally</p>
+            <p className="text-xs text-muted-foreground mt-1">Assessed eligible cohort unavailable; no-alerts does not establish healthy merchants.</p>
           </CardContent>
         </Card>
 
@@ -331,16 +355,17 @@ export default function MerchantHealth() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-purple-600 dark:text-purple-400" data-testid="text-churn-risk-count">
-              {churnCriticalCount + churnHighCount}
+              {summaryUnavailable ? "Unavailable" : churnCriticalCount + churnHighCount}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {churnCriticalCount} critical · {churnHighCount} high
+              {summaryUnavailable ? "Independent churn summary unavailable; no zero-risk conclusion." : `${churnCriticalCount} critical · ${churnHighCount} high · authorized stored production-contact scores; not an eligible-merchant denominator`}
             </p>
           </CardContent>
         </Card>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} data-testid="merchant-health-tabs">
+        {healthSelection.issues.length > 0 && <p role="status">{healthSelection.issues[0].reason}</p>}
         <TabsList className="flex-wrap h-auto gap-1" data-testid="merchant-health-tabs-list">
           <TabsTrigger value="alerts" data-testid="tab-alerts">
             <Activity className="w-4 h-4 mr-1.5" />
@@ -368,6 +393,7 @@ export default function MerchantHealth() {
 
         {/* ─── Alerts Tab ─── */}
         <TabsContent value="alerts" data-testid="tab-content-alerts" className="mt-6 space-y-6">
+          {alertsError && <CrmDataState state="unavailable" message="Alert source unavailable. Alert counts and no-alert conclusions are not current assessed-population facts." onRetry={()=>void retryAlerts()}/>}
           <div className="flex flex-wrap gap-2" data-testid="filter-alert-types">
             {FILTER_OPTIONS.map(opt => (
               <Button
@@ -389,19 +415,19 @@ export default function MerchantHealth() {
                 <Activity className="w-5 h-5 text-primary" />
                 Active Alerts
                 {filteredAlerts.length > 0 && (
-                  <Badge variant="secondary" data-testid="badge-alert-count">{filteredAlerts.length}</Badge>
+                  <Badge variant="secondary" data-testid="badge-alert-count">{alertsError || alertsLoading ? "Unavailable" : filteredAlerts.length}</Badge>
                 )}
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {alertsLoading ? (
+              {alertsError ? <p role="alert">Alert worklist unavailable.</p> : alertsLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                 </div>
               ) : filteredAlerts.length === 0 ? (
                 <div className="text-center py-12" data-testid="text-no-alerts">
                   <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
-                  <p className="text-muted-foreground font-medium">No active alerts — all merchants are healthy</p>
+                  <p className="text-muted-foreground font-medium">No active alerts in this loaded source. Merchant assessment coverage is unavailable.</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -474,11 +500,21 @@ export default function MerchantHealth() {
 
         {/* ─── Churn Risk Tab ─── */}
         <TabsContent value="churn-risk" data-testid="tab-content-churn-risk" className="mt-6 space-y-6">
+          {churnError && <CrmDataState state="unavailable" message="Assessed churn sample unavailable; no zero-score or no-risk conclusion." onRetry={()=>void refetchChurn()}/>}
+          {summaryError && <CrmDataState state="unavailable" message="Independent churn tier summary unavailable. Filtered worklist availability does not establish summary completeness." onRetry={()=>void retrySummary()}/>}
+          {agentsError && <CrmDataState state="unavailable" message="Agent filter roster unavailable; this is not an unassigned population." onRetry={()=>void retryAgents()}/>}
+          {weightsError && <CrmDataState state="unavailable" message="Signal weights unavailable; no default multiplier is presented as current configuration." onRetry={()=>void retryWeights()}/>}
+          {weightsLoading && <p role="status">Loading signal weight observations…</p>}
+          {!weightsError&&!weightsLoading&&weightsRead&&churnWeights.length===0&&<CrmDataState state="unavailable" message="Signal weights are not configured; this read does not create or infer model defaults."/>}
+          {!churnError&&churnRead&&<p className="text-xs text-muted-foreground" data-testid="churn-record-provenance">
+            {churnScores.length} stored model score records · {churnRead.read.source} · read observed {churnRead.read.asOf} (UTC).
+            Complete unpaged selected records, not an eligible-population health assessment.
+          </p>}
           {/* Tier summary strip */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {(["Critical", "High", "Medium", "Low"] as const).map(tier => {
               const cfg = TIER_CONFIG[tier];
-              const cnt = churnSummary.find(s => s.tier === tier)?.count ?? 0;
+              const cnt = summaryUnavailable ? "Unavailable" : churnSummary.find(s => s.tier === tier)?.count ?? 0;
               return (
                 <Card
                   key={tier}
@@ -534,7 +570,7 @@ export default function MerchantHealth() {
             </Select>
 
             {/* Agent filter */}
-            <Select value={churnAgentFilter} onValueChange={setChurnAgentFilter}>
+            <Select value={churnAgentFilter} onValueChange={setChurnAgentFilter} disabled={agentsLoading||agentsError}>
               <SelectTrigger className="h-8 w-44 text-sm" data-testid="select-churn-agent">
                 <SelectValue placeholder="All Agents" />
               </SelectTrigger>
@@ -573,7 +609,7 @@ export default function MerchantHealth() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {churnLoading ? (
+              {churnError||(!churnLoading&&!churnRead) ? <p role="alert">Churn worklist unavailable.</p> : churnLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                 </div>
@@ -581,9 +617,8 @@ export default function MerchantHealth() {
                 <div className="text-center py-12" data-testid="text-no-churn-scores">
                   <Brain className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-30" />
                   <p className="text-muted-foreground font-medium">
-                    {totalScored === 0
-                      ? "No churn scores computed yet. Scores are generated nightly."
-                      : `No merchants in the ${churnTierFilter} risk tier.`}
+                    No stored model score records in this authorized selection.
+                    This does not establish an empty eligible-merchant population or an uncomputed global model.
                   </p>
                 </div>
               ) : (
@@ -659,6 +694,8 @@ export default function MerchantHealth() {
 
         {/* ─── Signal Settings Tab (#1336) ─── */}
         <TabsContent value="signal-settings" data-testid="tab-content-signal-settings" className="mt-6">
+          {thresholdError && <CrmDataState state="unavailable" message="Current signal thresholds unavailable; configured defaults are not current server facts." onRetry={()=>void retryThresholds()}/>}
+          {user?.role!=="admin" && <p className="text-sm text-muted-foreground">Read-only configuration. Threshold writes remain admin-only.</p>}
           <Card data-testid="card-churn-signal-settings">
             <CardHeader>
               <CardTitle className="text-sm flex items-center gap-2">
@@ -686,6 +723,8 @@ export default function MerchantHealth() {
                       onChange={e => setVolDraft(e.target.value)}
                       className="w-32"
                       data-testid="input-vol-drop-threshold"
+                      disabled={thresholdLoading||thresholdError}
+                      readOnly={user?.role!=="admin"}
                     />
                     <span className="text-sm text-muted-foreground">%</span>
                   </div>
@@ -710,6 +749,8 @@ export default function MerchantHealth() {
                       onChange={e => setCbDraft(e.target.value)}
                       className="w-32"
                       data-testid="input-cb-ratio-threshold"
+                      disabled={thresholdLoading||thresholdError}
+                      readOnly={user?.role!=="admin"}
                     />
                     <span className="text-sm text-muted-foreground">%</span>
                   </div>
@@ -720,10 +761,10 @@ export default function MerchantHealth() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 pt-2 border-t">
+              {user?.role==="admin" && <div className="flex items-center gap-3 pt-2 border-t">
                 <Button
                   onClick={() => saveThresholdsMutation.mutate()}
-                  disabled={saveThresholdsMutation.isPending}
+                  disabled={saveThresholdsMutation.isPending||thresholdLoading||thresholdError||!thresholdInitialized}
                   data-testid="btn-save-attrition-thresholds"
                 >
                   {saveThresholdsMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
@@ -736,10 +777,11 @@ export default function MerchantHealth() {
                     setCbDraft("0.75");
                   }}
                   data-testid="btn-reset-attrition-thresholds"
+                  disabled={thresholdLoading||thresholdError}
                 >
                   Reset to Defaults
                 </Button>
-              </div>
+              </div>}
 
               <div className="rounded-md bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3 text-xs text-amber-800 dark:text-amber-300 space-y-1">
                 <p className="font-medium">30-day cooldown is always active</p>
@@ -758,38 +800,26 @@ export default function MerchantHealth() {
 }
 
 // ── NPS Stats Tab (#147) ──────────────────────────────────────────────────────
-interface NpsStats {
-  total: number;
-  submitted: number;
-  avgScore: number;
-  promoters: number;
-  detractors: number;
-  passives: number;
-  npsScore: number;
-}
-
 function NpsStatsTab() {
-  const { data: stats, isLoading } = useQuery<NpsStats>({
+  const { data: stats, isLoading, isError:statsError, refetch:retryStats } = useQuery({
     queryKey: ["/api/nps/stats"],
+    queryFn: ({signal}) => readNpsStats(signal),
   });
 
-  const { data: responses = [] } = useQuery<Array<{ id: number; score: number | null; createdAt: string | null }>>({
+  const { data: responses = [], isLoading:responsesLoading, isError:responsesError, refetch:retryResponses } = useQuery({
     queryKey: ["/api/nps"],
-    queryFn: async () => {
-      const res = await fetch("/api/nps", { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
+    queryFn: ({signal}) => readNpsRecords(signal),
     staleTime: 300_000,
   });
 
   // Build monthly NPS trend from raw responses
   const monthlyTrend = (() => {
-    const submitted = responses.filter(r => r.score !== null && r.createdAt);
+    const submitted = responses.filter(r => isScoredNpsRecord(r) && r.createdAt);
     const buckets: Record<string, { promoters: number; detractors: number; total: number }> = {};
     submitted.forEach(r => {
       const d = new Date(r.createdAt!);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      if(!Number.isFinite(d.getTime()) || !Number.isFinite(r.score) || r.score!<0 || r.score!>10)return;
+      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
       if (!buckets[key]) buckets[key] = { promoters: 0, detractors: 0, total: 0 };
       buckets[key].total++;
       if (r.score! >= 9) buckets[key].promoters++;
@@ -807,7 +837,9 @@ function NpsStatsTab() {
 
   return (
     <TabsContent value="nps" data-testid="tab-content-nps" className="mt-6">
-      {isLoading ? (
+      {responsesError && <CrmDataState state="unavailable" message="Independent NPS records/trend unavailable; aggregate availability does not establish a trend." onRetry={()=>void retryResponses()}/>}
+      {responsesLoading && <p role="status">Loading independent NPS trend records…</p>}
+      {statsError ? <CrmDataState state="unavailable" message="NPS aggregate unavailable; no zero score or empty survey population is inferred." onRetry={()=>void retryStats()}/> : isLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
         </div>
@@ -819,13 +851,14 @@ function NpsStatsTab() {
         </Card>
       ) : (
         <div className="space-y-4">
+          <p className="text-xs text-muted-foreground">Source: {stats.metadata.source}; nonarchived production-contact survey records, all stored observations up to {stats.metadata.asOf} (UTC). Aggregate is one database statement; the independent record read is not the same atomic snapshot. Counts are surveys, not unique merchants or an assessed health cohort. {stats.scored} valid scored submissions; {stats.invalidSubmitted} submitted records have no valid score. Trend uses record-created month, not response month.</p>
           {/* KPI cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
-              { label: "Net Promoter Score", value: `${stats.npsScore > 0 ? "+" : ""}${stats.npsScore}`, sub: "overall", color: stats.npsScore >= 50 ? "text-green-600" : stats.npsScore >= 0 ? "text-amber-600" : "text-red-600" },
-              { label: "Avg Score", value: stats.avgScore.toFixed(1), sub: "out of 10", color: "text-foreground" },
-              { label: "Submitted", value: stats.submitted, sub: `of ${stats.total} sent`, color: "text-foreground" },
-              { label: "Response Rate", value: stats.total > 0 ? `${Math.round((stats.submitted / stats.total) * 100)}%` : "—", sub: "surveys returned", color: "text-foreground" },
+              { label: "Net Promoter Score", value: stats.npsScore !== null ? `${stats.npsScore > 0 ? "+" : ""}${stats.npsScore}` : "Unassessed", sub: `${stats.scored} valid scored surveys`, color: stats.npsScore === null ? "text-muted-foreground" : stats.npsScore >= 50 ? "text-green-600" : stats.npsScore >= 0 ? "text-amber-600" : "text-red-600" },
+              { label: "Avg Score", value: stats.avgScore !== null ? stats.avgScore.toFixed(1) : "Unassessed", sub: "out of 10; valid scored surveys only", color: "text-foreground" },
+              { label: "Submitted", value: stats.submitted, sub: `of ${stats.total} stored survey records; not a sent count`, color: "text-foreground" },
+              { label: "Submission Share", value: stats.total > 0 ? `${Math.round((stats.submitted / stats.total) * 100)}%` : "—", sub: "submitted / stored survey records", color: "text-foreground" },
             ].map(kpi => (
               <Card key={kpi.label} data-testid={`card-nps-${kpi.label.toLowerCase().replace(/ /g, "-")}`}>
                 <CardContent className="pt-4 pb-4">
@@ -848,44 +881,47 @@ function NpsStatsTab() {
                   <p className="text-2xl font-bold text-green-600">{stats.promoters}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">Promoters (9–10)</p>
                   <p className="text-xs text-green-600 font-medium">
-                    {stats.submitted > 0 ? `${Math.round((stats.promoters / stats.submitted) * 100)}%` : "—"}
+                    {stats.scored > 0 ? `${Math.round((stats.promoters / stats.scored) * 100)}%` : "—"}
                   </p>
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-amber-500">{stats.passives}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">Passives (7–8)</p>
                   <p className="text-xs text-amber-500 font-medium">
-                    {stats.submitted > 0 ? `${Math.round((stats.passives / stats.submitted) * 100)}%` : "—"}
+                    {stats.scored > 0 ? `${Math.round((stats.passives / stats.scored) * 100)}%` : "—"}
                   </p>
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-red-600">{stats.detractors}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">Detractors (0–6)</p>
                   <p className="text-xs text-red-600 font-medium">
-                    {stats.submitted > 0 ? `${Math.round((stats.detractors / stats.submitted) * 100)}%` : "—"}
+                    {stats.scored > 0 ? `${Math.round((stats.detractors / stats.scored) * 100)}%` : "—"}
                   </p>
                 </div>
               </div>
-              {stats.submitted > 0 && (
+              {stats.scored > 0 && (
                 <div className="mt-4 h-3 rounded-full overflow-hidden flex">
-                  <div className="bg-green-500 transition-all" style={{ width: `${(stats.promoters / stats.submitted) * 100}%` }} />
-                  <div className="bg-amber-400 transition-all" style={{ width: `${(stats.passives / stats.submitted) * 100}%` }} />
-                  <div className="bg-red-500 transition-all" style={{ width: `${(stats.detractors / stats.submitted) * 100}%` }} />
+                  <div className="bg-green-500 transition-all" style={{ width: `${(stats.promoters / stats.scored) * 100}%` }} />
+                  <div className="bg-amber-400 transition-all" style={{ width: `${(stats.passives / stats.scored) * 100}%` }} />
+                  <div className="bg-red-500 transition-all" style={{ width: `${(stats.detractors / stats.scored) * 100}%` }} />
                 </div>
               )}
             </CardContent>
           </Card>
 
-          {/* Monthly trend */}
-          {monthlyTrend.length > 0 && (
+        </div>
+      )}
+          {/* Independent record trend remains available when the aggregate fails. */}
+          {!responsesError && !responsesLoading && monthlyTrend.length > 0 && (
             <Card data-testid="card-nps-trend">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">NPS Trend (last 6 months)</CardTitle>
+                <CardTitle className="text-sm">NPS by record-created month (last 6 loaded months, UTC)</CardTitle>
               </CardHeader>
               <CardContent>
+                <table className="sr-only"><caption>NPS loaded sample by record-created month in UTC; not response date or complete merchant cohort.</caption><thead><tr><th>Month</th><th>NPS</th><th>Scored records</th></tr></thead><tbody>{monthlyTrend.map(m=><tr key={m.month}><td>{m.month}</td><td>{m.nps}</td><td>{m.count}</td></tr>)}</tbody></table>
                 <div className="flex items-end gap-2 h-24">
                   {monthlyTrend.map(m => {
-                    const pct = Math.max(0, Math.min(100, m.nps + 100)) / 2; // map -100..100 → 0..100%
+                    const pct = (Math.max(-100, Math.min(100, m.nps)) + 100) / 2;
                     return (
                       <div key={m.month} className="flex flex-col items-center gap-1 flex-1">
                         <span className={`text-xs font-medium ${m.nps >= 0 ? "text-green-600" : "text-red-600"}`}>
@@ -894,20 +930,19 @@ function NpsStatsTab() {
                         <div className="w-full flex items-end justify-center">
                           <div
                             className={`w-full rounded-t ${m.nps >= 50 ? "bg-green-500" : m.nps >= 0 ? "bg-amber-400" : "bg-red-500"}`}
-                            style={{ height: `${Math.max(4, pct)}px`, maxHeight: "64px", minHeight: "4px" }}
+                            aria-hidden="true"
+                            style={{ height: `${Math.max(4, pct * 0.64)}px`, maxHeight: "64px", minHeight: "4px" }}
                           />
                         </div>
-                        <span className="text-[10px] text-muted-foreground">{m.month.slice(5)}</span>
+                        <span className="text-xs text-muted-foreground">{m.month.slice(5)}</span>
                       </div>
                     );
                   })}
                 </div>
-                <p className="text-xs text-muted-foreground mt-2">Each bar shows the NPS score for that calendar month based on submitted surveys.</p>
+                <p className="text-xs text-muted-foreground mt-2">Valid scored submissions grouped by record-created month in UTC; records without a creation timestamp cannot enter this trend. This is not a response-date or unique-merchant cohort.</p>
               </CardContent>
             </Card>
           )}
-        </div>
-      )}
     </TabsContent>
   );
 }

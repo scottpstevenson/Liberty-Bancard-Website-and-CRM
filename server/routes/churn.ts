@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express,Response } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
@@ -7,11 +7,20 @@ import { serverError } from "../utils/server-error";
 import { authorizeContactAccess } from "../services/crm-object-access";
 
 export function registerChurnRoutes(app: Express) {
+  const observedRead=(res:Response,source:"merchant_health_scores"|"churn_score_weights")=>{
+    res.set("X-CRM-Read-Source",source);
+    res.set("X-CRM-Read-Scope",source==="merchant_health_scores"
+      ?"authorized_nonarchived_production_contact_score_records":"stored_configuration");
+    // Read observation time, not a frozen transaction or model computation time.
+    res.set("X-CRM-Read-AsOf",new Date().toISOString());
+    res.set("X-CRM-Read-Completeness","unpaged_records_observed_at_response");
+  };
   // GET all merchant health scores (with optional filters)
-  app.get("/api/churn-scores", isDashboardUser, async (req, res) => {
+  app.get("/api/churn-scores", isDashboardUser,requireRole("admin","manager","agent"), async (req, res) => {
     try {
       const { riskTier, vertical, agentOwner } = req.query as Record<string, string>;
       const scores = await storage.getMerchantHealthScores({
+        readActor:req.user as {role?:string;email?:string|null},
         riskTier: riskTier && riskTier !== "all" ? riskTier : undefined,
         vertical: vertical && vertical !== "all" ? vertical : undefined,
         agentOwner: agentOwner && agentOwner !== "all" ? agentOwner : undefined,
@@ -39,6 +48,7 @@ export function registerChurnRoutes(app: Express) {
         };
       });
 
+      observedRead(res,"merchant_health_scores");
       res.json(enriched);
     } catch (err: any) {
       serverError(res, err);
@@ -46,9 +56,10 @@ export function registerChurnRoutes(app: Express) {
   });
 
   // GET churn risk summary (count per tier)
-  app.get("/api/churn-scores/summary", isDashboardUser, async (req, res) => {
+  app.get("/api/churn-scores/summary", isDashboardUser,requireRole("admin","manager","agent"), async (req, res) => {
     try {
-      const summary = await storage.getChurnRiskSummary();
+      const summary = await storage.getChurnRiskSummary(req.user as {role?:string;email?:string|null});
+      observedRead(res,"merchant_health_scores");
       res.json(summary);
     } catch (err: any) {
       serverError(res, err);
@@ -169,7 +180,10 @@ export function registerChurnRoutes(app: Express) {
   // GET churn score weights config
   app.get("/api/churn-score-weights", isDashboardUser, async (req, res) => {
     try {
-      const weights = await storage.getChurnScoreWeights();
+      // HTTP reads never create configuration. Internal worker/default
+      // initialization behavior remains with its existing owner.
+      const weights = await storage.getChurnScoreWeights({seedDefaults:false});
+      observedRead(res,"churn_score_weights");
       res.json(weights);
     } catch (err: any) {
       serverError(res, err);

@@ -196,13 +196,32 @@ export async function getOrCreateConversionSalesDeal(
   return { deal, created: true };
 }
 
-  export class DealsStorage {
+type DealReadScope={ownerEmail?:string;recordClass?:"production"};
+function dealReadWhere(params?:DealReadScope){
+  const ownership=params?.ownerEmail?or(eq(deals.owner,params.ownerEmail),isNull(deals.owner)):undefined;
+  return params?.recordClass==="production"
+    ?and(isNull(deals.archivedAt),eq(deals.recordClass,"production"),ownership)
+    :and(isNull(deals.archivedAt),ownership);
+}
+
+/** A-owned complete recorded-boarding read. No processor I/O or commands. */
+export async function readBoardingDealPopulation(scope:DealReadScope&{recordClass:"production"}){
+  return db.transaction(async tx=>{
+    await tx.execute(sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY`);
+    const clock=await tx.execute(sql`SELECT transaction_timestamp()::text AS as_of`);
+    const rows=await tx.select({deal:deals,contactResolvedId:contacts.id,contactFirstName:contacts.firstName,
+      contactLastName:contacts.lastName,contactCompanyName:contacts.companyName,contactEmail:contacts.email,contactPhone:contacts.phone})
+      .from(deals).leftJoin(contacts,eq(deals.contactId,contacts.id))
+      .where(and(dealReadWhere(scope),ne(deals.boardingStatus,"not_submitted")))
+      .orderBy(desc(deals.boardingSubmittedAt),desc(deals.id));
+    return {asOf:String(clock.rows[0].as_of),data:rows.map(({deal,...relationship})=>({...deal,...relationship}))};
+  });
+}
+
+   export class DealsStorage {
     async getDeals(params?: PaginationParams & { ownerEmail?: string; recordClass?: "production" }) {
     const { limit, offset } = normalizePagination(params);
-    const ownership = params?.ownerEmail ? or(eq(deals.owner, params.ownerEmail), isNull(deals.owner)) : undefined;
-    const whereClause = params?.recordClass === "production"
-      ? and(isNull(deals.archivedAt), eq(deals.recordClass, "production"), ownership)
-      : and(isNull(deals.archivedAt), ownership);
+    const whereClause = dealReadWhere(params);
     const [totalResult] = await db.select({ count: count() }).from(deals).where(whereClause);
     const rows = await db
       .select({
@@ -310,7 +329,8 @@ export async function getOrCreateConversionSalesDeal(
   }
 
 
-  async createDeal(insertDeal: InsertDeal, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
+  async createDeal(insertDeal: InsertDeal, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null },
+    existingTx?: Parameters<Parameters<typeof db.transaction>[0]>[0]) {
     const { auditChange } = await import("../services/audit-change");
     const payload: any = { ...insertDeal };
     const { deriveLinkedDealClass } = await import("../services/commercial-classification-authority");
@@ -319,7 +339,7 @@ export async function getOrCreateConversionSalesDeal(
       const [contact] = await db.select({ partnerOrgId: contacts.partnerOrgId }).from(contacts).where(eq(contacts.id, payload.contactId));
       if (contact?.partnerOrgId) payload.partnerOrgId = contact.partnerOrgId;
     }
-    return await db.transaction(async (tx) => {
+    const execute = async (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => {
       const [deal] = await tx.insert(deals).values(payload).returning();
       await auditChange({
         userId: auditCtx?.userId ?? null,
@@ -332,7 +352,8 @@ export async function getOrCreateConversionSalesDeal(
         after: deal as unknown as Record<string, unknown>,
       }, tx);
       return deal;
-    });
+    };
+    return existingTx ? execute(existingTx) : db.transaction(execute);
   }
 
 

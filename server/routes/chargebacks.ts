@@ -6,11 +6,13 @@ import { insertChargebackSchema, CHARGEBACK_DEADLINE_DAYS } from "@shared/schema
 import { createPreferenceAwareNotification } from "../services/digest-service";
 import { generateChargebackEvidencePdf } from "../services/chargeback-pdf";
 import { serverError } from "../utils/server-error";
-import { enqueueChargebackSubmission, isUuidV4 } from "../services/chargeback-submission-service";
+import { enqueueChargebackSubmission, isUuidV4, readChargebackSubmissionCommands, ChargebackIntentConflictError } from "../services/chargeback-submission-service";
 import { upload } from "./helpers";
 import path from "path";
 import fs from "fs";
 import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
+import { readChargebackMidOptions } from "../services/merchant-mid-service";
+import { maskMid } from "../utils/mask-mid";
 
 const ALLOWED_EVIDENCE_MIME_TYPES = new Set([
   "application/pdf",
@@ -401,6 +403,29 @@ export function registerChargebacksRoutes(app: Express) {
    * Enqueue a durable chargeback submission command.  The route never calls a
    * processor directly; a worker owns provider I/O and conditional final state.
    */
+  app.get("/api/chargebacks/:id/submission-commands", isDashboardUser, async (req, res) => {
+    try {
+      const id=Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id<=0) return res.status(400).json({message:"Invalid chargeback ID"});
+      const cb=await storage.getChargeback(id);
+      if (!cb) return res.status(404).json({message:"Chargeback not found"});
+      if (!await authorizeChargebackTarget(req,res,cb)) return;
+      res.json({...await readChargebackSubmissionCommands(id),limit:25,asOf:new Date().toISOString()});
+    } catch (err) { serverError(res,err); }
+  });
+  app.get("/api/chargebacks/:id/submission-mids", isDashboardUser, async (req,res)=>{
+    try {
+      const id=Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id<=0) return res.status(400).json({message:"Invalid chargeback ID"});
+      const cb=await storage.getChargeback(id);
+      if (!cb) return res.status(404).json({message:"Chargeback not found"});
+      if (!await authorizeChargebackTarget(req,res,cb)) return;
+      if (!cb.contactId) return res.status(409).json({code:"MID_RELATIONSHIP_UNAVAILABLE",message:"An exact merchant relationship is required."});
+      const mids=await readChargebackMidOptions(cb.contactId,cb.dealId);
+      res.json({data:mids.map(({mid,...row})=>({...row,midMasked:maskMid(mid)})),asOf:new Date().toISOString()});
+    } catch(err) {serverError(res,err);}
+  });
+
   app.post("/api/chargebacks/:id/submit-to-card-brand", isDashboardUser, async (req, res) => {
     try {
       const id = Number(req.params.id);
@@ -413,12 +438,21 @@ export function registerChargebacksRoutes(app: Express) {
       }
 
       const schema = z.object({
-        mid:          z.string().min(1, "MID is required"),
+        mid:          z.string().trim().min(1, "MID is required").optional(),
+        midId:        z.number().int().positive().optional(),
         caseNumber:   z.string().optional(),
         transactionId: z.string().optional(),
         evidenceNotes: z.string().optional(),
       });
-      const { mid, caseNumber, transactionId, evidenceNotes } = schema.parse(req.body);
+      const { mid:providedMid, midId, caseNumber, transactionId, evidenceNotes } =
+        schema.refine(value=>!!value.mid || !!value.midId,{message:"An authorized MID is required",path:["midId"]}).parse(req.body);
+      if (!cb.contactId) return res.status(409).json({code:"MID_RELATIONSHIP_UNAVAILABLE",message:"An exact merchant relationship is required."});
+      const mids=await readChargebackMidOptions(cb.contactId,cb.dealId);
+      const matches=mids.filter(row=>midId ? row.id===midId : row.mid===providedMid);
+      if (matches.length!==1 || ["closed","suspended"].includes(matches[0].status ?? "")) {
+        return res.status(409).json({code:"MID_TARGET_UNAVAILABLE",message:"Select an authorized current MID for this exact case."});
+      }
+      const mid=matches[0].mid;
       const command = await enqueueChargebackSubmission({
         chargebackId: id, idempotencyKey, mid, caseNumber, transactionId, evidenceNotes,
         evidenceManifest: Array.isArray(cb.evidenceFiles) ? cb.evidenceFiles : [],
@@ -429,6 +463,7 @@ export function registerChargebacksRoutes(app: Express) {
       });
       res.status(202).json({ accepted: true, command });
     } catch (err: any) {
+      if (err instanceof ChargebackIntentConflictError) return res.status(409).json({code:"IDEMPOTENCY_CONFLICT",message:err.message});
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);
     }

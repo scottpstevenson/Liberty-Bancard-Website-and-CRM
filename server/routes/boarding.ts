@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
+import {readBoardingDealPopulation} from "../storage/deals";
 import { db } from "../db";
 import { sql, eq, and } from "drizzle-orm";
 import { merchantApplications, dealBoardingOutbox, deals } from "@shared/schema";
@@ -1024,9 +1025,17 @@ export function registerBoardingRoutes(app: Express) {
 
   app.get("/api/boarding/submissions", isDashboardUser, async (req, res) => {
     try {
-      const statusFilter = (req.query.status as string | undefined) || undefined;
-      const allDealsResult = await storage.getDeals({ limit: 10000 });
-      const allDeals = allDealsResult.data;
+      const actor=req.user as {id:string;role:string;email?:string};
+      if(!["admin","manager","agent"].includes(actor.role)||(actor.role==="agent"&&!actor.email))
+        return res.status(403).json({message:"Boarding read scope unavailable"});
+      const rawStatus=req.query.status;
+      if(rawStatus!==undefined&&(typeof rawStatus!=="string"||
+        !["all","submitted","under_review","more_info_needed","approved","declined"].includes(rawStatus)))
+        return res.status(400).json({message:"Invalid/conflicting boarding status"});
+      const statusFilter=rawStatus==="all"?undefined:rawStatus as string|undefined;
+      const population=await readBoardingDealPopulation({recordClass:"production",
+        ownerEmail:actor.role==="agent"?actor.email:undefined});
+      const allDeals = population.data;
 
       const inFlight = allDeals.filter((d) => {
         const s = d.boardingStatus || "not_submitted";
@@ -1035,26 +1044,16 @@ export function registerBoardingRoutes(app: Express) {
         return true;
       });
 
-      const contactIds = Array.from(
-        new Set(inFlight.map((d) => d.contactId).filter((id): id is number => !!id))
-      );
-      const contactMap = new Map<number, any>();
-      for (const id of contactIds) {
-        const c = await storage.getContact(id);
-        if (c) contactMap.set(id, c);
-      }
-
-      const now = Date.now();
+      const now = new Date(population.asOf).getTime();
       const { maskMid: _maskMidSubmissions, sanitizeLatestLogMessage: _sanitizeMsg } = await import("../utils/mask-mid");
       const submissions = inFlight.map((d) => {
-        const contact = d.contactId ? contactMap.get(d.contactId) : null;
-        const fullName = [contact?.firstName, contact?.lastName].filter(Boolean).join(" ").trim();
+        const fullName = [d.contactFirstName,d.contactLastName].filter(Boolean).join(" ").trim();
         const merchantName =
-          contact?.companyName?.trim() ||
+          d.contactCompanyName?.trim() ||
           fullName ||
-          contact?.email?.trim() ||
-          contact?.phone?.trim() ||
-          "Unnamed contact";
+          d.contactEmail?.trim() ||
+          d.contactPhone?.trim() ||
+          (d.contactId?`Contact #${d.contactId} — identifying fields unavailable`:"No linked contact recorded");
         const log = (d.boardingLog as any[]) || [];
         const latestLog = log.length > 0 ? log[log.length - 1] : null;
         const submittedAt = d.boardingSubmittedAt ? new Date(d.boardingSubmittedAt) : null;
@@ -1065,6 +1064,7 @@ export function registerBoardingRoutes(app: Express) {
         return {
           dealId: d.id,
           contactId: d.contactId,
+          relatedData:{contact:d.contactId==null?"not_linked":d.contactResolvedId==null?"missing":"resolved"},
           merchantName,
           processorApplicationId: d.processorApplicationId,
           boardingStatus: d.boardingStatus || "not_submitted",
@@ -1085,7 +1085,7 @@ export function registerBoardingRoutes(app: Express) {
       submissions.sort((a, b) => {
         const at = a.boardingSubmittedAt ? new Date(a.boardingSubmittedAt).getTime() : 0;
         const bt = b.boardingSubmittedAt ? new Date(b.boardingSubmittedAt).getTime() : 0;
-        return bt - at;
+        return bt - at || b.dealId-a.dealId;
       });
 
       const counts: Record<string, number> = {
@@ -1099,7 +1099,13 @@ export function registerBoardingRoutes(app: Express) {
         if (counts[s.boardingStatus] !== undefined) counts[s.boardingStatus]++;
       }
 
-      res.json({ submissions, counts, total: submissions.length });
+      const read={source:"local_recorded_boarding_deals_joined_contacts",asOf:population.asOf,timezone:"UTC",
+        consistency:"one_repeatable_read_cohort",completeness:"complete_authorized_recorded_cohort",
+        actorId:actor.id,recordClass:"production",archive:"excluded",status:statusFilter||"all",
+        ownerScope:actor.role==="agent"?"self_or_unassigned":"administrative_global",
+        meaning:"stored_boarding_state_not_native_refresh_or_ingestion_receipt"};
+      res.json({ submissions, counts,total:submissions.length,read,
+        snapshot:crypto.createHash("sha256").update(JSON.stringify({read,submissions,counts})).digest("hex") });
     } catch (err: any) {
       console.error("[Boarding] List error:", err.message);
       serverError(res, err);

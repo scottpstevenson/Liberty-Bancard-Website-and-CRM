@@ -1,0 +1,61 @@
+{
+  "identity": {
+    "sourceHead": "33a3a924a0d887edc94c2671c2c352b4d9e54e3e",
+    "candidateContentHash": "170fa18241178b6b1f7d94aed8263e2119471a42d9e71b3e075773af8933f9d9",
+    "compiledClientHash": "0078d3636fe5c60ce0d59c93aad4c6e401c1fb404fd45df67a3ce07bb5b1c149",
+    "isolatedDatabase": true,
+    "isolatedRedis": true,
+    "providerTransports": "denied-before-import",
+    "session": "private empty-cookie Chromium; actual password login"
+  },
+  "candidateUrl": "http://127.0.0.1:35339",
+  "receipts": [
+    {
+      "role": "admin",
+      "control": "people-default",
+      "result": {
+        "pageSize": 50,
+        "syntheticVolume": 61,
+        "realRows": true,
+        "oneH1": true,
+        "usefulListMs": 655.2268980000008
+      }
+    },
+    {
+      "role": "admin",
+      "control": "unsupported-mine-preset",
+      "result": {
+        "disabled": true,
+        "directLinkSafe": true,
+        "noUnsupportedReaderFilter": true
+      }
+    },
+    {
+      "role": "admin",
+      "control": "search/back/paging",
+      "result": {
+        "debounced": true,
+        "resetPage": true,
+        "history": true,
+        "localResponseMs": 99.51399200000014
+      }
+    },
+    {
+      "role": "admin",
+      "control": "facets-unavailable",
+      "result": {
+        "rowsUsable": true,
+        "notZero": true
+      }
+    },
+    {
+      "role": "admin",
+      "control": "invalid-record-identity",
+      "result": {
+        "noRecordReads": true,
+        "actualPeopleFallback": true
+      }
+    }
+  ],
+  "requestReceipts": []
+}

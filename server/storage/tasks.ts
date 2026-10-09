@@ -156,9 +156,11 @@ export type TaskAuthorityState = typeof TASK_AUTHORITY_STATES[number];
     return { data: data.map(row => row.ticket), total: totalResult.count, limit, offset };
   }
 
-  async createAuthorityTicket(insertTicket: InsertTicket, authority: { producer?: string; commandKey?: string; issueKey?: string; generation?: number } = {}) {
+  async createAuthorityTicket(insertTicket: InsertTicket, authority: { producer?: string; commandKey?: string; issueKey?: string; generation?: number } = {},
+    existingTx?: Parameters<Parameters<typeof db.transaction>[0]>[0]) {
+    const executor=existingTx??db;
     if (insertTicket.contactId) {
-      const contact = await db.select({ id: contacts.id }).from(contacts).where(eq(contacts.id, insertTicket.contactId));
+      const contact = await executor.select({ id: contacts.id }).from(contacts).where(eq(contacts.id, insertTicket.contactId));
       if (!contact[0]) throw new Error("Linked contact is outside ticket scope");
     }
     const producer = authority.producer ?? "manual";
@@ -166,17 +168,17 @@ export type TaskAuthorityState = typeof TASK_AUTHORITY_STATES[number];
     const subjectType = insertTicket.contactId ? "contact" : "ticket";
     const subjectId = insertTicket.contactId ?? 0;
     const identityKey = `${producer}:${issueKey}:${subjectType}:${subjectId}`;
-    return db.transaction(async tx => {
+    const execute=async(tx:Parameters<Parameters<typeof db.transaction>[0]>[0])=>{
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${identityKey}))`);
       if (authority.commandKey) {
-        const [replay] = await tx.select().from(tickets).where(eq(tickets.commandKey, authority.commandKey));
+        const [replay] = await tx.select().from(tickets).where(eq(tickets.commandKey, authority.commandKey)).for("update");
         if (replay) return replay;
       }
       const [active] = await tx.select().from(tickets).where(and(
         eq(tickets.producer, producer), eq(tickets.issueKey, issueKey),
         eq(tickets.subjectType, subjectType), eq(tickets.subjectId, subjectId),
         inArray(tickets.authorityState, ["open", "in_progress"]),
-      )).limit(1);
+      )).limit(1).for("update");
       if (active) return active;
       const [generationRow] = await tx.select({
         generation: sql<number>`coalesce(max(${tickets.generation}), -1) + 1`,
@@ -200,7 +202,8 @@ export type TaskAuthorityState = typeof TASK_AUTHORITY_STATES[number];
         eventType: "created", producer, commandKey, fence: ticket.authorityFence, toState: "open",
       }).onConflictDoNothing({ target: [ticketAuthorityEvents.ticketId, ticketAuthorityEvents.eventKey] });
       return ticket;
-    });
+    };
+    return existingTx?execute(existingTx):db.transaction(execute);
   }
 
   async transitionAuthorityTicket(
@@ -244,7 +247,7 @@ export type TaskAuthorityState = typeof TASK_AUTHORITY_STATES[number];
     } = {},
     existingTx?: Parameters<Parameters<typeof db.transaction>[0]>[0],
   ) {
-    await this.assertTaskLinkedObjectScope(insertTask);
+    await this.assertTaskLinkedObjectScope(insertTask, existingTx);
     const subjectType = authority.subjectType ?? (insertTask.ticketId ? "ticket" : insertTask.dealId ? "deal" : insertTask.contactId ? "contact" : "task");
     const subjectId = authority.subjectId ?? insertTask.ticketId ?? insertTask.dealId ?? insertTask.contactId ?? 0;
     const producer = authority.producer ?? insertTask.source ?? "automatic";
@@ -329,11 +332,13 @@ export type TaskAuthorityState = typeof TASK_AUTHORITY_STATES[number];
     });
   }
 
-  async assertTaskLinkedObjectScope(input: Pick<InternalTaskInsert, "contactId" | "dealId" | "ticketId">) {
+  async assertTaskLinkedObjectScope(input: Pick<InternalTaskInsert, "contactId" | "dealId" | "ticketId">,
+    existingTx?: Parameters<Parameters<typeof db.transaction>[0]>[0]) {
+    const client = existingTx ?? db;
     const [contact, deal, ticket] = await Promise.all([
-      input.contactId ? db.select().from(contacts).where(eq(contacts.id, input.contactId)).then(rows => rows[0]) : undefined,
-      input.dealId ? db.select().from(deals).where(eq(deals.id, input.dealId)).then(rows => rows[0]) : undefined,
-      input.ticketId ? db.select().from(tickets).where(eq(tickets.id, input.ticketId)).then(rows => rows[0]) : undefined,
+      input.contactId ? client.select().from(contacts).where(eq(contacts.id, input.contactId)).then(rows => rows[0]) : undefined,
+      input.dealId ? client.select().from(deals).where(eq(deals.id, input.dealId)).then(rows => rows[0]) : undefined,
+      input.ticketId ? client.select().from(tickets).where(eq(tickets.id, input.ticketId)).then(rows => rows[0]) : undefined,
     ]);
     if (input.contactId && !contact) throw new Error("Linked contact is outside task scope");
     if (input.dealId && !deal) throw new Error("Linked deal is outside task scope");

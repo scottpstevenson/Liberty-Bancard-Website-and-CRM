@@ -34,10 +34,32 @@ export async function enqueueChargebackSubmission(input: {
       }})}::jsonb, 'pending')
     ON CONFLICT (chargeback_id, idempotency_key)
     DO UPDATE SET updated_at = now()
+    WHERE chargeback_submission_commands.request_fingerprint = EXCLUDED.request_fingerprint
     RETURNING id, chargeback_id, idempotency_key, state
   `);
   const row = (result.rows ?? result)[0] as any;
+  if (!row) throw new ChargebackIntentConflictError();
   return { id: row.id, chargebackId: Number(row.chargeback_id), idempotencyKey: row.idempotency_key, state: row.state };
+}
+
+export class ChargebackIntentConflictError extends Error {
+  constructor() { super("This submission intent already has a different payload. Read back the accepted command before starting a new intent."); }
+}
+
+/** Object authorization is performed by the route before this narrow read.
+ * Do not expose submitted MIDs, evidence or raw provider error payloads. */
+export async function readChargebackSubmissionCommands(chargebackId: number) {
+  const result = await db.execute(sql`
+    SELECT COALESCE((SELECT jsonb_agg(to_jsonb(recent)) FROM (
+      SELECT id, chargeback_id, idempotency_key, state, created_at, updated_at, submitted_at
+      FROM chargeback_submission_commands WHERE chargeback_id=${chargebackId}
+      ORDER BY created_at DESC, id DESC LIMIT 25
+    ) recent),'[]'::jsonb) AS data,
+    EXISTS(SELECT 1 FROM chargeback_submission_commands WHERE chargeback_id=${chargebackId}) AS "hasPriorIntent"
+  `);
+  const row=result.rows[0] as {data:unknown;hasPriorIntent:unknown}|undefined;
+  if(!row || !Array.isArray(row.data) || typeof row.hasPriorIntent!=="boolean")throw new Error("Submission ledger read incomplete");
+  return {data:row.data,hasPriorIntent:row.hasPriorIntent,chargebackId,historyCompleteness:"newest_25_only",intentExistenceCompleteness:"all_case_commands"};
 }
 
 /**

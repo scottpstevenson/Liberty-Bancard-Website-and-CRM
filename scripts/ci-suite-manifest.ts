@@ -81,6 +81,22 @@ type SuiteManifestDefinition = Omit<
 >;
 
 const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
+  {name:"Stage 3 C4 Source and Codec Contracts",script:"scripts/test-stage3-c4-contracts.ts",
+    capability:"deterministic-static",providerDenial:"source/codec only; no DB, browser, server or provider"},
+  {name:"Stage 3 C4 Real Handler Actions",script:"scripts/test-stage3-c4-actions.ts",
+    capability:"deterministic-integration",providerDenial:"guarded disposable PG/Redis; denied external transport; simulated delayed ledger states, no native execution"},
+  {name:"Stage 3 C4 Bounded Mounted Browser",script:"scripts/test-stage3-c4-browser.ts",
+    capability:"deterministic-integration",providerDenial:"private compiled client/authenticated disposable readers and local preparation POST/readback/retry; named source faults, scoped report/Calendar/agent links, Review Queue native overlay keys and 304 route/panel role surfaces; control appearances remain untested actions, external/native transport denied"},
+  {name:"Stage 3 C4 Focused Health Read Browser",script:"scripts/test-stage3-c4-health-browser.ts",
+    capability:"deterministic-integration",providerDenial:"private compiled admin Health read/source handlers only; isolated PG/Redis, actual session and named 503s; non-seeding config GET; other sources explicit 501, computation/native/external denied; not whole C4"},
+  {name:"C2 Postmerge Date and Task Helper Contracts",script:"scripts/test-c2-postmerge-repairs.ts",
+    capability:"deterministic-static",providerDenial:"AST/helpers/injected callbacks only; not registered-handler or browser proof"},
+  {name:"C2 Postmerge Real Handler and Mounted Browser",script:"scripts/test-c2-postmerge-browser.ts",
+    capability:"deterministic-integration",providerDenial:"guarded disposable PG/Redis/private Chromium; actual handlers, external transport denied"},
+  {name:"C2 Compact Contact Header Mounted Browser",script:"scripts/test-c2-contact-header.ts",
+    capability:"deterministic-integration",providerDenial:"guarded disposable PG/Redis/private Chromium; provider attempts denied before egress"},
+  {name:"Toast Viewport Frontend Browser",script:"scripts/test-toast-viewport-layout.mjs",
+    capability:"deterministic-integration",providerDenial:"Vite/private Chromium loopback fixture; no DB, login or providers"},
   {name:"Stage 3 C2 Destination and Source Contracts",script:"scripts/test-stage3-c2-contracts.ts",capability:"deterministic-static",
     providerDenial:"Pure codecs/time windows/provider payloads and temporary output tamper tests; no DB or provider I/O"},
   {name:"Stage 3 C2 Real Handler Actions",script:"scripts/test-stage3-c2-actions.ts",capability:"deterministic-integration",
@@ -1116,9 +1132,9 @@ function defineSuite(definition: SuiteManifestDefinition): SuiteManifestEntry {
     definition.capability === "server-required";
   return {
     ...definition,
-    database: stateful ? "disposable" : "none",
+    database: definition.script==="scripts/test-toast-viewport-layout.mjs" ? "none" : stateful ? "disposable" : "none",
     redis:
-      definition.capability === "deterministic-integration"
+      definition.script==="scripts/test-toast-viewport-layout.mjs" ? "none" : definition.capability === "deterministic-integration"
         ? "suite-isolated"
         : definition.capability === "server-required"
           ? "server-shared"

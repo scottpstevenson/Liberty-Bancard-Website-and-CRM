@@ -1,4 +1,7 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
+import { CrmDataState } from "@/components/crm/CrmPresentation";
+import { isPendingTask } from "@/lib/task-source";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -155,16 +158,20 @@ function ChecklistRow({
 }
 
 function WorkflowStageProgress({ dealId }: { dealId: number }) {
-  const { data: stages = [] } = useQuery<MerchantOnboardingStage[]>({
+  const { data: stages = [], isError, isLoading, refetch } = useQuery<MerchantOnboardingStage[]>({
     queryKey: [`/api/deals/${dealId}/onboarding-stages`],
-    queryFn: async () => {
-      const res = await fetch(`/api/deals/${dealId}/onboarding-stages`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+    queryFn: async ({signal}) => {
+      const res = await fetch(`/api/deals/${dealId}/onboarding-stages`, { credentials: "include",signal });
+      if (!res.ok) throw new Error("Workflow stages unavailable");
+      const rows=await res.json();
+      if (!Array.isArray(rows)) throw new Error("Invalid workflow stages");
+      return rows;
     },
   });
 
-  if (stages.length === 0) return null;
+  if (isError) return <CrmDataState state="unavailable" message="Workflow stages unavailable" onRetry={()=>void refetch()}/>;
+  if (isLoading) return <CrmDataState state="loading" message="Reading workflow stages…"/>;
+  if (stages.length === 0) return <CrmDataState state="empty" message="No workflow stages recorded."/>;
 
   const complete = stages.filter(s => s.status === "complete").length;
   const total = MERCHANT_ONBOARDING_STAGE_KEYS.length;
@@ -203,12 +210,15 @@ function DealChecklistCard({ entry, canApprove }: { entry: BoardEntry; canApprov
   const { toast } = useToast();
   const { user } = useAuth();
 
-  const { data: dealTasks } = useQuery<{ id: number; title: string; status: string | null; dueDate: string | null }[]>({
+  const { data: dealTasks, isLoading:tasksLoading, isError: tasksError, refetch: retryTasks } = useQuery<{ id: number; title: string; status: string | null; dueDate: string | null; effectiveState?: string; authorityState?: string }[]>({
     queryKey: ["/api/tasks", { dealId: deal.id }],
-    queryFn: async () => {
-      const res = await fetch(`/api/tasks?dealId=${deal.id}`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+    queryFn: async ({signal}) => {
+      const res = await fetch(`/api/tasks?dealId=${deal.id}`, { credentials: "include",signal });
+      if (!res.ok) throw new Error("Deal tasks unavailable");
+      const rows=await res.json();
+      if (!Array.isArray(rows)) throw new Error("Invalid deal tasks");
+      rows.forEach(isPendingTask);
+      return rows;
     },
   });
 
@@ -216,7 +226,7 @@ function DealChecklistCard({ entry, canApprove }: { entry: BoardEntry; canApprov
     if (!dealTasks || dealTasks.length === 0) return null;
     const now = Date.now();
     const upcoming = dealTasks
-      .filter(t => t.dueDate && t.status !== "completed" && t.status !== "done" && new Date(t.dueDate).getTime() >= now)
+      .filter(t => t.dueDate && isPendingTask(t) && new Date(t.dueDate).getTime() >= now)
       .sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime());
     if (upcoming.length === 0) return null;
     return new Date(upcoming[0].dueDate!);
@@ -242,6 +252,8 @@ function DealChecklistCard({ entry, canApprove }: { entry: BoardEntry; canApprov
 
   return (
     <Card className={`${overdueFlag ? "border-amber-400 dark:border-amber-600" : ""}`} data-testid={`deal-card-${deal.id}`}>
+      {tasksError && <CrmDataState state="unavailable" message="SLA task facts unavailable; no no-assignment conclusion." onRetry={()=>void retryTasks()}/>}
+      {tasksLoading && <CrmDataState state="loading" message="Reading independent SLA task facts; task absence is not established."/>}
       <CardHeader className="pb-2 px-4 pt-4">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -288,7 +300,7 @@ function DealChecklistCard({ entry, canApprove }: { entry: BoardEntry; canApprov
                   {stats.overdueItems} overdue
                 </Badge>
               )}
-              {nearestSlaDue && (
+              {!tasksLoading && !tasksError && nearestSlaDue && (
                 <Badge variant="outline" className="text-xs text-blue-600 border-blue-300" data-testid={`badge-next-sla-${deal.id}`}>
                   <Clock className="w-3 h-3 mr-1" />
                   Next SLA: {nearestSlaDue.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
@@ -422,7 +434,7 @@ export default function OnboardingBoard() {
   const [stageFilter, setStageFilter] = useState<string>("all");
   const canApprove = user?.role === "admin" || user?.role === "manager";
 
-  const { data: boardData, isLoading: boardLoading, refetch } = useQuery<BoardEntry[]>({
+  const { data: boardData, isLoading: boardLoading, isError: boardError, refetch } = useQuery<BoardEntry[]>({
     queryKey: ["/api/onboarding-board"],
     queryFn: async () => {
       const res = await fetch("/api/onboarding-board", { credentials: "include" });
@@ -432,7 +444,7 @@ export default function OnboardingBoard() {
     refetchInterval: 60000,
   });
 
-  const { data: kpis, isLoading: kpiLoading } = useQuery<KpiData>({
+  const { data: kpis, isLoading: kpiLoading, isError: kpiError, refetch: retryKpis } = useQuery<KpiData>({
     queryKey: ["/api/operator/onboarding-kpis"],
     queryFn: async () => {
       const res = await fetch("/api/operator/onboarding-kpis", { credentials: "include" });
@@ -463,7 +475,12 @@ export default function OnboardingBoard() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => { refetch(); toast({ title: "Refreshed" }); }}
+          onClick={async () => {
+            const [board,kpi]=await Promise.all([refetch(),retryKpis()]);
+            toast({title:board.isError || kpi.isError ? "Refresh incomplete" : "Refreshed",
+              description:board.isError || kpi.isError ? "One or more sources could not be read. No clear-board or zero-KPI conclusion is available." : "Board and KPI readback completed.",
+              variant:board.isError || kpi.isError ? "destructive" : "default"});
+          }}
           data-testid="button-refresh-board"
         >
           <RefreshCw className="w-4 h-4 mr-2" />
@@ -471,6 +488,7 @@ export default function OnboardingBoard() {
         </Button>
       </div>
 
+      {kpiError && <CrmDataState state="unavailable" message="Onboarding KPIs unavailable; board remains independent." onRetry={()=>void retryKpis()}/>}
       {kpiLoading ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-24" />)}
@@ -503,7 +521,7 @@ export default function OnboardingBoard() {
         </p>
       </div>
 
-      {boardLoading ? (
+      {boardError ? <CrmDataState state="unavailable" message="Onboarding board unavailable; no empty-board conclusion is established." onRetry={()=>void refetch()}/> : boardLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-56" />)}
         </div>

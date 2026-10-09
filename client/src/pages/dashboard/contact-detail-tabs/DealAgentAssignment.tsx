@@ -10,11 +10,11 @@ export function DealAgentAssignment({ dealId, agents }: { dealId: number; agents
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: assignment } = useQuery<AgentMerchant | null>({
+  const { data: assignment, isLoading, isError, refetch } = useQuery<AgentMerchant | null>({
     queryKey: ["/api/agent-merchants/deal", dealId],
     queryFn: async () => {
       const res = await fetch(`/api/agent-merchants/deal/${dealId}`, { credentials: "include" });
-      if (!res.ok) return null;
+      if (!res.ok) throw new Error("Agent assignment unavailable");
       return res.json();
     },
   });
@@ -35,6 +35,8 @@ export function DealAgentAssignment({ dealId, agents }: { dealId: number; agents
   });
 
   const currentValue = assignment ? String(assignment.agentId) : "none";
+  if(isLoading)return <p role="status" className="text-sm">Reading agent assignment…</p>;
+  if(isError)return <p role="alert" className="text-sm">Agent assignment unavailable; no unassigned conclusion. <button className="min-h-11 px-3" onClick={()=>void refetch()}>Retry</button></p>;
 
   return (
     <div className="flex items-center gap-2 pt-1">

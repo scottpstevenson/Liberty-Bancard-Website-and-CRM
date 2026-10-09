@@ -1,6 +1,8 @@
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getCsrfToken } from "@/lib/queryClient";
+import { useState,useEffect,useRef } from "react";
+import {useCrmQuery as useQuery,useCrmActorIdentity} from "@/hooks/use-crm-query";
+import {useRfiCommand} from "@/hooks/use-rfi-command";
+import {workDueDay,workDueDateChange} from "@/lib/work-due-date";
+import {CrmDataState} from "@/components/crm/CrmPresentation";
 import { useToast } from "@/hooks/use-toast";
 import { RFI_CATEGORIES, RFI_STATUSES } from "@shared/schema";
 import { Button } from "@/components/ui/button";
@@ -29,14 +31,16 @@ const BLANK_FORM = {
 
 export default function RfiTab({ contactId }: { contactId: number }) {
   const { toast } = useToast();
-  const queryClient = useQueryClient();
+  const commands=useRfiCommand(`contact:${contactId}`),actor=useCrmActorIdentity(),savingRef=useRef(false);
 
-  const { data: rfis = [], isLoading } = useQuery<any[]>({
+  const { data, isLoading,isError,error,refetch } = useQuery<any[]>({
     queryKey: ["/api/rfis", "contact", contactId],
-    queryFn: async () => {
-      const res = await fetch(`/api/rfis?contactId=${contactId}`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+    enabled:Number.isSafeInteger(contactId)&&contactId>0,
+    queryFn: async ({signal}) => {
+      const res = await fetch(`/api/rfis?contactId=${contactId}`, { credentials: "include",signal });
+      if (!res.ok) throw new Error(`${res.status}: Contact RFIs unavailable`);
+      const rows=await res.json();if(!Array.isArray(rows))throw new Error("RFI response shape unavailable");
+      return rows;
     },
     staleTime: 30_000,
   });
@@ -46,6 +50,8 @@ export default function RfiTab({ contactId }: { contactId: number }) {
   const [form, setForm] = useState<typeof BLANK_FORM>({ ...BLANK_FORM });
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const available=!isLoading&&!isError&&!!data,rfis=available?data!:[];
+  useEffect(()=>{setDialogOpen(false);setEditingRfi(null);setForm({...BLANK_FORM});setErrors({});},[actor,contactId]);
 
   const openCreate = () => {
     setEditingRfi(null);
@@ -56,21 +62,13 @@ export default function RfiTab({ contactId }: { contactId: number }) {
 
   const openEdit = (rfi: any) => {
     setEditingRfi(rfi);
-    let dueDateStr = "";
-    if (rfi.dueDate) {
-      const d = new Date(rfi.dueDate);
-      if (!isNaN(d.getTime())) {
-        const pad = (n: number) => String(n).padStart(2, "0");
-        dueDateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-      }
-    }
     setForm({
       subject: rfi.subject || "",
       description: rfi.description || "",
       category: rfi.category || "General",
       priority: rfi.priority || "Normal",
-      status: rfi.status || "Open",
-      dueDate: dueDateStr,
+      status: rfi.status ?? "",
+      dueDate: workDueDay(rfi.dueDate),
     });
     setErrors({});
     setDialogOpen(true);
@@ -84,14 +82,10 @@ export default function RfiTab({ contactId }: { contactId: number }) {
   };
 
   const handleSave = async () => {
-    if (!validate()) return;
+    if (savingRef.current||!available||!validate()) return;
+    savingRef.current=true;
     setSaving(true);
     try {
-      const csrfToken = await getCsrfToken();
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        ...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
-      };
       // Send explicit null for cleared optional fields so the server persists the clear.
       const payload = {
         contactId,
@@ -100,35 +94,16 @@ export default function RfiTab({ contactId }: { contactId: number }) {
         category: form.category || null,
         priority: form.priority || null,
         status: form.status || null,
-        dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : null,
+        ...workDueDateChange(form.dueDate,editingRfi?.dueDate),
       };
-      let res: Response;
-      if (editingRfi) {
-        res = await fetch(`/api/rfis/${editingRfi.id}`, {
-          method: "PUT",
-          credentials: "include",
-          headers,
-          body: JSON.stringify(payload),
-        });
-      } else {
-        res = await fetch("/api/rfis", {
-          method: "POST",
-          credentials: "include",
-          headers,
-          body: JSON.stringify(payload),
-        });
-      }
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message || `HTTP ${res.status}`);
-      }
-      toast({ title: editingRfi ? "RFI updated" : "RFI created" });
-      queryClient.invalidateQueries({ queryKey: ["/api/rfis", "contact", contactId] });
+      await commands.execute(payload,editingRfi??undefined);
+      toast({ title: editingRfi ? "Local RFI updated" : "Local RFI created",description:"No native delivery was attempted." });
       setDialogOpen(false);
     } catch (err: any) {
       toast({ title: "Failed to save RFI", description: err?.message, variant: "destructive" });
     } finally {
       setSaving(false);
+      savingRef.current=false;
     }
   };
 
@@ -146,12 +121,17 @@ export default function RfiTab({ contactId }: { contactId: number }) {
         <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
           <FileText className="h-4 w-4" /> Requests for Information
         </h3>
-        <Button size="sm" onClick={openCreate} data-testid="button-create-rfi">
+        <Button size="sm" disabled={!available} onClick={openCreate} data-testid="button-create-rfi">
           <Plus className="w-4 h-4 mr-1" /> New RFI
         </Button>
       </div>
 
-      {isLoading ? (
+      {commands.uncertain.map(key=><div key={key} role="alert">Local RFI intent unconfirmed; its payload/version is retained.
+        <Button onClick={()=>void commands.retry(key).then(()=>toast({title:"Captured local RFI intent confirmed"}))
+          .catch((err:Error)=>toast({title:"RFI intent remains unconfirmed",description:err.message,variant:"destructive"}))}>
+          Retry frozen intent
+        </Button></div>)}
+      {isError||!isLoading&&!available?<CrmDataState state={error?.message?.startsWith("403:")?"denied":"unavailable"} message={error?.message??"Authorized RFI records unavailable"} onRetry={()=>void refetch()}/>:isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-6 justify-center">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading RFIs…
         </div>
@@ -198,6 +178,7 @@ export default function RfiTab({ contactId }: { contactId: number }) {
                         className="h-7 w-7"
                         onClick={() => openEdit(rfi)}
                         data-testid={`button-edit-rfi-${rfi.id}`}
+                        aria-label={`Edit RFI: ${rfi.subject}`}
                         title="Edit RFI"
                       >
                         <Pencil className="w-3.5 h-3.5" />
@@ -288,13 +269,17 @@ export default function RfiTab({ contactId }: { contactId: number }) {
               </div>
 
               <div className="space-y-1.5">
-                <Label>Due Date</Label>
+                <Label htmlFor={`rfi-due-day-${contactId}`}>Due day · browser local</Label>
                 <Input
+                  id={`rfi-due-day-${contactId}`}
                   type="date"
                   value={form.dueDate}
                   onChange={(e) => setForm((p) => ({ ...p, dueDate: e.target.value }))}
                   data-testid="input-rfi-due-date"
                 />
+                <p className="text-xs text-muted-foreground">
+                  {Intl.DateTimeFormat().resolvedOptions().timeZone}. Unchanged days retain the recorded deadline; changed days use local midnight.
+                </p>
               </div>
             </div>
 

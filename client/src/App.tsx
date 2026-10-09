@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useEffect, useState } from "react";
 import { Switch, Route, Redirect, useLocation, useSearch } from "wouter";
 import { queryClient } from "./lib/queryClient";
-import { financialUrl, operatorAliasUrl } from "@/lib/crm-destination-state";
+import { financialUrl, operatorAliasUrl, merchantHealthAliasUrl,c4WorkspaceUrl,supportViews,testimonialAliasUrl,rfiUrl } from "@/lib/crm-destination-state";
 import { actorIdentity, protectedScope } from "@/lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { HelmetProvider } from 'react-helmet-async';
@@ -356,6 +356,22 @@ function LegacyFinancialRedirect() {
   const search = useSearch();
   return <Redirect to={financialUrl(search, window.location.hash)} />;
 }
+function LegacyMerchantHealthRedirect() {
+  const search = useSearch();
+  return <Redirect to={merchantHealthAliasUrl(search, window.location.hash)} />;
+}
+function LegacyReviewQueueRedirect(){
+  const search=useSearch();
+  return <Redirect to={c4WorkspaceUrl("/dashboard/support-hub",search,window.location.hash,"tab",supportViews,"tickets","review-queue")}/>;
+}
+function LegacyTestimonialRedirect(){
+  const search=useSearch();
+  return <Redirect to={testimonialAliasUrl(search,window.location.hash)}/>;
+}
+function LegacyRfiRedirect(){
+  const search=useSearch();
+  return <Redirect to={rfiUrl(search,window.location.hash)}/>;
+}
 function LegacyFinancialChildRedirect({ child }: { child: "revenue" | "forecasting" | "terminal-roi" }) {
   const search = useSearch();
   const params = new URLSearchParams(search);
@@ -612,7 +628,7 @@ function Router() {
           <Redirect to="/dashboard/merchant-success?tab=reviews" />
         </Route>
         <Route path="/dashboard/testimonial-submissions">
-          <Redirect to="/dashboard/merchant-success?tab=testimonials" />
+          <LegacyTestimonialRedirect />
         </Route>
         <Route path="/dashboard/onboarding-kickoff">
           <ProtectedRoute component={OnboardingKickoff} />
@@ -621,10 +637,10 @@ function Router() {
           <ProtectedRoute component={Workflows} />
         </Route>
         <Route path="/dashboard/rfis">
-          <Redirect to="/dashboard/support-hub?tab=rfis" />
+          <LegacyRfiRedirect />
         </Route>
         <Route path="/dashboard/review-queue">
-          <Redirect to="/dashboard/support-hub?tab=review-queue" />
+          <LegacyReviewQueueRedirect />
         </Route>
         <Route path="/dashboard/case-study-intake">
           <ProtectedRoute component={CaseStudyIntake} />
@@ -725,7 +741,7 @@ function Router() {
           <ProtectedRoute component={MerchantPortal} />
         </Route>
         <Route path="/dashboard/merchant-health">
-          <Redirect to="/dashboard/merchant-risk?tab=health" />
+          <LegacyMerchantHealthRedirect />
         </Route>
         <Route path="/dashboard/chargebacks">
           <Redirect to="/dashboard/merchant-risk?tab=chargebacks" />

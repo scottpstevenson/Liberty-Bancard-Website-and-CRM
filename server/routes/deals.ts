@@ -13,7 +13,7 @@ import { generateDealBlueprint } from "../services/deal-blueprint";
 import { estimateFromContact, estimateFromDeal, estimateFromProspect } from "../services/volume-estimator";
 import { createPreferenceAwareNotification, sendCriticalEmailNotification } from "../services/digest-service";
 import { sendGhlEmailForMerchant, isGhlConfigured } from "../services/ghl";
-import { advanceDealStage, DealStageConflictError, DealStageIllegalTransitionError } from "../services/deal-stage-service";
+import { advanceDealStage, DealStageConflictError, DealStageIllegalTransitionError, readDealStageTransitionOptions } from "../services/deal-stage-service";
 import { classifyAiError, logAiCredentialError } from "../services/ai-audit-logger";
 import { updateContactLocalFirst } from "../services/contact-writer";
 import { parse } from "csv-parse/sync";
@@ -159,6 +159,15 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
+  app.get("/api/deals/:id/transition-options",isDashboardUser,async(req,res)=>{
+    try {
+      const deal=await authorizeDealAccess(req,res,Number(req.params.id));
+      if(!deal)return;
+      res.json({dealId:deal.id,pipeline:deal.pipeline,stage:deal.stage,
+        stages:readDealStageTransitionOptions(deal.pipeline,deal.stage),asOf:new Date().toISOString(),
+        capability:"structural_policy_observation_only",execution:"existing owner rechecks actor, object, expectedStage, readiness and effects"});
+    } catch(error){serverError(res,error);}
+  });
   app.put("/api/deals/:id", isDashboardUser, async (req, res) => {
     try {
       const dealId = Number(req.params.id);
