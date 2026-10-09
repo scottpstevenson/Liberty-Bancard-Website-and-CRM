@@ -142,3 +142,4 @@
 - [Response-loss evidence](response-loss-evidence.md) — Prove the post-commit fault executed; persisted rows alone cannot certify confirmation-loss recovery.
 - [Useful-list evidence](useful-list-evidence.md) — Time visible hydrated records, not shell headings or offscreen DOM; declare volume, hardware, network and cache conditions.
 - [Merchant/report ownership](stage3-c4-ownership.md) — C4 owns shared Outreach presentation; A owns data, C3 reuses it, C2 retains Contact shell, C5 sidebar and D serving proof.
+- [Large planning payloads](task-planning-payload-limits.md) — Task plans have a byte ceiling; filter large callback results to avoid notebook resets and preserve original evidence.
