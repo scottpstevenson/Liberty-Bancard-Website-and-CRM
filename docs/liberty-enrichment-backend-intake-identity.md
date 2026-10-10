@@ -27,12 +27,22 @@ New intake/recovery factories, fabricated contacts for business-only registry ro
 
 ## Mode, evidence and precedence
 This is PREFLIGHT + BUILD task authoring in Plan Mode. No implementation, completion check, database/Redis access, provider request, workflow change, production mutation or publication was performed. Execution requires explicit assignment and Build-mode authorization; a pending task state alone is not authorization.
-Read-only planning HEAD: 9fcbb8cc62e80ed69c5088c10f3db21c1b6a59d3 on 2026-10-08. The attached packaging/live hashes and October 7 production counts are attributed historical observations, not newly verified production evidence. Refresh source, emitted artifact, schema/config, runtime/worker identity and individually relevant gates at execution; never equate source HEAD, an owner row, heartbeat or publish with serving parity or progress.
+Read-only planning HEAD: 49289123691d0498d8317ad9a1771a28007bdf59 on 2026-10-09; C4 merge first parent 37ffebdefad788005da76498c990eb4c639a6476, committed tree 2c6dd7ad29a8476ae5cdae027c627b1dd73cd60b. This updates the execution baseline, not the identities of archived evidence. The attached packaging/live hashes and October 7 production counts are attributed historical observations, not newly verified production evidence. Refresh source, emitted artifact, schema/config, runtime/worker identity and individually relevant gates at execution; never equate source HEAD, an owner row, heartbeat or publish with serving parity or progress.
 Precedence: current user constraints; October 8 authoring instructions and reconciled brief/C3 amendment; actual merged authorities; compatible original requirements; dated evidence. Keep original finding IDs, immutable source history and separate source-fixed/tested/merged/deployed/production-accepted verdicts. Preserve unrelated changes.
 
 ## Existing ownership and reuse
 Existing #2063 owns unfinished system-wide enrichment acceptance; #2071 supplies merged retained-import implementation, not completed production/native acceptance. Retain #2077 native/full-population certification and #2078 causal diagnostics/ordinary-cycle convergence requirements within the two backend scopes. Those acceptance suggestions are archived, not evidence of success or a new executable dependency. Do not create recovery/testing/acceptance-only tickets, reopen merged code as unfixed by assumption, or repurpose narrower SDR/UI follow-ups. This draft is a bounded continuation using those authorities, not a new factory.
-C1/C2 shared foundations remain inherited; C4 #2074 is currently being built separately. C3 remains #2075; C5 keeps final eleven-entry navigation. Preserve C1 → C2 → C4 → C3 → C5 and remaining C2 acceptance.
+C1/C2 shared foundations remain inherited; C4 #2074 is now merged at the planning HEAD above, with user-requested closure and explicit incomplete acceptance. C3 remains #2075; C5 keeps final eleven-entry navigation. Preserve C1 → C2 → C4 → C3 → C5 and remaining C2 acceptance.
+
+## October 9 post-C4 merge reconciliation
+Read `.local/tasks/liberty-stage3-post-c4-merge-audit-2026-10-09.md` in full. Its complete 369-path manifest and evidence qualifications supersede stale current-status statements, not compatible original requirements or immutable historical inputs below. This read-only merge audit ran no application tests, workflows, databases, providers or production operations; the pre-existing dirty `.replit` is outside the committed merge and must be preserved.
+
+- **Still B1 work:** C4 did not change the key import-identity/native verifier, retained-import recovery, active contact-link automation, contact-link coverage query or geography evaluator. Their before/after Git blobs are identical. Neither merged merchant UI nor 298 scoped handler cases establish native bridge installation, ordinary upload/restart, original-row fulfillment, October workbook intake, production-wide affiliation, Florida normalization or the exact human-review repair.
+- **Inherit, do not replace:** The protected CRM query wrapper now exposes actor identity for local selections/drafts; exact selected-record reads consume cancellation and reject conflicting IDs. Typed child context and destination-specific selected IDs remain authoritative. Contact Lifecycle/Service interiors and the compact C2 outer shell are merged shared code; B1 extends only its existing backend readers/writers and agreed interface.
+- **No unrelated reassignment:** C4's local linked-onboarding preparation, RFI/ticket command receipts, chargeback consumers and financial/Health readers are not a second enrichment/intake authority. Linked kickoff preserves Closed Won Sales and prepares a separate explicitly linked Onboarding deal; local accepted/prepared is not provider delivery or sending.
+- **Schema boundary:** C4 adds migration `0347_rfi_work_commands` and its journal entry for `rfis.authority_fence` and `rfi_command_receipts`. Source and migration presence are confirmed; applied development/production state is not. Account for the inherited migration in the existing supported schema/rollback process, without treating it as identity-bridge delivery or running ad hoc DDL.
+- **Evidence handoff:** The 39-route/70-panel C4 register, 1,132 source expressions and 7,036 untested mounted-control appearances are inventories, not passes. The focused Health proof and latest 298 source-handler rows remain bounded to archived inputs; full C4 browser, role/action/provenance, responsive/accessibility, matched performance and clean-candidate evidence are open. Preserve those deficits with their existing owners and certify B1's actual changed paths against a coherent new candidate.
+- **No new gate:** Original B1 native/full-population and sustained ordinary-cycle acceptance remains required. Independent safe local intake/link/geography/coverage work continues despite an unrelated C4 browser or import-source blocker. No new recovery/testing task, provider approval ceremony, outbound activation or final-shell cutover is created.
 
 ## Shared interface and single-writer contract
 Before overlapping builds, agree additive, versioned fields through existing readers/DTOs. B1 owns source/execution/row lineage, canonical affiliation/relationship revision, geography, coverage checkpoints and measured review/health reads. B2 consumes those facts and owns current input/classification versus accepted vertical, recipient selection, email hash/generation/receipt freshness, paused preparation/membership, stage outcome/retry/next automatic action and committed progress. B2 is the assembly owner of the shared canonical-enrichment status DTO/service; B1 contributes through its existing readers, not simultaneous edits to that assembly.
@@ -1082,3 +1092,461 @@ it does not claim that all root causes are resolved or that fixes were applied.
 - Do not present disposable/local certification or a successful publish as  
   production end-to-end acceptance.  
 
+
+
+## Portable October 9 merge audit — complete
+The following audit is embedded so an isolated executor does not depend on an untracked local plan path. Older scope/evidence above remains preserved; current source/ownership/receipt qualifications are controlled by the October 9 amendment and this audit.
+
+# C4 Merge Reconciliation Audit
+
+## What & Why
+Reconcile the complete committed shipment of Task #2074 (Merchant Operations and Reports) with the existing backend, C3 and C5 plans. This is a read-only source/contract/evidence audit on 2026-10-09, not implementation, release certification or authorization to reopen/run C4. Preserve its merged state and user-requested closure while making unfinished acceptance explicit.
+
+## Pinned committed baseline
+- Source/merge HEAD: 49289123691d0498d8317ad9a1771a28007bdf59.
+- First-parent pre-merge baseline: 37ffebdefad788005da76498c990eb4c639a6476.
+- Committed tree: 2c6dd7ad29a8476ae5cdae027c627b1dd73cd60b.
+- Scope: 369 changed paths: client 66; server 33; shared 8; scripts 14; migrations 2; docs 235; project memory 11. Extensions: TSX 47, TS 72, JSON 101, CSS 1, SQL 1, Markdown 16, JPG 116, TXT 15.
+- Compare with the first parent, not all work since a historical packaging hash or the task-agent branch. Prior source/build/live hashes remain historical evidence identities.
+- The only pre-existing dirty tracked path was .replit. Its working-tree contents are not part of the committed merge. Preserve them; do not claim a clean current workspace or use them to rewrite archived identities.
+- No package/lockfile or committed .replit change is in this merge. No application/test execution, workflow change, database/Redis access, provider request, production mutation or publication was performed in this audit.
+
+## Audit method and limits
+Account for every changed path, its Git status and both committed blob identities in the manifest below. Review source changes by authority/consumer family, the schema and CI handoff, registry/control inventories, final closeout and receipt input hashes against present files. Distinguish a shipped source correction from an executed action and a bounded archived pass from acceptance of this merge.
+
+Screenshots/logs/JSON evidence are inventoried and their claim/identity metadata checked; this audit did not visually replay all 116 screenshots, re-execute all handlers, exercise every changed control, audit every source line for security, rerun the failed browser, or query deployed schemas/data. Binary inclusion, a stored passed label and a merged task are never functional/native/serving/release proof. This records the entire shipment and its acceptance gaps, not a fresh whole-system runtime certification.
+
+## Source shipment and reuse crosswalk
+| Family | Shipped change | Owner/disposition and remaining proof |
+| --- | --- | --- |
+| Merchant workspace/shell | MerchantOperationsNav grouped local rail, role-filtered entries, narrow select/crumb alternative; DashboardLayout integrates workspace wrapper; scoped CSS/container behavior | C4 presentation. Not C5 global sidebar. Full mounted child geometry, role, overlays, zoom, keyboard/contrast and responsive matrix remains open. |
+| Reporting navigation | ReportingHub groups Sales & Growth, Outreach, Operations and Financial while retaining six old selectors; FinancialHub retains three financial selectors; agent report navigation retained | C4 rendering; C1 destination/query authority. C3 reuses Results and shared analytics. No duplicate Reports or privileged relocation of agents. |
+| URL compatibility | Health/RFI/review/testimonial aliases, nested revenue/underwriting/onboarding/support/success/report states and revenue filters through existing codec | Destination-local typed selected IDs, invalid/conflicting context denial, exact wrapper/child guards and history/reload still require complete consumer matrix. |
+| Protected queries/selections | Existing CRM query wrapper exposes actor identity; exact selected-record reads reject multiple distinct IDs and consume cancellation; consumers migrate to scoped queries and bind local intent ownership | C1 authority, reused by C2/C3/C4/C5. No new cache, auth bypass, global generic-id allowlist or broad default read on invalid selection. |
+| Contact interiors | Lifecycle/Service panels and named independent document/call/assignment/analysis/proposal/history/email-health/task/financial read states; active-deal projection excludes known terminal/archived deals deterministically | C4 interior; C2 compact outer header/actions; C3 enrichment interior only. Source errors are not empty/zero. Independent source and terminal-spelling coverage still open. |
+| Portfolio/boarding/documents | Portfolio default50 with25/50/100 continuation and labelled loaded-page search/risk/sort; boarding complete paged deal plus exact contact joins; masked MID choices, document read states | C4 consumer, A/backend object authority. Multi-page completeness is not an atomic snapshot. Cursor/actor/filter drift, status duplicates, metric/export/fault and useful-record performance require proof. |
+| Chargebacks | Retained UUIDv4/payload/actor-bound submission hook, exact masked MID selector, local accepted/queued/readback/retry/conflict states; complete intent-existence read distinct from newest25 display | B command/native ledger authority. Simulated ledger transitions and denied transports do not prove native workers/delivery. Current consumer role/context/fault matrix and production/native obligations remain open. |
+| Linked onboarding kickoff | Local durable preparation GET/POST/resume, linked create/reuse Onboarding, frozen UUID/source/actor/version intent, step readback and unfinished-step retry via existing B writers/SLA definitions | Preserve Closed Won Sales; do not move or reset it. Local partial/prepared/202 is not sending, activation, provider delivery or workflow resume. Full concurrency/role/context/legacy/native/integrated proof remains open. |
+| Tickets/RFIs/Review Queue | Actor/version/link/assignee-aware human ticket creation; RFI local fenced create/edit receipt with transactional review/notification effects and unchanged-intent retry; scoped RFI reads and frontend command consumers | Existing work authority extended, not a new enrichment authority. Authority fence + receipt require inherited migration. Complete stale/conflict/response-loss/permission/consumer action matrix remains open. |
+| Financial/residual/MID | A repeatable-read authorized parent/member/MID relationships, masked observation IDs, current stored residual/payee/confirmed-partner observations and payout projections; nested exact filters and provenance-aware CSV/table views | A owns aggregate/population authority, C4 presentation. Stored amounts may be unknown; source currency is not recorded and USD display assumption is labelled. No forecast, native execution or complete reconciled financial provenance inferred. Same-filter metric/export/scope/period/snapshot/ingestion coverage remains open. |
+| Outreach analytics | Campaign, A/B and bounded outbound-message reads load independently, validate campaign shape/nonnegative finite counters and distinguish unavailable from empty | C4 shared presentation; A data authority; C3 Campaigns/Results reuse. Loaded campaign counts/history are not total recipient or delivery progress; no cloned metric pipeline. |
+| Operations report | Actual follow_up_sequences table; distinct authoritative facts with bounded time windows and archive/production filters; overdue tasks consume canonical task predicate; parse spend and report provenance/export | A data authority/C4 presentation. Report observations are not causal worker diagnosis or fulfillment certification. Complete reader/denominator/export/window coverage remains required. |
+| Merchant Health/NPS/Success | Scoped production/nonarchived score-record collection/summary via existing A predicate; non-seeding HTTP weight GET; DTO shape/cancellation/failure handling; independent NPS/roster/config/threshold states and UTC sample labels | Counts are stored score records, NOT unique eligible assessed merchants/activated-MID cohort. Healthy denominator remains unavailable. Focused admin proof does not close alerts/roster/NPS/threshold/actions/exports/all-role/period coverage. Internal worker/default configuration authority remains independent. |
+| Calendar/Inbox/My Day/mobile/Pipeline | Exclusive next-month start; local audit/session timestamp+ID keysets with snapshot and remainder, captured-message bodies separate from list preview; effective task status projection; structural transition observation and paused/unavailable mobile admission | Named inherited C2/shared corrections, not transfer of whole workspace ownership. Full provider-source bodies, cursor/filter/authority drift, all terminal states, desktop/bulk/pause/role/timezone/keyboard/mobile matrices remain unverified. |
+| Migration | 0347_rfi_work_commands.sql adds rfis.authority_fence and rfi_command_receipts with actor/RFI FKs, actor-command PK and create/edit operation check; matching journal idx350/tag present; shared schema matches source declarations | Source delivery confirmed; application to any development/production database not verified. Existing supported schema/rollback owner must prove applied state before affected runtime claims. This is not import identity-bridge installation. No ad hoc DDL or journal replay. |
+| CI/fixture harness | Four C4 suites registered: source/codec, real handlers, bounded browser and focused Health; pre-deploy includes them; private disposable fixture extends actual registered source handlers; C1/C2 helper/runner changes retained | Registration is not passage. Preserve guarded DB/Redis, real sessions/CSRF and denied external transport. Do not weaken stock gates or claim bundled/published server parity from compiled-client + source-handler fixtures. |
+| Registry/docs/memory | Generated route registry remains147 dashboard patterns; current ownership C2 25/30,C3 24/28,C4 39/70,C5 59/181. Registers, working status, graphs, logs, historical failed/passed receipts and screenshots shipped | Original IDs and all compatible scope remain. Historical counts/identities are lineage, not new acceptance. Memory/docs changed-path presence is not application behavior. |
+
+## Unchanged backend authorities
+The following committed before/after blobs were individually compared and are identical: server/services/provider-import-identity.ts; server/services/canonical-import-recovery-worker.ts; server/services/contact-link-coverage-query.ts; server/services/contact-link-automation.ts; server/services/cro03a/geography.ts; server/services/cro03/sfp-free-classification-continuation.ts; server/services/cro03/sfp-provider-operations.ts; server/services/provider-readiness-control.ts; server/services/canonical-recipient-preparation.ts; server/services/canonical-enrichment-status.ts; shared/canonical-enrichment-status.ts.
+
+C4 therefore does not discharge B1's native import bridge, ordinary upload/restart/original rows, production-wide affiliation, geography, exact coverage/human-review incident; or B2's evidence fingerprint, accepted-vertical, provider auth/settlement/result recovery, selective pre-binding validation and paused recipient progression. This is absence of a repair in this merge, not a new production reproduction or proof that every dated failure still occurs unchanged.
+
+## Receipt identity and coverage audit
+| Evidence | Retained result | Current applicability |
+| --- | --- | --- |
+| source-inventory.json | 39 routes/70 historical panels,160 hashed files,1,132 JSX expressions; every verdict SOURCE_EXPRESSION_ONLY; sourceHead33a3a924a0d887edc94c2671c2c352b4d9e54e3e | 17 of160 listed file hashes differ now. Not a current complete control census, action proof or permission grant. |
+| control-inventory.json | 304 mounted surfaces;7,036 control appearances;0 pass/0 defect/0 blocked/7,036 untested | Original matched input bb87947d98b7a2a217384cb2a09e4ea2845de29afd4e3085e485ef80c14fa936. 12 recorded inputs differ from present files, including dirty .replit. Control presence never meant action acceptance. |
+| root browser-receipt.json | Stored passed,27 rows,8 contexts,0 exceptions,0 egress; compiled-client/private fixture with unsupported independent sources returning501 | Same bb87947d input;12 current input differences. Explicitly NOT full39/70, all-actions/native zoom/keyboard/performance or published-server acceptance. Cannot certify this merge. |
+| root handler-actions.json | Stored passed,298 named actual source-handler cases;0 external egress; input9e4c631d84bda5dfd473b97a4e73d4be6cfbe2348024e78e9f4a2c400beaafff | Recorded3160 inputs differ now at .replit and scripts/test-stage3-c4-browser.ts. Source-handler/disposable persistence proof remains bounded; delayed ledger states simulated, not native worker/serving/all-controls acceptance. Not the identity of the earlier matched Health unit. |
+| focused Health receipt/history | Admin-only compiled browser and source readers;3 independent503 faults,0 exceptions/egress,non-seeding configuration GET. Matched Health unit records298 handler cases. Input45daf16239cc7f29e48d6ff4ef61b49607ec02de5e0758870be6beeb771cd91d; outputf3a66ae08332d02ecc60e84f95f1e556fe5bc07aa0b9f160af4d881b4168d0bd | Own archived scoped proof only. Root focused identity now differs at .replit and final browser harness. Other sources501; no alerts/roster/NPS/threshold writes/computation/native/production or release proof. |
+| final full-browser attempt | Failed at new first-login tour prerequisite: method/role arguments reversed. The subsequent two-line source correction parses but was not rerun; failure and298-case handler pass retained in history/tour-prerequisite-unmatched-unit | Failed build53e8e42b-1a0d-4df8-9312-d731f8564e9e is stale to final correction. Prior financial wait screenshot showed tour obstruction, not established partner-data failure. Do not erase failure or substitute root browser pass. |
+| typecheck/static checks | Closeout records source/codec and harness parsing passes; npm run check reports existing server/routes/live-chat.ts(309,18) LiveChat TS2304 | Historical recorded result, not freshly rerun here. Compare baseline at execution rather than waive stock checks or enlarge unrelated repair scope. |
+
+Recorded input comparisons include all paths in each receipt, not just its sourceHead label. The dirty .replit is an explicitly separate workspace input; even ignoring it, the final harness correction lacks rerun proof. Current local dist contents differ from archived output lists; this is not evidence of corrupted archives, but cannot establish that present build/output/serving identity matches them. Keep original hashes and failed archives unchanged; produce new identities for new application/harness inputs.
+
+## Original C4 claim register disposition
+Preserve V01/V02/CL01 financial/alias authorities; V03/A07 grouped reports/workspace/responsive design; V04/A02 Portfolio paging/identity; V05 Support state/command consumers; V06/CL07 Health population; V07/CL08 Success/boarding relationships; A01 chargeback intents; A03 linked local onboarding; A04 financial exact scope/provenance; A05 independent failure states; A06 destination/role compatibility; M03 Calendar; M04/pending-count/C2-R10 inherited helpers/header; M05/mobile pause local Inbox/body/admission; M06/M07 Pipeline structural observations; M09 stable merged pagination; M10/M11 My Day and active-deal projections. Their source repairs remain inherited, while the final working-status remaining-evidence column and all compatible original action/state/role/design requirements remain open unless specifically proved by a matching receipt.
+
+## Existing-task reconciliation
+- Task #2083 (Intake and Business Assignment): refresh source pin, inherit shared consumers/schema safely, retain B1's native/intake/affiliation/geography/coverage/review and full-population acceptance. No broad ownership of C4 merchant/report repairs.
+- Task #2084 (Enrichment and Recipient Progression): refresh pin; preserve B2 single status assembly and actual provider/classification/selection/receipt/recovery/paused membership work; no analytics duplication or report-based green progress.
+- Task #2075 (Prospecting, canonical enrichment and Campaigns): C4 code dependency is merged and available. Reuse shared protected queries/codec/Contact boundaries/Outreach presentation; retain24/28 scope and backend contract gates. Carry relevant inherited deficits through current consumer regression evidence, without absorbing all merchant/report ownership or adding a new task.
+- Task #2076 (Administration, Resources and final CRM shell): retain59/181 scope and existing dependency graph. Independent safe diagnostic/Admin/Resources work may proceed. Final eleven-entry cutover remains gated on demonstrated functioning C1-C4 handoffs, not their task states. Do not falsely label unrelated whole C4 or backend acceptance green in readiness.
+- Task #2074 (Merchant Operations and Reports): add this factual post-merge annotation, preserve merged closure and original scope/receipts. This does not resume work, delete drift, grant final acceptance or create a replacement/acceptance-only task.
+
+## Required execution gates, without a new task ladder
+1. Freeze coherent current application, harness, recipe, schema/config and emitted artifact inputs; retain historical receipts and new failure evidence separately.
+2. After Build assignment, rerun the corrected C4 browser prerequisite/full lane in guarded disposable infrastructure and prove relevant downstream consumer regressions and all owned role/context/action save/readback/cancel/conflict/retry/denial semantics. Do not simulate native success or broaden live permissions.
+3. Complete relevant financial same-filter/snapshot/period/currency/export/ingestion evidence; keep Health eligible-merchant denominator unavailable until its authority exists. Preserve independent available siblings under failure and actual model/source provenance.
+4. Complete assigned responsive/keyboard/focus/accessibility/native200% zoom and useful hydrated-record performance against equivalent workload/cache/hardware/network conditions. Mounted headings and offscreen DOM do not prove useful-list timing.
+5. Run supported stock release gates and diagnose individual failures against baseline; document actual schema application, compatible rollback and separately authorized serving/native/production proof with existing owners. No build/deploy-hook or startup custom DDL runner.
+6. Hand explicit accepted/unverified/blocked source-bound claims to C5. Do not activate its final shell, sending, enrollment, provider controls or global GO from a merged/queued/prepared/heartbeat state. Finish independent safe work rather than stopping because one unrelated acceptance path is blocked.
+
+## Safety and unchanged scope
+Outbound email/SMS/sequences stay paused and proposal auto-send held; incoming GHL remains independently enabled with no echo. Preserve consent/contactability, suppressions, email generations, immutable source observations, current affiliation/classification separation, native unique/FK/append-only topology, lease/token/owner fencing, dispatch/billing uncertainty, role/object/tenant authorization, session and CSRF. Do not restore removed spend caps, pilots, frozen cohorts, named-email approvals or old-release attestation ceremonies. No production/provider action, publication, schema application or final sidebar is authorized by this audit. Do not refresh docs/ copies as general workspace edits in Plan mode; previous saved plan copies remain dated snapshots.
+
+## Complete changed-path manifest
+Each row is an inclusion/identity record, NOT a passed behavioral verdict. Source families are contract-reviewed above; harness rows are source/evidence-qualified; documentation/JSON/log/image rows preserve lineage and scope but are not replayed runtime evidence; memory rows are contextual and not acceptance. Blob IDs are exact Git identities; all-zero parent means newly added. Reproduce the inventory with git diff --raw --abbrev=40 37ffebdefad788005da76498c990eb4c639a6476 49289123691d0498d8317ad9a1771a28007bdf59.
+
+| Status | Path | Audit disposition | First-parent blob | Merge blob |
+| --- | --- | --- | --- | --- |
+| M | .agents/memory/MEMORY.md | Memory/context | 429b00fd5d693b1dfc05f40985bd826101a3ea6e | ad3c3cdfc13308eef92364cc20d270afd1010803 |
+| A | .agents/memory/browser-memory-index.md | Memory/context | 0000000000000000000000000000000000000000 | 772af5edbb6c0d810aff6cfe78f401ff7e623ede |
+| M | .agents/memory/browser-overlay-settling.md | Memory/context | 93d4255d052e3c6c7a4f804f8490fc1b46d5f4f6 | 4b40d7fe2783d5d9983f64b9402557eb96841219 |
+| A | .agents/memory/browser-read-fault-isolation.md | Memory/context | 0000000000000000000000000000000000000000 | 863f2b0b2e98042e677244705ecdb7ed600bfdfb |
+| M | .agents/memory/browser-runtime-verification.md | Memory/context | 41377048504d2a2d5f69c18fa0f5eb1f7417c25d | ab6e39f2a2bc632b45918ebdda73f3a24094fec1 |
+| M | .agents/memory/hardening-audit-patterns.md | Memory/context | 1adc662172e085252b8322f083b2e4f39e357399 | 480fb020ba33ab15332c405b068a8828ecaec805 |
+| M | .agents/memory/lossless-timestamp-authority-pins.md | Memory/context | 4526661f520e45fd44ed636c52d960a9a4e9d57f | 1fcf6363ea197ebb174ce47ab091cd914877d214 |
+| A | .agents/memory/migration-memory-index.md | Memory/context | 0000000000000000000000000000000000000000 | dbb5c9b37ad5b2836e84020fadde313dce8758b8 |
+| M | .agents/memory/response-loss-evidence.md | Memory/context | 9d46f24186a1ca1f423ce4c99a7b8e43e31a7948 | 68b878c1e83b2853eb03ef53086e961d647d8d86 |
+| A | .agents/memory/stage3-c4-ownership.md | Memory/context | 0000000000000000000000000000000000000000 | d7a82712255dcccf048440679094b8a117ab5270 |
+| A | .agents/memory/typed-child-context.md | Memory/context | 0000000000000000000000000000000000000000 | e4470a978018befe14cae7b62917afbf663fee05 |
+| M | client/src/App.tsx | Client source/consumer | 3afe19ca5026a28bef32fb899337af254b1f3711 | f8c0112d755d4f6de3b78ed912fb33bf5b7491d4 |
+| M | client/src/components/RfiTab.tsx | Client source/consumer | 7d2647bd2dbf7b4d261784a3460add0ed7f4b03c | 4a2779f0325c96f416d64288c81a10f6f2da22aa |
+| A | client/src/components/crm/AgentReportsNavigation.tsx | Client source/consumer | 0000000000000000000000000000000000000000 | ab9c964d1af79646b6c987494389de4b49336ef3 |
+| A | client/src/components/crm/ChargebackCommandStatus.tsx | Client source/consumer | 0000000000000000000000000000000000000000 | 90b041c6873158a83dcfe4315957166e534ef890 |
+| A | client/src/components/crm/ChargebackMidSelect.tsx | Client source/consumer | 0000000000000000000000000000000000000000 | 9a3530c7593769bae0d574aa4dcfbc46143938bd |
+| A | client/src/components/crm/MerchantOperationsNav.tsx | Client source/consumer | 0000000000000000000000000000000000000000 | b2b5a5fc3d180c28e674b99b26e11c2620473af2 |
+| M | client/src/hooks/use-authorized-selected-record.ts | Client source/consumer | e3dd4070bf4c28343e16c9aa4c06d91436a50772 | 16d0466fecc767a69dd58e85b0f3e4459c0d058d |
+| A | client/src/hooks/use-chargeback-submission.ts | Client source/consumer | 0000000000000000000000000000000000000000 | 568be1d624b5ffa62fa96051e5dbeb436c2165fa |
+| M | client/src/hooks/use-crm-query.ts | Client source/consumer | d3d8078048bbaf2fff5cc8fc7c9f7c7875acb445 | e41581be7e12878334db73399de634bbb9cc4fb7 |
+| A | client/src/hooks/use-rfi-command.ts | Client source/consumer | 0000000000000000000000000000000000000000 | 513bbbd5357e5a10fc967b189640305d2631f4a9 |
+| M | client/src/hooks/use-work-commands.ts | Client source/consumer | efb890d8f4167c65d4fe702eabe803fa24f27144 | 5906fcdea1abcb20134c9f8d78047270724c6829 |
+| A | client/src/lib/calendar-window.ts | Client source/consumer | 0000000000000000000000000000000000000000 | fc57d6701452783e5f7c6391d3370494529f3e29 |
+| A | client/src/lib/chargeback-intent-observation.ts | Client source/consumer | 0000000000000000000000000000000000000000 | 2eba9a088c98165dc01eb384c824dc73c8b26106 |
+| A | client/src/lib/chargeback-intent-readback.ts | Client source/consumer | 0000000000000000000000000000000000000000 | e2e18d987868f21f0be4a53bf7810708c6115549 |
+| A | client/src/lib/churn-observation-reader.ts | Client source/consumer | 0000000000000000000000000000000000000000 | e618b6ec9703c6aa8557b8786a9d95270d8c6627 |
+| A | client/src/lib/crm-complete-read.ts | Client source/consumer | 0000000000000000000000000000000000000000 | bc93888cb59ae5acb2214a539c6ecbba50c38481 |
+| M | client/src/lib/crm-destination-state.ts | Client source/consumer | e07378c1755c6fd98400a2611b5e0f9bf40f20d8 | 3ec12a0a037e8c0fc3832cacadb1e46f3d4e63dd |
+| M | client/src/lib/crm-route-registry.generated.json | Client source/consumer | 114beea2301a3d0c1c8d3e46141a099b5b72d085 | d0dcd356e8b0d2751c6bcb3abfab812d90f85b42 |
+| A | client/src/lib/deal-transition-observation.ts | Client source/consumer | 0000000000000000000000000000000000000000 | 36b3d4779a6b681550fa70a1bf6bc02fbe4667cf |
+| A | client/src/lib/nps-observation-reader.ts | Client source/consumer | 0000000000000000000000000000000000000000 | 27ba540be6f220fbadf240b95ad7a4f450b11ba9 |
+| A | client/src/lib/operations-report-export.ts | Client source/consumer | 0000000000000000000000000000000000000000 | fde02df22582df540074df972d23b82ca26fa89c |
+| A | client/src/lib/portfolio-followup-date.ts | Client source/consumer | 0000000000000000000000000000000000000000 | d9019faa5a3130c61c024a7e3c7867c1bdd79cd2 |
+| A | client/src/lib/residual-observation-export.ts | Client source/consumer | 0000000000000000000000000000000000000000 | 94c94eedb1095dc6f0a5b722598958fb77545412 |
+| A | client/src/lib/work-due-date.ts | Client source/consumer | 0000000000000000000000000000000000000000 | a3495e340f4871e5381f5bdd42e8245cfd505fe1 |
+| M | client/src/pages/DashboardLayout.tsx | Client source/consumer | 8f51cec232e94ba31f8c4f64667da27ab22edf20 | 8bd878275c435be0cf511150588213162aae20d5 |
+| M | client/src/pages/dashboard/BoardingTracker.tsx | Client source/consumer | 8dbf0d23fa118f715308d88b4c60c6c8ff960d82 | 7e70e80c73785edfee6be84701bf3fac5b0b772e |
+| M | client/src/pages/dashboard/Calendar.tsx | Client source/consumer | 379b3ffb447c64d7afac4d6b2be0b24ef06fbe91 | 5c5041f67e416f8fc1071e67b15052f9a40adfa8 |
+| M | client/src/pages/dashboard/Chargebacks.tsx | Client source/consumer | 1d50c02d53b98e11f6b40f5c2a0cc17876728e1e | d20ef25f3b1efce4310551168488c937018bf77b |
+| M | client/src/pages/dashboard/ContactDetail.tsx | Client source/consumer | e005f2f25760c7508f89b7b9f6b521d96bcdd4e4 | aaebfacf4b64bcb57986c34d7d74e98355203d7f |
+| M | client/src/pages/dashboard/DocumentVault.tsx | Client source/consumer | a618bd192326519d0e45e4e075fbe01b32b15a7e | 6a381ddfc9886f114e4b150574fc7ba3ecbbd553 |
+| M | client/src/pages/dashboard/Leaderboard.tsx | Client source/consumer | fd204bb9373615f060db38605116912520c1909f | 9581fcce7e379a994c26f87305d2ba9801e9020a |
+| M | client/src/pages/dashboard/MerchantHealth.tsx | Client source/consumer | b4a9af3cb721d1babbdc865ddb8f55601729edf2 | 9e7a690035783b8870a88bdf29ec1b276c65be10 |
+| M | client/src/pages/dashboard/MerchantPortfolio.tsx | Client source/consumer | 9554bf4964c53334377dca3b54aa28f9c2e31eda | 749de086f70b288b8d056a04ef7a6f19816368ce |
+| M | client/src/pages/dashboard/MerchantRiskHub.tsx | Client source/consumer | 5b130bbaa4d1ac74dae1d96f1378cad9ad5355b1 | 60ecbb6e4dc53f1afc2c3305f13e666bdc13e5b9 |
+| M | client/src/pages/dashboard/MerchantSuccessHub.tsx | Client source/consumer | 3ef85562e72d3e14aef9b7d68e5c19639d4790d0 | 73ba95358d5c329ee272a09667cb334a72215855 |
+| M | client/src/pages/dashboard/MyEarnings.tsx | Client source/consumer | 6af19b277f420f103c87dfc87aab5316252e9212 | 19f3c354c0bbb5dde55d1c3f79f60805c3b05a4d |
+| M | client/src/pages/dashboard/NpsDashboard.tsx | Client source/consumer | 3182f6045bf6b29438a6ce487b6a26ef3e952afd | b29053d25f74f61bbda157d6f7f1ecd345e63f87 |
+| M | client/src/pages/dashboard/Onboarding.tsx | Client source/consumer | 38b0a03937c1f9f45f5102f8ecf0478ed3f8aac9 | f2b4960b5061a056591fdea8b0139ecc5f0e0af9 |
+| M | client/src/pages/dashboard/OnboardingBoard.tsx | Client source/consumer | f441ce90171e8a4862d65cc31e09e13c5faf02c0 | 6815b1261eeb9900a11dee70dad8544e117e76c7 |
+| M | client/src/pages/dashboard/OnboardingHub.tsx | Client source/consumer | 8f31194fd1866a6aaf953be48ebb931c31de97ea | 99f2ebbba3d1c449b0789591bb5baac9737cbfdf |
+| M | client/src/pages/dashboard/OnboardingKickoff.tsx | Client source/consumer | 60f573d05d62ee133c08f73d23d2abed78f4e3f2 | 7a5b0b1aee3465f952d5d0b50f0c43c1d8ce8c07 |
+| M | client/src/pages/dashboard/OperationsReport.tsx | Client source/consumer | c96125b6d9b39fec061992351d9a20be3291ce40 | 6b4fb8a1aafde4dd4771142c4b1a3358ac7dcb86 |
+| M | client/src/pages/dashboard/OutreachAnalytics.tsx | Client source/consumer | af32f7d13d3b852495f33e147fd40ee4b381476c | 92ef714ca5c44d52b2b794b7f50706792a3c38ae |
+| M | client/src/pages/dashboard/Pipeline.tsx | Client source/consumer | 515663edb02c3278ece2d2bf075bc0eb873cc3ce | a2887f65d94f1190bcfd370a03d800ccb811d2b9 |
+| M | client/src/pages/dashboard/RFIs.tsx | Client source/consumer | 2c3c58d766ac140cb9b4dd49eeee5867358a8b44 | 5ec921211eb75c81a1c39d406f6ef61eacc1e9a6 |
+| M | client/src/pages/dashboard/ReportingHub.tsx | Client source/consumer | bd90c8ad2777bb0106796e4830d210f97435d8f7 | 05d90de42134a2c6aca027d7c81405a1a1333b5b |
+| M | client/src/pages/dashboard/ResidualRevenue.tsx | Client source/consumer | 0b3e071818173905f9c8399205603ce01d2234a4 | 350c8a30fe8dceeb862276b515e3b0db3c722f7c |
+| M | client/src/pages/dashboard/ReviewQueue.tsx | Client source/consumer | fcd1e282982263a0b2806ccec40edfb962dc511c | 1d706097801dfd418b2c5cbaed47520b849dc528 |
+| M | client/src/pages/dashboard/StageRules.tsx | Client source/consumer | 73b0df6a35e689603450bcdb944bc960a6b7c845 | f1c2f88020fc903bf1f1005fed2ed33705699d22 |
+| M | client/src/pages/dashboard/StatementReview.tsx | Client source/consumer | 2cdcebec04bc6e1afa1307aef8f4a4a05b2552c8 | 38ed8b557aa05bb264480590021e88923d105a63 |
+| M | client/src/pages/dashboard/SupportHub.tsx | Client source/consumer | c397e1a378beb6da2694475d20b27d4a4dddf1ae | 9ceb59930cace7783bd1659e3eea54a1e3a36cb7 |
+| M | client/src/pages/dashboard/TestimonialSubmissions.tsx | Client source/consumer | 95b8cd992132075827b92ec973500ba3e4a039b6 | cb8d6f7766a920bbb1572840bf181ebc98355dbb |
+| M | client/src/pages/dashboard/Tickets.tsx | Client source/consumer | 84bc82e5f986cdc82adcd336fd17595eebc37369 | 5470f99aedd897b4218217e4c0196715b3139b1b |
+| M | client/src/pages/dashboard/Underwriting.tsx | Client source/consumer | 96cbd56cd25d834ed3750f95872dcccccb7ee418 | a479e16b510170f057ffb3863c63af1fd78adc0c |
+| M | client/src/pages/dashboard/WinLoss.tsx | Client source/consumer | 461d6baf2833b03613ee6239a9166dc664e9cff1 | 69487c15214be2f50628c3826ce9dfc028a7350f |
+| M | client/src/pages/dashboard/contact-detail-tabs/CallLogsTab.tsx | Client source/consumer | 7859245f7eb117840c889d36dcb5c948835450b5 | 12abe7b26255915015e94cb2ff8fa5447b022210 |
+| M | client/src/pages/dashboard/contact-detail-tabs/ChangeHistoryTab.tsx | Client source/consumer | 404b5105b644de1adedbf38a3bc8c7e0b847ddf6 | 64a7065b4f16c815f9e9dd29c47d5365a3d560b1 |
+| M | client/src/pages/dashboard/contact-detail-tabs/ChargebacksTab.tsx | Client source/consumer | 75803d65f0aea8ba02c4fcf9c24a8bc7754f2629 | 82ddc757082162ceed588e67cf5114dfca583dec |
+| M | client/src/pages/dashboard/contact-detail-tabs/CompanyIntelligenceTab.tsx | Client source/consumer | a20334cb651e5529dc3ae0e6994e538161574c9d | e6044dbf60969a20861aed86d4f69577f86f3cf8 |
+| M | client/src/pages/dashboard/contact-detail-tabs/CreateDialogs.tsx | Client source/consumer | 22a77b7e7201385a10156be01b2301e89298512b | 4591ef8f0302d53031ff70db185480e2557bef66 |
+| M | client/src/pages/dashboard/contact-detail-tabs/DealAgentAssignment.tsx | Client source/consumer | 72cf33beb6daa0b6e7c79d2fd609f6379470c4e5 | f8bd564c271e18d41b2883ae9c211db985d82250 |
+| M | client/src/pages/dashboard/contact-detail-tabs/DealsTab.tsx | Client source/consumer | fd4335b3b78977c9fe433181d79a2069b864ed7e | 8e20d737fda5501d4c2e5b561e8e758207d95063 |
+| M | client/src/pages/dashboard/contact-detail-tabs/DocumentsTab.tsx | Client source/consumer | 43552a0acaa98ed2eda356bcf4155399777381fa | 5a1eaec851bfa9b19b04b8aea23389e79e38800e |
+| M | client/src/pages/mobile/MobileInbox.tsx | Client source/consumer | 43ffbc63f191830b61d91f8ee56d882a7a1f2bc0 | 766de256c719f15ccfd171ad25fb0886d1ae6bdc |
+| M | client/src/pages/mobile/MobilePipeline.tsx | Client source/consumer | 6f9a8110d9915d9b1fcd6bfa758df3f87f8c8b20 | 81755fa8a676de813bce4dd38165751926a8c556 |
+| M | client/src/styles/crm-theme.css | Client source/consumer | 833e100e840bf53a1dafc957b22a8ee0580386fa | f711fa1c4013bba27c696f53a10f7eeec29b122f |
+| M | docs/LIBERTY_BANCARD_GO_LIVE_AUDIT_LEDGER_CURRENT.md | Documentation/log lineage | 80d9cc800e768479e98fd832e18419a611b5df56 | 1920ff0dc47c050717ae00b3b0e57e874464a501 |
+| M | docs/LIBERTY_BANCARD_STAGE_3_CONSOLIDATED_IMPLEMENTATION_SPEC.md | Documentation/log lineage | f5901861932e7a425fd79c653d21f542ffff0d42 | c1b2ddb0397b250c496053febf3e9b882df06059 |
+| M | docs/certification/stage3-c1/browser/admin-compatibility.jpg | Archived image, not replayed | 6ec9598c37dfc4d7f57f9a96d8676b955a72f51f | dab7de1d5594e209615be700ac51de7b4fd98cb5 |
+| M | docs/certification/stage3-c1/browser/admin-people-1280-light.jpg | Archived image, not replayed | 8812e7ed01f75269d7af7d8743256e767545d8c1 | 40b4629afbd39c3bee38bbe1788be35fee449c3e |
+| M | docs/certification/stage3-c1/browser/admin-people-1440-light.jpg | Archived image, not replayed | c32a7dbf5af504abd6416db4f11a2c3038ab5027 | ce9887552e3ee58140d4c3e8d23e3403c57dad23 |
+| M | docs/certification/stage3-c1/browser/admin-people-768-light.jpg | Archived image, not replayed | a5817219badbd014aa2a872b5ccbec17a56bcf9d | 0a679bf9aff3d2920fa03cdcd635c5232b87927a |
+| M | docs/certification/stage3-c1/browser/admin-people-dark.jpg | Archived image, not replayed | 14f5d693b269ab4050776416bf302cae00b62b63 | 86ab8ec2bbf7010c9a2438a34ebc1d54922e05d0 |
+| A | docs/certification/stage3-c1/browser/admin-real-browser-zoom-200.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 4143d9f4af0ae313d4a2c0274d0da359184eaf2d |
+| M | docs/certification/stage3-c1/browser/agent-compatibility.jpg | Archived image, not replayed | f8cd2249665676b995e2837df2921608d76622f7 | 62a1d827a11c851c02222cf18d79db1845367d72 |
+| M | docs/certification/stage3-c1/browser/agent-people-1440-light.jpg | Archived image, not replayed | a2aeb38ef14440981fdd4fe759bdf751644b2876 | b7bbe69e86621b811f196bfd6a8bee73345e3fbf |
+| M | docs/certification/stage3-c1/browser/agent-people-390-light.jpg | Archived image, not replayed | 74911d1283501de5fa1ca6fef51b16195f95e60d | fe83098de5b4ba765ea5b326145004fc232ec2b1 |
+| M | docs/certification/stage3-c1/browser/agent-people-dark.jpg | Archived image, not replayed | e703dfe2e9fbc2628d070a18060346ccddeddc15 | f62295b2bc388b902723d5c006eeb5c2f947d104 |
+| A | docs/certification/stage3-c1/browser/agent-people-density-reflow.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | b592bbe08e65f963b34e828e89fecf185ffebdcf |
+| M | docs/certification/stage3-c1/browser/attempt.json | Archived/generated metadata | 72642461669e19c37200eec83a04258bda03f496 | 49a676e33230bc9c1de3420ac1ef93c683cbae87 |
+| M | docs/certification/stage3-c1/browser/failure.jpg | Archived image, not replayed | 0103d2e7484b0a10ee192bf7b0ad91ce1dbf9056 | c51a368ac5465b3582748d4646bbcf20f83bbb26 |
+| M | docs/certification/stage3-c1/browser/failure.txt | Documentation/log lineage | f56ce1fb54f0ac0a7ba8f6dfe4fe3c6c333597c7 | 5c86c9009942ad89306271cc9e974a76aaf76e68 |
+| M | docs/certification/stage3-c1/browser/last-requests.json | Archived/generated metadata | daaa1b22beb19c29853b8f92d38157305f5569db | 8af4f9196f7f685fa6a4955b75c4ebf48987df6f |
+| M | docs/certification/stage3-c1/browser/manager-compatibility.jpg | Archived image, not replayed | c039757406fdc60bf3e8f21e265d6a30d1cb6f36 | 0c6d9cc5a111fbb3c5aa9ac47f605661aaafe11e |
+| M | docs/certification/stage3-c1/browser/manager-people-1440-light.jpg | Archived image, not replayed | 122b8a89936ec5ee01294e47711cf146d7bf4960 | 40bd20c4774cc0314ee7825511520271d24467b3 |
+| M | docs/certification/stage3-c1/browser/manager-people-dark.jpg | Archived image, not replayed | 889f4db13e1283bd6d62f78f24a4f16acafc5338 | cb2f08c62d6b792f01386a7d86e5f949a394c20f |
+| A | docs/certification/stage3-c1/browser/merchant-isolation.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 1d6ef4899b8a35a67e844e568f1f8b3236727e85 |
+| A | docs/certification/stage3-c1/browser/partner-isolation.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 73bfe59fdb8bcfd83f115f9e43d14a1a8d7d4433 |
+| A | docs/certification/stage3-c1/browser/receipts.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 0500cf59bee9d070cda614a67a76545cceee36e1 |
+| M | docs/certification/stage3-c1/contracts.md | Documentation/log lineage | e376b820043ec1678fc557aebbe73303095291f8 | b68cca86b57b1c31eac3cb378b3e49c7392f0a62 |
+| M | docs/certification/stage3-c1/provenance.json | Archived/generated metadata | 7a9072117f5366214f51d7684454dcfa4db93350 | de2f92b6d8a93f3c4c3649cdca57290555bd209f |
+| M | docs/certification/stage3-c1/route-census.json | Archived/generated metadata | 72c7011fffb6057306e3289e3f148e4be87bb4b9 | f74a67546779ee43763d234d65d638e3100cb139 |
+| M | docs/certification/stage3-c2/contact-header/after-200-percent-menu.jpg | Archived image, not replayed | 515c1789ea602299153840e2a779c3fb88b79f94 | 8bbab6a81580544cdca7207cca0ad5631783814d |
+| M | docs/certification/stage3-c2/contact-header/after-desktop-200-percent.jpg | Archived image, not replayed | a6f71767399f41474fd8ae8e03fb2b76c0249f97 | b12645581cea130c04dbd1a2d50b98b4339792b5 |
+| M | docs/certification/stage3-c2/contact-header/after-desktop.jpg | Archived image, not replayed | 6a7701e65a8a497697281a4ee40de54084cb7e6b | 5117df041a280915f15b8ff9bf6ab24db5673ba8 |
+| M | docs/certification/stage3-c2/contact-header/after-desktop.json | Archived/generated metadata | f9a0b5f9971950bf28fb1e04d7e7a3463bc549fd | 507ac4d3e4d3ab90d346b6da2da7cc2de80dad39 |
+| M | docs/certification/stage3-c2/contact-header/after-mobile.jpg | Archived image, not replayed | 04f0c1614acc5c0b41e25716b346f5dccc35a186 | 4b3ba59b15e79a8f679ce82502af321f2fbccf69 |
+| M | docs/certification/stage3-c2/contact-header/after-receipt.json | Archived/generated metadata | 87d851a71c684fc608e2e654502d7cbd5dea0fc7 | 92bb27ac95e06ad2a587746f3b694bbd7b766fe0 |
+| M | docs/certification/stage3-c2/postmerge-browser/calendar-after-save-reload.jpg | Archived image, not replayed | ee4c57107e0e292e60eaac9b4630739e242a738a | 481085256349c35b776aff16519a157c4bc9962c |
+| M | docs/certification/stage3-c2/postmerge-browser/calendar-replacement-fields.jpg | Archived image, not replayed | d63a6cc891ce18c81c9143bb46767b094de6f0f7 | e037d038dcb24f29416cb3c01b682d929031a7cf |
+| M | docs/certification/stage3-c2/postmerge-browser/contact-mobile-after-task-change.jpg | Archived image, not replayed | 5b3bed9dc1437e118512af2eb4892be834b84f20 | 6070fc5152251106d7e76d1a935cdb682f96587d |
+| M | docs/certification/stage3-c2/postmerge-browser/contact-pending-count-two.jpg | Archived image, not replayed | 7e208081485bbd52ddabb6c18326a2d16488b6c0 | 83fe76c215497ad4be7250fdfefd3aba17437342 |
+| M | docs/certification/stage3-c2/postmerge-browser/contact-pending-population.jpg | Archived image, not replayed | 7e208081485bbd52ddabb6c18326a2d16488b6c0 | 83fe76c215497ad4be7250fdfefd3aba17437342 |
+| M | docs/certification/stage3-c2/postmerge-browser/contact-text.txt | Documentation/log lineage | 98a44aa175ab7af198391cbfbb5f2410a3f9e2b5 | fd142c1b4374e7df12b4d3da5ed55f584b1e2a0d |
+| M | docs/certification/stage3-c2/postmerge-browser/receipt.json | Archived/generated metadata | 11f159b245bb8a1dc9bc7aa56a621593a4067b6c | 3b0a3f8947c09fe1e79672ab3290688791a0e977 |
+| A | docs/certification/stage3-c4/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 10610d689960abd1b5ea2c6c1ee6ef3ef056fdc9 |
+| A | docs/certification/stage3-c4/browser/agent-earnings-scoped-links.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | f5f0eb8a1b287cdd72b448c5629b2f9f10f52a1f |
+| A | docs/certification/stage3-c4/browser/agent-leaderboard-recorded-volume.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | d59e4d93db89d1520960263f4075ed10b81c1eb9 |
+| A | docs/certification/stage3-c4/browser/boarding-read-unavailable.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 60ac10baa72af8835566f85095461064f9293c6c |
+| A | docs/certification/stage3-c4/browser/calendar-bogota-last-local-day.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | cddfdbdc45d8d6fd14499b7cce2b18119e1ef0af |
+| A | docs/certification/stage3-c4/browser/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | cf72a4acb6540f574e94ae2d038f34da01d1aa1a |
+| A | docs/certification/stage3-c4/browser/contact-rfi-due-preserved.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 4f8a64947605c6cb0c502458540d848e643ceb15 |
+| A | docs/certification/stage3-c4/browser/document-vault-read-unavailable.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | eceaf321df9580e98a0e7303a34b2076dcbe6447 |
+| A | docs/certification/stage3-c4/browser/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | e9d31d41726e23e155cfd609969af495806b6524 |
+| A | docs/certification/stage3-c4/browser/failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 41fbb4715c8e42f43ff598ec7fde58e3d924f635 |
+| A | docs/certification/stage3-c4/browser/failure.txt | Documentation/log lineage | 0000000000000000000000000000000000000000 | de012a1d90201629b60bf223d44b5964ae5a4cf5 |
+| A | docs/certification/stage3-c4/browser/failures/agent-duplicate-heading/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 39092d885ca6be6bce0ae2db9230916936a32d58 |
+| A | docs/certification/stage3-c4/browser/failures/agent-duplicate-heading/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | bb0315b84b7aa4ab6c9ace14277d4b4750648bf1 |
+| A | docs/certification/stage3-c4/browser/failures/agent-pending-selector/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 53c6ca64df2840bea5ca48aa2aa26cc05af171fd |
+| A | docs/certification/stage3-c4/browser/failures/agent-pending-selector/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | de78abb15d7a0e80d82ba5c6d0e5da69d7a48bf0 |
+| A | docs/certification/stage3-c4/browser/failures/calendar-unselected-day/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 8e87e4c64e1a4ed2220c278617787151df0049d0 |
+| A | docs/certification/stage3-c4/browser/failures/calendar-unselected-day/failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | eacc762e1eb6c8797a95f1e9b59c51bd9f5898b1 |
+| A | docs/certification/stage3-c4/browser/failures/calendar-unselected-day/failure.txt | Documentation/log lineage | 0000000000000000000000000000000000000000 | aed9e8f565c609695f2306f1c3bc80b60a27165d |
+| A | docs/certification/stage3-c4/browser/failures/dedicated-mobile-redirect.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 003b3353fc9ab659f872b243d95435b37c142634 |
+| A | docs/certification/stage3-c4/browser/failures/dedicated-mobile-redirect.txt | Documentation/log lineage | 0000000000000000000000000000000000000000 | 5fadd725fee8a44f8e138ab51d630e9b55a175ce |
+| A | docs/certification/stage3-c4/browser/failures/linked-pending/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 666d1093ad1f95e3eecd5739c4ed54e9431895cf |
+| A | docs/certification/stage3-c4/browser/failures/linked-pending/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 6920a78aeabf7490e16687be4fb651f18fda3417 |
+| A | docs/certification/stage3-c4/browser/failures/linked-selector/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | d212aa6b140500d6a7c54854bcbeddad452a47fe |
+| A | docs/certification/stage3-c4/browser/failures/linked-selector/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | fc8723051f9c459e2ccc6e0469a3a28cf8e3a88b |
+| A | docs/certification/stage3-c4/browser/failures/nps-navigation-helper/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 305ae66c9146cb2be52094b40676d3d1ff98d938 |
+| A | docs/certification/stage3-c4/browser/failures/nps-navigation-helper/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | e9a51c27089752ef747939a2417a1585f263e885 |
+| A | docs/certification/stage3-c4/browser/failures/nps-prefix-fault/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 0fd2b5a18951bffeab321b5546c45cc8e8665478 |
+| A | docs/certification/stage3-c4/browser/failures/nps-prefix-fault/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 5277309d7e2f6957b04780912283a4f2ec9a072d |
+| A | docs/certification/stage3-c4/browser/failures/nps-statistics-pending/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 33eee56f83ecc8175073a34905ac5a7c18ef6770 |
+| A | docs/certification/stage3-c4/browser/failures/nps-statistics-pending/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 012f65fe89cd44537a748e5d87998214fb3df5ce |
+| A | docs/certification/stage3-c4/browser/failures/operations-helper/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 86ef3c51428ab69d4cc9ded8683c7d0e82dc5c0e |
+| A | docs/certification/stage3-c4/browser/failures/operations-helper/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 1a2992aba9e16164ddc54035eff5a8239934a583 |
+| A | docs/certification/stage3-c4/browser/failures/operations-helper/failure.txt | Documentation/log lineage | 0000000000000000000000000000000000000000 | 99883fdad29b035b3320ea2570bd3cd5dae5d18d |
+| A | docs/certification/stage3-c4/browser/failures/operations-initial/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 7dc53bd65612f4d0ee2e9dbc6b85ef104fa57af2 |
+| A | docs/certification/stage3-c4/browser/failures/operations-initial/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 60be9f39e4214bfc152753cd75770eed4e0d58db |
+| A | docs/certification/stage3-c4/browser/failures/operations-initial/failure.txt | Documentation/log lineage | 0000000000000000000000000000000000000000 | 99883fdad29b035b3320ea2570bd3cd5dae5d18d |
+| A | docs/certification/stage3-c4/browser/failures/partner-integer-currency/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 5ca31390d740b7420c235c8b0ffa33ae067866fb |
+| A | docs/certification/stage3-c4/browser/failures/partner-integer-currency/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 896ab0d8f5efdf2bd7cb96e9dcc72f2b85ce189d |
+| A | docs/certification/stage3-c4/browser/failures/payout-retry-selector/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | b99cb669cbd6ddf321ac6e0c8fb38ea691bfa598 |
+| A | docs/certification/stage3-c4/browser/failures/payout-retry-selector/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 3ec25200be45ccdadb7d4bf3b80934d9eea018a6 |
+| A | docs/certification/stage3-c4/browser/failures/preparation-overlay-unsettled/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 891598295d2fae4a2ad3ea704ab047c9343061f4 |
+| A | docs/certification/stage3-c4/browser/failures/preparation-overlay-unsettled/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 00e6414cf8080dd6024fe9aaaf7301275810c39c |
+| A | docs/certification/stage3-c4/browser/failures/preparation-pending-before-ops/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 39f0e8983898041e836a2ce9661f55d5ad02523f |
+| A | docs/certification/stage3-c4/browser/failures/preparation-pending-before-ops/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | df849ec97e98e43dea85c05190c31efa0b48e25a |
+| A | docs/certification/stage3-c4/browser/failures/preparation-pending-before-ops/failure.txt | Documentation/log lineage | 0000000000000000000000000000000000000000 | 99883fdad29b035b3320ea2570bd3cd5dae5d18d |
+| A | docs/certification/stage3-c4/browser/failures/review-async-sheet/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | d26e41b86826f4621b178d2ffc3a9257ef923a66 |
+| A | docs/certification/stage3-c4/browser/failures/review-async-sheet/failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 8c66d465912de39b71fb61e3a938b230fcec5dcc |
+| A | docs/certification/stage3-c4/browser/failures/review-async-sheet/failure.txt | Documentation/log lineage | 0000000000000000000000000000000000000000 | 5a8881151265eaee3c0674de1853dbc77e489386 |
+| A | docs/certification/stage3-c4/browser/failures/review-enter-input/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | b39ff57250eb0dd59cf81d4eaba4bff71337715d |
+| A | docs/certification/stage3-c4/browser/failures/review-enter-input/failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 003b3353fc9ab659f872b243d95435b37c142634 |
+| A | docs/certification/stage3-c4/browser/failures/review-enter-input/failure.txt | Documentation/log lineage | 0000000000000000000000000000000000000000 | 5fadd725fee8a44f8e138ab51d630e9b55a175ce |
+| A | docs/certification/stage3-c4/browser/failures/review-fixture-reference/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 171bd90cd95ad6b3a1da0e495b9754e6ee5ed51e |
+| A | docs/certification/stage3-c4/browser/financial-observed-scope.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 7f6c2420686f04671ffb96afc758c2cea732b807 |
+| A | docs/certification/stage3-c4/browser/financial-partner-exact-scope.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | d5aeb4461e9672388751fc76bb3cca668739192a |
+| A | docs/certification/stage3-c4/browser/health-nps-independent-read-fault.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | f1a26de74bf45020e78c93bd0b58fea333c614f7 |
+| A | docs/certification/stage3-c4/browser/health-nps-scored-sample.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | eda85cb8848df9866e158659267942635cd3ced7 |
+| A | docs/certification/stage3-c4/browser/onboarding-local-prepared.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | e6cdc04931c48675bcd8e4c43dbee83a10416d29 |
+| A | docs/certification/stage3-c4/browser/operations-model-provenance.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 0984f268dab844b963703d27450941e71c4d33e0 |
+| A | docs/certification/stage3-c4/browser/operations-unavailable.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | fb62168fd9f49a81a3ad236956e3e2d666465079 |
+| A | docs/certification/stage3-c4/browser/outreach-independent-unavailable-children.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 4efecf4ca1a48e0dc059601ac9d2b9f2dbe7365d |
+| A | docs/certification/stage3-c4/browser/payout-recorded-not-native-receipt.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 4fd1e677690f1bf0e35bcc9ac4312719a1d34fe7 |
+| A | docs/certification/stage3-c4/browser/portfolio-dark-1280.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 6d17af7ab501b73b0338ae9d7d83b9faa93ba983 |
+| A | docs/certification/stage3-c4/browser/portfolio-dark-1440.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | b2b500c90e89c4caf8319fb97777533700e08628 |
+| A | docs/certification/stage3-c4/browser/portfolio-dark-320.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 7004ca23813cff9ae277a04b66d21b7b5ce58e3c |
+| A | docs/certification/stage3-c4/browser/portfolio-dark-390.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 77edb47909553bcf3fd851c1321447d118c2013d |
+| A | docs/certification/stage3-c4/browser/portfolio-dark-768.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | c3f86c274cf681c48020b222eec593e05f9142fc |
+| A | docs/certification/stage3-c4/browser/portfolio-light-1280.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 8e4d82936f64eea9ebba5ca9a0eb7852c0fcfc9d |
+| A | docs/certification/stage3-c4/browser/portfolio-light-1440.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 5dc9da37a479370a5fc67e955d1e544452d865df |
+| A | docs/certification/stage3-c4/browser/portfolio-light-320.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | b5865dbe7f19b38728b3227251c7b6643156a850 |
+| A | docs/certification/stage3-c4/browser/portfolio-light-390.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | a26b7119695feb49ab714baba9f314739b5a17a0 |
+| A | docs/certification/stage3-c4/browser/portfolio-light-768.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | b194be783b49f944f3acda62e72be0048eb8d80e |
+| A | docs/certification/stage3-c4/browser/reports-four-areas.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 236593dbd32c00d5a586f4463cbf9e3bbeb42cfc |
+| A | docs/certification/stage3-c4/browser/review-independent-read-failure-no-snapshot-authority.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | c9762a4c7418a5529f1867d531c66c0351c35131 |
+| A | docs/certification/stage3-c4/browser/rfi-command-unconfirmed.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | fccd99789edad460c92131b41a051c7e4fd347c3 |
+| A | docs/certification/stage3-c4/browser/rfi-command-unsigned-guard.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 64493fdb4ef20cd9c4f5a307b431191749e84d2b |
+| A | docs/certification/stage3-c4/browser/rfis-read-unavailable.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 5e2cf0c1605dab546b32f07c8dece0a989a60ec3 |
+| A | docs/certification/stage3-c4/browser/statement-review-read-unavailable.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 6575f7e56abf77bb6cb1eb564fd8119d2ea6c284 |
+| A | docs/certification/stage3-c4/browser/testimonials-read-unavailable.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 20af5bd54a44362808719436a76719f4baeac067 |
+| A | docs/certification/stage3-c4/browser/testimonials-retained-status-context.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 57a6d057e56cf54df17cb5e8e184916159d473ea |
+| A | docs/certification/stage3-c4/browser/ticket-command-unconfirmed.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 2c2e77918d4c020a509691ce36c092cdfd936493 |
+| A | docs/certification/stage3-c4/browser/ticket-command-unsigned-guard.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 64493fdb4ef20cd9c4f5a307b431191749e84d2b |
+| A | docs/certification/stage3-c4/control-inventory.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | af1466523038de872246d48368ea0e2994e3cfd7 |
+| A | docs/certification/stage3-c4/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | c1ed06646ddbeb3a71c8bec6a8b987fe105bf774 |
+| A | docs/certification/stage3-c4/health-browser/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | c6d03171adc82ee784ed54fc4ca5a3e96a58f5d4 |
+| A | docs/certification/stage3-c4/health-browser/failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | f09a7d4a4a1ba8d6c769236e3ef421ca6e5bf038 |
+| A | docs/certification/stage3-c4/health-browser/health-independent-score-config-fault.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 7587862170edb9266980e5fd88d6a51e999326fb |
+| A | docs/certification/stage3-c4/health-browser/receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | f353639c7d415902e19aa08def8b7c024d401b03 |
+| A | docs/certification/stage3-c4/history/acquisition-handler-194/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | bc8bd2bb11e0852d67da288d46002ed2ba79aac2 |
+| A | docs/certification/stage3-c4/history/acquisition-matched-read-unit/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 79d9485269957decb6a43924c177647fcac80fa6 |
+| A | docs/certification/stage3-c4/history/acquisition-matched-read-unit/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 7a3daf25355b60f247c1cbe471c1cf635a0fd7bd |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 86286d9ce9c0e19f6caa2402418221fc113e3890 |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 6b55857a812a52725672f9b9a7b8ffb91ac2340d |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | affe4e572a4259c367a3b3b6273093f4283a9f4c |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser/failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 6b55857a812a52725672f9b9a7b8ffb91ac2340d |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser/failure.txt | Documentation/log lineage | 0000000000000000000000000000000000000000 | e69b80e6eee497e416b32443f0a23481ae5da115 |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser/failures/dedicated-mobile-redirect.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 6b55857a812a52725672f9b9a7b8ffb91ac2340d |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser/failures/dedicated-mobile-redirect.txt | Documentation/log lineage | 0000000000000000000000000000000000000000 | e69b80e6eee497e416b32443f0a23481ae5da115 |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser/portfolio-dark-1280.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | e51a314fd1c260e9e0253305b332373b0a0e52dd |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser/portfolio-dark-1440.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 7712243f58ea50f40fefa586a9cb82a5bc99821e |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser/portfolio-dark-320.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | f2f95cb679362c789de45d3c689fe3b9fbebd4a1 |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser/portfolio-dark-390.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 5f764eff6a5e6a0e268d4f6df5c97f9c4af269e7 |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser/portfolio-dark-768.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 5ce65ae4c5d2d998e6fe11f6c5be52c375aa2079 |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser/portfolio-light-1280.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | f4f672f31f87debe22cb2f268a7c10d51a3630fe |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser/portfolio-light-1440.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 0a24824810a1b7fc862a81b5b7cee8b554a05efa |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser/portfolio-light-320.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | aa4c73486f6b2ee9705a1c39104255b0ef08d371 |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser/portfolio-light-390.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | a26b7119695feb49ab714baba9f314739b5a17a0 |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser/portfolio-light-768.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 0cc735e6952d13a33f2f2992bd6d0d85489abc8d |
+| A | docs/certification/stage3-c4/history/bounded-45e2714/browser/reports-four-areas.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 6e2f165cb3e76fef9e5e2f0af89cf263d00f9886 |
+| A | docs/certification/stage3-c4/history/c1-compact-header-stale-entrance/attempt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 51b82259a3fffe51a58c1bad6ea6db5a9ef47251 |
+| A | docs/certification/stage3-c4/history/c1-current-edit-readback-failure/attempt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | cb8084ed8e57eaaf153f2cfba4134ca16e2245b6 |
+| A | docs/certification/stage3-c4/history/c1-current-edit-readback-failure/failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | c51a368ac5465b3582748d4646bbcf20f83bbb26 |
+| A | docs/certification/stage3-c4/history/c1-current-edit-readback-failure/failure.txt | Documentation/log lineage | 0000000000000000000000000000000000000000 | 5c86c9009942ad89306271cc9e974a76aaf76e68 |
+| A | docs/certification/stage3-c4/history/c1-current-inline-entrance-pass/c1-receipts.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 0500cf59bee9d070cda614a67a76545cceee36e1 |
+| A | docs/certification/stage3-c4/history/c1-current-menu-text-wait/attempt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | c847fd3ffccd4348bfa1994e498f36e4c1476c64 |
+| A | docs/certification/stage3-c4/history/calendar-daefeb61/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | dbe72cb69340087283e8fda44940d9459205e429 |
+| A | docs/certification/stage3-c4/history/calendar-daefeb61/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 9f321030987321482a5330c3a4e9abfb59066191 |
+| A | docs/certification/stage3-c4/history/financial-527e07/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 12617bb3534a5c49017433e1ca999a1e0b791982 |
+| A | docs/certification/stage3-c4/history/financial-527e07/financial-observed-scope.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | dae799cee0c2a5c383a1902c553f6a6d97c681ed |
+| A | docs/certification/stage3-c4/history/handler-38-before-calendar.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | e3d07e36ab3969247f03cce21a8c81c07dff65bf |
+| A | docs/certification/stage3-c4/history/handler-48-before-linked-handoff.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | ff67d3d2f2f3b2121746dc49e3e025edb63c34b4 |
+| A | docs/certification/stage3-c4/history/handler-86-linked.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 51397171b9895206695e924eb3a8db24e0b88029 |
+| A | docs/certification/stage3-c4/history/handler-94-before-operations.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 1d1ee8b536b328ced9abbe549c3cc2a6db4f3ac6 |
+| A | docs/certification/stage3-c4/history/handler-before-recorded-period.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | a4e1998cba3792b1b77a19aa9a38afb15cf94b22 |
+| A | docs/certification/stage3-c4/history/health-driver-unmatched-unit/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | cb01c957ea03ff1e69e16ed11d73cbd28a08cfdd |
+| A | docs/certification/stage3-c4/history/health-driver-unmatched-unit/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | af23423e715062717fd23efdd90b7954320de30b |
+| A | docs/certification/stage3-c4/history/health-financial-entrance-unmatched-unit/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 41fbb4715c8e42f43ff598ec7fde58e3d924f635 |
+| A | docs/certification/stage3-c4/history/health-financial-entrance-unmatched-unit/candidate-integrity.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | acf815c86205e76bd3fbf701c6f959f0ffd7c604 |
+| A | docs/certification/stage3-c4/history/health-financial-entrance-unmatched-unit/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 00e93974f1e253067beae014c6147121d5c3362b |
+| A | docs/certification/stage3-c4/history/health-first-unmatched-unit/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 255477a5b79060352288853597cc86c2f730a76d |
+| A | docs/certification/stage3-c4/history/health-first-unmatched-unit/failure.txt | Documentation/log lineage | 0000000000000000000000000000000000000000 | 5fadd725fee8a44f8e138ab51d630e9b55a175ce |
+| A | docs/certification/stage3-c4/history/health-focused-bootstrap-unmatched-unit/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | c6d03171adc82ee784ed54fc4ca5a3e96a58f5d4 |
+| A | docs/certification/stage3-c4/history/health-focused-bootstrap-unmatched-unit/failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | f09a7d4a4a1ba8d6c769236e3ef421ca6e5bf038 |
+| A | docs/certification/stage3-c4/history/health-focused-bootstrap-unmatched-unit/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 217f2146d7b477709d0b2aca4e41b8464aaaaa3b |
+| A | docs/certification/stage3-c4/history/health-focused-registration-no-start/candidate-integrity.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | cb75d1fe907836f06003457a23a303323ac9c03f |
+| A | docs/certification/stage3-c4/history/health-focused-registration-no-start/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 5c3fc5faf505b2e950d5765b877760937604cb7c |
+| A | docs/certification/stage3-c4/history/health-read-matched-unit/candidate-integrity.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 04c1f63fb653638cffd81ecca59513a9f21f032d |
+| A | docs/certification/stage3-c4/history/health-read-matched-unit/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | da855f221a8515df0ba8ea470af5ff4a0be2ecf5 |
+| A | docs/certification/stage3-c4/history/health-read-matched-unit/health-independent-score-config-fault.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 7587862170edb9266980e5fd88d6a51e999326fb |
+| A | docs/certification/stage3-c4/history/health-read-matched-unit/receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | f353639c7d415902e19aa08def8b7c024d401b03 |
+| A | docs/certification/stage3-c4/history/inventory-e6a168dc/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 95898f83113d85927caa43278c26a06ae89c2315 |
+| A | docs/certification/stage3-c4/history/inventory-e6a168dc/control-inventory.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 47a93b187a0fc556a387b4f3bdde108d08414b7c |
+| A | docs/certification/stage3-c4/history/leaderboard-297eda4f/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 3c0cb6bf1c0be3c69540fd768f1811009dc82b4c |
+| A | docs/certification/stage3-c4/history/leaderboard-297eda4f/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 4ed699a557e31740b8ebaa0b1ca8945307e32ac3 |
+| A | docs/certification/stage3-c4/history/linked-tour-covered/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 1eb3de7f23bc18d73a56d3e41807b445211fbda6 |
+| A | docs/certification/stage3-c4/history/linked-tour-covered/onboarding-local-prepared.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | d2e0225586a7ec85248cafafdfbf280634c9d450 |
+| A | docs/certification/stage3-c4/history/nps-17606178/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 14a591139b2ac384b706e28bd7a97e8de405bd0a |
+| A | docs/certification/stage3-c4/history/nps-17606178/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 95718ffa71e39fd68773c6efa33891a9ffac4dd6 |
+| A | docs/certification/stage3-c4/history/partner-agent-9c740c8b/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 8d28a894c1f18eb4abcbca5e7ebbe74022da41d1 |
+| A | docs/certification/stage3-c4/history/partner-agent-9c740c8b/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 58f95d0d494d697784984d5704ac277bdcc9c353 |
+| A | docs/certification/stage3-c4/history/payee-591dbc58/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 01553ccdb782d7fc827ceeaf098c4fd513825980 |
+| A | docs/certification/stage3-c4/history/payee-591dbc58/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 709908f87e22bafa4923a823d015bae0423d83f1 |
+| A | docs/certification/stage3-c4/history/report-reads-2de5ac32/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 019f14a0059260584d500bc483615257f8ac6be7 |
+| A | docs/certification/stage3-c4/history/report-reads-2de5ac32/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | a170770f0c98db59e176d99c2ce0d6d7e7c52388 |
+| A | docs/certification/stage3-c4/history/review-95d515fa/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | bd26300d8ec6206ffe1be6b412422512bcfb9724 |
+| A | docs/certification/stage3-c4/history/review-95d515fa/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 1ac5930deaf78d6882f5e368b1cefb2d8b5e6cbb |
+| A | docs/certification/stage3-c4/history/review-overlay-current/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 18356821d074f65d59ee1c446f411c132c77bca8 |
+| A | docs/certification/stage3-c4/history/rfi-command-first-run-errors/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | aa2965616ea1fb92a9097ae0c807594addc2e5a0 |
+| A | docs/certification/stage3-c4/history/rfi-command-first-run-errors/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | b4d5135f591ec86f6f56f6388b8a3be5b0186fff |
+| A | docs/certification/stage3-c4/history/rfi-command-matched-unit/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | c5dcdaa8018b9782eebb523fe1f87fe2cb1b4548 |
+| A | docs/certification/stage3-c4/history/rfi-command-matched-unit/control-inventory.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 7fa0e89d6ae2d8171ac75f1d56166946e86c1586 |
+| A | docs/certification/stage3-c4/history/rfi-command-matched-unit/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 6c3e9a3e60da53c07e2ae938483aa78dd203de52 |
+| A | docs/certification/stage3-c4/history/rfi-command-matched-unit/rfi-command-unconfirmed.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | ef5c6f0ee7f58933999263c1c9c28eed09890583 |
+| A | docs/certification/stage3-c4/history/rfi-command-matched-unit/rfi-command-unsigned-guard.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 64493fdb4ef20cd9c4f5a307b431191749e84d2b |
+| A | docs/certification/stage3-c4/history/rfi-command-overlay-animation-failure/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 80536683b0793f6cb43b4c229aa3d7adb2776905 |
+| A | docs/certification/stage3-c4/history/rfi-command-overlay-animation-failure/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 364b1ff97327e107a9847a7760f9f96d6acf664f |
+| A | docs/certification/stage3-c4/history/rfi-command-passed-phase-review-focus-failure/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 1826ed4bccfae8fc5bf483fb57c29ae982f8518a |
+| A | docs/certification/stage3-c4/history/rfi-command-passed-phase-review-focus-failure/failed-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 3f7e84c7015cb86579ca9e398ea4084e665ef38e |
+| A | docs/certification/stage3-c4/history/rfi-command-passed-phase-review-focus-failure/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 1be486cf836ee54681d957897d5f01d60e8fcc08 |
+| A | docs/certification/stage3-c4/history/rfi-due-matched-unit/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 10610d689960abd1b5ea2c6c1ee6ef3ef056fdc9 |
+| A | docs/certification/stage3-c4/history/rfi-due-matched-unit/contact-rfi-due-preserved.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 4f8a64947605c6cb0c502458540d848e643ceb15 |
+| A | docs/certification/stage3-c4/history/rfi-due-matched-unit/control-inventory.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | af1466523038de872246d48368ea0e2994e3cfd7 |
+| A | docs/certification/stage3-c4/history/rfi-due-matched-unit/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | f75c61d363af0aff0aece7938b384f1334788bce |
+| A | docs/certification/stage3-c4/history/rfi-first-run-errors/failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 003b3353fc9ab659f872b243d95435b37c142634 |
+| A | docs/certification/stage3-c4/history/rfi-first-run-errors/failure.txt | Documentation/log lineage | 0000000000000000000000000000000000000000 | 5fadd725fee8a44f8e138ab51d630e9b55a175ce |
+| A | docs/certification/stage3-c4/history/rfi-first-run-errors/provenance-correction.md | Documentation/log lineage | 0000000000000000000000000000000000000000 | 85db32dd65f4382e8acbcd37f1f6f0ec9e307997 |
+| A | docs/certification/stage3-c4/history/rfi-matched-read-unit/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 4f4261dae56c4d58a3ecc67ce5b31abdd683e8e0 |
+| A | docs/certification/stage3-c4/history/rfi-matched-read-unit/control-inventory.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 646e17564a17efad11683639e75e90447a968c3c |
+| A | docs/certification/stage3-c4/history/rfi-matched-read-unit/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | d1c049d5bf63bd1e13e16ff593a2af8ef27dac3a |
+| A | docs/certification/stage3-c4/history/story-matched-read-unit/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 09864deeb7caa80104936f12ecd444a2a3c383a9 |
+| A | docs/certification/stage3-c4/history/story-matched-read-unit/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | b9d9415f7a05b97bfb094a82ea3ecfcc70d9864c |
+| A | docs/certification/stage3-c4/history/ticket-command-description-unmatched-unit/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | c307e8b7de3ca29cfcc59b309b270b9750edecbd |
+| A | docs/certification/stage3-c4/history/ticket-command-description-unmatched-unit/control-inventory.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | c52a936e58d4d5cef3d850ae2bb17b8a952f1a4b |
+| A | docs/certification/stage3-c4/history/ticket-command-description-unmatched-unit/ticket-command-unconfirmed.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 53d6bb613cdae4715308dfed772a92982942b1b9 |
+| A | docs/certification/stage3-c4/history/ticket-command-first-unmatched-unit/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | a5fcd9dad7df4af14641e831cb6425bc8ab7c835 |
+| A | docs/certification/stage3-c4/history/ticket-command-first-unmatched-unit/control-inventory.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | a08ad56c560309ebcceccfcb9c4206da8c3e2432 |
+| A | docs/certification/stage3-c4/history/ticket-command-first-unmatched-unit/ticket-command-unconfirmed.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | c147c3cf3f8c80ddd2424dfb7a9d594eca37bca1 |
+| A | docs/certification/stage3-c4/history/ticket-command-matched-unit/browser-receipt.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | cec84acb45c3573038e3c4a5aa14074bd7d2dc24 |
+| A | docs/certification/stage3-c4/history/ticket-command-matched-unit/control-inventory.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 059e73b9b7062553fe6491b08d2cf162df5bc74a |
+| A | docs/certification/stage3-c4/history/ticket-command-matched-unit/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 4676fb0118fcf3fb77a17d42a4659fd1d3b27f73 |
+| A | docs/certification/stage3-c4/history/ticket-command-matched-unit/ticket-command-unconfirmed.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 0946c079f1bac0b81130d9fba3a428ed52e18f3f |
+| A | docs/certification/stage3-c4/history/ticket-command-matched-unit/ticket-command-unsigned-guard.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | 64493fdb4ef20cd9c4f5a307b431191749e84d2b |
+| A | docs/certification/stage3-c4/history/tour-prerequisite-unmatched-unit/candidate-failure.jpg | Archived image, not replayed | 0000000000000000000000000000000000000000 | cf72a4acb6540f574e94ae2d038f34da01d1aa1a |
+| A | docs/certification/stage3-c4/history/tour-prerequisite-unmatched-unit/candidate-integrity.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | 1dc7739d98d642686c466516f4e409b69883eeff |
+| A | docs/certification/stage3-c4/history/tour-prerequisite-unmatched-unit/handler-actions.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | c1ed06646ddbeb3a71c8bec6a8b987fe105bf774 |
+| A | docs/certification/stage3-c4/source-inventory.json | Archived/generated metadata | 0000000000000000000000000000000000000000 | b6065563f5472ca218dedf92cd94486e12ca1540 |
+| A | docs/certification/stage3-c4/working-status.md | Documentation/log lineage | 0000000000000000000000000000000000000000 | 2187f26d1abd137dd1a1504c42703d746cbdc6fd |
+| A | migrations/0347_rfi_work_commands.sql | Schema delivery | 0000000000000000000000000000000000000000 | a3f1f222f42d9e1779c26dd3c3af30038ff8c8f9 |
+| M | migrations/meta/_journal.json | Schema delivery | 04948ca36313eb0f6a80f2a9bbf10920b8967d23 | f40eb2b5bd08e8fbe6272b1c68c4f244aa80be90 |
+| A | scripts/census-stage3-c4-source.ts | Harness/CI | 0000000000000000000000000000000000000000 | bde7b4113a76fdd88e341425bc4129270320af5a |
+| M | scripts/ci-suite-manifest.ts | Harness/CI | 212b96984e9a48a79668771635adfc2f43df6f7d | e9cb3c274f406fbf0876676bb37fd0957e4e6651 |
+| M | scripts/fixtures/private-stage3-browser.ts | Harness/CI | 23836cc6878cfa4a643f56958ade871369279d75 | d1875f402af4db801c08ebcdf66edc475d9b97d4 |
+| M | scripts/fixtures/stage3-b-http.ts | Harness/CI | 1918693352795bf9b3875af74357302396b4d804 | 6b7d25574ecbd489bb49f56b495187f97a6feeb4 |
+| A | scripts/fixtures/stage3-c4-control-inventory.ts | Harness/CI | 0000000000000000000000000000000000000000 | 333ba91a1fcdbf090f65748407eb2be6e95cf65e |
+| A | scripts/fixtures/stage3-c4-health-read-case.ts | Harness/CI | 0000000000000000000000000000000000000000 | 8012b13bcfacb7a6020153e7b55a46d0d416b4d3 |
+| M | scripts/generate-stage3-c1-contract.ts | Harness/CI | 142d9e058e0a2b8f7d342b41202a0f6feacaa596 | 16510291a3d4809f466e980e08302b842a2db28b |
+| M | scripts/pre-deploy.ts | Harness/CI | 4d72bf8c3179621c036a88f95ed8bc10f71b46b0 | 50dff7985fef7db77abf4a0fbdd615f364c8d381 |
+| M | scripts/run-c2-postmerge-certification.ts | Harness/CI | 6986caa26c99f50cd096a174d23de0ecb7740f09 | c72d7f7eb92c53ea4405017aaa5277a611bb87b0 |
+| M | scripts/test-stage3-c1-browser.ts | Harness/CI | 90c6ee65429ba88da5ac273c308d0b933a585501 | 4eae966d1490b9f2cace9857c353aff4ca60e8d8 |
+| A | scripts/test-stage3-c4-actions.ts | Harness/CI | 0000000000000000000000000000000000000000 | 858e29c058b89ca547c0da1bed8fe5df816868ac |
+| A | scripts/test-stage3-c4-browser.ts | Harness/CI | 0000000000000000000000000000000000000000 | d8dea577589bcdd2de191f0e4166689203626b61 |
+| A | scripts/test-stage3-c4-contracts.ts | Harness/CI | 0000000000000000000000000000000000000000 | 94c8d16ac979a62cb56499b3bbbe7e3e4fd16216 |
+| A | scripts/test-stage3-c4-health-browser.ts | Harness/CI | 0000000000000000000000000000000000000000 | 56e01236e3f916731c1068502bf0f47cd815d63b |
+| M | server/routes/acquisition.ts | Server authority/consumer | 6661540994fa99e03bd6ba5616d220a5860bf4fd | a88c75b8a370182cc84df43c763730b4f56fdd02 |
+| M | server/routes/admin.ts | Server authority/consumer | 2e7b3738dab1b1230d44249d5ca4a4c9de5a5eb5 | a10ddcb2963483ee4b12fc03f7b6cac82e09060f |
+| M | server/routes/analytics.ts | Server authority/consumer | a29cb3f6e898a486ce342b7f72e4bbf418480a5b | c810eb61e26ed064744d59a6117c04bf9f6cea8d |
+| M | server/routes/boarding.ts | Server authority/consumer | 7f790f2a9537fd1bb3bc99c83eff06b831d16adf | d25377d2cd0cbda25c89605dda963d857953dae9 |
+| M | server/routes/chargebacks.ts | Server authority/consumer | d595f2b2ddce2f8d712ca2f4506ab8b97d0f4167 | 11eddf67a365e8e5aca341c44ce190e3ceb6bd60 |
+| M | server/routes/churn.ts | Server authority/consumer | 079c1cb850eabe774f7470b51cb45e99dd078859 | d78f4ee704a6c0d6f08dd961d41d87afad356a8d |
+| M | server/routes/crm-operations.ts | Server authority/consumer | 23c5894f471b69ebc5aa2c394d0044552ccb4c8c | 1b27469b76dd088603a495685333aa94aa28c0eb |
+| M | server/routes/deals.ts | Server authority/consumer | b0f2a5891c3342c4e808709871de467a8f5cc50c | bc6407fa72dd989774f20ae494a2db5ff2275211 |
+| M | server/routes/inbox.ts | Server authority/consumer | dfa9029b6e424008633d394b3cee0615169e538b | ba8821ee4c87b555c61a7a6a0aac34012716fdc0 |
+| M | server/routes/my-day.ts | Server authority/consumer | e86c5e8b35c764a335d6b090cb01f87819e24e35 | b9fb6e0f6ba09686f1f126de0620ae0f1d23ae97 |
+| M | server/routes/residuals.ts | Server authority/consumer | 8ca9280ca79ef21aed31b10f4e4c820f52c78ca9 | a620ec67edca2876c5598d312d3281ae79db5d21 |
+| M | server/routes/review-queue.ts | Server authority/consumer | 77d8d9c5b1a9288d781eb8a6b859b51a8cc80260 | 992be2164cfd9850dc0baf9b208f33c103b9633d |
+| M | server/routes/routes-revenue.ts | Server authority/consumer | 3dd20fe016a0d590b0d40ad62b6cf643fd529d02 | 0173f63cca7b6260e2989a7e8cacc9802b985977 |
+| A | server/routes/testimonials.ts | Server authority/consumer | 0000000000000000000000000000000000000000 | 669dbd4778460591de23ed591d82186ee4c5bcf3 |
+| M | server/routes/tickets-tasks.ts | Server authority/consumer | 7df806d2a2548b8d6790fa19cbeb7fd1ef5af97f | 7b439f3b66838a8d803b800ed357ac0b848821ec |
+| M | server/routes/workflows.ts | Server authority/consumer | a4a2af09ca829a965852b63b74842642fcc3e080 | 715215773a1d3de5392bee1c3f6850b19a90f86f |
+| M | server/services/chargeback-submission-service.ts | Server authority/consumer | fa042a189c5b9f08aafb7d524387d1c894c92209 | ca407c7445b3572b3ad7659c5cac54456292dc92 |
+| M | server/services/crm-fact-freshness.ts | Server authority/consumer | d575de5fb326af48c8e81acf3269cb70a021c3e3 | 31336828d8c15330158d25ab6b937a2b7ea963d0 |
+| M | server/services/deal-stage-service.ts | Server authority/consumer | d5a48c76fd1900814fa59ee26f0dc280e603708d | e7b5a34c01f8c165d264ee922b534701fdd619e5 |
+| M | server/services/merchant-mid-service.ts | Server authority/consumer | 09dc1735dda882e2e9399f5a22459fce2651b8cb | be85f3b1dbee08d138a74c7ff512f9e3c8e47e54 |
+| M | server/services/notification-authority.ts | Server authority/consumer | b5592bc357a364f1e6a997a3067078904cac31f3 | 0217733d3536c4ecd9f0a8fcbdaf6317790b5f8f |
+| A | server/services/onboarding-preparation-command.ts | Server authority/consumer | 0000000000000000000000000000000000000000 | a42587bbf926f158e72c1918ee25c38bbbfe2538 |
+| A | server/services/payout-ledger-projection.ts | Server authority/consumer | 0000000000000000000000000000000000000000 | facfea54d31859235692209f534f55768ce4cf65 |
+| A | server/services/residual-observation-projection.ts | Server authority/consumer | 0000000000000000000000000000000000000000 | 34efea22ce8db66efc0feb63b3f2da911e11cf94 |
+| M | server/services/revenue-read-authority.ts | Server authority/consumer | d97870cee59e554c9a0ad5257e0e66fe1ab8bfc9 | c358bfe88cbbba2eea732ee28da62b03551ef6d4 |
+| A | server/services/rfi-work-command.ts | Server authority/consumer | 0000000000000000000000000000000000000000 | d11718dae2e3de35fc550c37c2ef75d9b52f33d0 |
+| M | server/services/work-item-command.ts | Server authority/consumer | 25f4358c9964f25d38ca931cd45ca15b35dcd851 | 307f1ff4e7dfedb4120692f005db995d736b6fe9 |
+| M | server/storage.ts | Server authority/consumer | 2d1df3a4bdef570d806967683c781ccf016d1303 | 8d0753315c547bfa1a89b42741441f88e54e6d7c |
+| M | server/storage/churn.ts | Server authority/consumer | a4c60d0d630eddeecfac05f614b2df55d23be806 | 233396dde849bd49eb091ff444d6e1e7566b7ebd |
+| M | server/storage/deals.ts | Server authority/consumer | 2c40bc31693eb5410ca57ac564b1419f79082890 | cfa381a903817b989716583cf41a7c8c9da47a91 |
+| M | server/storage/misc.ts | Server authority/consumer | ce9de73c79219ae70ab0249462fe20e28b35fe91 | dddda3a85d266f12f227ba609ffb4a9d98e8b728 |
+| M | server/storage/reviews.ts | Server authority/consumer | e0b920c0a32ccab21fe676c8d3dfe5b1e331efa1 | a62cf50d9e5c5f9fceb93b90142acca031130ef7 |
+| M | server/storage/tasks.ts | Server authority/consumer | e4bd7b930c8365b1d6934c18c340924177513501 | 1415375eddbfd275405434cb1699f07a698e5e03 |
+| A | shared/nps-observation.ts | Shared contract/schema | 0000000000000000000000000000000000000000 | 723ff2d85e067dcc3feb905fd6afbf0f03670ece |
+| A | shared/onboarding-preparation.ts | Shared contract/schema | 0000000000000000000000000000000000000000 | 822c8a874154c28e35020a931ba4f06fe358793e |
+| A | shared/operations-report.ts | Shared contract/schema | 0000000000000000000000000000000000000000 | 5cbf818e40c62a756070c6c8cc60d6f154ef16d5 |
+| A | shared/residual-partner-observation.ts | Shared contract/schema | 0000000000000000000000000000000000000000 | 043f62249c13ed71034d4b8bfc5f9782fef9bee3 |
+| A | shared/residual-payee-observation.ts | Shared contract/schema | 0000000000000000000000000000000000000000 | bd70fdc70ecd4f48c3273b47f7e323368aa09208 |
+| A | shared/rfi-work-command.ts | Shared contract/schema | 0000000000000000000000000000000000000000 | f043329ae5e81755c8ba22b7330d95f5fc94d4f8 |
+| M | shared/schema.ts | Shared contract/schema | b13bab13e3d60d2362c32efa744fd15ec37083b5 | 3de580a78ad531976ecbfe089be0cdbab74c6e6b |
+| M | shared/work-item-commands.ts | Shared contract/schema | 68cfa7d12e28892e0473fa4ddc330c5fe78cd860 | eba5e81e5e4ad03f0df2dd071902fbf2945483e1 |
