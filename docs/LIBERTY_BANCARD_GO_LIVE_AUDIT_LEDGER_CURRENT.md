@@ -2032,3 +2032,10 @@ Source only: no migration, data write or control change. Roll back through the e
 ### 48.5 Forbidden-file check
 
 `git diff --name-only | rg 'ghl-sync-control|ghl-sync-runtime|outbound-pause|crm-theme|index.css|package(-lock)?.json'` returned nothing.
+
+### 48.6 V01 passive production observation (2026-10-28, after publish)
+
+- Public `/api/health` returned 200 with `sha` `be8f57fb2a9c…`, `env` production, `builtAt` 2026-10-28T20:38:49Z. That commit contains the P01 to P05 and Q01 files. The following "Published your App" commit `2b498b46` has an identical tree (empty diff against `be8f57fb`), so the running build matches the source verified in 48.2.
+- The site root returned 200. These were the only production reads made; no write, no emergency-stop click, no native or provider canary.
+- Authenticated pages (GHL Settings, Identity Health, Inbox Health, Operator Dashboard, Cr06 Governance catalog panel) were NOT verified; they need a signed-in session this environment does not have. Neither was it established that the optional/aggregate production reads show the new null/n-a states for real data.
+- The www hostname did not respond from this environment (connection failure); not investigated.
