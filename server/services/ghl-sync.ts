@@ -22,6 +22,7 @@ import {
   GHL_NO_USABLE_IDENTITY,
   GHL_EMAIL_VALIDATION_REJECTED,
 } from "./ghl";
+import { readGhlDashboardActivity } from "./ghl-dashboard-metrics";
 // Re-export the shared validation boundary so existing consumers/tests keep working.
 export { validateGhlIdentityFields, GHL_NO_USABLE_IDENTITY, GHL_EMAIL_VALIDATION_REJECTED };
 import { normalizeGhlId } from "../utils/normalize";
@@ -37,7 +38,7 @@ import {
   CONTACT_PROJECTION_MAX_ATTEMPTS, AMBIGUOUS_RETRY_MS, DEFERRAL_RETRY_MS,
   claimEligibleProjections, renewProjectionLease, reserveProjectionDispatch, settleProjection,
   clearProjectionAmbiguity, linkReconciledIdentity, hasUnsettledOperation, beginProjectionOperation, settleProjectionOperation, getUnresolvedCreateOperation,
-  markCreateOperationReconciled, GhlProjectionFenceError, type ClaimedProjection,
+  markCreateOperationReconciled, GhlProjectionFenceError, REJECTED_IDENTITY_TERMINAL_REASON, type ClaimedProjection,
 } from "./ghl-projection-authority";
 
 const GHL_SYNC_DEFERRED_STATS_KEY = "ghl_sync_deferred_stats";
@@ -145,6 +146,28 @@ async function reconcileAmbiguousProjection(
   if (op) await markCreateOperationReconciled(op.operationId, "linked");
   await clearProjectionAmbiguity(row);
   return { status: "resolved" };
+}
+
+export type ProjectionSkipDescription =
+  | { mode: "identity_rejection"; code: string }
+  | { mode: "wait"; code: string }
+  | { mode: "hold"; reason: string; code: string };
+
+/**
+ * Separates the general "skip" error class by what actually happened. Only a provider-invalid email (or a contact with
+ * no usable identity) is an identity rejection that fences an unchanged email/phone; configuration and pause-authority
+ * outcomes wait; relationship, stale remote link and local-record outcomes hold under their own reason.
+ */
+export function describeProjectionSkip(error: string | undefined): ProjectionSkipDescription {
+  const text = typeof error === "string" ? error : "";
+  if (text === GHL_NO_USABLE_IDENTITY || text === GHL_EMAIL_VALIDATION_REJECTED || isGhlEmailValidation422(text)) {
+    return { mode: "identity_rejection", code: text === GHL_NO_USABLE_IDENTITY || text === GHL_EMAIL_VALIDATION_REJECTED ? text : "GHL_EMAIL_VALIDATION_REJECTED" };
+  }
+  if (text === "GHL not configured") return { mode: "wait", code: "GHL_NOT_CONFIGURED" };
+  if (/blocked by pause authority/i.test(text)) return { mode: "wait", code: "GHL_BLOCKED_BY_PAUSE_AUTHORITY" };
+  if (text === "ghl_identity_conflict") return { mode: "hold", reason: "IDENTITY_NEEDS_REVIEW", code: "ghl_identity_conflict" };
+  if (isGhlNotFoundError(text)) return { mode: "hold", reason: "REMOTE_LINK_NOT_FOUND", code: text.slice(0, 120) };
+  return { mode: "hold", reason: "NOT_PROJECTABLE", code: (text || "skip").slice(0, 120) };
 }
 
 /** Execute one claimed projection: reserve, dispatch, settle by generation CAS. */
@@ -266,7 +289,18 @@ async function executeClaimedProjection(row: ClaimedProjection, deps: Projection
     return (await settleProjection(row, { kind: "deferred", code: "PROVIDER_AUTH_FAILURE", retryAfterMs: 5 * 60 * 1000 })) ? "auth" : "claim_lost";
   }
   if (kind === "skip") {
-    return (await settleProjection(row, { kind: "terminal", reason: "INVALID_OR_UNUSABLE_IDENTITY", code: kind, receipts, consumedAttempt: false, dispatched: evidence.dispatched, rejectedIdentity: true })) ? "skip" : "claim_lost";
+    const skip = describeProjectionSkip(error);
+    if (skip.mode === "identity_rejection") {
+      // Provider-rejected email or a locally unusable identity: the only outcomes that fence an unchanged identity.
+      return (await settleProjection(row, { kind: "terminal", reason: REJECTED_IDENTITY_TERMINAL_REASON, code: skip.code, receipts, consumedAttempt: false, dispatched: evidence.dispatched, rejectedIdentity: true })) ? "skip" : "claim_lost";
+    }
+    if (skip.mode === "wait") {
+      // Configuration or pause authority: nothing reached the provider and the cause is not the contact's identity.
+      return (await settleProjection(row, { kind: "deferred", code: skip.code, retryAfterMs: 15 * 60 * 1000 })) ? "deferred" : "claim_lost";
+    }
+    // Relationship, stale remote link or local-record outcomes keep their actual reason and no identity fence, so a
+    // repaired cause is reconsidered on the next enqueue even when email and phone are unchanged.
+    return (await settleProjection(row, { kind: "terminal", reason: skip.reason, code: skip.code, receipts, consumedAttempt: false, dispatched: evidence.dispatched })) ? "skip" : "claim_lost";
   }
   if (nextAttempt >= CONTACT_PROJECTION_MAX_ATTEMPTS) {
     return (await settleProjection(row, { kind: "terminal", reason: "MAX_ATTEMPTS_EXHAUSTED", code: thrown ? "PROJECTION_EXCEPTION" : kind, receipts, consumedAttempt: true, dispatched: evidence.dispatched })) ? "failure" : "claim_lost";
@@ -2151,76 +2185,25 @@ export async function getFullSyncDashboard() {
   // ── Wave 7: Expanded Sync Authority metrics ────────────────────────────────
   const circuitStatus = getGhlCircuitStatus();
 
-  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-  // Audit log based metrics
-  let failedSyncsLast24h: number | null = null;
-  let optOutEventsLast24h: number | null = null;
-  let lastCircuitTripAt: string | null = null;
-  try {
-    const auditLogs = await storage.getAuditLogs();
-    const recent = auditLogs.filter(l => l.createdAt && new Date(l.createdAt) >= twentyFourHoursAgo);
-    const failedCount = recent.filter(l => l.action === "ghl_sync_error" || l.action === "ghl_sync_failed").length;
-    const optOutCount = recent.filter(l =>
-      l.action === "contact_unsubscribed" ||
-      l.action === "contact_dnd_set"
-    ).length;
-    failedSyncsLast24h = failedCount;
-    optOutEventsLast24h = optOutCount;
-    const circuitTrip = auditLogs.find(l => l.action === "GHL_CIRCUIT_OPEN");
-    lastCircuitTripAt = circuitTrip?.createdAt ? new Date(circuitTrip.createdAt).toISOString() : null;
-  } catch { /* non-fatal */ }
-
-  // GHL activity log based metrics — use global query (no contactId filter)
-  let webhookEventsLast24h: number | null = null;
-  let permissionCheckCallsLast24h: number | null = null;
-  // null = the read failed (rendered "Unknown"); never a silent zero.
-  let fieldWriteErrors422: number | null = null;
-  let emailValidation422Count: number | null = null;
-  let unclassified422Count: number | null = null;
+  // Windowed audit/activity metrics come from scoped SQL aggregates (one asOf, one window, one scope). A failed
+  // section is null (unavailable), never zero, and no row cap can hide a late matching event.
+  const activity = await readGhlDashboardActivity(db);
+  const failedSyncsLast24h = activity.failedSyncs;
+  const optOutEventsLast24h = activity.optOutEvents;
+  const lastCircuitTripAt = activity.lastCircuitTripAt;
+  const webhookEventsLast24h = activity.webhookEvents;
+  const permissionCheckCallsLast24h = activity.permissionChecks;
+  const fieldWriteErrors422 = activity.fieldWriteErrors422;
+  const emailValidation422Count = activity.emailValidation422;
+  const unclassified422Count = activity.unclassified422;
+  const recent422Errors = activity.recent422;
   let missingGhlContactId: number | null = null;
-  let recent422Errors: Array<{ contactId: number | null; operation: string | null; httpStatus: number | null; createdAt: string | null; kind: "field_write" | "email_validation" | "unclassified" }> = [];
   try {
     // Exact count over every contact (the previous first-5000 sample under-reported on a larger book).
     const r = await db.execute(sql`SELECT count(*)::int AS n FROM contacts WHERE ghl_contact_id IS NULL AND COALESCE(btrim(email), '') <> ''`);
     missingGhlContactId = Number(((r as any).rows ?? r)[0]?.n ?? NaN);
     if (!Number.isFinite(missingGhlContactId)) missingGhlContactId = null;
   } catch { missingGhlContactId = null; }
-  try {
-    // Full-scope global query — getGhlActivityLogs() with no contactId returns all logs
-    const allActivityLogs = await storage.getGhlActivityLogs();
-    let fieldWrite = 0, emailValidation = 0, unclassified = 0, webhooks = 0, permChecks = 0;
-    for (const log of allActivityLogs) {
-      if (!log.createdAt || new Date(log.createdAt) < twentyFourHoursAgo) continue;
-      if (log.direction === "inbound") webhooks++;
-      if (log.channel === "permission_check") permChecks++;
-      if (log.channel === "sync_error") {
-        const meta = log.metadata as any;
-        if (meta?.httpStatus === 422 || meta?.httpStatus === "422") {
-          // A 422 is only a custom-field gap when the provider body names a custom field. Email-validation 422s are
-          // data-quality rejections of one record and must not raise the permission-field alert.
-          const body = String(meta?.errorBody ?? "");
-          const kind: "field_write" | "email_validation" | "unclassified" =
-            isGhlEmailValidation422(`GHL API error 422: ${body}`) ? "email_validation"
-            : /custom ?field|\blb_[a-z_]+|customFields/i.test(body) ? "field_write"
-            : "unclassified";
-          if (kind === "field_write") fieldWrite++; else if (kind === "email_validation") emailValidation++; else unclassified++;
-          if (recent422Errors.length < 10) {
-            recent422Errors.push({
-              contactId: log.contactId ?? null,
-              operation: meta?.operation ?? null,
-              httpStatus: meta?.httpStatus ? Number(meta.httpStatus) : 422,
-              createdAt: log.createdAt ? new Date(log.createdAt).toISOString() : null,
-              kind,
-            });
-          }
-        }
-      }
-    }
-    webhookEventsLast24h = webhooks; permissionCheckCallsLast24h = permChecks;
-    fieldWriteErrors422 = fieldWrite; emailValidation422Count = emailValidation; unclassified422Count = unclassified;
-  } catch { /* leaves the 422 counters null (unavailable) */ }
-
   const hasPermissionFieldGap = fieldWriteErrors422 === null ? null : fieldWriteErrors422 > 0;
 
   return {
@@ -2233,7 +2216,9 @@ export async function getFullSyncDashboard() {
       consecutiveFailures: circuitStatus.consecutiveFailures,
       threshold: circuitStatus.threshold,
       lastTripAt: lastCircuitTripAt,
+      lastEvent: activity.lastCircuitEvent,
     },
+    activityWindow: { ...activity.window, availability: activity.availability },
     failedSyncsLast24h,
     missingGhlContactId,
     fieldWriteErrors422,

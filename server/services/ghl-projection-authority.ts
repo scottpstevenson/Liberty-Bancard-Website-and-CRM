@@ -493,15 +493,18 @@ export async function settleProjection(row: ClaimedProjection, outcome: Projecti
         WHERE ${where} RETURNING id`);
       break;
     case "terminal": {
-      // A rejection is about the identity that was dispatched. When the contact was edited (and re-enqueued) while the
-      // request was in flight, desired_generation has advanced: the rejection must not terminally fence the newer
-      // intent, so the row returns to pending with a fresh budget and the corrected identity is dispatched.
+      // A rejection is about the identity that was dispatched. The row returns to pending with a fresh budget only when
+      // the contact's identity (email/phone fingerprint) actually changed after the claim AND a newer generation exists.
+      // A later generation whose identity is unchanged (a name or task edit) stays rejected: it must not re-dispatch the
+      // same rejected identity. Its newer intent is preserved and runs once a changed identity reopens the projection.
+      const liveFingerprint = sql`(SELECT ${sql.raw(IDENTITY_FINGERPRINT_SQL("rc"))} FROM contacts rc WHERE rc.id = contact_id)`;
+      const claimFingerprint = row.identityFingerprint ? sql`${row.identityFingerprint}::text` : liveFingerprint;
       const fingerprintExpr = outcome.rejectedIdentity !== true
         ? sql`'{}'::jsonb`
-        : row.identityFingerprint
-          ? sql`jsonb_build_object(${REJECTED_IDENTITY_FINGERPRINT_KEY}::text, ${row.identityFingerprint}::text)`
-          : sql`jsonb_build_object(${REJECTED_IDENTITY_FINGERPRINT_KEY}::text, (SELECT ${sql.raw(IDENTITY_FINGERPRINT_SQL("rc"))} FROM contacts rc WHERE rc.id = contact_id))`;
-      const newer = outcome.rejectedIdentity === true ? sql`desired_generation > ${row.claimedGeneration}` : sql`FALSE`;
+        : sql`jsonb_build_object(${REJECTED_IDENTITY_FINGERPRINT_KEY}::text, ${claimFingerprint})`;
+      const newer = outcome.rejectedIdentity === true
+        ? sql`(desired_generation > ${row.claimedGeneration} AND ${liveFingerprint} IS DISTINCT FROM ${claimFingerprint})`
+        : sql`FALSE`;
       result = await db.execute(sql`
         UPDATE contact_provider_projections SET
           state = CASE WHEN ${newer} THEN 'pending' ELSE 'terminal' END,

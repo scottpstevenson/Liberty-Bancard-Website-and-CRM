@@ -1,6 +1,8 @@
 /**
  * Stage 4A: retired pilot mutation entrances.
- * Handler-level (mini express app with a stub role gate) plus source assertions on server/routes/lead-ops.ts.
+ * HELPER SHAPE ONLY: a mini express app with a stub `x-role` gate exercises the fence handler's response shape, plus
+ * source assertions on server/routes/lead-ops.ts. It does NOT prove real sessions, CSRF, requireRole or side effects;
+ * that proof is scripts/test-stage4a-retired-routes-registered.ts (registered handlers + DB counts).
  * No database, provider, GHL or queue access.
  */
 import assert from "node:assert/strict";
@@ -15,7 +17,6 @@ const ok = (name: string) => { passed++; console.log(`  ✅ ${name}`); };
 async function main() {
   const app = express();
   app.use(express.json());
-  let sideEffects = 0;
   // Stub gate: 401 without x-role, 403 unless admin, mirrors requireRole("admin") ordering.
   const gate = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const role = req.header("x-role");
@@ -47,8 +48,6 @@ async function main() {
       assert.deepEqual(b2, b1);
     }
     ok(`all ${RETIRED_PILOT_ENTRANCES.length} retired entrances: anon 401, wrong role 403, admin stable 410 performed:false`);
-    assert.equal(sideEffects, 0);
-    ok("no side effects recorded");
   } finally {
     server.close();
   }

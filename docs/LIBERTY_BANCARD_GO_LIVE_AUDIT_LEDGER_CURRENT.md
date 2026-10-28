@@ -1984,3 +1984,51 @@ A code review found that a contact edit enqueued while a request was in flight a
 ### 47.7 Review finding fixed: non-replies stamping `lastReplyAt`
 
 The completion review found that `handleMessageReceived` excluded only failed SMS from the `lastReplyAt` update, so failed email, delivered outbound notifications and inbound STOP messages still counted as engagement. `server/services/sdr/webhook-handlers.ts` now classifies the webhook once with `classifySdrEventKind` and only a genuine inbound reply updates `lastReplyAt`, runs intent classification or moves the stage; opt-outs and every delivery outcome do not. `scripts/test-stage4a-metrics-truth.ts` section 8 drives the real handler for failed SMS, failed email, undelivered, delivered outbound, STOP and a genuine reply and reads the stored state; exit 0 on a disposable database.
+
+## 48. Stage 4A post-publish follow-up P01 to P05 and Q01 (2026-10-28; source, not yet published)
+
+Scope: bounded repairs to the Stage 4A work in section 47. History retirement, the emergency stop, real package ownership, nullable schedules, queue selection and the Contact partial/paused receipts are unchanged. No control, epoch, owner, native approval, production link/projection, campaign content, schedule, provider job, theme, sidebar, dependency or lockfile was touched, and the CR-06 manifest was not applied. Outbound stays paused and outgoing GHL stays owner-paused.
+
+### 48.1 What changed
+
+| Item | Change |
+|---|---|
+| P01 | Projection skips are described by `describeProjectionSkip`; only true identity rejections (email-validation 422, no usable identity) record the identity fingerprint. Stale links, identity conflicts, not-configured and pause-blocked outcomes keep their own reason or wait. |
+| P02 | Catalog truth is derived from pinned package facts (`shared/catalog-truth-contract.ts`, `server/services/catalog-truth.ts`): class, readiness facts (configured, selected, contentVerified, qualified, paused, statusActive, runtimeSelected, operationalEvidence, nativeEffectVerified) and a shared pin-conflict result. Preflight splits `active_sequences` (installation only) from `package_qualification`. |
+| P03 | `CatalogTruthPanel` (loading / denied / unavailable with Retry / successful empty / populated) mounted in Cr06Governance. Retired-entrance replacement text names the selected program's governed owner. |
+| P04 | `getFullSyncDashboard` reads 24h counts from scoped SQL aggregates (`server/services/ghl-dashboard-metrics.ts`): one asOf, window and scope; each section fails independently to null; 422 email / custom-field / unknown are classified in SQL; only the 10-row detail sample is bounded. The circuit block returns the latest event (so a later close is visible) alongside the last trip. GhlSettings shows the window and the close. |
+| P05 | `getIdentityHealthReport` and `getSendMonitoringData` return null rates and an `evidence` block (basis, denominator, sufficient) when there are zero sends; overall capacity is null with no limits. IdentityHealthDashboard separates denied / unavailable (with a read-only Retry) / successful empty. InboxHealth and OperatorDashboard show n/a, unknown health is no longer a green 100, and the domain summary averages known scores only with known/total coverage (a real 0 is preserved). Helpers: `shared/rate-evidence.ts`, `client/src/lib/domain-health-summary.ts`. |
+| Q01 | New and previously unregistered suites are registered (see 48.2). Real registered-handler tests added for the retired entrances. Phone-only and 422 proof added to the projection certification through the real worker and a fake HTTP provider. |
+
+### 48.2 Registered / selected / executed / passed
+
+"Registered" = in a roster (`pre-deploy.ts`; the two mandatory ones also in `ci-suite-manifest.ts`, `--check` passes with 241 classified). "Selected and executed" = run through `run-sfp2060-predeploy-disposable.ts --only <script>` on a fresh private database and Redis, or directly. Every row below was registered, selected, executed and passed unless noted.
+
+| Suite | Roster | Result |
+|---|---|---|
+| `test-stage4a-ghl-dashboard-metrics.ts` (new) | fixture suites | exit 0: exact zero; 700+600 mixed rows with late matches; outside-window and after-asOf rows excluded; open / auth-open / closed circuit; 422 email / custom-field / unknown separated; failures injected per section give null, never zero; `getFullSyncDashboard` contract |
+| `test-stage4a-identity-health-metrics.ts` (new) | fixture suites | exit 0: zero-send and outside-window identities give null rates; real 0% with sends stays 0%; alerts unchanged |
+| `test-stage4a-retired-routes-registered.ts` (new) | fixture suites | exit 0: real `registerLeadOpsRoutes`, persisted sessions, CSRF and `requireRole`: all 14 retired entrances refuse anonymous, five non-admin roles and admin-without-CSRF, admin with CSRF gets the stable 410; row counts and provider/system control fingerprints unchanged; emergency stop probed for denial only |
+| `test-stage4a-ui-render.mjs` (new wrapper: `test-ghl-sync-status-render.tsx` 8 checks, `test-stage4a-catalog-ui.tsx` 8 checks, `test-stage4a-identity-health-ui.tsx` 7 checks) | mandatory + manifest | exit 0. These are `renderToStaticMarkup` of pure view components, not a jsdom or browser mount. |
+| `test-http-client-error.ts` | mandatory + manifest | exit 0. Registered because it was an unregistered deterministic test in the repo; whether it was part of the #2106 baseline was not established. |
+| `certification/test-ghl-projection-authority.ts` | fixture suites | exit 0, 309 checks including GPA-37 to GPA-48 and the new Q01 checks GPA-173 to GPA-176 (phone-only 422 is retryable and consumes budget with no fence; email-validation 422 fences once and is not re-dispatched unchanged) |
+| `test-stage4a-catalog-truth.ts`, `test-stage4a-retired-pilot-routes.ts`, `test-stage4a-metrics-truth.ts`, `test-stage4a-operational-truth.ts`, `test-ghl-contact-validation.ts` | fixture suites | each exit 0 on the final tree |
+| `test-stage4a-browser-pilot-history.ts` | fixture suites | first run exit 1 at "denied: access is refused visibly or the panel is not mounted" (the wait returned before the page rendered); rerun on the same build exit 0. Treat as a timing flake in the test, not fixed here. |
+| `npm run build` | n/a | exit 0 |
+
+`test-stage4a-retired-pilot-routes.ts` is still helper-shape only (stub `x-role` gate); its header now says so and the unconnected `sideEffects` counter was removed. The real-handler proof is the new registered-routes suite.
+
+### 48.3 Not established
+
+- The full TypeScript check was not run. The full pre-deploy roster, `role-guards` and `api-coverage` workflows were not re-run for this follow-up.
+- `GhlSettings` and the other changed pages were not opened in a real browser by this follow-up except through the pilot-history browser suite; the new UI states are verified by static markup only.
+- Authenticated production pages cannot be verified from here. No production emergency stop was clicked and no native or provider canary was run.
+- `cro03c-level1-certification.ts` phase 2c (see 47.4) was not re-run and remains a known failure.
+
+### 48.4 Rollback
+
+Source only: no migration, data write or control change. Roll back through the existing publishing rollback. No manual database, consent or GHL rollback and no production backfill is needed.
+
+### 48.5 Forbidden-file check
+
+`git diff --name-only | rg 'ghl-sync-control|ghl-sync-runtime|outbound-pause|crm-theme|index.css|package(-lock)?.json'` returned nothing.

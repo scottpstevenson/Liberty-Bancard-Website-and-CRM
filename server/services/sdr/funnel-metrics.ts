@@ -3,6 +3,7 @@ import { dailyFunnelMetrics, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sd
 import type { DailyFunnelMetrics } from "@shared/schema";
 import { eq, sql, and, gte, lte } from "drizzle-orm";
 // CRO-02 observation runs via the CRO02_OBSERVATION BullMQ job — not called inline here.
+import { ratePercent, type RateEvidence } from "@shared/rate-evidence";
 
 let aggregationInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -300,7 +301,10 @@ export async function getIdentityHealthReport(): Promise<any[]> {
     );
 
     const stats = perf[0] || {};
-    const sent = (stats.totalSent || 0) || 1;
+    // sum() arrives as a string and is null with no rows: normalize, and never substitute 1 for a zero denominator.
+    const sent = Number(stats.totalSent ?? 0);
+    const bounced = Number(stats.totalBounced ?? 0);
+    const complaints = Number(stats.totalComplaints ?? 0);
 
     return {
       id: identity.id,
@@ -313,14 +317,16 @@ export async function getIdentityHealthReport(): Promise<any[]> {
       sentToday: identity.sentToday || 0,
       // 0 is a real score; a missing score is null (unknown), never a defaulted 100.
       healthScore: identity.healthScore ?? null,
-      bounceRate: Math.round(((stats.totalBounced || 0) / sent) * 100),
-      replyRate: Math.round(((stats.totalReplied || 0) / sent) * 100),
-      complaintRate: Math.round(((stats.totalComplaints || 0) / sent) * 1000) / 10,
-      openRate: Math.round(((stats.totalOpened || 0) / sent) * 100),
-      weekSent: stats.totalSent || 0,
+      // null = no sends in the window, so there is no evidence for a rate; a real 0% needs a non-zero denominator.
+      bounceRate: ratePercent(stats.totalBounced, sent, 0),
+      replyRate: ratePercent(stats.totalReplied, sent, 0),
+      complaintRate: ratePercent(stats.totalComplaints, sent, 1),
+      openRate: ratePercent(stats.totalOpened, sent, 0),
+      weekSent: sent,
+      evidence: { basis: "emails sent over the trailing 7 EST days (identity_performance_daily)", denominator: sent, sufficient: sent > 0 } satisfies RateEvidence,
       alert: identity.healthScore != null && identity.healthScore < 70 ? "degraded" :
-             (stats.totalComplaints || 0) > 2 ? "complaints" :
-             ((stats.totalBounced || 0) / sent) > 0.1 ? "high_bounce" : null,
+             complaints > 2 ? "complaints" :
+             sent > 0 && bounced / sent > 0.1 ? "high_bounce" : null,
     };
   }));
 }
@@ -656,10 +662,12 @@ export async function getSendMonitoringData(): Promise<any> {
         complaints: s.totalComplaints || 0,
         opened: s.totalOpened || 0,
         positiveReplies: s.totalPositiveReplies || 0,
-        bounceRate: sent > 0 ? Math.round(((s.totalBounced || 0) / sent) * 1000) / 10 : 0,
-        replyRate: sent > 0 ? Math.round(((s.totalReplied || 0) / sent) * 1000) / 10 : 0,
-        complaintRate: sent > 0 ? Math.round(((s.totalComplaints || 0) / sent) * 1000) / 10 : 0,
-        openRate: sent > 0 ? Math.round(((s.totalOpened || 0) / sent) * 1000) / 10 : 0,
+        // null = zero sends in the window (insufficient evidence), never 0%.
+        bounceRate: ratePercent(s.totalBounced, sent, 1),
+        replyRate: ratePercent(s.totalReplied, sent, 1),
+        complaintRate: ratePercent(s.totalComplaints, sent, 1),
+        openRate: ratePercent(s.totalOpened, sent, 1),
+        evidence: { basis: "emails sent over the trailing 7 EST days (identity_performance_daily)", denominator: Number(sent), sufficient: Number(sent) > 0 } satisfies RateEvidence,
       },
     };
   }));
@@ -728,7 +736,8 @@ export async function getSendMonitoringData(): Promise<any> {
       activeIdentities: identities.filter(i => i.isActive).length,
       totalSentToday: totalSent,
       totalDailyLimit: totalLimit,
-      overallCapUtilization: totalLimit > 0 ? Math.round((totalSent / totalLimit) * 100) : 0,
+      // null = no daily limit configured on any identity, so there is no capacity to measure against.
+      overallCapUtilization: totalLimit > 0 ? Math.round((totalSent / totalLimit) * 100) : null,
       smtpFallbacksLast24h: channelCountsAvailable ? smtpFallbacksLast24h : null,
       ghlSendsLast24h: channelCountsAvailable ? ghlSendsLast24h : null,
     },

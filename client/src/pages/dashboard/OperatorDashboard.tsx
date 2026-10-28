@@ -1,4 +1,5 @@
 import { systemState, systemUrl, operatorViews } from "@/lib/crm-destination-state";
+import { formatRate } from "@shared/rate-evidence";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -879,10 +880,11 @@ interface SendMonitoringIdentity {
     complaints: number;
     opened: number;
     positiveReplies: number;
-    bounceRate: number;
-    replyRate: number;
-    complaintRate: number;
-    openRate: number;
+    // null = zero sends in the window (insufficient evidence), not 0%.
+    bounceRate: number | null;
+    replyRate: number | null;
+    complaintRate: number | null;
+    openRate: number | null;
   };
 }
 
@@ -900,7 +902,7 @@ interface SendMonitoringData {
     activeIdentities: number;
     totalSentToday: number;
     totalDailyLimit: number;
-    overallCapUtilization: number;
+    overallCapUtilization: number | null;
     smtpFallbacksLast24h?: number | null;
     ghlSendsLast24h?: number | null;
     channelCountsAvailable?: boolean;
@@ -1228,7 +1230,7 @@ function SendMonitoringPanel() {
         <KpiCard label="Total Identities" value={agg?.totalIdentities || 0} icon={Mail} color="text-blue-600" />
         <KpiCard label="Active" value={agg?.activeIdentities || 0} icon={Activity} color="text-green-600" />
         <KpiCard label="Sent Today" value={agg?.totalSentToday || 0} icon={Send} color="text-purple-600" subtext={`of ${agg?.totalDailyLimit || 0} limit`} />
-        <KpiCard label="Cap Used" value={agg?.overallCapUtilization || 0} icon={BarChart3} color="text-orange-600" suffix="%" />
+        <KpiCard label="Cap Used" value={agg?.overallCapUtilization ?? "N/A"} icon={BarChart3} color="text-orange-600" suffix={agg?.overallCapUtilization == null ? "" : "%"} />
         <KpiCard
           label="Contacts Written Back"
           value={bounceFeedback?.contactsWrittenBackToday ?? 0}
@@ -1365,11 +1367,11 @@ function SendMonitoringPanel() {
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground">7d Bounced</div>
-                  <div className="font-medium text-red-600">{identity.week.bounced} ({identity.week.bounceRate}%)</div>
+                  <div className="font-medium text-red-600">{identity.week.bounced} ({formatRate(identity.week.bounceRate)})</div>
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground">7d Replied</div>
-                  <div className="font-medium text-green-600">{identity.week.replied} ({identity.week.replyRate}%)</div>
+                  <div className="font-medium text-green-600">{identity.week.replied} ({formatRate(identity.week.replyRate)})</div>
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground">Inbox Bounces Today</div>
@@ -1405,7 +1407,7 @@ function SendMonitoringPanel() {
               {identity.week.complaints > 0 && (
                 <div className="mt-2 flex items-center gap-1 text-xs text-red-600">
                   <AlertTriangle className="w-3 h-3" />
-                  {identity.week.complaints} complaint(s) this week ({identity.week.complaintRate}%)
+                  {identity.week.complaints} complaint(s) this week ({formatRate(identity.week.complaintRate)})
                 </div>
               )}
             </CardContent>

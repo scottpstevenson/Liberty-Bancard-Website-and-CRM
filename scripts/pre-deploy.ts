@@ -148,7 +148,13 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
     timeoutSecs:300,requiresDisposableTestDatabase:true},
   {name:"Stage 4A retired pilot routes and read-only history",script:"scripts/test-stage4a-retired-pilot-routes.ts",
     timeoutSecs:300,requiresDisposableTestDatabase:true},
+  {name:"Stage 4A retired pilot routes (registered handlers, sessions/CSRF/roles, DB counts)",script:"scripts/test-stage4a-retired-routes-registered.ts",
+    timeoutSecs:300,requiresDisposableTestDatabase:true},
   {name:"Stage 4A derived catalog truth",script:"scripts/test-stage4a-catalog-truth.ts",
+    timeoutSecs:300,requiresDisposableTestDatabase:true},
+  {name:"Stage 4A GHL dashboard scoped aggregates",script:"scripts/test-stage4a-ghl-dashboard-metrics.ts",
+    timeoutSecs:300,requiresDisposableTestDatabase:true},
+  {name:"Stage 4A identity health insufficient-evidence rates",script:"scripts/test-stage4a-identity-health-metrics.ts",
     timeoutSecs:300,requiresDisposableTestDatabase:true},
   {name:"Stage 4A metrics truth (step totals, health, stage precedence, event kinds)",script:"scripts/test-stage4a-metrics-truth.ts",
     timeoutSecs:300,requiresDisposableTestDatabase:true},
@@ -305,6 +311,8 @@ export const MANDATORY_SUITES: Suite[] = [
   { name: "GHL Inbound Service and Redirect Certification", script: "scripts/test-ghl-inbound-sync-integration.ts", timeoutSecs: 180 },
   { name: "GHL Inbound UI Static Render", script: "scripts/test-ghl-inbound-ui-render.mjs", timeoutSecs: 60 },
   { name: "Stage 3 A Sequence Runtime UI Static Render", script: "scripts/test-stage3-a-runtime-render.mjs", timeoutSecs: 60 },
+  { name: "Stage 4A UI Static Render (GHL sync status, catalog truth, identity health)", script: "scripts/test-stage4a-ui-render.mjs", timeoutSecs: 120 },
+  { name: "HTTP Client Error Handler (real-socket malformed requests)", script: "scripts/test-http-client-error.ts", timeoutSecs: 60 },
   // ── Static / pure-function suites (no server required) ───────────────────
   {
     name: "Migration Integrity Check (journal consistency, unjournaled files, high-water enforcement)",

@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { CatalogTruthPanel, describeCr06Programs, describeCr06ObjectClasses } from "@/components/dashboard/CatalogTruthPanel";
 
 type Manifest = {
   manifestVersion: string;
@@ -41,7 +42,7 @@ type Catalog = {
     contentHash: string;
     document: { name?: string; audience?: string };
   }>;
-  legacy: { campaigns: unknown[]; sequences: unknown[] };
+  legacy: { campaigns: Array<{ catalogClass?: string }>; sequences: Array<{ catalogClass?: string }> };
 };
 
 async function jsonRequest(method: string, url: string, body?: unknown, idempotencyKey?: string) {
@@ -166,11 +167,13 @@ export default function Cr06Governance() {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Governed catalog</CardTitle>
-            <CardDescription>Legacy objects remain visible and review-required; no approval history is inferred.</CardDescription>
+            <CardDescription>Only unresolved objects are review-required; no approval history is inferred.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            {programs.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Apply the rollout manifest to install the three review-ready programs.</p>
+            {programs.length === 0 || catalog.error || catalog.isLoading ? (
+              <p className="text-sm text-muted-foreground" data-testid="cr06-programs-state">
+                {describeCr06Programs({ programs: programs.length, error: catalog.error as Error | null, loading: catalog.isLoading })}
+              </p>
             ) : programs.map((program) => (
               <div key={program.id} className="flex flex-col gap-2 rounded-md border p-3 md:flex-row md:items-center md:justify-between">
                 <div>
@@ -190,11 +193,13 @@ export default function Cr06Governance() {
               </div>
             ))}
             <p className="text-xs text-muted-foreground">
-              Legacy: {catalog.data?.legacy.campaigns.length ?? 0} campaigns and {catalog.data?.legacy.sequences.length ?? 0} sequences classified as review-required.
+              {describeCr06ObjectClasses(catalog.data?.legacy)}
             </p>
           </CardContent>
         </Card>
       </div>
+
+      <CatalogTruthPanel />
 
       <Card data-testid="cro07-status-panel">
         <CardHeader>

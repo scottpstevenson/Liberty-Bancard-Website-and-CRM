@@ -108,7 +108,11 @@ interface SyncDashboard {
     consecutiveFailures: number;
     threshold: number;
     lastTripAt: string | null;
+    /** Latest circuit event of any kind (including a later close), so a recovery is not hidden by an older trip. */
+    lastEvent?: { action: string; at: string } | null;
   };
+  /** One window/scope for every 24h count below; a section with availability false is unavailable, not zero. */
+  activityWindow?: { asOf: string; since: string; hours: number; availability: { audit: boolean; activity: boolean; circuit: boolean } };
   // null = that read failed and the value is unavailable (never shown as zero).
   failedSyncsLast24h?: number | null;
   missingGhlContactId?: number | null;
@@ -716,9 +720,18 @@ export default function GhlSettings() {
                   </Alert>
                 )}
 
+                {syncDashboard.activityWindow && (
+                  <p className="text-xs text-muted-foreground" data-testid="text-activity-window">
+                    24h counts as of {new Date(syncDashboard.activityWindow.asOf).toLocaleString()}, all contacts
+                    {Object.values(syncDashboard.activityWindow.availability).every(Boolean) ? "" : " (some sections unavailable, shown as Unknown)"}
+                  </p>
+                )}
                 {syncDashboard.circuitState?.lastTripAt && (
                   <div className="text-xs text-muted-foreground">
                     <p>Last circuit trip: {new Date(syncDashboard.circuitState.lastTripAt).toLocaleString()}</p>
+                    {syncDashboard.circuitState.lastEvent && syncDashboard.circuitState.lastEvent.action === "GHL_CIRCUIT_CLOSED" && (
+                      <p data-testid="text-circuit-last-event">Closed again: {new Date(syncDashboard.circuitState.lastEvent.at).toLocaleString()}</p>
+                    )}
                     {circuitStatus?.lastTripReason && (
                       <p className="text-amber-700 dark:text-amber-400 mt-0.5" data-testid="text-circuit-trip-reason">Reason: {circuitStatus.lastTripReason}</p>
                     )}

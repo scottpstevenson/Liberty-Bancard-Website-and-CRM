@@ -4397,15 +4397,32 @@ export function registerAdminRoutes(app: Express) {
         });
       } else {
         const currentPkgs = catalog.packages.filter((p) => p.catalogClass === "current");
+        const unresolvedCurrent = catalog.packages.filter((p) => p.lifecycleState === "current" && p.catalogClass === "unresolved").length;
         const configured = currentPkgs.filter((p) => p.readiness.configured.state === "yes").length;
         const qualified = currentPkgs.filter((p) => p.readiness.qualified.state === "yes").length;
+        const unqualified = currentPkgs.filter((p) => p.readiness.qualified.state === "no").length;
+        const unread = currentPkgs.filter((p) => p.readiness.qualified.state === "unavailable").length;
+        // Installed/configured is installation only. It is never reported as qualification or permission to launch.
         checks.push({
           id: "active_sequences",
-          label: "Sequence catalog (derived from package pins)",
+          label: "Package pins installed (installation only, not launch permission)",
           status: currentPkgs.length > 0 && configured === currentPkgs.length ? "pass" : "fail",
-          detail: `${currentPkgs.length} current package(s) pinned, ${configured} with resolved pins, ${qualified} qualified; `
-            + `${catalog.statusActiveSequences.count ?? "unknown"} sequence(s) have status 'active' (status is not readiness proof). `
-            + `Native effects unverified (CRO-07 ${catalog.cro07.productionConnected ? "connected" : "disconnected"}).`,
+          detail: `${currentPkgs.length} current package(s) pinned, ${configured} with resolved pins`
+            + `${unresolvedCurrent > 0 ? `, ${unresolvedCurrent} current package(s) with conflicting pins` : ""}; `
+            + `${catalog.statusActiveSequences.count ?? "unknown"} sequence(s) have status 'active' (status is not readiness proof).`,
+        });
+        // Qualification rests on read content/hash/approval evidence; runtime and native effects are separate and unverified.
+        checks.push({
+          id: "package_qualification",
+          label: "Package qualification (content, hash and approval evidence)",
+          status: currentPkgs.length === 0 ? "fail"
+            : unqualified > 0 ? "fail"
+            : unread > 0 ? "blocked"
+            : "pass",
+          detail: `${qualified} of ${currentPkgs.length} current package(s) qualified`
+            + `${unqualified > 0 ? `; ${unqualified} not qualified` : ""}${unread > 0 ? `; ${unread} with unread evidence` : ""}. `
+            + `Runtime selection, operational receipts and native effects are separate facts and are not proven by this check `
+            + `(CRO-07 production transport ${catalog.cro07.productionConnected ? "connected" : "disconnected"}).`,
         });
       }
 

@@ -302,6 +302,52 @@ check(!(await claimable([cLive])), "A contact reclassified as test after enqueue
     check(dispatchedEmails.length === 2 && dispatchedEmails[0] !== dispatchedEmails[1] && fin.state === "succeeded",
       "N01 race: the corrected identity is dispatched and succeeds");
   }
+  // P01: an unrelated edit enqueued during the in-flight rejected request must NOT readmit the same rejected identity.
+  {
+    const cSame = await mkContact();
+    await enqueue(cSame);
+    let sameDispatches = 0;
+    const sameSync = async (id: number) => {
+      if (id !== cSame) return syncOk();
+      sameDispatches++;
+      if (sameDispatches === 1) {
+        await pool.query(`UPDATE contacts SET first_name='Unrelated' WHERE id=$1`, [id]);
+        const o = await enqueue(id, "contact_edit_unrelated");
+        check(o.action === "coalesced", "P01 race: an unrelated edit during the in-flight request coalesces onto the processing row");
+      }
+      return { success: false, error: rejectErr };
+    };
+    await sync.processEligibleContactProjections(50, { syncFn: sameSync });
+    const mid = (await projRows(cSame))[0];
+    check(mid.state === "terminal" && mid.terminal_reason === "INVALID_OR_UNUSABLE_IDENTITY" && typeof mid.component_receipts?.rejectedIdentityFingerprint === "string"
+      && Number(mid.desired_generation) > 1 && sameDispatches === 1,
+      "P01 race: an unchanged rejected identity stays fenced when only a non-identity edit arrived in flight (newer intent retained)");
+    await makeDue(cSame);
+    await sync.processEligibleContactProjections(50, { syncFn: sameSync });
+    check(sameDispatches === 1 && !(await claimable([cSame])), "P01 race: no second invalid-identity dispatch occurs");
+    await pool.query(`UPDATE contacts SET email=$2 WHERE id=$1`, [cSame, `gpa-${run}-same-fixed@fixture.invalid`]);
+    check((await enqueue(cSame)).action === "reopened", "P01 race: a later real identity change reopens the retained intent");
+  }
+  // P01: non-identity skip outcomes get their own state and never record an email/phone fence.
+  for (const c of [
+    { label: "stale remote link (400 not found)", error: 'GHL API error 400: {"message":"Contact not found"}', state: "terminal", reason: "REMOTE_LINK_NOT_FOUND" },
+    { label: "identity conflict", error: "ghl_identity_conflict", state: "terminal", reason: "IDENTITY_NEEDS_REVIEW" },
+    { label: "GHL not configured", error: "GHL not configured", state: "retry", reason: null },
+    { label: "pause authority block", error: "Contact sync blocked by pause authority", state: "retry", reason: null },
+  ]) {
+    const cx = await mkContact();
+    await enqueue(cx);
+    let calls = 0;
+    await sync.processEligibleContactProjections(50, { syncFn: async (id) => { if (id !== cx) return syncOk(); calls++; return { success: false, error: c.error }; } });
+    const r = (await projRows(cx))[0];
+    check(r.state === c.state && r.terminal_reason === c.reason && !r.component_receipts?.rejectedIdentityFingerprint && Number(r.attempt_count) === 0 && calls === 1,
+      `P01: ${c.label} is not recorded as a rejected identity and consumes no budget`);
+    if (c.state === "terminal") {
+      check((await enqueue(cx)).action === "reopened", `P01: ${c.label} is reconsidered on the next enqueue although email and phone are unchanged`);
+    } else {
+      check(!!r.next_attempt_at && new Date(r.next_attempt_at).getTime() > Date.now() + 60_000, `P01: ${c.label} waits (deferred) instead of terminating`);
+    }
+  }
   // Rejections recorded before fingerprints existed are reconsidered once, not forever.
   const cLegacy = await mkContact();
   await enqueue(cLegacy);
@@ -904,7 +950,7 @@ server.close();
   const behaviour = {
     fuzzyEmail: false, loseNextPost: false, failCustomFieldPut: false, duplicate400For: null as string | null, failPutFor: null as string | null,
     lookupMode: "normal" as "normal" | "noEmail" | "unsupported", dupRemoteEmail: null as string | null, duplicate400Phone: null as string | null,
-    failTagPut: false, tagStatus: 0, inventoryDown: false, extraWorkflows: [] as any[],
+    failTagPut: false, tagStatus: 0, reject422For: null as null | { field: "email" | "phone"; value: string; body: string }, inventoryDown: false, extraWorkflows: [] as any[],
   };
   const remoteTags = new Map<string, Set<string>>();
   const journeyResponder = (call: Call, body: any): Response => {
@@ -929,6 +975,9 @@ server.close();
       if ((behaviour.duplicate400For && body?.email === behaviour.duplicate400For)
         || (behaviour.duplicate400Phone && body?.phone === behaviour.duplicate400Phone)) {
         return json({ message: "This location does not allow duplicated contacts.", meta: { contactId: "remote_dup_1" } }, 400);
+      }
+      if (behaviour.reject422For && body?.[behaviour.reject422For.field] === behaviour.reject422For.value) {
+        return json(JSON.parse(behaviour.reject422For.body), 422);
       }
       const created: Remote = { id: `remote_${run}_${++remoteSeq}`, email: body?.email || null, phone: body?.phone || null, dateAdded: new Date().toISOString() };
       remote.set(created.id, created);
@@ -1114,6 +1163,35 @@ server.close();
   await runWorker();
   check(!ghlCalls.slice(mark).some(c => c.method === "PUT") && (await linkedOf(cD4)).ghl_contact_id === null && /duplicate_phone_requires_review/.test(String((await projRows(cD4))[0].last_error_code)),
     "H1 case 2: a phone-only duplicate-400 is never linked");
+  // Q01: provider 422s through the real worker + fake HTTP provider. A phone-only contact rejected on its PHONE is a
+  // retryable provider failure (budget consumed, no identity fence); an email-validation 422 is the only rejection
+  // that fences an unchanged identity, and it is never retried until the identity changes.
+  behaviour.duplicate400Phone = null;
+  const cQ1 = await mkContact({ phoneOnly: true });
+  behaviour.reject422For = { field: "phone", value: (await contactIdentity(cQ1)).phone!, body: JSON.stringify({ message: ["phone must be a valid phone number"] }) };
+  await enqueue(cQ1);
+  mark = ghlCalls.length;
+  await runWorker();
+  const q1 = (await projRows(cQ1))[0];
+  check(ghlCalls.slice(mark).filter(c => c.method === "POST").length >= 1 && (await linkedOf(cQ1)).ghl_contact_id === null,
+    "Q01: a phone-only contact rejected on its phone reached the provider and was not linked");
+  check(q1.state === "retry" && Number(q1.attempt_count) === 1 && !q1.component_receipts?.rejectedIdentityFingerprint && q1.terminal_reason !== "INVALID_OR_UNUSABLE_IDENTITY",
+    "Q01: a phone-only 422 is a retryable failure that consumes budget and records no identity fence");
+  const cQ2 = await mkContact();
+  behaviour.reject422For = { field: "email", value: (await contactIdentity(cQ2)).email!, body: JSON.stringify({ message: ["email must be an email"] }) };
+  await enqueue(cQ2);
+  mark = ghlCalls.length;
+  await runWorker();
+  const q2 = (await projRows(cQ2))[0];
+  const q2Posts = ghlCalls.slice(mark).filter(c => c.method === "POST" && !/search/.test(c.url)).length;
+  check(q2.state === "terminal" && !!q2.component_receipts?.rejectedIdentityFingerprint && Number(q2.attempt_count) === 0,
+    "Q01: an email-validation 422 fences the unchanged identity without consuming the failure budget");
+  mark = ghlCalls.length;
+  const q2Again = await enqueue(cQ2);
+  await runWorker();
+  check(!ghlCalls.slice(mark).some(c => c.method === "POST" && !/search/.test(c.url)) && q2Posts >= 1 && q2Again.action !== "reopened",
+    "Q01: the unchanged rejected identity is not re-dispatched on the next enqueue");
+  behaviour.reject422For = null;
   await pool.query(`UPDATE contacts SET ghl_contact_id = NULL WHERE ghl_contact_id = 'remote_dup_1'`);
   const cD5 = await mkContact();
   behaviour.duplicate400Phone = null; behaviour.duplicate400For = (await contactIdentity(cD5)).email; behaviour.dupRemoteEmail = behaviour.duplicate400For!.toUpperCase();

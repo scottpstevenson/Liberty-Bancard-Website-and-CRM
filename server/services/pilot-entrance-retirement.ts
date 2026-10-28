@@ -22,7 +22,7 @@ export interface PilotEntranceDisposition {
   disposition: "retired";
 }
 
-const GOVERNED = "CR-06 governed preflight, gate and prepare/hold commands (preparation ends READY_HELD, sending off)";
+const GOVERNED = "The selected program's governed owner (see the catalog for the current package path; CR-06 governed commands apply only where that program is installed). Nothing here starts or sends.";
 const mk = (key: string, method: "POST" | "PUT", route: string, authority = GOVERNED): PilotEntranceDisposition =>
   ({ key, method, route, formerCaller: "PilotStatusPanel", authority, disposition: "retired" });
 

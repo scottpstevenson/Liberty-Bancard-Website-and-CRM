@@ -344,6 +344,18 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     capability: "deterministic-static",
     providerDenial: "27 typed configuration/pause permutations plus unavailable-read render; no probe, send or DB",
   },
+  {
+    name: "Stage 4A UI Static Render (GHL sync status, catalog truth, identity health)",
+    script: "scripts/test-stage4a-ui-render.mjs",
+    capability: "deterministic-static",
+    providerDenial: "React server render fixtures; no API requests, browser interactions or DB",
+  },
+  {
+    name: "HTTP Client Error Handler (real-socket malformed requests)",
+    script: "scripts/test-http-client-error.ts",
+    capability: "deterministic-static",
+    providerDenial: "loopback socket only; no DB, provider or send",
+  },
   // ── deterministic-static ─────────────────────────────────────────────────
   {
     name: "South Florida Enrichment Pipeline Correction",

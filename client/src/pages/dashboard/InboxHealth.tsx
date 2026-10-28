@@ -1,4 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { summarizeDomains } from "@/lib/domain-health-summary";
+import { formatRate } from "@shared/rate-evidence";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -115,7 +117,9 @@ function CapacityOverview({ data }: { data: InboxHealthData }) {
 }
 
 function getHealthBadge(score: number | null) {
-  const s = score ?? 100;
+  // An unknown score is not a healthy 100.
+  if (score == null) return <Badge variant="outline" data-testid="badge-health-unknown">unknown</Badge>;
+  const s = score;
   if (s >= 80) return <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">{s.toFixed(0)}</Badge>;
   if (s >= 60) return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">{s.toFixed(0)}</Badge>;
   return <Badge variant="destructive">{s.toFixed(0)}</Badge>;
@@ -570,23 +574,7 @@ function AddIdentityDialog() {
 }
 
 function DomainSummary({ data }: { data: InboxHealthData }) {
-  const domainMap = new Map<string, { count: number; active: number; capacity: number; sent: number; avgHealth: number }>();
-
-  for (const identity of data.identities) {
-    const entry = domainMap.get(identity.domain) || { count: 0, active: 0, capacity: 0, sent: 0, avgHealth: 0 };
-    entry.count++;
-    if (identity.isActive && (identity.warmupStatus === "warm" || identity.warmupStatus === "warming")) entry.active++;
-    entry.capacity += identity.effectiveDailyLimit;
-    entry.sent += identity.sentToday || 0;
-    entry.avgHealth += identity.healthScore || 0;
-    domainMap.set(identity.domain, entry);
-  }
-
-  const domains = Array.from(domainMap.entries()).map(([domain, stats]) => ({
-    domain,
-    ...stats,
-    avgHealth: stats.count > 0 ? stats.avgHealth / stats.count : 0,
-  }));
+  const domains = summarizeDomains(data.identities);
 
   if (domains.length === 0) {
     return (
@@ -620,7 +608,9 @@ function DomainSummary({ data }: { data: InboxHealthData }) {
               </div>
               <div>
                 <span className="text-muted-foreground">Avg Health: </span>
-                <span className="font-medium">{d.avgHealth.toFixed(0)}</span>
+                <span className="font-medium" data-testid={`domain-avg-health-${d.domain}`}>
+                  {d.avgHealth == null ? "unknown" : d.avgHealth.toFixed(0)} <span className="text-muted-foreground">({d.knownHealth}/{d.count} scored)</span>
+                </span>
               </div>
             </div>
           </CardContent>
@@ -653,10 +643,12 @@ interface SendMonitoringIdentity {
     complaints: number;
     opened: number;
     positiveReplies: number;
-    bounceRate: number;
-    replyRate: number;
-    complaintRate: number;
-    openRate: number;
+    // null = zero sends in the window (insufficient evidence), not 0%.
+    bounceRate: number | null;
+    replyRate: number | null;
+    complaintRate: number | null;
+    openRate: number | null;
+    evidence?: { basis: string; denominator: number; sufficient: boolean };
   };
 }
 
@@ -711,8 +703,8 @@ function WarmupAndCapPanel() {
               <BarChart3 className="w-4 h-4 text-purple-600" />
               <span className="text-xs text-muted-foreground">Overall Capacity</span>
             </div>
-            <div className="text-2xl font-bold">{data.aggregated.overallCapUtilization}%</div>
-            <Progress value={data.aggregated.overallCapUtilization} className="h-2 mt-2" />
+            <div className="text-2xl font-bold" data-testid="text-overall-capacity">{data.aggregated.overallCapUtilization == null ? "n/a" : `${data.aggregated.overallCapUtilization}%`}</div>
+            <Progress value={data.aggregated.overallCapUtilization ?? 0} className="h-2 mt-2" />
           </CardContent>
         </Card>
         <Card>
@@ -794,32 +786,32 @@ function WarmupAndCapPanel() {
               <div className="grid grid-cols-4 gap-3 text-xs mt-2">
                 <div className="text-center">
                   <div className="text-muted-foreground">7d Bounce</div>
-                  <div className={`font-medium ${identity.week.bounceRate > 5 ? "text-red-600" : ""}`}>
-                    {identity.week.bounceRate}%
+                  <div className={`font-medium ${(identity.week.bounceRate ?? 0) > 5 ? "text-red-600" : ""}`}>
+                    {formatRate(identity.week.bounceRate)}
                   </div>
                   <div className="w-full bg-muted rounded-full h-1.5 mt-1">
                     <div
-                      className={`h-1.5 rounded-full ${identity.week.bounceRate > 5 ? "bg-red-500" : "bg-green-500"}`}
-                      style={{ width: `${Math.min(identity.week.bounceRate * 10, 100)}%` }}
+                      className={`h-1.5 rounded-full ${(identity.week.bounceRate ?? 0) > 5 ? "bg-red-500" : "bg-green-500"}`}
+                      style={{ width: `${Math.min((identity.week.bounceRate ?? 0) * 10, 100)}%` }}
                     />
                   </div>
                 </div>
                 <div className="text-center">
                   <div className="text-muted-foreground">7d Reply</div>
-                  <div className="font-medium text-green-600">{identity.week.replyRate}%</div>
+                  <div className="font-medium text-green-600">{formatRate(identity.week.replyRate)}</div>
                   <div className="w-full bg-muted rounded-full h-1.5 mt-1">
-                    <div className="h-1.5 rounded-full bg-green-500" style={{ width: `${Math.min(identity.week.replyRate * 5, 100)}%` }} />
+                    <div className="h-1.5 rounded-full bg-green-500" style={{ width: `${Math.min((identity.week.replyRate ?? 0) * 5, 100)}%` }} />
                   </div>
                 </div>
                 <div className="text-center">
                   <div className="text-muted-foreground">7d Complaint</div>
-                  <div className={`font-medium ${identity.week.complaintRate > 0.1 ? "text-red-600" : ""}`}>
-                    {identity.week.complaintRate}%
+                  <div className={`font-medium ${(identity.week.complaintRate ?? 0) > 0.1 ? "text-red-600" : ""}`}>
+                    {formatRate(identity.week.complaintRate)}
                   </div>
                   <div className="w-full bg-muted rounded-full h-1.5 mt-1">
                     <div
-                      className={`h-1.5 rounded-full ${identity.week.complaintRate > 0.1 ? "bg-red-500" : "bg-green-500"}`}
-                      style={{ width: `${Math.min(identity.week.complaintRate * 100, 100)}%` }}
+                      className={`h-1.5 rounded-full ${(identity.week.complaintRate ?? 0) > 0.1 ? "bg-red-500" : "bg-green-500"}`}
+                      style={{ width: `${Math.min((identity.week.complaintRate ?? 0) * 100, 100)}%` }}
                     />
                   </div>
                 </div>
