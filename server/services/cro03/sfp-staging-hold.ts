@@ -44,7 +44,11 @@ const PERMANENT_ROW_CODES = new Set([
  * consent-subject state keyed by the plain address, which the revision cannot read (the address is sealed), so an
  * un-suppression would not change the revision. A time-bounded hold lets a lifted suppression be re-evaluated.
  */
-const TIMED_ROW_CODES = new Set(["SFP_STAGING_SUPPRESSED"]);
+const TIMED_ROW_CODES = new Set([
+  "SFP_STAGING_SUPPRESSED",
+  // The shared current-eligibility gate reports a suppressed address under this code (409); the real worker hits it first.
+  "SFP_STAGING_ADDRESS_SUPPRESSED",
+]);
 export const TIMED_HOLD_RECHECK_HOURS = 12;
 
 /** Preview-level blocks recorded by executeStagingV2 for a single row. */

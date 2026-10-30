@@ -169,7 +169,7 @@
 - [SFP canonical release authority](sfp-canonical-release-authority.md) — capped admin release of held recipients; sender identity has no status column; county_fips empty in prod.
 - [Stale-package refresh & seed boundary](sfp-stale-package-refresh-and-seed-boundary.md) — cursors miss stale packages; lazy policy bounds preview; real-path seed send needs a design decision.
 - [Disposable runner roster](disposable-runner-roster.md) — register certs in CERTIFICATION_FIXTURE_SUITES to run them on a disposable DB; restarts kill background runs.
-- [Private browser suite pitfalls](private-browser-suite-pitfalls.md) — rebuild before browser suites (identity covers scripts/); narrow viewports need prefer_desktop; wait on test IDs.
+- [Private browser suite pitfalls](private-browser-suite-pitfalls.md) — rebuild before browser suites (identity covers scripts/); narrow viewports need prefer_desktop; wait on test IDs. Stale dist/blank app: see stale-dist-and-import-gaps.md, dev-app-blank-and-cold-load.md.
 - [Full roster run pitfalls](full-roster-run-pitfalls.md) — roster dirties docs/ evidence; rerun failures clean and diff against a baseline worktree.
 - [Recipient-selection lane starvation](recipient-selection-lane-starvation.md) — priority runs do not reach new uploads; staged-email businesses gated by geography; projection tick timing out.
 - [C5 admin/shell lessons](c5-admin-shell-lessons.md) — Express 5 mount provenance, generator-parses-pages rule, sidebar cutover data, readiness test limits.
@@ -183,7 +183,6 @@
 - [Domain/location automation](domain-location-automation.md) — closed-by-default worker; admin PUT enables.
 - [Domain/location tick resumability](domain-location-tick-resume.md) — budget-stopped windowed ticks must persist cursor to the last handled id; else progress stalls.
 - [Heading ownership claims](heading-ownership-claims.md) — one h1 per page via runtime claim; hubs embed children at h2; verify by settled-h1 crawl.
-- [Stale dist, blank app, cold load](stale-dist-and-import-gaps.md) — rebuild before browser suites; restart app workflow first; see [dev-app-blank-and-cold-load.md](dev-app-blank-and-cold-load.md).
 - [D-V review repair patterns](dv-review-repair-patterns.md) — cohort URL selectors, in-page fetch hold tests, bounded CSV streaming, rebuild-after-scripts rule.
 - [Partner response allowlist and mailbox lock order](partner-response-allowlist.md) — explicit DTO for partner responses; mailbox lock before row/graph locks on every email mutation.
 - [Drizzle begin failure leaks client](drizzle-begin-leak.md) — failed BEGIN never released in drizzle 0.45; override in server/db.ts; db:long_checkout floods mean a leak.

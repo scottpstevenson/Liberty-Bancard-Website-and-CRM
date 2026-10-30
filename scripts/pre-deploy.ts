@@ -169,6 +169,8 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
   // Stage 4B: explicit --only selection (disposable database); not part of the default roster.
   {name:"Stage 4B SFP supply and throughput",script:"scripts/certification/test-stage4b-supply-throughput.ts",
     timeoutSecs:600,requiresDisposableTestDatabase:true},
+  {name:"Stage 4B campaign-staging real worker",script:"scripts/certification/test-stage4b-staging-worker.ts",
+    timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Stage 4B Workspace Mounted Browser",script:"scripts/test-stage4b-workspace-browser.ts",
     timeoutSecs:480,requiresDisposableTestDatabase:true},
 ];

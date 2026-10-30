@@ -51,6 +51,9 @@ try {
   await h.pool.query(`INSERT INTO contacts(first_name,last_name,email,phone,record_class,lead_source,created_at,email_status)
     SELECT 'Cold','Browser '||g, $1||'-'||g||'@example.test','+1998'||lpad((g+3100000)::text,7,'0'),'production','dashboard',NOW()-INTERVAL '70 days','valid'
       FROM generate_series(1,3) g`, [tag]);
+  await h.pool.query(`INSERT INTO contacts(first_name,last_name,email,phone,record_class,lead_source,created_at,email_status)
+    SELECT 'Cold','Bulk '||g, $1||'-bulk-'||g||'@example.test','+1997'||lpad((g+2100000)::text,7,'0'),'production','dashboard',NOW()-((71+(g%5))||' days')::interval,'valid'
+      FROM generate_series(1,520) g`, [tag]);
   await mkdirp(dir);
   b = await privateStage3Browser(h.base, h.sessions.get("admin")!.cookie, h.originalFetch, dir, { realInput: true, startupTimeoutMs: 30000 });
   await b.call("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -70,6 +73,13 @@ try {
   check(await count('[data-testid^="checkbox-cold-lead-"][aria-label^="Select Cold"]') >= 3, "each row checkbox is named for its contact");
   check(Number(await b.evaluate(`document.querySelector('[data-testid="text-cold-leads-total"]')?.textContent`)) >= 3, "the total comes from the server aggregate");
 
+  const totalText = String(await b.evaluate(`document.querySelector('[data-testid="text-cold-leads-total"]')?.textContent`));
+  check(Number(totalText.replace(/[^0-9]/g, "")) > 500, "the cold-lead total exceeds 500 and is the server aggregate, not the visible row count");
+  check(await count('[data-testid^="cold-lead-row-"]') === 100, "more than 500 cold leads render one bounded page of 100 rows");
+  await b.evaluate(`document.querySelector('[data-testid="button-cold-leads-next"]').click()`);
+  await until(async () => (await b!.evaluate(`document.querySelector('[data-testid="button-cold-leads-prev"]')?.disabled === false`)) === true, "second page");
+  check(await count('[data-testid^="cold-lead-row-"]') === 100, "the next page shows the next 100 rows");
+
   // 2. Cold leads read failure is unavailable, never zero.
   b.failRead("/api/contacts/cold-leads", { exact: true });
   await b.navigate("/dashboard/cold-leads");
@@ -85,6 +95,19 @@ try {
   check(await count('[data-testid="release-panel"]') === 1, "the release panel mounts outside the aggregate barrier");
   check(!/\b0 contacts\b/i.test(await bodyText()), "a failed aggregate is not shown as zero");
   b.failRead(null);
+  // 3b. History fault and stall are independent of the aggregate.
+  b.failRead("/api/canonical-enrichment/backlog-process-history", { exact: true });
+  await b.navigate("/dashboard/lead-ops?tab=canonical&canonicalView=backlog");
+  await until(async () => (await count('[data-testid="backlog-last-run-unavailable"]')) === 1, "history unavailable state");
+  check((await count('[data-testid="backlog-unavailable"]')) === 0 && !/no previous run\b(?!")/i.test(await bodyText().then((t) => t.replace(/not "no previous run"/gi, ""))),
+    "a failed history read is shown as unknown while the aggregate still renders and nothing says no previous run");
+  b.failRead(null);
+  b.delayRead("/api/canonical-enrichment/backlog-process-history", 6000);
+  await b.navigate("/dashboard/lead-ops?tab=canonical&canonicalView=backlog");
+  await until(async () => (await count('[data-testid="release-panel"]')) === 1 && (await count('[data-testid="backlog-unavailable"]')) === 0 &&
+    (await count('[data-testid="canonical-backlog-loading"]')) === 0, "aggregate renders while history is delayed");
+  check(await count('[data-testid="independent-process-panel"]') === 1, "the aggregate and release panel render while the history read is still pending");
+  b.delayRead(null);
 
   // 4. Provider Results: null, zero and positive costs render without a crash.
   const before = b.exceptions.length;
@@ -104,8 +127,29 @@ try {
   check(!/\b0 canonical businesses\b/.test(await bodyText()), "a failed business-count read is not shown as 0");
   b.failRead(null);
 
+  // 6. Narrow viewport: the touched pages stay inside a 390px-wide screen (a desktop run does not prove this).
+  await b.evaluate("localStorage.setItem('prefer_desktop','true')");
+  await b.call("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  const overflow = () => b!.evaluate("document.documentElement.scrollWidth - window.innerWidth") as Promise<number>;
+  await b.navigate("/dashboard/cold-leads");
+  await until(async () => (await count('[data-testid^="cold-lead-row-"]')) >= 3, "mobile cold lead rows");
+  check(await count('button[aria-label="Refresh cold leads"]') === 1 && await count('[data-testid="button-cold-leads-next"]') === 1,
+    "on a 390px screen the cold-lead refresh and paging controls are present");
+  const coldOverflow = await overflow();
+  check(coldOverflow <= 1, `the cold-lead page does not scroll sideways on a 390px screen (overflow ${coldOverflow}px)`);
+  await b.navigate("/dashboard/lead-ops?tab=canonical&canonicalView=backlog");
+  await until(async () => (await count('[data-testid="release-panel"]')) === 1 && (await count('[data-testid="canonical-backlog-loading"]')) === 0, "mobile backlog");
+  const backlogOverflow = await overflow();
+  check(backlogOverflow <= 1, `the backlog page does not scroll sideways on a 390px screen (overflow ${backlogOverflow}px)`);
+  await b.navigate("/dashboard/lead-ops?tab=provider-results");
+  await until(async () => /Null Cost Co/.test(await bodyText()), "mobile provider results");
+  const providerOverflow = await overflow();
+  check(/Unpriced/.test(await bodyText()), "Provider Results still reads Unpriced on a 390px screen");
+  console.log(`  (provider-results horizontal overflow on 390px: ${providerOverflow}px)`);
+  await b.screenshot("mobile-390");
+
   check(b.exceptions.length === before, "no uncaught browser exceptions across the Stage 4B checks");
-  console.log(`STAGE4B_BROWSER_PASS (${checks.length} checks); bounded admin desktop run, fixture-supplied provider-results payload`);
+  console.log(`STAGE4B_BROWSER_PASS (${checks.length} checks); admin desktop (1280px) and mobile (390px) runs, fixture-supplied provider-results payload`);
 } catch (error) {
   await b?.screenshot("failure").catch(() => undefined);
   console.error(`STAGE4B_BROWSER_FAIL after ${checks.length} checks: ${String(error)}`);

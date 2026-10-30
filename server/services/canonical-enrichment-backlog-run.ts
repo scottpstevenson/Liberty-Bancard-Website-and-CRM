@@ -139,9 +139,55 @@ export async function recordBacklogPriorityRun(
     ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=NOW()`);
 }
 
-export async function readLastBacklogPriorityRun(): Promise<BacklogPriorityRunRecord | null> {
-  const row = rows(await db.execute(sql`SELECT value FROM system_settings WHERE key=${SETTING_KEY}`))[0];
-  if (row?.value === undefined || row?.value === null) return null;
-  // Malformed stored JSON throws; the route reports that as unavailable, never as "no previous run".
-  return decodeBacklogPriorityRun(row.value);
+/** Whole-read deadline for the process-history read; independent of the aggregate backlog deadline. */
+export const BACKLOG_HISTORY_DEADLINE_MS = 5_000;
+export class BacklogHistoryDeadlineError extends Error {
+  readonly code = "PROCESS_HISTORY_DEADLINE_EXCEEDED";
+  constructor() { super("PROCESS_HISTORY_DEADLINE_EXCEEDED"); }
+}
+
+/** Test seam: the single raw read of the stored history value. Production uses the default. */
+export const backlogHistoryDeps = {
+  readStoredValue: async (onBackend: (backend: { pid: number; xactStart: string }) => void, deadlineMs: number): Promise<unknown> =>
+    db.transaction(async (tx) => {
+      await tx.execute(sql.raw(`SET LOCAL statement_timeout='${Math.max(1, Math.floor(deadlineMs))}ms'`));
+      const identity = rows(await tx.execute(sql`SELECT pg_backend_pid()::int AS pid, now()::text AS started`))[0];
+      if (identity) onBackend({ pid: Number(identity.pid), xactStart: String(identity.started) });
+      return rows(await tx.execute(sql`SELECT value FROM system_settings WHERE key=${SETTING_KEY}`))[0]?.value ?? null;
+    }),
+};
+
+/**
+ * Bounded history read. The caller is answered at the deadline even when the read is queued or stalled; the
+ * database side is cancelled on the exact transaction (pid + xact_start) and by a server statement timeout.
+ */
+export async function readLastBacklogPriorityRun(opts: { deadlineMs?: number } = {}): Promise<BacklogPriorityRunRecord | null> {
+  const deadlineMs = opts.deadlineMs ?? BACKLOG_HISTORY_DEADLINE_MS;
+  let backend: { pid: number; xactStart: string } | null = null;
+  let timer: NodeJS.Timeout | null = null;
+  let expired = false;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      expired = true;
+      if (backend) {
+        const target = backend;
+        void db.execute(sql`SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE pid=${target.pid} AND xact_start=${target.xactStart}::timestamptz`)
+          .catch((error: any) => console.error(`[canonical-backlog] history cancel failed sqlstate=${error?.cause?.code ?? error?.code ?? "n/a"}`));
+      }
+      reject(new BacklogHistoryDeadlineError());
+    }, deadlineMs);
+    timer.unref?.();
+  });
+  deadline.catch(() => undefined);
+  const read = backlogHistoryDeps.readStoredValue((b) => { backend = b; }, deadlineMs);
+  read.catch(() => undefined); // a late failure after the deadline is already answered
+  try {
+    const value = await Promise.race([read, deadline]);
+    if (expired) throw new BacklogHistoryDeadlineError();
+    if (value === undefined || value === null) return null;
+    // Malformed stored JSON throws; the route reports that as unavailable, never as "no previous run".
+    return decodeBacklogPriorityRun(value);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }

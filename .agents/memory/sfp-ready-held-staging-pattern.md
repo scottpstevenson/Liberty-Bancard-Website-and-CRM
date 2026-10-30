@@ -59,5 +59,7 @@ A permanent item-local refusal is recorded on the existing sfp_stage_items ledge
 **Why:** recurring windows re-selected the same refused recipients forever and starved the queue; run- or clock-keyed holds simply expire at the next window.
 **How to apply:** claim selection, ledger inserts and claim must share one transaction under one advisory lock; settle writes are fenced on the run claim token. Keep the outer whole-command catch fail-closed.
 
-## Hold scope and certification caveats
-Only refusals whose cause is visible in the revision facts may be held permanently. Suppression (contact opt-outs, consent-subject state keyed by the plain address) is not in the revision, so it must be a time-bounded hold. Baseline-failing certification suites must be confirmed against a clean baseline before attributing failures, and never cited as proof of behaviour they do not reach.
+## Hold scope and real-worker certification
+Only refusals whose cause is visible in the revision facts may be held permanently; suppression is not in the revision, so every suppression code is a time-bounded hold. The same refusal can surface under different codes depending on which gate fires first (the shared eligibility gate raises `..._ADDRESS_SUPPRESSED` as a 409 before the late 422 recheck), so classify by what the real worker records, not by the code you expect.
+**Why:** a code list proven only by unit tests missed the code the worker actually writes; only a real worker run on a governed fixture showed suppressed recipients would be retried and re-selected every window.
+**How to apply:** certify holds by driving the real tick on recipients built through canonical preparation plus governed validation (see test-stage4b-staging-worker.ts). Never cite a baseline-failing suite as proof of behaviour it does not reach.

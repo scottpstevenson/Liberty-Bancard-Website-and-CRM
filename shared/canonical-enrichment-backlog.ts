@@ -151,9 +151,8 @@ export interface CanonicalEnrichmentBacklog {
   };
   program: { name: string | null; verticals: string[]; countyFips: string[] } | null;
   notes: string[];
+  /** Process history is served only by /backlog-process-history; the aggregate never carries it. */
   lastPriorityRun?: BacklogPriorityRunRecord | null;
-  /** True when the last-run lookup failed; that is unknown, not "no previous run". */
-  lastPriorityRunUnavailable?: boolean;
 }
 
 /** Scope and limits for the optional "Process highest-priority backlog" action. */

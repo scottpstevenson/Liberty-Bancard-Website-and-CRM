@@ -82,6 +82,8 @@ const hold = await import("../../server/services/cro03/sfp-staging-hold");
   }
   check(hold.classifyStagingRefusal("SFP_STAGING_SUPPRESSED") === "timed_item",
     "a suppression refusal is a bounded timed hold, never permanent (a lifted suppression must be rechecked)");
+  check(hold.classifyStagingRefusal("SFP_STAGING_ADDRESS_SUPPRESSED") === "timed_item",
+    "the shared eligibility gate's suppression code (what the real worker hits first) is also a timed hold");
   for (const code of ["", null, undefined, "SOMETHING_NEW", "ECONNRESET", "SFP_STAGING_SNAPSHOT_DRIFT", "deadlock_detected"]) {
     check(hold.classifyStagingRefusal(code as any) === "retryable", `${JSON.stringify(code)} stays retryable (unknown is never permanent)`);
   }
@@ -254,27 +256,98 @@ try {
   check(cached === newer, "[db] only the current generation populated the cache");
   backlog.resetCanonicalEnrichmentBacklogCache();
 
-  // process history is independent of the aggregate
-  const history = await h.request("admin", "GET", "/api/canonical-enrichment/backlog-process-history");
-  check(history.status === 200 && "lastPriorityRun" in history.body, "[db] process history answers on its own endpoint");
+  // ── F14: the real HTTP routes. The aggregate never reads history; history is bounded on its own ──
+  const runBacklog = await import("../../server/services/canonical-enrichment-backlog-run");
+  const realRead = runBacklog.backlogHistoryDeps.readStoredValue;
+  const never = () => new Promise<unknown>(() => undefined);
+  const timed = async <T,>(fn: () => Promise<T>) => { const t = Date.now(); const value = await fn(); return { value, ms: Date.now() - t }; };
+  try {
+    // 1. aggregate success with history stalled forever: the aggregate must answer, with no history field.
+    backlog.resetCanonicalEnrichmentBacklogCache();
+    runBacklog.backlogHistoryDeps.readStoredValue = never;
+    const okStalled = await timed(() => h.request("admin", "GET", "/api/canonical-enrichment/backlog?fresh=1"));
+    check(okStalled.value.status === 200 && okStalled.ms < 20_000 && !("lastPriorityRun" in okStalled.value.body) && !("lastPriorityRunUnavailable" in okStalled.value.body),
+      "[http] aggregate success is not coupled to a stalled history read and carries no history field");
+    // 2. aggregate failure/deadline with history stalled: the 503 must also not wait for history.
+    backlog.resetCanonicalEnrichmentBacklogCache();
+    const realBacklogRead = backlog.readCanonicalEnrichmentBacklog;
+    const blocker = await h.pool.connect();
+    let failing: { value: any; ms: number };
+    try {
+      // The count reads contact_business_link_decisions; an exclusive lock makes the aggregate genuinely slow.
+      await blocker.query("BEGIN");
+      await blocker.query("LOCK TABLE contact_business_link_decisions IN ACCESS EXCLUSIVE MODE");
+      failing = await timed(async () => {
+        // A flight with a short deadline is already running when the real route asks, so the route joins it and
+        // receives the typed deadline rejection while history is still stalled.
+        const flight = realBacklogRead({ fresh: true, deadlineMs: 400 }).then(() => null, (e: any) => e);
+        const res = await h.request("admin", "GET", "/api/canonical-enrichment/backlog");
+        await flight;
+        return res;
+      });
+    } finally {
+      await blocker.query("ROLLBACK").catch(() => undefined);
+      blocker.release();
+    }
+    check(failing.value.status === 503 && failing.value.body.code === "BACKLOG_DEADLINE_EXCEEDED" && failing.ms < 10_000 &&
+      !("lastPriorityRun" in failing.value.body),
+      "[http] aggregate deadline response is typed, does not wait for the stalled history, and carries no history field");
+    // 3. the history route is bounded: a never-resolving read answers 503 at its own deadline.
+    const stalledHistory = await timed(() => h.request("admin", "GET", "/api/canonical-enrichment/backlog-process-history"));
+    check(stalledHistory.value.status === 503 && stalledHistory.value.body.code === "PROCESS_HISTORY_DEADLINE_EXCEEDED" &&
+      stalledHistory.ms >= runBacklog.BACKLOG_HISTORY_DEADLINE_MS - 500 && stalledHistory.ms < runBacklog.BACKLOG_HISTORY_DEADLINE_MS + 5_000,
+      "[http] a stalled history read is answered at its own deadline with a typed unavailable body, never 'no previous run'");
+    // 4. a real database stall is cancelled on the server side, not just abandoned.
+    runBacklog.backlogHistoryDeps.readStoredValue = (onBackend, deadlineMs) => db.transaction(async (tx) => {
+      await tx.execute(sql.raw(`SET LOCAL statement_timeout='${deadlineMs}ms'`));
+      const id = rows(await tx.execute(sql`SELECT pg_backend_pid()::int AS pid, now()::text AS started`))[0];
+      onBackend({ pid: Number(id.pid), xactStart: String(id.started) });
+      await tx.execute(sql`SELECT pg_sleep(60) /* 4b-history-stall */`);
+      return null;
+    });
+    const dbStall = await timed(() => h.request("admin", "GET", "/api/canonical-enrichment/backlog-process-history"));
+    await new Promise((r) => setTimeout(r, 500));
+    const lingering = Number(rows(await db.execute(sql`
+      SELECT count(*)::int AS n FROM pg_stat_activity
+       WHERE datname=current_database() AND pid<>pg_backend_pid() AND state='active' AND query LIKE '%4b-history-stall%'`))[0].n);
+    check(dbStall.value.status === 503 && dbStall.ms < runBacklog.BACKLOG_HISTORY_DEADLINE_MS + 5_000 && lingering === 0,
+      "[http] a stalled history query is answered at the deadline and its database backend is cancelled");
+    // 5. recovery: the real read answers again on the same routes.
+    runBacklog.backlogHistoryDeps.readStoredValue = realRead;
+    const history = await h.request("admin", "GET", "/api/canonical-enrichment/backlog-process-history");
+    check(history.status === 200 && "lastPriorityRun" in history.body, "[http] history recovers and answers 200 once the stall clears");
+    backlog.resetCanonicalEnrichmentBacklogCache();
+    const recovered = await h.request("admin", "GET", "/api/canonical-enrichment/backlog");
+    check(recovered.status === 200 && typeof recovered.body === "object", "[http] the aggregate answers 200 after the stalls clear");
+    // 6. a malformed stored history is reported unavailable, never as no previous run.
+    runBacklog.backlogHistoryDeps.readStoredValue = async () => ({ garbage: true });
+    const malformed = await h.request("admin", "GET", "/api/canonical-enrichment/backlog-process-history");
+    check(malformed.status === 503 && malformed.body.code === "PROCESS_HISTORY_UNAVAILABLE", "[http] malformed stored history is unavailable, not 'no previous run'");
+  } finally {
+    runBacklog.backlogHistoryDeps.readStoredValue = realRead;
+    backlog.resetCanonicalEnrichmentBacklogCache();
+  }
   check((await h.request("agent", "GET", "/api/canonical-enrichment/backlog-process-history")).status === 403,
     "[db] the history endpoint keeps the existing role boundary");
+  check((await h.request("agent", "GET", "/api/canonical-enrichment/backlog")).status === 403,
+    "[db] the aggregate endpoint keeps the existing role boundary");
 
   // ── F14: SQL cold-lead paging ──
   const prefix = `4b-cold-${randomUUID()}`;
-  const total = 230;
+  const total = 520;
   await h.pool.query(`INSERT INTO contacts(first_name,last_name,email,phone,record_class,lead_source,created_at,email_status)
     SELECT 'Cold','Fixture '||g, $1||'-'||g||'@example.test','+1999'||lpad((g+4100000)::text,7,'0'),'production','dashboard',NOW()-((60+(g%7))||' days')::interval,'valid'
       FROM generate_series(1,$2) g`, [prefix, total]);
   const pages: any[] = [];
-  for (let page = 0; page < 4; page++) {
+  for (let page = 0; page === 0 || page < Math.ceil(pages[0].total / 100); page++) {
     const r = await h.request("admin", "GET", `/api/contacts/cold-leads?page=${page}`);
     assert.equal(r.status, 200);
     pages.push(r.body);
   }
   const ids = pages.flatMap((p) => p.data.map((x: any) => x.id));
   check(pages.every((p) => p.total === pages[0].total) && pages[0].total >= total, "[db] every page reports the same scoped total");
-  check(pages[0].data.length === 100 && pages[1].data.length === 100, "[db] pages are cut at the page size");
+  check(pages[0].data.length === 100 && pages[4].data.length === 100 && pages[pages.length - 1].data.length >= 1, "[db] pages are cut at the page size across more than 500 rows");
+  check(pages[0].total >= 520, "[db] the fixture exceeds 500 cold leads");
   check(ids.length === pages[0].total && new Set(ids).size === ids.length, "[db] paging is stable: all rows appear exactly once across pages");
   const ordered = pages.flatMap((p) => p.data.map((x: any) => new Date(x.lastActivityDate).getTime()));
   check(ordered.every((t, i) => i === 0 || ordered[i - 1] <= t), "[db] rows stay in oldest-activity order across page boundaries");
