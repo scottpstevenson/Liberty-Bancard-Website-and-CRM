@@ -3412,6 +3412,37 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // GET /api/lead-ops/sfp/staging-holds — read-only census of recipients currently held out of campaign
+  // staging, by refusal reason. Reads existing ledger rows only; it never stages, releases or sends. A read
+  // failure is reported as an explicit unavailable state, never as zero.
+  app.get("/api/lead-ops/sfp/staging-holds", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { readStagingHoldCensus } = await import("../services/cro03/sfp-staging-hold");
+      const programs = ((await db.execute(sql`
+        SELECT id FROM sfp_programs WHERE is_active=TRUE AND taxonomy_version=2 ORDER BY id
+      `)) as any).rows ?? [];
+      const byCode = new Map<string, { code: string; eligibilities: number; businesses: number }>();
+      for (const program of programs) {
+        for (const row of await readStagingHoldCensus(String(program.id))) {
+          const entry = byCode.get(row.code) ?? { code: row.code, eligibilities: 0, businesses: 0 };
+          entry.eligibilities += row.eligibilities;
+          entry.businesses += row.businesses;
+          byCode.set(row.code, entry);
+        }
+      }
+      const reasons = Array.from(byCode.values()).sort((a, b) => a.code.localeCompare(b.code));
+      res.json({
+        available: true,
+        activeProgramCount: programs.length,
+        reasons,
+        totalEligibilities: reasons.reduce((sum, r) => sum + r.eligibilities, 0),
+      });
+    } catch (error: any) {
+      console.error("[SFP staging holds] census unavailable:", error?.cause?.message ?? error?.message);
+      res.status(503).json({ available: false, error: "Staging hold census is unavailable. This is not a count of zero." });
+    }
+  });
+
   // ── Level 1 ROI cohort routes ───────────────────────────────────────────────
 
   // POST /api/lead-ops/pilot/definitions/ensure-level1 — convergently creates the

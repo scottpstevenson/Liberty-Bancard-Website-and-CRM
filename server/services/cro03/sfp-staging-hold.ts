@@ -163,7 +163,7 @@ export function activeStagingHoldPredicate(context: StagingHoldContext) {
   )`;
 }
 
-/** Read-only reconsideration census for the program's frozen cohorts. */
+/** Read-only reconsideration census for the program's frozen cohorts (permanent holds and unexpired timed holds, same as selection). */
 export async function readStagingHoldCensus(programId: string, context?: StagingHoldContext) {
   const ctx = context ?? await readStagingHoldContext(programId);
   const result = rows(await db.execute(sql`
@@ -176,7 +176,7 @@ export async function readStagingHoldCensus(programId: string, context?: Staging
       ${STAGING_HOLD_JOINS}
       JOIN sfp_stage_items h ON h.provider='campaign_staging' AND h.business_id=e.business_id
        AND h.state='dead_letter'
-       AND h.redacted_result->'hold'->>'class'='permanent'
+       AND ${holdClassActiveSql()}
        AND h.redacted_result->'hold'->>'eligibilityId'=e.id::text
        AND h.redacted_result->'hold'->>'revision'=${stagingHoldRevisionSql(ctx)}
      WHERE e.status='validated_outreach_eligible' AND e.staging_intent_id IS NULL

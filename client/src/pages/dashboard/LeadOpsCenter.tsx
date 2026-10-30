@@ -3621,6 +3621,21 @@ function SfpEnrichmentControlCenter() {
     refetchInterval: 30_000,
   });
 
+  const stagingHoldsQuery = useQuery<{
+    available: boolean;
+    activeProgramCount: number;
+    reasons: Array<{ code: string; eligibilities: number; businesses: number }>;
+    totalEligibilities: number;
+  }>({
+    queryKey: ["/api/lead-ops/sfp/staging-holds"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/sfp/staging-holds", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    refetchInterval: 60_000,
+  });
+
   const setOverrideMutation = useMutation({
     mutationFn: async (value: boolean | null) => {
       return apiRequest("PUT", "/api/lead-ops/sfp/settings/validation-promotion-override", { override: value });
@@ -3737,6 +3752,41 @@ function SfpEnrichmentControlCenter() {
                   {overview.validationBySourceStatus24h.map((row: any) => <span key={`${row.source_kind}:${row.status}`} className="rounded bg-muted px-2 py-1 text-[11px] font-mono">{row.source_kind} → {row.status}: {row.rows}</span>)}
                 </div>
               )}
+            </div>
+
+            <div className="rounded-md border p-3 space-y-2" data-testid="sfp-staging-holds">
+              <div className="text-sm font-medium">Recipients held out of staging, by reason</div>
+              {stagingHoldsQuery.isLoading ? (
+                <Skeleton className="h-10 w-full" />
+              ) : stagingHoldsQuery.isError || !stagingHoldsQuery.data?.available ? (
+                <div className="text-xs text-amber-700" role="status" data-testid="sfp-staging-holds-unavailable">
+                  Held-recipient counts are unavailable right now. This is not zero.
+                </div>
+              ) : stagingHoldsQuery.data.reasons.length === 0 ? (
+                <div className="text-xs text-muted-foreground" data-testid="sfp-staging-holds-empty">
+                  No eligible recipients are currently held out of staging.
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded border">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-muted/50 text-left">
+                      <tr><th className="p-2">Reason</th><th className="p-2">Eligible recipients held</th><th className="p-2">Businesses</th></tr>
+                    </thead>
+                    <tbody>
+                      {stagingHoldsQuery.data.reasons.map((row) => (
+                        <tr key={row.code} className="border-t" data-testid={`sfp-staging-hold-${row.code}`}>
+                          <td className="p-2 font-mono">{row.code}</td>
+                          <td className="p-2">{row.eligibilities}</td>
+                          <td className="p-2">{row.businesses}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="text-xs text-muted-foreground">
+                A held recipient stops using staging windows after a permanent refusal. If a fact the decision depends on changes (email validation, business link, classification, policy or campaign package), the recipient is reopened and evaluated once more. Suppression holds are rechecked after 12 hours. Viewing this list does not send, release or re-stage anything.
+              </div>
             </div>
 
             <div className="rounded-md border p-3 flex flex-wrap items-center justify-between gap-3">
