@@ -84,6 +84,26 @@ export async function createValidationIntent(
 }
 
 /**
+ * Freshness window for one recipient. The shared 180-day value is the maximum
+ * reuse age; a recipient already inside the SFP staging boundary is governed by
+ * the selected recipient policy when that policy is stricter. A policy that
+ * cannot be read throws, so the caller reports `unavailable` instead of
+ * guessing a window.
+ */
+export async function selectedRecipientValidationTtlDays(businessId: number): Promise<number> {
+  const sharedMaxDays = EMAIL_VALIDATION_MAX_AGE_MS / 86_400_000;
+  if (!Number.isSafeInteger(businessId) || businessId <= 0) return sharedMaxDays;
+  const scoped = (await db.execute(sql`SELECT 1 AS present FROM sfp_campaign_staging_intents
+    WHERE business_id=${businessId} LIMIT 1`) as any).rows ?? [];
+  if (scoped.length === 0) return sharedMaxDays;
+  const { getActiveSfpOutreachPolicy } = await import("./cro03/sfp-outreach-policy");
+  const policy = await getActiveSfpOutreachPolicy();
+  const policyDays = Number(policy.validationTtlDays);
+  if (!Number.isFinite(policyDays) || policyDays <= 0) throw new Error("SFP_POLICY_VALIDATION_TTL_UNREADABLE");
+  return Math.min(sharedMaxDays, policyDays);
+}
+
+/**
  * The read path used by marketing callers. Database errors are represented as
  * unavailable, never as a permissive fallback. A legacy status without a
  * matching current observation is deliberately insufficient.
@@ -113,7 +133,7 @@ export async function evaluateMarketingEmailEligibility(contactId: number): Prom
     const tokenHash = hashEmailToken(contact.email);
     const observation = tokenHash ? await findFreshProviderObservation({
       businessId:Number(contact.businessId ?? 0),emailTokenHash:tokenHash,
-      ttlDays:EMAIL_VALIDATION_MAX_AGE_MS / 86_400_000,
+      ttlDays:await selectedRecipientValidationTtlDays(Number(contact.businessId ?? 0)),
     }) : null;
     return {
       ...decideMarketingEmailValidation(contact.email, {

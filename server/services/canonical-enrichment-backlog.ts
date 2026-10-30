@@ -329,7 +329,11 @@ export async function selectBusinessesAfterFreeEmailSearch(
   return out;
 }
 
-export async function computeCanonicalEnrichmentBacklog(): Promise<CanonicalEnrichmentBacklog> {
+export interface BacklogBackendHandle { pid: number; xactStart: string }
+
+export async function computeCanonicalEnrichmentBacklog(
+  ctx: { onBackend?: (backend: BacklogBackendHandle) => void } = {},
+): Promise<CanonicalEnrichmentBacklog> {
   const gate = await readUnlabeledDiscoveryGate();
   const program = await readProgram();
   const counties = program?.countyFips ?? [];
@@ -337,6 +341,9 @@ export async function computeCanonicalEnrichmentBacklog(): Promise<CanonicalEnri
 
   const result = await db.transaction(async tx => {
     await tx.execute(sql.raw(`SET LOCAL statement_timeout='${STATEMENT_TIMEOUT}'`));
+    // Identify this exact transaction so a deadline can cancel the real database work (not just stop waiting for it).
+    const identity = rows(await tx.execute(sql`SELECT pg_backend_pid()::int AS pid, now()::text AS started`))[0];
+    if (identity) ctx.onBackend?.({ pid: Number(identity.pid), xactStart: String(identity.started) });
 
     // 1) Businesses: one current action each, grouped by origin.
     const businessRows = rows(await tx.execute(sql`
@@ -396,11 +403,13 @@ export async function computeCanonicalEnrichmentBacklog(): Promise<CanonicalEnri
               WHEN cc.next_retry_at IS NOT NULL AND cc.next_retry_at>now() THEN 'link|waiting|' || COALESCE(cc.reason_code,'unknown')
               WHEN cc.next_retry_at IS NOT NULL THEN 'link|retryable|' || COALESCE(cc.reason_code,'unknown')
               ELSE 'link|held|' || COALESCE(cc.reason_code,'unknown') END
-            WHEN cc.preparation_state='ready_held' THEN 'ready|done|ready_held_outbound_paused'
             WHEN cc.suppressed THEN 'recipient|held|contact_suppressed_or_invalid'
             WHEN NOT cc.has_email THEN 'email|held|contact_has_no_email'
             WHEN bd.id IS NULL THEN 'link|held|business_not_current'
             WHEN bd.vstatus<>'mapped' OR NOT bd.in_program OR NOT bd.has_binding THEN bd.bk
+            -- A stored ready-held preparation is history: it counts as done only after current suppression,
+            -- address, business/link and program/package facts above have all been confirmed.
+            WHEN cc.preparation_state='ready_held' THEN 'ready|done|ready_held_outbound_paused'
             WHEN cc.preparation_state='pending_validation' THEN CASE
               WHEN cc.vi_state IS NULL THEN 'validation|eligible_now|awaiting_validation_request'
               WHEN cc.vi_state='completed' AND cc.vi_code='non_positive' THEN 'validation|eligible_now|answer_stored_address_not_deliverable'
@@ -653,18 +662,100 @@ export async function computeCanonicalEnrichmentBacklog(): Promise<CanonicalEnri
   };
 }
 
-let cache: { at: number; value: CanonicalEnrichmentBacklog } | null = null;
-let inflight: Promise<CanonicalEnrichmentBacklog> | null = null;
-
-/** Cached, single-flight read. A failed refresh never serves a made-up number. */
-export async function readCanonicalEnrichmentBacklog(opts: { fresh?: boolean } = {}): Promise<CanonicalEnrichmentBacklog> {
-  if (!opts.fresh && cache && Date.now() - cache.at < BACKLOG_CACHE_SECONDS * 1000) return cache.value;
-  if (!inflight) {
-    inflight = computeCanonicalEnrichmentBacklog()
-      .then(value => { cache = { at: Date.now(), value }; return value; })
-      .finally(() => { inflight = null; });
-  }
-  return inflight;
+/** Whole-read deadline for one backlog computation. The database work is cancelled when it passes. */
+export const BACKLOG_DEADLINE_MS = 25_000;
+export class BacklogDeadlineError extends Error {
+  readonly code = "BACKLOG_DEADLINE_EXCEEDED";
+  constructor() { super("BACKLOG_DEADLINE_EXCEEDED"); }
 }
 
-export function resetCanonicalEnrichmentBacklogCache() { cache = null; }
+interface BacklogFlight {
+  generation: number;
+  backend: BacklogBackendHandle | null;
+  expired: boolean;
+  /** Marks the flight expired and rejects its callers immediately; late work is fenced out. */
+  expire: () => void;
+  promise: Promise<CanonicalEnrichmentBacklog>;
+}
+
+// Generation fence: a fresh recount or an explicit reset opens a new generation, and a computation from an older
+// generation can neither populate the cache nor be joined by a newer caller.
+let generation = 0;
+let cache: { at: number; generation: number; value: CanonicalEnrichmentBacklog } | null = null;
+let inflight: BacklogFlight | null = null;
+
+/** Cancels only the exact transaction identified at start, so a recycled backend pid is never touched. */
+async function cancelBacklogBackend(backend: BacklogBackendHandle | null): Promise<void> {
+  if (!backend) return;
+  try {
+    await db.execute(sql`SELECT pg_cancel_backend(pid) FROM pg_stat_activity
+      WHERE pid=${backend.pid} AND xact_start=${backend.xactStart}::timestamptz`);
+  } catch (error: any) {
+    console.error(`[canonical-backlog] cancel request failed sqlstate=${error?.cause?.code ?? error?.code ?? "n/a"}`);
+  }
+}
+
+function startBacklogFlight(deadlineMs: number): BacklogFlight {
+  const flightGeneration = generation;
+  const flight = { generation: flightGeneration, backend: null, expired: false } as BacklogFlight;
+  let timer: NodeJS.Timeout | null = null;
+  let retry: NodeJS.Timeout | null = null;
+  let rejectCaller: (error: Error) => void = () => undefined;
+  const stop = () => { if (timer) clearTimeout(timer); if (retry) clearInterval(retry); };
+  // Callers wait on the race, not on the computation: the response is bounded by the deadline even when a
+  // pre-transaction read or an uncancellable statement is still running. That late work is fenced (it can
+  // neither cache nor be joined) and, once its transaction is identified, cancelled.
+  const callerBound = new Promise<never>((_, reject) => { rejectCaller = reject; });
+  callerBound.catch(() => undefined);
+  flight.expire = () => {
+    if (flight.expired) return;
+    flight.expired = true;
+    rejectCaller(new BacklogDeadlineError());
+    void cancelBacklogBackend(flight.backend);
+    // A cancel that lands between statements is a no-op; keep cancelling until the work actually ends.
+    if (!retry) retry = setInterval(() => { void cancelBacklogBackend(flight.backend); }, 1000);
+    if (inflight === flight) inflight = null;
+  };
+  const computation = computeCanonicalEnrichmentBacklog({ onBackend: (backend) => { flight.backend = backend; } })
+    .then((value) => {
+      stop();
+      if (flight.expired) throw new BacklogDeadlineError();
+      // Only the current generation may populate the cache.
+      if (flight.generation === generation) cache = { at: Date.now(), generation: flight.generation, value };
+      return value;
+    }, (error) => {
+      stop();
+      if (flight.expired) throw new BacklogDeadlineError();
+      throw error;
+    })
+    .finally(() => { if (inflight === flight) inflight = null; });
+  computation.catch(() => undefined);
+  flight.promise = Promise.race([computation, callerBound]);
+  timer = setTimeout(() => flight.expire(), deadlineMs);
+  timer.unref?.();
+  flight.promise.catch(() => undefined);
+  return flight;
+}
+
+/** Cached, single-flight read with a whole-read deadline. A failed or late refresh never serves a made-up number. */
+export async function readCanonicalEnrichmentBacklog(
+  opts: { fresh?: boolean; deadlineMs?: number } = {},
+): Promise<CanonicalEnrichmentBacklog> {
+  if (!opts.fresh && cache && cache.generation === generation && Date.now() - cache.at < BACKLOG_CACHE_SECONDS * 1000) {
+    return cache.value;
+  }
+  if (opts.fresh) {
+    // Supersede any older computation: its result is fenced out and its database work is cancelled.
+    generation += 1;
+    cache = null;
+    if (inflight) {
+      const older = inflight;
+      inflight = null;
+      older.expire();
+    }
+  }
+  if (!inflight || inflight.generation !== generation) inflight = startBacklogFlight(opts.deadlineMs ?? BACKLOG_DEADLINE_MS);
+  return inflight.promise;
+}
+
+export function resetCanonicalEnrichmentBacklogCache() { generation += 1; cache = null; }

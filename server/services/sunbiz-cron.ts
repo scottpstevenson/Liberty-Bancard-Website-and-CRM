@@ -1,7 +1,7 @@
 import { storage } from "../storage";
 import { convertToProspect, processSunbizEnrichmentQueue as _processSunbizEnrichmentQueue } from "./sunbiz-enrichment";
 import { createContactLocalFirst, updateContactLocalFirst } from "./contact-writer";
-import { estimateFromProspect, estimateFromContact, estimateFromDeal } from "./volume-estimator";
+import { estimateFromProspect, estimateFromContact, estimateFromDeal, definedFields } from "./volume-estimator";
 import { toProperCase } from "./sunbiz-scraper";
 import { resolveCanonicalVertical } from "./sdr/canonical-vertical-resolver";
 import { applyClassification } from "./commercial-classification-authority";
@@ -222,10 +222,11 @@ async function autoConvertEnrichedEntities(): Promise<number> {
         const prospect = await storage.getProspect(prospectId);
         if (prospect) {
           const estimate = estimateFromProspect(prospect);
-          await storage.updateProspect(prospectId, {
+          const prospectEstimateFields = definedFields({
             estimatedResidual: estimate.estimatedResidual,
             estimatedAvgTicket: estimate.estimatedAvgTicket,
           });
+          if (Object.keys(prospectEstimateFields).length > 0) await storage.updateProspect(prospectId, prospectEstimateFields);
         }
         converted++;
       }
@@ -404,9 +405,9 @@ async function autoPromoteProspects(): Promise<number> {
         vertical: canonicalVertical,
         monthlyVolume: prospect.estimatedVolume || undefined,
         avgTicket: prospect.estimatedAvgTicket || undefined,
-        estimatedProcessingVolume: volumeEst.estimatedProcessingVolume,
-        estimatedResidual: volumeEst.estimatedResidual,
-        volumeConfidence: volumeEst.volumeConfidence,
+        estimatedProcessingVolume: volumeEst.estimatedProcessingVolume ?? undefined,
+        estimatedResidual: volumeEst.estimatedResidual ?? undefined,
+        volumeConfidence: volumeEst.volumeConfidence ?? undefined,
         status: "New",
         tags: ["sunbiz-auto", ...(prospect.tags || [])],
         notes: prospect.aiSummary || prospect.notes || undefined,
@@ -425,10 +426,10 @@ async function autoPromoteProspects(): Promise<number> {
         offerPath: "Cash Discount",
         leadSource: "sunbiz",
         priorityScore,
-        estimatedGrossProfitBps: volumeEst.estimatedGrossProfitBps,
-        estimatedGrossProfitMonthly: volumeEst.estimatedGrossProfitMonthly,
-        estimatedNetProfitMonthly: volumeEst.estimatedNetProfitMonthly,
-        merchantTier: volumeEst.merchantTier,
+        estimatedGrossProfitBps: volumeEst.estimatedGrossProfitBps ?? undefined,
+        estimatedGrossProfitMonthly: volumeEst.estimatedGrossProfitMonthly ?? undefined,
+        estimatedNetProfitMonthly: volumeEst.estimatedNetProfitMonthly ?? undefined,
+        merchantTier: volumeEst.merchantTier ?? undefined,
         notes: `Auto-promoted from Sunbiz prospect. ${prospect.aiPitchAngle || ""}`.trim(),
       });
 
@@ -446,9 +447,9 @@ async function autoPromoteProspects(): Promise<number> {
           dealId: deal.id,
           score: prospect.score,
           qualificationScore: prospect.qualificationScore,
-          estimatedResidual: volumeEst.estimatedResidual,
-          estimatedVolume: volumeEst.estimatedProcessingVolume,
-          merchantTier: volumeEst.merchantTier,
+          estimatedResidual: volumeEst.estimatedResidual ?? undefined,
+          estimatedVolume: volumeEst.estimatedProcessingVolume ?? undefined,
+          merchantTier: volumeEst.merchantTier ?? undefined,
           canonicalVertical,
           verticalSource: verticalResult?.source ?? "discovery_enrichment",
         },
@@ -520,25 +521,28 @@ async function updateVolumeEstimates(): Promise<number> {
       const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
       const estimate = estimateFromDeal(deal, contact);
 
-      const needsUpdate =
+      const dealFields = definedFields({
+        estimatedGrossProfitBps: estimate.estimatedGrossProfitBps,
+        estimatedGrossProfitMonthly: estimate.estimatedGrossProfitMonthly,
+        estimatedNetProfitMonthly: estimate.estimatedNetProfitMonthly,
+        merchantTier: estimate.merchantTier,
+      });
+      // An unavailable model leaves stored values untouched and is not an update.
+      const needsUpdate = Object.keys(dealFields).length > 0 && (
         deal.estimatedGrossProfitBps !== estimate.estimatedGrossProfitBps ||
         deal.estimatedGrossProfitMonthly !== estimate.estimatedGrossProfitMonthly ||
-        deal.merchantTier !== estimate.merchantTier;
+        deal.merchantTier !== estimate.merchantTier);
 
       if (needsUpdate) {
-        await storage.updateDeal(deal.id, {
-          estimatedGrossProfitBps: estimate.estimatedGrossProfitBps,
-          estimatedGrossProfitMonthly: estimate.estimatedGrossProfitMonthly,
-          estimatedNetProfitMonthly: estimate.estimatedNetProfitMonthly,
-          merchantTier: estimate.merchantTier,
-        });
+        await storage.updateDeal(deal.id, dealFields);
 
         if (contact) {
-          await updateContactLocalFirst(contact.id, {
+          const contactFields = definedFields({
             estimatedProcessingVolume: estimate.estimatedProcessingVolume,
             estimatedResidual: estimate.estimatedResidual,
             volumeConfidence: estimate.volumeConfidence,
           });
+          if (Object.keys(contactFields).length > 0) await updateContactLocalFirst(contact.id, contactFields);
         }
 
         updated++;
@@ -842,9 +846,9 @@ export async function runSunbizCanaryForEntityIds(
         vertical: canonicalVertical,
         monthlyVolume: prospect.estimatedVolume || undefined,
         avgTicket: prospect.estimatedAvgTicket || undefined,
-        estimatedProcessingVolume: volumeEst.estimatedProcessingVolume,
-        estimatedResidual: volumeEst.estimatedResidual,
-        volumeConfidence: volumeEst.volumeConfidence,
+        estimatedProcessingVolume: volumeEst.estimatedProcessingVolume ?? undefined,
+        estimatedResidual: volumeEst.estimatedResidual ?? undefined,
+        volumeConfidence: volumeEst.volumeConfidence ?? undefined,
         status: "New",
         tags: ["sunbiz-auto", "canary", ...(prospect.tags || [])],
         notes: prospect.aiSummary || prospect.notes || undefined,
@@ -859,10 +863,10 @@ export async function runSunbizCanaryForEntityIds(
         companyId: companyId || undefined,
         pipeline: "sales", stage: "New Lead", offerPath: "Cash Discount",
         leadSource: "sunbiz", priorityScore,
-        estimatedGrossProfitBps: volumeEst.estimatedGrossProfitBps,
-        estimatedGrossProfitMonthly: volumeEst.estimatedGrossProfitMonthly,
-        estimatedNetProfitMonthly: volumeEst.estimatedNetProfitMonthly,
-        merchantTier: volumeEst.merchantTier,
+        estimatedGrossProfitBps: volumeEst.estimatedGrossProfitBps ?? undefined,
+        estimatedGrossProfitMonthly: volumeEst.estimatedGrossProfitMonthly ?? undefined,
+        estimatedNetProfitMonthly: volumeEst.estimatedNetProfitMonthly ?? undefined,
+        merchantTier: volumeEst.merchantTier ?? undefined,
         notes: `[Canary] Auto-promoted from Sunbiz prospect. ${prospect.aiPitchAngle || ""}`.trim(),
       });
 

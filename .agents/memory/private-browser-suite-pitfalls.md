@@ -6,3 +6,6 @@ Browser suites verify candidate identity against `dist/`, and the identity cover
 **Why:** a stale build fails identity verification before the suite starts.
 Narrow viewports (<768px) redirect `/dashboard` to the mobile shell; set `localStorage.prefer_desktop="true"` (the app's own Switch-to-desktop preference) before testing desktop layouts at 320/390.
 Wait on specific test IDs, not on generic text, when a failure is injected with `failRead`; counting right after a loose text match flakes.
+
+## Service worker hides /api/contacts from fault injection
+The app's sw.js answers /api/contacts, /api/deals, /api/tasks and /api/appointments itself once it controls the page (second navigation onward), so b.failRead never fires and the request shows status 200. Call Network.setBypassServiceWorker {bypass:true} before such tests. Editing any script (even the suite) requires a rebuild before the browser suite because build identity covers scripts/.

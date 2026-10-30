@@ -10,7 +10,7 @@ import { autoEnrollFromTrigger } from "../services/sequence-worker";
 import { triggerWorkflowsByEvent } from "../services/workflow-executor";
 import { scoreContact } from "../services/lead-scoring";
 import { generateDealBlueprint } from "../services/deal-blueprint";
-import { estimateFromContact, estimateFromDeal, estimateFromProspect } from "../services/volume-estimator";
+import { estimateFromContact, estimateFromDeal, estimateFromProspect, definedFields } from "../services/volume-estimator";
 import { createPreferenceAwareNotification, sendCriticalEmailNotification } from "../services/digest-service";
 import { sendGhlEmailForMerchant, isGhlConfigured } from "../services/ghl";
 import { advanceDealStage, DealStageConflictError, DealStageIllegalTransitionError, readDealStageTransitionOptions } from "../services/deal-stage-service";
@@ -361,18 +361,20 @@ export function registerDealsRoutes(app: Express) {
         try {
           const contact = updated.contactId ? await storage.getContact(updated.contactId) : null;
           const volumeEst = estimateFromDeal(updated, contact);
-          await storage.updateDeal(updated.id, {
+          const dealFields = definedFields({
             estimatedGrossProfitBps: volumeEst.estimatedGrossProfitBps,
             estimatedGrossProfitMonthly: volumeEst.estimatedGrossProfitMonthly,
             estimatedNetProfitMonthly: volumeEst.estimatedNetProfitMonthly,
             merchantTier: volumeEst.merchantTier,
           });
+          if (Object.keys(dealFields).length > 0) await storage.updateDeal(updated.id, dealFields);
           if (contact) {
-            await updateContactLocalFirst(contact.id, {
+            const contactFields = definedFields({
               estimatedProcessingVolume: volumeEst.estimatedProcessingVolume,
               estimatedResidual: volumeEst.estimatedResidual,
               volumeConfidence: volumeEst.volumeConfidence,
             });
+            if (Object.keys(contactFields).length > 0) await updateContactLocalFirst(contact.id, contactFields);
           }
         } catch (volErr) {
           console.error("Volume estimate recalc error:", volErr);
@@ -479,18 +481,20 @@ export function registerDealsRoutes(app: Express) {
       if (!deal) return res.status(404).json({ message: "Deal not found" });
       const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
       const estimate = estimateFromDeal(deal, contact);
-      await storage.updateDeal(deal.id, {
+      const dealFields = definedFields({
         estimatedGrossProfitBps: estimate.estimatedGrossProfitBps,
         estimatedGrossProfitMonthly: estimate.estimatedGrossProfitMonthly,
         estimatedNetProfitMonthly: estimate.estimatedNetProfitMonthly,
         merchantTier: estimate.merchantTier,
       });
+      if (Object.keys(dealFields).length > 0) await storage.updateDeal(deal.id, dealFields);
       if (contact) {
-        await updateContactLocalFirst(contact.id, {
+        const contactFields = definedFields({
           estimatedProcessingVolume: estimate.estimatedProcessingVolume,
           estimatedResidual: estimate.estimatedResidual,
           volumeConfidence: estimate.volumeConfidence,
         });
+        if (Object.keys(contactFields).length > 0) await updateContactLocalFirst(contact.id, contactFields);
       }
       res.json({ success: true, estimate });
     } catch (err: any) {
@@ -503,11 +507,12 @@ export function registerDealsRoutes(app: Express) {
       const contact = await storage.getContact(Number(req.params.id));
       if (!contact) return res.status(404).json({ message: "Contact not found" });
       const estimate = estimateFromContact(contact);
-      await updateContactLocalFirst(contact.id, {
+      const contactFields = definedFields({
         estimatedProcessingVolume: estimate.estimatedProcessingVolume,
         estimatedResidual: estimate.estimatedResidual,
         volumeConfidence: estimate.volumeConfidence,
       });
+      if (Object.keys(contactFields).length > 0) await updateContactLocalFirst(contact.id, contactFields);
       res.json({ success: true, estimate });
     } catch (err: any) {
       serverError(res, err);
@@ -519,11 +524,12 @@ export function registerDealsRoutes(app: Express) {
       const prospect = await storage.getProspect(Number(req.params.id));
       if (!prospect) return res.status(404).json({ message: "Prospect not found" });
       const estimate = estimateFromProspect(prospect);
-      await storage.updateProspect(prospect.id, {
+      const prospectFields = definedFields({
         estimatedVolume: estimate.estimatedProcessingVolume,
         estimatedResidual: estimate.estimatedResidual,
         estimatedAvgTicket: estimate.estimatedAvgTicket,
       });
+      if (Object.keys(prospectFields).length > 0) await storage.updateProspect(prospect.id, prospectFields);
       res.json({ success: true, estimate });
     } catch (err: any) {
       serverError(res, err);

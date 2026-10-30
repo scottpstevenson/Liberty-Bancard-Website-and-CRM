@@ -139,6 +139,7 @@ export function ProcessPanel({ isAdmin, last, lastUnavailable = false }: { isAdm
       intent.current = null;
       toast({ title: result.alreadyQueued ? "Already requested" : "Queued", description: result.message + auditNote(result) });
       queryClient.invalidateQueries({ queryKey: ["/api/canonical-enrichment/backlog"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/canonical-enrichment/backlog-process-history"] });
     },
     onError: (error: Error) => {
       if (/QUEUE_UNAVAILABLE/.test(error.message)) {
@@ -152,6 +153,7 @@ export function ProcessPanel({ isAdmin, last, lastUnavailable = false }: { isAdm
         toast({ title: "Request not confirmed", variant: "destructive",
           description: "The pass may have been queued. Check the last requested pass below, or repeat the same request: it is recognized and cannot be queued twice." });
         queryClient.invalidateQueries({ queryKey: ["/api/canonical-enrichment/backlog"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/canonical-enrichment/backlog-process-history"] });
       }
     },
   });
@@ -487,6 +489,19 @@ function LaunchInventory({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
+/** Process controls with their own history read, so they never wait for or fail with the aggregate count. */
+function IndependentProcessPanel({ isAdmin }: { isAdmin: boolean }) {
+  const { data, isLoading, isError } = useQuery<{ lastPriorityRun: CanonicalEnrichmentBacklog["lastPriorityRun"] }>({
+    queryKey: ["/api/canonical-enrichment/backlog-process-history"],
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
+  return <div aria-busy={isLoading} data-testid="independent-process-panel">
+    {isLoading && <p className="mb-2 text-xs text-muted-foreground" role="status">Loading last process run…</p>}
+    <ProcessPanel isAdmin={isAdmin} last={data?.lastPriorityRun ?? null} lastUnavailable={isError} />
+  </div>;
+}
+
 export function CanonicalBacklog({ isAdmin }: { isAdmin: boolean }) {
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery<CanonicalEnrichmentBacklog>({
     queryKey: ["/api/canonical-enrichment/backlog"],
@@ -495,9 +510,14 @@ export function CanonicalBacklog({ isAdmin }: { isAdmin: boolean }) {
     refetchOnWindowFocus: false,
   });
   if (isLoading) {
-    return <div className="space-y-4" aria-busy="true" aria-label="Loading enrichment backlog">
-      <div className="h-24 animate-pulse rounded-xl border border-border/60 bg-card" />
-      <div className="h-64 animate-pulse rounded-xl border border-border/60 bg-card" />
+    // Only the aggregate is pending. Launch inventory and process controls are separate reads and mount now.
+    return <div className="space-y-8" data-testid="canonical-backlog-loading">
+      <div className="space-y-4" aria-busy="true" aria-label="Loading enrichment backlog counts">
+        <div className="h-24 animate-pulse rounded-xl border border-border/60 bg-card" />
+        <div className="h-64 animate-pulse rounded-xl border border-border/60 bg-card" />
+      </div>
+      <LaunchInventory isAdmin={isAdmin} />
+      <IndependentProcessPanel isAdmin={isAdmin} />
     </div>;
   }
   if (isError || !data) {
@@ -512,7 +532,7 @@ export function CanonicalBacklog({ isAdmin }: { isAdmin: boolean }) {
         <Button className="mt-4" onClick={() => refetch()} disabled={isFetching}>Retry backlog</Button>
       </section>
       <LaunchInventory isAdmin={isAdmin} />
-      <ProcessPanel isAdmin={isAdmin} last={null} lastUnavailable />
+      <IndependentProcessPanel isAdmin={isAdmin} />
     </div>;
   }
   return (
@@ -574,7 +594,7 @@ export function CanonicalBacklog({ isAdmin }: { isAdmin: boolean }) {
         </ol>
       </section>
 
-      <ProcessPanel isAdmin={isAdmin} last={data.lastPriorityRun ?? null} lastUnavailable={!!data.lastPriorityRunUnavailable} />
+      <IndependentProcessPanel isAdmin={isAdmin} />
 
       <section>
         <h2 className="text-xl font-semibold tracking-tight">By intake family</h2>

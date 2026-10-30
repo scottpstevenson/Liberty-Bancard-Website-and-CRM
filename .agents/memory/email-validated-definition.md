@@ -12,3 +12,5 @@ description: What contacts.email_status 'valid'/'active' mean, which freshness w
 **How to apply:** use currentValidEmailPredicate(alias) for candidate selection of validated contacts; never select on bare email_status='valid'.
 
 Two TTLs must move together: EMAIL_VALIDATION_MAX_AGE_MS (marketing authority) and the immutable SFP outreach policy document's validation_ttl_days. Never edit a policy document in place; publish a new version (startup convergence in sfp-recipient-policy-convergence.ts) and move the pointer.
+
+The selected SFP recipient policy TTL (validation_ttl_days) is applied on top of the 180-day marketing window only for businesses inside the SFP staging boundary (a row in sfp_campaign_staging_intents); the effective window there is the stricter of the two, and an unreadable policy fails closed to unavailable rather than guessing.

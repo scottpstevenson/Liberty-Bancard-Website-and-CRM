@@ -9,6 +9,10 @@ import { db } from "../../db";
 import { getBackgroundProfile, getSelectiveGroups } from "../background-profile";
 import { SfpStagingV2Error, executeStagingV2, previewStagingV2 } from "./sfp-campaign-staging-v2";
 import { reconcileStageRunCounters } from "./sfp-stage-ledger";
+import {
+  STAGING_HOLD_JOINS, activeStagingHoldPredicate, classifyStagingRefusal,
+  readStagingHoldContext, stagingHoldRevisionSql,
+} from "./sfp-staging-hold";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
 // Per-call safety ceiling (a single stage_run's batch). Not the tick's
@@ -130,25 +134,63 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
 
   try {
     await renewStageRunClaim(runId, claimToken);
-    const eligible = rows(await db.execute(sql`
-      -- Preserve typed source columns in the claimed workset. The staging
-      -- service owns the exact-one validation and audited contact open; the
-      -- worker must not coerce contact rows into the free-candidate path.
-      SELECT e.id, e.business_id, e.source_kind, e.candidate_id,
-             e.paid_candidate_evidence_id, e.contact_id
-        FROM sfp_outreach_eligibility e
-       WHERE e.cohort_run_id=${String(run.cohort_run_id)}::uuid
-         AND e.status='validated_outreach_eligible' AND e.staging_intent_id IS NULL
-         AND NOT EXISTS (
-           SELECT 1 FROM sfp_stage_items i
-            WHERE i.stage_run_id=${runId}::uuid AND i.business_id=e.business_id
-              AND i.provider='campaign_staging'
-              AND (i.state IN ('completed','dead_letter')
-                   OR (i.state IN ('retry','claimed') AND i.next_attempt_at>NOW()))
-         )
-       ORDER BY e.created_at, e.id
-       LIMIT ${limit}
-    `));
+    // F03: permanent item-local refusals are held across windows against a
+    // relevant-fact revision (see sfp-staging-hold.ts); the hold is not keyed
+    // on this run or its 15-minute bucket. Selection, per-item ledger rows and
+    // the claim happen in one transaction under a single advisory lock so two
+    // concurrent ticks cannot both claim (or re-evaluate) the same recipient,
+    // and a recipient leased by another live run is skipped.
+    const holdContext = await readStagingHoldContext(String(run.program_id));
+    const eligible = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('sfp-campaign-staging-claim'))`);
+      const selected = rows(await tx.execute(sql`
+        -- Preserve typed source columns in the claimed workset. The staging
+        -- service owns the exact-one validation and audited contact open; the
+        -- worker must not coerce contact rows into the free-candidate path.
+        SELECT e.id, e.business_id, e.source_kind, e.candidate_id,
+               e.paid_candidate_evidence_id, e.contact_id,
+               ${stagingHoldRevisionSql(holdContext)} AS hold_revision
+          FROM sfp_outreach_eligibility e
+          ${STAGING_HOLD_JOINS}
+         WHERE e.cohort_run_id=${String(run.cohort_run_id)}::uuid
+           AND e.status='validated_outreach_eligible' AND e.staging_intent_id IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM sfp_stage_items i
+              WHERE i.stage_run_id=${runId}::uuid AND i.business_id=e.business_id
+                AND i.provider='campaign_staging'
+                AND (i.state IN ('completed','dead_letter')
+                     OR (i.state IN ('retry','claimed') AND i.next_attempt_at>NOW()))
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM sfp_stage_items o
+              WHERE o.provider='campaign_staging' AND o.business_id=e.business_id
+                AND o.stage_run_id<>${runId}::uuid AND o.state='claimed' AND o.lease_expires_at>NOW()
+           )
+           AND NOT ${activeStagingHoldPredicate(holdContext)}
+         ORDER BY e.created_at, e.id
+         LIMIT ${limit}
+      `));
+      for (const item of selected) {
+        await tx.execute(sql`
+          INSERT INTO sfp_stage_items (stage_run_id, business_id, provider, state)
+          VALUES (${runId}::uuid, ${Number(item.business_id)}, 'campaign_staging', 'pending')
+          ON CONFLICT (stage_run_id, business_id, provider) DO NOTHING
+        `);
+      }
+      if (selected.length > 0) {
+        await tx.execute(sql`
+          UPDATE sfp_stage_items
+             SET state='claimed', claim_token=${claimToken}::uuid,
+                 attempt_count=attempt_count+1,
+                 lease_expires_at=NOW()+(${LEASE_MINUTES} * INTERVAL '1 minute'), updated_at=NOW()
+           WHERE stage_run_id=${runId}::uuid AND provider='campaign_staging'
+             AND business_id=ANY(ARRAY[${sql.join(selected.map((item: any) => sql`${Number(item.business_id)}`), sql`, `)}]::int[])
+             AND state IN ('pending','retry')
+             AND (state='pending' OR next_attempt_at<=NOW())
+        `);
+      }
+      return selected;
+    });
     if (eligible.length === 0) {
       const delayed = rows(await db.execute(sql`
         SELECT COUNT(*)::int AS count FROM sfp_stage_items
@@ -170,25 +212,7 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
       return { processed: 0, succeeded: 0, failed: 0 };
     }
 
-    for (const item of eligible) {
-      await db.execute(sql`
-        INSERT INTO sfp_stage_items (stage_run_id, business_id, provider, state)
-        VALUES (${runId}::uuid, ${Number(item.business_id)}, 'campaign_staging', 'pending')
-        ON CONFLICT (stage_run_id, business_id, provider) DO NOTHING
-      `);
-    }
-
     const eligibilityIds = eligible.map((item) => String(item.id));
-    await db.execute(sql`
-      UPDATE sfp_stage_items
-         SET state='claimed', claim_token=${claimToken}::uuid,
-             attempt_count=attempt_count+1,
-             lease_expires_at=NOW()+(${LEASE_MINUTES} * INTERVAL '1 minute'), updated_at=NOW()
-       WHERE stage_run_id=${runId}::uuid AND provider='campaign_staging'
-         AND business_id=ANY(ARRAY[${sql.join(eligible.map((item: any) => sql`${Number(item.business_id)}`), sql`, `)}]::int[])
-         AND state IN ('pending','retry')
-         AND (state='pending' OR next_attempt_at<=NOW())
-    `);
     // Retry-contract correction: salt the preview/execute snapshot with this
     // tick's claim token so an unchanged eligibility selection produces a
     // genuinely new commandKey on a genuine retry attempt, instead of
@@ -230,16 +254,40 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
     // on top is retry backoff: a dead-lettered item below MAX_ATTEMPTS is
     // converted back to 'retry' with a delay instead of staying terminal.
     const batchItems = rows(await db.execute(sql`
-      SELECT id, business_id, state, attempt_count FROM sfp_stage_items
+      SELECT id, business_id, state, attempt_count, outcome_code FROM sfp_stage_items
        WHERE stage_run_id=${runId}::uuid AND provider='campaign_staging'
          AND business_id=ANY(ARRAY[${sql.join(eligible.map((item: any) => sql`${Number(item.business_id)}`), sql`, `)}]::int[])
     `));
+    const eligibilityByBusiness = new Map(eligible.map((item: any) => [Number(item.business_id), item]));
+    // A settle write only applies while this worker still owns the current
+    // run generation; a stale worker cannot replace a newer claim or hold.
+    const currentGeneration = sql`EXISTS (
+      SELECT 1 FROM sfp_stage_runs gr
+       WHERE gr.id=${runId}::uuid AND gr.claim_token=${claimToken}::uuid AND gr.state='running')`;
     let succeeded = 0;
     let failed = 0;
+    let retried = 0;
     for (const item of batchItems) {
       if (item.state === "completed") { succeeded++; continue; }
       if (item.state !== "dead_letter") continue;
       failed++;
+      const source = eligibilityByBusiness.get(Number(item.business_id));
+      const refusalClass = classifyStagingRefusal(item.outcome_code);
+      if (source && (refusalClass === "permanent_item" || refusalClass === "timed_item")) {
+        // Permanent item-local refusal: record the revision-bound hold and do
+        // NOT convert to retry. The revision was computed at claim time so a
+        // fact that changed during the attempt reopens it exactly once.
+        await db.execute(sql`
+          UPDATE sfp_stage_items
+             SET redacted_result=COALESCE(redacted_result,'{}'::jsonb) || jsonb_build_object('hold',
+                   jsonb_build_object('v',1,'class',${refusalClass === "timed_item" ? "timed" : "permanent"}::text,'code',COALESCE(outcome_code,''),
+                     'eligibilityId',${String(source.id)}::text,'revision',${String(source.hold_revision)}::text,
+                     'heldAt',to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'))),
+                 updated_at=NOW()
+           WHERE id=${String(item.id)}::uuid AND state='dead_letter' AND ${currentGeneration}
+        `);
+        continue;
+      }
       const attemptCount = Number(item.attempt_count ?? 0);
       const terminal = attemptCount >= MAX_ATTEMPTS;
       if (!terminal) {
@@ -248,14 +296,18 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
           UPDATE sfp_stage_items
              SET state='retry', next_attempt_at=NOW()+(${delay} * INTERVAL '1 minute'),
                  completed_at=NULL, updated_at=NOW(), lease_expires_at=NULL
-           WHERE id=${String(item.id)}::uuid
+           WHERE id=${String(item.id)}::uuid AND state='dead_letter' AND ${currentGeneration}
         `);
+        retried++;
       }
     }
     void execution;
+    // Held items are settled item-local outcomes; only exhausted retryable
+    // items make the run itself failed.
     const deadLetters = rows(await db.execute(sql`
       SELECT COUNT(*)::int AS count FROM sfp_stage_items
        WHERE stage_run_id=${runId}::uuid AND state='dead_letter'
+         AND COALESCE(redacted_result->'hold'->>'class','') NOT IN ('permanent','timed')
     `))[0];
     const hasDeadLetters = Number(deadLetters?.count ?? 0) > 0;
     // PM-10 correction: counters are recomputed from the authoritative item
@@ -271,7 +323,7 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
                completed_at=NOW(), lease_expires_at=NULL, updated_at=NOW()
          WHERE id=${runId}::uuid AND claim_token=${claimToken}::uuid AND state='running'
       `);
-    } else if (failed > 0) {
+    } else if (retried > 0) {
       await db.execute(sql`
         UPDATE sfp_stage_runs
            SET state='pending', terminal_reason=NULL, completed_at=NULL, lease_expires_at=NULL, updated_at=NOW()

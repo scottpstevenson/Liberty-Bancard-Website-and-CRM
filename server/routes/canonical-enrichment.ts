@@ -6,7 +6,7 @@ import { readSfpLaunchInventory } from "../services/sfp-launch-inventory";
 import type { Express } from "express";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { readCanonicalEnrichmentStatus } from "../services/canonical-enrichment-status";
-import { readCanonicalEnrichmentBacklog } from "../services/canonical-enrichment-backlog";
+import { BacklogDeadlineError, readCanonicalEnrichmentBacklog } from "../services/canonical-enrichment-backlog";
 import {
   BacklogIntentConflictError, BacklogProcessInputError, enqueueBacklogProcess, readLastBacklogPriorityRun, requireBacklogCommandId, validateBacklogProcessRequest,
 } from "../services/canonical-enrichment-backlog-run";
@@ -50,25 +50,46 @@ export function registerCanonicalEnrichmentRoutes(app: Express) {
   });
 
   // One backlog across every intake family. Cached read model; `?fresh=1` forces a recount (admin only).
+  // The process history is independent: a backlog that is slow, cancelled at its deadline or failed still
+  // returns the last run (or its own unavailable flag) instead of hiding it behind the counts.
   app.get("/api/canonical-enrichment/backlog", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     const startedAt = Date.now();
+    res.set("Cache-Control", "no-store");
+    const fresh = req.query.fresh === "1" && (req.user as any)?.role === "admin";
+    // A failed last-run lookup is an explicit unavailable state, never "no previous run".
+    let lastPriorityRunUnavailable = false;
+    const lastPriorityRunPromise = readLastBacklogPriorityRun().catch((error) => {
+      logReadFailure("last priority run lookup", error, startedAt);
+      lastPriorityRunUnavailable = true;
+      return null;
+    });
     try {
-      res.set("Cache-Control", "no-store");
-      const fresh = req.query.fresh === "1" && (req.user as any)?.role === "admin";
-      // A failed last-run lookup is an explicit unavailable state, never "no previous run".
-      let lastPriorityRunUnavailable = false;
-      const [backlog, lastPriorityRun] = await Promise.all([
-        readCanonicalEnrichmentBacklog({ fresh }),
-        readLastBacklogPriorityRun().catch((error) => {
-          logReadFailure("last priority run lookup", error, startedAt);
-          lastPriorityRunUnavailable = true;
-          return null;
-        }),
-      ]);
+      const backlog = await readCanonicalEnrichmentBacklog({ fresh });
+      const lastPriorityRun = await lastPriorityRunPromise;
       res.json({ ...backlog, lastPriorityRun, lastPriorityRunUnavailable });
     } catch (error) {
       logReadFailure("backlog", error, startedAt);
-      res.status(503).json({ code: "BACKLOG_UNAVAILABLE", message: "The enrichment backlog is unavailable; nothing was counted." });
+      const timedOut = error instanceof BacklogDeadlineError;
+      const lastPriorityRun = await lastPriorityRunPromise;
+      res.status(503).json({
+        code: timedOut ? "BACKLOG_DEADLINE_EXCEEDED" : "BACKLOG_UNAVAILABLE",
+        message: timedOut
+          ? "The enrichment backlog count did not finish in time and was cancelled; nothing was counted."
+          : "The enrichment backlog is unavailable; nothing was counted.",
+        lastPriorityRun, lastPriorityRunUnavailable,
+      });
+    }
+  });
+
+  // Process history on its own: it never waits for, or fails with, the aggregate backlog count.
+  app.get("/api/canonical-enrichment/backlog-process-history", isDashboardUser, requireRole("admin", "manager"), async (_req, res) => {
+    const startedAt = Date.now();
+    res.set("Cache-Control", "no-store");
+    try {
+      res.json({ lastPriorityRun: await readLastBacklogPriorityRun() });
+    } catch (error) {
+      logReadFailure("process history", error, startedAt);
+      res.status(503).json({ code: "PROCESS_HISTORY_UNAVAILABLE", message: "The last process run is unavailable; this is not 'no previous run'." });
     }
   });
 

@@ -664,4 +664,10 @@
 
 ---
 
+### Stage 4 sequence (updated 2026-10-30)
+
+Stage 4A (catalog and operational truth) is published. Stage 4B (SFP supply and throughput) is implemented in source and awaits publish; see ledger §49. Remaining order: 4C1, then 4C2, then 4D. Real-database cancellation/concurrency of the staging worker across windows, active production policy/schema, and candidate deployment evidence remain release gates.
+
+---
+
 *This roadmap should be reviewed and updated quarterly. When a phase item is completed, mark it done with a date. New risks discovered during implementation should be added to the Risk Register.*

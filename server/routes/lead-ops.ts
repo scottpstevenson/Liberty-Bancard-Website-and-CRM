@@ -15,6 +15,7 @@ import { buildCanonicalBusinessEmailDisplay } from "../services/canonical-busine
 import { sanitizeAuditPayload } from "../services/audit-sanitizer";
 import { backgroundJobs, inboundRequestEffects, sdrMerchants } from "@shared/schema";
 import { retiredPilotEntrance } from "../services/pilot-entrance-retirement";
+import { safeSfpFailureDiagnostics } from "../services/cro03/sfp-failure-diagnostics";
 import { registerSfpReadyHeldOperatorRoutes } from "./sfp-ready-held-operator";
 import { registerSfpStagedProjectionReconciliationRoutes } from "./sfp-staged-projection-reconciliation";
 
@@ -2593,8 +2594,9 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           funnelBlockStatus[name] = { available: true, asOf: new Date().toISOString() };
           return result;
         } catch (err: any) {
-          funnelBlockErrors[name] = String(err?.code ?? "block_unavailable");
-          console.error(`[LeadOps] funnel block ${name} unavailable:`, err?.message);
+          const diagnostic = safeSfpFailureDiagnostics(err);
+          funnelBlockErrors[name] = diagnostic.domainCode ?? diagnostic.sqlState ?? "block_unavailable";
+          console.error(`[LeadOps] funnel block ${name} unavailable:`, diagnostic);
           return null;
         }
       };
@@ -2719,12 +2721,29 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       let validationBySourceStatus24h: any[] | null = null;
       let v2VerticalFunnel24h: any[] | null = null;
       let telemetryUnavailableReason: string | null = null;
-      try {
+      // Each block reads independently with its own limit and its own availability flag, so one slow or failing block
+      // no longer nulls the other four. Failures are reported through the bounded diagnostics sanitizer only: the
+      // driver message embeds SQL and parameters and is never logged or returned.
+      const telemetryBlockStatus: Record<string, { available: boolean; asOf: string | null; failureCode: string | null }> = {};
+      const telemetryBlock = async <T,>(name: string, read: () => Promise<T>): Promise<T | null> => {
+        telemetryBlockStatus[name] = { available: false, asOf: null, failureCode: null };
+        try {
+          const value = await read();
+          telemetryBlockStatus[name] = { available: true, asOf: new Date().toISOString(), failureCode: null };
+          return value;
+        } catch (err: any) {
+          const diagnostic = safeSfpFailureDiagnostics(err);
+          const failureCode = diagnostic.domainCode ?? diagnostic.sqlState ?? "block_unavailable";
+          telemetryBlockStatus[name] = { available: false, asOf: null, failureCode };
+          console.error(`[LeadOps] SFP telemetry block ${name} unavailable:`, diagnostic);
+          return null;
+        }
+      };
       const readTelemetryRows = async (query: any) => db.transaction(async (tx) => {
         await tx.execute(sql`SET LOCAL statement_timeout = '2500ms'`);
         return rows(await tx.execute(query));
       });
-      sourcePool = (await readTelemetryRows(sql`
+      sourcePool = await telemetryBlock("sourcePool", async () => (await readTelemetryRows(sql`
         SELECT
           (SELECT COUNT(*)::int FROM contacts) AS contacts_total,
           (SELECT COUNT(*)::int FROM contacts WHERE archived_at IS NULL AND NULLIF(BTRIM(email),'') IS NOT NULL) AS active_contacts_with_email,
@@ -2745,14 +2764,14 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
             WHERE c.id=d.contact_id AND c.business_id=b.id AND c.archived_at IS NULL
               AND NULLIF(BTRIM(c.email),'') IS NOT NULL
               AND cr.voided_at IS NULL AND cr.superseded_at IS NULL) AS v2_sfp_cohort_linked_contacts_with_email
-      `))[0] ?? {};
+      `))[0] ?? {});
 
       // Count actual business/record movement over the last rolling 24 hours.
       // Provider operations are attempts, paid evidence rows are returned
       // facts, eligibility rows are validation/policy decisions, and staging
       // intents are usable ready_held outputs. These are separate measures;
       // no queue tick is counted as a lead.
-      throughput24h = (await readTelemetryRows(sql`
+      throughput24h = await telemetryBlock("throughput24h", async () => (await readTelemetryRows(sql`
         SELECT
           (SELECT COUNT(*)::int FROM provider_operations
             WHERE purpose LIKE 'sfp_%' AND created_at >= NOW()-INTERVAL '24 hours') AS provider_attempts,
@@ -2776,22 +2795,22 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
             WHERE state='ready_held' AND source_kind='contact' AND ready_held_at >= NOW()-INTERVAL '24 hours') AS contact_source_ready_held,
           (SELECT COUNT(*)::int FROM sfp_ready_held_enrollments
             WHERE created_at >= NOW()-INTERVAL '24 hours') AS paused_enrollment_bridges
-      `))[0] ?? {};
-      paidEvidenceByProvider24h = (await readTelemetryRows(sql`
+      `))[0] ?? {});
+      paidEvidenceByProvider24h = await telemetryBlock("paidEvidenceByProvider24h", async () => (await readTelemetryRows(sql`
         SELECT provider,field,COUNT(*)::int AS evidence_rows,COUNT(DISTINCT business_id)::int AS businesses
           FROM sfp_paid_candidate_evidence
          WHERE created_at >= NOW()-INTERVAL '24 hours'
          GROUP BY provider,field ORDER BY provider,field
-      `));
-      validationBySourceStatus24h = (await readTelemetryRows(sql`
+      `)));
+      validationBySourceStatus24h = await telemetryBlock("validationBySourceStatus24h", async () => (await readTelemetryRows(sql`
         SELECT COALESCE(source_kind,'legacy_or_unknown') AS source_kind,status,COUNT(*)::int AS rows,
                COUNT(DISTINCT business_id)::int AS businesses
           FROM sfp_outreach_eligibility
          WHERE created_at >= NOW()-INTERVAL '24 hours'
          GROUP BY COALESCE(source_kind,'legacy_or_unknown'),status
          ORDER BY source_kind,status
-      `));
-      v2VerticalFunnel24h = (await readTelemetryRows(sql`
+      `)));
+      v2VerticalFunnel24h = await telemetryBlock("v2VerticalFunnel24h", async () => (await readTelemetryRows(sql`
         WITH active_v2_program AS (
           SELECT id, vertical_ids FROM sfp_programs WHERE is_active=TRUE AND taxonomy_version=2
         ),
@@ -2892,19 +2911,13 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           LEFT JOIN validation_24h val ON val.vertical=v.vertical
           LEFT JOIN ready_held_24h rh ON rh.vertical=v.vertical
          ORDER BY v.vertical
-      `));
-      } catch (err: any) {
-        telemetryUnavailableReason = String(err?.code ?? "telemetry_unavailable");
-        sourcePool = null;
-        throughput24h = null;
-        paidEvidenceByProvider24h = null;
-        validationBySourceStatus24h = null;
-        v2VerticalFunnel24h = null;
-        console.error("[LeadOps] SFP throughput telemetry unavailable:", err?.message);
-      }
-      return { countsSnapshotAt: new Date().toISOString(), eligibleCounts, zbOutcomes, crosswalkOnlyExcluded, funnelSnapshotAt, funnel, funnelUnavailableReason, sourcePool, throughput24h, paidEvidenceByProvider24h, validationBySourceStatus24h, v2VerticalFunnel24h, telemetryUnavailableReason };
+      `)));
+      const failedTelemetry = Object.entries(telemetryBlockStatus).filter(([, status]) => !status.available);
+      telemetryUnavailableReason = failedTelemetry.length === 0 ? null
+        : failedTelemetry.map(([name, status]) => `${name}:${status.failureCode}`).join(",");
+      return { countsSnapshotAt: new Date().toISOString(), eligibleCounts, zbOutcomes, crosswalkOnlyExcluded, funnelSnapshotAt, funnel, funnelUnavailableReason, sourcePool, throughput24h, paidEvidenceByProvider24h, validationBySourceStatus24h, v2VerticalFunnel24h, telemetryUnavailableReason, telemetryBlockStatus };
       });
-      const { countsSnapshotAt, eligibleCounts, zbOutcomes, crosswalkOnlyExcluded, funnelSnapshotAt, funnel, funnelUnavailableReason, sourcePool, throughput24h, paidEvidenceByProvider24h, validationBySourceStatus24h, v2VerticalFunnel24h, telemetryUnavailableReason } = countsSnapshot;
+      const { countsSnapshotAt, eligibleCounts, zbOutcomes, crosswalkOnlyExcluded, funnelSnapshotAt, funnel, funnelUnavailableReason, sourcePool, throughput24h, paidEvidenceByProvider24h, validationBySourceStatus24h, v2VerticalFunnel24h, telemetryUnavailableReason, telemetryBlockStatus } = countsSnapshot;
 
       res.json({
         poolAuthority,
@@ -2945,6 +2958,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         enrichmentTelemetry: {
           available: !!sourcePool && !!throughput24h,
           unavailableReason: telemetryUnavailableReason,
+          blocks: telemetryBlockStatus,
         },
         // A failed read is null (unavailable), never zeros.
         crosswalkOnlyExcluded: crosswalkOnlyExcluded ?? null,

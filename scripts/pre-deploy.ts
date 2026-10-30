@@ -166,6 +166,11 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
     timeoutSecs:600,requiresDisposableTestDatabase:true},
   {name:"CRO-03C Level 1 ROI cohort certification",script:"scripts/cro03c-level1-certification.ts",
     timeoutSecs:600,requiresDisposableTestDatabase:true},
+  // Stage 4B: explicit --only selection (disposable database); not part of the default roster.
+  {name:"Stage 4B SFP supply and throughput",script:"scripts/certification/test-stage4b-supply-throughput.ts",
+    timeoutSecs:600,requiresDisposableTestDatabase:true},
+  {name:"Stage 4B Workspace Mounted Browser",script:"scripts/test-stage4b-workspace-browser.ts",
+    timeoutSecs:480,requiresDisposableTestDatabase:true},
 ];
 export const MANDATORY_SUITES: Suite[] = [
   {name:"Stage 3 C3 Destination Codec and Source Contracts",script:"scripts/test-stage3-c3-contracts.ts",timeoutSecs:60},

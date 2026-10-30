@@ -521,10 +521,13 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
       const values: unknown[] = [];
       const predicate = coldLeadPredicate(req.user as any, values, asOf);
 
-      // Single efficient query: all cold leads across full dataset.
-      // Uses NOT EXISTS to exclude contacts with any active (non-closed) deal.
-      // Bypasses storage pagination cap (500 rows) by querying DB directly.
-      const result = await pool.query(`
+      // The page is cut in SQL (stable id tie-break) so a request carries one page of rows, not the whole
+      // dormant population. Total and average dormancy come from one aggregate over the same predicate.
+      const pageValues = [...values, pageSize, page * pageSize];
+      const limitParam = `$${values.length + 1}`;
+      const offsetParam = `$${values.length + 2}`;
+      const [result, aggregate] = await Promise.all([
+        pool.query(`
         SELECT
           c.id,
           c.first_name AS "firstName",
@@ -545,17 +548,22 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
           EXTRACT(DAY FROM NOW() - COALESCE(c.last_contacted_at, c.created_at))::int AS "daysDormant"
         FROM contacts c
         WHERE ${predicate}
-        ORDER BY COALESCE(c.last_contacted_at, c.created_at) ASC
-      `, values);
+        ORDER BY COALESCE(c.last_contacted_at, c.created_at) ASC, c.id ASC
+        LIMIT ${limitParam} OFFSET ${offsetParam}
+      `, pageValues),
+        pool.query(`
+        SELECT COUNT(*)::int AS total,
+               COALESCE(SUM(COALESCE(EXTRACT(DAY FROM NOW() - COALESCE(c.last_contacted_at, c.created_at))::int, 0)), 0)::float8 AS dormancy_sum
+          FROM contacts c
+         WHERE ${predicate}
+      `, values),
+      ]);
 
-      const allColdLeads = result.rows;
-      const total = allColdLeads.length;
-      const avgDaysDormant = total > 0
-        ? Math.round(allColdLeads.reduce((s: number, c: any) => s + (Number(c.daysDormant) || 0), 0) / total)
-        : 0;
+      const total = Number(aggregate.rows[0]?.total ?? 0);
+      const avgDaysDormant = total > 0 ? Math.round(Number(aggregate.rows[0]?.dormancy_sum ?? 0) / total) : 0;
 
       res.json({
-        data: allColdLeads.slice(page * pageSize, (page + 1) * pageSize),
+        data: result.rows,
         total,
         avgDaysDormant,
         meta: { contractVersion: 1, asOf: asOf.toISOString(), unit: "contacts",

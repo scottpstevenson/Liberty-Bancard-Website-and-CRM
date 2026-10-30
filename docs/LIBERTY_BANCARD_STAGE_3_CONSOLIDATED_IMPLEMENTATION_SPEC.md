@@ -2110,3 +2110,13 @@ Dispositions and evidence are in ledger Section 42. Contract points that later w
 
 - Contract: a Contact page that has a section response outstanding must, when the signed-in actor or the same actor's account version or permissions change, clear the previous header, capabilities and section content; a late response produced for the previous actor must not restore any of them; a permitted fresh read for the current actor must recover with its own header, content and capabilities. The retained Contact core remains keyed by the protected scope (actor id, role, account version, sorted permissions, generation) and contact id.
 - Acceptance: `scripts/test-stage3-d-v-contact-actor-browser.ts` in a real browser against persisted sessions on a disposable database (case 1 agent to another agent; case 2a account version; case 2b permissions). `scripts/test-retained-contact-core.ts` remains a unit check of the key and is not browser evidence for these cases. Results, binding to serving version `cafc77ab`, test-only instrumentation and limits: ledger Section 46. This does not claim a full CRM pass, a role matrix or production verification.
+
+
+### 32.7 Stage 4B contract — SFP supply and throughput — 2026-10-30 (source; not yet published)
+
+- A staging hold is permanent only for an item-local refusal on the allow-list in `sfp-staging-hold.ts`; anything else is retryable; suppression refusals are timed (12 h recheck) because lifted suppression is not visible in the revision. The hold is bound to a relevant-fact revision, so a changed fact reopens the recipient once and an unrelated edit does not. Selection, ledger inserts and claim are one transaction under one advisory lock; settle writes are fenced on the run claim token.
+- One estimator authority (`resolveVolumeModel`). An unavailable model produces nulls and is never stored as Other or $0.00; actual merchant values take precedence.
+- Independent readers fail independently: backlog aggregate (deadline + generation fence), process history, release panel, telemetry blocks. A failed read is shown as unavailable, never zero; an unrecorded price is "Unpriced", a recorded zero is "$0.00".
+- Selected-policy TTL applies inside the SFP staging boundary; a policy read failure fails closed.
+- Cold-lead paging is SQL-side with a stable `ORDER BY ..., c.id`; total and average come from the same predicate.
+- Evidence gap carried forward: `test-sfp2001-campaign-staging-certification` fails at SFP2001-17 on baseline as well, so worker multi-window behaviour is runtime-unverified. The ledger §49 receipt keeps source, fixture and live evidence separate. The review's "§43.5" does not exist in this document; this is the receipt.

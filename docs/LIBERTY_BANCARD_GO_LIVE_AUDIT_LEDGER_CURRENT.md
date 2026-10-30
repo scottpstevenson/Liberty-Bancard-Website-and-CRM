@@ -2039,3 +2039,37 @@ Source only: no migration, data write or control change. Roll back through the e
 - The site root returned 200. These were the only production reads made; no write, no emergency-stop click, no native or provider canary.
 - Authenticated pages (GHL Settings, Identity Health, Inbox Health, Operator Dashboard, Cr06 Governance catalog panel) were NOT verified; they need a signed-in session this environment does not have. Neither was it established that the optional/aggregate production reads show the new null/n-a states for real data.
 - The www hostname did not respond from this environment (connection failure); not investigated.
+
+
+## 49. Stage 4B — SFP supply and throughput (2026-10-30; source, not yet published)
+
+Numbering note: the Stage 4B review text refers to "ledger §51.5" and "implementation spec §43.5". Neither exists in this repository (the ledger ended at §48 and the implementation spec at §32.6), so this receipt is §49 here and §32.7 in the spec.
+
+Scope: F03 durable staging hold, F09 single estimator authority, F14 Provider Results crash fix / independent backlog readers / SQL cold-lead paging / truthful loading, F15 selected-policy TTL / per-block telemetry / suppression-first ladders, and the SFP tab reorder. No outbound activation, send, enrollment, provider call, GHL write, Sunbiz run, backfill, reclassification or reimport. The global pause, email/SMS/cold-email pauses and GHL controls were not touched. No schema change (F03 uses the existing `sfp_stage_items` ledger). No theme, sidebar, dependency or lockfile change.
+
+### 49.1 What changed
+
+| Item | Change |
+|---|---|
+| F03 | `sfp-staging-hold.ts`: a permanent, item-local refusal is recorded on `sfp_stage_items.redacted_result.hold` and bound to a relevant-fact revision (eligibility facts, selected-policy hash, current package fingerprint, link decision, email token, latest named-email review) — not to the run id, the 15-minute bucket or `updated_at`. Suppression refusals are held only for a 12-hour recheck window (the suppression facts are keyed by the sealed address and are not in the revision, so a lifted suppression must be re-evaluated by time, not by revision change). Unknown errors are always retryable. The worker selects, writes ledger rows and claims in one transaction under an advisory lock, skips recipients leased by another live run, and fences settle writes on the run claim token. The outer whole-command catch is unchanged and fails closed. |
+| F09 | `resolveVolumeModel` is the one estimator authority. Actual merchant values win; an unavailable model (including Fitness/Recreation, a missing or unknown vertical) yields nulls, never "Other" or $0.00. `deals.ts` and `sunbiz-cron.ts` use it. |
+| F14 | Provider Results no longer crashes on a null cost (`usdFromMicros`: null "Unpriced", 0 "$0.00", sub-cent keeps four decimals, non-finite "Unavailable"). Backlog aggregate callers are answered at the whole-response deadline (the caller waits on a race, so a slow pre-transaction read cannot delay the 503); late work is generation-fenced, cannot cache, and is cancelled on pid + xact_start once its transaction is identified. A superseded flight is rejected immediately. Process history has its own endpoint (`/api/canonical-enrichment/backlog-process-history`) and mounts outside the aggregate barrier. Cold leads page in SQL (`LIMIT/OFFSET`, `ORDER BY ..., c.id`) with the total and average from a parallel aggregate over the same predicate; response shape unchanged. Copy and accessible names on Cold Leads are accurate. |
+| F15 | Selected recipient-policy TTL applies to businesses inside the SFP staging boundary (the stricter of 180 days and the policy TTL); an unreadable policy fails closed to unavailable. Lead Ops telemetry is read per block, and a failed block shows "Unavailable" with its name instead of a dash or zero. The backlog contact ladder checks current suppression, address, business/link and program/package facts before counting a ready-held recipient as done. |
+| UI | SFP tab order: enrichment control center, named-email eligibility review, then cohort tools in a collapsible section. Lead Imports labels the Outscraper reference card general/legacy. Business count reads "Counting businesses…" or "Business count unavailable". |
+
+### 49.2 Evidence, by class (kept separate)
+
+- Code-proved: `npm run build` exit 0 (bundle only; no full TypeScript check, per the kill lines). `ci-suite-manifest.ts --check` valid.
+- Fixture-proved on disposable databases (`run-sfp2060-predeploy-disposable.ts --only`):
+  - `scripts/certification/test-stage4b-supply-throughput.ts`: 78 assertions (includes a timed suppression hold expiring without a revision change, and caller answered at the deadline). Estimator, refusal classification and cost formatting (pure); hold predicate semantics, revision change on a relevant fact, no reopen on an unrelated edit, census, backlog deadline / supersede / cache fence, history endpoint role boundary, 230-row cold-lead paging, TTL for a business outside the boundary (database); worker transaction/fence and telemetry structure and ladder order (source assertions — wiring, not behaviour).
+  - `scripts/test-stage4b-workspace-browser.ts`: 14 checks, private admin session at 1280 px against the compiled client. The Provider Results payload in this suite is fixture-supplied; it proves the client renders null/zero/positive costs without an exception, not what the live endpoint returns. The SFP-tab check only confirms the cohort tools are a collapsible `details`; it does not assert DOM order. Service-worker bypass is enabled because the app's service worker answers `/api/contacts` itself and page-level fault injection cannot see those requests.
+  - Existing suites still passing: `test-provider-readiness-controls`, `test-stage3-c3-backlog-command`, `test-stage3-a-authority`, `test-stage3-c3-roles`.
+- Known failing before this work: `test-sfp2001-campaign-staging-certification` fails at assertion SFP2001-17 (validation: `canonical_target_selection_required`, `validated_policy_ineligible`). The same failure occurs on the stashed baseline HEAD. That suite never reaches its worker section, so the F03 worker's end-to-end multi-window behaviour is **runtime-unverified**; only the hold predicate and the worker's structure are proved.
+- Live-read-observed: none. Production database reads were refused in this session ("requires an authenticated user"), so the build-start census (production SHA, migration head, policy pointer/hash/TTL, pause and GHL controls) was not re-read. Production last served `be8f57fb2a9c…` per the Stage 4A hand-back; nothing newer is asserted here.
+
+### 49.3 Rollback and read-only post-publish checks
+
+- Rollback: revert the Stage 4B commit; there is no schema or data change to undo. Existing `redacted_result.hold` JSON on ledger rows is inert once the worker no longer reads it.
+- After publish, read only: cold-leads page loads with a total and paging; Provider Results opens without an error and shows "Unpriced" for rows with no price; the SFP tab shows the control center first; the hold census (`readStagingHoldCensus`) returns held-by-code counts; confirm the global pause epoch and GHL owner pause are unchanged. Authenticated pages were not checked in this environment.
+
+Next in order: 4C1, 4C2, 4D.

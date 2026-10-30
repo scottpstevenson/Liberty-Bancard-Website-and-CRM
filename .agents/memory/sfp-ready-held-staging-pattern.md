@@ -52,3 +52,12 @@ Keep the original authorized target set immutable, but distinguish pending work 
 - **Cross-entity evidence binding**: a plaintext-opening callback that resolves a reference to "some member of the batch" is not the same as resolving it to the exact row being processed. Always compare the resolver's returned entity ID against the row's own entity ID inside the callback, or a mismatched/stale foreign key can silently project one entity's private data onto another's record.
 - **Content hash must be recomputed live, in-transaction, from the real content rows** (not from a stored hash column, and not from a hash of just IDs/names) at the moment a pinned artifact is used. A stored hash proves nothing if the underlying content can still be edited after pinning.
 - **Command-key idempotency needs a resume path, not just a replay-after-commit path**: if the row-level write commits before the outer command receipt, a retried/concurrent call must recognize "this exact command already produced this exact row's terminal state" and return success — not throw a conflict — or a crash between those two writes becomes unrecoverable.
+
+
+## Cross-window permanent holds (staging worker)
+A permanent item-local refusal is recorded on the existing sfp_stage_items ledger (redacted_result.hold) and bound to a relevant-fact revision hash, never to run id, the 15-minute idempotency bucket or updated_at. A changed relevant fact stops matching, so exactly one re-evaluation happens; an unrelated edit does not reopen it. Unknown errors are always retryable.
+**Why:** recurring windows re-selected the same refused recipients forever and starved the queue; run- or clock-keyed holds simply expire at the next window.
+**How to apply:** claim selection, ledger inserts and claim must share one transaction under one advisory lock; settle writes are fenced on the run claim token. Keep the outer whole-command catch fail-closed.
+
+## Hold scope and certification caveats
+Only refusals whose cause is visible in the revision facts may be held permanently. Suppression (contact opt-outs, consent-subject state keyed by the plain address) is not in the revision, so it must be a time-bounded hold. Baseline-failing certification suites must be confirmed against a clean baseline before attributing failures, and never cited as proof of behaviour they do not reach.

@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useCrmQuery } from "@/hooks/use-crm-query";
 import { queryClient, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1792,8 +1792,13 @@ export default function LeadImports() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Outscraper Search Reference (FL Hot Verticals)
+            Outscraper Search Reference (general Florida examples)
           </CardTitle>
+          <CardDescription>
+            General and legacy examples only. They cover cities and business types outside the current South Florida program
+            (Broward, Miami-Dade and Palm Beach; Automotive, Healthcare, Beauty/Spa, Construction/Trades/Home Services,
+            Fitness/Recreation). Importing a result does not make it a program recipient.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

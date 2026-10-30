@@ -50,6 +50,7 @@ import Prospects from "@/pages/dashboard/Prospects";
 import LeadImports from "@/pages/dashboard/LeadImports";
 import LeadIntelligence from "@/pages/dashboard/LeadIntelligence";
 import DataQuality from "@/pages/dashboard/DataQuality";
+import { usdFromMicros } from "@/lib/usd-from-micros";
 
 const CONTACT_RECONCILIATION_PATH = "/api/admin/contact-business-reconciliation";
 const CONTACT_SUGGESTIONS_PATH = "/api/admin/contact-business-suggestions";
@@ -1801,7 +1802,7 @@ function BusinessesTab({ userRole }: { userRole: string }) {
           </SelectContent>
         </Select>
         <div className="text-sm text-muted-foreground ml-auto">
-          {total.toLocaleString()} canonical businesses
+          {data ? `${total.toLocaleString()} canonical businesses` : isError ? "Business count unavailable" : "Counting businesses…"}
         </div>
       </div>
 
@@ -3544,9 +3545,17 @@ export default function LeadOpsCenter() {
 
         {/* ── South Florida Prospecting tab ──────────────────────────────── */}
         <TabsContent value="sfp" className="space-y-4">
-          <NamedEmailEligibilityReviewPanel />
+          {/* Current program pipeline first; the review queue that unblocks it next; cohort tools stay available but secondary. */}
           <SfpEnrichmentControlCenter />
-          <SouthFloridaProspectingPanel />
+          <NamedEmailEligibilityReviewPanel />
+          <details open className="rounded-md border" data-testid="sfp-cohort-tools">
+            <summary className="cursor-pointer px-4 py-3 text-sm font-medium min-h-[44px] flex items-center">
+              Cohort tools and historical records (frozen cohorts, not the current routine path)
+            </summary>
+            <div className="space-y-4 p-4 pt-0">
+              <SouthFloridaProspectingPanel />
+            </div>
+          </details>
         </TabsContent>
 
         {/* ── Provider Results tab: per-call evidence log ─────────────────── */}
@@ -3669,25 +3678,25 @@ function SfpEnrichmentControlCenter() {
             <div className="rounded-md border p-3 space-y-2" data-testid="sfp-actual-throughput">
               <div className="text-sm font-medium">CRM pool and actual SFP movement · rolling 24 hours</div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                <div className="rounded bg-muted/40 p-2"><div className="text-muted-foreground">CRM contacts with email</div><div className="text-base font-semibold">{overview?.sourcePool?.active_contacts_with_email ?? "—"}</div></div>
-                <div className="rounded bg-muted/40 p-2"><div className="text-muted-foreground">Verified linked to canonical</div><div className="text-base font-semibold">{overview?.sourcePool?.verified_canonical_linked_contacts_with_email ?? "—"}</div></div>
-                <div className="rounded bg-muted/40 p-2"><div className="text-muted-foreground">Inside frozen v2 SFP cohorts</div><div className="text-base font-semibold">{overview?.sourcePool?.v2_sfp_cohort_linked_contacts_with_email ?? "—"}</div></div>
-                <div className="rounded bg-muted/40 p-2"><div className="text-muted-foreground">Canonical businesses</div><div className="text-base font-semibold">{overview?.eligibleCounts?.canonical_businesses ?? "—"}</div></div>
+                <div className="rounded bg-muted/40 p-2"><div className="text-muted-foreground">CRM contacts with email</div><div className="text-base font-semibold">{overview?.sourcePool?.active_contacts_with_email ?? "Unavailable"}</div></div>
+                <div className="rounded bg-muted/40 p-2"><div className="text-muted-foreground">Verified linked to canonical</div><div className="text-base font-semibold">{overview?.sourcePool?.verified_canonical_linked_contacts_with_email ?? "Unavailable"}</div></div>
+                <div className="rounded bg-muted/40 p-2"><div className="text-muted-foreground">Inside frozen v2 SFP cohorts</div><div className="text-base font-semibold">{overview?.sourcePool?.v2_sfp_cohort_linked_contacts_with_email ?? "Unavailable"}</div></div>
+                <div className="rounded bg-muted/40 p-2"><div className="text-muted-foreground">Canonical businesses</div><div className="text-base font-semibold">{overview?.eligibleCounts?.canonical_businesses ?? "Unavailable"}</div></div>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
-                <div className="rounded border p-2"><div className="text-muted-foreground">Provider operations</div><div className="font-semibold">{overview?.throughput24h?.provider_attempts ?? "—"}</div></div>
-                <div className="rounded border p-2"><div className="text-muted-foreground">Distinct targets attempted</div><div className="font-semibold">{overview?.throughput24h?.distinct_provider_targets ?? "—"}</div></div>
-                <div className="rounded border p-2"><div className="text-muted-foreground">Paid evidence facts</div><div className="font-semibold">{overview?.throughput24h?.paid_evidence_rows ?? "—"} · {overview?.throughput24h?.businesses_with_paid_evidence ?? "—"} businesses</div></div>
-                <div className="rounded border p-2"><div className="text-muted-foreground">Validation decisions</div><div className="font-semibold">{overview?.throughput24h?.validation_decisions ?? "—"} · {overview?.throughput24h?.validation_eligible ?? "—"} eligible</div></div>
-                <div className="rounded border p-2"><div className="text-muted-foreground">Ready-held created</div><div className="font-semibold">{overview?.throughput24h?.ready_held_created ?? "—"} · {overview?.throughput24h?.contact_source_ready_held ?? "—"} from contacts</div></div>
+                <div className="rounded border p-2"><div className="text-muted-foreground">Provider operations</div><div className="font-semibold">{overview?.throughput24h?.provider_attempts ?? "Unavailable"}</div></div>
+                <div className="rounded border p-2"><div className="text-muted-foreground">Distinct targets attempted</div><div className="font-semibold">{overview?.throughput24h?.distinct_provider_targets ?? "Unavailable"}</div></div>
+                <div className="rounded border p-2"><div className="text-muted-foreground">Paid evidence facts</div><div className="font-semibold">{overview?.throughput24h?.paid_evidence_rows ?? "Unavailable"} · {overview?.throughput24h?.businesses_with_paid_evidence ?? "Unavailable"} businesses</div></div>
+                <div className="rounded border p-2"><div className="text-muted-foreground">Validation decisions</div><div className="font-semibold">{overview?.throughput24h?.validation_decisions ?? "Unavailable"} · {overview?.throughput24h?.validation_eligible ?? "Unavailable"} eligible</div></div>
+                <div className="rounded border p-2"><div className="text-muted-foreground">Ready-held created</div><div className="font-semibold">{overview?.throughput24h?.ready_held_created ?? "Unavailable"} · {overview?.throughput24h?.contact_source_ready_held ?? "Unavailable"} from contacts</div></div>
               </div>
               <div className="text-xs text-muted-foreground">
                   Provider calls, returned evidence, validation outcomes, and staged records are counted separately. This rolling window is real record movement, not worker ticks; outbound sending remains independently paused.
                   Linked-contact totals cover the whole CRM; the table below covers only frozen v2 SFP cohorts. Unclassified cohort members are shown separately, not assigned a guessed vertical.
               </div>
-              {overview?.enrichmentTelemetry?.available === false && (
+              {overview?.enrichmentTelemetry?.unavailableReason && (
                 <div className="text-xs text-amber-700">
-                  SFP throughput details unavailable: {overview.enrichmentTelemetry.unavailableReason ?? "query_failed"}. Counts are not inferred.
+                  Some SFP throughput blocks are unavailable ({overview.enrichmentTelemetry.unavailableReason}). A block marked Unavailable is not zero; the other blocks above are unaffected.
                 </div>
               )}
               {overview?.v2VerticalFunnel24h?.length > 0 && (

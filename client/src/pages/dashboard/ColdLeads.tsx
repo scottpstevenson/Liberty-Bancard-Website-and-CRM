@@ -133,7 +133,7 @@ export default function ColdLeads() {
         <div>
           <PageTitle className="text-2xl font-bold tracking-tight">Cold Lead Re-engagement</PageTitle>
           <p className="text-sm text-muted-foreground mt-1">
-            Contacts who submitted a form but went dormant with no active deal — your warmest untapped pipeline.
+            Sourced contacts with no activity for 45+ days and no active deal. Being listed here is not consent or permission to send.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -150,7 +150,7 @@ export default function ColdLeads() {
                 : `Re-engage ${selectedIds.size} Selected`}
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh-cold-leads">
+          <Button variant="outline" size="sm" onClick={() => refetch()} aria-label="Refresh cold leads" data-testid="button-refresh-cold-leads">
             <RefreshCw className="w-4 h-4" />
           </Button>
         </div>
@@ -235,6 +235,7 @@ export default function ColdLeads() {
                   <Checkbox
                     checked={leads.length > 0 && selectedIds.size === leads.length}
                     onCheckedChange={toggleSelectAll}
+                    aria-label="Select all cold leads on this page"
                     data-testid="checkbox-select-all-cold"
                   />
                 </TableHead>
@@ -268,7 +269,7 @@ export default function ColdLeads() {
                       </div>
                       <p className="text-sm font-medium">No cold leads found</p>
                       <p className="text-xs text-muted-foreground max-w-xs">
-                        Contacts with a form submission signal, no active deal, and 45+ days of inactivity will appear here.
+                        Sourced contacts with no active deal and 45+ days of inactivity will appear here.
                       </p>
                     </div>
                   </TableCell>
@@ -282,6 +283,7 @@ export default function ColdLeads() {
                         <Checkbox
                           checked={selectedIds.has(lead.id)}
                           onCheckedChange={() => toggleSelect(lead.id)}
+                          aria-label={`Select ${[lead.firstName, lead.lastName].filter(Boolean).join(" ") || lead.companyName || `contact ${lead.id}`}`}
                           data-testid={`checkbox-cold-lead-${lead.id}`}
                         />
                       </TableCell>

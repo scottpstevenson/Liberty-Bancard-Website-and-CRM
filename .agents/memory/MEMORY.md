@@ -115,7 +115,7 @@
 - [Cross-connection advisory lock deadlock](advisory-lock-cross-connection-deadlock.md) — never xact-lock a key a session-level lock on a different connection already holds.
 - [SFP paid-provider manifest gaps & reserved-keyword SQL](sfp-paid-provider-manifest-and-reserved-keyword.md) — List each shared-chain file in approvedCallers; quote `authorization` in SQL.
 - [Disposable-DB VFC diff-isolation certs need a clean tree](sfp-vfc-diff-isolation-clean-tree.md) — cert scripts assert diff isolation; stash uncommitted WIP first.
-- [Package-pinned ready_held staging pattern](sfp-ready-held-staging-pattern.md) — snapshot-bound preview/execute + idempotency + drift 409s is reusable for any "prepare but never send" boundary.
+- [Package-pinned ready_held staging pattern](sfp-ready-held-staging-pattern.md) — snapshot-bound preview/execute, drift 409s; revision-bound holds (suppression is time-bounded only).
 - [Sunbiz bootstrap engine hardening](sunbiz-bootstrap-hardening.md) — fence every write boundary, not just batch-level; weak-signal identity needs corroboration.
 - [SFP production admin-route trigger pattern](sfp-production-admin-route-trigger.md) — Use admin HTTP routes (login+CSRF) for prod writes; options must match the preview hash.
 - [SFP dual-taxonomy vertical classification](sfp-dual-taxonomy-classification.md) — classifier_version = taxonomy version; evidence-only admission needs admission_tier='resolved_high'.
@@ -155,7 +155,7 @@
 - [Linked worktree identity](linked-worktree-identity.md) — Missing Git links can silently target primary main; verify repository identity and repair registered worktrees.
 - [Created-original recovery admission](created-original-recovery-admission.md) — predicate aliases, classifier matched echoed SQL text, ledger query plan pitfalls, known audited-only baseline failure.
 - [Retained Sunbiz production rollout](retained-sunbiz-production-rollout.md) — Post-publish outcomes; behind-cursor contacts wait for the next pass; remaining holds are protective, not failures.
-- [Email validated definition](email-validated-definition.md) — Send authority is a 30-day provider observation; undated 'valid' and 'active' count as unvalidated.
+- [Email validated definition](email-validated-definition.md) — Send authority is a 180-day provider observation (stricter selected-policy TTL inside SFP staging); undated 'valid'/'active' = unvalidated.
 - [Classification coverage gap](classification-coverage-gap.md) — catch-up classification of never-classified businesses; windowed drain, capped OpenAI escalation.
 - [Staged-email materialization](staged-email-materialization.md) — staged first-party emails link to their original business at creation via the first-party evidence kind in the native guard; association is separate from vertical/validation/limits; Publish cannot install the routine.
 - [Automatic native object reconciler](native-object-reconciler.md) — production startup installs reviewed functions/triggers Publish skips; manifest, preflight, drift refusal, kill switch.
