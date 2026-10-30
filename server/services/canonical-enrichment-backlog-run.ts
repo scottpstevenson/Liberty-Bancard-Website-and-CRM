@@ -139,6 +139,11 @@ export async function recordBacklogPriorityRun(
     ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=NOW()`);
 }
 
+function cancelHistoryBackend(target: { pid: number; xactStart: string }): void {
+  void db.execute(sql`SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE pid=${target.pid} AND xact_start=${target.xactStart}::timestamptz`)
+    .catch((error: any) => console.error(`[canonical-backlog] history cancel failed sqlstate=${error?.cause?.code ?? error?.code ?? "n/a"}`));
+}
+
 /** Whole-read deadline for the process-history read; independent of the aggregate backlog deadline. */
 export const BACKLOG_HISTORY_DEADLINE_MS = 5_000;
 export class BacklogHistoryDeadlineError extends Error {
@@ -148,11 +153,16 @@ export class BacklogHistoryDeadlineError extends Error {
 
 /** Test seam: the single raw read of the stored history value. Production uses the default. */
 export const backlogHistoryDeps = {
-  readStoredValue: async (onBackend: (backend: { pid: number; xactStart: string }) => void, deadlineMs: number): Promise<unknown> =>
+  readStoredValue: async (
+    onBackend: (backend: { pid: number; xactStart: string }) => void, deadlineMs: number, isExpired: () => boolean = () => false,
+  ): Promise<unknown> =>
     db.transaction(async (tx) => {
       await tx.execute(sql.raw(`SET LOCAL statement_timeout='${Math.max(1, Math.floor(deadlineMs))}ms'`));
       const identity = rows(await tx.execute(sql`SELECT pg_backend_pid()::int AS pid, now()::text AS started`))[0];
       if (identity) onBackend({ pid: Number(identity.pid), xactStart: String(identity.started) });
+      // A transaction acquired or identified after the deadline has nothing left to read for: the expiry timer could
+      // not cancel a backend that was not yet registered, so the read refuses itself here and rolls back.
+      if (isExpired()) throw new BacklogHistoryDeadlineError();
       return rows(await tx.execute(sql`SELECT value FROM system_settings WHERE key=${SETTING_KEY}`))[0]?.value ?? null;
     }),
 };
@@ -169,17 +179,17 @@ export async function readLastBacklogPriorityRun(opts: { deadlineMs?: number } =
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       expired = true;
-      if (backend) {
-        const target = backend;
-        void db.execute(sql`SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE pid=${target.pid} AND xact_start=${target.xactStart}::timestamptz`)
-          .catch((error: any) => console.error(`[canonical-backlog] history cancel failed sqlstate=${error?.cause?.code ?? error?.code ?? "n/a"}`));
-      }
+      if (backend) cancelHistoryBackend(backend);
       reject(new BacklogHistoryDeadlineError());
     }, deadlineMs);
     timer.unref?.();
   });
   deadline.catch(() => undefined);
-  const read = backlogHistoryDeps.readStoredValue((b) => { backend = b; }, deadlineMs);
+  const read = backlogHistoryDeps.readStoredValue((b) => {
+    backend = b;
+    // Registered after expiry: cancel this exact transaction now (the timer only saw backends registered before it).
+    if (expired) cancelHistoryBackend(b);
+  }, deadlineMs, () => expired);
   read.catch(() => undefined); // a late failure after the deadline is already answered
   try {
     const value = await Promise.race([read, deadline]);

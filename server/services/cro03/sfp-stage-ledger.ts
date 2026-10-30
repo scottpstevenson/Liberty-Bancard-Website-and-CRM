@@ -90,6 +90,8 @@ export async function markStageItemCompletedInTx(tx: any, itemId: string, outcom
            attempt_count = attempt_count ${incrementAttempt ? sql`+ 1` : sql``},
            completed_at = NOW(), updated_at = NOW(), lease_expires_at = NULL
      WHERE id = ${itemId}::uuid AND state <> 'completed'
+       -- A claim settled by recovery as superseded stays superseded: a late stale writer cannot turn it into a second success.
+       AND NOT (state = 'skipped' AND COALESCE(redacted_result, '{}'::jsonb) ? 'recovery')
   `);
 }
 
@@ -151,4 +153,86 @@ export async function reconcileStageRunCounters(runId: string, opts?: { setState
     `);
   }
   return counters;
+}
+
+export interface ExpiredClaimSettlement {
+  /** Items whose governed intent another run already completed; closed as `skipped`, linked to that completion. */
+  superseded: number;
+  /** Items released for this run to claim again (attempt history kept). */
+  released: number;
+  /** Items released with no attempts left; closed as dead_letter. */
+  exhausted: number;
+}
+
+/**
+ * Settles `claimed` items left on a run by an earlier claim generation (a worker that died or lost its lease), once
+ * the run has been reclaimed. Every write is fenced on the caller still owning the running generation
+ * (`claimToken`), so a stale caller changes nothing, and only items of an OLDER generation are touched.
+ *
+ *  - The governed intent already exists (another run completed it): the old item becomes `skipped`, with
+ *    `redacted_result.recovery` naming the completing item, run and intent. It is never a second success.
+ *  - No completion exists: the item is released as `retry` (due now) so the reclaiming run claims it again under
+ *    its own token, or closed as `dead_letter` when attempts are exhausted.
+ * Nothing is deleted, restaged or cleaned in bulk, and attempt_count is never reduced.
+ */
+export async function settleExpiredClaimedItems(
+  runId: string, claimToken: string, opts: { maxAttempts: number },
+): Promise<ExpiredClaimSettlement> {
+  const fenced = sql`EXISTS (SELECT 1 FROM sfp_stage_runs gr WHERE gr.id = ${runId}::uuid
+    AND gr.claim_token = ${claimToken}::uuid AND gr.state = 'running')`;
+  const superseded = rows(await db.execute(sql`
+    WITH winners AS (
+      SELECT old.id AS old_id, w.id AS winner_id, w.stage_run_id AS winner_run_id, w.intent_id
+        FROM sfp_stage_items old
+        JOIN sfp_stage_runs r ON r.id = old.stage_run_id
+        CROSS JOIN LATERAL (SELECT wi.id, wi.stage_run_id, it.id AS intent_id
+                              FROM sfp_stage_items wi
+                              JOIN sfp_campaign_staging_intents it ON it.business_id = wi.business_id
+                               AND it.cohort_run_id = r.cohort_run_id AND it.state IN ('staged', 'operator_selected', 'ready_held', 'promoted')
+                             WHERE wi.business_id = old.business_id AND wi.provider = old.provider
+                               AND wi.state = 'completed' AND wi.id <> old.id
+                             ORDER BY wi.completed_at DESC NULLS LAST, wi.id LIMIT 1) w
+       WHERE old.stage_run_id = ${runId}::uuid AND old.provider = ${CAMPAIGN_STAGING_PROVIDER}
+         AND old.state = 'claimed' AND old.claim_token IS DISTINCT FROM ${claimToken}::uuid)
+    UPDATE sfp_stage_items o
+       SET state = 'skipped', outcome_code = 'superseded_by_completed_intent',
+           completed_at = NOW(), lease_expires_at = NULL, updated_at = NOW(),
+           redacted_result = COALESCE(o.redacted_result, '{}'::jsonb) || jsonb_build_object('recovery', jsonb_build_object(
+             'v', 1, 'kind', 'superseded', 'supersededByItemId', wn.winner_id::text, 'supersededByRunId', wn.winner_run_id::text,
+             'intentId', wn.intent_id::text, 'expiredClaimToken', o.claim_token::text,
+             'expiredLeaseAt', to_char(o.lease_expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+             'attemptCount', o.attempt_count, 'settledByClaim', ${claimToken}::text,
+             'settledAt', to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')))
+      FROM winners wn
+     WHERE o.id = wn.old_id AND o.state = 'claimed' AND ${fenced}
+    RETURNING o.id
+  `)).length;
+  const released = rows(await db.execute(sql`
+    UPDATE sfp_stage_items
+       SET state = 'retry', next_attempt_at = NOW(), lease_expires_at = NULL, updated_at = NOW(),
+           outcome_code = 'lease_expired_released',
+           redacted_result = COALESCE(redacted_result, '{}'::jsonb) || jsonb_build_object('recovery', jsonb_build_object(
+             'v', 1, 'kind', 'released', 'expiredClaimToken', claim_token::text, 'attemptCount', attempt_count,
+             'settledByClaim', ${claimToken}::text,
+             'settledAt', to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')))
+     WHERE stage_run_id = ${runId}::uuid AND provider = ${CAMPAIGN_STAGING_PROVIDER}
+       AND state = 'claimed' AND claim_token IS DISTINCT FROM ${claimToken}::uuid
+       AND attempt_count < ${opts.maxAttempts} AND ${fenced}
+    RETURNING id
+  `)).length;
+  const exhausted = rows(await db.execute(sql`
+    UPDATE sfp_stage_items
+       SET state = 'dead_letter', outcome_code = 'lease_expired_max_attempts', completed_at = NOW(),
+           lease_expires_at = NULL, updated_at = NOW(),
+           redacted_result = COALESCE(redacted_result, '{}'::jsonb) || jsonb_build_object('recovery', jsonb_build_object(
+             'v', 1, 'kind', 'exhausted', 'expiredClaimToken', claim_token::text, 'attemptCount', attempt_count,
+             'settledByClaim', ${claimToken}::text,
+             'settledAt', to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')))
+     WHERE stage_run_id = ${runId}::uuid AND provider = ${CAMPAIGN_STAGING_PROVIDER}
+       AND state = 'claimed' AND claim_token IS DISTINCT FROM ${claimToken}::uuid
+       AND attempt_count >= ${opts.maxAttempts} AND ${fenced}
+    RETURNING id
+  `)).length;
+  if (superseded + released + exhausted > 0) await reconcileStageRunCounters(runId);
+  return { superseded, released, exhausted };
 }

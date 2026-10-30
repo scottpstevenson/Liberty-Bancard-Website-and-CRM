@@ -64,6 +64,7 @@ const { renewSfpRuntimeDeploymentOwner } = await import("../../server/services/c
 const { prepareCanonicalRecipient } = await import("../../server/services/canonical-recipient-preparation");
 const { previewContactBusinessSystemLinks, applyContactBusinessSystemLink } = await import("../../server/services/contact-business-system-links");
 const { processSfpCampaignStagingTick } = await import("../../server/services/cro03/sfp-campaign-staging-worker");
+const { settleExpiredClaimedItems } = await import("../../server/services/cro03/sfp-stage-ledger");
 const actor = { role: "admin" as const, actorId: `system:${runKey}`, email: null };
 let ownerHeartbeat: ReturnType<typeof setInterval> | undefined;
 let ownerHeartbeatError: unknown;
@@ -261,9 +262,68 @@ try {
   const crashRunState = rows(await db.execute(sql`SELECT state, lease_expires_at FROM sfp_stage_runs WHERE id=${String(crashRun.id)}::uuid`))[0];
   check(crashItems.filter((i: any) => i.state === "completed").length === 1,
     "the recipient has exactly one completed ledger row: recovery did not stage it a second time");
-  const orphaned = crashItems.filter((i: any) => i.state === "claimed");
-  console.log(`  (observation: crashed run now '${crashRunState.state}'; ${orphaned.length} expired 'claimed' ledger row(s) remain for the recipient staged by the next bucket's run - cosmetic, excluded from selection by its expired lease)`);
+  // The reclaimed run must not end terminal with a stale `claimed` row. Every non-completed row left by the dead
+  // generation is settled with explicit recovery lineage that points at the single completed effect.
+  const crashRows = rows(await db.execute(sql`SELECT i.id, i.state, i.outcome_code, i.stage_run_id, i.attempt_count, i.lease_expires_at,
+      i.redacted_result->'recovery' AS recovery FROM sfp_stage_items i
+     WHERE i.provider='campaign_staging' AND i.business_id=${crashRecipient.businessId} ORDER BY i.created_at, i.id`));
+  const completedRow = crashRows.find((i: any) => i.state === "completed");
+  check(crashRows.filter((i: any) => i.state === "claimed").length === 0,
+    "no expired 'claimed' ledger row remains for the recovered recipient (no stale claim on a terminal run)");
+  const crashOwn = crashRows.find((i: any) => String(i.stage_run_id) === String(crashRun.id));
+  check(!!crashOwn && crashOwn.recovery?.kind && Number(crashOwn.attempt_count) >= 1,
+    "the dead generation's row carries recovery lineage and keeps its attempt history");
+  if (crashOwn.state === "skipped") {
+    check(crashOwn.outcome_code === "superseded_by_completed_intent" && crashOwn.recovery.kind === "superseded"
+      && crashOwn.recovery.supersededByItemId === String(completedRow.id)
+      && crashOwn.recovery.supersededByRunId === String(completedRow.stage_run_id)
+      && crashOwn.recovery.intentId === String(crashIntent[0].id),
+      "a superseded claim is skipped (never a second success) and links the exact completing item, run and intent");
+  } else {
+    check(crashOwn.state === "completed" && crashOwn.recovery.kind === "released" && String(completedRow.id) === String(crashOwn.id),
+      "a claim with no prior completion was released and then completed once by the reclaiming run, with recovery lineage");
+  }
+  const crashCounters = rows(await db.execute(sql`SELECT selected_count, processed_count, succeeded_count, failed_count FROM sfp_stage_runs WHERE id=${String(crashRun.id)}::uuid`))[0];
+  const crashActual = rows(await db.execute(sql`SELECT count(*)::int AS selected, count(*) FILTER (WHERE state<>'pending')::int AS processed,
+      count(*) FILTER (WHERE state='completed')::int AS succeeded, count(*) FILTER (WHERE state='dead_letter')::int AS failed
+      FROM sfp_stage_items WHERE stage_run_id=${String(crashRun.id)}::uuid AND provider='campaign_staging'`))[0];
+  check(Number(crashCounters.selected_count) === Number(crashActual.selected) && Number(crashCounters.processed_count) === Number(crashActual.processed)
+    && Number(crashCounters.succeeded_count) === Number(crashActual.succeeded) && Number(crashCounters.failed_count) === Number(crashActual.failed),
+    "the recovered run's counters equal the ledger recomputed from its item rows");
+  check(Number((await intentOf(crashRecipient)).length) === 1, "exactly one staging intent exists for the recovered recipient");
   check(crashRunState.state === "completed", "the crashed run was reclaimed and finished, not left as a stale expired-lease running run");
+
+  // A stale settlement is rejected. Plant an expired claim from a dead generation on a run that is no longer the
+  // caller's generation: settling with the old token changes nothing; only the current owner's token settles.
+  const probeRun = rows(await db.execute(sql`INSERT INTO sfp_stage_runs
+    (cohort_run_id, stage, idempotency_key, actor_id, state, max_items, provider_keys, estimated_cost_micros, claim_token, lease_expires_at)
+    VALUES (${cohortRunId}::uuid, 'campaign_staging', ${`campaign-staging:probe:${runKey}`}, 'system:sfp-campaign-staging', 'completed', 1, '[]'::jsonb, 0,
+            gen_random_uuid(), NOW() + INTERVAL '1 hour') RETURNING id, claim_token`))[0];
+  const probeItem = rows(await db.execute(sql`INSERT INTO sfp_stage_items (stage_run_id, business_id, provider, state, claim_token, attempt_count, lease_expires_at)
+    VALUES (${String(probeRun.id)}::uuid, ${crashRecipient.businessId}, 'campaign_staging', 'claimed', gen_random_uuid(), 1, NOW() - INTERVAL '2 hours') RETURNING id`))[0];
+  const staleResult = await settleExpiredClaimedItems(String(probeRun.id), randomUUID(), { maxAttempts: 5 });
+  const notSettledByStale = rows(await db.execute(sql`SELECT state FROM sfp_stage_items WHERE id=${String(probeItem.id)}::uuid`))[0].state === "claimed";
+  check(staleResult.superseded + staleResult.released + staleResult.exhausted === 0 && notSettledByStale,
+    "a stale settlement (wrong generation token) changes nothing");
+  const notRunning = await settleExpiredClaimedItems(String(probeRun.id), String(probeRun.claim_token), { maxAttempts: 5 });
+  check(notRunning.superseded + notRunning.released + notRunning.exhausted === 0,
+    "a settlement for a run that is no longer running changes nothing, even with its own token");
+  await db.execute(sql`UPDATE sfp_stage_runs SET state='running' WHERE id=${String(probeRun.id)}::uuid`);
+  const ownResult = await settleExpiredClaimedItems(String(probeRun.id), String(probeRun.claim_token), { maxAttempts: 5 });
+  // The probe item's claim token differs from the owner's: an older generation. The intent exists, so it is superseded.
+  const probeAfter = rows(await db.execute(sql`SELECT state, redacted_result->'recovery'->>'kind' AS kind FROM sfp_stage_items WHERE id=${String(probeItem.id)}::uuid`))[0];
+  check(ownResult.superseded === 1 && probeAfter.state === "skipped" && probeAfter.kind === "superseded",
+    "the current owner settles an older generation's claim as superseded (skipped), exactly once");
+  const probeCompletedLate = await db.transaction(async (tx: any) => {
+    const { markStageItemCompletedInTx } = await import("../../server/services/cro03/sfp-stage-ledger");
+    await markStageItemCompletedInTx(tx, String(probeItem.id), "ready_held", { incrementAttempt: false });
+    return rows(await tx.execute(sql`SELECT state FROM sfp_stage_items WHERE id=${String(probeItem.id)}::uuid`))[0].state;
+  });
+  check(probeCompletedLate === "skipped", "a late stale completion cannot turn a settled superseded claim into a second success");
+  await db.execute(sql`UPDATE sfp_stage_runs SET state='completed', lease_expires_at=NULL, completed_at=NOW() WHERE id=${String(probeRun.id)}::uuid`);
+  check(Number(rows(await db.execute(sql`SELECT count(*)::int AS n FROM sfp_stage_items WHERE provider='campaign_staging'
+      AND business_id=${crashRecipient.businessId} AND state='completed'`))[0].n) === 1,
+    "after all settlements the recipient still has exactly one completed effect");
 
   // Window 2: two concurrent ticks.
   await openWindow();

@@ -2,7 +2,7 @@ import {
   CanonicalReleaseError, describeCanonicalRelease, executeCanonicalRelease, previewCanonicalRelease,
   resolveCanonicalHold, revokeCanonicalRelease, writeReleasePolicy, type HoldResolution,
 } from "../services/sfp-canonical-release";
-import { readSfpLaunchInventory } from "../services/sfp-launch-inventory";
+import { LaunchInventoryDeadlineError, readSfpLaunchInventory } from "../services/sfp-launch-inventory";
 import type { Express } from "express";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { readCanonicalEnrichmentStatus } from "../services/canonical-enrichment-status";
@@ -20,6 +20,17 @@ function logReadFailure(label: string, error: unknown, startedAt: number) {
   const e: any = error;
   const code = e?.code ?? e?.cause?.code ?? "n/a";
   console.error(`[canonical-enrichment] ${label} failed after ${Date.now() - startedAt}ms sqlstate=${code}: ${e?.cause?.message ?? e?.message ?? String(error)}`);
+}
+
+export const RELEASE_STATUS_DEADLINE_MS = 10_000;
+export class ReadDeadlineError extends Error { constructor() { super("READ_DEADLINE_EXCEEDED"); } }
+/** Answers the caller at the deadline; a late result is discarded. The pool statement timeout still bounds the database side. */
+export function withReadDeadline<T>(work: Promise<T>, deadlineMs: number): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new ReadDeadlineError()), deadlineMs); });
+  late.catch(() => undefined);
+  work.catch(() => undefined);
+  return Promise.race([work, late]).finally(() => { if (timer) clearTimeout(timer); });
 }
 
 /**
@@ -92,7 +103,14 @@ export function registerCanonicalEnrichmentRoutes(app: Express) {
       res.json(await readSfpLaunchInventory({ fresh }));
     } catch (error) {
       logReadFailure("launch inventory", error, startedAt);
-      res.status(503).json({ message: "The launch inventory is unavailable; nothing was counted." });
+      if (error instanceof LaunchInventoryDeadlineError) {
+        res.status(503).json({
+          code: "LAUNCH_INVENTORY_DEADLINE_EXCEEDED", phase: error.phase, progress: error.progress,
+          message: "The launch inventory did not finish in time and was cancelled; nothing was counted. Contact checks already finished are kept, so a retry continues from them.",
+        });
+        return;
+      }
+      res.status(503).json({ code: "LAUNCH_INVENTORY_UNAVAILABLE", message: "The launch inventory is unavailable; nothing was counted." });
     }
   });
 
@@ -104,12 +122,19 @@ export function registerCanonicalEnrichmentRoutes(app: Express) {
     return res.status(503).json({ code: "RELEASE_UNCONFIRMED", message: "The release request could not be confirmed. It may or may not have committed: check the release status before doing anything else. Repeating the same request is safe because it replays the same release; do not start a different one until you have checked." });
   };
   app.get("/api/canonical-enrichment/release", isDashboardUser, requireRole("admin", "manager"), async (_req, res) => {
+    const startedAt = Date.now();
     try {
       res.set("Cache-Control", "no-store");
       const { readSenderCapacity } = await import("../services/sfp-sender-capacity");
-      const [status, capacity] = await Promise.all([describeCanonicalRelease(), readSenderCapacity().catch(() => null)]);
+      // Whole-read bound: the release panel must answer or say it is unavailable, never wait on a stalled read.
+      const [status, capacity] = await withReadDeadline(
+        Promise.all([describeCanonicalRelease(), readSenderCapacity().catch(() => null)]), RELEASE_STATUS_DEADLINE_MS);
       res.json({ ...status, capacity });
-    } catch (error) { logReadFailure("release state", error, Date.now()); res.status(503).json({ message: "The release state is unavailable." }); }
+    } catch (error) {
+      logReadFailure("release state", error, startedAt);
+      const timedOut = error instanceof ReadDeadlineError;
+      res.status(503).json({ code: timedOut ? "RELEASE_STATUS_DEADLINE_EXCEEDED" : "RELEASE_STATUS_UNAVAILABLE", message: "The release state is unavailable." });
+    }
   });
   // Read-only: what each current launch package renders for a fictional recipient. Writes and sends nothing.
   app.get("/api/canonical-enrichment/seed-test/rendering", isDashboardUser, requireRole("admin"), async (_req, res) => {

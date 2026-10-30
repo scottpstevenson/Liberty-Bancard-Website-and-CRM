@@ -666,7 +666,7 @@
 
 ### Stage 4 sequence (updated 2026-10-30)
 
-Stage 4A (catalog and operational truth) is published. Stage 4B (SFP supply and throughput) is implemented in source and awaits publish; see ledger §49. Remaining order: 4C1, then 4C2, then 4D. Staging-worker multi-window, concurrency and timed-suppression behaviour is fixture-proved on a disposable database (ledger §49.2); production behaviour of the new hold, active production policy/schema, the post-publish smoke and candidate deployment evidence remain release gates, and the build-start census is recorded as missing.
+Stage 4A (catalog and operational truth) is published. Stage 4B (SFP supply and throughput) is implemented in source and awaits publish; see ledger §49 (closure repair R01–R03 in §49.4: bounded inventory/release reads, late-registration fence, expired-claim settlement; inventory production completion time unverified). Remaining order: 4C1, then 4C2, then 4D. Staging-worker multi-window, concurrency and timed-suppression behaviour is fixture-proved on a disposable database (ledger §49.2); production behaviour of the new hold, active production policy/schema, the post-publish smoke and candidate deployment evidence remain release gates, and the build-start census is recorded as missing.
 
 ---
 

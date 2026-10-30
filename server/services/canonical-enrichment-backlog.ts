@@ -196,12 +196,15 @@ function businessFacts(idFilter: ReturnType<typeof sql> | null, gateOpen: boolea
       bb.free_enrichment_status AS fes, COALESCE(bb.free_enrichment_attempt_count,0) AS fea,
       bb.free_enrichment_completed_at AS fec,
       bb.state AS gstate, bb.postal_code AS gzip, bb.city AS gcity,
-      (SELECT jsonb_agg(jsonb_build_object('id',bl.id,'is_primary',bl.is_primary,'city',bl.city,'state',bl.state,
-         'postal_code',bl.postal_code,'county_fips',bl.county_fips) ORDER BY bl.id)
-         FROM business_locations bl WHERE bl.business_id=bb.id)::text AS glocs,
+      loc.j::text AS glocs,
       COALESCE(ua.n,0) AS usable_contacts, COALESCE(sa.total,0) AS staged_n, COALESCE(sa.open,0) AS staged_open,
       CASE WHEN ${sql.raw(STATUS)}='mapped' THEN ${sql.raw(VERT)} END AS vid
     FROM businesses bb
+    -- Locations are aggregated once per business and hash-joined. A correlated subquery here scanned the whole
+    -- locations table once per business (about 100,000 scans on the production aggregate).
+    LEFT JOIN (SELECT bl.business_id, jsonb_agg(jsonb_build_object('id',bl.id,'is_primary',bl.is_primary,'city',bl.city,
+        'state',bl.state,'postal_code',bl.postal_code,'county_fips',bl.county_fips) ORDER BY bl.id) AS j
+        FROM business_locations bl GROUP BY bl.business_id) loc ON loc.business_id=bb.id
     LEFT JOIN (SELECT c.business_id, count(*) n FROM contacts c
         WHERE c.archived_at IS NULL AND c.email IS NOT NULL AND COALESCE(c.do_not_contact,FALSE)=FALSE
           AND COALESCE(c.opted_out_email,FALSE)=FALSE AND COALESCE(c.bounce_status,'none')<>'hard'
@@ -372,6 +375,11 @@ export async function computeCanonicalEnrichmentBacklog(
          WHERE d.decision='verified' AND d.superseded_at IS NULL),
       ${businessFacts(sql`SELECT business_id FROM linked`, gate.enabled)},
       uploaded AS MATERIALIZED (SELECT DISTINCT contact_id FROM import_row_dispositions WHERE contact_id IS NOT NULL),
+      -- Latest preparation per contact, read once. A per-contact lateral scanned every intent once per linked contact
+      -- (about 9,400 scans on the production aggregate).
+      prepared AS MATERIALIZED (
+        SELECT DISTINCT ON (i.contact_id) i.contact_id, i.preparation_state, i.reason_code FROM cr04_enrollment_intents i
+         WHERE i.program_id IS NOT NULL ORDER BY i.contact_id, i.created_at DESC),
       cc AS MATERIALIZED (
         SELECT c.id, c.business_id, (c.email IS NOT NULL AND btrim(c.email)<>'') AS has_email,
           CASE WHEN c.ghl_contact_id IS NOT NULL THEN 'crm_ghl'
@@ -387,9 +395,7 @@ export async function computeCanonicalEnrichmentBacklog(
         LEFT JOIN linked l ON l.contact_id=c.id AND l.business_id=c.business_id
         LEFT JOIN uploaded u ON u.contact_id=c.id
         LEFT JOIN contact_business_link_dispositions disp ON disp.contact_id=c.id
-        LEFT JOIN LATERAL (SELECT i.preparation_state, i.reason_code FROM cr04_enrollment_intents i
-           WHERE i.contact_id=c.id AND i.program_id IS NOT NULL AND l.contact_id IS NOT NULL
-           ORDER BY i.created_at DESC LIMIT 1) prep ON TRUE
+        LEFT JOIN prepared prep ON prep.contact_id=c.id AND l.contact_id IS NOT NULL
         LEFT JOIN LATERAL (SELECT v.state, v.terminal_code, v.next_attempt_at, v.updated_at, v.created_at
            FROM validation_intents v WHERE v.contact_id=c.id AND prep.preparation_state='pending_validation'
            ORDER BY v.created_at DESC LIMIT 1) vi ON TRUE

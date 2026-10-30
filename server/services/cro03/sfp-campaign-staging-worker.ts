@@ -8,7 +8,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { getBackgroundProfile, getSelectiveGroups } from "../background-profile";
 import { SfpStagingV2Error, executeStagingV2, previewStagingV2 } from "./sfp-campaign-staging-v2";
-import { reconcileStageRunCounters } from "./sfp-stage-ledger";
+import { reconcileStageRunCounters, settleExpiredClaimedItems } from "./sfp-stage-ledger";
 import {
   STAGING_HOLD_JOINS, activeStagingHoldPredicate, classifyStagingRefusal,
   readStagingHoldContext, stagingHoldRevisionSql,
@@ -134,6 +134,9 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
 
   try {
     await renewStageRunClaim(runId, claimToken);
+    // A reclaimed run may carry `claimed` items from the generation that lost its lease. Settle them truthfully
+    // before selecting, so none is left claimed on a run that ends terminal.
+    await settleExpiredClaimedItems(runId, claimToken, { maxAttempts: MAX_ATTEMPTS });
     // F03: permanent item-local refusals are held across windows against a
     // relevant-fact revision (see sfp-staging-hold.ts); the hold is not keyed
     // on this run or its 15-minute bucket. Selection, per-item ledger rows and

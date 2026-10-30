@@ -109,6 +109,24 @@ try {
   check(await count('[data-testid="independent-process-panel"]') === 1, "the aggregate and release panel render while the history read is still pending");
   b.delayRead(null);
 
+  // 3b. R01: the release panel is an independent sibling of the launch inventory in every inventory state.
+  b.delayRead("/api/canonical-enrichment/launch-inventory", 8000);
+  await b.navigate("/dashboard/lead-ops?tab=canonical&canonicalView=backlog");
+  await until(async () => (await count('[data-testid="launch-inventory-loading"]')) === 1, "launch inventory skeleton while the read is stalled");
+  await until(async () => (await count('[data-testid="release-panel"]')) === 1, "release panel while the inventory is loading");
+  check(await count('[data-testid="release-panel"]') === 1 && await count('[data-testid="launch-inventory-loading"]') === 1,
+    "the release panel is mounted while the stalled launch inventory still shows its loading skeleton");
+  b.delayRead(null);
+  b.failRead("/api/canonical-enrichment/launch-inventory", { exact: true });
+  await b.navigate("/dashboard/lead-ops?tab=canonical&canonicalView=backlog");
+  await until(async () => (await count('[data-testid="launch-inventory-unavailable"]')) === 1, "launch inventory unavailable state");
+  check(await count('[data-testid="release-panel"]') === 1, "the release panel stays mounted when the launch inventory read fails");
+  check(await b.evaluate(`document.querySelector('[data-testid="launch-inventory-unavailable-diagnostics"]').tagName`) === "DETAILS" &&
+    await b.evaluate(`document.querySelector('[data-testid="launch-inventory-unavailable-diagnostics"]').open`) === false &&
+    await count('[data-testid="launch-inventory-unavailable"] button') >= 1,
+    "the inventory failure shows a concise notice with Retry and closed diagnostics");
+  b.failRead(null);
+
   // 4. Provider Results: null, zero and positive costs render without a crash.
   const before = b.exceptions.length;
   await b.navigate("/dashboard/lead-ops?tab=provider-results");
@@ -145,7 +163,15 @@ try {
   await until(async () => /Null Cost Co/.test(await bodyText()), "mobile provider results");
   const providerOverflow = await overflow();
   check(/Unpriced/.test(await bodyText()), "Provider Results still reads Unpriced on a 390px screen");
-  console.log(`  (provider-results horizontal overflow on 390px: ${providerOverflow}px)`);
+  // Either the document does not overflow, or any horizontal scroll sits inside a labelled table container.
+  const providerScrollOwner = await b.evaluate(`(() => {
+    const doc = document.documentElement.scrollWidth - window.innerWidth;
+    const scrollers = Array.from(document.querySelectorAll('*')).filter((el) => el !== document.documentElement && el !== document.body &&
+      el.scrollWidth > el.clientWidth + 1 && ['auto','scroll'].includes(getComputedStyle(el).overflowX));
+    return { doc, unlabelled: scrollers.filter((el) => !(el.getAttribute('aria-label') || el.getAttribute('role') === 'region' || el.getAttribute('data-testid') || el.closest('[aria-label],[data-testid]'))).length, scrollers: scrollers.length };
+  })()`) as { doc: number; unlabelled: number; scrollers: number };
+  check(providerOverflow <= 1 && providerScrollOwner.unlabelled === 0,
+    `Provider Results does not scroll the document sideways on a 390px screen (overflow ${providerOverflow}px; ${providerScrollOwner.scrollers} inner scroll container(s), none unlabelled)`);
   await b.screenshot("mobile-390");
 
   check(b.exceptions.length === before, "no uncaught browser exceptions across the Stage 4B checks");

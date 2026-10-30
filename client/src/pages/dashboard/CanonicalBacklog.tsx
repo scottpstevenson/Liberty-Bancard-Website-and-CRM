@@ -422,21 +422,53 @@ function ReleasePanel() {
   );
 }
 
+/** Splits an apiRequest-style "503: {json}" error into a short typed code and its raw text for diagnostics. */
+function readErrorDetail(error: unknown): { code: string | null; raw: string } {
+  const raw = error instanceof Error ? error.message : String(error ?? "");
+  const json = raw.slice(raw.indexOf("{"));
+  try { const parsed = JSON.parse(json); return { code: typeof parsed?.code === "string" ? parsed.code : null, raw }; }
+  catch { return { code: null, raw }; }
+}
+
+function ReadFailureNotice({ code, raw, headline, onRetry, busy, testId }:
+  { code: string | null; raw: string; headline: string; onRetry: () => void; busy: boolean; testId: string }) {
+  return <div role="alert" className="rounded-xl border border-destructive/25 bg-card p-4 text-sm text-muted-foreground" data-testid={testId}>
+    <span>{headline}</span>
+    <Button className="ml-3" variant="outline" size="sm" onClick={onRetry} disabled={busy}>Retry</Button>
+    <details className="mt-2 text-xs" data-testid={`${testId}-diagnostics`}>
+      <summary className="cursor-pointer">Diagnostics{code ? `: ${code}` : ""}</summary>
+      <pre className="mt-1 max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono">{raw || "No response body."}</pre>
+    </details>
+  </div>;
+}
+
+/**
+ * The release panel is its own read (`/api/canonical-enrichment/release`). It is mounted once, as a sibling of the
+ * inventory section, so it is present while the inventory loads, fails or times out.
+ */
 function LaunchInventory({ isAdmin }: { isAdmin: boolean }) {
-  const { data, isLoading, isError, refetch, isFetching } = useQuery<SfpLaunchInventory>({
+  return <div data-testid="launch-inventory-and-release">
+    <LaunchInventorySection />
+    {isAdmin && <ReleasePanel />}
+  </div>;
+}
+
+function LaunchInventorySection() {
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery<SfpLaunchInventory>({
     queryKey: ["/api/canonical-enrichment/launch-inventory"],
     // No background recount: the aggregate refreshes only on entry or an explicit refresh.
     staleTime: Infinity,
     refetchOnWindowFocus: false,
   });
-  if (isLoading) return <div className="h-40 animate-pulse rounded-xl border border-border/60 bg-card" aria-busy="true" />;
+  if (isLoading) return <div className="h-40 animate-pulse rounded-xl border border-border/60 bg-card" aria-busy="true" data-testid="launch-inventory-loading" />;
   if (isError || !data) {
-    return <div>
-      <div role="alert" className="rounded-xl border border-destructive/25 bg-card p-4 text-sm text-muted-foreground" data-testid="launch-inventory-unavailable">
-        The launch inventory could not be read, so nothing is shown. Nothing has been inferred. Release state below is a separate read.
-        <Button className="ml-3" variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>Retry</Button></div>
-      {isAdmin && <ReleasePanel />}
-    </div>;
+    const detail = readErrorDetail(error);
+    const timedOut = detail.code === "LAUNCH_INVENTORY_DEADLINE_EXCEEDED";
+    return <ReadFailureNotice testId="launch-inventory-unavailable" code={detail.code} raw={detail.raw}
+      headline={timedOut
+        ? "The launch inventory took too long and was stopped, so nothing is shown. Checks already finished are kept: retry to continue. Release state below is a separate read."
+        : "The launch inventory could not be read, so nothing is shown. Nothing has been inferred. Release state below is a separate read."}
+      onRetry={() => refetch()} busy={isFetching} />;
   }
   return (
     <section data-testid="launch-inventory">
@@ -484,7 +516,6 @@ function LaunchInventory({ isAdmin }: { isAdmin: boolean }) {
               </table>}
         </div>
       </div>
-      {isAdmin && <ReleasePanel />}
     </section>
   );
 }
@@ -521,14 +552,21 @@ export function CanonicalBacklog({ isAdmin }: { isAdmin: boolean }) {
     </div>;
   }
   if (isError || !data) {
+    const backlogDetail = readErrorDetail(error);
     // The backlog aggregate failed. Launch inventory, release and process are separate readers and stay visible.
     return <div className="space-y-8" data-testid="canonical-backlog">
       <section className="rounded-2xl border border-destructive/25 bg-card p-6" role="alert" data-testid="backlog-unavailable">
         <h2 className="font-semibold">The backlog could not be counted</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {error instanceof Error ? error.message : "The backlog service returned an error."} Nothing has been inferred; the funnel and
-          family counts below are unavailable, not zero. The launch inventory, release and process controls are separate reads.
+        <p className="mt-2 text-sm text-muted-foreground" data-testid="backlog-unavailable-summary">
+          {backlogDetail.code === "BACKLOG_DEADLINE_EXCEEDED"
+            ? "The count took too long and was stopped."
+            : "The backlog service returned an error."} Nothing has been inferred; the funnel and
+          family counts are unavailable, not zero. The launch inventory, release and process controls are separate reads.
         </p>
+        <details className="mt-2 text-xs" data-testid="backlog-unavailable-diagnostics">
+          <summary className="cursor-pointer">Diagnostics{backlogDetail.code ? `: ${backlogDetail.code}` : ""}</summary>
+          <pre className="mt-1 max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono">{backlogDetail.raw || "No response body."}</pre>
+        </details>
         <Button className="mt-4" onClick={() => refetch()} disabled={isFetching}>Retry backlog</Button>
       </section>
       <LaunchInventory isAdmin={isAdmin} />

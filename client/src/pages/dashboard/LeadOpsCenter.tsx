@@ -3548,7 +3548,7 @@ export default function LeadOpsCenter() {
           {/* Current program pipeline first; the review queue that unblocks it next; cohort tools stay available but secondary. */}
           <SfpEnrichmentControlCenter />
           <NamedEmailEligibilityReviewPanel />
-          <details open className="rounded-md border" data-testid="sfp-cohort-tools">
+          <details className="rounded-md border" data-testid="sfp-cohort-tools">
             <summary className="cursor-pointer px-4 py-3 text-sm font-medium min-h-[44px] flex items-center">
               Cohort tools and historical records (frozen cohorts, not the current routine path)
             </summary>

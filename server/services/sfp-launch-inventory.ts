@@ -83,8 +83,52 @@ export function computeBindingHash(binding: RecipientBinding): string {
 /** Reasons a held, ended journey may be continued by an explicit new release. Revoked journeys are not listed. */
 export const CONTINUABLE_ENDED_REASONS = ["journey_expired", "package_content_changed", "validation_not_current"] as const;
 
+export const LAUNCH_INVENTORY_DEADLINE_MS = 25_000;
+export class LaunchInventoryDeadlineError extends Error {
+  readonly code = "LAUNCH_INVENTORY_DEADLINE_EXCEEDED";
+  constructor(readonly phase: string = "unknown", readonly progress: { evaluated: number; total: number } | null = null) {
+    super("LAUNCH_INVENTORY_DEADLINE_EXCEEDED");
+  }
+}
+
+export interface LaunchBackendHandle { pid: number; xactStart: string }
+export interface LaunchPhaseTimings {
+  current: "policy_read" | "recorded_facts" | "contact_policy" | "sender_and_pause" | "done";
+  recordedMs: number | null; recordedRows: number | null;
+  policyMs: number | null; policyTotal: number; policyEvaluated: number; policyReused: number;
+  senderMs: number | null;
+}
+const newPhases = (): LaunchPhaseTimings => ({
+  current: "policy_read", recordedMs: null, recordedRows: null, policyMs: null,
+  policyTotal: 0, policyEvaluated: 0, policyReused: 0, senderMs: null,
+});
+
+/** A contact-policy answer reused for at most the inventory's own freshness window. Never read by a mutation boundary. */
+type PolicyMemo = Map<string, { at: number; failure: Row["failure"] }>;
+interface LaunchReadContext {
+  /** True once the whole-read deadline passed or the read was superseded: no further work may start. */
+  isExpired: () => boolean;
+  onBackend: (backend: LaunchBackendHandle) => void;
+  memo: PolicyMemo;
+  phases: LaunchPhaseTimings;
+}
+const policyKey = (row: Row) =>
+  `${row.contactId}|${row.businessId}|${row.emailHash}|${row.binding.emailGeneration ?? "-"}`;
+
 /** Applies the shared contact/promotion/hygiene/send decision to one row that passed every recorded-fact gate. */
-async function applyContactPolicy(row: Row): Promise<void> {
+async function applyContactPolicy(row: Row, ctx?: LaunchReadContext): Promise<void> {
+  const key = ctx ? policyKey(row) : null;
+  if (ctx && key) {
+    const hit = ctx.memo.get(key);
+    if (hit && Date.now() - hit.at < LAUNCH_INVENTORY_CACHE_SECONDS * 1000) {
+      row.failure = hit.failure; ctx.phases.policyReused++;
+      return;
+    }
+    // Late work is fenced before it starts: an expired read opens no further policy evaluation.
+    if (ctx.isExpired()) throw new LaunchInventoryDeadlineError("contact_policy",
+      { evaluated: ctx.phases.policyEvaluated + ctx.phases.policyReused, total: ctx.phases.policyTotal });
+  }
+  let transient = false;
   try {
     const decisions = await evaluateContactDecisions(
       { contactId: row.contactId, businessId: row.businessId, channel: "email", mode: "dryRun" });
@@ -92,19 +136,22 @@ async function applyContactPolicy(row: Row): Promise<void> {
       .find(d => d && d.status !== "eligible");
     if (blocked) row.failure = { gate: "contact_policy", code: blocked.reasonCodes[0] ?? "CONTACT_POLICY_HOLD" };
   } catch {
+    transient = true;
     row.failure = { gate: "contact_policy", code: "contact_policy_unreadable" };
+  }
+  if (ctx && key) {
+    ctx.phases.policyEvaluated++;
+    // An unreadable answer is never retained: it must be asked again.
+    if (!transient) ctx.memo.set(key, { at: Date.now(), failure: row.failure });
   }
 }
 
-async function evaluateLaunchRows(
-  opts: { intentIds?: string[]; mode?: "release" | "dispatch"; deferPolicy?: boolean } = {},
-): Promise<{ results: Row[] }> {
-  const mode = opts.mode ?? "release";
-  const policy = await getActiveSfpOutreachPolicy({ bypassCache: true });
+/** The recorded-facts read, one row per prepared recipient. Exported so cost can be measured on exact SQL. */
+export function buildRecordedLaunchQuery(validationTtlDays: number, intentIds?: string[]) {
   const VERT = effectiveBusinessVerticalSql("b");
   const STATUS = effectiveBusinessVerticalStatusSql("b");
-  const intentFilter = opts.intentIds
-    ? sql`AND i.id IN (${sql.join(opts.intentIds.map(id => sql`${id}::uuid`), sql`,`)})` : sql``;
+  const intentFilter = intentIds
+    ? sql`AND i.id IN (${sql.join(intentIds.map(id => sql`${id}::uuid`), sql`,`)})` : sql``;
 
   const recordedQuery = sql`
     WITH ${boundVerticalsCte()}
@@ -152,12 +199,36 @@ async function evaluateLaunchRows(
         JOIN provider_operations op ON op.id=po.operation_id AND op.state='completed' AND op.provider='zerobounce'
        WHERE po.subject_type IN ('business','contact') AND po.email_token_hash=i.normalized_email_hash
          AND po.provider='zerobounce' AND po.retryable=FALSE AND po.outcome IN ('valid','invalid')
-         AND po.observed_at > now() - (${policy.validationTtlDays}::text||' days')::interval AND po.observed_at <= now()
-         AND LEAST(COALESCE(po.expires_at, po.observed_at + (${policy.validationTtlDays}::text||' days')::interval),
-                   po.observed_at + (${policy.validationTtlDays}::text||' days')::interval) > now()
+         AND po.observed_at > now() - (${validationTtlDays}::text||' days')::interval AND po.observed_at <= now()
+         AND LEAST(COALESCE(po.expires_at, po.observed_at + (${validationTtlDays}::text||' days')::interval),
+                   po.observed_at + (${validationTtlDays}::text||' days')::interval) > now()
        ORDER BY po.observed_at DESC LIMIT 1) obs ON TRUE
     WHERE i.program_id IS NOT NULL AND i.preparation_state IN ('ready_held','pending_validation') ${intentFilter}`;
-  const recorded = rows(await db.execute(recordedQuery));
+  return recordedQuery;
+}
+
+async function evaluateLaunchRows(
+  opts: { intentIds?: string[]; mode?: "release" | "dispatch"; deferPolicy?: boolean; ctx?: LaunchReadContext } = {},
+): Promise<{ results: Row[] }> {
+  const mode = opts.mode ?? "release";
+  const ctx = opts.ctx;
+  if (ctx) ctx.phases.current = "policy_read";
+  const policy = await getActiveSfpOutreachPolicy({ bypassCache: true });
+  const recordedQuery = buildRecordedLaunchQuery(policy.validationTtlDays, opts.intentIds);
+  const recordedStarted = Date.now();
+  if (ctx) ctx.phases.current = "recorded_facts";
+  // A bounded read runs in one identified transaction so its deadline can cancel the exact backend (pid + xact_start)
+  // and a transaction acquired after expiry never reaches its value query.
+  const recorded = ctx
+    ? await db.transaction(async tx => {
+        await tx.execute(sql.raw(`SET LOCAL statement_timeout='${LAUNCH_INVENTORY_DEADLINE_MS}ms'`));
+        const identity = rows(await tx.execute(sql`SELECT pg_backend_pid()::int AS pid, now()::text AS started`))[0];
+        if (identity) ctx.onBackend({ pid: Number(identity.pid), xactStart: String(identity.started) });
+        if (ctx.isExpired()) throw new LaunchInventoryDeadlineError("recorded_facts");
+        return rows(await tx.execute(recordedQuery));
+      })
+    : rows(await db.execute(recordedQuery));
+  if (ctx) { ctx.phases.recordedMs = Date.now() - recordedStarted; ctx.phases.recordedRows = recorded.length; }
 
   const results: Row[] = recorded.map(r => {
     const state = r.state as Row["state"];
@@ -220,7 +291,11 @@ async function evaluateLaunchRows(
   // costs a few hundred milliseconds per recipient, so callers that only need the first N recipients defer it and
   // apply it row by row (`applyContactPolicy`); the full inventory count still evaluates every remaining row.
   if (!opts.deferPolicy) {
-    await mapWithConcurrency(results.filter(r => !r.failure), POLICY_CONCURRENCY, applyContactPolicy);
+    const pending = results.filter(r => !r.failure);
+    const policyStarted = Date.now();
+    if (ctx) { ctx.phases.current = "contact_policy"; ctx.phases.policyTotal = pending.length; }
+    await mapWithConcurrency(pending, POLICY_CONCURRENCY, r => applyContactPolicy(r, ctx));
+    if (ctx) ctx.phases.policyMs = Date.now() - policyStarted;
   }
 
   return { results };
@@ -243,8 +318,8 @@ export async function verifyRecipientBinding(
   return { ok: true, reason: null, bindingHash: row.bindingHash, binding: row.binding, evidence: row.evidence };
 }
 
-export async function computeSfpLaunchInventory(): Promise<SfpLaunchInventory> {
-  const { results } = await evaluateLaunchRows();
+export async function computeSfpLaunchInventory(ctx?: LaunchReadContext): Promise<SfpLaunchInventory> {
+  const { results } = await evaluateLaunchRows({ ctx });
   const summarize = (state: Row["state"]): LaunchInventoryPopulation => {
     const all = results.filter(r => r.state === state);
     const qualified = all.filter(r => !r.failure);
@@ -276,6 +351,11 @@ export async function computeSfpLaunchInventory(): Promise<SfpLaunchInventory> {
     .sort((a, b) => a.county.localeCompare(b.county) || b.businesses - a.businesses);
 
   // Sender state: the same capacity definition preview, release execution and dispatch reserve against.
+  const senderStarted = Date.now();
+  if (ctx) {
+    ctx.phases.current = "sender_and_pause";
+    if (ctx.isExpired()) throw new LaunchInventoryDeadlineError("sender_and_pause");
+  }
   const identities = rows(await db.execute(sql`SELECT is_active AS "isActive", warmup_status AS "warmupStatus",
     daily_limit AS "dailyLimit", sent_today AS "sentToday" FROM sending_identities`));
   const usable = identities.filter(isUsableSenderIdentity);
@@ -311,6 +391,7 @@ export async function computeSfpLaunchInventory(): Promise<SfpLaunchInventory> {
         : `${senderCapacity.sender.emailAddress}: ${senderCapacity.identityRemaining} of ${capacity} remain today for the sender; global cold ceiling leaves ${senderCapacity.globalRemaining} of ${senderCapacity.globalCeiling}; ${senderCapacity.committedNext24h} already-released messages are due within 24 hours; ${remainingCapacity} can still be admitted.`,
   });
 
+  if (ctx) { ctx.phases.senderMs = Date.now() - senderStarted; ctx.phases.current = "done"; }
   return {
     observedAt: new Date().toISOString(),
     maxAgeSeconds: LAUNCH_INVENTORY_CACHE_SECONDS,
@@ -331,17 +412,114 @@ export async function computeSfpLaunchInventory(): Promise<SfpLaunchInventory> {
   };
 }
 
-let cache: { at: number; value: SfpLaunchInventory } | null = null;
-let inflight: Promise<SfpLaunchInventory> | null = null;
+interface InventoryFlight {
+  generation: number;
+  backend: LaunchBackendHandle | null;
+  expired: boolean;
+  phases: LaunchPhaseTimings;
+  expire: () => void;
+  promise: Promise<SfpLaunchInventory>;
+}
 
-export async function readSfpLaunchInventory(opts: { fresh?: boolean } = {}): Promise<SfpLaunchInventory> {
-  if (!opts.fresh && cache && Date.now() - cache.at < LAUNCH_INVENTORY_CACHE_SECONDS * 1000) return cache.value;
-  if (!inflight) {
-    inflight = computeSfpLaunchInventory()
-      .then(value => { cache = { at: Date.now(), value }; return value; })
-      .finally(() => { inflight = null; });
+// Generation fence, as for the backlog: a fresh recount opens a new generation. A computation from an older
+// generation can neither populate the cache nor be joined, and its policy answers go to its own orphaned memo.
+let generation = 0;
+let cache: { at: number; generation: number; value: SfpLaunchInventory } | null = null;
+let inflight: InventoryFlight | null = null;
+// Contact-policy answers survive an expired read, so a retry continues instead of repeating work.
+let policyMemo: PolicyMemo = new Map();
+
+/** Cancels only the exact transaction identified at start, so a recycled backend pid is never touched. */
+async function cancelInventoryBackend(backend: LaunchBackendHandle | null): Promise<void> {
+  if (!backend) return;
+  try {
+    await db.execute(sql`SELECT pg_cancel_backend(pid) FROM pg_stat_activity
+      WHERE pid=${backend.pid} AND xact_start=${backend.xactStart}::timestamptz`);
+  } catch (error: any) {
+    console.error(`[launch-inventory] cancel request failed sqlstate=${error?.cause?.code ?? error?.code ?? "n/a"}`);
   }
-  return inflight;
+}
+
+function logInventoryPhases(outcome: string, phases: LaunchPhaseTimings, totalMs: number) {
+  console.log(`[launch-inventory] ${outcome} totalMs=${totalMs} phase=${phases.current} recordedMs=${phases.recordedMs} `
+    + `recordedRows=${phases.recordedRows} policyMs=${phases.policyMs} policyTotal=${phases.policyTotal} `
+    + `policyEvaluated=${phases.policyEvaluated} policyReused=${phases.policyReused} senderMs=${phases.senderMs}`);
+}
+
+/** Test seam: the computation a flight runs. Production uses the default. */
+export const launchInventoryDeps = {
+  compute: (ctx: LaunchReadContext) => computeSfpLaunchInventory(ctx),
+};
+
+function startInventoryFlight(deadlineMs: number): InventoryFlight {
+  const startedAt = Date.now();
+  const phases = newPhases();
+  const flight = { generation, backend: null, expired: false, phases } as InventoryFlight;
+  const flightMemo = policyMemo;
+  let timer: NodeJS.Timeout | null = null;
+  let retry: NodeJS.Timeout | null = null;
+  let rejectCaller: (error: Error) => void = () => undefined;
+  const stop = () => { if (timer) clearTimeout(timer); if (retry) clearInterval(retry); };
+  const callerBound = new Promise<never>((_, reject) => { rejectCaller = reject; });
+  callerBound.catch(() => undefined);
+  const deadlineError = () => new LaunchInventoryDeadlineError(phases.current,
+    phases.policyTotal ? { evaluated: phases.policyEvaluated + phases.policyReused, total: phases.policyTotal } : null);
+  flight.expire = () => {
+    if (flight.expired) return;
+    flight.expired = true;
+    logInventoryPhases("deadline", phases, Date.now() - startedAt);
+    rejectCaller(deadlineError());
+    void cancelInventoryBackend(flight.backend);
+    if (!retry) retry = setInterval(() => { void cancelInventoryBackend(flight.backend); }, 1000);
+    if (inflight === flight) inflight = null;
+  };
+  const ctx: LaunchReadContext = {
+    isExpired: () => flight.expired || flight.generation !== generation,
+    onBackend: (backend) => { flight.backend = backend; if (flight.expired) void cancelInventoryBackend(backend); },
+    memo: flightMemo, phases,
+  };
+  const computation = launchInventoryDeps.compute(ctx)
+    .then((value) => {
+      stop();
+      if (flight.expired) throw deadlineError();
+      logInventoryPhases("ok", phases, Date.now() - startedAt);
+      if (flight.generation === generation) cache = { at: Date.now(), generation: flight.generation, value };
+      return value;
+    }, (error) => {
+      stop();
+      if (flight.expired) throw deadlineError();
+      logInventoryPhases("error", phases, Date.now() - startedAt);
+      // A cancelled statement surfaced after expiry is the deadline, not a database fault.
+      throw error;
+    })
+    .finally(() => { if (inflight === flight) inflight = null; });
+  computation.catch(() => undefined);
+  flight.promise = Promise.race([computation, callerBound]);
+  timer = setTimeout(() => flight.expire(), deadlineMs);
+  timer.unref?.();
+  flight.promise.catch(() => undefined);
+  return flight;
+}
+
+/** Cached, single-flight read with a whole-read deadline. A failed or late read never serves a made-up number. */
+export async function readSfpLaunchInventory(opts: { fresh?: boolean; deadlineMs?: number } = {}): Promise<SfpLaunchInventory> {
+  if (!opts.fresh && cache && cache.generation === generation && Date.now() - cache.at < LAUNCH_INVENTORY_CACHE_SECONDS * 1000) {
+    return cache.value;
+  }
+  if (opts.fresh) {
+    generation += 1;
+    cache = null;
+    policyMemo = new Map();
+    if (inflight) { const older = inflight; inflight = null; older.expire(); }
+  }
+  if (!inflight || inflight.expired) inflight = startInventoryFlight(opts.deadlineMs ?? LAUNCH_INVENTORY_DEADLINE_MS);
+  return inflight.promise;
+}
+
+/** Test seam: drops cache, memo and any flight so suites start from a known state. */
+export function resetLaunchInventoryForTests(): void {
+  generation += 1; cache = null; policyMemo = new Map();
+  if (inflight) { const older = inflight; inflight = null; older.expire(); }
 }
 
 export { LAUNCH_GATE_LABELS };

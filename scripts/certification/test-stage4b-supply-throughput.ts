@@ -323,6 +323,163 @@ try {
     runBacklog.backlogHistoryDeps.readStoredValue = async () => ({ garbage: true });
     const malformed = await h.request("admin", "GET", "/api/canonical-enrichment/backlog-process-history");
     check(malformed.status === 503 && malformed.body.code === "PROCESS_HISTORY_UNAVAILABLE", "[http] malformed stored history is unavailable, not 'no previous run'");
+
+    // 7. R02: a transaction acquired AFTER the deadline must not run its value query. Exhaust the pool so acquisition
+    // outlasts the deadline, then release it.
+    runBacklog.backlogHistoryDeps.readStoredValue = realRead;
+    const pgModule = (await import("pg")).default;
+    const valueQueries: string[] = [];
+    const origQuery = (pgModule.Client.prototype as any).query;
+    (pgModule.Client.prototype as any).query = function (...args: any[]) {
+      const text = String(typeof args[0] === "string" ? args[0] : args[0]?.text);
+      if (/SELECT value FROM system_settings WHERE key/.test(text)) valueQueries.push(text);
+      return origQuery.apply(this, args);
+    };
+    let unhandled = 0;
+    const onUnhandled = () => { unhandled++; };
+    process.on("unhandledRejection", onUnhandled);
+    const { pool: appPool } = await import("../../server/db");
+    const held: any[] = [];
+    try {
+      for (let i = 0; i < Number((appPool as any).options.max); i++) {
+        const c = await Promise.race([appPool.connect(), new Promise<null>((r) => setTimeout(() => r(null), 1500))]);
+        if (!c) break;
+        held.push(c);
+      }
+      const lateStart = Date.now();
+      const late = runBacklog.readLastBacklogPriorityRun({ deadlineMs: 300 }).then(() => null, (e: any) => e);
+      const lateError = await late;
+      check(lateError instanceof runBacklog.BacklogHistoryDeadlineError && Date.now() - lateStart < 3000,
+        "[db] a history read still waiting for a connection is answered at its deadline with the typed error");
+      const before = valueQueries.length;
+      for (const c of held) c.release();
+      held.length = 0;
+      await new Promise((r) => setTimeout(r, 800));
+      check(valueQueries.length === before, "[db] a transaction acquired after expiry runs no value query");
+      check(appPool.waitingCount === 0 && appPool.idleCount === appPool.totalCount, "[db] every connection from the late acquisition was returned to the pool");
+      check(unhandled === 0, "[db] the late acquisition produced no unhandled rejection");
+      const later = await h.request("admin", "GET", "/api/canonical-enrichment/backlog-process-history");
+      check(later.status === 200 && valueQueries.length > before, "[http] a later history request succeeds and reads its value normally");
+    } finally {
+      for (const c of held) c.release();
+      (pgModule.Client.prototype as any).query = origQuery;
+      process.off("unhandledRejection", onUnhandled);
+    }
+
+    // 8. R01: launch inventory flight. Stall the inventory and the aggregate separately; success, error, deadline,
+    // cancellation, recovery, and late-result fences.
+    const inv = await import("../../server/services/sfp-launch-inventory");
+    const realCompute = inv.launchInventoryDeps.compute;
+    const fakeValue = (tag: string) => ({ observedAt: new Date().toISOString(), tag } as any);
+    try {
+      let calls = 0;
+      inv.resetLaunchInventoryForTests();
+      inv.launchInventoryDeps.compute = async () => { calls++; return fakeValue("ok"); };
+      const first = await inv.readSfpLaunchInventory();
+      const second = await inv.readSfpLaunchInventory();
+      check(calls === 1 && first === second, "[inventory] a successful read is cached for its freshness window");
+
+      inv.resetLaunchInventoryForTests();
+      calls = 0;
+      let release!: (v: any) => void;
+      inv.launchInventoryDeps.compute = () => { calls++; return new Promise((resolve) => { release = resolve; }); };
+      const t0 = Date.now();
+      const stalled = await inv.readSfpLaunchInventory({ deadlineMs: 150 }).then(() => null, (e: any) => e);
+      check(stalled instanceof inv.LaunchInventoryDeadlineError && stalled.code === "LAUNCH_INVENTORY_DEADLINE_EXCEEDED" && Date.now() - t0 < 2000,
+        "[inventory] a stalled inventory is answered at its deadline with the typed error");
+      release(fakeValue("late"));
+      await new Promise((r) => setTimeout(r, 100));
+      inv.launchInventoryDeps.compute = async () => { calls++; return fakeValue("fresh"); };
+      const afterLate = await inv.readSfpLaunchInventory();
+      check((afterLate as any).tag === "fresh", "[inventory] a late result after expiry never populates the cache or answers a caller");
+
+      inv.resetLaunchInventoryForTests();
+      inv.launchInventoryDeps.compute = async () => { throw new Error("boom"); };
+      const failed = await inv.readSfpLaunchInventory().then(() => null, (e: any) => e);
+      check(failed instanceof Error && !(failed instanceof inv.LaunchInventoryDeadlineError) && failed.message === "boom",
+        "[inventory] an ordinary failure is reported as itself, not as a deadline or an empty inventory");
+      inv.launchInventoryDeps.compute = async () => fakeValue("recovered");
+      check(((await inv.readSfpLaunchInventory()) as any).tag === "recovered", "[inventory] a failed read is not cached: the next read recovers");
+
+      // Cancellation: the flight's identified transaction is cancelled on expiry (exact pid + xact_start).
+      inv.resetLaunchInventoryForTests();
+      inv.launchInventoryDeps.compute = (ctx) => db.transaction(async (tx) => {
+        const id = rows(await tx.execute(sql`SELECT pg_backend_pid()::int AS pid, now()::text AS started`))[0];
+        ctx.onBackend({ pid: Number(id.pid), xactStart: String(id.started) });
+        await tx.execute(sql`SELECT pg_sleep(60) /* 4b-inventory-stall */`);
+        return fakeValue("never");
+      });
+      const cancelled = await inv.readSfpLaunchInventory({ deadlineMs: 300 }).then(() => null, (e: any) => e);
+      await new Promise((r) => setTimeout(r, 1500));
+      const inventoryLingering = Number(rows(await db.execute(sql`
+        SELECT count(*)::int AS n FROM pg_stat_activity
+         WHERE datname=current_database() AND pid<>pg_backend_pid() AND state='active' AND query LIKE '%4b-inventory-stall%'`))[0].n);
+      check(cancelled instanceof inv.LaunchInventoryDeadlineError && inventoryLingering === 0,
+        "[inventory] the expired flight's database backend is cancelled, not abandoned");
+
+      // Generation fence: a fresh recount supersedes the older flight; only the newest populates the cache.
+      inv.resetLaunchInventoryForTests();
+      let releaseOld!: (v: any) => void;
+      inv.launchInventoryDeps.compute = () => new Promise((resolve) => { releaseOld = resolve; });
+      const olderFlight = inv.readSfpLaunchInventory({ deadlineMs: 60_000 }).then(() => null, (e: any) => e);
+      inv.launchInventoryDeps.compute = async () => fakeValue("newest");
+      const newest = await inv.readSfpLaunchInventory({ fresh: true, deadlineMs: 60_000 });
+      releaseOld(fakeValue("old"));
+      check((await olderFlight) instanceof inv.LaunchInventoryDeadlineError && (newest as any).tag === "newest"
+        && ((await inv.readSfpLaunchInventory()) as any).tag === "newest",
+        "[inventory] a superseded generation can neither answer nor cache; the newest generation serves");
+
+      // Real stall: lock the intents table the recorded-facts read needs, and the real route answers typed 503.
+      inv.resetLaunchInventoryForTests();
+      inv.launchInventoryDeps.compute = realCompute;
+      const invBlocker = await h.pool.connect();
+      let invStalled: { value: any; ms: number };
+      try {
+        await invBlocker.query("BEGIN");
+        await invBlocker.query("LOCK TABLE cr04_enrollment_intents IN ACCESS EXCLUSIVE MODE");
+        invStalled = await timed(async () => {
+          const flight = inv.readSfpLaunchInventory({ fresh: true, deadlineMs: 600 }).then(() => null, (e: any) => e);
+          const res = await h.request("admin", "GET", "/api/canonical-enrichment/launch-inventory");
+          await flight;
+          return res;
+        });
+      } finally {
+        await invBlocker.query("ROLLBACK").catch(() => undefined);
+        invBlocker.release();
+      }
+      check(invStalled.value.status === 503 && invStalled.value.body.code === "LAUNCH_INVENTORY_DEADLINE_EXCEEDED"
+        && typeof invStalled.value.body.phase === "string" && invStalled.ms < 10_000,
+        `[http] a really stalled inventory answers a typed 503 with the stalled phase (${invStalled.value.body.phase})`);
+      // The aggregate is a separate read and still answers while the inventory is stalled.
+      backlog.resetCanonicalEnrichmentBacklogCache();
+      const aggregateDuringInventoryStall = await h.request("admin", "GET", "/api/canonical-enrichment/backlog?fresh=1");
+      check(aggregateDuringInventoryStall.status === 200, "[http] the aggregate answers while the inventory read is stalled");
+      inv.resetLaunchInventoryForTests();
+      const inventoryRecovered = await h.request("admin", "GET", "/api/canonical-enrichment/launch-inventory?fresh=1");
+      check(inventoryRecovered.status === 200 && typeof inventoryRecovered.body.readyHeld?.recorded === "number",
+        "[http] the inventory answers a real result once the stall clears");
+
+      // Release status is bounded too.
+      const relRoutes = await import("../../server/routes/canonical-enrichment");
+      const relBlocker = await h.pool.connect();
+      let relStalled: { value: any; ms: number };
+      try {
+        await relBlocker.query("BEGIN");
+        await relBlocker.query("LOCK TABLE sequence_enrollments IN ACCESS EXCLUSIVE MODE");
+        relStalled = await timed(() => h.request("admin", "GET", "/api/canonical-enrichment/release"));
+      } finally {
+        await relBlocker.query("ROLLBACK").catch(() => undefined);
+        relBlocker.release();
+      }
+      check(relStalled.value.status === 503 && relStalled.value.body.code === "RELEASE_STATUS_DEADLINE_EXCEEDED"
+        && relStalled.ms >= relRoutes.RELEASE_STATUS_DEADLINE_MS - 500 && relStalled.ms < relRoutes.RELEASE_STATUS_DEADLINE_MS + 5_000,
+        "[http] a stalled release-status read answers a typed 503 at its deadline");
+      const relRecovered = await h.request("admin", "GET", "/api/canonical-enrichment/release");
+      check(relRecovered.status === 200, "[http] release status recovers once the stall clears");
+    } finally {
+      inv.launchInventoryDeps.compute = realCompute;
+      inv.resetLaunchInventoryForTests();
+    }
   } finally {
     runBacklog.backlogHistoryDeps.readStoredValue = realRead;
     backlog.resetCanonicalEnrichmentBacklogCache();
