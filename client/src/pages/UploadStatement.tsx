@@ -476,7 +476,7 @@ export default function UploadStatement() {
               onClick={() =>
                 trackBookingCtaClick({
                   page: "/upload-statement",
-                  ctaLabel: "Book a 10-Min Review Call",
+                  ctaLabel: "Book a Review Call",
                   ctaLocation: "hero",
                 })
               }
@@ -486,7 +486,7 @@ export default function UploadStatement() {
                 type="button"
               >
                 <Calendar className="w-4 h-4 shrink-0" />
-                Book a 10-Min Review Call
+                Book a Review Call
               </button>
             </a>
 
@@ -1026,7 +1026,7 @@ export default function UploadStatement() {
                     onClick={() =>
                       trackBookingCtaClick({
                         page: "/upload-statement",
-                        ctaLabel: "Book a 10-Min Review Call",
+                        ctaLabel: "Book a Review Call",
                         ctaLocation: "form",
                       })
                     }
@@ -1037,7 +1037,7 @@ export default function UploadStatement() {
                       className="w-full h-12 rounded-2xl border-gray-200 text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-300"
                     >
                       <Calendar className="w-4 h-4 mr-2 text-gray-500" />
-                      Book a 10-Min Review Call
+                      Book a Review Call
                     </Button>
                   </a>
 

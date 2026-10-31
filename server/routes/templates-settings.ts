@@ -132,7 +132,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
   };
   const actor = (req: any) => String(req.user?.id ?? "");
   const versionError = (res: any, err: unknown) => {
-    if (err instanceof TemplateVersionError) return res.status(err.status).json({ message: err.message, findings: err.findings });
+    if (err instanceof TemplateVersionError) return res.status(err.status).json({ message: err.message, findings: err.findings, conflict: err.conflict });
     return serverError(res, err);
   };
 
@@ -155,12 +155,46 @@ export function registerTemplatesSettingsRoutes(app: Express) {
     }
   });
 
+  // Live, read-only grouped overview (Current SFP / Sales library / Merchant lifecycle / History / Diagnostics).
+  app.get("/api/content-workspace/overview", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { getContentWorkspaceOverview } = await import("../services/content-workspace");
+      res.setHeader("Cache-Control", "no-store");
+      res.json(await getContentWorkspaceOverview());
+    } catch (err) { serverError(res, err); }
+  });
+
+  // Read-only catalog of the premium SFP draft packs and warm/service baseline. Proposals only: nothing is stored or published.
+  app.get("/api/content-workspace/premium-drafts", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { premiumDraftCatalog } = await import("../services/cro03/sfp-premium-drafts");
+      const { resolveSalesBooking } = await import("../services/message-cta-contract");
+      res.json(premiumDraftCatalog({ salesBooking: resolveSalesBooking(process.env as any) }));
+    } catch (err) { serverError(res, err); }
+  });
+
+  // Transport-specific final preview for sequence/campaign email steps (simulation on sample data; sends nothing).
+  app.post("/api/message-steps/final-preview", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const input = z.object({
+        subject: z.string().nullable(), body: z.string().min(1, "Message body is required"), transport: z.enum(["sfp_smtp", "gmail_non_cold"]),
+      }).strict().parse(req.body);
+      const { previewStepForTransport } = await import("../services/message-final-preview");
+      res.json(await previewStepForTransport(input));
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      serverError(res, err);
+    }
+  });
+
   app.put("/api/message-templates/:id/draft", requireRole("admin", "manager"), async (req, res) => {
     try {
       const id = templateId(req);
       if (!id) return res.status(400).json({ message: "Invalid template id" });
       const input = z.object({
         subject: z.string().nullable(), body: z.string().min(1, "Message body is required"), baseVersion: z.number().int().positive(),
+        // Identity of the draft the editor last saw (null = none). Required: a save never silently replaces another draft.
+        expectedDraftToken: z.string().min(1).nullable(),
       }).strict().parse(req.body);
       res.json(await saveDraft(id, input, actor(req)));
     } catch (err: any) {
@@ -173,8 +207,12 @@ export function registerTemplatesSettingsRoutes(app: Express) {
     try {
       const id = templateId(req);
       if (!id) return res.status(400).json({ message: "Invalid template id" });
-      res.json(await discardDraft(id, actor(req)));
-    } catch (err) { versionError(res, err); }
+      const input = z.object({ expectedDraftToken: z.string().min(1).nullable() }).strict().parse(req.body ?? {});
+      res.json(await discardDraft(id, actor(req), input));
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      versionError(res, err);
+    }
   });
 
   // Publishing changes wording only. It never activates the template, enables a workflow or opens a send path.
@@ -182,7 +220,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
     try {
       const id = templateId(req);
       if (!id) return res.status(400).json({ message: "Invalid template id" });
-      const input = z.object({ expectedVersion: z.number().int().positive() }).strict().parse(req.body);
+      const input = z.object({ expectedVersion: z.number().int().positive(), expectedDraftToken: z.string().min(1) }).strict().parse(req.body);
       res.json(await publishDraft(id, input, actor(req)));
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });

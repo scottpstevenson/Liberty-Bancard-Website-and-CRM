@@ -1842,4 +1842,20 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   app.get("/unsubscribe", handleUnsubscribe);
   app.post("/unsubscribe", handleUnsubscribe);
 
+  // First-party booking adapter. Delegates to the single validated sales-booking resolver, ignores every query
+  // parameter (no `next`/redirect target can be supplied) and shows an explicit unavailable state instead of a 404.
+  app.get("/book", async (_req, res) => {
+    const { resolveSalesBooking } = await import("../services/message-cta-contract");
+    const target = resolveSalesBooking(process.env);
+    res.set("Cache-Control", "no-store");
+    if (!target.available) {
+      return res.status(503).type("html").send(
+        "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">" +
+        "<meta name=\"robots\" content=\"noindex\"><title>Booking unavailable | Liberty Bancard</title></head><body style=\"font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;\">" +
+        "<h1>Online booking is unavailable right now</h1><p>Reply to the email you received, or call 954-266-8214, and we will find a time.</p></body></html>",
+      );
+    }
+    return res.redirect(302, target.widgetUrl);
+  });
+
 }

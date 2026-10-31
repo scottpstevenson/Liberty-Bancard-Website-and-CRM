@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "../db";
 import { messageTemplates, messageTemplateVersions } from "@shared/schema";
@@ -14,8 +15,48 @@ import { previewMessage } from "./message-token-registry";
  *  - activate campaign use -> setTemplateActive below; refuses wording that still fails the copy checks
  */
 
+/** Safe metadata returned with a 409 so the editor can recover without overwriting anyone's work. No wording included. */
+export interface DraftConflict {
+  hasDraft: boolean;
+  /** Identity of the draft that exists now; null when there is none. */
+  draftToken: string | null;
+  baseVersion: number | null;
+  authorId: string | null;
+  updatedAt: string | null;
+  liveVersion: number;
+}
+
 export class TemplateVersionError extends Error {
-  constructor(message: string, public status: number, public findings?: CopyFinding[]) { super(message); }
+  constructor(message: string, public status: number, public findings?: CopyFinding[], public conflict?: DraftConflict) { super(message); }
+}
+
+type DraftIdentityRow = { id: number; baseVersion: number | null; subject: string | null; body: string };
+
+/**
+ * Identity of a saved draft: row, the published version it was written against, and its exact wording. Save, discard and
+ * publish compare it under the template lock, so a command acts on the saved content the operator last saw or fails with
+ * 409. The same token is kept when the draft row is promoted, which lets a retried publish find its own receipt.
+ */
+export function draftToken(d: DraftIdentityRow | null | undefined): string | null {
+  if (!d) return null;
+  return createHash("sha256").update(JSON.stringify([d.id, d.baseVersion, d.subject ?? null, d.body])).digest("hex").slice(0, 24);
+}
+
+function conflictOf(live: number, d: (DraftIdentityRow & { authorId: string | null; updatedAt: Date | null }) | undefined): DraftConflict {
+  return {
+    hasDraft: !!d, draftToken: draftToken(d), baseVersion: d?.baseVersion ?? null, authorId: d?.authorId ?? null,
+    updatedAt: d?.updatedAt ? d.updatedAt.toISOString() : null, liveVersion: live,
+  };
+}
+
+function assertDraftIdentity(live: number, d: Parameters<typeof conflictOf>[1], expected: string | null | undefined, action: string) {
+  if (expected === undefined) return; // in-process system callers that never held a draft view
+  if (draftToken(d) !== expected) {
+    throw new TemplateVersionError(
+      `The draft changed since you opened it, so it was not ${action}. Reload the current draft or copy your changes first.`,
+      409, undefined, conflictOf(live, d),
+    );
+  }
 }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -46,6 +87,7 @@ export async function getTemplateWorkspace(templateId: number) {
   return {
     template,
     draft,
+    draftToken: draftToken(draft),
     history,
     liveFindings: lintTemplate(template.subject, template.body),
     draftFindings: draft ? lintTemplate(draft.subject, draft.body) : [],
@@ -64,6 +106,12 @@ export function previewTemplate(input: { subject?: string | null; body: string }
   };
 }
 
+/** Images-off view: every image becomes a bordered alt-text placeholder, as in a client that blocks remote images. */
+export const imagesOffHtml = (html: string) => html.replace(/<img\b[^>]*>/gi, (tag) => {
+  const alt = /alt\s*=\s*"([^"]*)"/i.exec(tag)?.[1];
+  return `<span style="border:1px dashed #999;padding:2px 6px;font-size:12px;color:#555;">${alt ? `[image: ${alt}]` : "[image]"}</span>`;
+});
+
 export interface FinalMessagePreview {
   channel: "email" | "sms";
   subject: string | null;
@@ -71,10 +119,12 @@ export interface FinalMessagePreview {
   html: string;
   text: string;
   htmlImagesOff: string;
-  sender: { mode: "provider_default" | "unknown"; address: string | null; name: string | null; note: string };
-  replyTo: { mode: "not_set" | "unknown"; address: string | null; note: string };
+  sender: { mode: "provider_default" | "sender_policy" | "unknown"; address: string | null; name: string | null; note: string };
+  replyTo: { mode: "not_set" | "sender_policy" | "unknown"; address: string | null; note: string };
   /** What the transport really sends. Plain text below is generated reference text unless textTransmitted is true. */
-  transport: { name: "ghl_conversations"; payloadFields: string[]; textTransmitted: boolean; note: string };
+  transport: { name: "ghl_conversations" | "sfp_smtp" | "gmail_non_cold"; payloadFields: string[]; textTransmitted: boolean; note: string };
+  /** Always true: the preview runs the real composers on sample data; it is not a delivery or a mail-client render. */
+  simulation: true;
   logoCount: number;
   signaturePresent: boolean;
   signatureCount: number;
@@ -115,10 +165,6 @@ export async function buildFinalEmailPreview(input: { subject: string | null; ht
     mode: "unknown", address: null,
     note: "No Reply-To is set by this wording. A sending path may supply one; it is not visible here.",
   };
-  const imagesOff = (html: string) => html.replace(/<img\b[^>]*>/gi, (tag) => {
-    const alt = /alt\s*=\s*"([^"]*)"/i.exec(tag)?.[1];
-    return `<span style="border:1px dashed #999;padding:2px 6px;font-size:12px;color:#555;">${alt ? `[image: ${alt}]` : "[image]"}</span>`;
-  });
   let html = input.html, text = "";
   let footer: FinalMessagePreview["footer"];
   let note = "Sample values and a sample unsubscribe link. Nothing is sent or stored by previewing.";
@@ -132,7 +178,7 @@ export async function buildFinalEmailPreview(input: { subject: string | null; ht
   const facts = inspectPresentation(html);
   const payloadFields = Object.keys(buildGhlEmailPayload({ ghlContactId: "preview", subject: input.subject ?? "", html }));
   return {
-    channel: "email", subject: input.subject, html, text, htmlImagesOff: imagesOff(html), sender, replyTo,
+    channel: "email", subject: input.subject, html, text, htmlImagesOff: imagesOffHtml(html), sender, replyTo, simulation: true,
     transport: {
       name: "ghl_conversations", payloadFields, textTransmitted: payloadFields.includes("text"),
       note: "The provider call carries an HTML body only. The plain text shown is generated reference text; it is not sent as a separate part.",
@@ -142,7 +188,12 @@ export async function buildFinalEmailPreview(input: { subject: string | null; ht
   };
 }
 
-export async function saveDraft(templateId: number, input: { subject: string | null; body: string; baseVersion: number }, actorId: string) {
+export async function saveDraft(
+  templateId: number,
+  /** expectedDraftToken: null = "I saw no draft"; a token = "I saw this draft"; undefined = unchecked (system callers). */
+  input: { subject: string | null; body: string; baseVersion: number; expectedDraftToken?: string | null },
+  actorId: string,
+) {
   return db.transaction(async (tx) => {
     const t = await lockTemplate(tx, templateId);
     if (input.baseVersion !== t.contentVersion) {
@@ -150,6 +201,7 @@ export async function saveDraft(templateId: number, input: { subject: string | n
     }
     const [existing] = await tx.select().from(messageTemplateVersions)
       .where(and(eq(messageTemplateVersions.templateId, templateId), eq(messageTemplateVersions.state, "draft"))).for("update");
+    assertDraftIdentity(t.contentVersion, existing, input.expectedDraftToken, "saved");
     let draft;
     if (existing) {
       [draft] = await tx.update(messageTemplateVersions).set({
@@ -163,34 +215,53 @@ export async function saveDraft(templateId: number, input: { subject: string | n
     }
     await auditChange({
       userId: actorId, action: "message_template_draft_saved", entityType: "message_template", entityId: templateId,
-      details: { baseVersion: t.contentVersion, liveWordingChanged: false },
+      details: { baseVersion: t.contentVersion, liveWordingChanged: false, replacedDraftToken: draftToken(existing) },
     }, tx);
-    return draft;
+    return { ...draft, draftToken: draftToken(draft) };
   });
 }
 
-export async function discardDraft(templateId: number, actorId: string) {
+export async function discardDraft(templateId: number, actorId: string, opts: { expectedDraftToken?: string | null } = {}) {
   return db.transaction(async (tx) => {
-    await lockTemplate(tx, templateId);
-    const deleted = await tx.delete(messageTemplateVersions)
-      .where(and(eq(messageTemplateVersions.templateId, templateId), eq(messageTemplateVersions.state, "draft"))).returning();
-    if (deleted.length) {
-      await auditChange({ userId: actorId, action: "message_template_draft_discarded", entityType: "message_template", entityId: templateId }, tx);
-    }
-    return { discarded: deleted.length };
+    const t = await lockTemplate(tx, templateId);
+    const [current] = await tx.select().from(messageTemplateVersions)
+      .where(and(eq(messageTemplateVersions.templateId, templateId), eq(messageTemplateVersions.state, "draft"))).for("update");
+    assertDraftIdentity(t.contentVersion, current, opts.expectedDraftToken, "discarded");
+    if (!current) return { discarded: 0 };
+    await tx.delete(messageTemplateVersions).where(eq(messageTemplateVersions.id, current.id));
+    await auditChange({
+      userId: actorId, action: "message_template_draft_discarded", entityType: "message_template", entityId: templateId,
+      details: { discardedDraftToken: draftToken(current) },
+    }, tx);
+    return { discarded: 1 };
   });
 }
 
 /** Promotes the saved draft to live wording. Does not touch isActive or anything that sends. */
-export async function publishDraft(templateId: number, input: { expectedVersion: number }, actorId: string | null, actorType: "user" | "system" = "user") {
+export async function publishDraft(
+  templateId: number,
+  input: { expectedVersion: number; expectedDraftToken?: string | null },
+  actorId: string | null,
+  actorType: "user" | "system" = "user",
+) {
   return db.transaction(async (tx) => {
     const t = await lockTemplate(tx, templateId);
+    if (input.expectedDraftToken && input.expectedVersion + 1 === t.contentVersion) {
+      // A lost response after a committed publish: the promoted row keeps the draft's identity, so the retry gets its own receipt.
+      const [promoted] = await tx.select().from(messageTemplateVersions).where(and(
+        eq(messageTemplateVersions.templateId, templateId), eq(messageTemplateVersions.version, t.contentVersion), eq(messageTemplateVersions.state, "published"),
+      ));
+      if (promoted && promoted.baseVersion === input.expectedVersion && draftToken(promoted) === input.expectedDraftToken) {
+        return { ...t, replayed: true as const };
+      }
+    }
     if (input.expectedVersion !== t.contentVersion) {
       throw new TemplateVersionError("The published wording changed since you opened it. Reopen the template before publishing.", 409);
     }
     const [draft] = await tx.select().from(messageTemplateVersions)
       .where(and(eq(messageTemplateVersions.templateId, templateId), eq(messageTemplateVersions.state, "draft"))).for("update");
-    if (!draft) throw new TemplateVersionError("Save a draft before publishing.", 409);
+    if (!draft) throw new TemplateVersionError("Save a draft before publishing.", 409, undefined, conflictOf(t.contentVersion, undefined));
+    assertDraftIdentity(t.contentVersion, draft, input.expectedDraftToken, "published");
     if (draft.baseVersion !== t.contentVersion) {
       throw new TemplateVersionError("The draft was written against older wording. Save it again before publishing.", 409);
     }
@@ -212,9 +283,9 @@ export async function publishDraft(templateId: number, input: { expectedVersion:
       entityType: "message_template", entityId: templateId,
       before: { version: t.contentVersion, subject: t.subject, body: t.body },
       after: { version: next, subject: draft.subject, body: draft.body },
-      details: { isActiveUnchanged: updated.isActive },
+      details: { isActiveUnchanged: updated.isActive, draftToken: draftToken(draft) },
     }, tx);
-    return updated;
+    return { ...updated, replayed: false as const };
   });
 }
 

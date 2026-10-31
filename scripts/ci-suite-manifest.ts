@@ -345,6 +345,24 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "27 typed configuration/pause permutations plus unavailable-read render; no probe, send or DB",
   },
   {
+    name: "Stage 4C1 CTA/link/token contract",
+    script: "scripts/test-stage4c1-cta-contract.ts",
+    capability: "deterministic-static",
+    providerDenial: "pure resolver, token and lint functions plus static source reads; no DB, network, provider or send",
+  },
+  {
+    name: "Stage 4C1 premium SFP drafts (drift, claims, CTA, renderer)",
+    script: "scripts/test-stage4c1-premium-drafts.ts",
+    capability: "deterministic-static",
+    providerDenial: "specification file read, pure checks and the SFP renderer on sample data; no DB, network, provider or send",
+  },
+  {
+    name: "Stage 4C1 content workspace (draft CAS, transport previews, /book adapter)",
+    script: "scripts/certification/test-stage4c1-content-workspace.ts",
+    capability: "deterministic-integration",
+    providerDenial: "disposable PostgreSQL with fatal external-network denial; composers run on sample data, /book is served on a loopback socket; nothing is sent",
+  },
+  {
     name: "Stage 4A UI Static Render (GHL sync status, catalog truth, identity health)",
     script: "scripts/test-stage4a-ui-render.mjs",
     capability: "deterministic-static",

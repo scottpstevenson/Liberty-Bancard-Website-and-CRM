@@ -113,6 +113,7 @@ import type { SendChannel } from "./outbound-send-log";
 import type { VoiceBotMode } from "./sdr/voice-orchestrator";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
 import { getCanonicalUrl } from "../lib/canonical-url";
+import { FIRST_PARTY_BOOK_URL, resolveSalesBooking } from "./message-cta-contract";
 
 /**
  * ZeroBounce statuses that are definitively undeliverable.
@@ -1170,9 +1171,9 @@ export async function processSequenceEnrollments(
         const industry = contact?.vertical || "your industry";
         const monthlyVolume = contact?.monthlyVolume || "N/A";
         const currentProcessor = contact?.currentProvider || "your current processor";
-        const estimatedSavings = contact?.estimatedResidual
-          ? `$${Math.round(Number(contact.estimatedResidual) * 12).toLocaleString()}`
-          : "significant savings";
+        // {{estimatedSavings}} deliberately has no value here. A modeled residual is not a merchant fact, and the former
+        // "significant savings" fallback asserted one. Copy that still uses the token fails the unresolved-placeholder
+        // check below and is blocked at the delivery boundary instead of sending an unsupported claim.
         const recommendedProgram = contact?.primaryOfferPath || "Wholesale";
         const recommendedTerminal = deal?.terminalRecommendation || "Clover Flex 3";
 
@@ -1198,15 +1199,19 @@ export async function processSequenceEnrollments(
         // businessName is the same concept as companyName — alias for template compat
         const businessName = companyName;
 
-        const calendarLink =
-          process.env.GHL_CALENDAR_BOOKING_URL ||
-          (process.env.GHL_DEFAULT_CALENDAR_ID
-            ? `https://api.leadconnectorhq.com/widget/booking/${process.env.GHL_DEFAULT_CALENDAR_ID}`
-            : "https://api.leadconnectorhq.com/widget/booking/YFiIy7oIOUXN2qZZPnOr");
+        // Sales booking resolves through one validated configuration (message-cta-contract) and is delivered via the
+        // first-party /book adapter. Missing or disagreeing configuration leaves the token unresolved so the step is
+        // blocked rather than sending a hardcoded or wrong calendar.
+        const salesBooking = resolveSalesBooking(process.env);
+        const calendarLink = salesBooking.available ? FIRST_PARTY_BOOK_URL : null;
+        const bookingReplacement = (text: string): string =>
+          calendarLink
+            ? text.replace(/\{\{calendarLink\}\}/g, calendarLink).replace(/\{\{custom_values\.booking_link\}\}/g, calendarLink)
+            : text;
 
         const interpolate = (text: string | null | undefined): string => {
           if (!text) return "";
-          const result = text
+          const result = bookingReplacement(text)
             .replace(/\{\{firstName\}\}/g, firstName)
             .replace(/\{\{lastName\}\}/g, lastName)
             .replace(/\{\{companyName\}\}/g, companyName)
@@ -1217,7 +1222,6 @@ export async function processSequenceEnrollments(
             .replace(/\{\{industry\}\}/g, industry)
             .replace(/\{\{monthlyVolume\}\}/g, monthlyVolume)
             .replace(/\{\{currentProcessor\}\}/g, currentProcessor)
-            .replace(/\{\{estimatedSavings\}\}/g, estimatedSavings)
             .replace(/\{\{recommendedProgram\}\}/g, recommendedProgram)
             .replace(/\{\{recommendedTerminal\}\}/g, recommendedTerminal)
             .replace(/\{\{serviceType\}\}/g, serviceType)
@@ -1226,7 +1230,6 @@ export async function processSequenceEnrollments(
             .replace(/\{\{agentEmail\}\}/g, agentEmail)
             .replace(/\{\{agentPhone\}\}/g, agentPhone)
             .replace(/\{\{businessName\}\}/g, businessName)
-            .replace(/\{\{calendarLink\}\}/g, calendarLink)
             .replace(/\{\{contact\.vertical\}\}/g, industry)
             .replace(/\{\{vertical\}\}/g, industry);
           // Safety net: warn (and block for sensitive placeholders) if raw

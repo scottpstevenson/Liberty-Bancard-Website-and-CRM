@@ -1618,10 +1618,11 @@ export async function sendTemplatedMessage(params: {
   // Same registry/renderer as publication checks and previews. Unsupported or unresolved tokens fail the send
   // before any provider call; values are escaped for the output format.
   const { renderMessage } = await import("./message-token-registry");
-  const calendarLink = getCalendarBookingUrl({
-    contactEmail: contact.email ?? undefined,
-    contactName: `${contact.firstName} ${contact.lastName}`,
-  });
+  // One validated sales-booking resolver, delivered through the first-party /book adapter. No contact name or email is
+  // placed in the URL, and an unavailable/disagreeing booking configuration leaves the link unset so rendering fails
+  // closed instead of sending a dead or wrong calendar.
+  const { resolveSalesBooking, FIRST_PARTY_BOOK_URL } = await import("./message-cta-contract");
+  const calendarLink = resolveSalesBooking(process.env).available ? FIRST_PARTY_BOOK_URL : null;
   const extra: Record<string, string> = {};
   for (const [k, v] of Object.entries(params.extraData ?? {})) {
     if (typeof v === "string" || typeof v === "number") extra[k] = String(v);
@@ -1635,6 +1636,7 @@ export async function sendTemplatedMessage(params: {
       effectiveRate: deal.effectiveRate, totalVolume: deal.totalVolume, totalFees: deal.totalFees, avgTicket: deal.avgTicket,
       recommendedPath: deal.recommendedPath, terminalRecommendation: deal.terminalRecommendation, offerPath: deal.offerPath,
       stage: deal.stage, estimatedGrossProfitMonthly: deal.estimatedGrossProfitMonthly, merchantTier: deal.merchantTier,
+      topCostDrivers: deal.topCostDrivers,
     } : null,
     calendarLink,
     extra,

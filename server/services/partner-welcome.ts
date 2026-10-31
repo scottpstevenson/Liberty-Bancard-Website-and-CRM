@@ -48,7 +48,7 @@ function buildPartnerWelcomeEmail(partner: Partner, referralLink: string, portal
   <ul>
     <li><a href="https://libertybancard.com/partners/collateral" style="color:#1e3a5f;">Download partner collateral &amp; flyers</a></li>
     <li><a href="https://libertybancard.com/free-analysis" style="color:#1e3a5f;">Send merchants a free savings analysis</a></li>
-    <li><a href="https://libertybancard.com/apply" style="color:#1e3a5f;">Direct merchant application link</a></li>
+    <li><a href="https://libertybancard.com/merchant-application" style="color:#1e3a5f;">Direct merchant application link</a></li>
   </ul>
 
   <p>Questions? Reply to this email or call 954-266-8214. We're here to help you succeed.</p>

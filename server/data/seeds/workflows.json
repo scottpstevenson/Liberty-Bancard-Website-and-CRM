@@ -103,7 +103,7 @@
         {
           "type": "send_ghl_email",
           "subject": "Your Review Call is Confirmed",
-          "body": "<p>Hi {{contact.firstName}},</p><p>Your call is confirmed. During our 10-minute review, we'll cover:</p><ul><li>Your current effective rate</li><li>Where your fees are going</li><li>Your options for a better structure</li></ul><p>No pressure, no obligation - just real numbers from your statement.</p><p>Best,<br/>Liberty Bancard Team</p><p style='font-size:11px;color:#999;'>Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+          "body": "<p>Hi {{contact.firstName}},</p><p>Your call is confirmed. During our review, we'll cover:</p><ul><li>Your current effective rate</li><li>Where your fees are going</li><li>Your options for a better structure</li></ul><p>No pressure, no obligation - just real numbers from your statement.</p><p>Best,<br/>Liberty Bancard Team</p><p style='font-size:11px;color:#999;'>Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
         },
         {
           "type": "create_audit_log",
@@ -122,7 +122,7 @@
       "actions": [
         {
           "type": "send_ghl_sms",
-          "body": "Hi {{contact.firstName}}, looks like we missed connecting. Want to reschedule your free 10-min statement review? Reply YES and we'll set it up."
+          "body": "Hi {{contact.firstName}}, looks like we missed connecting. Want to reschedule your free statement review? Reply YES and we'll set it up."
         },
         {
           "type": "wait",
@@ -241,11 +241,11 @@
         {
           "type": "send_ghl_email",
           "subject": "Welcome to Liberty Bancard - Your Application & Next Steps",
-          "body": "<p>Hi {{contact.firstName}},</p><p>Welcome aboard! We're excited to get {{contact.companyName}} set up with better processing.</p><p><strong>Step 1: Complete Your Application</strong></p><p>Your merchant application takes about 5 minutes to complete. Click below to get started:</p><p><a href='https://libertybancard.com/apply' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Start Your Application</a></p><p><strong>Step 2: Upload Required Documents</strong></p><p>To complete underwriting, we'll need:</p><ul><li>Most recent processing statement</li><li>Voided check or bank letter</li><li>Government-issued photo ID</li></ul><p>Your representative will share a secure link for documents.</p><p><strong>What Happens Next:</strong></p><ol><li>Complete the application (5 min)</li><li>Upload required documents</li><li>Underwriting review (typically 24-48 hours)</li><li>Terminal setup and configuration (if applicable)</li><li>Go-live and first batch!</li></ol><p>You'll have a dedicated point of contact throughout. We'll keep you updated at every step.</p><p>Best,<br/>Liberty Bancard Team</p>"
+          "body": "<p>Hi {{contact.firstName}},</p><p>Welcome aboard! We're excited to get {{contact.companyName}} set up with better processing.</p><p><strong>Step 1: Complete Your Application</strong></p><p>Your merchant application takes about 5 minutes to complete. Click below to get started:</p><p><a href='https://libertybancard.com/merchant-application' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Start Your Application</a></p><p><strong>Step 2: Upload Required Documents</strong></p><p>To complete underwriting, we'll need:</p><ul><li>Most recent processing statement</li><li>Voided check or bank letter</li><li>Government-issued photo ID</li></ul><p>Your representative will share a secure link for documents.</p><p><strong>What Happens Next:</strong></p><ol><li>Complete the application (5 min)</li><li>Upload required documents</li><li>Underwriting review (typically 24-48 hours)</li><li>Terminal setup and configuration (if applicable)</li><li>Go-live and first batch!</li></ol><p>You'll have a dedicated point of contact throughout. We'll keep you updated at every step.</p><p>Best,<br/>Liberty Bancard Team</p>"
         },
         {
           "type": "send_ghl_sms",
-          "body": "Welcome to Liberty Bancard, {{contact.firstName}}! Your application is ready at libertybancard.com/apply - takes about 5 min. We'll also need your processing statement, voided check, and photo ID. Questions? Just reply here."
+          "body": "Welcome to Liberty Bancard, {{contact.firstName}}! Your application is ready at libertybancard.com/merchant-application - takes about 5 min. We'll also need your processing statement, voided check, and photo ID. Questions? Just reply here."
         },
         {
           "type": "update_contact_tags",
@@ -271,11 +271,11 @@
         {
           "type": "send_ghl_email",
           "subject": "Your Liberty Bancard Application is Waiting",
-          "body": "<p>Hi {{contact.firstName}},</p><p>We noticed you haven't completed your merchant application yet. It only takes about 5 minutes!</p><p><a href='https://libertybancard.com/apply' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Complete Your Application</a></p><p>Once submitted, we can begin underwriting and get you set up quickly.</p><p>Need help? Just reply to this email or call us at 954-266-8214.</p><p>Best,<br/>Liberty Bancard Team</p>"
+          "body": "<p>Hi {{contact.firstName}},</p><p>We noticed you haven't completed your merchant application yet. It only takes about 5 minutes!</p><p><a href='https://libertybancard.com/merchant-application' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Complete Your Application</a></p><p>Once submitted, we can begin underwriting and get you set up quickly.</p><p>Need help? Just reply to this email or call us at 954-266-8214.</p><p>Best,<br/>Liberty Bancard Team</p>"
         },
         {
           "type": "send_ghl_sms",
-          "body": "Hi {{contact.firstName}}, friendly reminder to complete your Liberty Bancard application at libertybancard.com/apply. Only takes 5 min! Need help? Reply here or call 954-266-8214."
+          "body": "Hi {{contact.firstName}}, friendly reminder to complete your Liberty Bancard application at libertybancard.com/merchant-application. Only takes 5 min! Need help? Reply here or call 954-266-8214."
         },
         {
           "type": "create_audit_log",
@@ -294,11 +294,11 @@
         {
           "type": "send_ghl_email",
           "subject": "Don't Miss Out - Complete Your Application",
-          "body": "<p>Hi {{contact.firstName}},</p><p>Just a friendly follow-up - your merchant application for {{contact.companyName}} is still incomplete.</p><p>We're ready to get you set up with better processing rates as soon as you're done. The application takes about 5 minutes:</p><p><a href='https://libertybancard.com/apply' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Complete Your Application</a></p><p>If you're running into any issues or have questions about the process, we're here to help. Reply to this email or give us a call.</p><p>Best,<br/>Liberty Bancard Team</p>"
+          "body": "<p>Hi {{contact.firstName}},</p><p>Just a friendly follow-up - your merchant application for {{contact.companyName}} is still incomplete.</p><p>We're ready to get you set up with better processing rates as soon as you're done. The application takes about 5 minutes:</p><p><a href='https://libertybancard.com/merchant-application' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Complete Your Application</a></p><p>If you're running into any issues or have questions about the process, we're here to help. Reply to this email or give us a call.</p><p>Best,<br/>Liberty Bancard Team</p>"
         },
         {
           "type": "send_ghl_sms",
-          "body": "Hi {{contact.firstName}}, your Liberty Bancard application is still waiting. Complete it in 5 min at libertybancard.com/apply. Questions? Call 954-266-8214 - we're happy to walk you through it!"
+          "body": "Hi {{contact.firstName}}, your Liberty Bancard application is still waiting. Complete it in 5 min at libertybancard.com/merchant-application. Questions? Call 954-266-8214 - we're happy to walk you through it!"
         },
         {
           "type": "create_task",
@@ -324,11 +324,11 @@
         {
           "type": "send_ghl_email",
           "subject": "Last Reminder - Your Application is Saved",
-          "body": "<p>Hi {{contact.firstName}},</p><p>This is our last reminder about your merchant application. Your information is saved and the application is ready whenever you are.</p><p><a href='https://libertybancard.com/apply' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Complete Your Application</a></p><p>If you'd prefer, we can complete the application together over the phone. Just reply 'CALL ME' and we'll reach out.</p><p>Best,<br/>Liberty Bancard Team</p>"
+          "body": "<p>Hi {{contact.firstName}},</p><p>This is our last reminder about your merchant application. Your information is saved and the application is ready whenever you are.</p><p><a href='https://libertybancard.com/merchant-application' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Complete Your Application</a></p><p>If you'd prefer, we can complete the application together over the phone. Just reply 'CALL ME' and we'll reach out.</p><p>Best,<br/>Liberty Bancard Team</p>"
         },
         {
           "type": "send_ghl_sms",
-          "body": "Hi {{contact.firstName}}, last reminder about your Liberty Bancard application. Reply CALL ME and we'll help you complete it over the phone. Or finish it at libertybancard.com/apply."
+          "body": "Hi {{contact.firstName}}, last reminder about your Liberty Bancard application. Reply CALL ME and we'll help you complete it over the phone. Or finish it at libertybancard.com/merchant-application."
         },
         {
           "type": "create_task",
@@ -534,7 +534,7 @@
       "category": "proposal",
       "channel": "email",
       "subject": "Your Processing Analysis is Ready - {{contact.companyName}}",
-      "body": "<p>Hi {{contact.firstName}},</p>\n<p>We've completed our review of your processing statement. Here's what we found:</p>\n<ul>\n<li><strong>Current Effective Rate:</strong> {{deal.effectiveRate}}</li>\n<li><strong>Monthly Volume:</strong> {{deal.totalVolume}}</li>\n<li><strong>Current Fees:</strong> {{deal.totalFees}}</li>\n<li><strong>Top Cost Drivers:</strong> {{deal.topCostDrivers}}</li>\n<li><strong>Recommended Path:</strong> {{deal.recommendedPath}}</li>\n</ul>\n<p><strong>Next Step:</strong> <a href=\"{{calendarLink}}\">Book a 10-minute call</a> to walk through the numbers together.</p>\n<p>Best,<br/>Liberty Bancard Team</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
+      "body": "<p>Hi {{contact.firstName}},</p>\n<p>We've completed our review of your processing statement. Here's what we found:</p>\n<ul>\n<li><strong>Current Effective Rate:</strong> {{deal.effectiveRate}}</li>\n<li><strong>Monthly Volume:</strong> {{deal.totalVolume}}</li>\n<li><strong>Current Fees:</strong> {{deal.totalFees}}</li>\n<li><strong>Top Cost Drivers:</strong> {{deal.topCostDrivers}}</li>\n<li><strong>Recommended Path:</strong> {{deal.recommendedPath}}</li>\n</ul>\n<p><strong>Next Step:</strong> <a href=\"{{calendarLink}}\">Book a short call</a> to walk through the numbers together.</p>\n<p>Best,<br/>Liberty Bancard Team</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
       "mergeFields": [
         "contact.firstName",
         "contact.companyName",
@@ -587,7 +587,7 @@
       "category": "onboarding",
       "channel": "email",
       "subject": "Your Liberty Bancard Application is Waiting",
-      "body": "<p>Hi {{contact.firstName}},</p>\n<p>We noticed you haven't completed your merchant application yet for {{contact.companyName}}. It only takes about 5 minutes!</p>\n<p><a href=\"https://libertybancard.com/apply\" style=\"display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;\">Complete Your Application</a></p>\n<p>Once submitted, we can begin underwriting and get you processing within days.</p>\n<p>Need help? Just reply to this email or call us at 954-266-8214.</p>\n<p>Best,<br/>Liberty Bancard Team</p>",
+      "body": "<p>Hi {{contact.firstName}},</p>\n<p>We noticed you haven't completed your merchant application yet for {{contact.companyName}}. It only takes about 5 minutes!</p>\n<p><a href=\"https://libertybancard.com/merchant-application\" style=\"display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;\">Complete Your Application</a></p>\n<p>Once submitted, we can begin underwriting and get you processing within days.</p>\n<p>Need help? Just reply to this email or call us at 954-266-8214.</p>\n<p>Best,<br/>Liberty Bancard Team</p>",
       "mergeFields": [
         "contact.firstName",
         "contact.companyName"
@@ -599,7 +599,7 @@
       "category": "onboarding",
       "channel": "sms",
       "subject": null,
-      "body": "Hi {{contact.firstName}}, friendly reminder to complete your Liberty Bancard application at libertybancard.com/apply. Only takes 5 min! Need help? Reply here or call 954-266-8214.",
+      "body": "Hi {{contact.firstName}}, friendly reminder to complete your Liberty Bancard application at libertybancard.com/merchant-application. Only takes 5 min! Need help? Reply here or call 954-266-8214.",
       "mergeFields": [
         "contact.firstName"
       ],
@@ -622,7 +622,7 @@
       "category": "reactivation",
       "channel": "email",
       "subject": "Your free processing review is still available",
-      "body": "<p>Hi {{contact.firstName}},</p>\n<p>It's been a while since we last connected. Just wanted to let you know your processing review is still available.</p>\n<p>A lot can change in a few months - new card brand rules, rate adjustments, new programs. If your current processor hasn't reviewed your rates lately, it might be time.</p>\n<p>Want a fresh look? <a href=\"{{calendarLink}}\">Book a 10-minute review</a> - no obligation.</p>\n<p>Best,<br/>Liberty Bancard Team</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
+      "body": "<p>Hi {{contact.firstName}},</p>\n<p>It's been a while since we last connected. Just wanted to let you know your processing review is still available.</p>\n<p>A lot can change in a few months - new card brand rules, rate adjustments, new programs. If your current processor hasn't reviewed your rates lately, it might be time.</p>\n<p>Want a fresh look? <a href=\"{{calendarLink}}\">Book a short review</a> - no obligation.</p>\n<p>Best,<br/>Liberty Bancard Team</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
       "mergeFields": [
         "contact.firstName",
         "calendarLink"
@@ -956,7 +956,7 @@
           "stepType": "initial_outreach",
           "delayDays": 0,
           "subject": "A question about how {{companyName}} handles card fees",
-          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>I'm reaching out because many {{vertical}} business owners I talk to have one question: why am I absorbing 3-4% on every card transaction?</p>\n<p>There's a compliant program that allows businesses to pass card processing costs to the cardholder - where permitted by state law and card brand rules. It's called a cash discount (or surcharge) program, and it's fully legal in most states.</p>\n<p>If this sounds interesting, I'd love to walk you through how it works and whether it's a fit for {{companyName}}. No commitment, just information.</p>\n<p>Want to learn more? Reply to this email or book a quick 10-minute call: {{calendarLink}}</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">\"0% processing\" refers to compliant cash discount or surcharging programs where permitted. Eligibility depends on state law, card brand rules, and underwriting. Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>I'm reaching out because many {{vertical}} business owners I talk to have one question: why am I absorbing 3-4% on every card transaction?</p>\n<p>There's a compliant program that allows businesses to pass card processing costs to the cardholder - where permitted by state law and card brand rules. It's called a cash discount (or surcharge) program, and it's fully legal in most states.</p>\n<p>If this sounds interesting, I'd love to walk you through how it works and whether it's a fit for {{companyName}}. No commitment, just information.</p>\n<p>Want to learn more? Reply to this email or book a quick call: {{calendarLink}}</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">\"0% processing\" refers to compliant cash discount or surcharging programs where permitted. Eligibility depends on state law, card brand rules, and underwriting. Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
           "aiPrompt": "Personalize based on the prospect's vertical. Reference how similar businesses in their industry have adopted 0% programs. Emphasize compliance and legality. Never guarantee savings.",
           "useAiPersonalization": true,
           "channel": "email"
@@ -966,7 +966,7 @@
           "stepType": "follow_up",
           "delayDays": 3,
           "subject": "Re: {{companyName}} - 0% processing question",
-          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Following up on my note about compliant 0% processing programs.</p>\n<p>Here's how it works in plain English: you post your cash price. Card-paying customers see a small service fee added at checkout. Your net processing cost can drop to $0 or near-$0, depending on your profile.</p>\n<p>It's fully transparent, signage-compliant, and used by thousands of businesses nationwide. Whether it's right for {{companyName}} depends on your volume, vertical, and state - and we can figure that out in a 10-minute call.</p>\n<p>Interested? {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Following up on my note about compliant 0% processing programs.</p>\n<p>Here's how it works in plain English: you post your cash price. Card-paying customers see a small service fee added at checkout. Your net processing cost can drop to $0 or near-$0, depending on your profile.</p>\n<p>It's fully transparent, signage-compliant, and used by thousands of businesses nationwide. Whether it's right for {{companyName}} depends on your volume, vertical, and state - and we can figure that out in a short call.</p>\n<p>Interested? {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
           "useAiPersonalization": true,
           "channel": "email"
         },
@@ -985,7 +985,7 @@
           "stepType": "social_proof",
           "delayDays": 7,
           "subject": "Why {{vertical}} owners are switching to 0% programs",
-          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>More and more {{vertical}} businesses are adopting compliant cash discount programs - not because of a sales pitch, but because the math is simple: why absorb a cost you don't have to?</p>\n<p>We've helped businesses across your industry set up programs that are fully transparent, signage-compliant, and easy for staff to manage.</p>\n<p>If you've been curious, a 10-minute call is all it takes to see if it's a fit: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>More and more {{vertical}} businesses are adopting compliant cash discount programs - not because of a sales pitch, but because the math is simple: why absorb a cost you don't have to?</p>\n<p>We've helped businesses across your industry set up programs that are fully transparent, signage-compliant, and easy for staff to manage.</p>\n<p>If you've been curious, a short call is all it takes to see if it's a fit: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
           "useAiPersonalization": true,
           "channel": "email"
         },
@@ -1043,7 +1043,7 @@
           "stepType": "social_proof",
           "delayDays": 7,
           "subject": "Why {{vertical}} businesses are leaving flat-rate",
-          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>More and more {{vertical}} businesses are moving away from flat-rate processors - not because someone talked them into it, but because they finally saw the numbers.</p>\n<p>When you compare your flat-rate costs against interchange-plus pricing, the difference usually speaks for itself. And you keep everything you already have - next-day funding, online payments, the works.</p>\n<p>If you're curious, a 10-minute review is all it takes: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>More and more {{vertical}} businesses are moving away from flat-rate processors - not because someone talked them into it, but because they finally saw the numbers.</p>\n<p>When you compare your flat-rate costs against interchange-plus pricing, the difference usually speaks for itself. And you keep everything you already have - next-day funding, online payments, the works.</p>\n<p>If you're curious, a short review is all it takes: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
           "useAiPersonalization": true,
           "channel": "email"
         },
@@ -1178,7 +1178,7 @@
           "stepType": "social_proof",
           "delayDays": 7,
           "subject": "How healthcare practices are optimizing processing",
-          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>We've helped many dental, medical, and medspa practices get clarity on their processing costs. The most common outcome: they had no idea how much interchange padding was costing them on high-ticket treatments.</p>\n<p>Whether you stick with your current setup or make a change, knowing your real numbers puts you in control.</p>\n<p>Free 10-minute review: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>We've helped many dental, medical, and medspa practices get clarity on their processing costs. The most common outcome: they had no idea how much interchange padding was costing them on high-ticket treatments.</p>\n<p>Whether you stick with your current setup or make a change, knowing your real numbers puts you in control.</p>\n<p>Free review: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
           "useAiPersonalization": true,
           "channel": "email"
         },
@@ -1245,7 +1245,7 @@
           "stepType": "social_proof",
           "delayDays": 7,
           "subject": "How retail owners are getting processing clarity",
-          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>We've helped many retail businesses understand their processing costs for the first time. The most common reaction: \"Why didn't my current processor show me this?\"</p>\n<p>That's because most processors benefit from complexity. We believe in transparency.</p>\n<p>10-minute free review, no strings: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>We've helped many retail businesses understand their processing costs for the first time. The most common reaction: \"Why didn't my current processor show me this?\"</p>\n<p>That's because most processors benefit from complexity. We believe in transparency.</p>\n<p>Free review, no strings: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
           "useAiPersonalization": true,
           "channel": "email"
         },
@@ -1366,7 +1366,7 @@
           "stepType": "social_proof",
           "delayDays": 7,
           "subject": "Why merchants come back for a second look",
-          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Many of our best merchant relationships started with a second conversation. Timing matters - and sometimes the first time isn't the right time.</p>\n<p>If you're ready for a fresh look at {{companyName}}'s processing costs, we're here. Same free review, same no-pressure approach.</p>\n<p>Book a 10-minute call: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Many of our best merchant relationships started with a second conversation. Timing matters - and sometimes the first time isn't the right time.</p>\n<p>If you're ready for a fresh look at {{companyName}}'s processing costs, we're here. Same free review, same no-pressure approach.</p>\n<p>Book a short call: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
           "useAiPersonalization": true,
           "channel": "email"
         },
@@ -1433,7 +1433,7 @@
           "stepType": "social_proof",
           "delayDays": 7,
           "subject": "How professional firms optimize processing",
-          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>We've worked with law firms, CPA practices, and consulting firms to bring clarity to their processing costs. The common thread: they were all paying more on invoiced payments than they needed to.</p>\n<p>If you're curious about your own numbers, a 10-minute call is all it takes: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>We've worked with law firms, CPA practices, and consulting firms to bring clarity to their processing costs. The common thread: they were all paying more on invoiced payments than they needed to.</p>\n<p>If you're curious about your own numbers, a short call is all it takes: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
           "useAiPersonalization": true,
           "channel": "email"
         },
@@ -1500,7 +1500,7 @@
           "stepType": "social_proof",
           "delayDays": 7,
           "subject": "How beauty businesses are cutting processing costs",
-          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>We've helped many salons, spas, and beauty businesses get clarity on their processing. The most common reaction: \"Why was I paying for that?\"</p>\n<p>If you're curious, a free 10-minute review is all it takes: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>We've helped many salons, spas, and beauty businesses get clarity on their processing. The most common reaction: \"Why was I paying for that?\"</p>\n<p>If you're curious, a free review is all it takes: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
           "useAiPersonalization": true,
           "channel": "email"
         },

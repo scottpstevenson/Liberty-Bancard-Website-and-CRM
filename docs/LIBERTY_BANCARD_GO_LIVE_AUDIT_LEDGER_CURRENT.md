@@ -2099,3 +2099,27 @@ The user's report numbers this receipt §51.7 (ledger) and §43.7 (spec); the re
 **Browser (fixture):** the stalled and failed inventory both keep the release panel mounted; mobile 390px Provider Results no longer only logs overflow: it asserts no document overflow and no unlabelled inner scroll container. 27 checks pass on a production build.
 
 **Outstanding:** the owner publishes; the post-publish `/api/health` SHA and read-only production screens (backlog, launch inventory with its phase log line, release panel, SFP tab) are not yet checked. The build-start census remains recorded as missing. No production job, provider call, release, backfill or deletion was run; all pauses are unchanged.
+
+
+## Stage 4C1 — content workspace (2026-10-31)
+
+**Status: source-complete in part; not committed, not merged, not published, not live-verified.** Base commit `45c51437fefa07419e7e8170408f8e5eb02dfc87` plus uncommitted workspace edits. Node v22.23.4.
+
+**Delivered (source):**
+- Typed purpose-aware CTA/link contract (`server/services/message-cta-contract.ts`): CTA kinds and permitted purposes, retired-path map, href safety check, duration-claim finder, sales-booking resolver with no default (missing or disagreeing ID sources fail closed; a slug address is shape-checked but cannot be compared with an ID). First-party `GET /book` adapter (302 to the validated widget, no-store, ignores query parameters, 503 when unavailable).
+- Token fixes: `custom_values.booking_link` alias; `deal.topCostDrivers`; no value for `estimatedSavings`; savings fallback and hardcoded calendar removed from `sequence-worker.ts`/`ghl.ts`. Lint rules `unverified_duration` and `retired_link`. Ten-minute claims and `/apply` links replaced in the listed seeds and services.
+- Draft compare-and-swap (no schema change; content-hash identity) on save, discard and publish with 409 recovery metadata and a publish retry receipt; HTTP routes require `expectedDraftToken`.
+- Transport final previews (`POST /api/message-steps/final-preview`): SFP SMTP and non-cold Gmail through the real composers, labelled simulations. Editor dialog `size="workspace"` variant, 600/375 canvases, conflict alert, responsive grids.
+- Premium SFP drafts (25) and warm/service baseline (12) as generated, read-only, `proposed_draft` data with a claim/CTA/cadence checker and `GET /api/content-workspace/premium-drafts` (admin/manager). Never auto-published.
+- Asset inventory and disposition for all 175 Appendix A assets under `docs/certification/stage4-c1/`.
+
+**Tests (disposable DB where marked; all passed):** CTA contract 55; premium drafts and inventory 22; content workspace (disposable) 28; message-template-versions (disposable) 56; template-final-preview 16; message-copy-convergence 65; workflow-email-wording; workflow-sms-wording; sfp-launch-content 632; sfp-launch-runner-e2e 26; sfp-seed-test 84. `npm run build` passed. The 4C1 suites are registered in `scripts/pre-deploy.ts`, `scripts/ci-suite-manifest.ts` and the disposable runner. The full pre-deploy roster was not run.
+
+**Not delivered (shortfall against the specification):** the grouped Current SFP / Sales library / Merchant lifecycle / History / Diagnostics views and any UI that calls the final-preview or premium-draft routes; paired campaign+sequence package publication through `populateOne`/package-hash authority with 3- and 5-touch support and started-journey protection; adoption of the premium drafts into versioned step drafts; the 1280/768/390 browser verification and the browser suite; already-installed workflow and template rows keep their old wording until an operator publishes a reviewed draft; legacy SDR orchestrator, voice scripts, knowledge seed, `statement-review.ts`/`inbox.ts` booking-ID fallbacks, public pages with "10-minute" text, and client `CALENDAR_URL` were not changed.
+
+**Owner notes:** sales-booking resolution fails closed if the sources are missing, malformed or name different calendar IDs. Rollback: revert the uncommitted files; there is no schema, secret or environment change.
+
+
+**4C1 addendum (same day, after review):** added the live grouped overview (`GET /api/content-workspace/overview`, `server/services/content-workspace.ts`) and `ContentWorkspace.tsx` mounted in GHL Settings below message templates: URL-backed tabs (`?content=`) for Current SFP / Sales library / Merchant lifecycle / History / Diagnostics. Current SFP pins are read from `sfp_campaign_package_versions` at request time (cadence and started-journey counts shown); every row states why it is in its group; diagnostics rows show journey dependencies; nothing is written. The Current SFP tab lists the 25 premium drafts with a per-touch "Preview as SFP email" that calls the transport final-preview route. Content-workspace certification now 38 checks (disposable DB). Production build passed.
+
+**Still not delivered:** adoption of premium drafts into a package (step editing/reordering and paired campaign+sequence publication through `populateOne`/package-hash authority, 3/5-touch, stale-hash conflicts, started-journey protection beyond display); a refreshed *production* inventory and dependency read (the register is the attachment's snapshot; the live overview reads the environment it runs in, and the development database holds test-polluted rows that differ from production); mounted-browser verification at 1280/768/390 (sign-in required; not run). Follow-ups #2117-#2119 cover the remainder.

@@ -22,7 +22,7 @@ function buildMerchantWelcomeEmail(firstName: string, companyName: string): stri
   <p>Here's what happens in the next 48 hours:</p>
 
   <p><strong>Step 1 — Complete your merchant application (5 minutes)</strong><br/>
-  <a href="https://libertybancard.com/apply" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;margin-top:8px;">Start Your Application &rarr;</a></p>
+  <a href="https://libertybancard.com/merchant-application" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;margin-top:8px;">Start Your Application &rarr;</a></p>
 
   <p><strong>Step 2 — Upload required documents</strong><br/>
   We'll need:</p>

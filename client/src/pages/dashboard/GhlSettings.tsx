@@ -17,6 +17,7 @@ import { GhlInboundSyncCard } from "@/components/dashboard/GhlInboundSyncCard";
 import { GhlCommandAction } from "@/components/dashboard/GhlCommandAction";
 import { InboundAcknowledgementCard } from "@/components/dashboard/InboundAcknowledgementCard";
 import { MessageTemplateEditor, ReceiptWordingPreview } from "@/components/dashboard/MessageTemplateEditor";
+import { ContentWorkspace } from "@/components/dashboard/ContentWorkspace";
 
 interface PipelineStagesResult {
   matchingPolicy: "explicit_ids_only";
@@ -952,6 +953,8 @@ export default function GhlSettings() {
         canActivate={user?.role === "admin"}
         onClose={() => setEditingTemplateId(null)}
       />
+
+      <ContentWorkspace canView={canEditTemplates} />
 
       <InboundAcknowledgementCard canControl={user?.role === "admin"} />
 

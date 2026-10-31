@@ -91,8 +91,8 @@ async function seedObjectionCrusherSequence(): Promise<void> {
     body: `<p>Hi {{contact.firstName}},</p>
 <p>Completely understand — timing is everything in business.</p>
 <p>A lot of our best clients felt the same way before they saw how much they were losing in unnecessary processing fees. On average, we save merchants <strong>$200–$600/month</strong> with zero disruption to their current setup.</p>
-<p>Would it be worth a 10-minute call to see if the numbers make sense for you? No pressure — if it doesn't pencil out, I'll tell you straight.</p>
-<p><a href="{{calendarLink}}">Grab a 10-minute slot here</a></p>
+<p>Would it be worth a short call to see if the numbers make sense for you? No pressure — if it doesn't pencil out, I'll tell you straight.</p>
+<p><a href="{{calendarLink}}">Choose a time here</a></p>
 <p>Best,<br/>Liberty Bancard Team</p>
 <p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply. Reply STOP to opt out.</p>`,
   });

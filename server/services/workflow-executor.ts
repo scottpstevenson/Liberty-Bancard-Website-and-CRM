@@ -333,7 +333,7 @@ export async function executeWorkflowActions(
   <li><strong>Monthly Volume:</strong> ${escapeHtml(deal.totalVolume || "Pending Review")}</li>
   <li><strong>Recommended Path:</strong> ${escapeHtml(deal.recommendedPath || deal.offerPath || "Custom Pricing")}</li>
 </ul>
-<p><strong>Next Step:</strong> <a href="{{calendarLink}}">Book a 10-minute call</a></p>
+<p><strong>Next Step:</strong> <a href="{{calendarLink}}">Book a call</a></p>
 <p>Best,<br/>Liberty Bancard Team</p>
 <p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
             contactId, dealId, "html"

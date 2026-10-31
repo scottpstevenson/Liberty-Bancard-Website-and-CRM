@@ -76,7 +76,7 @@ Thank you for submitting your processing statement${processorInfo}. Our team has
 
 ${savingsText}
 
-Next step: Let's connect for a 10-minute call to walk through the review and answer any questions.
+Next step: Let's connect for a call to walk through the review and answer any questions.
 
 Book a time that works for you: ${process.env.GHL_CALENDAR_BOOKING_URL || "https://api.leadconnectorhq.com/widget/booking/YFiIy7oIOUXN2qZZPnOr"}
 

@@ -14,16 +14,21 @@ import { RenderError, normalizeTokenName, renderTemplate, type RenderContext, ty
 export type MessagePurpose = "workflow" | "template";
 
 const CONTACT_TOKENS = ["firstName", "lastName", "fullName", "companyName", "businessName", "email", "phone", "vertical", "calendarLink"] as const;
+/**
+ * Explicit aliases (normalized name -> canonical token). `custom_values.booking_link` was a GoHighLevel merge name that
+ * nothing here resolved; it now means exactly the sales booking link, nothing more.
+ */
+export const TOKEN_ALIASES: Readonly<Record<string, string>> = { "customValues.bookingLink": "calendarLink" };
 const WORKFLOW_DEAL_TOKENS = ["stage", "offerPath", "effectiveRate", "totalVolume"] as const;
 const TEMPLATE_DEAL_TOKENS = [
   ...WORKFLOW_DEAL_TOKENS, "totalFees", "avgTicket", "recommendedPath", "terminalRecommendation",
-  "estimatedGrossProfitMonthly", "merchantTier",
+  "estimatedGrossProfitMonthly", "merchantTier", "topCostDrivers",
 ] as const;
 
 /** Normalized token names (see normalizeTokenName) each purpose can resolve. */
 export const TOKEN_REGISTRY: Record<MessagePurpose, readonly string[]> = {
   workflow: [...CONTACT_TOKENS, ...WORKFLOW_DEAL_TOKENS.map((k) => `deal.${k}`)],
-  template: [...CONTACT_TOKENS, ...TEMPLATE_DEAL_TOKENS.map((k) => `deal.${k}`)],
+  template: [...CONTACT_TOKENS, ...TEMPLATE_DEAL_TOKENS.map((k) => `deal.${k}`), ...Object.keys(TOKEN_ALIASES)],
 };
 
 export interface TokenSource {
@@ -32,7 +37,10 @@ export interface TokenSource {
     companyName?: string | null; vertical?: string | null;
   };
   /** Absent when the run has no deal: deal tokens then fail to resolve instead of printing blanks. */
-  deal?: Partial<Record<(typeof TEMPLATE_DEAL_TOKENS)[number], string | null | undefined>> | null;
+  deal?: (Partial<Record<Exclude<(typeof TEMPLATE_DEAL_TOKENS)[number], "topCostDrivers">, string | null | undefined>> & {
+    /** Statement-analysis cost drivers. A fact: when empty the token fails to resolve instead of printing a blank. */
+    topCostDrivers?: readonly string[] | string | null;
+  }) | null;
   calendarLink?: string | null;
   /** Send-time values supplied by a trusted caller; never available to publication checks. */
   extra?: Record<string, string | null | undefined>;
@@ -42,16 +50,31 @@ export function isSupportedToken(purpose: MessagePurpose, rawToken: string): boo
   return TOKEN_REGISTRY[purpose].includes(normalizeTokenName(rawToken));
 }
 
+/** Up to five non-empty cost-driver names joined for prose; null when there is nothing real to say. */
+export function costDriverText(value: readonly string[] | string | null | undefined): string | null {
+  const items = (Array.isArray(value) ? value : typeof value === "string" ? value.split(/[,;\n]/) : [])
+    .map((v) => String(v).trim()).filter(Boolean).slice(0, 5);
+  return items.length ? items.join(", ") : null;
+}
+
 export function buildRenderContext(purpose: MessagePurpose, source: TokenSource): RenderContext {
   const c = source.contact;
   const fullName = [c.firstName, c.lastName].map((v) => (v ?? "").trim()).filter(Boolean).join(" ");
   const extra: Record<string, string | null | undefined> = { phone: c.phone, fullName };
   // A missing calendar link must fail rendering rather than ship an empty href.
-  if (source.calendarLink) extra.calendarLink = source.calendarLink;
+  if (source.calendarLink) {
+    extra.calendarLink = source.calendarLink;
+    for (const [alias, canonical] of Object.entries(TOKEN_ALIASES)) if (canonical === "calendarLink") extra[alias] = source.calendarLink;
+  }
   if (source.deal) {
     for (const key of TOKEN_REGISTRY[purpose]) {
       if (!key.startsWith("deal.")) continue;
       const field = key.slice("deal.".length) as keyof NonNullable<TokenSource["deal"]>;
+      if (field === "topCostDrivers") {
+        const drivers = costDriverText(source.deal.topCostDrivers);
+        if (drivers) extra[key] = drivers; // absent -> RENDER_UNRESOLVED_TOKEN, never a blank sentence
+        continue;
+      }
       extra[key] = (source.deal[field] ?? "") as string;
     }
   }
@@ -85,6 +108,7 @@ export const PREVIEW_PERSONAS: Array<{ id: "named" | "role_address" | "missing_n
     stage: "Proposal", offerPath: "Standard", effectiveRate: "3.1%", totalVolume: "$48,000", totalFees: "$1,490",
     avgTicket: "$42", recommendedPath: "Interchange plus", terminalRecommendation: "Countertop terminal",
     estimatedGrossProfitMonthly: "$210", merchantTier: "Tier 2",
+    topCostDrivers: ["Interchange downgrades", "PCI non-compliance fee", "Monthly service fee"],
   };
   const base = {
     lastName: "Sample", phone: "(555) 010-0100", companyName: "Sample Business LLC", vertical: "restaurant",

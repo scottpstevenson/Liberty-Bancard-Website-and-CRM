@@ -109,3 +109,8 @@ Measured on the audit baseline revision `4130c291` (separate worktree) and on th
 | `test-intake-review-pages.ts` | fails: "Full-page source namespace probe must execute its index" | fails with the same assertion. Existing failure, not caused or fixed by this work. |
 
 `scripts/test-merchant-application-security.ts` was compared separately earlier (stale assertion, same result with changes stashed) and is not part of this table.
+
+
+## Stage 4C1 update — 2026-10-31
+
+Public and email wording no longer states a call length (the booking calendars are 30 minutes and the duration is not verified), and `/apply` links in changed seeds/services point to `/merchant-application`. Booking links in messages go through `https://libertybancard.com/book`. Remaining "10-minute" text on public pages (Footer, ThanksCall, ThanksStatement) and the client `CALENDAR_URL` were not changed and still need reconciliation.

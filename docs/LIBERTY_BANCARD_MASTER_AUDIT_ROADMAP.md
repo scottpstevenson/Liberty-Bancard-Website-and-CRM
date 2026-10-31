@@ -671,3 +671,10 @@ Stage 4A (catalog and operational truth) is published. Stage 4B (SFP supply and 
 ---
 
 *This roadmap should be reviewed and updated quarterly. When a phase item is completed, mark it done with a date. New risks discovered during implementation should be added to the Risk Register.*
+
+
+## Stage 4C1 → 4C2 → 4D (2026-10-31)
+
+- **4C1 (content workspace):** source-partial, unpublished. Contract, token and booking repairs, draft CAS, transport previews, premium drafts as proposals and the asset disposition are in source. Remaining 4C1: grouped workspace views, paired package publication (3/5-touch, started-journey protection), draft adoption UI, 1280/768/390 browser proof. See the ledger entry of the same date.
+- **4C2:** native appointment, calendar and SMS and native workflow install. Account-purpose booking destination and merchant-referral destination are prerequisites noted by the CTA contract.
+- **4D:** integrated acceptance. Outbound stays paused until then.

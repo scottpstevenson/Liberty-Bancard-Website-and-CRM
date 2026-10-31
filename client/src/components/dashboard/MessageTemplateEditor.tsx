@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,8 @@ interface Finding { rule: string; match: string; why: string }
 interface Workspace {
   template: MessageTemplate;
   draft: MessageTemplateVersion | null;
+  /** Identity of the saved draft (null = none). Save, discard and publish send the one this editor last loaded. */
+  draftToken: string | null;
   history: MessageTemplateVersion[];
   liveFindings: Finding[];
   draftFindings: Finding[];
@@ -35,6 +37,16 @@ function findingsFromError(e: unknown): Finding[] {
     const body = JSON.parse(raw.slice(start));
     return Array.isArray(body.findings) ? body.findings : [];
   } catch { return []; }
+}
+
+interface DraftConflict { hasDraft: boolean; draftToken: string | null; baseVersion: number | null; authorId: string | null; updatedAt: string | null; liveVersion: number }
+
+function conflictFromError(e: unknown): DraftConflict | null {
+  const raw = e instanceof Error ? e.message : "";
+  if (!raw.startsWith("409")) return null;
+  const start = raw.indexOf("{");
+  if (start < 0) return null;
+  try { return (JSON.parse(raw.slice(start)).conflict as DraftConflict | undefined) ?? null; } catch { return null; }
 }
 
 function FindingList({ findings, testId }: { findings: Finding[]; testId: string }) {
@@ -71,19 +83,35 @@ export function MessageTemplateEditor({
   const [seeded, setSeeded] = useState<string | null>(null);
   const [publishFindings, setPublishFindings] = useState<Finding[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
+  // The draft identity the fields were seeded from. Commands send this, never the freshest server value, so a draft
+  // saved by someone else is refused with a conflict instead of being replaced.
+  const [baseToken, setBaseToken] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<DraftConflict | null>(null);
+  const [remoteChanged, setRemoteChanged] = useState(false);
+  const dirtyRef = useRef(false);
+  const expectReseed = useRef(false);
 
   useEffect(() => {
     if (!ws) return;
-    const key = `${ws.template.id}:${ws.template.contentVersion}:${ws.draft?.id ?? "none"}:${ws.draft?.updatedAt ?? ""}`;
+    const key = `${ws.template.id}:${ws.template.contentVersion}:${ws.draftToken ?? "none"}`;
     if (key === seeded) return;
+    // A background refetch must never replace fields the operator has edited and not saved.
+    if (seeded !== null && dirtyRef.current && !expectReseed.current && seeded.split(":")[0] === String(ws.template.id)) {
+      setRemoteChanged(true);
+      return;
+    }
+    expectReseed.current = false;
     const src = ws.draft ?? ws.template;
     setSubject(src.subject ?? "");
     setBody(src.body);
+    setBaseToken(ws.draftToken);
     setSeeded(key);
     setPublishFindings([]);
+    setConflict(null);
+    setRemoteChanged(false);
   }, [ws, seeded]);
 
-  useEffect(() => { if (!open) { setSeeded(null); setPreview(null); setPublishFindings([]); } }, [open]);
+  useEffect(() => { if (!open) { setSeeded(null); setPreview(null); setPublishFindings([]); setConflict(null); setRemoteChanged(false); setBaseToken(null); } }, [open]);
 
   const channelForPreview = ws?.template?.channel === "email" ? "email" : ws?.template?.channel === "sms" ? "sms" : undefined;
 
@@ -109,25 +137,27 @@ export function MessageTemplateEditor({
     ]);
   };
   const fail = (title: string) => (e: Error) => {
+    const c = conflictFromError(e);
+    if (c) setConflict(c);
     setPublishFindings(findingsFromError(e));
     toast({ title, description: getApiErrorMessage(e, title), variant: "destructive" });
   };
 
   const saveDraft = useMutation({
     mutationFn: async () => (await apiRequest("PUT", `/api/message-templates/${templateId}/draft`, {
-      subject: subject.trim() === "" ? null : subject, body, baseVersion: ws!.template.contentVersion,
+      subject: subject.trim() === "" ? null : subject, body, baseVersion: ws!.template.contentVersion, expectedDraftToken: baseToken,
     })).json(),
-    onSuccess: async () => { setPublishFindings([]); await refresh(); toast({ title: "Draft saved", description: "Live wording is unchanged." }); },
+    onSuccess: async () => { setPublishFindings([]); setConflict(null); expectReseed.current = true; await refresh(); toast({ title: "Draft saved", description: "Live wording is unchanged." }); },
     onError: fail("Could not save draft"),
   });
   const discard = useMutation({
-    mutationFn: async () => (await apiRequest("DELETE", `/api/message-templates/${templateId}/draft`)).json(),
-    onSuccess: async () => { setSeeded(null); await refresh(); toast({ title: "Draft discarded" }); },
+    mutationFn: async () => (await apiRequest("DELETE", `/api/message-templates/${templateId}/draft`, { expectedDraftToken: baseToken })).json(),
+    onSuccess: async () => { expectReseed.current = true; setSeeded(null); await refresh(); toast({ title: "Draft discarded" }); },
     onError: fail("Could not discard draft"),
   });
   const publish = useMutation({
-    mutationFn: async () => (await apiRequest("POST", `/api/message-templates/${templateId}/publish`, { expectedVersion: ws!.template.contentVersion })).json(),
-    onSuccess: async () => { setPublishFindings([]); await refresh(); toast({ title: "Content version published", description: "Wording is now live for this template. Activation was not changed." }); },
+    mutationFn: async () => (await apiRequest("POST", `/api/message-templates/${templateId}/publish`, { expectedVersion: ws!.template.contentVersion, expectedDraftToken: baseToken ?? "" })).json(),
+    onSuccess: async () => { setPublishFindings([]); setConflict(null); expectReseed.current = true; await refresh(); toast({ title: "Content version published", description: "Wording is now live for this template. Activation was not changed." }); },
     onError: fail("Could not publish"),
   });
   const activation = useMutation({
@@ -140,15 +170,16 @@ export function MessageTemplateEditor({
   const t = ws?.template;
   const baseline = ws?.draft ?? t;
   const dirty = useMemo(() => !!baseline && ((baseline.subject ?? "") !== subject || baseline.body !== body), [baseline, subject, body]);
+  dirtyRef.current = dirty;
   const hasDraft = !!ws?.draft;
   const draftCurrent = hasDraft && ws!.draft!.baseVersion === t!.contentVersion;
-  const canPublish = canEdit && hasDraft && draftCurrent && !dirty && ws!.draftFindings.length === 0;
+  const canPublish = canEdit && hasDraft && draftCurrent && !dirty && !remoteChanged && !conflict && baseToken !== null && baseToken === ws!.draftToken && ws!.draftFindings.length === 0;
   const canSave = canEdit && !!t && dirty;
   const isActive = t?.isActive === true;
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden" data-testid="dialog-template-editor">
+      <DialogContent size="workspace" className="max-w-5xl max-h-[90vh] overflow-y-auto overflow-x-hidden" data-testid="dialog-template-editor">
         <DialogHeader>
           <DialogTitle>{t ? t.name : "Message template"}</DialogTitle>
           <DialogDescription>
@@ -175,7 +206,32 @@ export function MessageTemplateEditor({
 
             <FindingList findings={ws!.liveFindings} testId="findings-live" />
 
-            <div className="grid gap-4 md:grid-cols-2 [&>*]:min-w-0">
+            {(conflict || remoteChanged) && (
+              <Alert variant="destructive" data-testid="draft-conflict">
+                <AlertDescription className="space-y-2">
+                  <p className="font-medium">
+                    {conflict ? "This draft changed while you were editing, so your command was not applied." : "A newer saved draft or published version exists. Your unsaved edits are kept here."}
+                  </p>
+                  {conflict && (
+                    <p className="text-xs">
+                      {conflict.hasDraft ? `Current draft was written against version ${conflict.baseVersion}${conflict.updatedAt ? ` and saved ${new Date(conflict.updatedAt).toLocaleString()}` : ""}.` : "There is no saved draft now."} Live version is {conflict.liveVersion}.
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="outline" className="min-h-11" data-testid="button-copy-my-changes"
+                      onClick={async () => { try { await navigator.clipboard.writeText(`${subject ? `Subject: ${subject}\n\n` : ""}${body}`); toast({ title: "Your changes were copied" }); } catch { toast({ title: "Could not copy", description: "Select the text in the editor and copy it manually.", variant: "destructive" }); } }}>
+                      Copy my changes
+                    </Button>
+                    <Button type="button" className="min-h-11" data-testid="button-reload-current"
+                      onClick={async () => { expectReseed.current = true; setSeeded(null); await refresh(); }}>
+                      Reload current (discards my edits here)
+                    </Button>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            <div className="grid gap-4 grid-cols-1 lg:grid-cols-2 [&>*]:min-w-0">
               <div className="space-y-3">
                 {t.channel === "email" && (
                   <div className="space-y-1">
@@ -207,7 +263,7 @@ export function MessageTemplateEditor({
 
             <FindingList findings={publishFindings} testId="findings-action" />
 
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 grid-cols-1 md:grid-cols-3">
               <div className="rounded-md border p-3 space-y-2">
                 <p className="text-sm font-medium">1. Save draft</p>
                 <p className="text-xs text-muted-foreground">Keeps your edits for review. Live wording does not change.</p>

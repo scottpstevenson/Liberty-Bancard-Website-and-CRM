@@ -10,6 +10,7 @@ export interface FinalMessagePreview {
   sender: { mode: string; address: string | null; name: string | null; note: string };
   replyTo: { mode: string; address: string | null; note: string };
   transport: { name: string; payloadFields: string[]; textTransmitted: boolean; note: string };
+  simulation?: boolean;
   logoCount: number;
   signaturePresent: boolean;
   signatureCount: number;
@@ -19,6 +20,12 @@ export interface FinalMessagePreview {
 }
 
 type Device = "desktop" | "mobile";
+
+/** Real email canvases: the iframe keeps its true width and the frame scrolls sideways instead of shrinking it. */
+const CANVAS_WIDTH: Record<Device, number> = { desktop: 600, mobile: 375 };
+const TRANSPORT_LABEL: Record<string, string> = {
+  ghl_conversations: "GoHighLevel conversations (HTML only)", sfp_smtp: "SFP SMTP composer (HTML + text)", gmail_non_cold: "Gmail, non-cold (HTML only)",
+};
 
 const DARK_STYLE = { filter: "invert(1) hue-rotate(180deg)" } as const;
 
@@ -36,8 +43,8 @@ export function FinalEmailPreview({ final }: { final: FinalMessagePreview }) {
   return (
     <div className="space-y-2 min-w-0" data-testid="final-email-preview">
       <div className="flex flex-wrap gap-2" role="group" aria-label="Preview views">
-        <Button type="button" size="sm" variant={toggle(device === "desktop")} className="min-h-11" aria-pressed={device === "desktop"} onClick={() => setDevice("desktop")} data-testid="view-desktop">Desktop</Button>
-        <Button type="button" size="sm" variant={toggle(device === "mobile")} className="min-h-11" aria-pressed={device === "mobile"} onClick={() => setDevice("mobile")} data-testid="view-mobile">Mobile</Button>
+        <Button type="button" size="sm" variant={toggle(device === "desktop")} className="min-h-11" aria-pressed={device === "desktop"} onClick={() => setDevice("desktop")} data-testid="view-desktop">600 px</Button>
+        <Button type="button" size="sm" variant={toggle(device === "mobile")} className="min-h-11" aria-pressed={device === "mobile"} onClick={() => setDevice("mobile")} data-testid="view-mobile">375 px</Button>
         <Button type="button" size="sm" variant={toggle(dark)} className="min-h-11" aria-pressed={dark} onClick={() => setDark((v) => !v)} data-testid="view-dark">Dark</Button>
         <Button type="button" size="sm" variant={toggle(imagesOff)} className="min-h-11" aria-pressed={imagesOff} onClick={() => setImagesOff((v) => !v)} data-testid="view-images-off">Images off</Button>
         <Button type="button" size="sm" variant={toggle(plain)} className="min-h-11" aria-pressed={plain} onClick={() => setPlain((v) => !v)} data-testid="view-plain-text">Plain text</Button>
@@ -51,14 +58,15 @@ export function FinalEmailPreview({ final }: { final: FinalMessagePreview }) {
       {plain ? (
         <pre className="whitespace-pre-wrap break-words text-sm rounded-md border p-3 max-h-80 overflow-auto" data-testid="final-plain-text">{final.text || "Plain-text part unavailable."}</pre>
       ) : (
-        <div className="overflow-x-auto rounded-md border bg-white">
+        <div className="overflow-x-auto rounded-md border bg-white" data-testid="final-canvas-scroller">
           <iframe
             title="Final email preview"
             sandbox=""
             srcDoc={imagesOff ? final.htmlImagesOff : final.html}
-            style={{ width: device === "mobile" ? 375 : "100%", maxWidth: "100%", ...(dark ? DARK_STYLE : {}) }}
-            className="h-80 bg-white"
+            style={{ width: CANVAS_WIDTH[device], minWidth: CANVAS_WIDTH[device], maxWidth: "none", margin: "0 auto", display: "block", ...(dark ? DARK_STYLE : {}) }}
+            className="h-96 bg-white"
             data-testid="final-html-frame"
+            data-canvas-width={CANVAS_WIDTH[device]}
           />
         </div>
       )}
@@ -68,6 +76,7 @@ export function FinalEmailPreview({ final }: { final: FinalMessagePreview }) {
         <dt className="font-medium">Reply-To</dt><dd className="min-w-0 break-words">{final.replyTo.address ?? final.replyTo.note}</dd>
         <dt className="font-medium">Logo</dt><dd>{final.logoCount === 1 ? "One logo" : final.logoCount === 0 ? "No logo in this wording" : `${final.logoCount} logos (expected at most one)`}</dd>
         <dt className="font-medium">Signature</dt><dd>{final.signatureCount > 1 ? `${final.signatureCount} signatures (expected at most one)` : final.signaturePresent ? "One signature" : "No signature in this wording"}</dd>
+        <dt className="font-medium">Transport</dt><dd className="min-w-0 break-words" data-testid="final-transport">{TRANSPORT_LABEL[final.transport.name] ?? final.transport.name}{final.simulation ? " - simulation" : ""}</dd>
         <dt className="font-medium">Sent as</dt><dd className="min-w-0 break-words">{final.transport.payloadFields.join(", ")}</dd>
         <dt className="font-medium">Footer</dt>
         <dd className={final.footer.state === "applied" ? "" : "text-destructive"}>
