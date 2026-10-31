@@ -276,7 +276,9 @@ app.use((req, res, next) => {
 
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
+    if (path.startsWith("/api") || res.statusCode >= 500) {
+      // Every 5xx is logged, including page routes: a 5xx rate alert must be
+      // attributable from application logs (path only; no query string or body).
       log(`${req.method} ${path} ${res.statusCode} in ${duration}ms`);
     }
   });
