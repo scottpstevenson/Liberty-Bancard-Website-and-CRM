@@ -68,7 +68,7 @@ Important: Actual funding timelines depend on underwriting review, risk profile,
     content: `Starting with Liberty Bancard is simple. Here is the typical process:
 
 Step 1 — Statement Upload or Sales Call
-Upload your most recent processing statement (3 months preferred) at libertybancard.com/statement-upload, or schedule a free 10-minute call with a Liberty Bancard representative. This allows us to analyze your current fees and provide a personalized savings estimate.
+Upload your most recent processing statement (3 months preferred) at libertybancard.com/statement-upload, or schedule a free call with a Liberty Bancard representative. This allows us to analyze your current fees and provide a personalized savings estimate.
 
 Step 2 — Proposal Review
 We analyze your statement and prepare a custom pricing proposal showing potential savings. No commitment is required.

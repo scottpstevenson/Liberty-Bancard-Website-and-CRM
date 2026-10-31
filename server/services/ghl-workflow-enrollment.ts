@@ -30,7 +30,8 @@
 import { claimHandoffDispatch, settleHandoffDispatch } from "./ghl-handoff-dispatch-ledger";
 import { storage } from "../storage";
 import { pool } from "../db";
-import { isGhlConfigured, upsertGhlContact, sendGhlEmail, sendGhlSms, getCalendarBookingUrl } from "./ghl";
+import { isGhlConfigured, upsertGhlContact, sendGhlEmail, sendGhlSms } from "./ghl";
+import { FIRST_PARTY_BOOK_URL } from "./message-cta-contract";
 import {
   triggerWorkflow, addTag, addNote, isSdrGhlConfigured,
   upsertContact as sdrUpsertContact,
@@ -42,8 +43,6 @@ import { getWorkflowEnvValue } from "./ghl-workflows";
 import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
 import { denyCro03OrCro08aForbiddenEffect as denyCro03cForbiddenEffect } from "./cro03/cro08a-effect-fence";
 
-const SALES_CALENDAR = "https://api.leadconnectorhq.com/widget/bookings/libertybancard";
-const AM_CALENDAR = "https://api.leadconnectorhq.com/widget/booking/kBRoNz5XoTpddupMQg0c";
 
 export function isGhlInboundActive(): boolean {
   return isGhlConfigured() || isSdrGhlConfigured();
@@ -587,12 +586,8 @@ export async function enrollInInboundConfirmation(params: {
 
   const submissionId = params.submissionId ?? `${contactId}-${formType}-${dealId ?? "nd"}`;
 
-  const bookingLink =
-    getCalendarBookingUrl({
-      contactEmail: contact.email ?? undefined,
-      contactName: `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim(),
-      source: formType,
-    }) || SALES_CALENDAR;
+  // Booking always goes through the first-party /book adapter (validated sales calendar, explicit unavailable page).
+  const bookingLink = FIRST_PARTY_BOOK_URL;
 
   // ── Resolve config values (real or injected) ────────────────────────────────
   const inboundWorkflowId = ov?.inboundWorkflowId !== undefined
@@ -951,12 +946,8 @@ export async function runInboundConfirmationFollowupJob(data: {
     return;
   }
 
-  const bookingLink =
-    getCalendarBookingUrl({
-      contactEmail: contact.email,
-      contactName: `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim(),
-      source: formType,
-    }) || SALES_CALENDAR;
+  // Booking always goes through the first-party /book adapter (validated sales calendar, explicit unavailable page).
+  const bookingLink = FIRST_PARTY_BOOK_URL;
 
   const sendEmailImpl = fov?.sendEmail ?? sendConfirmationEmail;
   const emailResult = await sendEmailImpl({
@@ -1303,7 +1294,7 @@ function buildInbound24hFollowupEmail(firstName: string, bookingLink: string): s
 <p>Just checking in — we received your information yesterday and wanted to make sure you saw our follow-up.</p>
 <p>If you haven't had a chance to book a call yet, here's the link:</p>
 <p><a href="${bookingLink}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Schedule Your Free Review</a></p>
-<p>Most merchants we work with are surprised by what we find — and the review only takes about 10 minutes.</p>
+<p>Most merchants we work with are surprised by what we find, and the review is free with no obligation.</p>
 <p>No obligation, no pressure. Just clarity on what you're paying.</p>
 <p>— Liberty Bancard Team</p>
 <p style="font-size:11px;color:#888;margin-top:24px;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`;

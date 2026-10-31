@@ -114,3 +114,15 @@ Measured on the audit baseline revision `4130c291` (separate worktree) and on th
 ## Stage 4C1 update — 2026-10-31
 
 Public and email wording no longer states a call length (the booking calendars are 30 minutes and the duration is not verified), and `/apply` links in changed seeds/services point to `/merchant-application`. Booking links in messages go through `https://libertybancard.com/book`. Remaining "10-minute" text on public pages (Footer, ThanksCall, ThanksStatement) and the client `CALENDAR_URL` were not changed and still need reconciliation.
+
+
+## Stage 4C1 follow-up — 2026-10-31
+
+The pages and scripts that 4C1 left unchanged now match the 30-minute calendars: no call length is stated and booking goes through `https://libertybancard.com/book` (the first-party adapter over `resolveSalesBooking`).
+
+- Public pages: Footer ("Book a Call"), ThanksCall ("Review Call"), ThanksStatement ("Book a Walkthrough" and the Step 4 description) no longer state a duration. The client `CALENDAR_URL` is now `https://libertybancard.com/book`; the `VITE_*` calendar overrides and the hardcoded calendar ID were removed. The AI Inbox "insert upload instructions" fallback uses `CALENDAR_URL`.
+- Legacy SDR: orchestrator email/SMS templates, conversation-AI replies, proposal-tracking SMS/email, voice-orchestrator objection handlers and meeting offer, `vertical-voice-scripts.ts`, and the knowledge seed no longer say "10 minutes". Booking links in the orchestrator, voicemail follow-up SMS and SDR template replies use `/book` when `resolveSalesBooking` resolves; otherwise the orchestrator and SDR template reply use the secure statement upload, and the voicemail SMS asks the merchant to reply. SDR template replies (`booking_cta`, `booking_link_or_call`, and the other link templates) switch to reply-with-a-time wording when no calendar resolves instead of sending an upload link as a booking link. The AI Inbox upload instructions drop the booking sentence and ask for a reply when `bookingUrl` is null.
+- Server fallbacks: the hardcoded booking ID in `server/routes/statement-review.ts` and `server/routes/inbox.ts` is gone. Drafts use `/book` when the sales booking resolves; otherwise they ask the merchant to reply with a time. The inbox classify response returns `bookingUrl: null` and `hasCalendar: false` when booking is not configured.
+- `ghl-workflow-enrollment.ts`: both inbound confirmation and 24-hour follow-up links use `/book` instead of the `bookings/libertybancard` slug.
+
+Not changed here (still contain "10-Min Call" labels or similar): Navbar, ConversionCTAGroup, CompareVs, BeatSquareStripe, FreeSmartTerminal, LocationIndustryPage, IndustryPage, FreeAnalysis, Home, AboutContact, AssetPage, ProposalViewer, the SSR footer list in `server/ssrShared.ts`, and the GHL workflow prompt library.

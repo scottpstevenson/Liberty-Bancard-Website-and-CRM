@@ -16,8 +16,8 @@ const SHARED_BOT_RULES = `
 Response rules: Keep replies to 2-3 sentences maximum unless directly answering a multi-part question. Never write a list with more than 3 bullets. Never write paragraphs. Match the conversational energy of the human — if they write 5 words, respond in 5-10 words. If asked a question you cannot answer (specific rates, legal advice, contract terms), say: "That's a great question for one of our specialists — I can get you connected right now."
 
 Common objections and how to handle them:
-- "I'm locked into a contract" → "Totally understand — we actually help businesses analyze early termination costs all the time. The savings often offset the exit fee. Worth a 10-minute look?"
-- "I'm happy with my current processor" → "That's great to hear! Most merchants who say that are still surprised when they see the side-by-side — we find savings in 8 out of 10 reviews. No obligation, takes 10 minutes."
+- "I'm locked into a contract" → "Totally understand — we actually help businesses analyze early termination costs all the time. The savings often offset the exit fee. Worth a quick look?"
+- "I'm happy with my current processor" → "That's great to hear! Most merchants who say that are still surprised when they see the side-by-side — we find savings in 8 out of 10 reviews. No obligation."
 - "I don't have time right now" → "No problem — the free review just needs your last statement. You email it, we do all the work. Takes you about 2 minutes."
 - "What are your rates?" → "We customize pricing to each business type, so I'd rather show you an actual comparison with your real numbers. Can I get you set up for a free statement review?"
 
@@ -492,13 +492,13 @@ export function generateSmartReply(intent: ReplyIntelligenceResult["intent"], ve
 
   switch (intent) {
     case "interested":
-      return `That's great to hear! I'd love to set up a quick 10-minute savings analysis for ${verticalLabel}. We typically save merchants 20-40% on their processing fees. Would you prefer a call or would you like to send over a recent processing statement for review?`;
+      return `That's great to hear! I'd love to set up a quick savings analysis for ${verticalLabel}. We typically save merchants 20-40% on their processing fees. Would you prefer a call or would you like to send over a recent processing statement for review?`;
 
     case "scheduling":
       return `Absolutely! I can help you find a time. Our specialists are available Monday through Friday, 9am to 6pm ET. Would you like me to send you a link to book directly, or is there a specific time that works best for you?`;
 
     case "objection":
-      return `I completely understand your concern. Many of our current merchants felt the same way before switching. The good news is our analysis is completely free, takes about 10 minutes, and there's absolutely no obligation. Even if you decide to stay with your current processor, you'll have a clear picture of what you're paying. Would that be worth a quick look?`;
+      return `I completely understand your concern. Many of our current merchants felt the same way before switching. The good news is our analysis is completely free, takes little of your time, and there's absolutely no obligation. Even if you decide to stay with your current processor, you'll have a clear picture of what you're paying. Would that be worth a quick look?`;
 
     case "not_interested":
       return `No problem at all! If anything changes in the future, we're always here to help. You can reach out anytime for a free analysis. Have a great day!`;

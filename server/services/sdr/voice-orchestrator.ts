@@ -569,11 +569,11 @@ export async function handleCallDisposition(
             const vmSmsSeq = sequences.find(
               (s: { name: string; id: number }) => s.name === "Voicemail Follow-Up SMS",
             );
-            const calendarLink =
-              process.env.SALES_CALENDAR_URL ||
-              "https://api.leadconnectorhq.com/widget/bookings/libertybancard";
+            const { resolveSalesBooking, FIRST_PARTY_BOOK_URL } = await import("../message-cta-contract");
             const firstName = (merchant as any).ownerName?.split(" ")[0] || "there";
-            const smsBody = `Just left you a voicemail, ${firstName} — best way to reach me is here: ${calendarLink} — Scott, Liberty Bancard`;
+            const smsBody = resolveSalesBooking(process.env).available
+              ? `Just left you a voicemail, ${firstName} — best way to reach me is here: ${FIRST_PARTY_BOOK_URL} — Scott, Liberty Bancard`
+              : `Just left you a voicemail, ${firstName} — reply here and we'll find a time that works. — Scott, Liberty Bancard`;
 
             if (vmSmsSeq && decideCr06SequenceLifecycle(vmSmsSeq).allowed) {
               await storage.createSequenceEnrollment({
@@ -671,17 +671,17 @@ const FL_AUTO_VOICE_SCRIPT: VoiceScript = {
     "Are you currently using text-to-pay or financing for larger tickets?",
   ],
   valuePitch: "We specialize in helping Florida auto shops lower their effective processing cost, set up text-to-pay for customer convenience, and reduce chargebacks on big-ticket repairs. Most shops we work with save between $200 and $500 a month.",
-  close: "We do a free 10-minute statement review that usually finds $200-500/month in savings. Can I send you a link to upload your latest statement?",
+  close: "We do a free statement review that usually finds $200-500/month in savings. Can I send you a link to upload your latest statement?",
   objectionHandlers: {
     "happy_with_current": "Totally fair — most shops we work with thought the same thing until they saw a line-by-line breakdown. Even if you don't switch, you'll know exactly what you're paying and whether it's competitive.",
-    "too_busy": "I completely understand. The review takes less than 10 minutes and we do all the work. I can send a secure upload link and have results back to you within 24 hours.",
+    "too_busy": "I completely understand. The review is quick and we do all the work. I can send a secure upload link and have results back to you within 24 hours.",
     "under_contract": "No problem. Most contracts have already rolled to month-to-month without the owner knowing. We can check that for you too — takes 2 minutes.",
     "rates_are_fine": "That's great to hear. But rates are only part of the picture — most overpayment we find is in junk fees and downgrades, not the advertised rate. The review covers all of that.",
     "not_the_decision_maker": "No worries — who would be the best person to speak with about this? I can call back at a time that works for them.",
     "send_info_by_email": "Absolutely. What's the best email address? I'll send over a quick summary and a link for the free statement review.",
   },
   complianceDisclosure: "This is {{agentName}} calling from Liberty Bancard. We're a payment processing company. This is a business solicitation call. Florida surcharging applies to credit only, requires disclosure, signage, receipt language, and 30-day notice to acquirer per card brand rules.",
-  meetingOffer: "Merchant statement review — a free 10-minute review of your latest processing statement to find hidden fees and savings opportunities.",
+  meetingOffer: "Merchant statement review — a free review of your latest processing statement to find hidden fees and savings opportunities.",
 };
 
 const FL_MEDSPA_VOICE_SCRIPT: VoiceScript = {
@@ -698,7 +698,7 @@ const FL_MEDSPA_VOICE_SCRIPT: VoiceScript = {
   close: "We do a complimentary payment workflow review that usually uncovers $300-800/month in savings or revenue opportunities. Can I send you the details?",
   objectionHandlers: {
     "happy_with_current": "That's great. Our review isn't about switching processors — it's about your entire payment workflow. Memberships, deposits, financing, checkout experience. Most practices find at least one area to improve.",
-    "too_busy": "Totally understand — practice owners are always busy. The review is 10 minutes and we can do it over a quick call or even email. I'll send a link and you can book whenever works.",
+    "too_busy": "Totally understand — practice owners are always busy. The review is quick and we can do it over a quick call or even email. I'll send a link and you can book whenever works.",
     "not_interested": "No problem at all. Can I ask — are you currently offering memberships? Most med spas we talk to find that's where the biggest revenue opportunity is, and the payment side is often the bottleneck.",
     "already_have_memberships": "Perfect — then this review is especially relevant. We'd look at your churn rate, failed payment handling, and whether card updater is set up properly. Those three things alone usually recover thousands per year.",
     "not_the_decision_maker": "Understood — is the owner or practice manager available? Or can I leave a message with the best time to reach them?",
@@ -723,7 +723,7 @@ const FL_MEDICAL_VOICE_SCRIPT: VoiceScript = {
   close: "We do a free patient collections review that usually finds ways to speed up payments and reduce manual work. Can I send you the details?",
   objectionHandlers: {
     "hipaa_concern": "Great question. We don't access any patient health information — we only handle the payment side. Our systems are PCI-compliant and we never touch PHI. We're not a business associate under HIPAA for payment processing.",
-    "too_busy": "I hear that from every practice — that's exactly why we focus on reducing front-desk workload. The review itself is 10 minutes and we do it by phone or email.",
+    "too_busy": "I hear that from every practice — that's exactly why we focus on reducing front-desk workload. The review itself is quick and we do it by phone or email.",
     "have_a_billing_company": "That's common. We work alongside billing companies — they handle insurance, we handle the patient-pay side. Text-to-pay and payment plans are usually gaps that billing companies don't cover.",
     "happy_with_current": "That's fine. Can I ask — does your current processor offer text-to-pay for patient balances? That's usually the biggest gap we find, and it has nothing to do with rates.",
     "not_the_decision_maker": "Understood. We help with patient payment flow — text-to-pay, payment plans, and front-desk collections. Who handles payment systems or merchant services there?",

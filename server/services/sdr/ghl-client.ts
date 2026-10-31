@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { injectCanSpamFooter } from "../can-spam-footer";
+import { FIRST_PARTY_BOOK_URL, SECURE_UPLOAD_URL, resolveSalesBooking } from "../message-cta-contract";
 
 // ---------------------------------------------------------------------------
 // Unavoidable pause authority guard
@@ -979,6 +980,14 @@ const RESPONSE_TEMPLATES: Record<string, string> = {
   statement_received_acknowledgment: "Got it — thanks for sending that over! Our team will review it and get back to you with a savings analysis shortly.",
 };
 
+// Wording used when the validated sales booking is unavailable: it never promises a booking link and asks for a reply instead.
+const NO_BOOKING_RESPONSE_TEMPLATES: Record<string, string> = {
+  booking_cta: "Great to hear you're interested! Reply with a time that works for you and we'll confirm a call with our team.",
+  value_message_with_link: "Thanks for your interest! I'll send over some details about how we help businesses like yours save on processing. Reply here anytime to set up a conversation.",
+  pricing_review_explanation: "Great question! Our pricing is based on a free statement analysis — we compare your current rates and show you exactly where we can save you money. No obligation. Reply with a time that works and we'll set up a call, or upload a statement at " + SECURE_UPLOAD_URL,
+  booking_link_or_call: "I'd love to connect! Reply with a time that works for you, or I can have one of our reps call you shortly.",
+};
+
 export async function sendTemplateResponse(
   merchantId: number,
   templateKey: string,
@@ -988,7 +997,12 @@ export async function sendTemplateResponse(
   const { sdrMerchants, sdrLeadEvents, contacts } = await import("@shared/schema");
   const { eq } = await import("drizzle-orm");
 
-  const template = RESPONSE_TEMPLATES[templateKey];
+  const bookingAvailable = resolveSalesBooking(process.env).available;
+  const rawTemplate = bookingAvailable
+    ? RESPONSE_TEMPLATES[templateKey]
+    : (NO_BOOKING_RESPONSE_TEMPLATES[templateKey] ?? RESPONSE_TEMPLATES[templateKey]);
+  // Resolve the booking link once so every delivery path (workflow metadata and direct message) sends the same text.
+  const template = rawTemplate?.replace("{{booking_link}}", FIRST_PARTY_BOOK_URL);
   if (!template) {
     console.warn(`[GHL Client] Unknown response template: ${templateKey}`);
     return;
@@ -1068,7 +1082,7 @@ export async function sendTemplateResponse(
           body: JSON.stringify({
             type: channel === "email" ? "Email" : "SMS",
             contactId: merchant.ghlContactId,
-            message: template.replace("{{booking_link}}", process.env.GHL_DEFAULT_BOOKING_LINK || process.env.SALES_CALENDAR_URL || "https://calendly.com/libertybancard"),
+            message: template,
           }),
           pauseEpoch,
         });

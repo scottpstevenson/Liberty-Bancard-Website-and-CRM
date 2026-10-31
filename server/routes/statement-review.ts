@@ -14,6 +14,7 @@ import {
   updateStatementReview,
 } from "../storage/inbox";
 import { z } from "zod";
+import { FIRST_PARTY_BOOK_URL, resolveSalesBooking } from "../services/message-cta-contract";
 import { serverError } from "../utils/server-error";
 
 import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
@@ -70,6 +71,10 @@ function buildFollowUpDraft(params: {
     ? `Our documented estimate identifies potential savings of ${savings.currency} ${savings.amount} per ${savings.period}.`
     : "We have prepared a review draft for your discussion.";
 
+  const bookingLine = resolveSalesBooking(process.env).available
+    ? `Book a time that works for you: ${FIRST_PARTY_BOOK_URL}`
+    : "Reply to this email with a time that works for you and we will confirm it.";
+
   return `Hi ${firstName},
 
 Thank you for submitting your processing statement${processorInfo}. Our team has completed a review draft for ${companyName || "your business"}.
@@ -78,7 +83,7 @@ ${savingsText}
 
 Next step: Let's connect for a call to walk through the review and answer any questions.
 
-Book a time that works for you: ${process.env.GHL_CALENDAR_BOOKING_URL || "https://api.leadconnectorhq.com/widget/booking/YFiIy7oIOUXN2qZZPnOr"}
+${bookingLine}
 
 There's no obligation — just a chance to discuss the review.
 

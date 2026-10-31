@@ -143,7 +143,7 @@ export function Footer() {
                   onClick={() => trackBookingCtaClick({ ctaLocation: "footer" })}
                 >
                   <Calendar className="w-4 h-4 shrink-0" />
-                  <span>Book 10-Minute Call</span>
+                  <span>Book a Call</span>
                 </a>
               </li>
             </ul>

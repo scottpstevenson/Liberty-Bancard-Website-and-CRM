@@ -11,6 +11,7 @@ import { apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { useMessageDraft } from "@/hooks/use-message-draft";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { CALENDAR_URL } from "@/lib/constants";
 import {
   Select,
   SelectContent,
@@ -127,7 +128,7 @@ https://libertybancard.com/upload-statement
 
 Once we receive it, our team will prepare a personalized savings analysis within 24-48 hours. The review is completely free and there's no obligation.
 
-If you have any questions, feel free to reply to this message or book a call: `;
+If you have any questions, feel free to reply to this message`;
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -589,8 +590,10 @@ export default function AiInbox() {
   };
 
   const handleInsertUploadInstructions = useCallback(() => {
-    const bookingUrl = classifyResult?.bookingUrl || "https://api.leadconnectorhq.com/widget/booking/YFiIy7oIOUXN2qZZPnOr";
-    setReplyDraft(prev => (UPLOAD_INSTRUCTIONS + bookingUrl + "\n\n" + prev).trim());
+    // bookingUrl is null when no sales calendar is configured: ask for a reply instead of linking to a dead page.
+    const bookingUrl = classifyResult ? classifyResult.bookingUrl : CALENDAR_URL;
+    const closing = bookingUrl ? ` or book a call: ${bookingUrl}` : " with a time that works for you.";
+    setReplyDraft(prev => (UPLOAD_INSTRUCTIONS + closing + "\n\n" + prev).trim());
     toast({ title: "Upload instructions inserted" });
   }, [classifyResult, toast]);
 

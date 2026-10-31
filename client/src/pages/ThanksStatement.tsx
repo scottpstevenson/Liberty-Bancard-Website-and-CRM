@@ -192,7 +192,7 @@ export default function ThanksStatement() {
               <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("thanks_statement")} data-testid="link-thanks-statement-book-call">
                 <Button size="lg" variant="secondary" className="gap-2">
                   <Calendar className="w-4 h-4" />
-                  Book a 10-Minute Walkthrough
+                  Book a Walkthrough
                 </Button>
               </a>
               <a href="tel:9542668214" data-testid="link-thanks-statement-call" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-statement" })}>
@@ -218,7 +218,7 @@ export default function ThanksStatement() {
                   { icon: Calculator, step: "Step 1", title: "We Calculate Your Rate", desc: "Your true effective rate - total fees divided by total volume.", time: "Happening now", active: true },
                   { icon: BarChart3, step: "Step 2", title: "We Find Cost Drivers", desc: "Card mix, downgrades, monthly add-ons, batch fees, PCI charges.", time: "Within hours", active: false },
                   { icon: Send, step: "Step 3", title: "You Get Clear Options", desc: "2-3 paths forward with real math. No vague promises.", time: "Same day", active: false },
-                  { icon: Phone, step: "Step 4", title: "Quick Walkthrough Call", desc: "10-minute call to review findings and answer questions.", time: "When you're ready", active: false },
+                  { icon: Phone, step: "Step 4", title: "Quick Walkthrough Call", desc: "A call to review findings and answer questions.", time: "When you're ready", active: false },
                 ].map((item, i) => (
                   <Card key={i} className={item.active ? "border-primary/50 shadow-md" : ""} data-testid={`card-next-step-${i + 1}`}>
                     <CardContent className="p-5">

@@ -1,8 +1,8 @@
-export const CALENDAR_URL =
-  import.meta.env.VITE_GHL_BOOKING_URL ||
-  import.meta.env.VITE_BOOKING_URL ||
-  import.meta.env.VITE_GHL_CALENDAR_URL ||
-  "https://api.leadconnectorhq.com/widget/booking/YFiIy7oIOUXN2qZZPnOr";
+/**
+ * Sales booking entry point. The first-party /book adapter resolves the validated calendar server-side, so no
+ * calendar ID is embedded in the client bundle and no call length is implied.
+ */
+export const CALENDAR_URL = "https://libertybancard.com/book";
 
 export const PHONE_NUMBER = "954-266-8214";
 export const PHONE_TEL = "tel:9542668214";

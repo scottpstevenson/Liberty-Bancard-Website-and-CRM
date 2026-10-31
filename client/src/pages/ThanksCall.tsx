@@ -48,7 +48,7 @@ export default function ThanksCall() {
               {[
                 { step: "1", title: "Confirmation Email Sent", desc: "Check your inbox for call details and a calendar invite.", time: "Now", done: true },
                 { step: "2", title: "Upload Your Statement (Optional)", desc: "If we have your statement before the call, we can give exact numbers instead of estimates.", time: "Before the call", done: false },
-                { step: "3", title: "10-Minute Call", desc: "We'll walk through your current setup, identify cost drivers, and present options.", time: "Your scheduled time", done: false },
+                { step: "3", title: "Review Call", desc: "We'll walk through your current setup, identify cost drivers, and present options.", time: "Your scheduled time", done: false },
                 { step: "4", title: "Written Breakdown Delivered", desc: "You'll receive a clear summary with numbers you can use - even if you don't switch.", time: "Same day as call", done: false },
               ].map((item, i) => (
                 <div key={i} className="flex items-start gap-4" data-testid={`timeline-step-${i + 1}`}>

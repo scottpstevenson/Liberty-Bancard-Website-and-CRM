@@ -25,8 +25,8 @@ export const VERTICAL_VOICE_SCRIPTS: Record<string, VoiceScript> = {
       "About how many card transactions does the restaurant run per month?",
     ],
     objectionHandlers: {
-      "happy with current processor": "I understand — most restaurant owners I talk to are 'fine' with their current processor until they see a side-by-side comparison. It takes about 10 minutes to analyze your statement, and there's zero obligation. If we can't beat what you're paying, I'll tell you straight up.",
-      "too busy": "Absolutely — I know how hectic the restaurant business is. Can I email you a quick overview and schedule a 10-minute call later this week? I promise to respect your time.",
+      "happy with current processor": "I understand — most restaurant owners I talk to are 'fine' with their current processor until they see a side-by-side comparison. There is no cost to analyze your statement, and there's zero obligation. If we can't beat what you're paying, I'll tell you straight up.",
+      "too busy": "Absolutely — I know how hectic the restaurant business is. Can I email you a quick overview and schedule a call later this week? I promise to respect your time.",
       "locked in a contract": "We handle buyouts all the time. Let me take a look at your current agreement and see if the savings we can offer outweigh the exit cost — in most cases they do. Can you send over your latest statement?",
     },
     closingStatement: "Let me send you a free statement analysis right now. All you need to do is forward me your last month's processing statement — takes two minutes. I'll have a full breakdown back to you within 24 hours showing exactly how much you'd save.",
@@ -75,7 +75,7 @@ export const VERTICAL_VOICE_SCRIPTS: Record<string, VoiceScript> = {
     objectionHandlers: {
       "we use our EHR billing": "Understood — many practices use their EHR's built-in billing. The problem is those are often passing through a third-party processor at flat-rate fees. We can integrate with most EHR systems and typically cut the processing cost significantly.",
       "too complex to switch": "We handle the entire transition and work directly with your practice manager. Most healthcare practices are fully live in 3–5 business days with zero downtime.",
-      "not interested": "I understand — can I ask, do you know what your current effective rate is? If you're over 2.5% on card transactions, there's almost certainly room to save. A 10-minute call could be worth $12,000 a year to your practice.",
+      "not interested": "I understand — can I ask, do you know what your current effective rate is? If you're over 2.5% on card transactions, there's almost certainly room to save. A quick call could be worth $12,000 a year to your practice.",
     },
     closingStatement: "Send me your last statement and I'll put together a healthcare-specific savings analysis — including how we handle patient payment plans and any compliance considerations for your practice type.",
     followUpHook: "Practices that switch to our healthcare solution typically recover the cost of any transition within the first billing cycle. Let me show you the numbers specific to your practice.",
@@ -99,7 +99,7 @@ export const VERTICAL_VOICE_SCRIPTS: Record<string, VoiceScript> = {
     objectionHandlers: {
       "we use our dental software's payment": "That's very common — dental software processors are almost always flat-rate and typically the most expensive option. We integrate with most dental software systems and can cut that cost substantially.",
       "we offer carecredit": "CareCredit is great for patients, but you're paying 4–8% for that convenience. We can offer patient payment plans directly through your processing setup at your standard rate, keeping more margin in the practice.",
-      "not looking to change": "Totally fair — I just want to make sure you have the information to make that decision knowingly. Would you be open to a 10-minute comparison? If we can't show you at least $400/month in savings, I'll leave you alone.",
+      "not looking to change": "Totally fair — I just want to make sure you have the information to make that decision knowingly. Would you be open to a quick comparison? If we can't show you at least $400/month in savings, I'll leave you alone.",
     },
     closingStatement: "Let me run a complimentary analysis on your statement — no commitment, no obligation. I'll have a dental-specific report back to you within 24 hours.",
     followUpHook: "Most dental practices that switch save enough in the first year to fund a new piece of equipment. Let me show you what that looks like for your specific volume.",

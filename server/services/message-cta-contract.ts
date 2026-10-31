@@ -111,7 +111,7 @@ function slugFromWidgetUrl(raw: string): string | null {
  *    slug is reported as unverified; with only a slug source the slug address is used.
  * The ID is never defaulted: missing, malformed or disagreeing configuration is an explicit unavailable state.
  */
-export function resolveSalesBooking(cfg: BookingConfigInput): SalesBookingResolution {
+export function resolveSalesBooking(cfg: BookingConfigInput | Readonly<Record<string, string | undefined>>): SalesBookingResolution {
   const ids: Array<{ source: string; id: string | null }> = [];
   const slugs: Array<{ source: string; slug: string | null }> = [];
   const addId = (source: string, value: string | null | undefined, parse: (v: string) => string | null) => {

@@ -162,7 +162,7 @@ export async function resendProposalEmail(leadId: number): Promise<boolean> {
     if (isGhlConfigured() && lead.contactId) {
       const selectedInbox = await selectBestInbox(lead.merchantId, lead.vertical || undefined);
       if (selectedInbox) {
-        const body = `Hi ${firstName},\n\nThe savings analysis for ${companyName} is done — three pricing options with a line-by-line cost comparison against what you're paying now.\n\nThe most popular option eliminates the interchange markup entirely and moves you to true cost-plus pricing.\n\nReply YES and we'll schedule a 10-minute walkthrough this week.\n\nLiberty Bancard\n\nEligibility, underwriting, card brand rules, and applicable laws apply.`;
+        const body = `Hi ${firstName},\n\nThe savings analysis for ${companyName} is done — three pricing options with a line-by-line cost comparison against what you're paying now.\n\nThe most popular option eliminates the interchange markup entirely and moves you to true cost-plus pricing.\n\nReply YES and we'll schedule a walkthrough this week.\n\nLiberty Bancard\n\nEligibility, underwriting, card brand rules, and applicable laws apply.`;
 
         try {
           const reserved = await recordSend(selectedInbox.id, lead.merchantId);
@@ -226,7 +226,7 @@ export async function sendProposalSmsFollowUp(leadId: number): Promise<boolean> 
     const firstName = lead.ownerName?.split(" ")[0] || "there";
 
     if (isGhlConfigured() && lead.contactId) {
-      const smsBody = `Hi ${firstName}, your processing analysis is ready — found real savings on interchange markup and fees. Reply YES for a 10-min walkthrough. — Liberty Bancard`;
+      const smsBody = `Hi ${firstName}, your processing analysis is ready — found real savings on interchange markup and fees. Reply YES to schedule a walkthrough. — Liberty Bancard`;
       try {
         await sendGhlSms({ contactId: lead.contactId, body: smsBody });
       } catch (err) {

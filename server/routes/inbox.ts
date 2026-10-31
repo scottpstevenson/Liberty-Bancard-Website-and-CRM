@@ -20,6 +20,7 @@ import { rememberInboxSourceItem } from "../storage/inbox";
 import { applyConsentCommand } from "../services/consent-authority";
 import { normalizeGhlMessage } from "../services/ghl-message-normalization";
 import { getPauseState } from "../services/outbound-pause-authority";
+import { FIRST_PARTY_BOOK_URL, resolveSalesBooking } from "../services/message-cta-contract";
 
 const GHL_API_BASE = "https://services.leadconnectorhq.com";
 
@@ -202,31 +203,35 @@ function intentToMessageCategory(intent: string) {
   return "cold_outreach" as const;
 }
 
-function buildDraftReply(intent: string, contactName: string, calendarId?: string): string {
-  const bookingUrl = calendarId
-    ? `https://api.leadconnectorhq.com/widget/booking/${calendarId}`
-    : process.env.GHL_CALENDAR_BOOKING_URL || "https://api.leadconnectorhq.com/widget/booking/YFiIy7oIOUXN2qZZPnOr";
+/** First-party booking link when the validated sales calendar resolves; null otherwise (never a hardcoded calendar). */
+function salesBookingUrl(): string | null {
+  return resolveSalesBooking(process.env).available ? FIRST_PARTY_BOOK_URL : null;
+}
+
+function buildDraftReply(intent: string, contactName: string, bookingUrl: string | null): string {
+  // `lead` is the sentence that introduces the link; without a configured calendar the reply asks for a time instead.
+  const book = (lead: string) => (bookingUrl ? `${lead}${bookingUrl}` : "Reply with a time that works for you and we will confirm it.");
   const firstName = contactName.split(" ")[0] || "there";
 
   switch (intent) {
     case "meeting_intent":
     case "call_me":
-      return `Hi ${firstName},\n\nThank you for reaching out! I'd love to connect. You can book a time directly here: ${bookingUrl}\n\nLooking forward to speaking with you!\n\nBest,\nLiberty Bancard`;
+      return `Hi ${firstName},\n\nThank you for reaching out! I'd love to connect. ${book("You can book a time directly here: ")}\n\nLooking forward to speaking with you!\n\nBest,\nLiberty Bancard`;
     case "interested":
-      return `Hi ${firstName},\n\nThat's great to hear! I'd love to show you how we can help with your payment processing.\n\nYou can book a quick 10-minute savings analysis here: ${bookingUrl}\n\nBest,\nLiberty Bancard`;
+      return `Hi ${firstName},\n\nThat's great to hear! I'd love to show you how we can help with your payment processing.\n\n${book("You can book a quick savings analysis here: ")}\n\nBest,\nLiberty Bancard`;
     case "send_info":
     case "pricing_question":
-      return `Hi ${firstName},\n\nThank you for your interest! I'd be happy to share more details. The best way for us to give you accurate numbers is through a free statement review — we'll do a side-by-side comparison with your current rates.\n\nYou can upload your most recent processing statement here: https://libertybancard.com/upload-statement\n\nOr book a quick call to go over everything: ${bookingUrl}\n\nBest,\nLiberty Bancard`;
+      return `Hi ${firstName},\n\nThank you for your interest! I'd be happy to share more details. The best way for us to give you accurate numbers is through a free statement review — we'll do a side-by-side comparison with your current rates.\n\nYou can upload your most recent processing statement here: https://libertybancard.com/upload-statement\n\n${book("Or book a quick call to go over everything: ")}\n\nBest,\nLiberty Bancard`;
     case "sent_statement":
-      return `Hi ${firstName},\n\nThank you for sending your statement! Our team will review it and put together a personalized savings analysis within 24–48 hours.\n\nIf you'd like to discuss sooner, you can book a call here: ${bookingUrl}\n\nBest,\nLiberty Bancard`;
+      return `Hi ${firstName},\n\nThank you for sending your statement! Our team will review it and put together a personalized savings analysis within 24–48 hours.\n\n${book("If you'd like to discuss sooner, you can book a call here: ")}\n\nBest,\nLiberty Bancard`;
     case "already_have_provider":
-      return `Hi ${firstName},\n\nI completely understand — it's always smart to evaluate your options before making any changes.\n\nWould you be open to a no-obligation side-by-side comparison? Most merchants we review are surprised to find they're paying 20–40% more than they need to. It takes about 10 minutes and there's no commitment.\n\nBook a quick call here: ${bookingUrl}\n\nBest,\nLiberty Bancard`;
+      return `Hi ${firstName},\n\nI completely understand — it's always smart to evaluate your options before making any changes.\n\nWould you be open to a no-obligation side-by-side comparison? Most merchants we review are surprised to find they're paying 20–40% more than they need to. There's no commitment.\n\n${book("Book a quick call here: ")}\n\nBest,\nLiberty Bancard`;
     case "wrong_person":
       return `Hi ${firstName},\n\nApologies for the mix-up! Could you point me to the right person who handles payment processing decisions at your company? We'll follow up with them directly.\n\nThank you,\nLiberty Bancard`;
     case "booked":
-      return `Hi ${firstName},\n\nWonderful — looking forward to our meeting! Here's what to expect:\n\n• We'll review your current processing statement\n• Identify specific savings opportunities\n• Answer any questions you have\n\nIf you need to reschedule: ${bookingUrl}\n\nSee you soon!\nLiberty Bancard`;
+      return `Hi ${firstName},\n\nWonderful — looking forward to our meeting! Here's what to expect:\n\n• We'll review your current processing statement\n• Identify specific savings opportunities\n• Answer any questions you have\n\n${book("If you need to reschedule: ")}\n\nSee you soon!\nLiberty Bancard`;
     case "later":
-      return `Hi ${firstName},\n\nPerfectly understood — no rush at all! I'll check back in a few weeks. If anything changes before then, feel free to book a time here: ${bookingUrl}\n\nBest,\nLiberty Bancard`;
+      return `Hi ${firstName},\n\nPerfectly understood — no rush at all! I'll check back in a few weeks. If anything changes before then, ${book("feel free to book a time here: ")}\n\nBest,\nLiberty Bancard`;
     case "not_interested":
       return `Hi ${firstName},\n\nNo problem at all — I appreciate you letting me know. If your situation changes in the future, we're always here to help.\n\nBest,\nLiberty Bancard`;
     case "stop":
@@ -820,9 +825,9 @@ export function registerInboxRoutes(app: Express, readerDependencies?: {
       });
 
       const action = mapIntentToAction(classification.intent);
-      const calendarId = process.env.GHL_CALENDAR_ID;
+      const bookingUrl = salesBookingUrl();
       const contactName = merchantName || "there";
-      const suggestedReply = buildDraftReply(classification.intent, contactName, calendarId);
+      const suggestedReply = buildDraftReply(classification.intent, contactName, bookingUrl);
       const nextAction = buildNextActionRecommendation(classification.intent);
 
       // Resolve sender policy
@@ -851,7 +856,7 @@ export function registerInboxRoutes(app: Express, readerDependencies?: {
         : null;
 
       // Appointment booking: if no calendar, create task flag
-      const hasCalendar = !!calendarId;
+      const hasCalendar = !!bookingUrl;
 
       res.json({
         itemId: req.params.id,
@@ -869,9 +874,7 @@ export function registerInboxRoutes(app: Express, readerDependencies?: {
         sendBlocked,
         sendBlockReason,
         hasCalendar,
-        bookingUrl: calendarId
-          ? `https://api.leadconnectorhq.com/widget/booking/${calendarId}`
-          : process.env.GHL_CALENDAR_BOOKING_URL || null,
+        bookingUrl,
       });
     } catch (err: any) {
       console.error("[Inbox] classify error:", err.message);
@@ -1155,8 +1158,7 @@ export function registerInboxRoutes(app: Express, readerDependencies?: {
 
       // ── book_appointment ──────────────────────────────────────────────────
       if (action === "book_appointment") {
-        const calendarId = process.env.GHL_CALENDAR_ID;
-        if (!calendarId && contactId) {
+        if (!salesBookingUrl() && contactId) {
           // Create a manual task
           await storage.createAuthorityTask({
             title: `Book appointment manually`,
