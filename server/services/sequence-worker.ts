@@ -114,6 +114,7 @@ import type { VoiceBotMode } from "./sdr/voice-orchestrator";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
 import { getCanonicalUrl } from "../lib/canonical-url";
 import { FIRST_PARTY_BOOK_URL, resolveSalesBooking } from "./message-cta-contract";
+import { assertRenderedLinksSafe } from "./message-token-registry";
 
 /**
  * ZeroBounce statuses that are definitively undeliverable.
@@ -1258,6 +1259,9 @@ export async function processSequenceEnrollments(
               `in enrollment ${enrollment.id} step ${step.stepOrder}`,
             );
           }
+          // Final link gate (same contract as publication and the shared renderer): no dangerous scheme, relative or
+          // retired first-party address, and no foreign host, after substitution and entity decoding.
+          assertRenderedLinksSafe(result, [calendarLink]);
           return result;
         };
 

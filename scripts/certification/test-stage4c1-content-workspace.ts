@@ -128,7 +128,8 @@ for (const [d, n] of [[0, 1], [3, 2], [5, 3]] as const) await pool.query(`INSERT
 await pool.query(`INSERT INTO sfp_campaign_package_versions (package_key, vertical, campaign_id, campaign_name, sequence_id, sequence_name, sequence_family, content_hash, lifecycle_state, actor_id) VALUES
   ($1,'Automotive',$2,'c','${seqCur}','s','fam','hash-current-0001','current','cert'), ($3,'Automotive',$4,'c','${seqOld}','s','fam','hash-old-0001','superseded','cert')`, ["sfp.fitness_recreation.v2", campCur, "sfp.fitness_recreation.v2", campOld]);
 const before = (await pool.query(`SELECT (SELECT count(*) FROM campaigns) c, (SELECT count(*) FROM follow_up_sequences) s, (SELECT count(*) FROM sequence_enrollments) e, (SELECT count(*) FROM sequence_steps) t`)).rows[0];
-const ov = await ws.getContentWorkspaceOverview();
+const ADMIN_ACTOR = { role: "admin", email: "admin@cert.example", id: "cert-admin" };
+const ov = await ws.getContentWorkspaceOverview(ADMIN_ACTOR);
 const cur = ov.currentPackages.find((p) => p.campaignId === campCur);
 check(!!cur && cur.campaignId === campCur && cur.sequenceId === seqCur && cur.steps === 3 && cur.stepDays.join("/") === "0/3/5", "Current packages are resolved from the package record at request time, with their cadence");
 check(ov.groups.history.some((r) => r.id === campOld && r.assetType === "campaign") && ov.groups.history.some((r) => r.id === seqOld), "Superseded package members appear under History");
@@ -136,6 +137,26 @@ check(ov.groups.current_sfp.some((r) => r.id === seqCur && r.steps === 3) && !ov
 check(Object.values(ov.groups).flat().every((r) => r.reason.length > 0), "Every row says why it is in its group");
 const after = (await pool.query(`SELECT (SELECT count(*) FROM campaigns) c, (SELECT count(*) FROM follow_up_sequences) s, (SELECT count(*) FROM sequence_enrollments) e, (SELECT count(*) FROM sequence_steps) t`)).rows[0];
 check(JSON.stringify(before) === JSON.stringify(after), "Reading the overview changes no campaign, sequence, step or enrollment");
+
+// ── Overview ownership scope (same rule as GET /api/campaigns and /api/sequences) ─────────────────────────────────────
+const ownA = { role: "manager", email: `mgr-a-${id}@cert.example`, id: `mgr-a-${id}` };
+const ownB = { role: "manager", email: `mgr-b-${id}@cert.example`, id: `mgr-b-${id}` };
+const ownedCamp = (await pool.query(`INSERT INTO campaigns (name, created_by) VALUES ($1,$2) RETURNING id`, [`Scoped ${tag} A camp`, ownA.email])).rows[0].id as number;
+const ownedSeq = (await pool.query(`INSERT INTO follow_up_sequences (name, created_by) VALUES ($1,$2) RETURNING id`, [`Scoped ${tag} A seq`, ownA.id])).rows[0].id as number;
+const foreignSeq = (await pool.query(`INSERT INTO follow_up_sequences (name, created_by) VALUES ($1,$2) RETURNING id`, [`Scoped ${tag} B seq`, ownB.email])).rows[0].id as number;
+const unownedSeq = (await pool.query(`INSERT INTO follow_up_sequences (name) VALUES ($1) RETURNING id`, [`Scoped ${tag} nobody seq`])).rows[0].id as number;
+const seen = (o: Awaited<ReturnType<typeof ws.getContentWorkspaceOverview>>) => new Set(Object.values(o.groups).flat().map((r) => `${r.assetType}:${r.id}`));
+const adminView = await ws.getContentWorkspaceOverview(ADMIN_ACTOR);
+const aView = await ws.getContentWorkspaceOverview(ownA);
+const bView = await ws.getContentWorkspaceOverview(ownB);
+check([ownedCamp, ownedSeq].every((n, i) => seen(adminView).has(`${i === 0 ? "campaign" : "sequence"}:${n}`)) && seen(adminView).has(`sequence:${foreignSeq}`) && seen(adminView).has(`sequence:${unownedSeq}`) && adminView.scope.ownedOnly === false, "An admin sees every campaign and sequence");
+check(seen(aView).has(`campaign:${ownedCamp}`) && seen(aView).has(`sequence:${ownedSeq}`) && !seen(aView).has(`sequence:${foreignSeq}`) && !seen(aView).has(`sequence:${unownedSeq}`) && aView.scope.ownedOnly === true, "A manager sees the objects they created (matched by email or id) and not another manager's or unowned ones");
+check(seen(bView).has(`sequence:${foreignSeq}`) && !seen(bView).has(`campaign:${ownedCamp}`) && !seen(bView).has(`sequence:${ownedSeq}`), "A second manager sees only their own objects");
+check(aView.counts.campaigns === Object.values(aView.groups).flat().filter((r) => r.assetType === "campaign").length && aView.counts.sequences < adminView.counts.sequences, "Manager counts are computed from the visible rows, not the whole library");
+check(aView.groups.current_sfp.some((r) => r.id === seqCur && r.enrollments === null) && aView.currentPackages.some((p) => p.sequenceId === seqCur && p.startedJourneys === null && p.activeEnrollments === null), "Shared package catalog metadata stays visible to a manager, but another owner's journey counts do not");
+check(adminView.currentPackages.some((p) => p.sequenceId === seqCur && typeof p.startedJourneys === "number"), "An admin sees the journey counts");
+let rejectedRole = false; try { await ws.getContentWorkspaceOverview({ role: "agent", email: "a@b.example", id: "x" }); } catch { rejectedRole = true; }
+check(rejectedRole, "The service itself refuses a role that is neither admin nor manager");
 
 console.log(`STAGE4C1_CONTENT_WORKSPACE_PASS (${checks} checks)`);
 await pool.end();

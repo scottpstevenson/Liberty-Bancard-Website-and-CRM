@@ -11,14 +11,14 @@
  */
 import pg from "pg";
 
-import { lintCopy, lintRules } from "../server/services/message-copy-lint";
+import { lintCopy, lintLinks, lintRules } from "../server/services/message-copy-lint";
 
 type Finding = Record<string, string>;
 const collections: Record<string, number> = {};
 
 function scan(label: string, text: string | null | undefined, out: Finding[], purpose?: "workflow" | "template") {
   if (!text) return;
-  for (const f of purpose ? lintCopy(text, purpose) : lintRules(text)) out.push({ where: label, rule: f.rule, match: f.match, why: f.why });
+  for (const f of purpose ? lintCopy(text, purpose) : [...lintRules(text), ...lintLinks(text)]) out.push({ where: label, rule: f.rule, match: f.match, why: f.why });
 }
 
 const url = process.env.DATABASE_URL;

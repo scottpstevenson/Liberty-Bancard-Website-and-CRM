@@ -3,7 +3,7 @@ import { isAuthenticated, isAdmin, isDashboardUser, requireRole } from "../repli
 import { storage } from "../storage";
 import { contacts } from "@shared/schema";
 import { and } from "drizzle-orm";
-import { checkGhlHealth, getCalendarBookingUrl, getGhlStatus, handleGhlWebhook, isGhlConfigured, sendGhlEmail, sendGhlSms, sendTemplatedMessage, validateGhlWebhookSignature, validateGhlWebhookSignatureEd25519 } from "../services/ghl";
+import { checkGhlHealth, getCalendarBookingUrl, getSalesBookingResolution, getGhlStatus, handleGhlWebhook, isGhlConfigured, sendGhlEmail, sendGhlSms, sendTemplatedMessage, validateGhlWebhookSignature, validateGhlWebhookSignatureEd25519 } from "../services/ghl";
 import { routeContact } from "../services/smart-router";
 import { fullSyncFromGhl, fullSyncToGhl, getGhlSyncStatus, getFullSyncDashboard, syncContactToGhl, syncDealToGhl, syncCompanyToGhl, syncTaskToGhl, syncTicketToGhl, syncNoteToGhl, syncTagsToGhl } from "../services/ghl-sync";
 import { getWorkflowStatus, GHL_WORKFLOW_REGISTRY, getPlatformEmailConfig, getWorkflowRegistryWithStatus, setWorkflowEnvValue } from "../services/ghl-workflows";
@@ -222,7 +222,10 @@ export function registerIntegrationsRoutes(app: Express) {
       contactName: req.query.name as string,
       source: req.query.source as string,
     });
-    res.json({ url });
+    const resolution = getSalesBookingResolution();
+    // Private and uncached; an unavailable booking configuration is reported, never replaced by a default calendar.
+    res.setHeader("Cache-Control", "private, no-store");
+    res.json({ url, available: resolution.available, reason: resolution.available ? null : resolution.reason, detail: resolution.available ? null : resolution.detail });
   });
 
   app.get("/api/ghl/activity", isAuthenticated, async (req, res) => {

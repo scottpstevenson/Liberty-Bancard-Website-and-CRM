@@ -198,3 +198,4 @@
 - [GHL persistent approval & handoff](ghl-persistent-approval-and-handoff.md) — sorted-key hashes for jsonb, no auto re-send of unknown enrollments, verified deferral, cancel-vs-claim lock.
 - [Operational-truth patterns](stage4a-operational-truth-patterns.md) — 410 retirement, derived catalog/step totals, GHL rejection fingerprint, disposable-runner and rebuild pitfalls.
 - [Insufficient-evidence rates](insufficient-evidence-rates.md) — zero-denominator rates are null/n-a; dashboard windows are SQL aggregates failing per section to null; bg-run and browser flake quirks.
+- [SFP package publication fence](sfp-package-publication-fence.md) — paired campaign+sequence publish only; generic routes 409 pinned rows; stale race = PACKAGE_STALE.

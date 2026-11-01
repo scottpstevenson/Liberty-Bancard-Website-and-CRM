@@ -7,7 +7,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 
-export const SPEC_PATH = "attached_assets/Liberty-Stage4C1-Master-Preflight-and-Build-2026-10-31_1793469717746.md";
+export const SPEC_PATH = "docs/certification/stage4-c1/source/Liberty-Stage4C1-Master-Preflight-and-Build-2026-10-31.md";
 export const OUT_PATH = "server/services/cro03/sfp-premium-drafts.generated.ts";
 
 const CTA_BY_LABEL: Record<string, string> = { "reply": "reply", "secure upload": "secure_statement_upload", "sales booking": "sales_booking" };

@@ -8,7 +8,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
-export const SPEC_PATH = "attached_assets/Liberty-Stage4C1-Master-Preflight-and-Build-2026-10-31_1793469717746.md";
+export const SPEC_PATH = "docs/certification/stage4-c1/source/Liberty-Stage4C1-Master-Preflight-and-Build-2026-10-31.md";
 export const OUT_DIR = "docs/certification/stage4-c1";
 
 export const DISPOSITIONS = ["keep_current", "reuse_reviewed_library", "service_lifecycle", "historical_read_only", "diagnostic_review", "unresolved"] as const;

@@ -3,6 +3,7 @@
  * Pure functions only (token support and rendering come from the shared registry): no database, network or environment.
  */
 
+import { BOOKING_WIDGET_HOST, findUnsafeLinks, SITE_ORIGIN } from "./message-cta-contract";
 import { renderPersonas, tokensIn, unsupportedTokens, type MessagePurpose } from "./message-token-registry";
 
 export const COPY_RULES: Array<{ id: string; test: RegExp; why: string }> = [
@@ -35,8 +36,41 @@ export function lintRules(text: string): CopyFinding[] {
   return out;
 }
 
+const FIRST_PARTY_HOSTS = [new URL(SITE_ORIGIN).host, `www.${new URL(SITE_ORIGIN).host}`] as const;
+const ANCHOR_RE = /<a\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>`]+))[^>]*>([\s\S]*?)<\/a>/gi;
+const ACTION_TEXT_RE = /\b(upload|statement|application|apply|continue your|refer|portal)\b/i;
+
+/**
+ * Link checks run on the text with substitutions still unresolved (those links are validated again after rendering):
+ * dangerous schemes, relative and scheme-less addresses, foreign hosts, retired first-party pages, literal booking
+ * widget addresses that bypass the shared booking token, and booking links labelled as an upload or application.
+ */
+export function lintLinks(text: string): CopyFinding[] {
+  const out: CopyFinding[] = [];
+  const seen = new Set<string>();
+  const push = (rule: string, match: string, why: string) => { const k = `${rule}|${match}`; if (!seen.has(k)) { seen.add(k); out.push({ rule, match: match.slice(0, 80), why }); } };
+  for (const f of findUnsafeLinks(text, { allowedHosts: [...FIRST_PARTY_HOSTS, BOOKING_WIDGET_HOST], allowUnresolvedTokens: true })) {
+    if (/^retired path/.test(f.reason)) {
+      if (!/^https?:\/\//i.test(f.link)) push("retired_link", f.link, "Link points at a retired page; use /upload-statement, /merchant-application or the /book adapter");
+      continue; // absolute retired links are already reported by the retired_link text rule
+    }
+    push("unsafe_link", f.link, `Link would not be safe or valid when sent: ${f.reason}`);
+  }
+  if (new RegExp(`https?://${BOOKING_WIDGET_HOST.replace(/\./g, "\\.")}/widget/`, "i").test(text)) {
+    push("literal_booking_widget", `https://${BOOKING_WIDGET_HOST}/widget/...`, "Booking link is typed in directly; use the shared booking token so a missing or wrong calendar blocks the message");
+  }
+  for (const m of text.matchAll(ANCHOR_RE)) {
+    const href = m[1] ?? m[2] ?? m[3] ?? "";
+    const label = m[4].replace(/<[^>]*>/g, " ");
+    if (/\/book\b|\{\{\s*(?:calendarLink|custom_values\.booking_link)\s*\}\}|\/widget\/book/i.test(href) && ACTION_TEXT_RE.test(label)) {
+      push("cta_intent_mismatch", label.trim(), "The link text promises an upload or application but the link opens the sales booking calendar");
+    }
+  }
+  return out;
+}
+
 export function lintCopy(text: string, purpose: MessagePurpose): CopyFinding[] {
-  const out: CopyFinding[] = lintRules(text);
+  const out: CopyFinding[] = [...lintRules(text), ...lintLinks(text)];
   for (const token of unsupportedTokens(purpose, text)) {
     out.push({ rule: "unknown_merge_variable", match: token, why: `Token is not available for ${purpose === "workflow" ? "workflow steps" : "stored templates"}; it would not be filled when sent` });
   }

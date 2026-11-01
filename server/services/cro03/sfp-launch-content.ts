@@ -15,6 +15,7 @@
  * CTA of the follow-ups.
  */
 import { sql } from "drizzle-orm";
+import { FIRST_PARTY_BOOK_URL } from "../message-cta-contract";
 import { createHash } from "node:crypto";
 import { db } from "../../db";
 import { renderTemplate, RenderError } from "../message-render";
@@ -208,7 +209,7 @@ export async function checkPackageContentReadiness(
       const urls = String(s.body ?? "").match(/https?:\/\/[^\s<]+/g) ?? [];
       for (const u of urls) {
         const clean = u.replace(/[.,;)]+$/, "");
-        if (clean !== SFP_SECURE_UPLOAD_URL) issues.push(`UNAPPROVED_URL:${s.step_order}:${clean}`);
+        if (clean !== SFP_SECURE_UPLOAD_URL && clean !== FIRST_PARTY_BOOK_URL) issues.push(`UNAPPROVED_URL:${s.step_order}:${clean}`);
       }
     } catch (e) {
       issues.push(`UNRENDERABLE_STEP:${s.step_order}:${e instanceof RenderError ? e.code : "ERROR"}`);

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { ContentWorkspaceEntrance } from "@/components/dashboard/ContentWorkspace";
 import { useAuth } from "@/hooks/use-auth";
 import { useMutation } from "@tanstack/react-query";
 import { useCrmQuery } from "@/hooks/use-crm-query";
@@ -1102,6 +1103,7 @@ export default function Campaigns() {
 
   return (
     <div className="space-y-6">
+      <ContentWorkspaceEntrance />
       {!stuckBannerDismissed && (
         <StuckSendingBanner onDismiss={() => setStuckBannerDismissed(true)} />
       )}

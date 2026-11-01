@@ -649,3 +649,26 @@ export function peopleState(search: string, privileged: boolean, assignmentFilte
   }
   return {params,issues};
 }
+
+/** Campaign/sequence content workspace: `content` is the group, `package` the package opened for editing. Both are
+ * registered selectors (duplicate or invalid values fall back and say so); every other query parameter and the hash are kept. */
+export const contentWorkspaceGroups = ["current_sfp", "sales_library", "merchant_lifecycle", "history", "diagnostics"] as const;
+export const contentPackageKeys = [
+  "sfp.automotive.v2", "sfp.healthcare.v2", "sfp.beauty_spa.v2", "sfp.construction_trades_home_services.v2", "sfp.fitness_recreation.v2",
+] as const;
+export function contentWorkspaceState(search: string) {
+  const params = new URLSearchParams(search);
+  const group = selectValue(params, "content", contentWorkspaceGroups, "current_sfp");
+  const pkg = selectValue<(typeof contentPackageKeys)[number] | "">(params, "package", [...contentPackageKeys, ""], "");
+  return { group: group.value, package: pkg.value, issues: [...group.issues, ...pkg.issues], requested: params.has("content") || params.has("package") };
+}
+export function contentWorkspaceUrl(path: string, search: string, hash: string, selection: { content?: string | null; package?: string | null }): string {
+  const params = new URLSearchParams(search);
+  for (const key of ["content", "package"] as const) {
+    const value = selection[key];
+    if (value === undefined) continue;
+    params.delete(key);
+    if (value) params.set(key, value);
+  }
+  return destinationUrl(path, params, hash);
+}

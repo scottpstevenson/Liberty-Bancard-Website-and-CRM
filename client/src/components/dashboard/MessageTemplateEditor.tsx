@@ -86,9 +86,17 @@ export function MessageTemplateEditor({
   // The draft identity the fields were seeded from. Commands send this, never the freshest server value, so a draft
   // saved by someone else is refused with a conflict instead of being replaced.
   const [baseToken, setBaseToken] = useState<string | null>(null);
+  // Everything the fields were seeded from: the asset, the live (parent) version, the draft identity and its author. Commands
+  // send these, never the freshest query values, so a parent that moved after the fields were loaded is refused rather
+  // than silently rebased onto text that was written against the older version.
+  const [seedParent, setSeedParent] = useState<number | null>(null);
+  const [seedActor, setSeedActor] = useState<string | null>(null);
   const [conflict, setConflict] = useState<DraftConflict | null>(null);
   const [remoteChanged, setRemoteChanged] = useState(false);
   const dirtyRef = useRef(false);
+  // Counts operator edits. A save acknowledges only the revision it submitted, so text typed while it was pending is kept.
+  const localRevision = useRef(0);
+  const touch = <T,>(set: (v: T) => void) => (v: T) => { localRevision.current += 1; set(v); };
   const expectReseed = useRef(false);
 
   useEffect(() => {
@@ -105,13 +113,15 @@ export function MessageTemplateEditor({
     setSubject(src.subject ?? "");
     setBody(src.body);
     setBaseToken(ws.draftToken);
+    setSeedParent(ws.template.contentVersion);
+    setSeedActor(ws.draft?.authorId ?? null);
     setSeeded(key);
     setPublishFindings([]);
     setConflict(null);
     setRemoteChanged(false);
   }, [ws, seeded]);
 
-  useEffect(() => { if (!open) { setSeeded(null); setPreview(null); setPublishFindings([]); setConflict(null); setRemoteChanged(false); setBaseToken(null); } }, [open]);
+  useEffect(() => { if (!open) { setSeeded(null); setPreview(null); setPublishFindings([]); setConflict(null); setRemoteChanged(false); setBaseToken(null); setSeedParent(null); setSeedActor(null); } }, [open]);
 
   const channelForPreview = ws?.template?.channel === "email" ? "email" : ws?.template?.channel === "sms" ? "sms" : undefined;
 
@@ -143,11 +153,26 @@ export function MessageTemplateEditor({
     toast({ title, description: getApiErrorMessage(e, title), variant: "destructive" });
   };
 
+  interface SubmittedSave { revision: number; subject: string; body: string; parent: number; token: string | null }
   const saveDraft = useMutation({
-    mutationFn: async () => (await apiRequest("PUT", `/api/message-templates/${templateId}/draft`, {
-      subject: subject.trim() === "" ? null : subject, body, baseVersion: ws!.template.contentVersion, expectedDraftToken: baseToken,
-    })).json(),
-    onSuccess: async () => { setPublishFindings([]); setConflict(null); expectReseed.current = true; await refresh(); toast({ title: "Draft saved", description: "Live wording is unchanged." }); },
+    mutationFn: async (sub: SubmittedSave) => (await apiRequest("PUT", `/api/message-templates/${templateId}/draft`, {
+      subject: sub.subject.trim() === "" ? null : sub.subject, body: sub.body, baseVersion: sub.parent, expectedDraftToken: sub.token,
+    })).json() as Promise<{ draftToken: string | null }>,
+    onSuccess: async (saved, sub) => {
+      setPublishFindings([]); setConflict(null);
+      if (localRevision.current === sub.revision) {
+        expectReseed.current = true;
+      } else {
+        // The operator kept typing while the save was pending: adopt the new draft identity but keep the newer text.
+        setBaseToken(saved.draftToken);
+        setSeeded(`${templateId}:${sub.parent}:${saved.draftToken ?? "none"}`);
+      }
+      await refresh();
+      toast({
+        title: "Draft saved",
+        description: localRevision.current === sub.revision ? "Live wording is unchanged." : "Live wording is unchanged. Edits made while saving are still unsaved.",
+      });
+    },
     onError: fail("Could not save draft"),
   });
   const discard = useMutation({
@@ -156,7 +181,7 @@ export function MessageTemplateEditor({
     onError: fail("Could not discard draft"),
   });
   const publish = useMutation({
-    mutationFn: async () => (await apiRequest("POST", `/api/message-templates/${templateId}/publish`, { expectedVersion: ws!.template.contentVersion, expectedDraftToken: baseToken ?? "" })).json(),
+    mutationFn: async () => (await apiRequest("POST", `/api/message-templates/${templateId}/publish`, { expectedVersion: seedParent ?? ws!.template.contentVersion, expectedDraftToken: baseToken ?? "" })).json(),
     onSuccess: async () => { setPublishFindings([]); setConflict(null); expectReseed.current = true; await refresh(); toast({ title: "Content version published", description: "Wording is now live for this template. Activation was not changed." }); },
     onError: fail("Could not publish"),
   });
@@ -172,9 +197,11 @@ export function MessageTemplateEditor({
   const dirty = useMemo(() => !!baseline && ((baseline.subject ?? "") !== subject || baseline.body !== body), [baseline, subject, body]);
   dirtyRef.current = dirty;
   const hasDraft = !!ws?.draft;
+  // The live version moved after these fields were loaded: block save/publish until the operator reloads or copies their text.
+  const parentChanged = !!t && seedParent !== null && t.contentVersion !== seedParent;
   const draftCurrent = hasDraft && ws!.draft!.baseVersion === t!.contentVersion;
-  const canPublish = canEdit && hasDraft && draftCurrent && !dirty && !remoteChanged && !conflict && baseToken !== null && baseToken === ws!.draftToken && ws!.draftFindings.length === 0;
-  const canSave = canEdit && !!t && dirty;
+  const canPublish = canEdit && hasDraft && draftCurrent && !dirty && !remoteChanged && !parentChanged && !conflict && baseToken !== null && baseToken === ws!.draftToken && ws!.draftFindings.length === 0;
+  const canSave = canEdit && !!t && dirty && !parentChanged && seedParent !== null;
   const isActive = t?.isActive === true;
 
   return (
@@ -206,11 +233,11 @@ export function MessageTemplateEditor({
 
             <FindingList findings={ws!.liveFindings} testId="findings-live" />
 
-            {(conflict || remoteChanged) && (
+            {(conflict || remoteChanged || parentChanged) && (
               <Alert variant="destructive" data-testid="draft-conflict">
                 <AlertDescription className="space-y-2">
                   <p className="font-medium">
-                    {conflict ? "This draft changed while you were editing, so your command was not applied." : "A newer saved draft or published version exists. Your unsaved edits are kept here."}
+                    {conflict ? "This draft changed while you were editing, so your command was not applied." : parentChanged ? `Version ${t.contentVersion} was published after you opened this template (you started from version ${seedParent}). Saving is blocked so your text is not applied over it; copy your changes, then reload.` : "A newer saved draft or published version exists. Your unsaved edits are kept here."}
                   </p>
                   {conflict && (
                     <p className="text-xs">
@@ -236,12 +263,12 @@ export function MessageTemplateEditor({
                 {t.channel === "email" && (
                   <div className="space-y-1">
                     <Label htmlFor="tpl-subject">Subject</Label>
-                    <Input id="tpl-subject" value={subject} onChange={(e) => setSubject(e.target.value)} data-testid="input-template-subject" />
+                    <Input id="tpl-subject" value={subject} onChange={(e) => touch(setSubject)(e.target.value)} data-testid="input-template-subject" />
                   </div>
                 )}
                 <div className="space-y-1">
                   <Label htmlFor="tpl-body">{t.channel === "email" ? "Body (HTML)" : "Message"}</Label>
-                  <Textarea id="tpl-body" rows={14} value={body} onChange={(e) => setBody(e.target.value)} className="font-mono text-xs" data-testid="input-template-body" />
+                  <Textarea id="tpl-body" rows={14} value={body} onChange={(e) => touch(setBody)(e.target.value)} className="font-mono text-xs" data-testid="input-template-body" />
                 </div>
               </div>
               <div className="space-y-2" data-testid="template-preview">
@@ -268,7 +295,7 @@ export function MessageTemplateEditor({
                 <p className="text-sm font-medium">1. Save draft</p>
                 <p className="text-xs text-muted-foreground">Keeps your edits for review. Live wording does not change.</p>
                 <div className="flex flex-wrap gap-2">
-                  <Button className="min-h-11" disabled={busy || !canSave} onClick={() => saveDraft.mutate()} data-testid="button-save-draft">Save draft</Button>
+                  <Button className="min-h-11" disabled={busy || !canSave} onClick={() => saveDraft.mutate({ revision: localRevision.current, subject, body, parent: seedParent!, token: baseToken })} data-testid="button-save-draft">Save draft</Button>
                   {hasDraft && (
                     <Button className="min-h-11" variant="outline" disabled={busy} onClick={() => discard.mutate()} data-testid="button-discard-draft">Discard draft</Button>
                   )}

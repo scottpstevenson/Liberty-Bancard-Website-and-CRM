@@ -68,6 +68,7 @@ async function main(): Promise<void> {
       { name: "canonical-release-authority", script: "scripts/certification/test-canonical-release-authority.ts", database: true },
       { name: "sfp-launch-content", script: "scripts/certification/test-sfp-launch-content.ts", database: true },
       { name: "stage4c1-content-workspace", script: "scripts/certification/test-stage4c1-content-workspace.ts", database: true },
+      { name: "stage4c1-package-publication", script: "scripts/certification/test-stage4c1-package-publication.ts", database: true },
       { name: "sfp-launch-runner-e2e", script: "scripts/certification/test-sfp-launch-runner-e2e.ts", database: true },
       { name: "sfp-launch-lifecycle-e2e", script: "scripts/certification/test-sfp-launch-lifecycle-e2e.ts", database: true },
       { name: "sfp-seed-test", script: "scripts/certification/test-sfp-seed-test.ts", database: true },

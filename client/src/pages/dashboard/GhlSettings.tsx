@@ -954,7 +954,7 @@ export default function GhlSettings() {
         onClose={() => setEditingTemplateId(null)}
       />
 
-      <ContentWorkspace canView={canEditTemplates} />
+      <ContentWorkspace canView={canEditTemplates} canPublish={user?.role === "admin"} />
 
       <InboundAcknowledgementCard canControl={user?.role === "admin"} />
 

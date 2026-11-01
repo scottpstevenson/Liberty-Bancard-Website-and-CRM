@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { resolveSalesBooking, type SalesBookingResolution } from "./message-cta-contract";
 import { markGhlDispatch, GhlAmbiguousDispatchError } from "./ghl-dispatch-recorder";
 import { storage } from "../storage";
 import type { Contact, Deal } from "@shared/schema";
@@ -1565,22 +1566,29 @@ async function _sendGhlSmsInner(params: {
   }
 }
 
+/**
+ * Sales booking widget address for the authenticated calendar-URL API. Delegates to the shared booking resolver (the same
+ * one /book, sequences and workflows use), so the calendar ID is validated, case-preserved and never defaulted. Optional
+ * prefill values are appended as query parameters; they are never logged here.
+ */
 export function getCalendarBookingUrl(params?: {
   contactEmail?: string;
   contactName?: string;
   source?: string;
 }): string | null {
-  const config = getConfig();
-  if (!config?.calendarId) return null;
-
-  let url = `https://api.leadconnectorhq.com/widget/booking/${config.calendarId}`;
+  const resolution = getSalesBookingResolution();
+  if (!resolution.available) return null;
+  let url = resolution.widgetUrl;
   const queryParams: string[] = [];
   if (params?.contactEmail) queryParams.push(`email=${encodeURIComponent(params.contactEmail)}`);
   if (params?.contactName) queryParams.push(`name=${encodeURIComponent(params.contactName)}`);
   if (params?.source) queryParams.push(`source=${encodeURIComponent(params.source)}`);
   if (queryParams.length > 0) url += `?${queryParams.join("&")}`;
-
   return url;
+}
+
+export function getSalesBookingResolution(): SalesBookingResolution {
+  return resolveSalesBooking(process.env as Record<string, string | undefined>);
 }
 
 export function resolveMergeFields(template: string, data: Record<string, any>): string {
@@ -1621,7 +1629,7 @@ export async function sendTemplatedMessage(params: {
   // One validated sales-booking resolver, delivered through the first-party /book adapter. No contact name or email is
   // placed in the URL, and an unavailable/disagreeing booking configuration leaves the link unset so rendering fails
   // closed instead of sending a dead or wrong calendar.
-  const { resolveSalesBooking, FIRST_PARTY_BOOK_URL } = await import("./message-cta-contract");
+  const { FIRST_PARTY_BOOK_URL } = await import("./message-cta-contract");
   const calendarLink = resolveSalesBooking(process.env).available ? FIRST_PARTY_BOOK_URL : null;
   const extra: Record<string, string> = {};
   for (const [k, v] of Object.entries(params.extraData ?? {})) {

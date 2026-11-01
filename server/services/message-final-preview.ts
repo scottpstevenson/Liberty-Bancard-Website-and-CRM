@@ -12,6 +12,8 @@
 import { imagesOffHtml, type FinalMessagePreview } from "./message-template-versions";
 
 export type StepPreviewTransport = "sfp_smtp" | "gmail_non_cold";
+/** The asset's reviewed purpose picks the signature the send path appends: sales content signs as sales, account-management content as accounts. */
+export type StepPreviewPurpose = "sales" | "account_management";
 
 const SAMPLE = { firstName: "Alex", lastName: "Sample", companyName: "Sample Business LLC", email: "alex@sample-business.example" };
 
@@ -22,7 +24,7 @@ export interface StepPreviewResult {
   final: FinalMessagePreview | null;
 }
 
-export async function previewStepForTransport(input: { subject: string | null; body: string; transport: StepPreviewTransport }): Promise<StepPreviewResult> {
+export async function previewStepForTransport(input: { subject: string | null; body: string; transport: StepPreviewTransport; purpose?: StepPreviewPurpose }): Promise<StepPreviewResult> {
   const { renderEmailPartsForPurpose, renderEmailHtmlForPurpose } = await import("./can-spam-footer");
   const { inspectPresentation } = await import("./email-presentation");
   const { getCommercialComplianceConfig } = await import("./can-spam-footer");
@@ -78,7 +80,7 @@ export async function previewStepForTransport(input: { subject: string | null; b
   const { getEmailSignatureHtml } = await import("./email-signatures");
   const preview = previewMessage("template", { subject: input.subject, body: input.body }, "html");
   if (preview.renderError) return fail(preview.renderError.code, preview.renderError.detail.join(", "));
-  const withSignature = `${preview.body}${getEmailSignatureHtml("accounts")}`;
+  const withSignature = `${preview.body}${getEmailSignatureHtml(input.purpose === "sales" ? "sales" : "accounts")}`;
   let html = withSignature;
   let footer: FinalMessagePreview["footer"] = { state: "applied" };
   let note = "Simulation: sample recipient, sample unsubscribe link. Nothing is sent or stored.";

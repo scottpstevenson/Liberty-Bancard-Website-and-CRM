@@ -156,11 +156,11 @@ export function registerTemplatesSettingsRoutes(app: Express) {
   });
 
   // Live, read-only grouped overview (Current SFP / Sales library / Merchant lifecycle / History / Diagnostics).
-  app.get("/api/content-workspace/overview", requireRole("admin", "manager"), async (_req, res) => {
+  app.get("/api/content-workspace/overview", requireRole("admin", "manager"), async (req, res) => {
     try {
       const { getContentWorkspaceOverview } = await import("../services/content-workspace");
       res.setHeader("Cache-Control", "no-store");
-      res.json(await getContentWorkspaceOverview());
+      res.json(await getContentWorkspaceOverview(req.user as { role?: unknown; email?: unknown; id?: unknown }));
     } catch (err) { serverError(res, err); }
   });
 
@@ -173,11 +173,45 @@ export function registerTemplatesSettingsRoutes(app: Express) {
     } catch (err) { serverError(res, err); }
   });
 
+  // Paired package publication (admin only). Read: the current version and every reason publication would be refused now.
+  app.get("/api/content-workspace/packages/:packageKey", requireRole("admin"), async (req, res) => {
+    try {
+      const { getPackageEditState } = await import("../services/cro03/sfp-package-content-publish");
+      const state = await getPackageEditState(String(req.params.packageKey));
+      res.setHeader("Cache-Control", "no-store");
+      if (!state) return res.status(404).json({ message: "No current package version for that key" });
+      res.json(state);
+    } catch (err) { serverError(res, err); }
+  });
+
+  // Publish operator-edited touches to the package's campaign and sequence together. Never activates, enrolls or sends.
+  app.post("/api/content-workspace/packages/:packageKey/publish", requireRole("admin"), async (req, res) => {
+    try {
+      const input = z.object({
+        expectedVersionId: z.string().min(1), expectedContentHash: z.string().min(1),
+        touches: z.array(z.object({ subject: z.string(), body: z.string(), delayDays: z.number() }).strict()).min(1).max(10),
+      }).strict().parse(req.body);
+      const { publishPackageContent, PackagePublishError } = await import("../services/cro03/sfp-package-content-publish");
+      try {
+        const result = await publishPackageContent({ ...input, packageKey: String(req.params.packageKey), actorId: String((req.user as { id?: unknown }).id) });
+        res.setHeader("Cache-Control", "no-store");
+        res.json(result);
+      } catch (err) {
+        if (err instanceof PackagePublishError) return res.status(err.status).json({ code: err.code, message: err.message, detail: err.detail ?? null });
+        throw err;
+      }
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      serverError(res, err);
+    }
+  });
+
   // Transport-specific final preview for sequence/campaign email steps (simulation on sample data; sends nothing).
   app.post("/api/message-steps/final-preview", requireRole("admin", "manager"), async (req, res) => {
     try {
       const input = z.object({
         subject: z.string().nullable(), body: z.string().min(1, "Message body is required"), transport: z.enum(["sfp_smtp", "gmail_non_cold"]),
+        purpose: z.enum(["sales", "account_management"]).optional(),
       }).strict().parse(req.body);
       const { previewStepForTransport } = await import("../services/message-final-preview");
       res.json(await previewStepForTransport(input));

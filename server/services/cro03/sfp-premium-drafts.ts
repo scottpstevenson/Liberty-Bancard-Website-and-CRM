@@ -24,6 +24,11 @@ const CLAIM_RES: Array<[RegExp, string]> = [
   [/\b(we (spoke|talked)|as discussed|our conversation)\b/i, "invented conversation"],
 ];
 
+/** Labels of the unsupported claims found in operator-edited text (figures, guarantees, savings promises, invented conversations). */
+export function claimProblems(text: string): string[] {
+  return CLAIM_RES.filter(([re]) => re.test(text)).map(([, label]) => label);
+}
+
 export interface DraftProblem { family: string; touch: number | null; problem: string }
 
 export function validatePremiumDrafts(drafts: readonly PremiumSfpDraft[] = PREMIUM_SFP_DRAFTS): DraftProblem[] {

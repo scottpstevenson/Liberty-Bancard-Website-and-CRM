@@ -140,10 +140,8 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
     timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Stage 4C1 content workspace (draft CAS, transport previews, /book adapter)",script:"scripts/certification/test-stage4c1-content-workspace.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
-  {name:"Stage 4C1 CTA/link/token contract",script:"scripts/test-stage4c1-cta-contract.ts",
-    timeoutSecs:120},
-  {name:"Stage 4C1 premium SFP drafts (drift, claims, CTA, renderer)",script:"scripts/test-stage4c1-premium-drafts.ts",
-    timeoutSecs:120},
+  {name:"Stage 4C1 paired package publication (CAS, replay, journeys, rollback)",script:"scripts/certification/test-stage4c1-package-publication.ts",
+    timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Message copy convergence and token contract",script:"scripts/certification/test-message-copy-convergence.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Workflow email wording",script:"scripts/certification/test-workflow-email-wording.ts",
@@ -1092,6 +1090,15 @@ export const MANDATORY_SUITES: Suite[] = [
     requiresServer: true,
     requiresDisposableTestDatabase: true,
   },
+
+  // Stage 4C1 pure suites run in the normal roster (no DB, no network). The DB-backed content workspace suite stays in
+  // CERTIFICATION_FIXTURE_SUITES and runs through the disposable certification runner.
+  {name:"Stage 4C1 CTA/link/token contract",script:"scripts/test-stage4c1-cta-contract.ts",
+    timeoutSecs:120},
+  {name:"Stage 4C1 premium SFP drafts (drift, claims, CTA, renderer)",script:"scripts/test-stage4c1-premium-drafts.ts",
+    timeoutSecs:120},
+  {name:"Stage 4C1 workspace navigation, cadence, purpose grouping and draft validation",script:"scripts/test-stage4c1-workspace-navigation.ts",
+    timeoutSecs:120},
 ];
 
 export interface SuiteSelection {

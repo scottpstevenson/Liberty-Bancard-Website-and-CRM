@@ -11,8 +11,8 @@ import {
   CTA_CONTRACT, CTA_KINDS, FIRST_PARTY_BOOK_URL, RETIRED_FIRST_PARTY_PATHS, findDurationClaims, findUnsafeLinks,
   resolveCta, resolveSalesBooking, trimUrlPunctuation, validateHref,
 } from "../server/services/message-cta-contract";
-import { costDriverText, previewMessage, renderMessage, unsupportedTokens } from "../server/services/message-token-registry";
-import { lintCopy } from "../server/services/message-copy-lint";
+import { assertRenderedLinksSafe, costDriverText, previewMessage, renderMessage, unsupportedTokens } from "../server/services/message-token-registry";
+import { lintCopy, lintLinks } from "../server/services/message-copy-lint";
 
 let checks = 0;
 const check = (v: unknown, message: string) => { assert(v, message); checks++; console.log(`✓ [CTA-${String(checks).padStart(2, "0")}] ${message}`); };
@@ -65,10 +65,35 @@ check(trimUrlPunctuation("https://libertybancard.com/upload-statement.") === "ht
 check(trimUrlPunctuation("https://libertybancard.com/a_(b)") === "https://libertybancard.com/a_(b)", "A balanced parenthesis inside the path is kept");
 const found = findUnsafeLinks(`<a href="https://libertybancard.com/apply">Apply</a> and https://libertybancard.com/upload-statement. plus http://x.example/y`, { allowedHosts: allowed });
 check(found.length === 2 && found.some((f) => /\/apply/.test(f.link)) && found.some((f) => /x\.example/.test(f.link)), "findUnsafeLinks flags the retired and the foreign link but not the secure upload URL");
+// Every href quoting form, entity-encoded schemes, relative and scheme-less first-party addresses (audit R05).
+const hostOpts = { allowedHosts: ["libertybancard.com", "www.libertybancard.com"] };
+for (const [html, why] of [
+  [`<a href='javascript:alert(1)'>x</a>`, "single-quoted javascript: href"],
+  [`<a href=javascript:alert(1)>x</a>`, "unquoted javascript: href"],
+  [`<a href="java&#x09;script:alert(1)">x</a>`, "entity/tab-obfuscated javascript: href"],
+  [`<a href="&#106;avascript:alert(1)">x</a>`, "numeric-entity javascript: href"],
+  [`<a href='/apply'>x</a>`, "relative /apply href"],
+  [`<a href="apply">x</a>`, "scheme-less relative href"],
+  [`Apply at libertybancard.com/apply today`, "scheme-less retired path in an SMS"],
+  [`<a href='https://libertybancard.com/apply'>x</a>`, "single-quoted retired href"],
+  [`<a href="https://libertybancard.com/&#97;pply">x</a>`, "entity-encoded retired path"],
+  [`<a href="https://www.libertybancard.com/refer">x</a>`, "www retired path"],
+  [`<a href="data:text/html,hi">x</a>`, "data: href"],
+] as const) check(findUnsafeLinks(html, hostOpts).length === 1, `findUnsafeLinks flags: ${why}`);
+check(findUnsafeLinks(`<a href='https://libertybancard.com/upload-statement'>a</a> <a href=https://libertybancard.com/book>b</a> libertybancard.com/upload-statement. <a href="mailto:a@b.co">m</a> <a href="tel:+15551212">t</a> info@libertybancard.com/x`, hostOpts).length === 0, "Safe single-quoted, unquoted, scheme-less and mailto/tel links produce no finding");
+check(findUnsafeLinks(`<a href="{{unsubscribeUrl}}">u</a>`, { ...hostOpts, allowUnresolvedTokens: true }).length === 0 && findUnsafeLinks(`<a href="{{unsubscribeUrl}}">u</a>`, hostOpts).length === 1, "Publication-time checks defer token links; final-render checks reject any that remain");
+check(lintCopy(`<a href='javascript:alert(1)'>x</a>`, "template").some((f) => f.rule === "unsafe_link"), "Template publication lint rejects a javascript: href");
+check(lintCopy(`Apply: libertybancard.com/apply`, "template").some((f) => f.rule === "retired_link"), "Template publication lint rejects a scheme-less retired path");
+check(lintLinks(`<a href="https://api.leadconnectorhq.com/widget/booking/${ID}">Upload your statement</a>`).some((f) => f.rule === "literal_booking_widget"), "A typed-in booking widget address is flagged in favor of the shared token");
+check(lintLinks(`<a href="{{calendarLink}}">Upload your statement</a>`).some((f) => f.rule === "cta_intent_mismatch") && lintLinks(`<a href="{{calendarLink}}">Choose a time</a>`).length === 0, "Link text promising an upload/application on a booking link is flagged; honest booking text is not");
 check(findDurationClaims("Book a 10-minute call. Takes 10 minutes. Ten min chat. A short call.").length === 3, "Unverified duration claims are detected");
 
 // ── Token contract ──────────────────────────────────────────────────────────
 const source = { contact: { firstName: "Alex", companyName: "Sample Business LLC", email: "alex@sample-business.example" }, calendarLink: FIRST_PARTY_BOOK_URL };
+let unsafeRender = ""; try { renderMessage("template", `<a href='/apply'>Go</a>`, source, "html"); } catch (e: any) { unsafeRender = e?.code; }
+check(unsafeRender === "RENDER_UNSAFE_LINK", "The shared renderer refuses an unsafe link in final output");
+let unsafeSeq = ""; try { assertRenderedLinksSafe(`<a href="https://evil.example/x">x</a>`, [FIRST_PARTY_BOOK_URL]); } catch (e: any) { unsafeSeq = e?.code; }
+check(unsafeSeq === "RENDER_UNSAFE_LINK", "The send-path gate refuses a foreign host");
 check(renderMessage("template", "Book: {{custom_values.booking_link}} / {{calendarLink}}", source, "text").output === `Book: ${FIRST_PARTY_BOOK_URL} / ${FIRST_PARTY_BOOK_URL}`, "custom_values.booking_link is an explicit alias of the sales booking link");
 check(unsupportedTokens("template", "{{custom_values.booking_link}}").length === 0, "The alias is a supported template token (no unknown_merge_variable)");
 let threw = false; try { renderMessage("template", "{{custom_values.booking_link}}", { contact: source.contact }, "text"); } catch (e: any) { threw = e?.code === "RENDER_UNRESOLVED_TOKEN"; }

@@ -6,6 +6,7 @@ import { resolvePacketVertical, GENERAL_FALLBACK_VERTICAL } from "../../shared/c
 import { applyConsentCommand } from "./consent-authority";
 import crypto from "crypto";
 import { renderMessage, type TokenSource } from "./message-token-registry";
+import { FIRST_PARTY_BOOK_URL, resolveSalesBooking } from "./message-cta-contract";
 import { escapeHtml, type RenderFormat } from "./message-render";
 import {
   classifyCr06SequencePurpose,
@@ -121,11 +122,15 @@ async function interpolateTemplate(text: string, contactId?: number, dealId?: nu
     }
   }
 
-  result = result.replace(/\{\{calendarLink\}\}/g, "https://libertybancard.com/book");
+  // Sales booking is delivered through the first-party /book adapter only when the shared configuration is valid;
+  // otherwise the token stays unresolved so the step is blocked rather than sending a dead or wrong calendar.
+  if (workflowCalendarLink()) result = result.replace(/\{\{calendarLink\}\}/g, workflowCalendarLink()!);
   return result;
 }
 
-const WORKFLOW_CALENDAR_LINK = "https://libertybancard.com/book";
+function workflowCalendarLink(): string | null {
+  return resolveSalesBooking(process.env as Record<string, string | undefined>).available ? FIRST_PARTY_BOOK_URL : null;
+}
 
 /**
  * Final-send rendering for workflow email/SMS steps. Uses the same registry and renderer as publication checks and
@@ -144,7 +149,7 @@ async function renderWorkflowMessage(text: string, contactId: number, dealId: nu
     deal: deal ? {
       stage: deal.stage, offerPath: deal.offerPath, effectiveRate: deal.effectiveRate, totalVolume: deal.totalVolume,
     } : null,
-    calendarLink: WORKFLOW_CALENDAR_LINK,
+    calendarLink: workflowCalendarLink(),
   };
   return renderMessage("workflow", text, source, format).output;
 }

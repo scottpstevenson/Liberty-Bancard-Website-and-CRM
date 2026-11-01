@@ -1,5 +1,9 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useLocation, useSearch } from "wouter";
+import { contentWorkspaceState, contentWorkspaceUrl } from "@/lib/crm-destination-state";
+import { PackageContentEditor } from "./PackageContentEditor";
+import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,22 +24,18 @@ const GROUPS: Array<{ key: Group; label: string; help: string }> = [
   { key: "diagnostics", label: "Diagnostics", help: "Test-labelled content with its dependencies. Nothing is deleted or retired by name." },
 ];
 
-interface Row { assetType: "campaign" | "sequence"; id: number; name: string; status: string | null; steps: number; reason: string; enrollments?: { total: number; active: number; started: number } }
+interface Row { assetType: "campaign" | "sequence"; id: number; name: string; status: string | null; steps: number; reason: string; enrollments?: { total: number; active: number; started: number } | null }
 interface Overview {
   capturedAt: string;
-  currentPackages: Array<{ packageKey: string; vertical: string; campaignId: number; sequenceId: number; contentHash: string; campaignName: string; sequenceName: string; steps: number; stepDays: number[]; startedJourneys: number; activeEnrollments: number }>;
+  currentPackages: Array<{ packageKey: string; vertical: string; campaignId: number; sequenceId: number; contentHash: string; campaignName: string; sequenceName: string; steps: number; stepDays: number[]; startedJourneys: number | null; activeEnrollments: number | null }>;
   groups: Record<Group, Row[]>;
   counts: Record<Group, number> & { campaigns: number; sequences: number; campaignSteps: number; sequenceSteps: number };
+  currentPackageCount?: number;
 }
 interface DraftTouch { family: string; vertical: string; touch: number; day: number; cta: string; subject: string; body: string; resolvedBody: string | null; unresolvedReason: string | null }
 interface Drafts { status: string; note: string; families: Array<{ family: string; vertical: string; touches: DraftTouch[] }>; problems: Array<{ family: string; problem: string }> }
 
 const PAGE = 50;
-
-function initialGroup(): Group {
-  const q = new URLSearchParams(window.location.search).get("content");
-  return GROUPS.some((g) => g.key === q) ? (q as Group) : "current_sfp";
-}
 
 function DraftPreview({ touch }: { touch: DraftTouch }) {
   const preview = useMutation({
@@ -71,7 +71,7 @@ function RowTable({ rows, group }: { rows: Row[]; group: Group }) {
                 <td className="pr-2 break-words max-w-[22rem]">{r.name} <span className="text-xs text-muted-foreground">#{r.id}</span></td>
                 <td className="pr-2">{r.status ?? "-"}</td>
                 <td className="pr-2">{r.steps}</td>
-                <td className="pr-2">{r.enrollments ? `${r.enrollments.started} started / ${r.enrollments.total}` : "-"}</td>
+                <td className="pr-2">{r.enrollments ? `${r.enrollments.started ?? 0} started / ${r.enrollments.total ?? 0}` : "-"}</td>
                 <td className="text-xs text-muted-foreground">{r.reason}</td>
               </tr>
             ))}
@@ -84,31 +84,49 @@ function RowTable({ rows, group }: { rows: Row[]; group: Group }) {
   );
 }
 
-export function ContentWorkspace({ canView }: { canView: boolean }) {
-  const [tab, setTab] = useState<Group>(initialGroup);
+function QueryError({ error, onRetry, what, testId }: { error: unknown; onRetry: () => void; what: string; testId: string }) {
+  return (
+    <Alert variant="destructive" data-testid={testId}><AlertDescription className="flex flex-wrap items-center gap-2">
+      {getApiErrorMessage(error, `Could not load ${what}`)}
+      <Button size="sm" variant="outline" className="min-h-11" onClick={onRetry} data-testid={`${testId}-retry`}>Retry</Button>
+    </AlertDescription></Alert>
+  );
+}
+
+export function ContentWorkspace({ canView, canPublish = false }: { canView: boolean; canPublish?: boolean }) {
+  // Group and opened package are URL selectors: a user choice is a new history entry, Back restores the previous one,
+  // and a duplicate or unknown value falls back and says so. Unrelated query parameters and the hash are kept.
+  const search = useSearch();
+  const [path, navigate] = useLocation();
+  const sel = contentWorkspaceState(search);
+  const tab: Group = sel.group;
   const overview = useQuery<Overview>({ queryKey: ["/api/content-workspace/overview"], enabled: canView });
   const drafts = useQuery<Drafts>({ queryKey: ["/api/content-workspace/premium-drafts"], enabled: canView });
   if (!canView) return null;
-  const onTab = (v: string) => {
-    setTab(v as Group);
-    const u = new URL(window.location.href);
-    u.searchParams.set("content", v);
-    window.history.replaceState(null, "", u.toString());
-  };
+  const go = (selection: { content?: string | null; package?: string | null }) => navigate(contentWorkspaceUrl(path, search, window.location.hash, selection));
+  const onTab = (v: string) => go({ content: v, package: null });
   const o = overview.data;
   return (
     <Card data-testid="card-content-workspace">
       <CardHeader>
         <CardTitle>Campaign and sequence content</CardTitle>
-        <CardDescription>A read-only map of campaigns and sequences. Viewing or previewing never activates, enrolls, sends or books.</CardDescription>
+        <CardDescription>
+          Browse campaigns and sequences by purpose. Viewing or previewing never activates, enrolls, sends or books.
+          Current SFP packages can be edited here and published as one campaign-plus-sequence version; only administrators can publish.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {sel.issues.length > 0 && <p role="status" className="rounded-md border bg-muted/40 px-3 py-2 text-sm" data-testid="content-selection-issue">{sel.issues[0].reason}</p>}
         {overview.isLoading ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-          : overview.isError || !o ? <p className="text-sm text-destructive">{getApiErrorMessage(overview.error, "Could not load content overview")}</p>
+          : overview.isError || !o ? <QueryError error={overview.error} onRetry={() => overview.refetch()} what="the content overview" testId="content-overview-error" />
           : (
             <Tabs value={tab} onValueChange={onTab}>
               <TabsList className="flex h-auto flex-wrap justify-start gap-1">
-                {GROUPS.map((g) => <TabsTrigger key={g.key} value={g.key} className="min-h-11" data-testid={`tab-content-${g.key}`}>{g.label} ({o.counts[g.key]})</TabsTrigger>)}
+                {GROUPS.map((g) => (
+                  <TabsTrigger key={g.key} value={g.key} className="min-h-11" data-testid={`tab-content-${g.key}`}>
+                    {g.label} ({g.key === "current_sfp" ? `${o.currentPackageCount ?? o.currentPackages.length} packages, ${o.counts[g.key]} assets` : o.counts[g.key]})
+                  </TabsTrigger>
+                ))}
               </TabsList>
               {GROUPS.map((g) => (
                 <TabsContent key={g.key} value={g.key} className="space-y-3">
@@ -118,22 +136,34 @@ export function ContentWorkspace({ canView }: { canView: boolean }) {
                       {o.currentPackages.length === 0
                         ? <p className="text-sm text-muted-foreground" data-testid="text-no-current-packages">No current SFP package is recorded in this environment.</p>
                         : <div className="overflow-x-auto"><table className="w-full text-sm" data-testid="table-current-packages">
-                          <thead><tr className="text-left text-xs text-muted-foreground"><th className="py-1 pr-2">Package</th><th className="pr-2">Campaign</th><th className="pr-2">Sequence</th><th className="pr-2">Cadence (days)</th><th className="pr-2">Journeys started</th><th>Content hash</th></tr></thead>
-                          <tbody>{o.currentPackages.map((p) => (
+                          <thead><tr className="text-left text-xs text-muted-foreground"><th className="py-1 pr-2">Package</th><th className="pr-2">Campaign</th><th className="pr-2">Sequence</th><th className="pr-2">Relative delay (days)</th><th className="pr-2">Cumulative day</th><th className="pr-2">Journeys started</th><th className="pr-2">Content hash</th><th>Content</th></tr></thead>
+                          <tbody>{o.currentPackages.map((p) => {
+                            let run = 0;
+                            const cumulativeDays = p.stepDays.map((d, i) => (i === 0 ? 0 : (run += d)));
+                            return (
                             <tr key={p.packageKey} className="border-t align-top">
                               <td className="py-1 pr-2">{p.vertical}</td>
                               <td className="pr-2">#{p.campaignId} {p.campaignName}</td>
                               <td className="pr-2">#{p.sequenceId} {p.sequenceName}</td>
                               <td className="pr-2">{p.stepDays.join(" / ") || "-"}</td>
-                              <td className="pr-2">{p.startedJourneys}{p.startedJourneys > 0 && <Badge variant="outline" className="ml-1 text-xs">protected</Badge>}</td>
-                              <td className="font-mono text-xs">{p.contentHash.slice(0, 12)}</td>
-                            </tr>))}</tbody></table></div>}
+                              <td className="pr-2">{cumulativeDays.join(" / ") || "-"}</td>
+                              <td className="pr-2">{p.startedJourneys === null ? "-" : p.startedJourneys}{(p.startedJourneys ?? 0) > 0 && <Badge variant="outline" className="ml-1 text-xs">protected</Badge>}</td>
+                              <td className="pr-2 font-mono text-xs">{p.contentHash.slice(0, 12)}</td>
+                              <td><Button size="sm" variant="outline" className="min-h-11" onClick={() => go({ package: p.packageKey })} aria-pressed={sel.package === p.packageKey} data-testid={`button-open-content-${p.packageKey}`}>Open content</Button></td>
+                            </tr>);
+                          })}</tbody></table></div>}
+                      {sel.package && (
+                        <PackageContentEditor key={sel.package} packageKey={sel.package} canPublish={canPublish}
+                          families={drafts.data?.families.map((f) => ({ family: f.family, vertical: f.vertical, touches: f.touches.map((t) => ({ touch: t.touch, day: t.day, subject: t.subject, body: t.body })) })) ?? []}
+                          onClose={() => go({ package: null })} />
+                      )}
                       <div className="space-y-2" data-testid="premium-drafts">
                         <p className="text-sm font-medium">Proposed premium five-touch drafts</p>
                         <Alert><AlertDescription>
-                          {drafts.data?.note ?? "Proposed wording only."} These are not adopted into any package yet: replacing a package's steps needs the package publication flow, which is not available here.
+                          {drafts.data?.note ?? "Proposed wording only."} Open a package above and choose "Load as editable draft" to adopt one: it becomes an editable draft in your browser and changes nothing until an administrator publishes it.
                         </AlertDescription></Alert>
                         {drafts.isLoading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+                        {drafts.isError && <QueryError error={drafts.error} onRetry={() => drafts.refetch()} what="the premium drafts" testId="content-drafts-error" />}
                         {drafts.data?.problems.length ? <p className="text-xs text-destructive">{drafts.data.problems.length} draft check problem(s) found.</p> : null}
                         {drafts.data?.families.map((f) => (
                           <details key={f.family} className="rounded-md border p-3" data-testid={`draft-family-${f.family}`}>
@@ -141,7 +171,7 @@ export function ContentWorkspace({ canView }: { canView: boolean }) {
                             <div className="space-y-4 pt-2">
                               {f.touches.map((t) => (
                                 <div key={t.touch} className="space-y-1 border-t pt-2 first:border-t-0 first:pt-0">
-                                  <p className="text-sm">Touch {t.touch} - day {t.day} - {t.cta.replace(/_/g, " ")}: <span className="font-medium">{t.subject}</span></p>
+                                  <p className="text-sm">Touch {t.touch} - day {t.day} (cumulative) - {t.cta.replace(/_/g, " ")}: <span className="font-medium">{t.subject}</span></p>
                                   <DraftPreview touch={t} />
                                 </div>
                               ))}
@@ -157,5 +187,23 @@ export function ContentWorkspace({ canView }: { canView: boolean }) {
           )}
       </CardContent>
     </Card>
+  );
+}
+
+/** Canonical entrance used by the Campaigns and Sequences tabs: collapsed by default, open when the URL names a group or package. */
+export function ContentWorkspaceEntrance() {
+  const { user } = useAuth();
+  const search = useSearch();
+  const requested = contentWorkspaceState(search).requested;
+  const [open, setOpen] = useState(requested);
+  const role = user?.role;
+  if (role !== "admin" && role !== "manager") return null;
+  return (
+    <section className="space-y-2" data-testid="content-workspace-entrance">
+      <Button variant="outline" className="min-h-11" aria-expanded={open || requested} onClick={() => setOpen((v) => !v)} data-testid="button-toggle-content-workspace">
+        {open || requested ? "Hide content workspace" : "Open content workspace"}
+      </Button>
+      {(open || requested) && <ContentWorkspace canView canPublish={role === "admin"} />}
+    </section>
   );
 }

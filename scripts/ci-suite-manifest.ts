@@ -357,10 +357,10 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "specification file read, pure checks and the SFP renderer on sample data; no DB, network, provider or send",
   },
   {
-    name: "Stage 4C1 content workspace (draft CAS, transport previews, /book adapter)",
-    script: "scripts/certification/test-stage4c1-content-workspace.ts",
-    capability: "deterministic-integration",
-    providerDenial: "disposable PostgreSQL with fatal external-network denial; composers run on sample data, /book is served on a loopback socket; nothing is sent",
+    name: "Stage 4C1 workspace navigation, cadence, purpose grouping and draft validation",
+    script: "scripts/test-stage4c1-workspace-navigation.ts",
+    capability: "deterministic-static",
+    providerDenial: "URL codec, cadence arithmetic, classifier and draft validator only; modules that hold a lazy DB pool are imported but never queried; no network, provider or send",
   },
   {
     name: "Stage 4A UI Static Render (GHL sync status, catalog truth, identity health)",

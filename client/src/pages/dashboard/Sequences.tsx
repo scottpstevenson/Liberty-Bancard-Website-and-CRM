@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { ContentWorkspaceEntrance } from "@/components/dashboard/ContentWorkspace";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import {useRetainedLocalIntent} from "@/hooks/use-retained-local-intent";
@@ -634,6 +635,7 @@ export default function Sequences() {
   if (sequencesError) {
     return (
       <div className="space-y-6" data-testid="sequences-page">
+      <ContentWorkspaceEntrance />
         <div>
           <h2 className="text-xl font-bold" data-testid="text-page-heading">Drip Sequences</h2>
           <p className="text-sm text-muted-foreground">Build multi-step follow-up sequences and drip marketing campaigns</p>

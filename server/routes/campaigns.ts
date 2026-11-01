@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from "express";
+import { canMutateOwnedCampaignObject as canMutateOwned, type OwnershipActor } from "../services/campaign-ownership";
 import { readSequenceRuntimeStatus } from "../services/sequence-runtime-status";
 import { SEQUENCE_REPORT_SQL } from "../services/sequence-report-query";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
@@ -76,12 +77,26 @@ async function invalidateApprovalTx(tx: CampaignTx, campaignId: number): Promise
 }
 
 function canMutateOwnedCampaignObject(req: Request, createdBy: string | null | undefined): boolean {
-  const user = req.user as { role?: unknown; email?: unknown; id?: unknown } | undefined;
-  if (user?.role === "admin") return true;
-  if (user?.role !== "manager" || !createdBy) return false;
-  const email = typeof user.email === "string" ? user.email : null;
-  const id = user.id == null ? null : String(user.id);
-  return (email !== null && createdBy === email) || (id !== null && createdBy === id);
+  return canMutateOwned(req.user as OwnershipActor | undefined, createdBy);
+}
+
+// Current SFP package content is versioned as a pair (campaign + sequence) and pinned by content hash. A single-sided
+// edit through the generic routes would drift one half away from the pinned version, so those routes refuse it and
+// point to the package publication command. Pin membership is monotonic (the home rows stay current across versions),
+// so checking before the write is sufficient.
+async function currentPackageKeyFor(kind: "campaign" | "sequence", id: number): Promise<string | null> {
+  const col = kind === "campaign" ? sql`campaign_id` : sql`sequence_id`;
+  const r: any = await db.execute(sql`SELECT package_key FROM sfp_campaign_package_versions WHERE lifecycle_state='current' AND ${col}=${id} LIMIT 1`);
+  return (r?.rows ?? r ?? [])[0]?.package_key ?? null;
+}
+async function refuseIfPinned(res: Response, kind: "campaign" | "sequence", id: number): Promise<boolean> {
+  const key = await currentPackageKeyFor(kind, id);
+  if (!key) return false;
+  res.status(409).json({
+    code: "pinned_package_content",
+    message: `This ${kind} belongs to the current SFP package ${key}. Its campaign and sequence content change together through package publication (Content workspace); nothing was changed.`,
+  });
+  return true;
 }
 
 function denyManagerOwnership(res: Response) {
@@ -224,6 +239,7 @@ export function registerCampaignsRoutes(app: Express) {
       const existing = await storage.getCampaign(campaignId);
       if (!existing) return res.status(404).json({ message: "Campaign not found" });
       if (!canMutateOwnedCampaignObject(req, existing.createdBy)) return denyManagerOwnership(res);
+      if (await refuseIfPinned(res, "campaign", campaignId)) return;
       const updates = campaignUpdateSchema.parse(req.body);
       // Status re-checked under the row lock (not just here) so a concurrent
       // activation can't slip through between this pre-check and the write.
@@ -450,6 +466,7 @@ export function registerCampaignsRoutes(app: Express) {
       const campaignPreCheck = await storage.getCampaign(campaignId);
       if (!campaignPreCheck) return res.status(404).json({ message: "Campaign not found" });
       if (!canMutateOwnedCampaignObject(req, campaignPreCheck.createdBy)) return denyManagerOwnership(res);
+      if (await refuseIfPinned(res, "campaign", campaignId)) return;
       const input = campaignStepCreateSchema.parse(req.body);
 
       // Step insert + approval invalidation happen under the same row lock as
@@ -483,6 +500,7 @@ export function registerCampaignsRoutes(app: Express) {
       const campaignPreCheck = await storage.getCampaign(existing.campaignId);
       if (!campaignPreCheck) return res.status(404).json({ message: "Campaign not found" });
       if (!canMutateOwnedCampaignObject(req, campaignPreCheck.createdBy)) return denyManagerOwnership(res);
+      if (await refuseIfPinned(res, "campaign", existing.campaignId)) return;
       const parsed = updateCampaignStepSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message });
       if (Object.keys(parsed.data).length === 0) return res.status(400).json({ message: "No fields to update" });
@@ -514,6 +532,7 @@ export function registerCampaignsRoutes(app: Express) {
       if (!campaignPreCheck) return res.status(404).json({ message: "Campaign not found" });
       if (!canMutateOwnedCampaignObject(req, campaignPreCheck.createdBy)) return denyManagerOwnership(res);
 
+      if (await refuseIfPinned(res, "campaign", existing.campaignId)) return;
       const stepId = existing.id;
       const campaignId = existing.campaignId;
       const result = await withLockedCampaign(campaignId, async (tx, campaign) => {
@@ -910,6 +929,7 @@ export function registerCampaignsRoutes(app: Express) {
   app.put("/api/sequences/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const {commandId,expectedVersion,expectedActorId,expectedAccountVersion,steps,...updates}=req.body;
+      if (await refuseIfPinned(res, "sequence", Number(req.params.id))) return;
       const fields=sequenceCommandFields.parse({commandId,expectedVersion,expectedActorId,expectedAccountVersion});
       const input = sequenceUpdateSchema.parse(updates);
       res.json(await commandSequence(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),
@@ -1168,6 +1188,7 @@ export function registerCampaignsRoutes(app: Express) {
       if (seq.status !== "paused" && seq.status !== "draft") {
         return res.status(409).json({ message: "Only paused or draft sequences may be edited" });
       }
+      if (await refuseIfPinned(res, "sequence", sequenceId)) return;
       const input = sequenceStepCreateSchema.parse(req.body);
       const step = await storage.createSequenceStep({ ...input, sequenceId });
       const steps = await storage.getSequenceSteps(seq.id);
@@ -1190,6 +1211,7 @@ export function registerCampaignsRoutes(app: Express) {
       if (seq.status !== "paused" && seq.status !== "draft") {
         return res.status(409).json({ message: "Only paused or draft sequences may be edited" });
       }
+      if (await refuseIfPinned(res, "sequence", seq.id)) return;
       const input = sequenceStepUpdateSchema.parse(req.body);
       const updated = await storage.updateSequenceStep(id, input);
       if (!updated) return res.status(404).json({ message: "Not found" });

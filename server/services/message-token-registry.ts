@@ -10,6 +10,7 @@
  * their output format, unresolved tokens throw, and a person greeting is used only for a genuine person name.
  */
 import { RenderError, normalizeTokenName, renderTemplate, type RenderContext, type RenderFormat } from "./message-render";
+import { SITE_ORIGIN, findUnsafeLinks } from "./message-cta-contract";
 
 export type MessagePurpose = "workflow" | "template";
 
@@ -89,7 +90,24 @@ export function renderMessage(purpose: MessagePurpose, text: string, source: Tok
   // Reject unsupported names up front so the error names the token rather than a generic unresolved value.
   const unsupported = unsupportedTokens(purpose, text, Object.keys(source.extra ?? {}));
   if (unsupported.length) throw new RenderError("RENDER_UNSUPPORTED_TOKEN", unsupported);
-  return renderTemplate(text, buildRenderContext(purpose, source), { format });
+  const result = renderTemplate(text, buildRenderContext(purpose, source), { format });
+  if (format !== "subject") assertFinalLinksSafe(result.output, source);
+  return result;
+}
+
+/**
+ * Final-render link gate: every link in the rendered output (after substitution and entity decoding) must be https,
+ * first-party or a trusted resolved address, and not a retired page. Throws before any transport sees the text.
+ */
+export function assertRenderedLinksSafe(output: string, trustedUrls: Array<string | null | undefined> = []): void {
+  const hosts = new Set<string>([new URL(SITE_ORIGIN).host, `www.${new URL(SITE_ORIGIN).host}`]);
+  for (const value of trustedUrls) { if (!value) continue; try { hosts.add(new URL(value).host); } catch { /* not a URL */ } }
+  const bad = findUnsafeLinks(output, { allowedHosts: [...hosts] });
+  if (bad.length) throw new RenderError("RENDER_UNSAFE_LINK", bad.map((b) => `${b.link} (${b.reason})`).slice(0, 5));
+}
+
+export function assertFinalLinksSafe(output: string, source: TokenSource): void {
+  assertRenderedLinksSafe(output, [source.calendarLink, ...Object.values(source.extra ?? {}).map((v) => (typeof v === "string" ? v : null))]);
 }
 
 export function tokensIn(text: string): string[] {

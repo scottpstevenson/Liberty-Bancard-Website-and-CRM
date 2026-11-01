@@ -185,22 +185,37 @@ export function resolveCta(kind: CtaKind, purpose: CtaPurpose, ctx: CtaContext):
 
 export type HrefCheck = { ok: true; href: string } | { ok: false; reason: string };
 
-const decodeEntities = (s: string) => s
-  .replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/&#0?39;/g, "'").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">");
+const NAMED_ENTITIES: Record<string, string> = { amp: "&", quot: '"', apos: "'", lt: "<", gt: ">", colon: ":", tab: "\t", newline: "\n", sol: "/", period: ".", lpar: "(", rpar: ")" };
+
+/** Decodes the named and numeric (decimal/hex) HTML entities a browser would decode in an attribute value. */
+export const decodeEntities = (s: string) => s.replace(/&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([A-Za-z]{2,8}));?/g, (m, dec, hex, name) => {
+  if (dec || hex) {
+    const code = dec ? Number(dec) : parseInt(hex, 16);
+    return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : m;
+  }
+  return name && Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, name.toLowerCase()) ? NAMED_ENTITIES[name.toLowerCase()] : m;
+});
+
+/** What a browser acts on: entities decoded, ASCII tab/newline removed anywhere, leading control/space characters trimmed. */
+function normalizeHrefText(raw: string): string {
+  return decodeEntities(raw).replace(/[\t\n\r]/g, "").replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, "");
+}
 
 /** Parses a final href after substitution and HTML decoding. Cases: schemes, credentials, hosts, retired paths. */
 export function validateHref(raw: string, opts: { allowedHosts: readonly string[] }): HrefCheck {
-  const decoded = decodeEntities(raw.trim());
+  const decoded = normalizeHrefText(raw);
   if (!decoded) return { ok: false, reason: "empty link" };
   if (decoded.startsWith("//")) return { ok: false, reason: "protocol-relative link" };
   if (/\{\{|\}\}|\[[A-Za-z_ ]+\]/.test(decoded)) return { ok: false, reason: "unresolved substitution in link" };
   let u: URL;
-  try { u = new URL(decoded); } catch { return { ok: false, reason: "malformed link" }; }
+  try { u = new URL(decoded); } catch {
+    return { ok: false, reason: /^[a-z][a-z0-9+.-]*:/i.test(decoded) ? "malformed link" : "relative or scheme-less link: use the full https://libertybancard.com address" };
+  }
   if (u.protocol !== "https:") return { ok: false, reason: `scheme ${u.protocol.replace(":", "")} is not allowed` };
   if (u.username || u.password) return { ok: false, reason: "credentials in link" };
   if (!opts.allowedHosts.includes(u.host)) return { ok: false, reason: `host ${u.host} is not allowed` };
   const retired = RETIRED_FIRST_PARTY_PATHS[u.pathname.replace(/\/+$/, "") || "/"];
-  if (retired && u.host === new URL(SITE_ORIGIN).host) return { ok: false, reason: `retired path ${u.pathname}: ${retired.note}` };
+  if (retired && (u.host === new URL(SITE_ORIGIN).host || u.host === `www.${new URL(SITE_ORIGIN).host}`)) return { ok: false, reason: `retired path ${u.pathname}: ${retired.note}` };
   return { ok: true, href: u.toString() };
 }
 
@@ -216,16 +231,43 @@ export function trimUrlPunctuation(url: string): string {
 
 export interface LinkFinding { link: string; reason: string }
 
-/** Every http(s)/href link in an html or plain-text body, validated against the host allowlist and retired paths. */
-export function findUnsafeLinks(text: string, opts: { allowedHosts: readonly string[] }): LinkFinding[] {
+const HREF_RE = /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>`]+))/gi;
+const ABSOLUTE_IN_PROSE_RE = /(?<![="'A-Za-z0-9:/.@-])(?:https?:\/\/|\/\/)[^\s<>"']+/gi;
+// A scheme-less first-party address with a path is a link in most mail clients even without the scheme.
+const SCHEMELESS_FIRST_PARTY_RE = /(?<![="'A-Za-z0-9:/.@-])(?:www\.)?libertybancard\.com\/[^\s<>"']*/gi;
+
+/**
+ * Every link in an html or plain-text body: all href quoting forms (double, single, unquoted), absolute links in prose and
+ * scheme-less first-party addresses, validated after entity decoding against the host allowlist, scheme rules and
+ * retired paths. With `allowUnresolvedTokens` (publication-time checks on text that still has {{tokens}}) links that
+ * contain a substitution are skipped here and are validated again after rendering. Pure: no network.
+ */
+export function findUnsafeLinks(text: string, opts: { allowedHosts: readonly string[]; allowUnresolvedTokens?: boolean }): LinkFinding[] {
   const found = new Set<string>();
-  for (const m of text.matchAll(/href\s*=\s*"([^"]*)"/gi)) found.add(m[1]);
-  for (const m of text.matchAll(/(?<![="'A-Za-z:/.])(?:https?:\/\/|\/\/)[^\s<>"]+/gi)) found.add(trimUrlPunctuation(m[0]));
+  for (const m of text.matchAll(HREF_RE)) found.add(m[1] ?? m[2] ?? m[3] ?? "");
+  for (const m of text.matchAll(ABSOLUTE_IN_PROSE_RE)) found.add(trimUrlPunctuation(m[0]));
+  const schemeless = new Map<string, string>();
+  for (const m of text.matchAll(SCHEMELESS_FIRST_PARTY_RE)) {
+    const bare = trimUrlPunctuation(m[0]);
+    schemeless.set(bare, `https://${bare}`);
+  }
   const out: LinkFinding[] = [];
-  for (const link of found) {
-    if (/^(tel:|mailto:)/i.test(link)) continue;
-    const r = validateHref(link, opts);
+  const check = (link: string, toValidate: string) => {
+    const normalized = normalizeHrefText(toValidate);
+    if (!normalized.length && link === "") { out.push({ link: "(empty href)", reason: "empty link" }); return; }
+    if (/^(tel:|mailto:|#)/i.test(normalized) || normalized === "") return;
+    if (opts.allowUnresolvedTokens && /\{\{[^{}]*\}\}/.test(normalized)) return;
+    const r = validateHref(toValidate, opts);
     if (!r.ok) out.push({ link, reason: r.reason });
+  };
+  for (const link of found) {
+    // A scheme-less link inside an href is relative (it would resolve against the mail client, not the site).
+    check(link, link);
+  }
+  for (const [bare, full] of schemeless) {
+    // Skip the ones already reported as an absolute link (the absolute regex consumed their host part).
+    if ([...found].some((f) => f.includes(bare))) continue;
+    check(bare, full);
   }
   return out;
 }
