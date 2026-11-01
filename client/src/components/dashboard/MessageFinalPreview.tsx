@@ -24,7 +24,7 @@ type Device = "desktop" | "mobile";
 /** Real email canvases: the iframe keeps its true width and the frame scrolls sideways instead of shrinking it. */
 const CANVAS_WIDTH: Record<Device, number> = { desktop: 600, mobile: 375 };
 const TRANSPORT_LABEL: Record<string, string> = {
-  ghl_conversations: "GoHighLevel conversations (HTML only)", sfp_smtp: "SFP SMTP composer (HTML + text)", gmail_non_cold: "Gmail, non-cold (HTML only)",
+  ghl_conversations: "GoHighLevel conversations (HTML only)", sfp_smtp: "SFP SMTP composer (HTML + text)", legacy_smtp: "Legacy SMTP composer (HTML + text)", gmail_non_cold: "Gmail, non-cold (HTML only)",
 };
 
 const DARK_STYLE = { filter: "invert(1) hue-rotate(180deg)" } as const;

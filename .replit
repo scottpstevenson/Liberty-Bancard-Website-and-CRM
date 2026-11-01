@@ -148,3 +148,11 @@ GHL_APPOINTMENT_CALENDAR_ID = "YFiIy7oIOUXN2qZZPnOr"
 [userenv.production]
 PROCESS_IDENTITY = "ordinal:0"
 DB_POOL_MAX = "40"
+
+[[ports]]
+localPort = 5000
+externalPort = 5000
+
+[[ports]]
+localPort = 23636
+externalPort = 80

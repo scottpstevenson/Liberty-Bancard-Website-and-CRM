@@ -1817,6 +1817,7 @@ function SequenceStepsView({ sequenceId, enrollments }: { sequenceId: number; en
           subject={previewStep.subject || ""}
           body={previewStep.body || ""}
           contentType={previewStep.actionType === "sms" ? "text" : "html"}
+          asset={previewStep.actionType === "email" && previewStep.id ? { assetType: "sequence", assetId: sequenceId, stepId: previewStep.id } : undefined}
         />
       )}
 

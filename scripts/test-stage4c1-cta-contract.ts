@@ -116,6 +116,7 @@ check(rules("<p>Choose a time: {{calendarLink}}</p>").length === 0, "Clean booki
 const worker = readFileSync(new URL("../server/services/sequence-worker.ts", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "");
 check(!/significant savings/.test(worker) && !/estimatedResidual\)\s*\*\s*12/.test(worker), "STATIC: the sequence worker has no residual-based or 'significant savings' fallback");
 check(!/YFiIy7oIOUXN2qZZPnOr/.test(worker) && !/api\.leadconnectorhq\.com\/widget\/booking\//.test(worker), "STATIC: the sequence worker has no hardcoded calendar ID or widget URL");
-check(/custom_values\\\.booking_link/.test(worker), "STATIC: the sequence worker resolves the custom_values.booking_link alias");
+const interpolation = readFileSync(new URL("../server/services/sequence-step-interpolation.ts", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "");
+check(/interpolateSequenceText\(/.test(worker) && /custom_values\\\.booking_link/.test(interpolation), "STATIC: the sequence worker uses the shared interpolation, which resolves the custom_values.booking_link alias");
 
 console.log(`STAGE4C1_CTA_CONTRACT_PASS (${checks} checks)`);

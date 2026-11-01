@@ -1,0 +1,628 @@
+{
+ "seq": [
+  {
+   "sid": 36,
+   "sname": "20. Free Analysis Follow-Up",
+   "status": "paused",
+   "stepid": 18913,
+   "step_order": 1,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Hey {{firstName}}, your free savings analysis from Liberty Bancard is ready — calling you shortly to walk through the results! — Scott",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 36,
+   "sname": "20. Free Analysis Follow-Up",
+   "status": "paused",
+   "stepid": 18914,
+   "step_order": 2,
+   "action_type": "call",
+   "subject": null,
+   "body": null,
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 36,
+   "sname": "20. Free Analysis Follow-Up",
+   "status": "paused",
+   "stepid": 18915,
+   "step_order": 3,
+   "action_type": "voicemail_drop",
+   "subject": null,
+   "body": null,
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 36,
+   "sname": "20. Free Analysis Follow-Up",
+   "status": "paused",
+   "stepid": 18916,
+   "step_order": 4,
+   "action_type": "email",
+   "subject": "Liberty Bancard × {{companyName}} — your savings estimate is ready",
+   "body": "<p>Hi {{firstName}},</p><p>Thanks for completing your free savings analysis with Liberty Bancard.</p><p>Here's a quick recap of what we found:</p><ul><li><strong>Your Industry:</strong> {{industry}}</li><li><strong>Monthly Volume:</strong> {{monthlyVolume}}</li><li><strong>Current Processor:</strong> {{currentProcessor}}</li><li><strong>Estimated Annual Savings:</strong> {{estimatedSavings}}</li><li><strong>Recommended Program:</strong> {{recommendedProgram}}</li></ul><p>These numbers are based on industry averages for your business type. To get an exact breakdown, upload a recent processing statement and we'll show you line by line where you're overpaying.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload a Statement for Exact Savings</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 36,
+   "sname": "20. Free Analysis Follow-Up",
+   "status": "paused",
+   "stepid": 18917,
+   "step_order": 5,
+   "action_type": "email",
+   "subject": "How businesses like yours are saving, {{firstName}}",
+   "body": "<p>Hi {{firstName}},</p><p>We work with hundreds of businesses in your industry, and the results speak for themselves:</p><ul><li>A {{industry}} business processing ${{monthlyVolume}}/mo saved over 25% on fees after switching</li><li>Another eliminated all hidden charges and saved $400/mo in junk fees alone</li><li>One owner switched to our 0% processing program and now pays nothing on card transactions</li></ul><p>Every business is different, but the pattern is clear — most merchants are overpaying without realizing it.</p><p>Want to see if your savings estimate holds up with a real statement review?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Get Your Detailed Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 36,
+   "sname": "20. Free Analysis Follow-Up",
+   "status": "paused",
+   "stepid": 18918,
+   "step_order": 6,
+   "action_type": "call",
+   "subject": null,
+   "body": null,
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 36,
+   "sname": "20. Free Analysis Follow-Up",
+   "status": "paused",
+   "stepid": 18919,
+   "step_order": 7,
+   "action_type": "voicemail_drop",
+   "subject": null,
+   "body": null,
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 36,
+   "sname": "20. Free Analysis Follow-Up",
+   "status": "paused",
+   "stepid": 18920,
+   "step_order": 8,
+   "action_type": "email",
+   "subject": "The right terminal for your business, {{firstName}}",
+   "body": "<p>Hi {{firstName}},</p><p>Based on your business type and volume, we recommend the <strong>{{recommendedTerminal}}</strong>.</p><p>Here's why it's a great fit:</p><ul><li>Optimized for {{industry}} businesses</li><li>Supports tap, chip, swipe, and contactless payments</li><li>Built-in receipt printing and reporting</li><li>Easy setup — most merchants are live in under an hour</li></ul><p>Right now, qualifying merchants can get a free terminal with signup — no hidden fees, no long-term contracts.</p><p><a href=\"https://libertybancard.com/terminals\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Browse Terminals &amp; Equipment</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 36,
+   "sname": "20. Free Analysis Follow-Up",
+   "status": "paused",
+   "stepid": 18921,
+   "step_order": 9,
+   "action_type": "email",
+   "subject": "{{firstName}} — your estimate is about to expire",
+   "body": "<p>Hi {{firstName}},</p><p>Just a heads-up — the savings estimate we prepared for you is based on current interchange rates and our promotional pricing.</p><p>Here's what you get when you complete your application this week:</p><ul><li>Locked-in wholesale rates with no markup surprises</li><li>Free terminal ({{recommendedTerminal}}) with approved application</li><li>Waived setup and activation fees</li><li>Same-day or next-day funding available</li></ul><p>Your estimated annual savings of <strong>{{estimatedSavings}}</strong> is real money back in your pocket — but we can only guarantee this pricing for a limited time.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Complete Your Application Now</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 84,
+   "sname": "Switch & Save (Core Sales)",
+   "status": "active",
+   "stepid": 19007,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Liberty Bancard × {{companyName}} — here's why merchants switch",
+   "body": "<p>Hi {{firstName}},</p><p>Most merchants switch processors for one of three reasons:</p><ul><li>They found out they were paying way more than they should</li><li>They got hit with a funding hold or reserve they didn't expect</li><li>Their processor stopped being responsive when problems came up</li></ul><p>We offer a free side-by-side comparison of your current setup vs. what we can provide. No fluff — just the actual numbers.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Get Your Free Comparison</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 84,
+   "sname": "Switch & Save (Core Sales)",
+   "status": "active",
+   "stepid": 19008,
+   "step_order": 2,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Hey {{firstName}}, quick follow-up — we can usually find {{estimatedSavings}} in savings vs. your current processor. Upload a statement for a free exact breakdown: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Liberty Bancard. Reply STOP to opt out",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 84,
+   "sname": "Switch & Save (Core Sales)",
+   "status": "active",
+   "stepid": 19009,
+   "step_order": 3,
+   "action_type": "email",
+   "subject": "{{firstName}} — making the switch easier than you think",
+   "body": "<p>Hi {{firstName}},</p><p>The #1 reason merchants don't switch: they think it's a hassle.</p><p>Here's the reality:</p><ul><li>We handle everything — hardware, setup, processor handoff</li><li>Most merchants are live within 3–5 business days</li><li>No downtime. No interruption to your business.</li><li>No long-term contracts or early termination fees</li></ul><p>If you'd like a no-pressure comparison of your current setup, we're ready when you are.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a 10-Minute Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 85,
+   "sname": "W6 — Cold Outreach: Email + Manual Call",
+   "status": "paused",
+   "stepid": 19010,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Free rate review for {{companyName}}",
+   "body": "<p>Hi {{firstName}},</p><p>We help merchants find hidden fees in their processing statements — most find 10–30% in unnecessary costs. If you'd like a free, no-obligation review, reply or upload a recent statement.</p><p><a href=\"https://libertybancard.com/upload\">Upload Your Statement</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 85,
+   "sname": "W6 — Cold Outreach: Email + Manual Call",
+   "status": "paused",
+   "stepid": 19011,
+   "step_order": 2,
+   "action_type": "task",
+   "subject": "Call for Free Rate Review — {{firstName}} at {{companyName}}",
+   "body": null,
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 85,
+   "sname": "W6 — Cold Outreach: Email + Manual Call",
+   "status": "paused",
+   "stepid": 19012,
+   "step_order": 3,
+   "action_type": "email",
+   "subject": "Hidden fees in your statement, {{firstName}}",
+   "body": "<p>Hi {{firstName}},</p><p>Common hidden fees: downgraded transactions, marked-up interchange, junk non-qualified rates, and unexplained batch fees. We break these out line-by-line at no cost.</p><p><a href=\"https://libertybancard.com/upload\">Get My Free Analysis</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 85,
+   "sname": "W6 — Cold Outreach: Email + Manual Call",
+   "status": "paused",
+   "stepid": 19013,
+   "step_order": 4,
+   "action_type": "task",
+   "subject": "Follow-up Call — {{firstName}} re: rate review",
+   "body": null,
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 85,
+   "sname": "W6 — Cold Outreach: Email + Manual Call",
+   "status": "paused",
+   "stepid": 19014,
+   "step_order": 5,
+   "action_type": "email",
+   "subject": "{{firstName}} — closing the file on {{companyName}}",
+   "body": "<p>Hi {{firstName}},</p><p>Last note from us. If your current processing rates are fair, we'll say so. If not, we'll show you what to change. Either way you'll know exactly what you're paying and why.</p><p><a href=\"https://libertybancard.com/upload\">Get My Free Analysis</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 86,
+   "sname": "W6 — Inbound Lead: No PEWC",
+   "status": "paused",
+   "stepid": 19015,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Thanks for reaching out, {{firstName}}",
+   "body": "<p>Hi {{firstName}},</p><p>Thanks for contacting Liberty Bancard. We'll review your information and get back to you shortly. In the meantime, you can upload a recent processing statement for a free savings analysis.</p><p><a href=\"https://libertybancard.com/upload\">Upload Your Statement</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 86,
+   "sname": "W6 — Inbound Lead: No PEWC",
+   "status": "paused",
+   "stepid": 19016,
+   "step_order": 2,
+   "action_type": "task",
+   "subject": "Call Inbound Lead — {{firstName}} at {{companyName}}",
+   "body": null,
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 86,
+   "sname": "W6 — Inbound Lead: No PEWC",
+   "status": "paused",
+   "stepid": 19017,
+   "step_order": 3,
+   "action_type": "email",
+   "subject": "Your free savings analysis is ready when you are, {{firstName}}",
+   "body": "<p>Hi {{firstName}},</p><p>Just following up — we can typically turn around a full savings breakdown within 24 hours of receiving your statement. No obligation.</p><p><a href=\"https://libertybancard.com/upload\">Get My Free Analysis</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 91,
+   "sname": "W6 — Application Abandoned",
+   "status": "paused",
+   "stepid": 19034,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "{{firstName}}, your application is almost done",
+   "body": "<p>Hi {{firstName}},</p><p>Looks like you started a merchant account application but didn't finish. You're close — most approvals take minutes once submitted. Want help completing it? Reply here or use the link below.</p><p><a href=\"https://libertybancard.com/apply\">Complete My Application</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 91,
+   "sname": "W6 — Application Abandoned",
+   "status": "paused",
+   "stepid": 19035,
+   "step_order": 2,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Hey {{firstName}} — saw you started your application. Happy to help finish it so approval goes fast. Reply HELP or visit libertybancard.com/apply. Reply STOP to opt out.",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 91,
+   "sname": "W6 — Application Abandoned",
+   "status": "paused",
+   "stepid": 19036,
+   "step_order": 3,
+   "action_type": "task",
+   "subject": "Application Assist Call — {{firstName}}",
+   "body": null,
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 91,
+   "sname": "W6 — Application Abandoned",
+   "status": "paused",
+   "stepid": 19037,
+   "step_order": 4,
+   "action_type": "email",
+   "subject": "One thing that slows approvals, {{firstName}}",
+   "body": "<p>Hi {{firstName}},</p><p>The most common reasons for approval delays: inaccurate monthly volume, missing bank info, or a mismatch between business type and activity. We review everything before submission to catch these. Want us to take a look?</p><p><a href=\"https://libertybancard.com/apply\">Complete My Application</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 93,
+   "sname": "W6 — Merchant Referral Program",
+   "status": "paused",
+   "stepid": 19042,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Know another business owner who could save on processing?",
+   "body": "<p>Hi {{firstName}},</p><p>We appreciate your business. If you know any other merchants who might benefit from a free rate review, we'd love an introduction. As a thank-you, we offer a referral credit for every merchant who signs on through your recommendation.</p><p><a href=\"https://libertybancard.com/refer\">Learn About Our Referral Program</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Referral program terms and conditions apply.</p>",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 93,
+   "sname": "W6 — Merchant Referral Program",
+   "status": "paused",
+   "stepid": 19043,
+   "step_order": 2,
+   "action_type": "task",
+   "subject": "Referral Ask Call — {{firstName}} at {{companyName}}",
+   "body": null,
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 93,
+   "sname": "W6 — Merchant Referral Program",
+   "status": "paused",
+   "stepid": 19044,
+   "step_order": 3,
+   "action_type": "email",
+   "subject": "Still happy to pass along referral details, {{firstName}}",
+   "body": "<p>Hi {{firstName}},</p><p>If you've thought of any business owners who take cards, we're happy to do the same analysis for them — free of charge. Just reply with a name and we'll take it from there.</p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Referral program terms and conditions apply.</p>",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 94,
+   "sname": "W6 — Partner Referral Sequence",
+   "status": "paused",
+   "stepid": 19045,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Your partner referral kit — Liberty Bancard",
+   "body": "<p>Hi {{firstName}},</p><p>Thank you for partnering with Liberty Bancard. Here's what you need to start referring:</p><ul><li>Your unique referral link</li><li>Co-branded one-pager for clients</li><li>Commission tier breakdown</li></ul><p>Every merchant you refer who activates earns you a residual commission on their monthly volume — for life.</p><p><a href=\"https://libertybancard.com/partners/portal\">Access Partner Portal</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Partner program terms and commission schedules apply.</p>",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 94,
+   "sname": "W6 — Partner Referral Sequence",
+   "status": "paused",
+   "stepid": 19046,
+   "step_order": 2,
+   "action_type": "task",
+   "subject": "Partner Onboarding Call — {{firstName}}",
+   "body": null,
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  },
+  {
+   "sid": 94,
+   "sname": "W6 — Partner Referral Sequence",
+   "status": "paused",
+   "stepid": 19047,
+   "step_order": 3,
+   "action_type": "email",
+   "subject": "Any merchants to introduce us to, {{firstName}}?",
+   "body": "<p>Hi {{firstName}},</p><p>Just checking in — any clients who've mentioned payment processing costs or who might benefit from a free review? Even a quick introduction can turn into ongoing residual income for you.</p><p><a href=\"https://libertybancard.com/partners/portal\">View Your Referral Dashboard</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Partner program terms and commission schedules apply.</p>",
+   "variant_b_body": null,
+   "variant_b_subject": null,
+   "template_id": null
+  }
+ ],
+ "wf": [
+  {
+   "id": 4,
+   "name": "C. Appointment Booked",
+   "enabled": true,
+   "version": 1,
+   "actions": [
+    {
+     "type": "create_task",
+     "title": "Prepare for review call - pull statement analysis",
+     "dueHours": 1,
+     "priority": "high",
+     "assignedTo": "Scott Stevenson"
+    },
+    {
+     "type": "send_notification",
+     "title": "Call Booked",
+     "channel": "internal",
+     "message": "Review call booked - prepare statement analysis",
+     "notificationType": "info"
+    },
+    {
+     "body": "Hi {{contact.firstName}}, your call with Liberty Bancard is confirmed. We'll walk through your statement breakdown. Talk soon!",
+     "type": "send_ghl_sms"
+    },
+    {
+     "body": "<p>Hi {{contact.firstName}},</p><p>Your call is confirmed. During our 10-minute review, we'll cover:</p><ul><li>Your current effective rate</li><li>Where your fees are going</li><li>Your options for a better structure</li></ul><p>No pressure, no obligation - just real numbers from your statement.</p><p>Best,<br/>Liberty Bancard Team</p><p style='font-size:11px;color:#999;'>Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+     "type": "send_ghl_email",
+     "subject": "Your Review Call is Confirmed"
+    },
+    {
+     "type": "create_audit_log",
+     "logAction": "appointment_booked_workflow"
+    }
+   ]
+  },
+  {
+   "id": 13,
+   "name": "F4. Application Reminder - Day 7",
+   "enabled": true,
+   "version": 1,
+   "actions": [
+    {
+     "body": "<p>Hi {{contact.firstName}},</p><p>This is our last reminder about your merchant application. Your information is saved and the application is ready whenever you are.</p><p><a href='https://libertybancard.com/apply' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Complete Your Application</a></p><p>If you'd prefer, we can complete the application together over the phone. Just reply 'CALL ME' and we'll reach out.</p><p>Best,<br/>Liberty Bancard Team</p>",
+     "type": "send_ghl_email",
+     "subject": "Last Reminder - Your Application is Saved"
+    },
+    {
+     "body": "Hi {{contact.firstName}}, last reminder about your Liberty Bancard application. Reply CALL ME and we'll help you complete it over the phone. Or finish it at libertybancard.com/apply.",
+     "type": "send_ghl_sms"
+    },
+    {
+     "type": "create_task",
+     "title": "Day 7: Final application follow-up - consider phone assist",
+     "dueHours": 4,
+     "priority": "high",
+     "assignedTo": "Scott Stevenson"
+    },
+    {
+     "type": "send_notification",
+     "title": "Application Still Incomplete (Day 7)",
+     "channel": "internal",
+     "message": "Merchant has not completed application after 7 days. Consider direct outreach.",
+     "notificationType": "alert"
+    },
+    {
+     "type": "create_audit_log",
+     "logAction": "application_reminder_day7"
+    }
+   ]
+  },
+  {
+   "id": 11,
+   "name": "F2. Application Reminder - Day 1",
+   "enabled": true,
+   "version": 1,
+   "actions": [
+    {
+     "body": "<p>Hi {{contact.firstName}},</p><p>We noticed you haven't completed your merchant application yet. It only takes about 5 minutes!</p><p><a href='https://libertybancard.com/apply' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Complete Your Application</a></p><p>Once submitted, we can begin underwriting and get you set up quickly.</p><p>Need help? Just reply to this email or call us at 954-266-8214.</p><p>Best,<br/>Liberty Bancard Team</p>",
+     "type": "send_ghl_email",
+     "subject": "Your Liberty Bancard Application is Waiting"
+    },
+    {
+     "body": "Hi {{contact.firstName}}, friendly reminder to complete your Liberty Bancard application at libertybancard.com/apply. Only takes 5 min! Need help? Reply here or call 954-266-8214.",
+     "type": "send_ghl_sms"
+    },
+    {
+     "type": "create_audit_log",
+     "logAction": "application_reminder_day1"
+    }
+   ]
+  },
+  {
+   "id": 12,
+   "name": "F3. Application Reminder - Day 3",
+   "enabled": true,
+   "version": 1,
+   "actions": [
+    {
+     "body": "<p>Hi {{contact.firstName}},</p><p>Just a friendly follow-up - your merchant application for {{contact.companyName}} is still incomplete.</p><p>We're ready to get you set up with better processing rates as soon as you're done. The application takes about 5 minutes:</p><p><a href='https://libertybancard.com/apply' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Complete Your Application</a></p><p>If you're running into any issues or have questions about the process, we're here to help. Reply to this email or give us a call.</p><p>Best,<br/>Liberty Bancard Team</p>",
+     "type": "send_ghl_email",
+     "subject": "Don't Miss Out - Complete Your Application"
+    },
+    {
+     "body": "Hi {{contact.firstName}}, your Liberty Bancard application is still waiting. Complete it in 5 min at libertybancard.com/apply. Questions? Call 954-266-8214 - we're happy to walk you through it!",
+     "type": "send_ghl_sms"
+    },
+    {
+     "type": "create_task",
+     "title": "Day 3: Follow up on incomplete application",
+     "dueHours": 8,
+     "priority": "medium",
+     "assignedTo": "Scott Stevenson"
+    },
+    {
+     "type": "create_audit_log",
+     "logAction": "application_reminder_day3"
+    }
+   ]
+  },
+  {
+   "id": 5,
+   "name": "D. No-Show Rescue",
+   "enabled": true,
+   "version": 2,
+   "actions": [
+    {
+     "body": "Hi {{contact.firstName}}, looks like we missed connecting. Want to reschedule your free 10-min statement review? Reply YES and we'll set it up.",
+     "type": "send_ghl_sms"
+    },
+    {
+     "type": "wait",
+     "hours": 24
+    },
+    {
+     "body": "<p>Hi {{contact.firstName}},</p><p>We noticed we weren't able to connect for your statement review call. No worries - we can find a new time whenever you are ready.</p><p>Pick a new time that works: {{calendarLink}}</p><p>If you would like us to review your statement, you can upload it here: <a href='https://libertybancard.com/upload-statement'>Upload your statement</a></p><p>Best,<br/>Liberty Bancard Team</p><p style='font-size:11px;color:#999;'>Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+     "type": "send_ghl_email",
+     "subject": "Let's reschedule your statement review"
+    },
+    {
+     "type": "create_task",
+     "title": "No-show follow-up - attempt reschedule",
+     "dueHours": 48,
+     "priority": "medium",
+     "assignedTo": "Scott Stevenson"
+    },
+    {
+     "type": "create_audit_log",
+     "logAction": "no_show_rescue_workflow"
+    }
+   ]
+  },
+  {
+   "id": 7,
+   "name": "F. Closed Won - Onboarding Kickoff",
+   "enabled": true,
+   "version": 2,
+   "actions": [
+    {
+     "type": "update_deal",
+     "notes": "Deal won - moved to onboarding pipeline",
+     "stage": "Contract Sent",
+     "pipeline": "onboarding"
+    },
+    {
+     "type": "create_onboarding_checklist"
+    },
+    {
+     "type": "create_task",
+     "title": "Send application + collect docs",
+     "dueHours": 2,
+     "priority": "high",
+     "assignedTo": "Scott Stevenson"
+    },
+    {
+     "type": "create_task",
+     "title": "Verify document checklist complete (statement, voided check, ID)",
+     "dueHours": 48,
+     "priority": "high",
+     "assignedTo": "Scott Stevenson"
+    },
+    {
+     "type": "create_task",
+     "title": "Order terminal (if applicable)",
+     "dueHours": 24,
+     "priority": "medium",
+     "assignedTo": "Scott Stevenson"
+    },
+    {
+     "type": "send_notification",
+     "title": "New Deal Won!",
+     "channel": "internal",
+     "message": "Deal closed won - begin onboarding immediately. Application link sent to merchant, document collection initiated.",
+     "notificationType": "success"
+    },
+    {
+     "body": "<p>Hi {{contact.firstName}},</p><p>Welcome aboard! We're excited to get {{contact.companyName}} set up with better processing.</p><p><strong>Step 1: Complete Your Application</strong></p><p>Your merchant application takes about 5 minutes to complete. Click below to get started:</p><p><a href='https://libertybancard.com/apply' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Start Your Application</a></p><p><strong>Step 2: Upload Required Documents</strong></p><p>To complete underwriting, we'll need:</p><ul><li>Most recent processing statement</li><li>Voided check or bank letter</li><li>Government-issued photo ID</li></ul><p>Your representative will share a secure link for documents.</p><p><strong>What Happens Next:</strong></p><ol><li>Complete the application (5 min)</li><li>Upload required documents</li><li>Underwriting review (typically 24-48 hours)</li><li>Terminal setup and configuration (if applicable)</li><li>Go-live and first batch!</li></ol><p>You'll have a dedicated point of contact throughout. We'll keep you updated at every step.</p><p>Best,<br/>Liberty Bancard Team</p>",
+     "type": "send_ghl_email",
+     "subject": "Welcome to Liberty Bancard - Your Application & Next Steps"
+    },
+    {
+     "body": "Welcome to Liberty Bancard, {{contact.firstName}}! Your application is ready at libertybancard.com/apply - takes about 5 min. We'll also need your processing statement, voided check, and photo ID. Questions? Just reply here.",
+     "type": "send_ghl_sms"
+    },
+    {
+     "type": "update_contact_tags",
+     "addTags": [
+      "status_onboarding",
+      "closed_won"
+     ]
+    },
+    {
+     "type": "create_audit_log",
+     "logAction": "closed_won_onboarding_workflow"
+    }
+   ]
+  }
+ ],
+ "tpl": [
+  {
+   "id": 1,
+   "name": "Proposal Email",
+   "subject": "Your Processing Analysis is Ready - {{contact.companyName}}",
+   "body": "<p>Hi {{contact.firstName}},</p>\n<p>We've completed our review of your processing statement. Here's what we found:</p>\n<ul>\n<li><strong>Current Effective Rate:</strong> {{deal.effectiveRate}}</li>\n<li><strong>Monthly Volume:</strong> {{deal.totalVolume}}</li>\n<li><strong>Current Fees:</strong> {{deal.totalFees}}</li>\n<li><strong>Top Cost Drivers:</strong> {{deal.topCostDrivers}}</li>\n<li><strong>Recommended Path:</strong> {{deal.recommendedPath}}</li>\n</ul>\n<p><strong>Next Step:</strong> <a href=\"{{calendarLink}}\">Book a 10-minute call</a> to walk through the numbers together.</p>\n<p>Best,<br/>Liberty Bancard Team</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
+   "content_version": 1
+  },
+  {
+   "id": 6,
+   "name": "90-Day Reactivation Email",
+   "subject": "Your free processing review is still available",
+   "body": "<p>Hi {{contact.firstName}},</p>\n<p>It's been a while since we last connected. Just wanted to let you know your processing review is still available.</p>\n<p>A lot can change in a few months - new card brand rules, rate adjustments, new programs. If your current processor hasn't reviewed your rates lately, it might be time.</p>\n<p>Want a fresh look? <a href=\"{{calendarLink}}\">Book a 10-minute review</a> - no obligation.</p>\n<p>Best,<br/>Liberty Bancard Team</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
+   "content_version": 1
+  }
+ ]
+}

@@ -6,6 +6,7 @@ import { isGhlConfigured } from "./ghl";
 import { sanitizeFirstName } from "./contact-name-utils";
 import { getEmailSignatureHtml, type EmailSignature } from "./email-signatures";
 import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
+import { campaignMergeFields, applyCampaignMergeFields } from "./campaign-merge-fields";
 import { logAiCall } from "./ai-audit-logger";
 import { evaluateContactability, evaluateContactDecisions } from "./contactability";
 import { READINESS_MODEL_VERSION } from "./contact-readiness";
@@ -75,22 +76,10 @@ async function generatePersonalizedEmail(
   stepBody: string,
   stepNumber: number
 ): Promise<{ subject: string; body: string }> {
-  const mergeFields: Record<string, string> = {
-    "{{first_name}}": sanitizeFirstName(prospect.ownerFirstName) || "there",
-    "{{last_name}}": prospect.ownerLastName || "",
-    "{{company_name}}": prospect.companyName || "your business",
-    "{{vertical}}": prospect.vertical || "your industry",
-    "{{city}}": prospect.city || "",
-    "{{state}}": prospect.state || "",
-  };
+  const mergeFields = campaignMergeFields(prospect);
 
-  let subject = stepSubject;
-  let body = stepBody;
-
-  for (const [key, value] of Object.entries(mergeFields)) {
-    subject = subject.replace(new RegExp(key.replace(/[{}]/g, "\\$&"), "g"), value);
-    body = body.replace(new RegExp(key.replace(/[{}]/g, "\\$&"), "g"), value);
-  }
+  const subject = applyCampaignMergeFields(stepSubject, mergeFields);
+  const body = applyCampaignMergeFields(stepBody, mergeFields);
 
   if (campaign.aiPersonalization) {
     try {

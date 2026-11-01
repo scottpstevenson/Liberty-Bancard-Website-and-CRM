@@ -1,0 +1,4609 @@
+{
+  "source": "Read-only production snapshot reconciled with Appendix A",
+  "snapshot": {
+    "file": "production-snapshot-2026-11-01.json",
+    "readAt": "2026-11-01T20:40:57.923Z",
+    "servedBuild": "6777641f",
+    "environment": "production (read-only executeSql)"
+  },
+  "productionRead": true,
+  "deletionOrRetirementAuthorized": false,
+  "totals": {
+    "campaigns": 20,
+    "campaignSteps": 79,
+    "sequences": 127,
+    "sequenceSteps": 517,
+    "templates": 8,
+    "workflows": 17
+  },
+  "appendixATotals": {
+    "campaigns": 23,
+    "sequences": 127,
+    "templates": 8,
+    "workflows": 17,
+    "campaignSteps": 80,
+    "sequenceSteps": 517
+  },
+  "linkCensus": {
+    "site_other": 45,
+    "ghl_widget": 251,
+    "retired_first_party": 16,
+    "booking": 6,
+    "secure_upload": 6
+  },
+  "reconciliation": {
+    "matched": 172,
+    "nameDiffers": 0,
+    "newSinceAppendixA": 0,
+    "absentFromProduction": [
+      {
+        "assetType": "campaign",
+        "id": 79,
+        "name": "mismatch-gate-test-73d6d08a"
+      },
+      {
+        "assetType": "campaign",
+        "id": 77,
+        "name": "mismatch-gate-test-7e85fb30"
+      },
+      {
+        "assetType": "campaign",
+        "id": 69,
+        "name": "Preview-Test-concurrent-1783799218733"
+      }
+    ]
+  },
+  "flags": {
+    "retiredFirstPartyLink": [
+      "sequence 36",
+      "sequence 85",
+      "sequence 86",
+      "sequence 91",
+      "sequence 93",
+      "sequence 94",
+      "workflow 7",
+      "workflow 11",
+      "workflow 12",
+      "workflow 13"
+    ],
+    "ghlWidgetLink": [
+      "sequence 4",
+      "sequence 5",
+      "sequence 6",
+      "sequence 7",
+      "sequence 8",
+      "sequence 9",
+      "sequence 10",
+      "sequence 11",
+      "sequence 12",
+      "sequence 13",
+      "sequence 14",
+      "sequence 15",
+      "sequence 16",
+      "sequence 17",
+      "sequence 18",
+      "sequence 19",
+      "sequence 20",
+      "sequence 21",
+      "sequence 22",
+      "sequence 23",
+      "sequence 24",
+      "sequence 25",
+      "sequence 30",
+      "sequence 33",
+      "sequence 36",
+      "sequence 37",
+      "sequence 38",
+      "sequence 39",
+      "sequence 40",
+      "sequence 41",
+      "sequence 42",
+      "sequence 43",
+      "sequence 44",
+      "sequence 45",
+      "sequence 46",
+      "sequence 47",
+      "sequence 48",
+      "sequence 49",
+      "sequence 50",
+      "sequence 51",
+      "sequence 52",
+      "sequence 53",
+      "sequence 54",
+      "sequence 55",
+      "sequence 56",
+      "sequence 57",
+      "sequence 58",
+      "sequence 59",
+      "sequence 60",
+      "sequence 61",
+      "sequence 62",
+      "sequence 63",
+      "sequence 64",
+      "sequence 65",
+      "sequence 66",
+      "sequence 67",
+      "sequence 68",
+      "sequence 69",
+      "sequence 70",
+      "sequence 71",
+      "sequence 72",
+      "sequence 73",
+      "sequence 74",
+      "sequence 75",
+      "sequence 76",
+      "sequence 77",
+      "sequence 78",
+      "sequence 79",
+      "sequence 80",
+      "sequence 81",
+      "sequence 82",
+      "sequence 84",
+      "sequence 87",
+      "sequence 89",
+      "sequence 90",
+      "sequence 1150",
+      "sequence 1151",
+      "sequence 1152"
+    ],
+    "estimatedSavingsToken": [
+      "sequence 36",
+      "sequence 84"
+    ]
+  },
+  "campaigns": [
+    {
+      "assetType": "campaign",
+      "id": 2,
+      "name": "SDR-01: Statement Review Cold Outreach",
+      "status": "draft",
+      "steps": 5,
+      "aiPersonalization": true,
+      "contentRevision": 1,
+      "approvedRevision": null,
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 3,
+      "name": "SDR-02: 0% Processing Program",
+      "status": "draft",
+      "steps": 5,
+      "aiPersonalization": true,
+      "contentRevision": 1,
+      "approvedRevision": null,
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 4,
+      "name": "SDR-03: Beat Square & Stripe",
+      "status": "draft",
+      "steps": 5,
+      "aiPersonalization": true,
+      "contentRevision": 1,
+      "approvedRevision": null,
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 5,
+      "name": "SDR-04: Restaurant & Food Service",
+      "status": "draft",
+      "steps": 5,
+      "aiPersonalization": true,
+      "contentRevision": 1,
+      "approvedRevision": null,
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 6,
+      "name": "SDR-05: Medical / Dental / Medspa",
+      "status": "draft",
+      "steps": 5,
+      "aiPersonalization": true,
+      "contentRevision": 1,
+      "approvedRevision": null,
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 7,
+      "name": "SDR-06: Retail & E-Commerce",
+      "status": "draft",
+      "steps": 5,
+      "aiPersonalization": true,
+      "contentRevision": 1,
+      "approvedRevision": null,
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 8,
+      "name": "SDR-07: Auto / Service / Trades",
+      "status": "draft",
+      "steps": 5,
+      "aiPersonalization": true,
+      "contentRevision": 1,
+      "approvedRevision": null,
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 9,
+      "name": "SDR-08: Win-Back / Reactivation",
+      "status": "draft",
+      "steps": 4,
+      "aiPersonalization": true,
+      "contentRevision": 1,
+      "approvedRevision": null,
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 10,
+      "name": "SDR-09: Professional Services",
+      "status": "draft",
+      "steps": 5,
+      "aiPersonalization": true,
+      "contentRevision": 1,
+      "approvedRevision": null,
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 11,
+      "name": "SDR-10: Salon / Spa / Beauty",
+      "status": "draft",
+      "steps": 5,
+      "aiPersonalization": true,
+      "contentRevision": 1,
+      "approvedRevision": null,
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 82,
+      "name": "SFP-V2: Automotive (draft, unreviewed)",
+      "status": "draft",
+      "steps": 3,
+      "aiPersonalization": true,
+      "contentRevision": 3,
+      "approvedRevision": null,
+      "currentPackagePin": true,
+      "match": "matched",
+      "disposition": "keep_current",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 83,
+      "name": "SFP-V2: Healthcare (draft, unreviewed)",
+      "status": "draft",
+      "steps": 3,
+      "aiPersonalization": true,
+      "contentRevision": 3,
+      "approvedRevision": null,
+      "currentPackagePin": true,
+      "match": "matched",
+      "disposition": "keep_current",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 84,
+      "name": "SFP-V2: Beauty/Spa (draft, unreviewed)",
+      "status": "draft",
+      "steps": 3,
+      "aiPersonalization": true,
+      "contentRevision": 3,
+      "approvedRevision": null,
+      "currentPackagePin": true,
+      "match": "matched",
+      "disposition": "keep_current",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 85,
+      "name": "SFP-V2: Construction/Trades/Home Services (draft, unreviewed)",
+      "status": "draft",
+      "steps": 3,
+      "aiPersonalization": true,
+      "contentRevision": 3,
+      "approvedRevision": null,
+      "currentPackagePin": true,
+      "match": "matched",
+      "disposition": "keep_current",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 86,
+      "name": "SFP-V2: Fitness/Recreation (draft, unreviewed)",
+      "status": "draft",
+      "steps": 3,
+      "aiPersonalization": true,
+      "contentRevision": 3,
+      "approvedRevision": null,
+      "currentPackagePin": true,
+      "match": "matched",
+      "disposition": "keep_current",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 87,
+      "name": "SFP-V2: Automotive (draft, unreviewed) (launch 2026-10-19.2)",
+      "status": "draft",
+      "steps": 3,
+      "aiPersonalization": true,
+      "contentRevision": 2,
+      "approvedRevision": null,
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "historical_read_only",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 88,
+      "name": "SFP-V2: Healthcare (draft, unreviewed) (launch 2026-10-19.2)",
+      "status": "draft",
+      "steps": 3,
+      "aiPersonalization": true,
+      "contentRevision": 2,
+      "approvedRevision": null,
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "historical_read_only",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 89,
+      "name": "SFP-V2: Beauty/Spa (draft, unreviewed) (launch 2026-10-19.2)",
+      "status": "draft",
+      "steps": 3,
+      "aiPersonalization": true,
+      "contentRevision": 2,
+      "approvedRevision": null,
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "historical_read_only",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 90,
+      "name": "SFP-V2: Construction/Trades/Home Services (draft, unreviewed) (launch 2026-10-19.2)",
+      "status": "draft",
+      "steps": 3,
+      "aiPersonalization": true,
+      "contentRevision": 2,
+      "approvedRevision": null,
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "historical_read_only",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "campaign",
+      "id": 91,
+      "name": "SFP-V2: Fitness/Recreation (draft, unreviewed) (launch 2026-10-19.2)",
+      "status": "draft",
+      "steps": 3,
+      "aiPersonalization": true,
+      "contentRevision": 2,
+      "approvedRevision": null,
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "historical_read_only",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    }
+  ],
+  "sequences": [
+    {
+      "assetType": "sequence",
+      "id": 1,
+      "name": "New Lead Drip Campaign",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 0,
+      "enrollments": {
+        "completed": 272
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 2,
+      "name": "New Lead Drip Campaign",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {
+        "completed": 272
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 3,
+      "name": "Statement Review Follow-up",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 4,
+      "name": "1. Switch & Save — Statement Audit",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sales",
+      "version": 1,
+      "steps": 8,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 3
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 5,
+      "name": "2. Payment Stack 101 — Education",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "education",
+      "version": 1,
+      "steps": 4,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 2
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 6,
+      "name": "3. Fast Approval — Application Completion",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "onboarding",
+      "version": 1,
+      "steps": 4,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 2
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 7,
+      "name": "4. Trust Builder — Authority Sequence",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sales",
+      "version": 1,
+      "steps": 6,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 8,
+      "name": "5. Chargeback Defense",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "risk",
+      "version": 1,
+      "steps": 6,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 9,
+      "name": "6. Funding Speed & Reliability",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sales",
+      "version": 1,
+      "steps": 4,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 2
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 10,
+      "name": "7. POS vs Terminal — Decision Guide",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "hardware",
+      "version": 1,
+      "steps": 4,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 2
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 11,
+      "name": "8. Liberty Smart Terminal — Product Showcase",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "hardware",
+      "version": 1,
+      "steps": 4,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 2
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 12,
+      "name": "9. Surcharge & Cash Discount — Compliance",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sales",
+      "version": 1,
+      "steps": 4,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 2
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 13,
+      "name": "10. Retail Merchants — SDR Outbound + Drip",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr_outbound",
+      "version": 1,
+      "steps": 6,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 5
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 14,
+      "name": "11. Auto Merchants — SDR Outbound + Drip",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr_outbound",
+      "version": 1,
+      "steps": 6,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 5
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 15,
+      "name": "12. Medical & Med Spa — SDR Outbound + Drip",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr_outbound",
+      "version": 1,
+      "steps": 6,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 5
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 16,
+      "name": "13. Recurring Billing — Subscription Merchants",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sales",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 17,
+      "name": "14. Text-to-Pay & Payment Links",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sales",
+      "version": 1,
+      "steps": 4,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 3
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 18,
+      "name": "15. Omnichannel — Online + In-Person",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sales",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 19,
+      "name": "16. Security & PCI Compliance — Made Easy",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "education",
+      "version": 1,
+      "steps": 4,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 3
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 20,
+      "name": "17. Contract Escape — Switch Help",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sales",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 21,
+      "name": "18. Objection Crusher — Overcome Hesitation",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sales",
+      "version": 1,
+      "steps": 6,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 5
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 22,
+      "name": "19. Reactivation — Cold Lead Revival",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "reactivation",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 2
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 23,
+      "name": "20. Referral Flywheel — Merchant to Merchant",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "referral",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {
+        "active": 213,
+        "completed": 2,
+        "paused": 65
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 24,
+      "name": "V-Retail: SDR Outbound Prospecting",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 1
+      },
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 25,
+      "name": "V-Retail: Inbound Lead Nurture",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "inbound",
+      "version": 1,
+      "steps": 4,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 1
+      },
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 26,
+      "name": "V-Retail: Account Management Ops",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "operations",
+      "version": 1,
+      "steps": 2,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 27,
+      "name": "V-Auto: SDR Outbound Prospecting",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{businessName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 28,
+      "name": "V-Auto: Inbound Lead Nurture",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "inbound",
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 29,
+      "name": "V-Auto: Account Management Ops",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "operations",
+      "version": 1,
+      "steps": 2,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 30,
+      "name": "V-Medical: SDR Outbound Prospecting",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 1
+      },
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 31,
+      "name": "V-Medical: Inbound Lead Nurture",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "inbound",
+      "version": 1,
+      "steps": 3,
+      "enrollments": {
+        "completed": 1
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 32,
+      "name": "V-Medical: Account Management Ops",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "operations",
+      "version": 1,
+      "steps": 1,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 33,
+      "name": "V-Restaurant: SDR Outbound Prospecting",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {
+        "active": 1,
+        "paused": 3
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 1
+      },
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 34,
+      "name": "V-Restaurant: Inbound Lead Nurture",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "inbound",
+      "version": 1,
+      "steps": 3,
+      "enrollments": {
+        "completed": 5
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 35,
+      "name": "V-Restaurant: Account Management Ops",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "operations",
+      "version": 1,
+      "steps": 2,
+      "enrollments": {
+        "active": 1,
+        "paused": 3
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [
+        "{{agentEmail}}",
+        "{{agentName}}",
+        "{{agentPhone}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 36,
+      "name": "20. Free Analysis Follow-Up",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sales",
+      "version": 1,
+      "steps": 9,
+      "enrollments": {
+        "active": 5,
+        "paused": 3
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 3,
+        "retired_first_party": 1
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{currentProcessor}}",
+        "{{estimatedSavings}}",
+        "{{firstName}}",
+        "{{industry}}",
+        "{{monthlyVolume}}",
+        "{{recommendedProgram}}",
+        "{{recommendedTerminal}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": true,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": true
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 37,
+      "name": "21. Referral Flywheel — Merchant to Merchant",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "referral",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {
+        "active": 195,
+        "paused": 82
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 38,
+      "name": "Post-Call Review Follow-Up",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 4,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 2
+      },
+      "tokens": [
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 39,
+      "name": "Proposal Follow-Up",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 4,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 2
+      },
+      "tokens": [
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 40,
+      "name": "No-Show Reschedule",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 3
+      },
+      "tokens": [
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 41,
+      "name": "Long-Term Nurture",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 4,
+      "enrollments": {
+        "paused": 1
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 1
+      },
+      "tokens": [
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 42,
+      "name": "22. FL Auto Repair — Vertical Playbook",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr_outbound",
+      "version": 1,
+      "steps": 6,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 5
+      },
+      "tokens": [
+        "{{agentName}}",
+        "{{companyName}}",
+        "{{estimatedVolume}}",
+        "{{firstName}}",
+        "{{serviceType}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 43,
+      "name": "23. FL Med Spa — Vertical Playbook",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr_outbound",
+      "version": 1,
+      "steps": 6,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 5
+      },
+      "tokens": [
+        "{{agentName}}",
+        "{{companyName}}",
+        "{{estimatedVolume}}",
+        "{{firstName}}",
+        "{{serviceType}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 44,
+      "name": "24. FL Medical/Dental — Vertical Playbook",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr_outbound",
+      "version": 1,
+      "steps": 6,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 5
+      },
+      "tokens": [
+        "{{agentName}}",
+        "{{companyName}}",
+        "{{estimatedVolume}}",
+        "{{firstName}}",
+        "{{serviceType}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 45,
+      "name": "SDR: Cold Outbound — Auto Repair",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr_cold_outbound",
+      "version": 1,
+      "steps": 11,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 5
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 46,
+      "name": "SDR: Cold Outbound — Med Spa",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr_cold_outbound",
+      "version": 1,
+      "steps": 11,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 5
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 47,
+      "name": "SDR: Cold Outbound — Dental",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr_cold_outbound",
+      "version": 1,
+      "steps": 11,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 5
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 48,
+      "name": "SDR: Reply Engaged",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr_reply_engaged",
+      "version": 1,
+      "steps": 7,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 49,
+      "name": "SDR: Statement Chase",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr_statement_chase",
+      "version": 1,
+      "steps": 8,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 50,
+      "name": "SDR: Proposal Follow-Up",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr_proposal_followup",
+      "version": 1,
+      "steps": 7,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 51,
+      "name": "SDR: No-Show Recovery",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr_noshow_recovery",
+      "version": 1,
+      "steps": 7,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 3
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 52,
+      "name": "Voicemail Follow-Up SMS",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "voicemail_followup_sms",
+      "version": 1,
+      "steps": 1,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 1
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 53,
+      "name": "25. FL Construction — Vertical Playbook",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr_outbound",
+      "version": 1,
+      "steps": 6,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 5
+      },
+      "tokens": [
+        "{{agentName}}",
+        "{{companyName}}",
+        "{{estimatedVolume}}",
+        "{{firstName}}",
+        "{{serviceType}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 54,
+      "name": "SDR: Cold Outbound — Construction",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": "sdr_cold_outbound",
+      "version": 1,
+      "steps": 11,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 5
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}",
+        "{{serviceType}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 55,
+      "name": "V-Med Spa: SDR Outbound Prospecting",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "sdr",
+      "version": 1,
+      "steps": 7,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 56,
+      "name": "V-Med Spa: Inbound Lead Nurture",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "inbound",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 57,
+      "name": "V-Med Spa: Account Management Ops",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "operations",
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "ghl_widget": 3
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 58,
+      "name": "V-Dental: SDR Outbound Prospecting",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "sdr",
+      "version": 1,
+      "steps": 7,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 59,
+      "name": "V-Dental: Inbound Lead Nurture",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "inbound",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 60,
+      "name": "V-Dental: Account Management Ops",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "operations",
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "ghl_widget": 3
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 61,
+      "name": "V-Auto Repair: SDR Outbound Prospecting",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "sdr",
+      "version": 1,
+      "steps": 7,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 62,
+      "name": "V-Auto Repair: Inbound Lead Nurture",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "inbound",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 63,
+      "name": "V-Auto Repair: Account Management Ops",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "operations",
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "ghl_widget": 3
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 64,
+      "name": "V-Salon: SDR Outbound Prospecting",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "sdr",
+      "version": 1,
+      "steps": 7,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 65,
+      "name": "V-Salon: Inbound Lead Nurture",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "inbound",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 66,
+      "name": "V-Salon: Account Management Ops",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "operations",
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "ghl_widget": 3
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 67,
+      "name": "V-Gym: SDR Outbound Prospecting",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "sdr",
+      "version": 1,
+      "steps": 7,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 68,
+      "name": "V-Gym: Inbound Lead Nurture",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "inbound",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 69,
+      "name": "V-Gym: Account Management Ops",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "operations",
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "ghl_widget": 3
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 70,
+      "name": "V-Hotel: SDR Outbound Prospecting",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "sdr",
+      "version": 1,
+      "steps": 7,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 71,
+      "name": "V-Hotel: Inbound Lead Nurture",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "inbound",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 72,
+      "name": "V-Hotel: Account Management Ops",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "operations",
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "ghl_widget": 3
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 73,
+      "name": "V-Landscaping: SDR Outbound Prospecting",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "sdr",
+      "version": 1,
+      "steps": 7,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 74,
+      "name": "V-Landscaping: Inbound Lead Nurture",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "inbound",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 75,
+      "name": "V-Landscaping: Account Management Ops",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "operations",
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "ghl_widget": 3
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 76,
+      "name": "V-Construction: SDR Outbound Prospecting",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "sdr",
+      "version": 1,
+      "steps": 7,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 77,
+      "name": "V-Construction: Inbound Lead Nurture",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "inbound",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 78,
+      "name": "V-Construction: Account Management Ops",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "operations",
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "ghl_widget": 3
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 79,
+      "name": "V-Legal: SDR Outbound Prospecting",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "sdr",
+      "version": 1,
+      "steps": 7,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 80,
+      "name": "V-Legal: Inbound Lead Nurture",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "inbound",
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{custom_values.booking_link}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 81,
+      "name": "V-Legal: Account Management Ops",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "operations",
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "ghl_widget": 3
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 82,
+      "name": "Inbound Confirmation",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "inbound",
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 83,
+      "name": "Objection Crusher",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "booking": 3
+      },
+      "tokens": [
+        "{{calendarLink}}",
+        "{{contact.companyName}}",
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 84,
+      "name": "Switch & Save (Core Sales)",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "sales",
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 3
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{estimatedSavings}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": true
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 85,
+      "name": "W6 — Cold Outreach: Email + Manual Call",
+      "status": "paused",
+      "retired": false,
+      "family": "cold-email-manual-call",
+      "category": null,
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "retired_first_party": 3
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": true,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 86,
+      "name": "W6 — Inbound Lead: No PEWC",
+      "status": "paused",
+      "retired": false,
+      "family": "inbound-no-pewc",
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "retired_first_party": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": true,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 87,
+      "name": "W6 — Statement Uploaded",
+      "status": "paused",
+      "retired": false,
+      "family": "statement-uploaded",
+      "category": null,
+      "version": 1,
+      "steps": 4,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 1
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 88,
+      "name": "W6 — Booked Appointment",
+      "status": "paused",
+      "retired": false,
+      "family": "booked-appointment",
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 89,
+      "name": "W6 — No-Show Recovery",
+      "status": "paused",
+      "retired": false,
+      "family": "no-show-recovery",
+      "category": null,
+      "version": 1,
+      "steps": 4,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 2,
+        "site_other": 1
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 90,
+      "name": "W6 — Proposal Sent",
+      "status": "paused",
+      "retired": false,
+      "family": "proposal-sent",
+      "category": null,
+      "version": 1,
+      "steps": 5,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "ghl_widget": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 91,
+      "name": "W6 — Application Abandoned",
+      "status": "paused",
+      "retired": false,
+      "family": "application-abandoned",
+      "category": null,
+      "version": 1,
+      "steps": 4,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "retired_first_party": 2,
+        "site_other": 1
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": true,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 92,
+      "name": "W6 — Closed Won: Onboarding",
+      "status": "paused",
+      "retired": false,
+      "family": "closed-won-onboarding",
+      "category": null,
+      "version": 1,
+      "steps": 4,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 93,
+      "name": "W6 — Merchant Referral Program",
+      "status": "paused",
+      "retired": false,
+      "family": "merchant-referral",
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "retired_first_party": 1
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": true,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 94,
+      "name": "W6 — Partner Referral Sequence",
+      "status": "paused",
+      "retired": false,
+      "family": "partner-referral",
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "retired_first_party": 2
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": true,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 202,
+      "name": "Test NLE Sequence 1783570429342",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 0,
+      "enrollments": {
+        "active": 1
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 203,
+      "name": "Test NLE Sequence 1783570429349",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 0,
+      "enrollments": {
+        "active": 1
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 235,
+      "name": "PreEnrollGate Test 1784682810135-btdahvfhokw",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 1,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 236,
+      "name": "PreEnrollGate Test 1784682810521-7c3fv5duvh6",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 1,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 237,
+      "name": "PreEnrollGate Test 1784682810564-ngkkgxsa5x",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 2,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 238,
+      "name": "PreEnrollGate Test 1784682810621-f659h3u2xh",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 1,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 239,
+      "name": "PreEnrollGate Test 1784682810654-1i0yos4t59b",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 2,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 240,
+      "name": "PreEnrollGate Test 1784682810694-t7wrylar9dn",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 2,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 241,
+      "name": "PreEnrollGate Test 1784682810733-680f078lkvj",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 1,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 242,
+      "name": "CAN-SPAM Block Test 1784682811651-xrjhe3lechk",
+      "status": "paused",
+      "retired": false,
+      "family": "cold-email-manual-call",
+      "category": null,
+      "version": 1,
+      "steps": 1,
+      "enrollments": {
+        "paused": 8
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 243,
+      "name": "KillSwitch Test 1784682813215-sqjpirinkh9",
+      "status": "paused",
+      "retired": false,
+      "family": "cold-email-manual-call",
+      "category": null,
+      "version": 1,
+      "steps": 1,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 244,
+      "name": "KillSwitch Test 1784682814133-tu1ojcmnod",
+      "status": "paused",
+      "retired": false,
+      "family": "cold-email-manual-call",
+      "category": null,
+      "version": 1,
+      "steps": 1,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 245,
+      "name": "KillSwitch Test 1784682815592-eh4xndjsd0c",
+      "status": "paused",
+      "retired": false,
+      "family": "cold-email-manual-call",
+      "category": null,
+      "version": 1,
+      "steps": 1,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 246,
+      "name": "DailyCap Test 1784682816434-xyr88g4qgh",
+      "status": "paused",
+      "retired": false,
+      "family": "cold-email-manual-call",
+      "category": null,
+      "version": 1,
+      "steps": 1,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 509,
+      "name": "Test NLE Sequence 1784737355641",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 0,
+      "enrollments": {
+        "active": 2
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 510,
+      "name": "Test NLE Sequence 1784737355650",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 0,
+      "enrollments": {
+        "active": 1
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 511,
+      "name": "Test NLE Sequence 1784737373518",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 1,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 512,
+      "name": "Test NLE Sequence 1784737373552",
+      "status": "paused",
+      "retired": false,
+      "family": null,
+      "category": null,
+      "version": 1,
+      "steps": 0,
+      "enrollments": {
+        "paused": 911
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "diagnostic_review",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 1148,
+      "name": "Statement Chase (Auto)",
+      "status": "active",
+      "retired": false,
+      "family": "statement_acquisition",
+      "category": null,
+      "version": 1,
+      "steps": 4,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "secure_upload": 3
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 1149,
+      "name": "30-Day Merchant Success Check-In",
+      "status": "paused",
+      "retired": false,
+      "family": "merchant_success_30d",
+      "category": "merchant_success",
+      "version": 1,
+      "steps": 2,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 1150,
+      "name": "60-Day Merchant Health Review",
+      "status": "paused",
+      "retired": false,
+      "family": "merchant_success_60d",
+      "category": "merchant_success",
+      "version": 1,
+      "steps": 2,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "ghl_widget": 1
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 1151,
+      "name": "90-Day QBR & Upsell",
+      "status": "paused",
+      "retired": false,
+      "family": "merchant_success_90d",
+      "category": "merchant_success",
+      "version": 1,
+      "steps": 3,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "ghl_widget": 1
+      },
+      "tokens": [
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 1152,
+      "name": "Win-Back: Critical Churn Risk",
+      "status": "active",
+      "retired": false,
+      "family": null,
+      "category": "win_back",
+      "version": 1,
+      "steps": 4,
+      "enrollments": {},
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "ghl_widget": 4
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": true,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 1153,
+      "name": "SFP Cold Outreach — Automotive (v2)",
+      "status": "paused",
+      "retired": false,
+      "family": "sfp-v2-cold-automotive",
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {
+        "paused": 377,
+        "cancelled": 381
+      },
+      "currentPackagePin": true,
+      "match": "matched",
+      "disposition": "keep_current",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 1154,
+      "name": "SFP Cold Outreach — Healthcare (v2)",
+      "status": "paused",
+      "retired": false,
+      "family": "sfp-v2-cold-healthcare",
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {
+        "paused": 759,
+        "cancelled": 972
+      },
+      "currentPackagePin": true,
+      "match": "matched",
+      "disposition": "keep_current",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 1155,
+      "name": "SFP Cold Outreach — Beauty/Spa (v2)",
+      "status": "paused",
+      "retired": false,
+      "family": "sfp-v2-cold-beauty-spa",
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {
+        "paused": 284,
+        "cancelled": 430
+      },
+      "currentPackagePin": true,
+      "match": "matched",
+      "disposition": "keep_current",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 1156,
+      "name": "SFP Cold Outreach — Construction/Trades/Home Services (v2)",
+      "status": "paused",
+      "retired": false,
+      "family": "sfp-v2-cold-construction-trades",
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {
+        "paused": 266,
+        "cancelled": 348
+      },
+      "currentPackagePin": true,
+      "match": "matched",
+      "disposition": "keep_current",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 1157,
+      "name": "SFP Cold Outreach — Fitness/Recreation (v2)",
+      "status": "paused",
+      "retired": false,
+      "family": "sfp-v2-cold-fitness-recreation",
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {
+        "paused": 172,
+        "cancelled": 274
+      },
+      "currentPackagePin": true,
+      "match": "matched",
+      "disposition": "keep_current",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 1158,
+      "name": "SFP Cold Outreach — Automotive (v2) — launch 2026-10-19.2",
+      "status": "paused",
+      "retired": true,
+      "family": "sfp-v2-cold-automotive",
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {
+        "cancelled": 2,
+        "paused": 7
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "historical_read_only",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 1159,
+      "name": "SFP Cold Outreach — Healthcare (v2) — launch 2026-10-19.2",
+      "status": "paused",
+      "retired": true,
+      "family": "sfp-v2-cold-healthcare",
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {
+        "paused": 44,
+        "cancelled": 24
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "historical_read_only",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 1160,
+      "name": "SFP Cold Outreach — Beauty/Spa (v2) — launch 2026-10-19.2",
+      "status": "paused",
+      "retired": true,
+      "family": "sfp-v2-cold-beauty-spa",
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {
+        "paused": 5,
+        "cancelled": 13
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "historical_read_only",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 1161,
+      "name": "SFP Cold Outreach — Construction/Trades/Home Services (v2) — launch 2026-10-19.2",
+      "status": "paused",
+      "retired": true,
+      "family": "sfp-v2-cold-construction-trades",
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {
+        "paused": 25,
+        "cancelled": 1
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "historical_read_only",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "sequence",
+      "id": 1162,
+      "name": "SFP Cold Outreach — Fitness/Recreation (v2) — launch 2026-10-19.2",
+      "status": "paused",
+      "retired": true,
+      "family": "sfp-v2-cold-fitness-recreation",
+      "category": null,
+      "version": 1,
+      "steps": 3,
+      "enrollments": {
+        "paused": 2
+      },
+      "currentPackagePin": false,
+      "match": "matched",
+      "disposition": "historical_read_only",
+      "linkKinds": {
+        "site_other": 2
+      },
+      "tokens": [
+        "{{companyName}}",
+        "{{firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    }
+  ],
+  "templates": [
+    {
+      "assetType": "template",
+      "id": 1,
+      "name": "Proposal Email",
+      "channel": "email",
+      "active": true,
+      "liveVersion": 1,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "booking": 1
+      },
+      "tokens": [
+        "{{calendarLink}}",
+        "{{contact.companyName}}",
+        "{{contact.firstName}}",
+        "{{deal.effectiveRate}}",
+        "{{deal.recommendedPath}}",
+        "{{deal.topCostDrivers}}",
+        "{{deal.totalFees}}",
+        "{{deal.totalVolume}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "template",
+      "id": 2,
+      "name": "Follow-Up SMS",
+      "channel": "sms",
+      "active": true,
+      "liveVersion": 1,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{calendarLink}}",
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "template",
+      "id": 3,
+      "name": "Welcome Onboarding Email",
+      "channel": "email",
+      "active": true,
+      "liveVersion": 1,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [
+        "{{contact.companyName}}",
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "template",
+      "id": 4,
+      "name": "Day 7 Review Request",
+      "channel": "email",
+      "active": true,
+      "liveVersion": 2,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "template",
+      "id": 5,
+      "name": "30-Day Nurture Email",
+      "channel": "email",
+      "active": true,
+      "liveVersion": 2,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "booking": 1
+      },
+      "tokens": [
+        "{{calendarLink}}",
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "template",
+      "id": 6,
+      "name": "90-Day Reactivation Email",
+      "channel": "email",
+      "active": true,
+      "liveVersion": 1,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "booking": 1
+      },
+      "tokens": [
+        "{{calendarLink}}",
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "template",
+      "id": 7,
+      "name": "Nurture SMS",
+      "channel": "sms",
+      "active": true,
+      "liveVersion": 1,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{calendarLink}}",
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "template",
+      "id": 8,
+      "name": "Support Acknowledgment",
+      "channel": "email",
+      "active": true,
+      "liveVersion": 1,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    }
+  ],
+  "workflows": [
+    {
+      "assetType": "workflow",
+      "id": 1,
+      "name": "New Lead Follow-up",
+      "enabled": true,
+      "version": 1,
+      "retired": false,
+      "messageActions": 0,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "workflow",
+      "id": 2,
+      "name": "A. Statement Upload Intake",
+      "enabled": true,
+      "version": 1,
+      "retired": false,
+      "messageActions": 0,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "workflow",
+      "id": 3,
+      "name": "B. Estimate Request Intake",
+      "enabled": true,
+      "version": 2,
+      "retired": false,
+      "messageActions": 1,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "secure_upload": 1
+      },
+      "tokens": [
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "workflow",
+      "id": 4,
+      "name": "C. Appointment Booked",
+      "enabled": true,
+      "version": 1,
+      "retired": false,
+      "messageActions": 2,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {},
+      "tokens": [
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "workflow",
+      "id": 5,
+      "name": "D. No-Show Rescue",
+      "enabled": true,
+      "version": 2,
+      "retired": false,
+      "messageActions": 2,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "secure_upload": 1
+      },
+      "tokens": [
+        "{{calendarLink}}",
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "workflow",
+      "id": 6,
+      "name": "E. Proposal Follow-Up Cadence",
+      "enabled": true,
+      "version": 2,
+      "retired": false,
+      "messageActions": 3,
+      "match": "matched",
+      "disposition": "reuse_reviewed_library",
+      "linkKinds": {
+        "secure_upload": 1
+      },
+      "tokens": [
+        "{{calendarLink}}",
+        "{{contact.companyName}}",
+        "{{contact.firstName}}",
+        "{{contact.vertical}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "workflow",
+      "id": 7,
+      "name": "F. Closed Won - Onboarding Kickoff",
+      "enabled": true,
+      "version": 2,
+      "retired": false,
+      "messageActions": 2,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "retired_first_party": 2
+      },
+      "tokens": [
+        "{{contact.companyName}}",
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": true,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "workflow",
+      "id": 8,
+      "name": "G. Go-Live Lifecycle (Day 2/7/14/30)",
+      "enabled": true,
+      "version": 2,
+      "retired": false,
+      "messageActions": 4,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [
+        "{{calendarLink}}",
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "workflow",
+      "id": 9,
+      "name": "H. Case Study Request",
+      "enabled": true,
+      "version": 1,
+      "retired": false,
+      "messageActions": 1,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [
+        "{{contact.firstName}}",
+        "{{contact.vertical}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "workflow",
+      "id": 10,
+      "name": "I. Support SLA Escalation",
+      "enabled": true,
+      "version": 1,
+      "retired": false,
+      "messageActions": 0,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "workflow",
+      "id": 11,
+      "name": "F2. Application Reminder - Day 1",
+      "enabled": true,
+      "version": 1,
+      "retired": false,
+      "messageActions": 2,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "retired_first_party": 1,
+        "site_other": 1
+      },
+      "tokens": [
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": true,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "workflow",
+      "id": 12,
+      "name": "F3. Application Reminder - Day 3",
+      "enabled": true,
+      "version": 1,
+      "retired": false,
+      "messageActions": 2,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "retired_first_party": 1,
+        "site_other": 1
+      },
+      "tokens": [
+        "{{contact.companyName}}",
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": true,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "workflow",
+      "id": 13,
+      "name": "F4. Application Reminder - Day 7",
+      "enabled": true,
+      "version": 1,
+      "retired": false,
+      "messageActions": 2,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {
+        "retired_first_party": 1,
+        "site_other": 1
+      },
+      "tokens": [
+        "{{contact.firstName}}"
+      ],
+      "flags": {
+        "retiredFirstPartyLink": true,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "workflow",
+      "id": 14,
+      "name": "Inbound: Booking Intent",
+      "enabled": true,
+      "version": 1,
+      "retired": false,
+      "messageActions": 0,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "workflow",
+      "id": 15,
+      "name": "Inbound: Positive Reply",
+      "enabled": true,
+      "version": 1,
+      "retired": false,
+      "messageActions": 0,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "workflow",
+      "id": 16,
+      "name": "Inbound: Objection",
+      "enabled": true,
+      "version": 1,
+      "retired": false,
+      "messageActions": 0,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    },
+    {
+      "assetType": "workflow",
+      "id": 17,
+      "name": "Inbound: Unsubscribe",
+      "enabled": true,
+      "version": 1,
+      "retired": false,
+      "messageActions": 0,
+      "match": "matched",
+      "disposition": "service_lifecycle",
+      "linkKinds": {},
+      "tokens": [],
+      "flags": {
+        "retiredFirstPartyLink": false,
+        "ghlWidgetLink": false,
+        "estimatedSavingsToken": false
+      }
+    }
+  ]
+}

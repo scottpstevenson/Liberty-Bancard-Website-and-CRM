@@ -2,7 +2,7 @@ import { storage } from "../storage";
 import { auditChange } from "./audit-change";
 import { WorkflowCommandError } from "./workflow-command-error";
 import { publishSystemWording, TemplateVersionError } from "./message-template-versions";
-import { lintRules } from "./message-copy-lint";
+import { lintLinks, lintRules } from "./message-copy-lint";
 
 /**
  * Owner-approved wording replacements from docs/public-journeys/copy-reconciliation.md.
@@ -18,7 +18,35 @@ const BUTTON_STYLE = "display:inline-block;padding:12px 24px;background:#2563eb;
 interface Edit { from: string; to: string }
 interface EmailEdit { subjectFrom?: string; subjectTo?: string; edits: Edit[] }
 
+const MERCHANT_APPLICATION_URL = "https://libertybancard.com/merchant-application";
+const APPLY_BUTTON = `<a href='https://libertybancard.com/apply' style='${BUTTON_STYLE}'>`;
+const REPLY_FOR_HELP = "If you would like help finishing it, just reply to this email and we will walk you through it.";
+
 const WORKFLOW_EMAIL_EDITS: Record<string, EmailEdit[]> = {
+  // Stage 4C1 stored-copy adoption: remove the unverified call length; the booking length is not stated in copy.
+  "C. Appointment Booked": [{
+    edits: [{ from: "During our 10-minute review, we'll cover:", to: "During our review, we'll cover:" }],
+  }],
+  // A new application after a won deal is a new intake, so it points at the application page. The reminder sequences
+  // describe a saved, partly finished application; no scoped continuation link exists, so they offer a reply instead.
+  "F2. Application Reminder - Day 1": [{
+    edits: [{
+      from: `<p>We noticed you haven't completed your merchant application yet. It only takes about 5 minutes!</p><p>${APPLY_BUTTON}Complete Your Application</a></p>`,
+      to: `<p>We noticed you haven't completed your merchant application yet.</p><p>${REPLY_FOR_HELP}</p>`,
+    }],
+  }],
+  "F3. Application Reminder - Day 3": [{
+    edits: [{
+      from: `The application takes about 5 minutes:</p><p>${APPLY_BUTTON}Complete Your Application</a></p>`,
+      to: `${REPLY_FOR_HELP}</p>`,
+    }],
+  }],
+  "F4. Application Reminder - Day 7": [{
+    edits: [{
+      from: `<p>${APPLY_BUTTON}Complete Your Application</a></p><p>If you'd prefer, we can complete the application together over the phone.`,
+      to: "<p>If you'd like help, we can complete the application together over the phone.",
+    }],
+  }],
   "B. Estimate Request Intake": [{
     edits: [
       {
@@ -48,8 +76,26 @@ const WORKFLOW_EMAIL_EDITS: Record<string, EmailEdit[]> = {
     edits: [{
       from: "<p>You can upload these documents through your merchant portal or reply to this email with them attached.</p>",
       to: "<p>Your representative will share a secure link for documents.</p>",
+    }, {
+      from: "<a href='https://libertybancard.com/apply'",
+      to: `<a href='${MERCHANT_APPLICATION_URL}'`,
     }],
   }],
+};
+
+/** Exact-substring edits for stored SMS steps (send_ghl_sms body), keyed by workflow name. */
+const WORKFLOW_SMS_EDITS: Record<string, Edit[]> = {
+  "D. No-Show Rescue": [{ from: "your free 10-min statement review", to: "your free statement review" }],
+  "F. Closed Won - Onboarding Kickoff": [{
+    from: "Your application is ready at libertybancard.com/apply - takes about 5 min.",
+    to: `Your application is ready at ${MERCHANT_APPLICATION_URL.replace("https://", "")}.`,
+  }],
+  "F2. Application Reminder - Day 1": [{ from: " at libertybancard.com/apply. Only takes 5 min! Need help?", to: ". Need help?" }],
+  "F3. Application Reminder - Day 3": [{
+    from: "Complete it in 5 min at libertybancard.com/apply. Questions? Call 954-266-8214 - we're happy to walk you through it!",
+    to: "Questions? Reply here or call 954-266-8214 - we're happy to walk you through it!",
+  }],
+  "F4. Application Reminder - Day 7": [{ from: " Or finish it at libertybancard.com/apply.", to: "" }],
 };
 
 /** Workflow G: remove the review request until a verified review URL exists. */
@@ -58,6 +104,8 @@ const REMOVED_ACTIONS: Record<string, (a: any) => boolean> = {
 };
 
 const TEMPLATE_EDITS: Record<string, Edit[]> = {
+  "Proposal Email": [{ from: "Book a 10-minute call</a>", to: "Book a call</a>" }],
+  "90-Day Reactivation Email": [{ from: "Book a 10-minute review</a>", to: "Book a review</a>" }],
   "30-Day Nurture Email": [{
     from: "<p>Your statement analysis is saved and the numbers haven't changed. When you're ready, we're here.</p>",
     to: "<p>If you would like us to review your statement, we can pick it up whenever you are ready.</p>",
@@ -79,7 +127,14 @@ export function applyWorkflowCopyReplacements(name: string, actions: any[]): { a
   const emailEdits = WORKFLOW_EMAIL_EDITS[name] ?? [];
   const remove = REMOVED_ACTIONS[name];
   let changed = false;
+  const smsEdits = WORKFLOW_SMS_EDITS[name] ?? [];
   let next = actions.map((a) => {
+    if (a?.type === "send_ghl_sms" && typeof a.body === "string") {
+      const body = editText(a.body, smsEdits);
+      if (body === a.body) return a;
+      changed = true;
+      return { ...a, body };
+    }
     if (a?.type !== "send_ghl_email") return a;
     let copy = a;
     for (const spec of emailEdits) {
@@ -118,11 +173,20 @@ export interface CopyConvergenceReport {
   counts: Record<CopyTargetStatus, number>;
 }
 
-const WORKFLOW_TARGETS = [...new Set([...Object.keys(WORKFLOW_EMAIL_EDITS), ...Object.keys(REMOVED_ACTIONS)])];
+const WORKFLOW_TARGETS = [...new Set([...Object.keys(WORKFLOW_EMAIL_EDITS), ...Object.keys(WORKFLOW_SMS_EDITS), ...Object.keys(REMOVED_ACTIONS)])];
 const TEMPLATE_TARGETS = Object.keys(TEMPLATE_EDITS);
 
+/** The wording the recipient would see (subjects and bodies), so link checks parse real markup rather than JSON escapes. */
+export function workflowCopyText(actions: any[]): string {
+  return actions
+    .filter((a) => a?.type === "send_ghl_email" || a?.type === "send_ghl_sms")
+    .map((a) => `${typeof a.subject === "string" ? a.subject : ""}\n${typeof a.body === "string" ? a.body : ""}`)
+    .join("\n\n");
+}
+
 function remainingAuditedFindings(actions: any[]): string[] {
-  const hits = lintRules(JSON.stringify(actions)).map((f) => f.rule);
+  const text = workflowCopyText(actions);
+  const hits = [...lintRules(text), ...lintLinks(text)].map((f) => f.rule);
   const removeFn = Object.values(REMOVED_ACTIONS).find((fn) => actions.some(fn));
   if (removeFn) hits.push("request_review_unverified_url");
   return [...new Set(hits)];

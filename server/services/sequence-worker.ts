@@ -114,7 +114,7 @@ import type { VoiceBotMode } from "./sdr/voice-orchestrator";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
 import { getCanonicalUrl } from "../lib/canonical-url";
 import { FIRST_PARTY_BOOK_URL, resolveSalesBooking } from "./message-cta-contract";
-import { assertRenderedLinksSafe } from "./message-token-registry";
+import { interpolateSequenceText } from "./sequence-step-interpolation";
 
 /**
  * ZeroBounce statuses that are definitively undeliverable.
@@ -1205,65 +1205,13 @@ export async function processSequenceEnrollments(
         // blocked rather than sending a hardcoded or wrong calendar.
         const salesBooking = resolveSalesBooking(process.env);
         const calendarLink = salesBooking.available ? FIRST_PARTY_BOOK_URL : null;
-        const bookingReplacement = (text: string): string =>
-          calendarLink
-            ? text.replace(/\{\{calendarLink\}\}/g, calendarLink).replace(/\{\{custom_values\.booking_link\}\}/g, calendarLink)
-            : text;
 
-        const interpolate = (text: string | null | undefined): string => {
-          if (!text) return "";
-          const result = bookingReplacement(text)
-            .replace(/\{\{firstName\}\}/g, firstName)
-            .replace(/\{\{lastName\}\}/g, lastName)
-            .replace(/\{\{companyName\}\}/g, companyName)
-            .replace(/\{\{email\}\}/g, email)
-            .replace(/\{\{contact\.firstName\}\}/g, firstName)
-            .replace(/\{\{contact\.lastName\}\}/g, lastName)
-            .replace(/\{\{contact\.companyName\}\}/g, companyName)
-            .replace(/\{\{industry\}\}/g, industry)
-            .replace(/\{\{monthlyVolume\}\}/g, monthlyVolume)
-            .replace(/\{\{currentProcessor\}\}/g, currentProcessor)
-            .replace(/\{\{recommendedProgram\}\}/g, recommendedProgram)
-            .replace(/\{\{recommendedTerminal\}\}/g, recommendedTerminal)
-            .replace(/\{\{serviceType\}\}/g, serviceType)
-            .replace(/\{\{estimatedVolume\}\}/g, estimatedVolume)
-            .replace(/\{\{agentName\}\}/g, agentName)
-            .replace(/\{\{agentEmail\}\}/g, agentEmail)
-            .replace(/\{\{agentPhone\}\}/g, agentPhone)
-            .replace(/\{\{businessName\}\}/g, businessName)
-            .replace(/\{\{contact\.vertical\}\}/g, industry)
-            .replace(/\{\{vertical\}\}/g, industry);
-          // Safety net: warn (and block for sensitive placeholders) if raw
-          // {{...}} template syntax survived substitution (#1136).
-          const remaining = result.match(/\{\{[^}]+\}\}/g);
-          if (remaining) {
-            const SENSITIVE = /\{\{agentEmail\}\}|\{\{agentPhone\}\}|\{\{agent\w+\}\}/;
-            const hasSensitive = remaining.some(p => SENSITIVE.test(p));
-            if (hasSensitive) {
-              // Hard block — a sensitive placeholder (agent contact info) survived.
-              // Sending this would expose raw template syntax to the prospect.
-              console.error(
-                `[Sequence Worker] BLOCKED outbound — sensitive unresolved placeholder(s) ` +
-                `(enrollment ${enrollment.id}, step ${step.stepOrder}, contact ${enrollment.contactId}): ` +
-                remaining.filter(p => SENSITIVE.test(p)).join(", ")
-              );
-              throw new Error(
-                `Outbound blocked: unresolved sensitive placeholder(s) ${remaining.filter(p => SENSITIVE.test(p)).join(", ")} ` +
-                `in enrollment ${enrollment.id} step ${step.stepOrder}`
-              );
-            }
-            // Unknown placeholders are never a cosmetic concern at the delivery
-            // boundary: sending them makes a broken template look successful.
-            throw new Error(
-              `Outbound blocked: unresolved template placeholder(s) ${remaining.join(", ")} ` +
-              `in enrollment ${enrollment.id} step ${step.stepOrder}`,
-            );
-          }
-          // Final link gate (same contract as publication and the shared renderer): no dangerous scheme, relative or
-          // retired first-party address, and no foreign host, after substitution and entity decoding.
-          assertRenderedLinksSafe(result, [calendarLink]);
-          return result;
-        };
+        // The substitution itself lives in sequence-step-interpolation so the editor's "as sent" preview runs the same code.
+        const interpolate = (text: string | null | undefined): string =>
+          interpolateSequenceText(text, {
+            firstName, lastName, companyName, email, industry, monthlyVolume, currentProcessor, recommendedProgram,
+            recommendedTerminal, serviceType, estimatedVolume, agentName, agentEmail, agentPhone, businessName, calendarLink,
+          }, `enrollment ${enrollment.id} step ${step.stepOrder}${enrollment.contactId ? `, contact ${enrollment.contactId}` : ""}`);
 
         // SFP launch steps use the shared deterministic renderer, the sender-policy
         // identity (never the contact's assigned rep) and a single sign-off.

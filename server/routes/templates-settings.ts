@@ -30,6 +30,31 @@ export function registerTemplatesSettingsRoutes(app: Express) {
     }
   });
 
+  // === STORED SEQUENCE COPY ADOPTION (Stage 4C1; exact-substring, plan-hash bound, subject/body only) ===
+  app.get("/api/message-copy/sequence-adoption", requireRole("admin"), async (_req, res) => {
+    try {
+      const { previewStoredSequenceCopyAdoption } = await import("../services/stored-sequence-copy-adoption");
+      res.set("Cache-Control", "no-store");
+      res.json(await previewStoredSequenceCopyAdoption());
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  app.post("/api/message-copy/sequence-adoption", requireRole("admin"), async (req, res) => {
+    try {
+      const { applyStoredSequenceCopyAdoption, SequenceCopyAdoptionError } = await import("../services/stored-sequence-copy-adoption");
+      try {
+        res.json(await applyStoredSequenceCopyAdoption(String(req.body?.planHash ?? ""), String((req.user as any)?.id ?? "admin")));
+      } catch (err: any) {
+        if (err instanceof SequenceCopyAdoptionError) return res.status(err.status).json({ code: err.code, message: err.message });
+        throw err;
+      }
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // === REVIEW OWNER AND DUE TIME for partner applications and privacy requests (recorded policy only) ===
   app.get("/api/admin/inbound-review-policy", requireRole("admin"), async (_req, res) => {
     try {
@@ -215,6 +240,23 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       }).strict().parse(req.body);
       const { previewStepForTransport } = await import("../services/message-final-preview");
       res.json(await previewStepForTransport(input));
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      serverError(res, err);
+    }
+  });
+
+  // Asset-addressed final preview: the server resolves transport, signature and substitution from the sequence/campaign
+  // itself (the caller supplies identity and optional unsaved text, never the transport). Simulation; sends nothing.
+  app.post("/api/message-steps/asset-preview", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const input = z.object({
+        assetType: z.enum(["sequence", "campaign"]), assetId: z.number().int().positive(), stepId: z.number().int().positive(),
+        draft: z.object({ subject: z.string().nullable(), body: z.string() }).strict().optional(),
+      }).strict().parse(req.body);
+      const { previewAssetStep } = await import("../services/message-final-preview");
+      res.set("Cache-Control", "no-store");
+      res.json(await previewAssetStep(input));
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);

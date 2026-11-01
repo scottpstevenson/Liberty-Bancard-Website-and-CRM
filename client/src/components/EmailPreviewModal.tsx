@@ -1,6 +1,9 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Info } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { FinalEmailPreview, type FinalMessagePreview } from "@/components/dashboard/MessageFinalPreview";
 
 const DEFAULT_MERGE_TAG_SAMPLES: Record<string, string> = {
   firstName: "Alex",
@@ -125,6 +128,43 @@ interface EmailPreviewModalProps {
   body: string;
   mergeTagSamples?: Record<string, string>;
   contentType?: "html" | "text";
+  /** Identity of the stored step. When given, the modal shows the message as the real send path would assemble it. */
+  asset?: { assetType: "sequence" | "campaign"; assetId: number; stepId: number };
+}
+
+interface AssetPreviewResponse {
+  ok: boolean;
+  error: { code: string; detail: string } | null;
+  final: FinalMessagePreview | null;
+  asset: { assetName: string; stepOrder: number; path: string; signature: string | null; aiPersonalization?: boolean } | null;
+  warnings: string[];
+}
+
+/** Server-resolved "as sent" preview: transport, signature and substitution come from the asset, not from this screen. */
+function AssetFinalPreview({ asset }: { asset: NonNullable<EmailPreviewModalProps["asset"]> }) {
+  const q = useQuery<AssetPreviewResponse>({
+    queryKey: ["asset-step-preview", asset.assetType, asset.assetId, asset.stepId],
+    queryFn: async () => (await apiRequest("POST", "/api/message-steps/asset-preview", asset)).json(),
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+  });
+  if (q.isLoading) return <p className="text-sm text-muted-foreground" data-testid="asset-preview-loading">Building the message as it would be sent...</p>;
+  if (q.isError || !q.data) return <p role="alert" className="text-sm text-destructive" data-testid="asset-preview-error">The sent-message preview could not be built. This is not a blank message.</p>;
+  const d = q.data;
+  return (
+    <div className="space-y-2" data-testid="asset-final-preview">
+      {d.asset && (
+        <p className="text-xs text-muted-foreground" data-testid="asset-preview-path">
+          {d.asset.assetName}, step {d.asset.stepOrder}. Path: {d.asset.path}{d.asset.signature ? `. Signature: ${d.asset.signature}` : ""}.
+        </p>
+      )}
+      {d.warnings.map((w) => <p key={w} role="status" className="text-xs rounded-md border border-amber-300 bg-amber-50 text-amber-900 p-2" data-testid="asset-preview-warning">{w}</p>)}
+      {!d.ok && <p role="alert" className="text-sm text-destructive" data-testid="asset-preview-blocked">A real send would be blocked: {d.error?.detail}</p>}
+      {d.final && <p className="text-sm font-medium rounded-md border bg-muted/40 px-3 py-2" data-testid="asset-preview-subject">Subject: {d.final.subject}</p>}
+      {d.final && <FinalEmailPreview final={d.final} />}
+    </div>
+  );
 }
 
 export default function EmailPreviewModal({
@@ -134,20 +174,35 @@ export default function EmailPreviewModal({
   body,
   mergeTagSamples,
   contentType = "html",
+  asset,
 }: EmailPreviewModalProps) {
+  const showAsSent = !!asset && contentType === "html";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            Email Preview
+            {showAsSent ? "Message as sent" : "Email Preview"}
             <Badge variant="outline" className="text-xs font-normal">
-              Sample data substituted
+              {showAsSent ? "Simulation, sample recipient" : "Sample data substituted"}
             </Badge>
           </DialogTitle>
         </DialogHeader>
 
         <div className="flex-1 min-h-0 overflow-y-auto">
+          {showAsSent && <AssetFinalPreview asset={asset!} />}
+          {showAsSent ? (
+            <details className="mt-3 text-sm" data-testid="editor-sample-details">
+              <summary className="cursor-pointer text-muted-foreground">Editor sample (not the sent message)</summary>
+              <EmailPreviewContent
+                subject={subject}
+                body={body}
+                mergeTagSamples={mergeTagSamples}
+                contentType={contentType}
+                showComplianceNotice
+              />
+            </details>
+          ) : (
           <EmailPreviewContent
             subject={subject}
             body={body}
@@ -155,6 +210,7 @@ export default function EmailPreviewModal({
             contentType={contentType}
             showComplianceNotice
           />
+          )}
         </div>
       </DialogContent>
     </Dialog>

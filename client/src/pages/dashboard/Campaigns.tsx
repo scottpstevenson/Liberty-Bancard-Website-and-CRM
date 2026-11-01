@@ -935,6 +935,7 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
         onOpenChange={(o) => { if (!o) setPreviewStep(null); }}
         subject={previewStep?.subject ?? ""}
         body={previewStep?.bodyTemplate ?? ""}
+        asset={previewStep && (previewStep.channel ?? "email") === "email" ? { assetType: "campaign", assetId: campaign.id, stepId: previewStep.id } : undefined}
       />
     </div>
   );

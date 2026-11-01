@@ -122,7 +122,7 @@ export interface FinalMessagePreview {
   sender: { mode: "provider_default" | "sender_policy" | "unknown"; address: string | null; name: string | null; note: string };
   replyTo: { mode: "not_set" | "sender_policy" | "unknown"; address: string | null; note: string };
   /** What the transport really sends. Plain text below is generated reference text unless textTransmitted is true. */
-  transport: { name: "ghl_conversations" | "sfp_smtp" | "gmail_non_cold"; payloadFields: string[]; textTransmitted: boolean; note: string };
+  transport: { name: "ghl_conversations" | "sfp_smtp" | "gmail_non_cold" | "legacy_smtp"; payloadFields: string[]; textTransmitted: boolean; note: string };
   /** Always true: the preview runs the real composers on sample data; it is not a delivery or a mail-client render. */
   simulation: true;
   logoCount: number;
