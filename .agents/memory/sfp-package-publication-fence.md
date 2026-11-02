@@ -21,3 +21,8 @@ Installed rows are never rewritten by seeds. Workflows/templates adopt corrected
 - Widget-link reconciliation is by step purpose and by the anchor's own label (booking label -> `/book`, upload label -> secure upload). Unlabeled, application, referral, proposal and Account Management links stay on the widget as owner decisions. Active sequences are never bulk-paused or edited.
 - The disposable seed must union the production snapshot with the link-target fixture. Campaign package convergence matches campaigns by exact name, so browser fixtures must not suffix names.
 - The campaigns "as sent" preview uses snake_case merge tokens; an unknown token is a warning (delivered literally), not a block.
+
+## Production apply order and QA-contact removal (2026-11-02)
+- Pause-then-adopt worked: read-only dependency census (enrollments, intents, send log, receipts, package pin) → toggle-status with expectedVersion → re-preview → apply with the new planHash → verify still paused. The plan hash changes after the pause, so always re-preview.
+- Hard-deleting a contact is blocked by `consent_audit_logs` canonical rows (append-only trigger, NO ACTION FK); the owner explicitly approved lifting it for one table inside a guarded Database-pane script. Agent production access is read-only, so such scripts are dry-run-first SQL for the owner.
+- A pane error naming a table absent from the DB and repo came from stale text in the pane's Playground tab, not the script; ask for a clean scratch tab.
