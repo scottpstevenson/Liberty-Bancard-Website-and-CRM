@@ -584,13 +584,41 @@ export async function handleCallDisposition(
                 nextActionAt: followUpAt,
               });
             } else if (!vmSmsSeq && isGhlConfigured()) {
-              await sendGhlSms({ contactId: contact.id, body: smsBody });
-              await storage.createAuditLog({
-                action: "voicemail_sms_sent",
-                entityType: "contact",
-                entityId: contact.id,
-                details: { merchantId, message: smsBody, sentAt: new Date().toISOString() },
-              });
+              // Consent, number and quiet hours come from the canonical recipient authority; a refusal is a real "not sent".
+              const purpose = "voicemail_sms_followup";
+              const { resolveSmsRecipient, smsDenialDetail } = await import("../sms-recipient-authority");
+              const recipient = await resolveSmsRecipient({ contactId: contact.id, leadStateId: state.id, purpose });
+              let notSentReason: string | null = recipient.allowed ? null : smsDenialDetail(recipient);
+              if (recipient.allowed) {
+                try {
+                  const sent = await sendGhlSms({
+                    contactId: contact.id,
+                    body: smsBody,
+                    purpose,
+                    leadStateId: state.id,
+                    boundPhone: recipient.phone,
+                  });
+                  if (!sent.success) notSentReason = sent.error || "send_failed";
+                } catch (sendErr) {
+                  notSentReason = sendErr instanceof Error ? sendErr.message : String(sendErr);
+                }
+              }
+              if (notSentReason === null) {
+                await storage.createAuditLog({
+                  action: "voicemail_sms_sent",
+                  entityType: "contact",
+                  entityId: contact.id,
+                  details: { merchantId, message: smsBody, sentAt: new Date().toISOString() },
+                });
+              } else {
+                console.warn(`[Voice Orchestrator] Voicemail follow-up SMS not sent for merchant ${merchantId}: ${notSentReason}`);
+                await storage.createAuditLog({
+                  action: "voicemail_sms_not_sent",
+                  entityType: "contact",
+                  entityId: contact.id,
+                  details: { merchantId, reason: notSentReason, attemptedAt: new Date().toISOString() },
+                });
+              }
             } else {
               await storage.createAuditLog({
                 action: "voicemail_sms_queued",
