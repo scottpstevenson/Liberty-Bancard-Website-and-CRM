@@ -255,6 +255,7 @@ export interface IStorage {
   getWorkflowRuns(): Promise<typeof workflowRuns.$inferSelect[]>;
   getWorkflowRun(id: number): Promise<typeof workflowRuns.$inferSelect | undefined>;
   getWorkflowRunsByWorkflow(workflowId: number): Promise<typeof workflowRuns.$inferSelect[]>;
+  getWorkflowRunsPage(opts: { workflowId?: number; search?: string; status?: string; limit: number; offset: number }): Promise<{ data: typeof workflowRuns.$inferSelect[]; total: number }>;
   createWorkflowRun(run: InsertWorkflowRun): Promise<typeof workflowRuns.$inferSelect>;
   updateWorkflowRun(id: number, updates: Partial<InsertWorkflowRun>): Promise<typeof workflowRuns.$inferSelect | undefined>;
 

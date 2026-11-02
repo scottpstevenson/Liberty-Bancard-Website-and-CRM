@@ -199,3 +199,4 @@
 - [SFP package fence & stored-copy adoption](sfp-package-publication-fence.md) — paired publish only (409 pinned rows); sequence adoption is plan-hash bound, never pauses; shared worker interpolation.
 - [Follow-up effect receipts](followup-effect-receipts.md) — receipt before I/O; delivered only when accepted; occurrence-keyed runs; booking writer default-denied.
 - [SMS recipient authority](sms-recipient-authority.md) — one canonical consent+number decision right before every text in every transport; legacy flags never authority.
+- [Browser suite query-cache and overlays](browser-suite-query-cache-and-overlays.md) — reload after fixture env changes (stale cache hides state); floating assistant covers bottom-right controls.

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Play, Trash2, Zap, Clock, CheckCircle2, XCircle, AlertTriangle, Settings, MessageSquare } from "lucide-react";
+import { Plus, Play, Trash2, Zap, Clock, CheckCircle2, XCircle, AlertTriangle, Settings, MessageSquare, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import type { Workflow, WorkflowRun } from "@shared/schema";
@@ -53,6 +53,24 @@ interface ActionDef {
   logAction?: string;
 }
 
+const RUN_PAGE_SIZE = 25;
+const RUN_STATUS_FILTERS = ["running", "waiting", "completed", "failed", "blocked"] as const;
+interface RunsPage { data: WorkflowRun[]; total: number; limit: number; offset: number }
+
+async function readRunsPage(
+  params: { limit: number; offset: number; search?: string; status?: string; workflowId?: number }, signal?: AbortSignal,
+): Promise<RunsPage> {
+  const query = new URLSearchParams({ limit: String(params.limit), offset: String(params.offset) });
+  if (params.search) query.set("search", params.search);
+  if (params.status) query.set("status", params.status);
+  if (params.workflowId !== undefined) query.set("workflowId", String(params.workflowId));
+  const response = await fetch(`/api/workflow-runs?${query}`, { credentials: "include", signal });
+  if (!response.ok) throw new Error("Run history is unavailable.");
+  const body = await response.json();
+  if (!body || !Array.isArray(body.data) || !Number.isSafeInteger(body.total)) throw new Error("Run history response was not a page.");
+  return body as RunsPage;
+}
+
 function getClassification(wf: Workflow): string | null {
   const cond = wf.triggerConditions as Record<string, any> | null;
   return cond?.classification ?? null;
@@ -74,7 +92,21 @@ export default function Workflows() {
   const [editActions, setEditActions] = useState<ActionDef[]>([]);
 
   const { data: workflows, isLoading, isError, refetch } = useQuery<Workflow[]>({ queryKey: ["/api/workflows"] });
-  const { data: runs } = useQuery<WorkflowRun[]>({ queryKey: ["/api/workflow-runs"] });
+  // Run history is server-paged and searchable: one bounded page is read at a time, never the whole table.
+  const [runSearchInput, setRunSearchInput] = useState("");
+  const [runSearch, setRunSearch] = useState("");
+  const [runStatus, setRunStatus] = useState("all");
+  const [runOffset, setRunOffset] = useState(0);
+  useEffect(() => {
+    const timer = setTimeout(() => { setRunSearch(runSearchInput.trim()); setRunOffset(0); }, 300);
+    return () => clearTimeout(timer);
+  }, [runSearchInput]);
+  const runsParams = { limit: RUN_PAGE_SIZE, offset: runOffset, search: runSearch, status: runStatus === "all" ? "" : runStatus };
+  const { data: runsPage, isError: runsError, isFetching: runsFetching, refetch: refetchRuns } = useQuery<RunsPage>({
+    queryKey: ["/api/workflow-runs", runsParams],
+    queryFn: async ({ signal }) => readRunsPage(runsParams, signal),
+  });
+  const runs = runsPage?.data;
 
   const createMutation = useMutation({
     mutationFn: async (body: any) => {
@@ -249,9 +281,13 @@ export default function Workflows() {
     return <AlertTriangle className="w-4 h-4 text-muted-foreground" />;
   };
 
-  const detailRuns = detailWorkflow && !editOpen
-    ? (runs || []).filter((r) => r.workflowId === detailWorkflow.id)
-    : [];
+  const detailRunsParams = { workflowId: detailWorkflow?.id, limit: 5, offset: 0 };
+  const { data: detailRunsPage } = useQuery<RunsPage>({
+    queryKey: ["/api/workflow-runs", detailRunsParams],
+    enabled: !!detailWorkflow && !editOpen,
+    queryFn: async ({ signal }) => readRunsPage(detailRunsParams, signal),
+  });
+  const detailRuns = detailWorkflow && !editOpen ? (detailRunsPage?.data ?? []) : [];
 
   if (isError) {
     return <DashboardErrorState title="Failed to load workflows" onRetry={() => refetch()} />;
@@ -359,7 +395,7 @@ export default function Workflows() {
       <Tabs defaultValue="workflows">
         <TabsList data-testid="tabs-workflows">
           <TabsTrigger value="workflows" data-testid="tab-workflows">Workflows ({workflows?.length || 0})</TabsTrigger>
-          <TabsTrigger value="runs" data-testid="tab-runs">Run History ({runs?.length || 0})</TabsTrigger>
+          <TabsTrigger value="runs" data-testid="tab-runs">Run History ({runsPage ? runsPage.total : "…"})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="workflows" className="mt-4">
@@ -463,17 +499,52 @@ export default function Workflows() {
           )}
         </TabsContent>
 
-        <TabsContent value="runs" className="mt-4">
-          {!runs?.length ? (
+        <TabsContent value="runs" className="mt-4 space-y-3">
+          <div className="flex flex-wrap items-center gap-2" data-testid="run-history-controls">
+            <div className="relative min-w-0 flex-1 basis-56">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                aria-label="Search run history"
+                placeholder="Search run id, workflow, contact or deal #"
+                className="pl-8"
+                value={runSearchInput}
+                onChange={(e) => setRunSearchInput(e.target.value)}
+                data-testid="input-run-search"
+              />
+            </div>
+            <Select value={runStatus} onValueChange={(value) => { setRunStatus(value); setRunOffset(0); }}>
+              <SelectTrigger className="w-full sm:w-44" aria-label="Filter runs by status" data-testid="select-run-status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                {RUN_STATUS_FILTERS.map((status) => <SelectItem key={status} value={status} className="capitalize">{status}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          {runsError ? (
             <Card>
-              <CardContent className="p-8 text-center text-muted-foreground">
-                No workflow runs yet. Create and execute a workflow to see run history.
+              <CardContent className="space-y-2 p-8 text-center" role="alert" data-testid="run-history-unavailable">
+                <p className="text-sm">Run history could not be read. This is not an empty history.</p>
+                <Button variant="outline" size="sm" onClick={() => void refetchRuns()} data-testid="button-retry-runs">Retry</Button>
+              </CardContent>
+            </Card>
+          ) : !runsPage ? (
+            <Card><CardContent className="p-8 text-center text-muted-foreground" role="status" data-testid="run-history-loading">Loading run history...</CardContent></Card>
+          ) : !runs?.length ? (
+            <Card>
+              <CardContent className="p-8 text-center text-muted-foreground" data-testid="run-history-empty">
+                {runSearch || runStatus !== "all"
+                  ? "No workflow runs match this search."
+                  : runOffset > 0
+                    ? "No runs on this page."
+                    : "No workflow runs yet. Create and execute a workflow to see run history."}
               </CardContent>
             </Card>
           ) : (
             <Card>
               <ScrollArea className="max-h-[500px]">
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto" role="region" aria-label="Workflow run history" tabIndex={0}>
                 <Table className="min-w-[700px]">
                   <TableHeader>
                     <TableRow>
@@ -515,6 +586,19 @@ export default function Workflows() {
                 </div>
               </ScrollArea>
             </Card>
+          )}
+          {runsPage && (
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-16" data-testid="run-history-pager">
+              <span className="text-xs text-muted-foreground" role="status" data-testid="text-run-range">
+                {runsPage.total === 0 ? "0 runs" : `Showing ${runOffset + 1}–${runOffset + (runs?.length ?? 0)} of ${runsPage.total}`}
+              </span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={runOffset === 0 || runsFetching}
+                  onClick={() => setRunOffset(Math.max(0, runOffset - RUN_PAGE_SIZE))} data-testid="button-runs-prev">Previous</Button>
+                <Button variant="outline" size="sm" disabled={runsFetching || runOffset + RUN_PAGE_SIZE >= runsPage.total}
+                  onClick={() => setRunOffset(runOffset + RUN_PAGE_SIZE)} data-testid="button-runs-next">Next</Button>
+              </div>
+            </div>
           )}
         </TabsContent>
       </Tabs>

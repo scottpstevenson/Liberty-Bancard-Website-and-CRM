@@ -385,6 +385,22 @@ export function registerToolkitRoutes(app: Express, readerDependencies?: {
     }
   });
 
+  // Read-only detail for one appointment, from recorded state only (no provider call): current occurrence, last
+  // recorded observation, and booking-command state. Registered after `/range`; the shapes differ so they cannot collide.
+  app.get("/api/appointments/:appointmentId/detail", isDashboardUser, async (req, res) => {
+    try {
+      const { readAppointmentDetail, APPOINTMENT_ID_PATTERN } = await import("../services/appointment-detail");
+      const appointmentId = String(req.params.appointmentId);
+      if (!APPOINTMENT_ID_PATTERN.test(appointmentId)) return res.status(400).json({ message: "Invalid appointment id" });
+      const detail = await readAppointmentDetail(appointmentId, req.user as any);
+      if (!detail) return res.status(404).json({ message: "Not found" });
+      res.json(detail);
+    } catch (err: any) {
+      console.error("[Appointments/detail] error:", err.message);
+      res.status(503).json({ message: "Appointment detail unavailable" });
+    }
+  });
+
   // Explicit provider booking command. Preview is read-only. Execute is admin-only and DENIED unless the owner has
   // enabled the writer (system setting ghl_booking_writer_enabled = "true"); the browser cannot select notification or
   // slot-validation behavior: those come from the reviewed payload hash.

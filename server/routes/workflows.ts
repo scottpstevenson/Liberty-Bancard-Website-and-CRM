@@ -10,7 +10,7 @@ import { executeWorkflowActions, triggerWorkflowsByEvent } from "../services/wor
 import { parse } from "csv-parse/sync";
 import { requireInternalWebhookSecret } from "../middleware/internal-webhook-auth";
 import { serverError } from "../utils/server-error";
-import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
+import { authorizeContactAccess, authorizeDealAccess, parseStrictPagination, invalidPagination } from "../services/crm-object-access";
 import { WorkflowCommandError } from "../services/workflow-command-error";
 import { WorkflowSmsWordingError, getWorkflowSmsWorkspace, previewWorkflowSms, publishWorkflowSmsStep } from "../services/workflow-sms-wording";
 import { WorkflowEmailWordingError, getWorkflowEmailWorkspace, previewWorkflowEmail, publishWorkflowEmailStep } from "../services/workflow-email-wording";
@@ -230,6 +230,18 @@ export function registerWorkflowsRoutes(app: Express) {
       const parsed = req.query.workflowId === undefined ? undefined : positiveId.safeParse(req.query.workflowId);
       if (parsed && !parsed.success) return res.status(400).json({ message: "Invalid workflow id" });
       const workflowId = parsed?.success ? parsed.data : undefined;
+      // Paged mode (Workflows screen): any of limit/offset/search/status selects the bounded, searchable envelope.
+      // Without them the legacy array is returned for existing consumers.
+      if (["limit", "offset", "search", "status"].some((key) => req.query[key] !== undefined)) {
+        const pagination = parseStrictPagination(req.query as Record<string, unknown>, { defaultLimit: 25, maxLimit: 100 });
+        if ("error" in pagination) return invalidPagination(res);
+        const search = typeof req.query.search === "string" ? req.query.search : undefined;
+        const status = typeof req.query.status === "string" && req.query.status ? req.query.status : undefined;
+        if (req.query.search !== undefined && search === undefined) return res.status(400).json({ message: "Invalid search" });
+        if (status !== undefined && !/^[a-z_]{1,32}$/.test(status)) return res.status(400).json({ message: "Invalid status" });
+        const page = await storage.getWorkflowRunsPage({ workflowId, search, status, ...pagination });
+        return res.json({ ...page, limit: pagination.limit, offset: pagination.offset });
+      }
       const runs = workflowId
         ? await storage.getWorkflowRunsByWorkflow(workflowId)
         : await storage.getWorkflowRuns();

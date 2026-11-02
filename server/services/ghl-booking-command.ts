@@ -81,7 +81,10 @@ export async function executeBookingCommand(input: BookingExecuteInput, env: Rec
   if (preview.payloadHash !== input.reviewedPayloadHash) return { state: "denied", reason: "payload_changed_since_preview" };
   let appointmentId = input.request.appointmentId;
   const outcome = await runFollowupEffect(
-    { effectKey: `booking_command:${input.actorId}:${input.commandId}`, ownerKind: "booking_command", ownerId: input.commandId, channel: `calendar_${preview.operation}` },
+    { effectKey: `booking_command:${input.actorId}:${input.commandId}`, ownerKind: "booking_command", ownerId: input.commandId,
+      // Reschedule/cancel name their appointment in the channel so the Calendar can show a pending or unknown command
+      // before the provider answered; a create is linkable only once accepted (its id is the receipt detail).
+      channel: `calendar_${preview.operation}${input.request.appointmentId ? `:${input.request.appointmentId}` : ""}` },
     async () => {
       const response = await input.provider.write(preview.method, preview.path, preview.payload);
       appointmentId = appointmentId ?? (typeof response?.id === "string" ? response.id : response?.appointment?.id);

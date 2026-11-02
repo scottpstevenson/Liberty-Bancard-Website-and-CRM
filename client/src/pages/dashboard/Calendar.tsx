@@ -1,12 +1,12 @@
 import { PageTitle } from "@/components/ui/page-header";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { apiRequest } from "@/lib/queryClient";
 import { localCalendarDateAtTime, moveCalendarEventToDate } from "@/lib/calendar-date-repair";
 import { isCalendarStartInWindow } from "@/lib/calendar-window";
 import { useToast } from "@/hooks/use-toast";
-import type { CalendarEvent, Deal, Contact } from "@shared/schema";
+import type { CalendarEvent, Deal } from "@shared/schema";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +15,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { AuthorizedContactPicker, type ContactChoice } from "@/components/crm/AuthorizedContactPicker";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon,
@@ -84,7 +87,8 @@ interface CalendarItem {
   contactId?: number | null;
   dealId?: number | null;
   source: "event" | "deal" | "appointment";
-  sourceLabel?: string;
+  sourceLabel: string;
+  purpose?: "sales" | "account";
   externalUrl?: string | null;
   readOnly?: boolean;
   noShow?: boolean;
@@ -104,10 +108,12 @@ interface AppointmentRead {
     locationName: string | null;
     ghlLink?: string | null;
     source?: string;
+    purpose?: "sales" | "account";
   }>;
   configured: boolean;
   status?: string;
   source?: string;
+  purpose?: "sales" | "account";
   completeness?: string;
   exact?: boolean;
   queueLimit?: number;
@@ -115,6 +121,34 @@ interface AppointmentRead {
   asOf?: string;
   sourceStatus?: Array<{ source: string; status: string; fetched?: number; truncated?: boolean }>;
 }
+
+type SourceFilter = "all" | "sales" | "account" | "local";
+const SOURCE_FILTERS: Array<{ value: SourceFilter; label: string; hint: string }> = [
+  { value: "all", label: "All sources", hint: "Sales appointments, local events and deal follow-ups" },
+  { value: "sales", label: "Sales calendar", hint: "GoHighLevel sales calendar appointments only" },
+  { value: "account", label: "Account calendar", hint: "GoHighLevel account-management calendar appointments only" },
+  { value: "local", label: "Local", hint: "Events and deal follow-ups saved in this CRM only" },
+];
+
+interface AppointmentDetail {
+  appointmentId: string;
+  recorded: boolean;
+  occurrence: null | {
+    status: string; startTime: string | null; endTime: string | null; purpose: "sales" | "account";
+    rescheduleCount: number; current: boolean; currentAppointmentId: string | null;
+  };
+  lastObservation: null | { eventAt: string; recordedAt: string };
+  commands: Array<{ operation: string; state: "pending" | "accepted" | "unknown" | "refused"; startedAt: string; settledAt: string | null }>;
+}
+
+const COMMAND_STATE_COPY: Record<AppointmentDetail["commands"][number]["state"], string> = {
+  pending: "Pending — sent, provider confirmation not yet recorded",
+  accepted: "Accepted by the provider",
+  unknown: "Unknown — the outcome could not be determined and is not retried automatically",
+  refused: "Refused — the provider did not apply it",
+};
+
+const MAX_NAME_LOOKUPS = 20;
 
 export default function CalendarPage({ embedded = false }: { embedded?: boolean }) {
   const { toast } = useToast();
@@ -125,6 +159,9 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   const [selectedDate, setSelectedDate] = useState<string>(formatDateKey(today));
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [drawerItemId, setDrawerItemId] = useState<string | null>(null);
+  const [pickedContact, setPickedContact] = useState<ContactChoice | null>(null);
   const [eventForm, setEventForm] = useState({
     title: "",
     description: "",
@@ -132,7 +169,6 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
     startTime: "09:00",
     endTime: "10:00",
     type: "meeting" as EventType,
-    contactId: "",
     notes: "",
   });
 
@@ -153,12 +189,19 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
     },
   });
 
+  // The reader serves one calendar purpose at a time. "Account" reads the account-management calendar; every other
+  // filter reads the sales calendar; "Local" makes no provider read at all.
+  const appointmentPurpose: "sales" | "account" = sourceFilter === "account" ? "account" : "sales";
   const { data: appointmentRead, isLoading: appointmentsLoading, isError: appointmentsError, refetch: retryAppointments } = useQuery<AppointmentRead>({
-    // Month-range reader: the selected window (exclusive end) and the sales calendar, not the bounded "next 10" queue.
-    queryKey: ["/api/appointments/range", startParam, endParam, "sales"],
+    // Month-range reader: the selected window (exclusive end) and the chosen calendar, not the bounded "next 10" queue.
+    queryKey: ["/api/appointments/range", startParam, endParam, appointmentPurpose],
+    enabled: sourceFilter !== "local",
     queryFn: async ({ signal }) => {
-      const params = new URLSearchParams({ start: startParam, end: endParam, purpose: "sales" });
-      const response = await apiRequest("GET", `/api/appointments/range?${params}`, undefined, undefined, signal);
+      const params = new URLSearchParams({ start: startParam, end: endParam, purpose: appointmentPurpose });
+      const response = await fetch(`/api/appointments/range?${params}`, { credentials: "include", signal });
+      // 409 is the reader's explicit "this purpose calendar is not configured" answer, not a failure and not "empty".
+      if (response.status === 409) return { appointments: [], configured: false, status: "not_configured", purpose: appointmentPurpose, completeness: "unavailable" };
+      if (!response.ok) throw new Error("Appointments are unavailable.");
       return response.json();
     },
     refetchInterval: 300000,
@@ -173,22 +216,6 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
   });
   const allDeals = dealsRes?.data;
 
-  const { data: contactsRes, isError: contactsError, refetch: retryContacts } = useQuery<{ data: Contact[]; total: number }>({
-    queryKey: ["/api/contacts", { calendar: true }],
-    queryFn: async ({ signal }) => {
-      const res = await fetch("/api/contacts?limit=250&offset=0", { credentials: "include", signal });
-      if (!res.ok) throw new Error("Contact names are unavailable.");
-      return res.json();
-    },
-  });
-  const contacts = contactsRes?.data;
-
-  const contactMap = useMemo(() => {
-    const m = new Map<number, string>();
-    contacts?.forEach(c => m.set(c.id, `${c.firstName} ${c.lastName}`));
-    return m;
-  }, [contacts]);
-
   const createEventMutation = useMutation({
     mutationFn: async (data: any) => {
       return apiRequest("POST", "/api/calendar-events", data);
@@ -196,7 +223,8 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/calendar-events"] });
       setShowAddDialog(false);
-      setEventForm({ title: "", description: "", date: "", startTime: "09:00", endTime: "10:00", type: "meeting", contactId: "", notes: "" });
+      setEventForm({ title: "", description: "", date: "", startTime: "09:00", endTime: "10:00", type: "meeting", notes: "" });
+      setPickedContact(null);
       toast({ title: "Local event created", description: "Not a GoHighLevel appointment." });
     },
     onError: () => {
@@ -264,6 +292,7 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
         contactId: evt.contactId,
         dealId: evt.dealId,
         source: "event",
+        sourceLabel: "Local event",
         rawId: evt.id,
       });
     });
@@ -284,7 +313,8 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
           appt.locationName || "",
         ].filter(Boolean).join(" · ") || undefined,
         source: "appointment",
-        sourceLabel: `GHL · ${appt.source || "appointment"}`,
+        purpose: appt.purpose ?? appointmentRead?.purpose ?? appointmentPurpose,
+        sourceLabel: `GHL · ${appt.purpose ?? appointmentRead?.purpose ?? appointmentPurpose} calendar`,
         externalUrl: appt.ghlLink,
         readOnly: true,
         noShow: appt.noShow,
@@ -307,6 +337,7 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
             contactId: deal.contactId,
             dealId: deal.id,
             source: "deal",
+            sourceLabel: "Local follow-up",
             rawId: deal.id,
           });
         }
@@ -314,17 +345,23 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
     });
 
     return items;
-  }, [calendarEvents, appointmentRead, allDeals, startOfMonth, endOfMonth]);
+  }, [calendarEvents, appointmentRead, allDeals, startOfMonth, endOfMonth, appointmentPurpose]);
+
+  // "sales" and "account" show only that provider calendar; "local" shows only items saved in this CRM.
+  const visibleItems = useMemo(() => calendarItems.filter(item =>
+    sourceFilter === "all" ? true
+    : sourceFilter === "local" ? item.source !== "appointment"
+    : item.source === "appointment"), [calendarItems, sourceFilter]);
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, CalendarItem[]>();
-    calendarItems.forEach(item => {
+    visibleItems.forEach(item => {
       const key = formatDateKey(new Date(item.startTime));
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(item);
     });
     return map;
-  }, [calendarItems]);
+  }, [visibleItems]);
 
   const invalidDateEvents = eventsByDate.get(INVALID_DATE_KEY) || [];
 
@@ -360,11 +397,50 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
       startTime: startDateTime.toISOString(),
       endTime: endDateTime.toISOString(),
       type: eventForm.type,
-      contactId: eventForm.contactId ? Number(eventForm.contactId) : undefined,
+      contactId: pickedContact?.id,
     });
   };
 
   const selectedDayEvents = eventsByDate.get(selectedDate) || [];
+  const drawerItem = drawerItemId ? calendarItems.find(item => item.id === drawerItemId) ?? null : null;
+
+  // Contact names are read only for what is on screen (the selected day and the open drawer) through the authorized
+  // single-contact reader. There is no first-N contact list; a contact the actor may not read keeps its id.
+  const nameIds = useMemo(() => {
+    const ids = new Set<number>();
+    selectedDayEvents.forEach(item => { if (item.contactId) ids.add(item.contactId); });
+    if (drawerItem?.contactId) ids.add(drawerItem.contactId);
+    return [...ids].sort((a, b) => a - b).slice(0, MAX_NAME_LOOKUPS);
+  }, [selectedDayEvents, drawerItem]);
+  const { data: contactNames, isError: contactsError, refetch: retryContacts } = useQuery<{ names: Record<number, string>; failed: number }>({
+    queryKey: ["/api/contacts", { calendarNames: nameIds }],
+    enabled: nameIds.length > 0,
+    queryFn: async ({ signal }) => {
+      const names: Record<number, string> = {};
+      let failed = 0;
+      await Promise.all(nameIds.map(async id => {
+        try {
+          const res = await fetch(`/api/contacts/${id}`, { credentials: "include", signal });
+          if (res.status === 403 || res.status === 404) return; // not visible to this actor: keep the id, not a failure
+          if (!res.ok) { failed += 1; return; }
+          const c = await res.json();
+          const name = [c.firstName, c.lastName].filter(Boolean).join(" ") || c.companyName || c.email;
+          if (name) names[id] = name; else failed += 1;
+        } catch (error) {
+          if ((error as Error).name === "AbortError") throw error;
+          failed += 1;
+        }
+      }));
+      return { names, failed };
+    },
+  });
+  const contactMap = useMemo(() => new Map(Object.entries(contactNames?.names ?? {}).map(([id, name]) => [Number(id), name])), [contactNames]);
+  const contactLookupFailed = contactsError || (contactNames?.failed ?? 0) > 0;
+
+  useEffect(() => {
+    // A month change can remove the opened item from the window; close instead of showing a stale drawer.
+    if (drawerItemId && !drawerItem) setDrawerItemId(null);
+  }, [drawerItemId, drawerItem]);
   const todayKey = formatDateKey(today);
   const dealsPartial = Boolean(dealsRes && dealsRes.data.length < dealsRes.total);
   const appointmentPartial = Boolean(appointmentRead && (
@@ -379,7 +455,7 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
   for (let i = 0; i < firstDay; i++) calendarCells.push(null);
   for (let d = 1; d <= daysInMonth; d++) calendarCells.push(d);
 
-  if (eventsLoading || appointmentsLoading || dealsLoading) {
+  if (eventsLoading || dealsLoading) {
     return (
       <div className={embedded ? "space-y-4" : "space-y-4 p-4 md:p-6"} data-testid="calendar-loading">
         <Skeleton className="h-8 w-48" />
@@ -395,7 +471,7 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
           <CalendarIcon className="h-6 w-6 text-muted-foreground" />
           {embedded ? <h2 className="text-lg font-semibold" data-testid="text-calendar-title">Calendar</h2> : <PageTitle className="text-2xl font-bold" data-testid="text-calendar-title">Calendar</PageTitle>}
           <span className="text-xs text-muted-foreground" data-testid="text-calendar-timezone">
-            Times shown in {Intl.DateTimeFormat().resolvedOptions().timeZone} · sales calendar appointments
+            Times shown in {Intl.DateTimeFormat().resolvedOptions().timeZone}
           </span>
         </div>
         <Button onClick={() => { setEventForm(f => ({ ...f, date: selectedDate })); setShowAddDialog(true); }} data-testid="button-add-event">
@@ -403,7 +479,30 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
         </Button>
       </div>
 
-      {(eventsError || appointmentsError || dealsError || contactsError || dealsPartial || appointmentPartial || appointmentRead?.configured === false) && (
+      <div className="space-y-1" data-testid="calendar-source-filter">
+        <p className="text-xs font-medium text-muted-foreground" id="calendar-source-filter-label">Source</p>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          value={sourceFilter}
+          onValueChange={value => { if (value) setSourceFilter(value as SourceFilter); }}
+          aria-labelledby="calendar-source-filter-label"
+          className="flex flex-wrap justify-start"
+        >
+          {SOURCE_FILTERS.map(option => (
+            <ToggleGroupItem key={option.value} value={option.value} title={option.hint} className="min-h-11 px-3"
+              data-testid={`filter-source-${option.value}`}>
+              {option.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        <p className="text-xs text-muted-foreground" data-testid="text-source-filter-hint" role="status">
+          {SOURCE_FILTERS.find(option => option.value === sourceFilter)?.hint}
+          {sourceFilter !== "local" && appointmentsLoading ? " · reading appointments…" : ""}
+        </p>
+      </div>
+
+      {(eventsError || appointmentsError || dealsError || contactLookupFailed || dealsPartial || appointmentPartial || appointmentRead?.configured === false) && (
         <Card className="border-amber-300 bg-amber-50/60 dark:bg-amber-950/20" role="status" data-testid="calendar-source-status">
           <CardContent className="space-y-2 p-4 text-sm">
             <p className="font-medium">Calendar source coverage</p>
@@ -413,10 +512,10 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
               <Button size="sm" variant="outline" onClick={() => void retryAppointments()}>Retry</Button></p>}
             {dealsError && <p className="flex flex-wrap items-center gap-2">Deal follow-up dates could not be read.
               <Button size="sm" variant="outline" onClick={() => void retryDeals()}>Retry</Button></p>}
-            {contactsError && <p className="flex flex-wrap items-center gap-2">Contact names are unavailable; IDs are retained.
+            {contactLookupFailed && <p className="flex flex-wrap items-center gap-2">Contact names are unavailable; IDs are retained.
               <Button size="sm" variant="outline" onClick={() => void retryContacts()}>Retry</Button></p>}
             {dealsPartial && <p>Deal follow-ups are a partial window ({dealsRes?.data.length} of {dealsRes?.total} reported).</p>}
-            {appointmentRead?.configured === false && <p>Appointment calendar is not configured.</p>}
+            {appointmentRead?.configured === false && <p data-testid="text-calendar-not-configured">{appointmentPurpose === "account" ? "Account" : "Sales"} calendar is not configured; no appointments are assumed absent.</p>}
             {appointmentPartial && <p>Appointment list is bounded or incomplete{appointmentRead?.queueLimit ? ` (queue limit ${appointmentRead.queueLimit})` : ""}; an empty result is not definitive.</p>}
             {appointmentRead && <p className="text-xs text-muted-foreground">
               {appointmentRead.source || appointmentRead.scope || "Appointment source"}
@@ -607,10 +706,12 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
             <CardContent>
               {selectedDayEvents.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4" data-testid="text-no-events">
-                  {eventsError || appointmentsError || dealsError
+                  {sourceFilter !== "local" && appointmentsLoading
+                    ? "Reading appointments; this day is not known to be empty yet."
+                    : eventsError || appointmentsError || dealsError
                     ? "Some calendar sources could not be read; no-empty results are not assumed."
                     : appointmentRead?.configured === false
-                    ? "No internal events are scheduled. Appointment calendar is not configured."
+                    ? "No local items are scheduled. The selected appointment calendar is not configured."
                     : appointmentPartial || dealsPartial
                     ? "No events found in the available source windows; coverage is partial."
                     : "No events scheduled"}
@@ -647,14 +748,20 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
                           )}
                           {evt.contactId && !contactMap.has(evt.contactId) && (
                             <p className="text-xs text-muted-foreground">
-                              Contact #{evt.contactId}{contactsError ? " · name lookup failed" : ""}
+                              Contact #{evt.contactId}{contactLookupFailed ? " · name lookup failed" : ""}
                             </p>
                           )}
                           <Badge variant="secondary" className={`text-[10px] ${TYPE_BADGE_VARIANTS[evt.type] || ""}`} data-testid={`badge-event-type-${evt.id}`}>
                             {evt.type}
                           </Badge>
-                          <Badge variant="outline" className="ml-1 text-[10px]">{evt.sourceLabel || evt.source}</Badge>
+                          <Badge variant="outline" className="ml-1 text-[10px]" data-testid={`badge-event-source-${evt.id}`}>{evt.sourceLabel}</Badge>
                           {evt.noShow && <Badge variant="destructive" className="ml-1 text-[10px]">No-show</Badge>}
+                          <div>
+                            <Button size="sm" variant="outline" className="mt-1 min-h-11" onClick={() => setDrawerItemId(evt.id)}
+                              aria-label={`View details for ${evt.title}`} data-testid={`button-event-details-${evt.id}`}>
+                              Details
+                            </Button>
+                          </div>
                           {evt.externalUrl && <a href={evt.externalUrl} target="_blank" rel="noopener noreferrer"
                             className="ml-2 inline-flex items-center text-xs text-primary underline">Open appointment</a>}
                         </div>
@@ -683,6 +790,19 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
           </Card>
         </div>
       </div>
+
+      <Sheet open={!!drawerItem} onOpenChange={open => { if (!open) setDrawerItemId(null); }}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-md" data-testid="calendar-detail-drawer">
+          {drawerItem && (
+            <AppointmentDrawerBody
+              item={drawerItem}
+              contactName={drawerItem.contactId ? contactMap.get(drawerItem.contactId) : undefined}
+              contactLookupFailed={contactLookupFailed}
+              providerReadAt={drawerItem.source === "appointment" ? appointmentRead?.asOf : undefined}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
 
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
         <DialogContent data-testid="dialog-add-event">
@@ -745,20 +865,8 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
               </Select>
             </div>
             <div>
-              <label className="text-sm font-medium">Contact (optional)</label>
-              <Select value={eventForm.contactId} onValueChange={v => setEventForm(f => ({ ...f, contactId: v }))}>
-                <SelectTrigger data-testid="select-event-contact">
-                  <SelectValue placeholder="Select contact..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none" data-testid="option-contact-none">No contact</SelectItem>
-                  {contacts?.slice(0, 50).map(c => (
-                    <SelectItem key={c.id} value={String(c.id)} data-testid={`option-contact-${c.id}`}>
-                      {c.firstName} {c.lastName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <label className="text-sm font-medium" id="label-event-contact">Contact (optional)</label>
+              <AuthorizedContactPicker value={pickedContact} onSelect={setPickedContact} label="contact" testId="event-contact-picker" />
             </div>
             <div>
               <label className="text-sm font-medium">Notes</label>
@@ -786,5 +894,137 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function formatStamp(value: string | null | undefined): string {
+  if (!value) return "Not recorded";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Unknown time" : date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+function DetailRow({ label, children, testId }: { label: string; children: React.ReactNode; testId?: string }) {
+  return (
+    <div className="space-y-0.5" data-testid={testId}>
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-words text-sm">{children}</dd>
+    </div>
+  );
+}
+
+function AppointmentDrawerBody({ item, contactName, contactLookupFailed, providerReadAt }: {
+  item: CalendarItem; contactName?: string; contactLookupFailed: boolean; providerReadAt?: string;
+}) {
+  const isAppointment = item.source === "appointment";
+  const detail = useQuery<AppointmentDetail>({
+    queryKey: ["/api/appointments/detail", item.rawId],
+    enabled: isAppointment,
+    // Recorded occurrence and command state change as webhooks and commands land: always re-read when the drawer opens.
+    staleTime: 0,
+    refetchOnMount: "always",
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/appointments/${encodeURIComponent(String(item.rawId))}/detail`, { credentials: "include", signal });
+      if (res.status === 404) return { appointmentId: String(item.rawId), recorded: false, occurrence: null, lastObservation: null, commands: [] };
+      if (!res.ok) throw new Error("Appointment detail is unavailable.");
+      return res.json();
+    },
+  });
+  const occurrence = detail.data?.occurrence;
+  const listedStart = new Date(item.startTime).getTime();
+  const recordedStart = occurrence?.startTime ? new Date(occurrence.startTime).getTime() : NaN;
+  const startsDiffer = Number.isFinite(listedStart) && Number.isFinite(recordedStart) && listedStart !== recordedStart;
+  return (
+    <>
+      <SheetHeader>
+        <SheetTitle className="break-words pr-6" data-testid="drawer-title">{item.title}</SheetTitle>
+        <SheetDescription data-testid="drawer-source">{item.sourceLabel}</SheetDescription>
+      </SheetHeader>
+      <dl className="mt-4 space-y-4">
+        <DetailRow label="When" testId="drawer-when">
+          {formatStamp(item.startTime)}{item.endTime && item.endTime !== item.startTime ? ` – ${formatTime(item.endTime)}` : ""}
+          <span className="block text-xs text-muted-foreground">{Intl.DateTimeFormat().resolvedOptions().timeZone}</span>
+        </DetailRow>
+        <DetailRow label="Type">{item.type}{item.noShow ? " · no-show" : ""}</DetailRow>
+        {item.contactId && (
+          <DetailRow label="Contact" testId="drawer-contact">
+            {contactName ?? `Contact #${item.contactId}${contactLookupFailed ? " · name lookup failed" : ""}`}
+          </DetailRow>
+        )}
+        {item.description && <DetailRow label="Notes">{item.description}</DetailRow>}
+      </dl>
+
+      {!isAppointment ? (
+        <p className="mt-6 rounded-md border p-3 text-sm text-muted-foreground" data-testid="drawer-local-note">
+          {item.source === "event"
+            ? "Local event: saved in this CRM only. It is not a GoHighLevel appointment and sent no message."
+            : "Local deal follow-up date. It is not a GoHighLevel appointment."}
+        </p>
+      ) : (
+        <div className="mt-6 space-y-5" data-testid="drawer-appointment-sections">
+          <section aria-labelledby="drawer-occurrence-h" className="space-y-2" data-testid="drawer-occurrence">
+            <h3 id="drawer-occurrence-h" className="text-sm font-semibold">Current occurrence</h3>
+            {detail.isPending ? <p role="status" className="text-sm text-muted-foreground">Reading recorded appointment state…</p>
+              : detail.isError ? (
+                <div role="alert" className="space-y-2 text-sm">
+                  <p>Recorded appointment state could not be read. This is not “no record”.</p>
+                  <Button size="sm" variant="outline" className="min-h-11" onClick={() => void detail.refetch()} data-testid="button-retry-detail">Retry</Button>
+                </div>
+              ) : !detail.data.recorded || !occurrence ? (
+                <p className="text-sm text-muted-foreground" data-testid="drawer-not-recorded">
+                  No recorded occurrence for this appointment. Whether it is the current meeting cannot be determined from this listing alone.
+                </p>
+              ) : (
+                <dl className="space-y-2">
+                  <DetailRow label="Recorded status"><Badge variant="secondary" data-testid="drawer-recorded-status">{occurrence.status.replace("_", " ")}</Badge></DetailRow>
+                  <DetailRow label="Current meeting" testId="drawer-current">
+                    {occurrence.current
+                      ? "Yes — the current meeting for this contact and calendar."
+                      : occurrence.currentAppointmentId
+                        ? "No — another open appointment is current for this contact."
+                        : "No — this appointment is closed or superseded; no open appointment is recorded."}
+                  </DetailRow>
+                  <DetailRow label="Recorded start">{formatStamp(occurrence.startTime)}</DetailRow>
+                  <DetailRow label="Rescheduled">{occurrence.rescheduleCount} time{occurrence.rescheduleCount === 1 ? "" : "s"}</DetailRow>
+                  {startsDiffer && <p className="text-xs text-amber-700 dark:text-amber-400" data-testid="drawer-start-differs">
+                    The recorded start differs from the provider listing; the provider listing is shown above.</p>}
+                </dl>
+              )}
+          </section>
+
+          <section aria-labelledby="drawer-observation-h" className="space-y-2" data-testid="drawer-observation">
+            <h3 id="drawer-observation-h" className="text-sm font-semibold">Last observation</h3>
+            <dl className="space-y-2">
+              <DetailRow label="Provider calendar read">{providerReadAt ? formatStamp(providerReadAt) : "Not recorded"}</DetailRow>
+              <DetailRow label="Last recorded provider event">
+                {detail.data?.lastObservation ? formatStamp(detail.data.lastObservation.eventAt) : detail.isPending ? "Reading…" : "No provider event recorded"}
+              </DetailRow>
+            </dl>
+          </section>
+
+          <section aria-labelledby="drawer-commands-h" className="space-y-2" data-testid="drawer-commands">
+            <h3 id="drawer-commands-h" className="text-sm font-semibold">Booking commands</h3>
+            {detail.isPending ? <p role="status" className="text-sm text-muted-foreground">Reading booking commands…</p>
+              : detail.isError ? <p className="text-sm text-muted-foreground">Command state unavailable.</p>
+              : detail.data.commands.length === 0 ? (
+                <p className="text-sm text-muted-foreground" data-testid="drawer-no-commands">No booking command is recorded for this appointment.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {detail.data.commands.map((command, index) => (
+                    <li key={`${command.startedAt}-${index}`} className="rounded-md border p-2 text-sm" data-testid={`drawer-command-${command.state}`}>
+                      <span className="font-medium capitalize">{command.operation}</span>
+                      <span className="block text-xs">{COMMAND_STATE_COPY[command.state]}</span>
+                      <span className="block text-xs text-muted-foreground">Started {formatStamp(command.startedAt)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+          </section>
+
+          <p className="text-xs text-muted-foreground">Provider appointments are read-only in this view.</p>
+          {item.externalUrl && <a href={item.externalUrl} target="_blank" rel="noopener noreferrer"
+            className="inline-flex min-h-11 items-center text-sm text-primary underline">Open appointment</a>}
+        </div>
+      )}
+    </>
   );
 }

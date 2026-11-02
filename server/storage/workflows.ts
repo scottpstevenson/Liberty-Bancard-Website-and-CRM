@@ -179,6 +179,32 @@ import { sanitizeDeadLetterEvent } from "../services/audit-sanitizer";
   }
 
 
+  /** Server-paged, searchable run history. Search matches run id, entity id, workflow name, entity type and status. */
+  async getWorkflowRunsPage(opts: { workflowId?: number; search?: string; status?: string; limit: number; offset: number }) {
+    const conditions = [];
+    if (opts.workflowId !== undefined) conditions.push(eq(workflowRuns.workflowId, opts.workflowId));
+    if (opts.status) conditions.push(eq(workflowRuns.status, opts.status));
+    const term = (opts.search ?? "").trim().replace(/^#/, "").slice(0, 100);
+    if (term) {
+      const like = `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      const numeric = /^\d{1,9}$/.test(term) ? Number(term) : null;
+      const entity = /^(contact|deal)\s*#?\s*(\d{1,9})$/i.exec(term);
+      conditions.push(or(
+        ...(numeric !== null ? [eq(workflowRuns.id, numeric), eq(workflowRuns.entityId, numeric)] : []),
+        ...(entity ? [and(eq(workflowRuns.entityType, entity[1].toLowerCase()), eq(workflowRuns.entityId, Number(entity[2])))] : []),
+        ilike(workflows.name, like), ilike(workflowRuns.entityType, like), ilike(workflowRuns.status, like),
+      )!);
+    }
+    const where = conditions.length ? and(...conditions) : undefined;
+    const base = () => db.select({ run: workflowRuns }).from(workflowRuns).leftJoin(workflows, eq(workflowRuns.workflowId, workflows.id));
+    const [rows, totals] = await Promise.all([
+      base().where(where).orderBy(desc(workflowRuns.createdAt), desc(workflowRuns.id)).limit(opts.limit).offset(opts.offset),
+      db.select({ total: count() }).from(workflowRuns).leftJoin(workflows, eq(workflowRuns.workflowId, workflows.id)).where(where),
+    ]);
+    return { data: rows.map((r) => r.run), total: Number(totals[0]?.total ?? 0) };
+  }
+
+
   async getWorkflowRunsByWorkflow(workflowId: number) {
     return await db.select().from(workflowRuns).where(eq(workflowRuns.workflowId, workflowId)).orderBy(desc(workflowRuns.createdAt));
   }

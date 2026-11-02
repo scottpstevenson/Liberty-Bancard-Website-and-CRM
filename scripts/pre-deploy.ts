@@ -200,6 +200,7 @@ export const MANDATORY_SUITES: Suite[] = [
   {name:"Stage 3 C3 Committed Effect Versus Audit Failure",script:"scripts/test-stage3-c3-post-commit.ts",timeoutSecs:240,requiresDisposableTestDatabase:true},
   {name:"Stage 3 C3 Bounded Mounted Browser",script:"scripts/test-stage3-c3-browser.ts",timeoutSecs:480,requiresDisposableTestDatabase:true},
   {name:"Stage 4C1 Browser Step Preview And Template Editor",script:"scripts/test-stage4c1-browser.ts",timeoutSecs:480,requiresDisposableTestDatabase:true},
+  {name:"Stage 4C2 Browser Calendar Drawer, Source Filter And Run History",script:"scripts/test-stage4c2-workspace-browser.ts",timeoutSecs:480,requiresDisposableTestDatabase:true},
   {name:"Stage 3 C3 Browser Sequences And Roles",script:"scripts/test-stage3-c3-browser-sequences.ts",timeoutSecs:480,requiresDisposableTestDatabase:true},
   {name:"Stage 3 C3 Browser Campaigns And Signatures",script:"scripts/test-stage3-c3-browser-campaigns.ts",timeoutSecs:480,requiresDisposableTestDatabase:true},
   {name:"Stage 3 C3 Mounted Component Behavior",script:"scripts/test-stage3-c3-mounted.ts",timeoutSecs:420},
