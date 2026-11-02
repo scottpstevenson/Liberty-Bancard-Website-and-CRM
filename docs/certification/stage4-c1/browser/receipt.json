@@ -5189,6 +5189,16 @@
         "sha256": "1b4ca951ac5ca124d444a21999025c858beae1feeb02126de29e3d3eb3ed6f98"
       },
       {
+        "file": "scripts/certification/fixtures/stage4c1-adopted-state-production-2026-11-01.json",
+        "bytes": 1680,
+        "sha256": "e40236669dd57d28e4789be6c289243bb8a8f3da2b0058acea27914a149620c6"
+      },
+      {
+        "file": "scripts/certification/fixtures/stage4c1-link-targets-production-2026-11-01.json",
+        "bytes": 63090,
+        "sha256": "e8f315e27fc26b9b7e8167d61f7836897286ab93e242d36330c2432e02ea82bc"
+      },
+      {
         "file": "scripts/certification/fixtures/stage4c1-stored-copy-production-snapshot-2026-11-01.json",
         "bytes": 32363,
         "sha256": "e8c4a2e06034bc6359a7e081832f02bb58a3a857de761a6914a8198652cd69c7"
@@ -5580,8 +5590,8 @@
       },
       {
         "file": "scripts/certification/test-stage4c1-stored-copy-adoption.ts",
-        "bytes": 17216,
-        "sha256": "a745721814ef607edef3f1be5b9955fe780f67f1761f971ca122f34efed21ed8"
+        "bytes": 35331,
+        "sha256": "039b589576449700615366aa22710046f1148b5b1d13a498d78a7f0f42e38946"
       },
       {
         "file": "scripts/certification/test-staged-email-materialization.ts",
@@ -8500,8 +8510,8 @@
       },
       {
         "file": "scripts/test-stage4c1-browser.ts",
-        "bytes": 9636,
-        "sha256": "9a410a2506dbd5e5e3915728eeb8bde08683152e9b79ce08e7c98a85f64a2ce7"
+        "bytes": 21928,
+        "sha256": "37ef315133dc4009b46d3c8aa6d5a59d47ac759354ae15c5b2125c1a2504b8c3"
       },
       {
         "file": "scripts/test-stage4c1-cta-contract.ts",
@@ -12055,8 +12065,13 @@
       },
       {
         "file": "server/services/stored-sequence-copy-adoption.ts",
-        "bytes": 16321,
-        "sha256": "0a332fef1a4ff6d7a31e6778b89564ec17f82c94310aa8becc94a886d71f175c"
+        "bytes": 21383,
+        "sha256": "96b37b54c38a5c795f95f6d85a516fe32b320f9f3f4840f9d18f86c3f6d5f10f"
+      },
+      {
+        "file": "server/services/stored-sequence-link-targets.ts",
+        "bytes": 5442,
+        "sha256": "4148dbbccb7f1796f0bd79d192cea6fb8408a674426aa7c0df88ab000e93bd1d"
       },
       {
         "file": "server/services/sunbiz-bootstrap.ts",
@@ -13109,14 +13124,14 @@
         "sha256": "00e8f3f1ffe171ca648cbadf003880ea475ce36007c2cbd25894f9926229dfba"
       }
     ],
-    "inputHash": "d63757e174045f43e0a8c0dd5ad426b2e6481dcd050633533f6c4930064b9af7",
-    "sourceHead": "9dee3fb31b2b2d0da7ec68b459adeec4d1e99671",
-    "sourceInputHash": "adfae1cb92d87de884c7ae339f6ddad5b4c54ecacedf534d83d6302db00d4496",
+    "inputHash": "68e9814b8f6733b6a492683fd0e7b960eed69ff461f43f675078557628d832e5",
+    "sourceHead": "0b08836e03dd8f00429207a83f393e724cfa5cea",
+    "sourceInputHash": "b9c0db65604adc808bdf3e7d09ab5bac42a89ccf8b4f22c07bd7a00a71362167",
     "outputs": [
       {
         "file": "dist/RELEASE_SHA",
         "bytes": 41,
-        "sha256": "7db8166a5bbabbd4d28bed7bb300a9fe488d7922665fabb09ace84e741acaa07"
+        "sha256": "15d934915f55f39786647ff124bfb5e63d0ff8ac6cb77451ede8b3494efa5d72"
       },
       {
         "file": "dist/build-recipe.json",
@@ -13125,8 +13140,8 @@
       },
       {
         "file": "dist/index.cjs",
-        "bytes": 11596087,
-        "sha256": "618d89dec48367c9ef13095e88057617960ee4974d26775aebab88050dd7ef78"
+        "bytes": 11602078,
+        "sha256": "4a4e274e096973e78e101134d9d450b386c01b57a7374e32139f97131a2e8eb3"
       },
       {
         "file": "dist/public/assets/ADACompliance-DmcH0R4r.js",
@@ -15546,10 +15561,10 @@
       {
         "file": "dist/sfp-publish-build.json",
         "bytes": 231,
-        "sha256": "9b50d6ba39668e1303b3f6fe946964700b52268098040f96dca219aac101d460"
+        "sha256": "e5cf64b6003f6d98d7ea026aba043fae4e5dc40ec7aaadadf15bbeece363756e"
       }
     ],
-    "outputHash": "be443616382a827e55901acebff629aca2f4c8f44af62ccddac562bf8fded14b",
+    "outputHash": "fc85f9a908586abaa419cfc18e148cb69f93d0785baf1749fa7c3415edda1444",
     "buildRecipe": {
       "version": 1,
       "mode": "production",
@@ -15563,7 +15578,7 @@
     "recipe": "Node22.22/npm10.9.4 locked install; script/build.ts; Vite client and bundled server",
     "qualification": "Compiled client plus registered source handlers in isolated preview; NOT deployed bundled-server parity"
   },
-  "fixture": "stage3b-b0cfdac0-f02a-4442-b33a-adbfff7a38ff",
+  "fixture": "stage3b-d582d16e-3c10-4c0e-b1a3-0b7a99e7166e",
   "checks": [
     "The modal names the server-resolved path and signature for a cold sales sequence",
     "The sent subject and body are shown with the worker's substitution applied",
@@ -15575,8 +15590,37 @@
     "The final preview frame re-renders with the edited wording and sample recipient",
     "Saving a draft leaves the live wording, version and activation unchanged",
     "Discarding removes the draft and nothing else",
+    "The Campaigns step preview shows the server-resolved path, subject and body with substitution applied",
+    "The Campaigns preview came from the real asset route with CSRF (200)",
+    "A campaign step using {{estimatedSavings}} is flagged: the legacy campaign path would deliver the token literally",
+    "Previewing a campaign step created no step or message and changed neither its status nor its content revision",
+    "Setup: the five current SFP packages exist through the real writers [[\"populated\",null],[\"populated\",null],[\"populated\",null],[\"populated\",null],[\"populated\",null]]",
+    "The package editor opens on the current package and lists its touches",
+    "The package editor's final preview renders the unpublished edit through the real route",
+    "Publishing stays disabled until the operator confirms",
+    "Editing and previewing changed no package version, live step wording or publication record",
+    "At 768px the package editor controls sit inside the viewport and the page does not scroll sideways",
+    "At 768px the editor's buttons and fields keep a touch-sized height",
+    "At 768px the 'Message as sent' dialog fits the viewport",
+    "At 390px the package editor controls sit inside the viewport and the page does not scroll sideways",
+    "At 390px the editor's buttons and fields keep a touch-sized height",
+    "At 390px the 'Message as sent' dialog fits the viewport",
+    "admin sees the package editor and may read packages and preview steps (true/200/200)",
+    "manager sees the workspace but only the administrators-only notice, and never requests package state (editor=false adminOnly=true workspace=true reads=)",
+    "manager: package read and publish are refused by the server; step preview is allowed",
+    "agent is not shown the package editor or the content workspace",
+    "agent: package read, step preview and publish are all refused by the server (403/403/403)",
+    "other is not shown the package editor or the content workspace",
+    "other: package read, step preview and publish are all refused by the server (403/403/403)",
+    "merchant is not shown the package editor or the content workspace",
+    "merchant: package read, step preview and publish are all refused by the server (403/403/403)",
+    "affiliate is not shown the package editor or the content workspace",
+    "affiliate: package read, step preview and publish are all refused by the server (403/403/403)",
+    "partner is not shown the package editor or the content workspace",
+    "partner: package read, step preview and publish are all refused by the server (403/403/403)",
+    "The refused publish attempts changed no package version, wording or publication record",
     "No uncaught browser exceptions",
     "No external provider egress"
   ],
-  "qualification": "Real-browser run of the Sequences step 'Message as sent' preview and the stored-template draft editor on a disposable database with only the campaigns and templates-settings routes registered. Not campaign editor, not published-candidate or production acceptance."
+  "qualification": "Real-browser run of the Sequences and Campaigns step 'Message as sent' previews, the stored-template draft editor and the current-SFP package editor (preview only, nothing published) on a disposable database with only the campaigns and templates-settings routes registered; 1280/768/390 widths and a seven-role matrix with direct API refusals. Not published-candidate or production acceptance."
 }

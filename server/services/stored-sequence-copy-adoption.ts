@@ -5,6 +5,7 @@ import { followUpSequences, sequenceSteps } from "../../shared/schema";
 import { auditChange } from "./audit-change";
 import { lintLinks, lintRules } from "./message-copy-lint";
 import { FIRST_PARTY_BOOK_URL, SECURE_UPLOAD_URL, SITE_ORIGIN } from "./message-cta-contract";
+import { LINK_RECONCILIATION_STEPS, retargetSalesWidgetLinks, type LinkRetarget } from "./stored-sequence-link-targets";
 
 /**
  * Stage 4C1 stored-copy adoption for installed sequence steps (R04).
@@ -20,7 +21,9 @@ import { FIRST_PARTY_BOOK_URL, SECURE_UPLOAD_URL, SITE_ORIGIN } from "./message-
  *     scheduled or sent.
  */
 
-interface Edit { from: string; to: string }
+/** `layered` marks an edit that matches wording produced by an earlier edit of the same target (a later review
+ *  revision); it is applied after the earlier edits, so both fresh installs and already-adopted rows converge. */
+interface Edit { from: string; to: string; layered?: boolean }
 interface StepTarget {
   sequenceId: number;
   sequenceName: string;
@@ -30,12 +33,15 @@ interface StepTarget {
   intent: string;
   subject?: Edit[];
   body: Edit[];
+  /** Link-only reconciliation by purpose (see stored-sequence-link-targets.ts); applied after the body edits. */
+  retarget?: LinkRetarget;
 }
 
 const BTN = "display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;";
 const WIDGET = "https://api.leadconnectorhq.com/widget/bookings/libertybancard";
 const upload = SECURE_UPLOAD_URL;
 
+export type { Edit as StoredCopyEdit };
 export const STORED_SEQUENCE_COPY_TARGETS: readonly StepTarget[] = [
   {
     sequenceId: 36, sequenceName: "20. Free Analysis Follow-Up", stepOrder: 4, channel: "email", intent: "secure statement upload; no savings figure",
@@ -50,7 +56,8 @@ export const STORED_SEQUENCE_COPY_TARGETS: readonly StepTarget[] = [
     ],
   },
   {
-    sequenceId: 36, sequenceName: "20. Free Analysis Follow-Up", stepOrder: 8, channel: "email", intent: "reply for help; retired /terminals link and unverified equipment claims removed",
+    sequenceId: 36, sequenceName: "20. Free Analysis Follow-Up", stepOrder: 8, channel: "email", intent: "reply for help; retired /terminals link; no recommendation or equipment-feature claims",
+    subject: [{ from: "The right terminal for your business, {{firstName}}", to: "Equipment options for your business, {{firstName}}" }],
     body: [
       { from: "<li>Easy setup — most merchants are live in under an hour</li>", to: "" },
       {
@@ -58,6 +65,12 @@ export const STORED_SEQUENCE_COPY_TARGETS: readonly StepTarget[] = [
         to: "<p>Equipment options and any terms depend on your business and are confirmed during your review. Reply to this email and we'll walk through what fits.</p>",
       },
       { from: `<p><a href="${SITE_ORIGIN}/terminals" style="${BTN}">Browse Terminals &amp; Equipment</a></p>`, to: "" },
+      // Review revision: no automatic terminal recommendation, feature list or fit claim without an approved source.
+      {
+        layered: true,
+        from: "<p>Based on your business type and volume, we recommend the <strong>{{recommendedTerminal}}</strong>.</p><p>Here's why it's a great fit:</p><ul><li>Optimized for {{industry}} businesses</li><li>Supports tap, chip, swipe, and contactless payments</li><li>Built-in receipt printing and reporting</li></ul><p>Equipment options and any terms depend on your business and are confirmed during your review. Reply to this email and we'll walk through what fits.</p>",
+        to: "<p>We can review your payment setup and explain equipment options that fit your requirements. Availability, pricing and terms are confirmed during your review, before you decide. Reply with the question you would like us to cover.</p>",
+      },
     ],
   },
   {
@@ -80,7 +93,14 @@ export const STORED_SEQUENCE_COPY_TARGETS: readonly StepTarget[] = [
   },
   {
     sequenceId: 84, sequenceName: "Switch & Save (Core Sales)", stepOrder: 3, channel: "email", intent: "sales booking; call length not stated",
-    body: [{ from: `"${WIDGET}" style="${BTN}">Book a 10-Minute Call`, to: `"${FIRST_PARTY_BOOK_URL}" style="${BTN}">Book a Call` }],
+    body: [
+      { from: `"${WIDGET}" style="${BTN}">Book a 10-Minute Call`, to: `"${FIRST_PARTY_BOOK_URL}" style="${BTN}">Book a Call` },
+      // Review revision: no go-live promise. Timing depends on the application, underwriting and setup.
+      {
+        from: "<li>Most merchants are live within 3–5 business days</li>",
+        to: "<li>Timing depends on the application, underwriting, processor and setup requirements. We'll confirm the next steps and expected timing for your business.</li>",
+      },
+    ],
   },
   ...[1, 3, 5].map((stepOrder): StepTarget => ({
     sequenceId: 85, sequenceName: "W6 — Cold Outreach: Email + Manual Call", stepOrder, channel: "email", intent: "secure statement upload",
@@ -106,17 +126,35 @@ export const STORED_SEQUENCE_COPY_TARGETS: readonly StepTarget[] = [
     body: [{ from: `<p><a href="${SITE_ORIGIN}/apply">Complete My Application</a></p>`, to: "<p>Reply to this email and we'll get started together.</p>" }],
   },
   {
-    sequenceId: 93, sequenceName: "W6 — Merchant Referral Program", stepOrder: 1, channel: "email", intent: "reply (no merchant-referral page exists)",
-    body: [{
-      from: `<p><a href="${SITE_ORIGIN}/refer">Learn About Our Referral Program</a></p>`,
-      to: "<p>If someone comes to mind, just reply to this email with their name and we'll take it from there.</p>",
-    }],
+    sequenceId: 93, sequenceName: "W6 — Merchant Referral Program", stepOrder: 1, channel: "email", intent: "reply for referral-program details (no merchant-referral page exists; no credit promise)",
+    body: [
+      {
+        from: `<p><a href="${SITE_ORIGIN}/refer">Learn About Our Referral Program</a></p>`,
+        to: "<p>If someone comes to mind, just reply to this email with their name and we'll take it from there.</p>",
+      },
+      // Review revision: no referral-credit promise and no request for another person's details before eligibility
+      // and terms have been explained.
+      {
+        layered: true,
+        from: " As a thank-you, we offer a referral credit for every merchant who signs on through your recommendation.</p><p>If someone comes to mind, just reply to this email with their name and we'll take it from there.</p>",
+        to: "</p><p>Reply for the current referral-program details. We'll explain any eligibility and terms before a referral is submitted.</p>",
+      },
+    ],
   },
   ...[1, 3].map((stepOrder): StepTarget => ({
     sequenceId: 94, sequenceName: "W6 — Partner Referral Sequence", stepOrder, channel: "email", intent: "partner portal entry",
     body: [{ from: `href="${SITE_ORIGIN}/partners/portal"`, to: `href="${SITE_ORIGIN}/partner-portal"` }],
   })),
 ];
+
+/** Booking-widget links reconciled by step purpose. Only the address changes; the plan row reports no wording findings. */
+export const STORED_SEQUENCE_LINK_TARGETS: readonly StepTarget[] = LINK_RECONCILIATION_STEPS.flatMap(([sequenceId, sequenceName, steps]) =>
+  steps.map(([stepOrder, channel, retarget]): StepTarget => ({
+    sequenceId, sequenceName, stepOrder, channel, retarget, body: [],
+    intent: retarget === "book" ? "sales calendar: sales widget address -> first-party /book (shared sales resolver)" : "secure statement upload (the label said upload; the link opened the sales calendar)",
+  })));
+
+export const ALL_STORED_SEQUENCE_TARGETS: readonly StepTarget[] = [...STORED_SEQUENCE_COPY_TARGETS, ...STORED_SEQUENCE_LINK_TARGETS];
 
 export type StepAdoptionStatus = "ready" | "already_current" | "conflict" | "missing" | "blocked";
 
@@ -152,7 +190,8 @@ function editText(text: string, edits: Edit[]): string {
 export function planStepCopy(target: StepTarget, current: { subject: string | null; body: string | null }): {
   subject: string | null; body: string | null; changed: boolean; allApplied: boolean;
 } {
-  const body = editText(current.body ?? "", target.body);
+  const edited = editText(current.body ?? "", target.body);
+  const body = target.retarget ? retargetSalesWidgetLinks(edited, target.channel, target.retarget) : edited;
   const subject = target.subject ? editText(current.subject ?? "", target.subject) : current.subject;
   const changed = body !== (current.body ?? "") || subject !== current.subject;
   return { subject, body, changed, allApplied: !target.body.some((e) => (current.body ?? "").includes(e.from)) || changed };
@@ -172,7 +211,7 @@ async function pinnedSequenceIds(client: { execute: typeof db.execute }): Promis
 
 /** Read-only. Produces the exact per-step plan and a hash that binds an apply to what was reviewed. */
 export async function previewStoredSequenceCopyAdoption(): Promise<StepAdoptionPlan> {
-  const ids = [...new Set(STORED_SEQUENCE_COPY_TARGETS.map((t) => t.sequenceId))];
+  const ids = [...new Set(ALL_STORED_SEQUENCE_TARGETS.map((t) => t.sequenceId))];
   const rows: StepPlanRow[] = [];
   const pinned = await pinnedSequenceIds(db);
   const sequences = new Map<number, typeof followUpSequences.$inferSelect>();
@@ -182,7 +221,7 @@ export async function previewStoredSequenceCopyAdoption(): Promise<StepAdoptionP
     if (seq) sequences.set(id, seq);
     steps.push(...await db.select().from(sequenceSteps).where(eq(sequenceSteps.sequenceId, id)));
   }
-  for (const target of STORED_SEQUENCE_COPY_TARGETS) {
+  for (const target of ALL_STORED_SEQUENCE_TARGETS) {
     const base = { key: targetKey(target), sequenceId: target.sequenceId, sequenceName: target.sequenceName, stepOrder: target.stepOrder, channel: target.channel, intent: target.intent };
     const seq = sequences.get(target.sequenceId);
     if (!seq || seq.name !== target.sequenceName) { rows.push({ ...base, status: "missing", reason: seq ? "Sequence id exists under a different name; not touched" : "Sequence not found", remainingFindings: [] }); continue; }
@@ -191,11 +230,11 @@ export async function previewStoredSequenceCopyAdoption(): Promise<StepAdoptionP
     const plan = planStepCopy(target, step);
     const oldHash = sha(`${step.subject ?? ""}\n${step.body ?? ""}`);
     if (!plan.changed) {
-      const remaining = findings(step.subject, step.body);
+      const remaining = target.retarget ? [] : findings(step.subject, step.body);
       rows.push({ ...base, stepId: step.id, oldHash, status: remaining.length ? "conflict" : "already_current", reason: remaining.length ? "Live wording differs from the reviewed baseline and still has audited findings; not overwritten" : undefined, remainingFindings: remaining });
       continue;
     }
-    const remaining = findings(plan.subject, plan.body);
+    const remaining = target.retarget ? [] : findings(plan.subject, plan.body);
     let blocked: string | undefined;
     if (seq.retiredAt) blocked = "Sequence is retired";
     else if (!["paused", "draft"].includes(seq.status ?? "")) blocked = `Sequence is ${seq.status}; pause it before its steps can change`;
@@ -225,9 +264,10 @@ export async function applyStoredSequenceCopyAdoption(expectedPlanHash: string, 
   }
   const applied: string[] = [];
   const skipped: Array<{ key: string; reason: string }> = [];
+  let failure: unknown;
   for (const row of plan.rows) {
     if (row.status !== "ready" || !row.stepId) { if (row.status !== "already_current") skipped.push({ key: row.key, reason: row.reason ?? row.status }); continue; }
-    const target = STORED_SEQUENCE_COPY_TARGETS.find((t) => targetKey(t) === row.key)!;
+    const target = ALL_STORED_SEQUENCE_TARGETS.find((t) => targetKey(t) === row.key)!;
     try {
       await db.transaction(async (tx) => {
         const [seq] = await tx.select().from(followUpSequences).where(eq(followUpSequences.id, row.sequenceId)).for("update");
@@ -241,18 +281,39 @@ export async function applyStoredSequenceCopyAdoption(expectedPlanHash: string, 
         if (!next.changed || sha(`${next.subject ?? ""}\n${next.body ?? ""}`) !== row.newHash) throw new SequenceCopyAdoptionError(409, "STEP_CHANGED", "Step no longer produces the reviewed wording");
         await tx.update(sequenceSteps).set({ subject: next.subject, body: next.body }).where(eq(sequenceSteps.id, step.id));
         await tx.update(followUpSequences).set({ version: seq.version + 1, updatedAt: new Date() }).where(eq(followUpSequences.id, seq.id));
+        // The receipt commits or rolls back with the wording and version change, so no step can change without its
+        // own durable record (and a failed receipt leaves this step exactly as it was).
+        await auditChange({
+          actorType: "user", actorId, action: "stored_sequence_step_copy_adopted", entityType: "sequence_step", entityId: step.id,
+          entityKey: row.key,
+          before: { wordingDigest: row.oldHash, sequenceVersion: seq.version },
+          after: { wordingDigest: row.newHash, sequenceVersion: seq.version + 1 },
+          details: {
+            planHash: plan.planHash, key: row.key, sequenceId: seq.id, sequenceName: seq.name, stepOrder: row.stepOrder, channel: row.channel,
+            intent: row.intent, source: "Stage 4C1 reviewed stored-copy adoption", notes: "Subject/body only; no status, enrollment or send change.",
+          },
+        }, tx);
       });
       applied.push(row.key);
     } catch (err: any) {
-      if (err instanceof SequenceCopyAdoptionError) skipped.push({ key: row.key, reason: err.message });
-      else throw err;
+      if (err instanceof SequenceCopyAdoptionError) { skipped.push({ key: row.key, reason: err.message }); continue; }
+      // Anything else (for example a receipt that could not be written) rolled this step back. Stop here: steps already
+      // applied keep their own receipts, the rest are untouched, and a fresh preview reports exactly which is which.
+      failure = err;
+      break;
     }
   }
   if (applied.length) {
-    await auditChange({
-      actorType: "user", actorId, action: "stored_sequence_copy_adoption", entityType: "message_copy",
-      details: { planHash: plan.planHash, applied, skipped, source: "Stage 4C1 R04 reviewed stored-copy adoption", notes: "Subject/body only; no status, enrollment or send change." },
-    });
+    // Batch summary only; the per-step receipts above are the durable evidence, so a failure here is not fatal.
+    try {
+      await auditChange({
+        actorType: "user", actorId, action: "stored_sequence_copy_adoption", entityType: "message_copy",
+        details: { planHash: plan.planHash, applied, skipped, interrupted: failure !== undefined, source: "Stage 4C1 R04 reviewed stored-copy adoption", notes: "Subject/body only; no status, enrollment or send change." },
+      });
+    } catch (summaryErr) {
+      console.error("[stored-sequence-copy-adoption] batch summary audit failed; per-step receipts are durable", summaryErr);
+    }
   }
+  if (failure !== undefined) throw failure;
   return { applied, skipped, plan };
 }

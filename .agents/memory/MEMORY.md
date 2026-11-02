@@ -137,7 +137,6 @@
 - [Existing email inventory diagnosis](email-inventory-diagnosis.md) — Count existing inventory and trace intake before attributing low recipient growth to discovery yield.
 - [Raw SQL contracts](raw-sql-index.md) — Driver array binding, boolean typing, correlated qualification, row casing, and lossless timestamp representations.
 - [SFP enrichment acceptance](sfp-enrichment-acceptance.md) — Recipient scale and representative business coverage are separate; GHL sync and provider completions do not establish qualification.
-- [Partial patch results](partial-patch-results.md) — A failed multi-file patch may retain successful edits; inspect per-file results before retrying.
 - [Dev startup mutation scope](dev-startup-mutation-scope.md) — Background profile off disables jobs, not all startup reconciliations; no-mutation verification needs separate care.
 - [Dependency upgrades and design](dependency-design-preservation.md) — Security upgrades must preserve Liberty's design; installs can reintroduce nonportable mirror sources.
 - [SFP owner lock ordering](sfp-owner-lock-order.md) — Pin selector → owner before graph locks; queued renewal and joined FOR SHARE make inconsistent ordering dangerous.
@@ -146,7 +145,7 @@
 - [Response-loss evidence](response-loss-evidence.md) — Prove the post-commit fault executed; persisted rows alone cannot certify confirmation-loss recovery.
 - [Useful-list evidence](useful-list-evidence.md) — Time visible hydrated records, not shell headings or offscreen DOM; declare volume, hardware, network and cache conditions.
 - [Merchant/report ownership](stage3-c4-ownership.md) — C4 owns shared Outreach presentation; A owns data, C3 reuses it, C2 retains Contact shell, C5 sidebar and D serving proof.
-- [Large planning payloads](task-planning-payload-limits.md) — Task plans have a byte ceiling; filter large callback results to avoid notebook resets and preserve original evidence.
+- [Large planning payloads](task-planning-payload-limits.md) — Task plans have a byte ceiling; filter large results; a failed multi-file patch may keep partial edits ([details](partial-patch-results.md)).
 - [Upload boundary verification](upload-boundary-verification.md) — Verify multipart admission; a 300s gateway timeout can hide a committed import. Reconcile exact hashes before resending.
 - [Transaction rollback masking](transaction-rollback-masking.md) — Idle termination may surface only as failed rollback; preserve both errors and never infer healthy work from a lease alone.
 - [Production worker hosting](production-worker-hosting.md) — Owner selected Reserved VM for continuous workers; configured hosting is not live deployment or acceptance proof.

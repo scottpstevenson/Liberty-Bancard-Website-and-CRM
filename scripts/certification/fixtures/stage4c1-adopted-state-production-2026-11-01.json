@@ -1,0 +1,19 @@
+{
+  "note": "Exact stored wording read (read-only) from the published database on 2026-11-01 AFTER the first adoption pass; review-revision edits must converge on this state.",
+  "steps": [
+    {
+      "sid": 36,
+      "step_order": 8,
+      "action_type": "email",
+      "subject": "The right terminal for your business, {{firstName}}",
+      "body": "<p>Hi {{firstName}},</p><p>Based on your business type and volume, we recommend the <strong>{{recommendedTerminal}}</strong>.</p><p>Here's why it's a great fit:</p><ul><li>Optimized for {{industry}} businesses</li><li>Supports tap, chip, swipe, and contactless payments</li><li>Built-in receipt printing and reporting</li></ul><p>Equipment options and any terms depend on your business and are confirmed during your review. Reply to this email and we'll walk through what fits.</p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+    },
+    {
+      "sid": 93,
+      "step_order": 1,
+      "action_type": "email",
+      "subject": "Know another business owner who could save on processing?",
+      "body": "<p>Hi {{firstName}},</p><p>We appreciate your business. If you know any other merchants who might benefit from a free rate review, we'd love an introduction. As a thank-you, we offer a referral credit for every merchant who signs on through your recommendation.</p><p>If someone comes to mind, just reply to this email with their name and we'll take it from there.</p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Referral program terms and conditions apply.</p>"
+    }
+  ]
+}

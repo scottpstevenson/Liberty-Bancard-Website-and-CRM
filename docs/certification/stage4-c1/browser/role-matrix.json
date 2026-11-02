@@ -1,0 +1,81 @@
+{
+  "admin": {
+    "editor": true,
+    "adminOnly": false,
+    "workspace": true,
+    "pkgReads": [
+      200
+    ],
+    "api": {
+      "get": 200,
+      "preview": 200,
+      "publish": 400
+    }
+  },
+  "manager": {
+    "editor": false,
+    "adminOnly": true,
+    "workspace": true,
+    "pkgReads": [],
+    "api": {
+      "get": 403,
+      "preview": 200,
+      "publish": 403
+    }
+  },
+  "agent": {
+    "editor": false,
+    "adminOnly": false,
+    "workspace": false,
+    "pkgReads": [],
+    "api": {
+      "get": 403,
+      "preview": 403,
+      "publish": 403
+    }
+  },
+  "other": {
+    "editor": false,
+    "adminOnly": false,
+    "workspace": false,
+    "pkgReads": [],
+    "api": {
+      "get": 403,
+      "preview": 403,
+      "publish": 403
+    }
+  },
+  "merchant": {
+    "editor": false,
+    "adminOnly": false,
+    "workspace": false,
+    "pkgReads": [],
+    "api": {
+      "get": 403,
+      "preview": 403,
+      "publish": 403
+    }
+  },
+  "affiliate": {
+    "editor": false,
+    "adminOnly": false,
+    "workspace": false,
+    "pkgReads": [],
+    "api": {
+      "get": 403,
+      "preview": 403,
+      "publish": 403
+    }
+  },
+  "partner": {
+    "editor": false,
+    "adminOnly": false,
+    "workspace": false,
+    "pkgReads": [],
+    "api": {
+      "get": 403,
+      "preview": 403,
+      "publish": 403
+    }
+  }
+}

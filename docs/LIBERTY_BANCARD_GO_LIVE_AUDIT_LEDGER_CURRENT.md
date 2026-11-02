@@ -2179,3 +2179,37 @@ Supersedes the "Not done" list and the identity line of the entry above. **Ident
 - Sequences: previewed plan hash `3d3dd5c17bd38c73` (14 ready, 2 blocked, 0 conflicts); applied with that hash. Applied 14 steps: sequence 36 steps 4/8/9, 85 steps 1/3/5, 86 steps 1/3, 91 steps 1/2/4, 93 step 1, 94 steps 1/3. Re-preview afterwards: 14 already current, 0 conflicts, 2 blocked.
 - **Not applied:** sequence 84 steps 2 and 3 are refused because sequence 84 is active; an operator must pause it, then re-preview and apply. I did not pause it.
 - Still open: the ~78 sequences with GoHighLevel booking-widget links, the three review-only claims, and the Campaigns/package-editor browser runs.
+
+## Stage 4C1 — adoption review follow-up (2026-11-01; 4C1 stays OPEN)
+
+Source: the 2026-11-01 adoption review (a source document, not an instruction). **Identities:** production serves the build the owner published after `d664e6da`; repository HEAD `0b08836e`. Everything below is **uncommitted/unpublished** local work: the adoption service, the new link-target module and fixtures, the certification, the browser suite. Built with `npm run build` (exit 0) after the last edit. No production write was made in this pass, no outbound pause or GHL control was touched, no schema/startup DDL, no dependency change, no full TypeScript run.
+
+**1. Audit and transaction proof (done, tested on a disposable database)**
+- Each step's wording change, its sequence version bump and its receipt `stored_sequence_step_copy_adopted` commit or roll back together. Receipt payloads use `wordingDigest` (the audit sanitizer redacts a key named `hash`).
+- A non-adoption error stops the loop and is rethrown; the batch summary is best-effort and records `interrupted`.
+- Certification `stage4c1-stored-copy-adoption`: **63 checks passed** (was 32). New: audit-failure rollback via a trigger in the disposable DB only (no production fault injection), partial per-step evidence, interrupted summary, stale replay, retry reporting already_current/applied with exactly one receipt per step, concurrency, and the pinned-SFP refusal (stale pre-pin plan, blocked row with zero step/version/audit change, unpinned sequences still adopt, a superseded pin releases).
+
+**2. Unsupported claims replaced (code and tests done; production not yet applied)**
+Neutral wording replaces: sequence 36 step 8 (subject, equipment recommendation and feature list), sequence 84 step 3 (go-live timing), sequence 93 step 1 (referral credit and the request for another person's details). Layered edits converge from both the original and the already-adopted wording (36/8 and 93/1 are already adopted in production in their first form).
+- **Not changed, still present:** sequence 84 step 3 still has "We handle everything…", "No downtime…" and "No long-term contracts…"; sequence 93 step 3 says "Just reply with a name…"; many SMS steps state "10 minutes" and one states "$300–$800/month". These are outside the three named claims and need an owner decision.
+
+**3. Sequence 84 (not done; waits for the owner's publish)**
+Sequence 84 is active and its snapshot `enrollments` is null, which is not proof of no in-flight work. After publish: verify `/api/health` SHA; read-only production SQL for 84's enrollments, queued/in-flight sends and dependencies; pause **only** 84 through the existing guarded command (`PUT /api/sequences/:id/toggle-status`, versioned command, admin/manager); re-preview; apply with the new plan hash; leave 84 paused; never resume it. Any started-journey incompatibility needs an explicit safe disposition before applying.
+
+**4. GHL widget links by step purpose (code and tests done; production not yet applied)**
+`stored-sequence-link-targets.ts`: 34 sequences, 74 steps — 42 email booking anchors → first-party `/book`, 24 SMS booking links → `/book`, 8 upload anchors → the secure upload address. Only the address changes, and an anchor is moved only by its own label (booking wording or "upload"). The fixture of 74 step bodies was read from production read-only.
+- **Left alone:** Account Management sequences and their calendar links (23, 37, 57, 60, 63, 66, 69, 72, 75, 78, 81 plus widget links); sequences 1150/1151 (existing-merchant reviews); referral sequences 23 and 37; application, referral, proposal and unlabeled CTAs (about 67 steps) and "Get a … Review" labels — owner decisions; active sequences (108 steps, refused by adoption); immutable history. No blanket replace of the 251 links, no bulk pause. Production census: 249 widget-linked steps, 218 on the sales address, 31 on the Account Management calendar.
+
+**5. Browser checks (done)** `scripts/test-stage4c1-browser.ts`: **41 checks passed** on the compiled client, disposable database, real sessions and CSRF, only the campaigns and templates-settings routes registered:
+- Sequences and Campaigns "Message as sent" modals; Campaigns step with `{{estimatedSavings}}` shows a literal-delivery warning (the legacy campaign path does not block it); nothing created, statuses and revisions unchanged.
+- Stored-template draft editor.
+- Current-SFP package editor on a package built with the real writers: edit and preview only, publish disabled until confirmed, no version, wording or publication record changed.
+- 768 and 390 widths (controls inside the viewport, no sideways scroll, touch-sized controls, dialog fits), screenshots in `docs/certification/stage4-c1/browser/`.
+- Seven-role matrix (`role-matrix.json`): admin sees the editor; manager sees the workspace and only the administrators-only notice and is refused package read/publish (403) while step preview is allowed; agent, other, merchant, affiliate and partner see neither surface and get 403 on package read, step preview and publish.
+- Not covered: published-candidate or production browser acceptance; the mobile shell; the Campaigns page for non-admin roles beyond the matrix above.
+
+**Compliance baselines (not weakened):** `compliance-scan` (2 call sites: `partner-approval-delivery.ts:107`, `sfp-seed-test.ts:219`) and `check-queue-compliance` (3 files missing the coordinator import: inbound-acknowledgement, partner-approval-delivery, sfp-seed-test) fail identically on clean `git archive` trees of `6777641f`, `03fa438b` and `HEAD`, and on this working tree (same failing lines, diffs are path prefixes only). None of those files or either scanner changed between `6777641f` and HEAD; the first of the two scan failures predates `f8094f94` (2026-10-24). Failures are therefore pre-existing, not caused by 4C1.
+
+**Other gates run this pass:** `ci-suite-manifest --check`, `check-api-coverage`, `generate-stage4c1-inventory --check` pass; `test-stage4c1-cta-contract` 74 checks pass. **Not run:** full pre-deploy, full TypeScript, native/delivery/calendar/SMS proof (4C2), integrated certification (4D), served-build smoke.
+
+**Open:** owner publish; sequence 84 steps; production apply of the claim and link changes through the guarded route; owner decisions listed under items 2 and 4; test contact 159443 and two inbound_requests remain in production pending the owner's answer.

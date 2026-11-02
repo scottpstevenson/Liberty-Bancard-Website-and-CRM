@@ -1,0 +1,689 @@
+{
+ "note": "Exact stored wording read (read-only) from the published database on 2026-11-01 for the paused-sequence steps whose booking-widget link is reconciled by purpose.",
+ "steps": [
+  {
+   "sid": 4,
+   "step_order": 4,
+   "action_type": "email",
+   "subject": "Liberty Bancard × {{companyName}} — free statement review",
+   "body": "<p>Hi {{firstName}},</p><p>Most business owners don't realize this, but payment processors often hide fees in places no one explains clearly.</p><p>We review merchant statements every day and typically find 10-30% in unnecessary costs — sometimes more.</p><p>If you'd like, we'll:</p><ul><li>Review your current statement</li><li>Show you exactly where fees are hiding</li><li>Tell you whether switching would actually save you money</li></ul><p>No pressure. Even if your setup is good, we'll tell you.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload a Statement</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "1. Switch & Save — Statement Audit",
+   "status": "paused"
+  },
+  {
+   "sid": 4,
+   "step_order": 5,
+   "action_type": "email",
+   "subject": "Hidden fees in your statement, {{firstName}}",
+   "body": "<p>Hi {{firstName}},</p><p>Here's where we most often find overcharges:</p><ul><li>Downgraded transactions</li><li>Marked-up interchange</li><li>Junk \"non-qualified\" rates</li><li>Batch and compliance fees no one explains</li></ul><p>Most merchants never see these clearly — until we break them out line by line.</p><p>If you want a clean breakdown of what you're paying and why:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload a Statement</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "1. Switch & Save — Statement Audit",
+   "status": "paused"
+  },
+  {
+   "sid": 8,
+   "step_order": 4,
+   "action_type": "email",
+   "subject": "Fraud vs friendly fraud — the difference matters",
+   "body": "<p>Hi {{firstName}},</p><p>Not all chargebacks are actual fraud:</p><ul><li><strong>True fraud:</strong> Stolen card, merchant never sees the customer</li><li><strong>Friendly fraud:</strong> Customer received the service but disputes anyway</li></ul><p>Friendly fraud is preventable with better documentation, policies, and receipts — and it's more common than you think.</p><p>We'll show you exactly what to adjust for your business type.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "5. Chargeback Defense",
+   "status": "paused"
+  },
+  {
+   "sid": 13,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Quick question about payments at {{companyName}}",
+   "body": "<p>Hi {{firstName}},</p><p>Quick note — I work with a lot of retail businesses, and most are dealing with some combination of:</p><ul><li>Busy checkout moments</li><li>Returns/exchanges</li><li>Staff turnover</li><li>Confusing processing fees</li></ul><p>We usually help retail merchants:</p><ul><li>Reduce hidden processing costs</li><li>Avoid downgrade fees</li><li>Simplify checkout for staff</li><li>Get more predictable funding</li></ul><p>If you're open to it, I can do a quick 10-minute review and tell you if there's anything worth fixing (even if you don't switch).</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a 10-Minute Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "10. Retail Merchants — SDR Outbound + Drip",
+   "status": "paused"
+  },
+  {
+   "sid": 13,
+   "step_order": 5,
+   "action_type": "email",
+   "subject": "Should I close this out?",
+   "body": "<p>Hi {{firstName}},</p><p>Totally fine if now isn't the right time — just don't want to keep bugging you.</p><p>Should I:</p><ul><li>Close the loop, or</li><li>Set up a quick 10-minute review?</li></ul><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book 10 Minutes</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "10. Retail Merchants — SDR Outbound + Drip",
+   "status": "paused"
+  },
+  {
+   "sid": 13,
+   "step_order": 6,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Should I close this out or is it worth a quick 10 minutes?\nhttps://api.leadconnectorhq.com/widget/bookings/libertybancard\n— Liberty Bancard",
+   "sname": "10. Retail Merchants — SDR Outbound + Drip",
+   "status": "paused"
+  },
+  {
+   "sid": 14,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Quick question about payments at {{companyName}}",
+   "body": "<p>Hi {{firstName}},</p><p>Quick note — I work with a lot of auto repair / towing / parts businesses, and payments tend to be different because of:</p><ul><li>Deposits for parts</li><li>Higher-ticket invoices</li><li>Phone/keyed-in transactions</li><li>Disputes when customers \"change their mind\"</li></ul><p>We usually help auto merchants:</p><ul><li>Set up deposits + partial payments cleanly</li><li>Reduce disputes with better receipts/policies</li><li>Improve approval rates for keyed-in when needed</li><li>Keep funding predictable</li></ul><p>If you're open to it, I can do a 10-minute review and recommend the best setup for your shop.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a 10-Minute Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "11. Auto Merchants — SDR Outbound + Drip",
+   "status": "paused"
+  },
+  {
+   "sid": 14,
+   "step_order": 5,
+   "action_type": "email",
+   "subject": "Worth 10 minutes or should I close this out?",
+   "body": "<p>Hi {{firstName}},</p><p>Totally fine if now isn't the right time — just don't want to bug you.</p><p>Should I close the loop, or is it worth a quick 10-minute review?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book 10 Minutes</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "11. Auto Merchants — SDR Outbound + Drip",
+   "status": "paused"
+  },
+  {
+   "sid": 14,
+   "step_order": 6,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Should I close this out or is it worth a quick 10 minutes?\nhttps://api.leadconnectorhq.com/widget/bookings/libertybancard\n— Liberty Bancard",
+   "sname": "11. Auto Merchants — SDR Outbound + Drip",
+   "status": "paused"
+  },
+  {
+   "sid": 15,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Quick question about payments at {{companyName}}",
+   "body": "<p>Hi {{firstName}},</p><p>Quick note — I work with a lot of medical and med spa practices, and payments tend to be different because of:</p><ul><li>Deposits and co-pays</li><li>Treatment packages and memberships</li><li>Card-on-file for recurring visits</li><li>Patient experience and consent requirements</li></ul><p>We usually help medical practices:</p><ul><li>Set up card-on-file and recurring billing correctly</li><li>Prevent friendly fraud with proper consent documentation</li><li>Streamline patient checkout</li><li>Keep funding reliable and predictable</li></ul><p>If you're open to it, I can do a 10-minute review and recommend the best payment workflow for your practice.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a 10-Minute Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "12. Medical & Med Spa — SDR Outbound + Drip",
+   "status": "paused"
+  },
+  {
+   "sid": 15,
+   "step_order": 5,
+   "action_type": "email",
+   "subject": "Worth a quick review or should I close this out?",
+   "body": "<p>Hi {{firstName}},</p><p>Totally fine if now isn't the right time.</p><p>Should I close the loop, or is it worth a quick 10-minute payment workflow review?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book 10 Minutes</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "12. Medical & Med Spa — SDR Outbound + Drip",
+   "status": "paused"
+  },
+  {
+   "sid": 15,
+   "step_order": 6,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Should I close this out or is it worth a quick 10 minutes?\nhttps://api.leadconnectorhq.com/widget/bookings/libertybancard\n— Liberty Bancard",
+   "sname": "12. Medical & Med Spa — SDR Outbound + Drip",
+   "status": "paused"
+  },
+  {
+   "sid": 16,
+   "step_order": 4,
+   "action_type": "email",
+   "subject": "Chargeback prevention for subscriptions",
+   "body": "<p>Hi {{firstName}},</p><p>Subscription chargebacks are common — and preventable:</p><ul><li>Clear cancellation policies visible before signup</li><li>Confirmation emails for every recurring charge</li><li>Easy cancellation process (reduces disputes significantly)</li><li>Proper descriptors so customers recognize charges</li></ul><p>We'll help you implement each of these.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Setup Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "13. Recurring Billing — Subscription Merchants",
+   "status": "paused"
+  },
+  {
+   "sid": 16,
+   "step_order": 5,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Worth a quick look at your recurring billing setup? We can usually spot issues and improvements in 10 minutes.\nhttps://api.leadconnectorhq.com/widget/bookings/libertybancard\n— Liberty Bancard",
+   "sname": "13. Recurring Billing — Subscription Merchants",
+   "status": "paused"
+  },
+  {
+   "sid": 17,
+   "step_order": 4,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Want to see how text-to-pay works? Takes 10 minutes to set up and your customers will love it.\nhttps://api.leadconnectorhq.com/widget/bookings/libertybancard\n— Liberty Bancard",
+   "sname": "14. Text-to-Pay & Payment Links",
+   "status": "paused"
+  },
+  {
+   "sid": 18,
+   "step_order": 5,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Worth a quick look at unifying your payment channels? 10 minutes and we'll map the best setup.\nhttps://api.leadconnectorhq.com/widget/bookings/libertybancard\n— Liberty Bancard",
+   "sname": "15. Omnichannel — Online + In-Person",
+   "status": "paused"
+  },
+  {
+   "sid": 20,
+   "step_order": 4,
+   "action_type": "email",
+   "subject": "Data you should export before switching",
+   "body": "<p>Hi {{firstName}},</p><p>Before switching processors, make sure to save:</p><ul><li>Transaction history (at least 12 months)</li><li>Customer card-on-file data (if applicable)</li><li>Recurring billing schedules</li><li>Chargeback/dispute records</li><li>Tax reporting documents (1099-K)</li></ul><p>We'll walk you through what to keep and help make the transition seamless.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Schedule a Switch Plan Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "17. Contract Escape — Switch Help",
+   "status": "paused"
+  },
+  {
+   "sid": 20,
+   "step_order": 5,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Switching processors is easier than most merchants think. Want a quick migration plan? 10 minutes and you'll know exactly what's involved.\nhttps://api.leadconnectorhq.com/widget/bookings/libertybancard\n— Liberty Bancard",
+   "sname": "17. Contract Escape — Switch Help",
+   "status": "paused"
+  },
+  {
+   "sid": 21,
+   "step_order": 6,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Still have questions about switching? Happy to address any concern in a quick 10-minute call — no pressure.\nhttps://api.leadconnectorhq.com/widget/bookings/libertybancard\n— Liberty Bancard",
+   "sname": "18. Objection Crusher — Overcome Hesitation",
+   "status": "paused"
+  },
+  {
+   "sid": 24,
+   "step_order": 4,
+   "action_type": "email",
+   "subject": "How {{companyName}} could save on every swipe",
+   "body": "<p>Hi {{firstName}},</p><p>Just following up — wanted to share what we typically find when reviewing retail statements:</p><ul><li>Average savings: 15-30% on monthly processing costs</li><li>Better debit routing that immediately lowers fees</li><li>Next-day funding so your cash flow isn't held up</li><li>Modern POS terminals with built-in tip and receipt options</li></ul><p>No long-term contracts. No hidden fees. Just transparent pricing.</p><p>If you're curious, I'm happy to do a free side-by-side comparison.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Schedule a Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "V-Retail: SDR Outbound Prospecting",
+   "status": "paused"
+  },
+  {
+   "sid": 33,
+   "step_order": 4,
+   "action_type": "email",
+   "subject": "How {{companyName}} could keep more of every sale",
+   "body": "<p>Hi {{firstName}},</p><p>Quick numbers: If your restaurant processes $50,000/month in cards and you're on a flat 2.6% rate, you're paying about $1,300/month in processing fees.</p><p>With interchange-plus pricing, that same volume typically costs $800-$950 — saving you $350-$500 every month. That's $4,000-$6,000 per year back in your pocket.</p><p>The math is straightforward. Send us a statement and we'll show you your exact numbers.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload Statement</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "V-Restaurant: SDR Outbound Prospecting",
+   "status": "paused"
+  },
+  {
+   "sid": 38,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Your savings breakdown is ready, {{contact.firstName}}",
+   "body": "<p>Hi {{contact.firstName}},</p><p>Following up from our call — I've put together the numbers we talked about, and I think you'll like what you see.</p><p>Your current setup has some room for improvement, and I've mapped out exactly where the savings come from. No surprises, no hidden fees — just a cleaner rate structure that puts more money back in your pocket.</p><p>I'll have the full breakdown over to you today. If you want to hop on a quick 10-minute call to walk through it together, grab a time here:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Review Call</a></p><p>Talk soon,<br/>The Liberty Bancard Team</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "Post-Call Review Follow-Up",
+   "status": "paused"
+  },
+  {
+   "sid": 38,
+   "step_order": 3,
+   "action_type": "email",
+   "subject": "Quick question about your review",
+   "body": "<p>Hi {{contact.firstName}},</p><p>Just checking in — did you get a chance to look over the savings breakdown I sent? I know things get busy, so no pressure.</p><p>If anything in there didn't make sense or you had questions about how the numbers work, I'm happy to walk through it. Even a quick 5-minute call can clear things up.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Grab a Quick Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "Post-Call Review Follow-Up",
+   "status": "paused"
+  },
+  {
+   "sid": 39,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Your proposal is on its way, {{contact.firstName}}",
+   "body": "<p>Hi {{contact.firstName}},</p><p>Great talking with you. As promised, I'm finalizing your custom pricing proposal based on everything we discussed.</p><p>You should have it in your inbox shortly. It'll include a side-by-side comparison of your current rates versus what we can offer, so you can see exactly where the savings come from.</p><p>Once you've had a chance to review it, let's jump on a quick call to go over any questions. No pressure — I just want to make sure everything makes sense.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Schedule Proposal Review</a></p><p>Talk soon,<br/>The Liberty Bancard Team</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "Proposal Follow-Up",
+   "status": "paused"
+  },
+  {
+   "sid": 39,
+   "step_order": 3,
+   "action_type": "email",
+   "subject": "Had a chance to review your proposal?",
+   "body": "<p>Hi {{contact.firstName}},</p><p>Just following up on the proposal I sent over. I know these decisions take time, especially when you're comparing options.</p><p>A few things that usually help merchants decide:</p><ul><li>We handle all the switching — no downtime, no hassle</li><li>No long-term contracts or cancellation fees</li><li>Most merchants are fully transitioned within 5-7 business days</li></ul><p>If you'd like to talk through anything or if the numbers need adjusting, I'm here. Sometimes a quick conversation is all it takes.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Let's Talk</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "Proposal Follow-Up",
+   "status": "paused"
+  },
+  {
+   "sid": 40,
+   "step_order": 1,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Hey {{contact.firstName}}, looks like we missed each other earlier. No worries — things come up. Want to reschedule? Just text me a time that works or grab a spot here: https://api.leadconnectorhq.com/widget/bookings/libertybancard - Liberty Bancard. Reply STOP to opt out",
+   "sname": "No-Show Reschedule",
+   "status": "paused"
+  },
+  {
+   "sid": 40,
+   "step_order": 2,
+   "action_type": "email",
+   "subject": "Let's find a better time, {{contact.firstName}}",
+   "body": "<p>Hi {{contact.firstName}},</p><p>We had a call scheduled but it looks like the timing didn't work out — totally understand, it happens.</p><p>I still have some info I think would be really valuable for you, especially around what you're currently paying for processing. It's a quick conversation — usually 10-15 minutes.</p><p>If you'd like to reschedule, just pick a time that's more convenient:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Reschedule Call</a></p><p>Or if you'd rather just chat over text, reply to this and I can share the highlights that way too.</p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "No-Show Reschedule",
+   "status": "paused"
+  },
+  {
+   "sid": 40,
+   "step_order": 3,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Hi {{contact.firstName}}, one more try — I had some good info for you about your processing costs. Want to reschedule a quick call? https://api.leadconnectorhq.com/widget/bookings/libertybancard - Liberty Bancard. Reply STOP to opt out",
+   "sname": "No-Show Reschedule",
+   "status": "paused"
+  },
+  {
+   "sid": 41,
+   "step_order": 2,
+   "action_type": "email",
+   "subject": "Quick industry update for {{contact.firstName}}",
+   "body": "<p>Hi {{contact.firstName}},</p><p>Hope business is going well. I wanted to share something I've been seeing across the industry that might be relevant to you.</p><p>A lot of merchants in your space have been switching to dual pricing (cash discount) programs — it's been a game-changer for profit margins. If you're curious about how it works or whether it'd make sense for your business, I'm happy to walk you through it. No strings attached.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Let's Chat</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "Long-Term Nurture",
+   "status": "paused"
+  },
+  {
+   "sid": 42,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Quick question on card fees at {{companyName}}",
+   "body": "<p>Hi {{firstName}},</p><p>We work with Florida repair shops that do larger tickets and get crushed on card fees. We've been helping owners lower cost and make front-counter payments smoother.</p><p>3 common issues we see at shops like {{companyName}}:</p><ul><li>Pricing too high on {{serviceType}} repair tickets</li><li>Clunky terminals that slow front-counter flow</li><li>No big-ticket payment process (text-to-pay, financing)</li></ul><p>Estimated monthly volume in your range ({{estimatedVolume}}) usually means $200–$500/month in savings waiting to be found.</p><p>We do a free 10-minute statement review. Interested?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload a Statement for Free Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;\">Florida surcharging applies to credit only (not debit/prepaid), requires disclosure, signage, receipt language, and 30-day notice to acquirer per card brand rules. Eligibility, underwriting, and applicable laws apply.</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "22. FL Auto Repair — Vertical Playbook",
+   "status": "paused"
+  },
+  {
+   "sid": 42,
+   "step_order": 2,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Hi {{firstName}}, this is {{agentName}} with Liberty Bancard. We help FL auto shops cut card fees on big {{serviceType}} repair tickets. Worth a quick look? Reply YES or visit https://api.leadconnectorhq.com/widget/bookings/libertybancard\nFL surcharging: credit only, disclosure req'd, 30-day acquirer notice.\n— Liberty Bancard",
+   "sname": "22. FL Auto Repair — Vertical Playbook",
+   "status": "paused"
+  },
+  {
+   "sid": 42,
+   "step_order": 4,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Still interested in seeing if {{companyName}} is overpaying on card processing? Free 10-min review: https://api.leadconnectorhq.com/widget/bookings/libertybancard\nFL surcharging: credit only, disclosure req'd, 30-day acquirer notice.\n— Liberty Bancard",
+   "sname": "22. FL Auto Repair — Vertical Playbook",
+   "status": "paused"
+  },
+  {
+   "sid": 43,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Question about payments at {{companyName}}",
+   "body": "<p>Hi {{firstName}},</p><p>We work with Florida med spas on memberships, card-on-file, and higher-ticket payment flow.</p><p>4 issues we see at practices like {{companyName}}:</p><ul><li>No-show leakage without deposit/card-on-file protection</li><li>Weak card-on-file process</li><li>Clunky membership billing for {{serviceType}} packages</li><li>Overpaying on processing (especially on higher-ticket procedures)</li></ul><p>We help build a payment workflow — not just processing — that supports memberships, deposits, cancellation protection, and patient financing.</p><p>Would a complimentary payment workflow review be helpful? Usually uncovers $300–$800/month in savings or revenue opportunities.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Payment Workflow Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;\">Med spas in FL are regulated by the FL Dept of Health, Division of Medical Quality Assurance. Eligibility, underwriting, card brand rules, and applicable laws apply.</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "23. FL Med Spa — Vertical Playbook",
+   "status": "paused"
+  },
+  {
+   "sid": 43,
+   "step_order": 2,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Hi {{firstName}}, this is {{agentName}} with Liberty Bancard. We help FL med spas streamline memberships, deposits & payment flow for {{serviceType}}. Quick review? https://api.leadconnectorhq.com/widget/bookings/libertybancard\n— Liberty Bancard",
+   "sname": "23. FL Med Spa — Vertical Playbook",
+   "status": "paused"
+  },
+  {
+   "sid": 43,
+   "step_order": 4,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Following up — would a free payment workflow review for {{companyName}} be helpful? Takes 10 min: https://api.leadconnectorhq.com/widget/bookings/libertybancard\n— Liberty Bancard",
+   "sname": "23. FL Med Spa — Vertical Playbook",
+   "status": "paused"
+  },
+  {
+   "sid": 43,
+   "step_order": 5,
+   "action_type": "email",
+   "subject": "Quick follow-up on payment flow at {{companyName}}",
+   "body": "<p>Hi {{firstName}},</p><p>Our complimentary payment workflow review for {{companyName}} covers:</p><ul><li>Membership/recurring billing review for {{serviceType}}</li><li>Card-on-file and deposit policies for no-show protection</li><li>Patient financing for higher-ticket services</li><li>Online checkout links for remote package purchases</li><li>Processing cost optimization for your estimated volume ({{estimatedVolume}})</li></ul><p>No commodity pitch — just a workflow review focused on how payments support your growth.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Payment Workflow Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;\">Med spas in FL are regulated by the FL Dept of Health, Division of Medical Quality Assurance. Eligibility, underwriting, and applicable laws apply.</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "23. FL Med Spa — Vertical Playbook",
+   "status": "paused"
+  },
+  {
+   "sid": 44,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Patient payment question for {{companyName}}",
+   "body": "<p>Hi {{firstName}},</p><p>We help Florida {{serviceType}} practices improve patient payment flow.</p><p>4 common issues at practices like {{companyName}}:</p><ul><li>Manual collection work consuming front-desk time</li><li>No text-to-pay option for patient balances</li><li>Lack of structured payment plans for larger balances</li><li>Processing pricing unreviewed (estimated volume: {{estimatedVolume}})</li></ul><p>We improve patient collections and payment plans without making front-desk work harder.</p><p>Free patient collections review — takes about 10 minutes.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Patient Collections Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;\">Liberty Bancard does not request, store, or access protected health information (PHI). HIPAA applies to covered entities and business associates. Eligibility, underwriting, card brand rules, and applicable laws apply.</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "24. FL Medical/Dental — Vertical Playbook",
+   "status": "paused"
+  },
+  {
+   "sid": 44,
+   "step_order": 2,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Hi {{firstName}}, this is {{agentName}} with Liberty Bancard. We help FL {{serviceType}} practices improve patient payment flow & collections. Quick review? https://api.leadconnectorhq.com/widget/bookings/libertybancard\n— Liberty Bancard",
+   "sname": "24. FL Medical/Dental — Vertical Playbook",
+   "status": "paused"
+  },
+  {
+   "sid": 44,
+   "step_order": 4,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Following up on patient payments at {{companyName}}. Free collections review takes 10 min: https://api.leadconnectorhq.com/widget/bookings/libertybancard\n— Liberty Bancard",
+   "sname": "24. FL Medical/Dental — Vertical Playbook",
+   "status": "paused"
+  },
+  {
+   "sid": 44,
+   "step_order": 5,
+   "action_type": "email",
+   "subject": "Last check-in about payments at {{companyName}}",
+   "body": "<p>Hi {{firstName}},</p><p>Our free patient collections review for {{companyName}} covers:</p><ul><li>Manual collection taking up front-desk time</li><li>Text-to-pay for remote patient payments</li><li>Payment plan structure for larger balances</li><li>Processing fee benchmarking (your estimated volume: {{estimatedVolume}})</li><li>Card storage security and compliance</li></ul><p>Free, 10 minutes, and usually finds actionable improvements right away.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Patient Collections Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;\">HIPAA applies to covered entities and business associates. Liberty Bancard does not access PHI. Florida surcharging requires disclosure per card brand rules (credit only, not debit/prepaid). Eligibility, underwriting, and applicable laws apply.</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "24. FL Medical/Dental — Vertical Playbook",
+   "status": "paused"
+  },
+  {
+   "sid": 45,
+   "step_order": 4,
+   "action_type": "email",
+   "subject": "{{firstName}}, how a similar shop saved $400/month",
+   "body": "<p>Hi {{firstName}},</p><p>A Florida auto repair shop came to us overpaying on processing. After switching:</p><ul><li>Effective rate dropped significantly on high-ticket repairs</li><li>Text-to-pay enabled for invoices over $500</li><li>Chargebacks cut in half</li></ul><p>Want to see what your numbers look like?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload Your Statement</a></p><p>— Scott, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: Cold Outbound — Auto Repair",
+   "status": "paused"
+  },
+  {
+   "sid": 45,
+   "step_order": 7,
+   "action_type": "email",
+   "subject": "FL surcharging for auto shops, {{firstName}}",
+   "body": "<p>Hi {{firstName}},</p><p>Florida allows surcharging on credit cards (not debit). For auto shops running high-ticket repairs, this can eliminate processing costs entirely on credit transactions.</p><p>We set this up correctly — compliant signage, dual-pricing at the terminal, zero compliance risk.</p><p>Worth 10 minutes to find out what you could save?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Quick Call</a></p><p>— Scott, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: Cold Outbound — Auto Repair",
+   "status": "paused"
+  },
+  {
+   "sid": 45,
+   "step_order": 10,
+   "action_type": "email",
+   "subject": "{{firstName}} — closing the file on {{companyName}}",
+   "body": "<p>Hi {{firstName}},</p><p>I'll keep this short — this is my last outreach.</p><p>If you ever want a free review of your processing costs, we're here. Most auto shops we work with save $200-500/month.</p><p>No pressure. If your setup is solid, we'll tell you that too.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book Anytime</a></p><p>— Scott, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: Cold Outbound — Auto Repair",
+   "status": "paused"
+  },
+  {
+   "sid": 45,
+   "step_order": 11,
+   "action_type": "sms",
+   "subject": null,
+   "body": "{{firstName}}, last message from Liberty Bancard — no pressure at all. If you ever want that free review, I'm here: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Scott",
+   "sname": "SDR: Cold Outbound — Auto Repair",
+   "status": "paused"
+  },
+  {
+   "sid": 46,
+   "step_order": 4,
+   "action_type": "email",
+   "subject": "{{firstName}}, how a similar spa improved membership revenue",
+   "body": "<p>Hi {{firstName}},</p><p>A Florida med spa similar to yours saw significant improvements after we rebuilt their payment workflow:</p><ul><li>Membership churn dropped with automated card updater</li><li>No-show rate cut with required card-on-file deposits</li><li>Average ticket increased with patient financing</li></ul><p>Want to see what's possible for your practice?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book Your Review</a></p><p>— Scott, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: Cold Outbound — Med Spa",
+   "status": "paused"
+  },
+  {
+   "sid": 46,
+   "step_order": 7,
+   "action_type": "email",
+   "subject": "Deposit protection for no-shows, {{firstName}}",
+   "body": "<p>Hi {{firstName}},</p><p>No-shows are one of the biggest hidden costs for med spas. A simple card-on-file deposit policy — properly configured at the payment layer — eliminates most of it.</p><p>We set this up for practices across Florida. Takes about a day to implement.</p><p>Want to see how it works for your booking flow?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Quick Call</a></p><p>— Scott, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: Cold Outbound — Med Spa",
+   "status": "paused"
+  },
+  {
+   "sid": 46,
+   "step_order": 10,
+   "action_type": "email",
+   "subject": "{{firstName}} — closing the file on {{companyName}}",
+   "body": "<p>Hi {{firstName}},</p><p>This is my last note — I don't want to flood your inbox.</p><p>If you ever want a complimentary review of your med spa's payment workflow (membership billing, card-on-file, processing costs), we're here.</p><p>No pressure. If your setup is optimized, we'll tell you that too.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book Anytime</a></p><p>— Scott, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: Cold Outbound — Med Spa",
+   "status": "paused"
+  },
+  {
+   "sid": 46,
+   "step_order": 11,
+   "action_type": "sms",
+   "subject": null,
+   "body": "{{firstName}}, last message from Liberty Bancard — no pressure. If you ever want that free review, I'm here: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Scott",
+   "sname": "SDR: Cold Outbound — Med Spa",
+   "status": "paused"
+  },
+  {
+   "sid": 47,
+   "step_order": 4,
+   "action_type": "email",
+   "subject": "{{firstName}}, how a similar dental practice improved collections",
+   "body": "<p>Hi {{firstName}},</p><p>A Florida dental practice similar to yours saw:</p><ul><li>Faster balance collection with text-to-pay</li><li>Front-desk hours saved each week</li><li>Reduced write-offs with structured payment plans</li></ul><p>Want to see what your practice's numbers look like?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book Your Review</a></p><p>— Scott, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: Cold Outbound — Dental",
+   "status": "paused"
+  },
+  {
+   "sid": 47,
+   "step_order": 7,
+   "action_type": "email",
+   "subject": "Text-to-pay for patient balances, {{firstName}}",
+   "body": "<p>Hi {{firstName}},</p><p>Text-to-pay is one of the fastest ways to collect patient balances — patients pay directly from a text link, no portal login needed.</p><p>For dental practices in Florida, we typically see collection rates jump 15-25% within the first 90 days.</p><p>Setup takes about a day and integrates with most practice management systems.</p><p>Want to see how it would work for your practice?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Quick Call</a></p><p>— Scott, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: Cold Outbound — Dental",
+   "status": "paused"
+  },
+  {
+   "sid": 47,
+   "step_order": 10,
+   "action_type": "email",
+   "subject": "{{firstName}} — closing the file on {{companyName}}",
+   "body": "<p>Hi {{firstName}},</p><p>This is my last note — I don't want to flood your inbox.</p><p>If you ever want a free review of your practice's patient payment flow (text-to-pay, payment plans, processing costs), we're here.</p><p>No pressure. If your current setup is working great, we'll tell you that too.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book Anytime</a></p><p>— Scott, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: Cold Outbound — Dental",
+   "status": "paused"
+  },
+  {
+   "sid": 47,
+   "step_order": 11,
+   "action_type": "sms",
+   "subject": null,
+   "body": "{{firstName}}, last message from Liberty Bancard — no pressure. If you ever want that free review, I'm here: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Scott",
+   "sname": "SDR: Cold Outbound — Dental",
+   "status": "paused"
+  },
+  {
+   "sid": 48,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Liberty Bancard × {{companyName}} — next steps",
+   "body": "<p>Hi {{firstName}},</p><p>Thanks for getting back to us! Based on what you mentioned, here are two quick options:</p><p><strong>Option 1: Free Statement Review</strong><br/>Upload your latest processing statement and we'll have a savings analysis ready in 24 hours.</p><p><strong>Option 2: Quick Call</strong><br/>Book a 10-minute call and we'll walk through everything live.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: Reply Engaged",
+   "status": "paused"
+  },
+  {
+   "sid": 48,
+   "step_order": 5,
+   "action_type": "email",
+   "subject": "{{firstName}}, quick follow-up on your interest",
+   "body": "<p>Hi {{firstName}},</p><p>Just following up — would you prefer to:</p><ul><li>Upload a statement for a free analysis</li><li>Schedule a quick 10-minute call</li></ul><p>Either way works great. Most merchants are surprised by what we find.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: Reply Engaged",
+   "status": "paused"
+  },
+  {
+   "sid": 49,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Liberty Bancard × {{companyName}} — upload for your free analysis",
+   "body": "<p>Hi {{firstName}},</p><p>Ready to find out what you're really paying in processing fees? Upload your latest statement and we'll have your personalized savings analysis within 24 hours.</p><p>We typically find 3 different options to reduce costs — and we'll show you all of them.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload Your Statement</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: Statement Chase",
+   "status": "paused"
+  },
+  {
+   "sid": 49,
+   "step_order": 5,
+   "action_type": "email",
+   "subject": "{{firstName}}, your free analysis is waiting",
+   "body": "<p>Hi {{firstName}},</p><p>Just a reminder — we're ready to analyze your statement and show you where to save.</p><p>Most businesses find 15-30% in unnecessary fees. The review is free and takes us about 24 hours.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload Your Statement</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: Statement Chase",
+   "status": "paused"
+  },
+  {
+   "sid": 50,
+   "step_order": 5,
+   "action_type": "email",
+   "subject": "{{firstName}}, did you see your analysis?",
+   "body": "<p>Hi {{firstName}},</p><p>Just checking — did you get a chance to review the savings analysis we put together?</p><p>We found some real opportunities to lower your costs. Happy to walk through it on a quick call if that's easier.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Quick Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: Proposal Follow-Up",
+   "status": "paused"
+  },
+  {
+   "sid": 51,
+   "step_order": 1,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Hi {{firstName}}, looks like we missed each other for our call. No worries — want to reschedule? Reply with a good time or book here: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Liberty Bancard",
+   "sname": "SDR: No-Show Recovery",
+   "status": "paused"
+  },
+  {
+   "sid": 51,
+   "step_order": 2,
+   "action_type": "email",
+   "subject": "{{firstName}}, let's reschedule",
+   "body": "<p>Hi {{firstName}},</p><p>Looks like we missed each other for our scheduled call. Totally understand — things come up.</p><p>Would you like to reschedule? Pick a time that works:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Reschedule Your Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: No-Show Recovery",
+   "status": "paused"
+  },
+  {
+   "sid": 51,
+   "step_order": 5,
+   "action_type": "email",
+   "subject": "{{firstName}}, one more try on the free review",
+   "body": "<p>Hi {{firstName}},</p><p>Just wanted to reach out one more time about the free savings review we discussed.</p><p>If you'd still like to see how much you could save on processing, here's a link to rebook at your convenience:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Rebook Your Call</a></p><p>If the timing isn't right, no worries at all.</p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: No-Show Recovery",
+   "status": "paused"
+  },
+  {
+   "sid": 52,
+   "step_order": 1,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Just left you a voicemail, {{firstName}} — best way to reach me is here: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Scott, Liberty Bancard",
+   "sname": "Voicemail Follow-Up SMS",
+   "status": "paused"
+  },
+  {
+   "sid": 53,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Liberty Bancard × {{companyName}} — payment tools for FL contractors",
+   "body": "<p>Hi {{firstName}},</p><p>We work with Florida contractors and trades on payment processing, job cost management, and subcontractor pay.</p><p>4 common challenges we solve for {{serviceType}} businesses like {{companyName}}:</p><ul><li>High processing costs on large job-cost transactions</li><li>No text-to-pay or virtual terminal for remote invoice collection</li><li>Slow payment cycles affecting cash flow on active jobs</li><li>Lack of financing options to close bigger project deals</li></ul><p>Free statement review — typically uncovers $300–$800/month in savings for contractors your size (estimated volume: {{estimatedVolume}}).</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Free Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;\">Florida contractor licensing is regulated by the FL Department of Business and Professional Regulation (DBPR). Surcharging on credit (not debit/prepaid) requires proper disclosure and card brand compliance. Eligibility, underwriting, and applicable laws apply.</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "25. FL Construction — Vertical Playbook",
+   "status": "paused"
+  },
+  {
+   "sid": 53,
+   "step_order": 2,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Hi {{firstName}}, this is {{agentName}} with Liberty Bancard. We help FL contractors cut processing costs on large job payments & get paid faster. Free review? https://api.leadconnectorhq.com/widget/bookings/libertybancard\n— Liberty Bancard",
+   "sname": "25. FL Construction — Vertical Playbook",
+   "status": "paused"
+  },
+  {
+   "sid": 53,
+   "step_order": 4,
+   "action_type": "sms",
+   "subject": null,
+   "body": "Following up on payment review for {{companyName}}. Free 10-min review — usually finds $300–$800/month for FL contractors: https://api.leadconnectorhq.com/widget/bookings/libertybancard\n— Liberty Bancard",
+   "sname": "25. FL Construction — Vertical Playbook",
+   "status": "paused"
+  },
+  {
+   "sid": 53,
+   "step_order": 5,
+   "action_type": "email",
+   "subject": "{{firstName}} — closing the file on {{companyName}}",
+   "body": "<p>Hi {{firstName}},</p><p>Our free contractor payment review for {{companyName}} covers:</p><ul><li>Processing costs on large job-cost and subcontractor payments</li><li>Text-to-pay and virtual terminal for faster invoice collection</li><li>Surcharging compliance for FL contractor transactions (credit only)</li><li>Material and project financing to help close larger deals</li><li>Fee benchmarking vs. your estimated volume ({{estimatedVolume}})</li></ul><p>No pressure — if your current setup is optimized, we'll tell you that too.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Free Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;\">Florida contractor licensing is regulated by the FL DBPR. Surcharging on credit requires proper disclosure and card brand compliance. Eligibility, underwriting, and applicable laws apply.</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "25. FL Construction — Vertical Playbook",
+   "status": "paused"
+  },
+  {
+   "sid": 54,
+   "step_order": 4,
+   "action_type": "email",
+   "subject": "{{firstName}}, how a similar contractor saved $600/month",
+   "body": "<p>Hi {{firstName}},</p><p>A Florida {{serviceType}} contractor came to us overpaying on processing. After switching:</p><ul><li>Effective rate dropped significantly on high-ticket project invoices</li><li>Text-to-pay cut collection time from 14 days to under 3 days</li><li>Chargebacks cut in half with improved deposit and lien waiver workflows</li></ul><p>Want to see what your numbers look like?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload Your Statement</a></p><p>— Scott, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: Cold Outbound — Construction",
+   "status": "paused"
+  },
+  {
+   "sid": 54,
+   "step_order": 7,
+   "action_type": "email",
+   "subject": "FL surcharging for contractors, {{firstName}}",
+   "body": "<p>Hi {{firstName}},</p><p>Florida allows surcharging on credit cards (not debit). For contractors running high-ticket job invoices, this can eliminate processing costs entirely on credit transactions.</p><p>We set this up correctly — compliant signage, dual-pricing at the terminal, zero compliance risk.</p><p>Worth 10 minutes to find out what you could save?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Quick Call</a></p><p>— Scott, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: Cold Outbound — Construction",
+   "status": "paused"
+  },
+  {
+   "sid": 54,
+   "step_order": 10,
+   "action_type": "email",
+   "subject": "{{firstName}} — closing the file on {{companyName}}",
+   "body": "<p>Hi {{firstName}},</p><p>I'll keep this short — this is my last outreach.</p><p>If you ever want a free review of your processing costs, we're here. Most FL contractors we work with save $300–$800/month on job-cost payments.</p><p>No pressure. If your setup is solid, we'll tell you that too.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book Anytime</a></p><p>— Scott, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "SDR: Cold Outbound — Construction",
+   "status": "paused"
+  },
+  {
+   "sid": 54,
+   "step_order": 11,
+   "action_type": "sms",
+   "subject": null,
+   "body": "{{firstName}}, last message from Liberty Bancard — no pressure at all. If you ever want that free review, I'm here: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Scott",
+   "sname": "SDR: Cold Outbound — Construction",
+   "status": "paused"
+  },
+  {
+   "sid": 87,
+   "step_order": 4,
+   "action_type": "email",
+   "subject": "Your statement analysis is ready, {{firstName}}",
+   "body": "<p>Hi {{firstName}},</p><p>We've completed the review of your processing statement. Let's set up a quick call to walk through your results and savings options.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\">Book a 10-Minute Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>",
+   "sname": "W6 — Statement Uploaded",
+   "status": "paused"
+  },
+  {
+   "sid": 89,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "We missed you, {{firstName}} — let's reschedule",
+   "body": "<p>Hi {{firstName}},</p><p>We had a call scheduled and didn't hear from you — no worries! These things happen. When you're ready, grab any available slot below and we'll pick up where we left off.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\">Reschedule Your Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>",
+   "sname": "W6 — No-Show Recovery",
+   "status": "paused"
+  },
+  {
+   "sid": 89,
+   "step_order": 4,
+   "action_type": "email",
+   "subject": "Still interested, {{firstName}}?",
+   "body": "<p>Hi {{firstName}},</p><p>Still happy to do the free review whenever you're ready. No pressure — just let us know.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\">Book a Time</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>",
+   "sname": "W6 — No-Show Recovery",
+   "status": "paused"
+  },
+  {
+   "sid": 90,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Your pricing proposal from Liberty Bancard",
+   "body": "<p>Hi {{firstName}},</p><p>As discussed, attached is your customized pricing proposal. It includes a line-by-line comparison against your current rates and projected monthly savings. Let me know if you have any questions — happy to walk through it on a quick call.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\">Book a Review Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>",
+   "sname": "W6 — Proposal Sent",
+   "status": "paused"
+  },
+  {
+   "sid": 90,
+   "step_order": 4,
+   "action_type": "email",
+   "subject": "Quick question about your proposal, {{firstName}}",
+   "body": "<p>Hi {{firstName}},</p><p>I want to make sure the proposal we sent makes sense for your business. Is there anything that's unclear or a concern I can address?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\">Talk to Someone</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>",
+   "sname": "W6 — Proposal Sent",
+   "status": "paused"
+  },
+  {
+   "sid": 1150,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "60-day health review — your processing at a glance, {{firstName}}",
+   "body": "<p>Hi {{firstName}},</p><p>Two months in — great to have you with Liberty Bancard.</p><p>Here is what we want to cover in your 60-day review:</p><ul><li>Are your rates still optimized for your volume?</li><li>Any chargeback or dispute activity to address?</li><li>Are there additional locations or terminals we can help with?</li></ul><p>If you would like a quick 10-minute call to walk through your statement, we would be happy to set that up.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Schedule a Review Call</a></p><p>— Liberty Bancard Merchant Success Team</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "60-Day Merchant Health Review",
+   "status": "paused"
+  },
+  {
+   "sid": 1151,
+   "step_order": 1,
+   "action_type": "email",
+   "subject": "Your first quarter with Liberty Bancard — a quick look back",
+   "body": "<p>Hi {{firstName}},</p><p>90 days. That is a full quarter of smarter processing.</p><p>We want to take a moment to review:</p><ul><li><strong>Savings achieved</strong> — based on your switch from your previous processor</li><li><strong>Volume trends</strong> — are you growing? We can scale with you</li><li><strong>Any friction points</strong> — now is the time to surface and fix them</li></ul><p>We also have a few ideas on equipment upgrades and additional services that may fit your business as you grow. Happy to walk through them at no pressure.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book Your Quarterly Review</a></p><p>— Liberty Bancard Merchant Success Team</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+   "sname": "90-Day QBR & Upsell",
+   "status": "paused"
+  }
+ ]
+}

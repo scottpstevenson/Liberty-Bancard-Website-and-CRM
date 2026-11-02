@@ -14,3 +14,10 @@ Installed rows are never rewritten by seeds. Workflows/templates adopt corrected
 **Why:** operator edits must survive (a changed substring is reported as a conflict, not overwritten) and activation stays an owner decision.
 
 **How to apply:** the legacy-editor "Message as sent" preview is asset-addressed: the caller sends asset identity only, the server picks transport/signature/substitution and shares `interpolateSequenceText` with the worker, so edit the shared function, not a copy. The production census (hashes/links only) shows about 78 sequences still link the GoHighLevel booking widget instead of `/book`; those are outside the adoption plan and need an owner decision.
+
+## Adoption receipts, layered edits and link reconciliation
+- Per-step receipts are written inside each step's transaction; a non-adoption error stops the loop and is rethrown, the batch summary is best-effort. `auditChange` redacts the exact payload key `hash`, so use `wordingDigest`.
+- A later review revision of an already-adopted step is a `layered` edit (matches the earlier edit's output); it must converge from both the original and the adopted wording.
+- Widget-link reconciliation is by step purpose and by the anchor's own label (booking label -> `/book`, upload label -> secure upload). Unlabeled, application, referral, proposal and Account Management links stay on the widget as owner decisions. Active sequences are never bulk-paused or edited.
+- The disposable seed must union the production snapshot with the link-target fixture. Campaign package convergence matches campaigns by exact name, so browser fixtures must not suffix names.
+- The campaigns "as sent" preview uses snake_case merge tokens; an unknown token is a warning (delivered literally), not a block.
