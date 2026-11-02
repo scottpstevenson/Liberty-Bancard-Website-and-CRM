@@ -186,15 +186,15 @@
 - [Partner response allowlist and mailbox lock order](partner-response-allowlist.md) — explicit DTO for partner responses; mailbox lock before row/graph locks on every email mutation.
 - [Drizzle begin failure leaks client](drizzle-begin-leak.md) — failed BEGIN never released in drizzle 0.45; override in server/db.ts; db:long_checkout floods mean a leak.
 - [Actor-change browser trigger](actor-change-browser-trigger.md) — auth revalidation via Date.now skew + offline/online; hold strips abort signal; release old before fresh.
-- [Inbound acknowledgement owner](inbound-ack-owner.md) — default-closed per-message lease re-verified from durable rows; capability is not unpause; no historical catch-up.
+- [Inbound acknowledgement owner](inbound-ack-owner.md) — default-closed per-message lease; no unpause or historical catch-up. See [liveness](ack-worker-liveness.md): override refused, heartbeat.
 - [Message wording publication](message-wording-publication.md) — draft, publish, activate and receipt enablement are separate; unsendable wording is blocked.
 - [Message copy convergence](message-copy-convergence.md) — wording applied by convergeReviewedCopy, not seeds; one token registry/strict renderer.
 - [Handoff vs provider completion](handoff-vs-completion.md) — missing GHL id = durable wait; projection upsert is the consumable handoff.
 - [Partner intake & review policy](partner-application-review-policy.md) — shared resume routine; owner/due only from recorded policy; no public timing promises.
-- [Ack override refusal & worker liveness](ack-worker-liveness.md) — override refused, final recheck, heartbeat in status; new certs are selected suites only.
 - [Partner approval delivery & binding](partner-approval-delivery-and-binding.md) — same-tx mailbox pin, durable approval rows, review reconcile, HTML-only final preview; tsc/intake-pages baseline failures.
 - [GHL projection authority & webhook effect steps](ghl-projection-generation-authority.md) — CAS, owned-tag deltas, existing-population scope; [webhook steps](webhook-effect-steps.md) stay at-least-once.
 - [GHL persistent approval & handoff](ghl-persistent-approval-and-handoff.md) — sorted-key hashes for jsonb, no auto re-send of unknown enrollments, verified deferral, cancel-vs-claim lock.
 - [Operational-truth patterns](stage4a-operational-truth-patterns.md) — 410 retirement, derived catalog/step totals, GHL rejection fingerprint, disposable-runner and rebuild pitfalls.
 - [Insufficient-evidence rates](insufficient-evidence-rates.md) — zero-denominator rates are null/n-a; dashboard windows are SQL aggregates failing per section to null; bg-run and browser flake quirks.
 - [SFP package fence & stored-copy adoption](sfp-package-publication-fence.md) — paired publish only (409 pinned rows); sequence adoption is plan-hash bound, never pauses; shared worker interpolation.
+- [Follow-up effect receipts](followup-effect-receipts.md) — receipt before I/O; delivered only when accepted; occurrence-keyed runs; booking writer default-denied.

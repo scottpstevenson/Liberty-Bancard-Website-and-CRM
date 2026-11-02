@@ -2425,7 +2425,30 @@ export const workflowRuns = pgTable("workflow_runs", {
   completedAt: timestamp("completed_at"),
   log: jsonb("log"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+  // Stage 4C2: one run per (workflow, occurrence); the definition pin blocks a resume against a changed workflow;
+  // the lease makes one worker the owner of a due run.
+  occurrenceKey: text("occurrence_key"),
+  inputPin: text("input_pin"),
+  leaseToken: text("lease_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+}, t => [
+  uniqueIndex("workflow_runs_occurrence_uidx").on(t.workflowId, t.occurrenceKey).where(sql`${t.occurrenceKey} IS NOT NULL`),
+]);
+
+/** Stage 4C2: durable per-channel send receipt, written BEFORE the provider call. Only 'accepted' is delivered. */
+export const followupEffectReceipts = pgTable("followup_effect_receipts", {
+  effectKey: text("effect_key").primaryKey(),
+  ownerKind: text("owner_kind").notNull(),
+  ownerId: text("owner_id").notNull(),
+  channel: text("channel").notNull(),
+  state: text("state").notNull().default("started"),
+  detail: text("detail"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  settledAt: timestamp("settled_at", { withTimezone: true }),
+}, t => [
+  index("followup_effect_receipts_owner_idx").on(t.ownerKind, t.ownerId),
+  check("followup_effect_receipts_state_chk", sql`${t.state} IN ('started', 'accepted', 'refused', 'unknown')`),
+]);
 
 export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),

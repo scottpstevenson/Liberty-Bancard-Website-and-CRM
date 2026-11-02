@@ -1,3 +1,4 @@
+import { runFollowupEffect } from "./followup-effects";
 import { db } from "../db";
 import { deals, auditLogs, sequenceEnrollments, followUpSequences } from "@shared/schema";
 import { and, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
@@ -152,9 +153,17 @@ export async function runProposalFollowUpCheck(): Promise<{
         const attemptNumber = resendCount + 1;
 
         const { sendProposalFollowUpEmail } = await import("./proposal-engine");
-        const sent = await sendProposalFollowUpEmail(deal.id, attemptNumber);
-
-        if (!sent) {
+        // Durable touch identity: proposal (deal + the version it was sent at) + attempt number. The receipt is written
+        // before the send, so a crash/retry between the send and the audit row never sends the same touch twice, and an
+        // unknown outcome is never re-sent automatically. The raw proposal token is not part of the identity.
+        const touch = await runFollowupEffect(
+          {
+            effectKey: `proposal_followup:${deal.id}:${deal.proposalEmailSentAt?.getTime() ?? 0}:${attemptNumber}`,
+            ownerKind: "proposal_followup", ownerId: String(deal.id), channel: "email",
+          },
+          async () => ({ success: await sendProposalFollowUpEmail(deal.id, attemptNumber) }),
+        );
+        if (touch.state !== "accepted") {
           skipped++;
           continue;
         }
@@ -170,7 +179,6 @@ export async function runProposalFollowUpCheck(): Promise<{
           details: {
             attemptNumber,
             contactId: deal.contactId,
-            proposalToken: deal.proposalToken,
             originalSentAt: deal.proposalEmailSentAt?.toISOString(),
             resendWindow: `${PROPOSAL_NOT_OPENED_DAYS} days`,
           },

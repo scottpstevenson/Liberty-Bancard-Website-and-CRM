@@ -551,7 +551,8 @@ export async function handleChatBooking(rawPayload: unknown): Promise<void> {
       await db.update(sdrLeadState).set({
         currentStage: "MEETING_SET",
         stage: "MEETING_SET",
-        meetingId: payload.appointmentId || null,
+        // A chat booking never replaces a different current meeting; it only fills an empty pointer.
+        meetingId: state.meetingId || payload.appointmentId || null,
         lastTouchAt: new Date(),
         updatedAt: new Date(),
       }).where(eq(sdrLeadState.merchantId, merchant.id));

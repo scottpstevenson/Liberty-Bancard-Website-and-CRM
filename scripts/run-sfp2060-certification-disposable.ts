@@ -72,6 +72,8 @@ async function main(): Promise<void> {
       { name: "stage4c1-asset-preview", script: "scripts/certification/test-stage4c1-asset-preview.ts", database: true },
       { name: "stage4c1-generic-route-fence", script: "scripts/certification/test-stage4c1-generic-route-fence.ts", database: true },
       { name: "stage4c1-stored-copy-adoption", script: "scripts/certification/test-stage4c1-stored-copy-adoption.ts", database: true },
+      { name: "stage4c2-journey-authority", script: "scripts/certification/test-stage4c2-journey-authority.ts", database: true },
+      { name: "stage4c2-calendar-contract", script: "scripts/certification/test-stage4c2-calendar-contract.ts", database: true },
       { name: "sfp-launch-runner-e2e", script: "scripts/certification/test-sfp-launch-runner-e2e.ts", database: true },
       { name: "sfp-launch-lifecycle-e2e", script: "scripts/certification/test-sfp-launch-lifecycle-e2e.ts", database: true },
       { name: "sfp-seed-test", script: "scripts/certification/test-sfp-seed-test.ts", database: true },

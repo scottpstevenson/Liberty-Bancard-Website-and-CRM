@@ -81,8 +81,9 @@ const WRITE_TEMPLATES: Array<{ path: RegExp; template: string; methods: string[]
   { path: /^\/notes\/[A-Za-z0-9_-]{1,128}$/i, template: "/notes/:noteId", methods: ["PUT", "PATCH", "DELETE"] },
   { path: /^\/tags$/i, template: "/tags", methods: ["POST"] },
   { path: /^\/tags\/[A-Za-z0-9_-]{1,128}$/i, template: "/tags/:tagId", methods: ["PUT", "PATCH", "DELETE"] },
-  { path: /^\/appointments$/i, template: "/appointments", methods: ["POST"] },
-  { path: /^\/appointments\/[A-Za-z0-9_-]{1,128}$/i, template: "/appointments/:appointmentId", methods: ["PUT", "PATCH", "DELETE"] },
+  { path: /^\/calendars\/events\/appointments$/i, template: "/calendars/events/appointments", methods: ["POST"] },
+  { path: /^\/calendars\/events\/appointments\/[A-Za-z0-9_-]{1,128}$/i, template: "/calendars/events/appointments/:appointmentId", methods: ["PUT"] },
+  { path: /^\/calendars\/events\/[A-Za-z0-9_-]{1,128}$/i, template: "/calendars/events/:eventId", methods: ["DELETE"] },
 ];
 
 export function resolveGhlWriteTemplate(methodInput: string, pathInput: string): string | null {

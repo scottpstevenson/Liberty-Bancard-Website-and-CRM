@@ -5,6 +5,8 @@ import { updateContactLocalFirst } from "./contact-writer";
 import { resolvePacketVertical, GENERAL_FALLBACK_VERTICAL } from "../../shared/collateral-packet-verticals";
 import { applyConsentCommand } from "./consent-authority";
 import crypto from "crypto";
+import { runFollowupEffect } from "./followup-effects";
+import { workflowDefinitionPin } from "./workflow-run-lease";
 import { renderMessage, type TokenSource } from "./message-token-registry";
 import { FIRST_PARTY_BOOK_URL, resolveSalesBooking } from "./message-cta-contract";
 import { escapeHtml, type RenderFormat } from "./message-render";
@@ -154,21 +156,84 @@ async function renderWorkflowMessage(text: string, contactId: number, dealId: nu
   return renderMessage("workflow", text, source, format).output;
 }
 
+type StepSendResult = { success: boolean; error?: string; unknown?: boolean; replay?: boolean };
+const SEND_ACTIONS = new Set(["send_ghl_email", "send_ghl_sms", "send_packet", "generate_proposal", "request_review"]);
+export const RUN_TERMINAL_STATUSES = ["completed", "failed", "cancelled", "blocked"];
+
+/**
+ * Per-step, per-channel send receipt. The receipt is written before the provider call; a resumed or re-claimed run
+ * replays an accepted step without sending again and never re-sends over an unknown outcome.
+ */
+async function guardedSend(
+  runId: number, stepIndex: number, channel: string,
+  send: () => Promise<{ success: boolean; error?: string }>,
+): Promise<StepSendResult> {
+  const outcome = await runFollowupEffect(
+    { effectKey: `wf:${runId}:${stepIndex}:${channel}`, ownerKind: "workflow_run", ownerId: String(runId), channel: `${channel}` },
+    send,
+  );
+  if (outcome.state === "accepted") return { success: true, replay: outcome.replay };
+  if (outcome.state === "unknown") return { success: false, unknown: true, error: outcome.detail ?? "dispatch_outcome_unknown" };
+  return { success: false, error: outcome.detail };
+}
+
+const stepStatus = (r: StepSendResult) => r.unknown ? "unknown_outcome" : r.success ? "completed" : "failed";
+
+/**
+ * Honest run outcome from the step log. A run is "completed" only when no step failed, was blocked, had an unknown
+ * outcome, or was only queued locally. Skipped steps stay visible in the log and are counted, never hidden.
+ * `delivered` counts send steps whose receipt is accepted.
+ */
+export function classifyWorkflowRunOutcome(log: ReadonlyArray<{ action?: string; status?: string }>): {
+  status: "completed" | "failed" | "blocked"; delivered: number; failed: number; blocked: number; skipped: number;
+} {
+  let delivered = 0, failed = 0, blocked = 0, skipped = 0;
+  // After a controlled retry the same step appears more than once; the latest entry per step and action is its outcome.
+  const lastIndex = new Map<string, number>();
+  log.forEach((entry, index) => { const step = (entry as { step?: number }).step; if (typeof step === "number" && step > 0) lastIndex.set(`${step}:${entry.action}`, index); });
+  for (const [index, entry] of log.entries()) {
+    const step = (entry as { step?: number }).step;
+    if (typeof step === "number" && step > 0 && lastIndex.get(`${step}:${entry.action}`) !== index) continue;
+    if (entry.status === "failed") failed++;
+    else if (entry.status === "queued_no_ghl" || entry.status === "unknown_outcome" || entry.status === "blocked") blocked++;
+    else if (entry.status === "skipped" || entry.status === "unknown_action") skipped++;
+    else if (entry.status === "completed" && SEND_ACTIONS.has(entry.action ?? "")) delivered++;
+  }
+  return { status: failed > 0 ? "failed" : blocked > 0 ? "blocked" : "completed", delivered, failed, blocked, skipped };
+}
+
 export async function executeWorkflowActions(
   workflowId: number,
   actions: any[],
   ctx: WorkflowContext,
   runId?: number,
-  startStep: number = 0
-): Promise<{ status: string; log: any[]; runId: number }> {
+  startStep: number = 0,
+  options: { retryCompletedSteps?: ReadonlySet<number> } = {},
+): Promise<{ status: string; log: any[]; runId: number; delivered?: number; replay?: boolean }> {
   const workflow = await storage.getWorkflow(workflowId);
   if (!workflow || workflow.retiredAt || !workflow.enabled) {
-    return { status: "blocked", log: [{ action: "workflow_unavailable", status: "blocked" }], runId: runId ?? 0 };
+    const log: any[] = [{ action: "workflow_unavailable", status: "blocked", timestamp: new Date().toISOString() }];
+    // A waiting/running run whose workflow is gone is parked visibly (terminal blocked), never left due for every scan.
+    if (runId) {
+      const existing = await storage.getWorkflowRun(runId);
+      if (existing && !RUN_TERMINAL_STATUSES.includes(existing.status || "")) {
+        const merged = [...(Array.isArray(existing.log) ? existing.log as any[] : []), ...log];
+        await storage.updateWorkflowRun(runId, { status: "blocked", completedAt: new Date(), log: merged });
+      }
+    }
+    return { status: "blocked", log, runId: runId ?? 0 };
   }
   if (runId) {
     const existing = await storage.getWorkflowRun(runId);
-    if (!existing || existing.workflowId !== workflowId || ["completed", "failed", "cancelled"].includes(existing.status || "")) {
+    if (!existing || existing.workflowId !== workflowId || RUN_TERMINAL_STATUSES.includes(existing.status || "")) {
       return { status: "blocked", log: [{ action: "run_unavailable", status: "blocked" }], runId };
+    }
+    // A run resumes only against the definition it was created for; a changed workflow cannot be resumed at a stale step.
+    if (existing.inputPin && existing.inputPin !== workflowDefinitionPin(actions)) {
+      const log = [...(Array.isArray(existing.log) ? existing.log as any[] : []),
+        { step: startStep, action: "resume", status: "blocked", reason: "workflow_definition_changed", timestamp: new Date().toISOString() }];
+      await storage.updateWorkflowRun(runId, { status: "blocked", completedAt: new Date(), log });
+      return { status: "blocked", log, runId };
     }
   }
   const { contactId, dealId } = await resolveContext(ctx);
@@ -177,15 +242,38 @@ export async function executeWorkflowActions(
   let createdRunId = runId;
   if (!createdRunId) {
     logEntries = [{ step: 0, action: "started", timestamp: new Date().toISOString() }];
-    const run = await storage.createWorkflowRun({
-      workflowId,
-      entityType: ctx.entityType || null,
-      entityId: ctx.entityId || null,
-      status: "running",
-      currentStep: startStep,
-      log: logEntries,
-    });
-    createdRunId = run.id;
+    // One run per (workflow, occurrence): a retried event returns the existing run instead of starting a second one.
+    const occurrenceKey = ctx.occurrenceId ? `${ctx.entityType ?? "none"}:${ctx.entityId ?? 0}:${ctx.occurrenceId}` : null;
+    try {
+      const run = await storage.createWorkflowRun({
+        workflowId,
+        entityType: ctx.entityType || null,
+        entityId: ctx.entityId || null,
+        status: "running",
+        currentStep: startStep,
+        log: logEntries,
+        occurrenceKey,
+        inputPin: workflowDefinitionPin(actions),
+      });
+      createdRunId = run.id;
+    } catch (createErr: any) {
+      if (occurrenceKey && (createErr?.code === "23505" || createErr?.cause?.code === "23505")) {
+        const { db } = await import("../db");
+        const { workflowRuns } = await import("@shared/schema");
+        const { and, eq } = await import("drizzle-orm");
+        const [existingRun] = await db.select().from(workflowRuns)
+          .where(and(eq(workflowRuns.workflowId, workflowId), eq(workflowRuns.occurrenceKey, occurrenceKey))).limit(1);
+        if (existingRun) {
+          const existingLog = Array.isArray(existingRun.log) ? existingRun.log as any[] : [];
+          return { status: existingRun.status || "running", log: existingLog, runId: existingRun.id, delivered: classifyWorkflowRunOutcome(existingLog).delivered, replay: true };
+        }
+      }
+      throw createErr;
+    }
+  } else if (options.retryCompletedSteps) {
+    const existingRun = await storage.getWorkflowRun(createdRunId);
+    logEntries = Array.isArray(existingRun?.log) ? [...(existingRun!.log as any[])] : [];
+    logEntries.push({ step: startStep, action: "retry_started", timestamp: new Date().toISOString() });
   } else if (startStep > 0) {
     const existingRun = await storage.getWorkflowRun(createdRunId);
     logEntries = Array.isArray(existingRun?.log) ? [...(existingRun!.log as any[])] : [];
@@ -194,6 +282,8 @@ export async function executeWorkflowActions(
 
   for (let i = startStep; i < actions.length; i++) {
     const action = actions[i];
+    // Controlled retry: a step that already completed (accepted send, task, update) is never repeated.
+    if (options.retryCompletedSteps?.has(i + 1)) continue;
     try {
       if (action.type === "create_task") {
         const task = await storage.createAuthorityTask({
@@ -271,15 +361,15 @@ export async function executeWorkflowActions(
         if (isGhlConfigured()) {
           if (action.templateId) {
             const permission = await canSendWorkflowTemplate(action.templateId, contactId);
-            const result = permission.allowed
-              ? await sendTemplatedMessage({ templateId: action.templateId, contactId, dealId })
+            const result: StepSendResult = permission.allowed
+              ? await guardedSend(createdRunId, i, "email", () => sendTemplatedMessage({ templateId: action.templateId, contactId, dealId }))
               : { success: false, error: permission.reason };
-            logEntries.push({ step: i + 1, action: "send_ghl_email", templateId: action.templateId, status: result.success ? "completed" : "failed", error: result.error, timestamp: new Date().toISOString() });
+            logEntries.push({ step: i + 1, action: "send_ghl_email", templateId: action.templateId, status: stepStatus(result), error: result.error, timestamp: new Date().toISOString() });
           } else {
             const subject = await renderWorkflowMessage(action.subject || "Message from Liberty Bancard", contactId, dealId, "subject");
             const body = await renderWorkflowMessage(action.body || "", contactId, dealId, "html");
-            const result = await sendWorkflowEmail({ contactId, dealId, subject, body });
-            logEntries.push({ step: i + 1, action: "send_ghl_email", status: result.success ? "completed" : "failed", error: result.error, timestamp: new Date().toISOString() });
+            const result = await guardedSend(createdRunId, i, "email", () => sendWorkflowEmail({ contactId, dealId, subject, body }));
+            logEntries.push({ step: i + 1, action: "send_ghl_email", status: stepStatus(result), error: result.error, timestamp: new Date().toISOString() });
           }
         } else {
           await storage.createEmailLog({
@@ -290,24 +380,24 @@ export async function executeWorkflowActions(
             status: "queued",
             metadata: { source: "workflow", workflowId },
           });
-          logEntries.push({ step: i + 1, action: "send_ghl_email", status: "queued_no_ghl", timestamp: new Date().toISOString() });
+          logEntries.push({ step: i + 1, action: "send_ghl_email", status: "queued_no_ghl", reason: "ghl_not_configured_nothing_delivered", timestamp: new Date().toISOString() });
         }
 
       } else if (action.type === "send_ghl_sms" && contactId) {
         if (isGhlConfigured()) {
           if (action.templateId) {
             const permission = await canSendWorkflowTemplate(action.templateId, contactId);
-            const result = permission.allowed
-              ? await sendTemplatedMessage({ templateId: action.templateId, contactId, dealId })
+            const result: StepSendResult = permission.allowed
+              ? await guardedSend(createdRunId, i, "sms", () => sendTemplatedMessage({ templateId: action.templateId, contactId, dealId }))
               : { success: false, error: permission.reason };
-            logEntries.push({ step: i + 1, action: "send_ghl_sms", templateId: action.templateId, status: result.success ? "completed" : "failed", error: result.error, timestamp: new Date().toISOString() });
+            logEntries.push({ step: i + 1, action: "send_ghl_sms", templateId: action.templateId, status: stepStatus(result), error: result.error, timestamp: new Date().toISOString() });
           } else {
             const body = await renderWorkflowMessage(action.body || "", contactId, dealId, "text");
-            const result = await sendWorkflowSms({ contactId, dealId, body });
-            logEntries.push({ step: i + 1, action: "send_ghl_sms", status: result.success ? "completed" : "failed", error: result.error, timestamp: new Date().toISOString() });
+            const result = await guardedSend(createdRunId, i, "sms", () => sendWorkflowSms({ contactId, dealId, body }));
+            logEntries.push({ step: i + 1, action: "send_ghl_sms", status: stepStatus(result), error: result.error, timestamp: new Date().toISOString() });
           }
         } else {
-          logEntries.push({ step: i + 1, action: "send_ghl_sms", status: "queued_no_ghl", timestamp: new Date().toISOString() });
+          logEntries.push({ step: i + 1, action: "send_ghl_sms", status: "queued_no_ghl", reason: "ghl_not_configured_nothing_delivered", timestamp: new Date().toISOString() });
         }
 
       } else if (action.type === "send_packet" && contactId) {
@@ -315,12 +405,13 @@ export async function executeWorkflowActions(
         const deal = dealId ? await storage.getDeal(dealId) : undefined;
         const matchedPacket = resolveCollateralPacket(packets, { packetId: action.packetId, deal });
         if (matchedPacket && isGhlConfigured()) {
-          const result = await sendWorkflowEmail({
+          const packetBody = await renderWorkflowMessage(`<p>Hi {{contact.firstName}},</p><p>Here is your personalized information packet.</p><p>Best,<br/>Liberty Bancard</p><p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`, contactId, dealId, "html");
+          const result = await guardedSend(createdRunId, i, "email", () => sendWorkflowEmail({
             contactId, dealId,
             subject: `Your Custom Pricing Breakdown - ${matchedPacket.name}`,
-            body: await renderWorkflowMessage(`<p>Hi {{contact.firstName}},</p><p>Here is your personalized information packet.</p><p>Best,<br/>Liberty Bancard</p><p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`, contactId, dealId, "html"),
-          });
-          logEntries.push({ step: i + 1, action: "send_packet", packetName: matchedPacket.name, status: result.success ? "completed" : "failed", timestamp: new Date().toISOString() });
+            body: packetBody,
+          }));
+          logEntries.push({ step: i + 1, action: "send_packet", packetName: matchedPacket.name, status: stepStatus(result), timestamp: new Date().toISOString() });
         } else {
           logEntries.push({ step: i + 1, action: "send_packet", status: "skipped", reason: !matchedPacket ? "No matching packet" : "GHL not configured", timestamp: new Date().toISOString() });
         }
@@ -343,15 +434,17 @@ export async function executeWorkflowActions(
 <p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
             contactId, dealId, "html"
           );
-          const result = await sendWorkflowEmail({
+          // The proposal email is one durable touch (run, step, channel). The deal moves to "Proposal Sent" only when
+          // the receipt says the proposal was accepted; a failed or unknown send never advances the stage.
+          const result = await guardedSend(createdRunId, i, "email", () => sendWorkflowEmail({
             contactId, dealId,
             subject: `Your Processing Analysis is Ready - ${contact.companyName || contact.firstName}`,
             body: proposalBody,
-          });
-          if (deal.stage === "Review In Progress") {
+          }));
+          if (result.success && deal.stage === "Review In Progress") {
             await advanceDealStage(dealId, "Proposal Sent", "workflow_generate_proposal");
           }
-          logEntries.push({ step: i + 1, action: "generate_proposal", status: result.success ? "completed" : "failed", timestamp: new Date().toISOString() });
+          logEntries.push({ step: i + 1, action: "generate_proposal", status: stepStatus(result), ...(result.error ? { error: result.error } : {}), timestamp: new Date().toISOString() });
         } else {
           logEntries.push({ step: i + 1, action: "generate_proposal", status: "skipped", timestamp: new Date().toISOString() });
         }
@@ -428,14 +521,14 @@ export async function executeWorkflowActions(
             `<p>Hi {{contact.firstName}},</p><p>We hope your payment processing has been running smoothly since switching to Liberty Bancard!</p><p>Would you mind leaving us a quick review?</p><p>Thank you!</p><p>Best,<br/>Liberty Bancard Team</p>`,
             contactId, dealId, "html"
           );
-          const result = await sendWorkflowEmail({
+          const result = await guardedSend(createdRunId, i, "email", () => sendWorkflowEmail({
             contactId, dealId,
             subject: "How's your experience with Liberty Bancard?",
             body,
-          });
-          logEntries.push({ step: i + 1, action: "request_review", status: result.success ? "completed" : "failed", timestamp: new Date().toISOString() });
+          }));
+          logEntries.push({ step: i + 1, action: "request_review", status: stepStatus(result), ...(result.error ? { error: result.error } : {}), timestamp: new Date().toISOString() });
         } else {
-          logEntries.push({ step: i + 1, action: "request_review", status: "queued_no_ghl", timestamp: new Date().toISOString() });
+          logEntries.push({ step: i + 1, action: "request_review", status: "queued_no_ghl", reason: "ghl_not_configured_nothing_delivered", timestamp: new Date().toISOString() });
         }
 
       } else if (action.type === "create_onboarding_checklist" && dealId) {
@@ -485,22 +578,54 @@ export async function executeWorkflowActions(
     }
   }
 
+  const outcome = classifyWorkflowRunOutcome(logEntries);
   await storage.updateWorkflowRun(createdRunId, {
-    status: "completed",
+    status: outcome.status,
     completedAt: new Date(),
     currentStep: actions.length,
     log: logEntries,
   });
 
-  return { status: "completed", log: logEntries, runId: createdRunId };
+  return { status: outcome.status, log: logEntries, runId: createdRunId, delivered: outcome.delivered };
+}
+
+/**
+ * Controlled retry of a failed or blocked run, for callers that own a retry cadence (e.g. the application reminder scan).
+ * Only definitely-undelivered work is retried: completed steps (including accepted sends) are skipped and their receipts
+ * replay; a refused send is re-claimable. An unknown outcome, a changed workflow definition or a missing/disabled
+ * workflow is NOT retried: the run stays parked for review.
+ */
+export async function retryFailedWorkflowRun(runId: number): Promise<
+  { state: "retried"; status: string; delivered: number } | { state: "needs_review" | "not_retryable"; reason: string }
+> {
+  const run = await storage.getWorkflowRun(runId);
+  if (!run || !["failed", "blocked"].includes(run.status || "")) return { state: "not_retryable", reason: "run_not_failed_or_blocked" };
+  const log = (Array.isArray(run.log) ? run.log : []) as Array<{ step?: number; action?: string; status?: string; reason?: string }>;
+  const latest = new Map<string, { status?: string }>();
+  for (const e of log) if (typeof e.step === "number" && e.step > 0) latest.set(`${e.step}:${e.action}`, e);
+  if ([...latest.values()].some(e => e.status === "unknown_outcome")) return { state: "needs_review", reason: "unknown_outcome_requires_review" };
+  if (log.some(e => e.reason === "workflow_definition_changed")) return { state: "needs_review", reason: "workflow_definition_changed" };
+  const workflow = await storage.getWorkflow(run.workflowId);
+  if (!workflow || workflow.retiredAt || !workflow.enabled) return { state: "needs_review", reason: "workflow_unavailable" };
+  const actions = (workflow.actions as any[]) || [];
+  if (run.inputPin && run.inputPin !== workflowDefinitionPin(actions)) return { state: "needs_review", reason: "workflow_definition_changed" };
+  const completed = new Set<number>();
+  for (const [key, e] of latest) if (e.status === "completed" || e.status === "scheduled") completed.add(Number(key.split(":")[0]));
+  const { pool } = await import("../db");
+  const reopened = await pool.query(
+    `UPDATE workflow_runs SET status = 'running', completed_at = NULL WHERE id = $1 AND status IN ('failed','blocked') RETURNING id`, [runId]);
+  if (!reopened.rows[0]) return { state: "not_retryable", reason: "another_worker_reopened_run" };
+  const result = await executeWorkflowActions(run.workflowId, actions,
+    { entityType: run.entityType || undefined, entityId: run.entityId || undefined } as WorkflowContext, runId, 0, { retryCompletedSteps: completed });
+  return { state: "retried", status: result.status, delivered: result.delivered ?? 0 };
 }
 
 export async function triggerWorkflowsByEvent(
   event: string,
   ctx: WorkflowContext,
   triggerConfig?: Record<string, any>
-): Promise<Array<{ workflowId: number; workflowName: string; runId: number; status: string }>> {
-  const results: Array<{ workflowId: number; workflowName: string; runId: number; status: string }> = [];
+): Promise<Array<{ workflowId: number; workflowName: string; runId: number; status: string; delivered?: number; replay?: boolean }>> {
+  const results: Array<{ workflowId: number; workflowName: string; runId: number; status: string; delivered?: number; replay?: boolean }> = [];
 
   try {
     const matchingWorkflows = await storage.getWorkflowsByTrigger(event);
@@ -540,6 +665,8 @@ export async function triggerWorkflowsByEvent(
           workflowName: wf.name,
           runId: result.runId,
           status: result.status,
+          delivered: result.delivered,
+          replay: result.replay,
         });
 
         await storage.createAuditLog({

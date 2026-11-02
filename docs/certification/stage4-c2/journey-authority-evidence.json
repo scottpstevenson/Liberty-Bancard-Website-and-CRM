@@ -1,0 +1,307 @@
+{
+  "suite": "stage4c2-journey-authority",
+  "checks": 60,
+  "negativeControls": 10,
+  "results": [
+    {
+      "id": "JA-01",
+      "claim": "clean run with one accepted send is completed and delivered=1",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-02",
+      "claim": "a failed send makes the run failed",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-03",
+      "claim": "a locally queued email (no provider) is blocked, not completed",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-04",
+      "claim": "an unknown outcome is blocked, never completed",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-05",
+      "claim": "a skipped send stays visible and delivers nothing",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-06",
+      "claim": "negative control: the old always-completed behaviour is rejected for a failed send",
+      "negativeControl": true
+    },
+    {
+      "id": "JA-07",
+      "claim": "day-1 milestone is due 1 day after the occurrence start",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-08",
+      "claim": "a delivered milestone is not offered again (36h gap also holds)",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-09",
+      "claim": "an undelivered milestone stays owed (day 3 after day 1 delivered)",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-10",
+      "claim": "with nothing delivered the earliest owed milestone is offered first (held work retained)",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-11",
+      "claim": "negative control: a consumed-without-delivery reading (skipping to day 3) is rejected",
+      "negativeControl": true
+    },
+    {
+      "id": "JA-12",
+      "claim": "current sales appointment is the earliest recorded start, regardless of arrival order",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-13",
+      "claim": "account appointment never becomes the sales current appointment",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-14",
+      "claim": "no open appointment means no current pointer",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-15",
+      "claim": "negative control: last-arrival/any-calendar pointer is rejected",
+      "negativeControl": true
+    },
+    {
+      "id": "JA-16",
+      "claim": "status text normalizes; unknown text is never guessed",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-17",
+      "claim": "occurrence identity prefers the appointment id and is null without one",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-18",
+      "claim": "provider trigger refusal (incl. documented 'succeded') is read from the body",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-19",
+      "claim": "deal selected by the conversation's opportunity association",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-20",
+      "claim": "several deals without association select no deal",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-21",
+      "claim": "a single open deal is selected",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-22",
+      "claim": "negative control: 'first deal to avoid null' is rejected",
+      "negativeControl": true
+    },
+    {
+      "id": "JA-23",
+      "claim": "an accepted receipt replays without a second provider call",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-24",
+      "claim": "accepted receipt is readable as delivered",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-25",
+      "claim": "an ambiguous failure is unknown and is never re-sent",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-26",
+      "claim": "a definite refusal (pause) leaves the touch owed and a later attempt may send",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-27",
+      "claim": "a thrown non-ambiguous error is refused, not accepted",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-28",
+      "claim": "negative control: a paused attempt cannot be read as delivered",
+      "negativeControl": true
+    },
+    {
+      "id": "JA-29",
+      "claim": "the same occurrence returns the existing run, not a second one",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-30",
+      "claim": "exactly one run row exists for the occurrence",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-31",
+      "claim": "a different occurrence starts its own run",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-32",
+      "claim": "a leased due run cannot be claimed by a second worker",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-33",
+      "claim": "an expired lease can be re-claimed (crash recovery)",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-34",
+      "claim": "resuming against a changed workflow definition is blocked",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-35",
+      "claim": "a blocked run is terminal and cannot be resumed",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-36",
+      "claim": "negative control: the unique index rejects a second run for one occurrence",
+      "negativeControl": true
+    },
+    {
+      "id": "JA-37",
+      "claim": "after a retry the latest entry per step decides the run outcome",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-38",
+      "claim": "negative control: an unretried failed step is never completed",
+      "negativeControl": true
+    },
+    {
+      "id": "JA-39",
+      "claim": "a send that cannot be delivered leaves the run failed or blocked with nothing delivered",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-40",
+      "claim": "a plain re-trigger replays the terminal run (it does not retry)",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-41",
+      "claim": "a controlled retry re-attempts the undelivered step without repeating the completed task",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-42",
+      "claim": "while delivery is still impossible the retry does not report completion",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-43",
+      "claim": "negative control: a retry that repeats completed steps is rejected",
+      "negativeControl": true
+    },
+    {
+      "id": "JA-44",
+      "claim": "an unknown outcome is parked for review, never retried",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-45",
+      "claim": "a disabled workflow is not retried",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-46",
+      "claim": "the waiting run is due before its workflow is found unavailable",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-47",
+      "claim": "a run whose workflow is disabled is parked as blocked and is not due again",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-48",
+      "claim": "negative control: a released-but-still-waiting run would repeat on every scan",
+      "negativeControl": true
+    },
+    {
+      "id": "JA-49",
+      "claim": "the waiting-run loop cannot repeat a run within a scan and reminders use the controlled retry",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-50",
+      "claim": "an unknown GHL contact is a named not_found outcome",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-51",
+      "claim": "contact with several deals and no association resolves with no deal",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-52",
+      "claim": "the linked deal is selected by the opportunity association",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-53",
+      "claim": "an archived contact is a named archived outcome",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-54",
+      "claim": "the statement upload token and URL are never logged",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-55",
+      "claim": "negative control: a token log line would be detected",
+      "negativeControl": true
+    },
+    {
+      "id": "JA-56",
+      "claim": "the booking-link route requires a dashboard staff role",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-57",
+      "claim": "an unconfigured native workflow is a held handoff, not a skip",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-58",
+      "claim": "Inbox preparation derives its booking address from the shared purpose resolver",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-59",
+      "claim": "application reminders no longer scan the first 500 deals",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-60",
+      "claim": "no provider network attempt occurred during the certification",
+      "negativeControl": false
+    }
+  ]
+}

@@ -169,17 +169,18 @@ export async function cancelDeferredEnrollmentsForOccurrence(params: {
 
 /**
  * Same cancel, inside the caller's transaction (the appointment-cancel handler commits it with the cancellation itself).
- * With an occurrence key only that appointment's obligation is removed. Without one the occurrence cannot be identified,
- * so every pending obligation of that workflow for the contact is removed.
+ * Only the obligation owned by the named occurrence is removed. Without an occurrence key the occurrence cannot be
+ * identified, so NOTHING is cancelled: an unidentified event never removes another appointment's obligation.
  */
 export async function cancelDeferredEnrollmentsInTx(
   tx: { execute: (query: any) => Promise<{ rows: any[]; rowCount?: number | null }> },
   params: { ghlContactId: string; workflowKey: string; occurrenceKey?: string | null },
 ): Promise<{ cancelled: number }> {
+  if (!params.occurrenceKey) return { cancelled: 0 };
   const found = await tx.execute(sql`
     SELECT id FROM deferred_ghl_enrollments
      WHERE ghl_contact_id = ${params.ghlContactId} AND workflow_key = ${params.workflowKey}
-       AND (${params.occurrenceKey ?? null}::text IS NULL OR metadata->>'_occurrenceKey' = ${params.occurrenceKey ?? null})
+       AND metadata->>'_occurrenceKey' = ${params.occurrenceKey}
      ORDER BY id`);
   let cancelled = 0;
   for (const row of found.rows as Array<{ id: string }>) {
@@ -649,4 +650,27 @@ export async function getDeferredEnrollmentQueue(): Promise<{
     pending: (pendingRows.rows as any[]).map(toObj),
     recentlyFailed: (failedRows.rows as any[]).map(toObj),
   };
+}
+
+/**
+ * A reschedule moves the appointment time. Pending first-confirmation obligations keep their identity (no second
+ * confirmation is created) but carry the new start time; the stale 24h reminder obligation of the old time is cancelled.
+ */
+export async function applyRescheduleToDeferredEnrollmentsInTx(
+  tx: { execute: (query: any) => Promise<{ rows: any[]; rowCount?: number | null }> },
+  params: { ghlContactId: string; occurrenceKey: string; startTime: string | null },
+): Promise<{ reminderCancelled: number; confirmationUpdated: number }> {
+  const reminder = await cancelDeferredEnrollmentsInTx(tx, {
+    ghlContactId: params.ghlContactId, workflowKey: "booking_reminder_24h", occurrenceKey: params.occurrenceKey,
+  });
+  let confirmationUpdated = 0;
+  if (params.startTime) {
+    const updated = await tx.execute(sql`
+      UPDATE deferred_ghl_enrollments
+         SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('startTime', ${params.startTime}::text, 'appointmentDate', ${params.startTime}::text)
+       WHERE ghl_contact_id = ${params.ghlContactId} AND workflow_key = 'booking_confirmation'
+         AND status = 'pending' AND metadata->>'_occurrenceKey' = ${params.occurrenceKey} RETURNING id`);
+    confirmationUpdated = updated.rows.length;
+  }
+  return { reminderCancelled: reminder.cancelled, confirmationUpdated };
 }

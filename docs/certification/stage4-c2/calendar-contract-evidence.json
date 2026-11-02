@@ -1,0 +1,232 @@
+{
+  "suite": "stage4c2-calendar-contract",
+  "checks": 45,
+  "negativeControls": 4,
+  "results": [
+    {
+      "id": "CC-01",
+      "claim": "sales booking resolves to the validated sales calendar",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-02",
+      "claim": "account booking resolves only from the account calendar configuration",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-03",
+      "claim": "provider calendar ids map to exactly one purpose",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-04",
+      "claim": "account purpose without configuration is unavailable, not the sales calendar",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-05",
+      "claim": "an account URL on another host is invalid configuration",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-06",
+      "claim": "negative control: 'fall back to the sales calendar for account' is rejected",
+      "negativeControl": true
+    },
+    {
+      "id": "CC-07",
+      "claim": "range request defaults to the sales calendar and carries the exact window",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-08",
+      "claim": "range request for the account purpose uses the account calendar",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-09",
+      "claim": "an empty or inverted interval is refused",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-10",
+      "claim": "a range longer than the maximum is refused",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-11",
+      "claim": "an unconfigured purpose calendar is a 409 unavailable, not an empty calendar",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-12",
+      "claim": "an unknown purpose is refused",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-13",
+      "claim": "provider path asks for the exact window and purpose calendar",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-14",
+      "claim": "the start is inclusive and the end is exclusive",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-15",
+      "claim": "cancelled and invalid events stay out; an overnight event is placed by its instant",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-16",
+      "claim": "negative control: an inclusive upper bound is rejected",
+      "negativeControl": true
+    },
+    {
+      "id": "CC-17",
+      "claim": "instants persist in UTC while display crosses the New York DST change",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-18",
+      "claim": "the documented appointment create route is an exact crm_write template",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-19",
+      "claim": "the documented appointment update route is an exact crm_write template",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-20",
+      "claim": "the undocumented /appointments route is no longer a write template",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-21",
+      "claim": "an unlisted nested calendar path stays denied",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-22",
+      "claim": "provider event deletion has an exact template (never used for local history)",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-23",
+      "claim": "negative control: an unknown calendar operation is not writable",
+      "negativeControl": true
+    },
+    {
+      "id": "CC-24",
+      "claim": "preview names the exact provider route",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-25",
+      "claim": "notification is explicit false and no slot-validation bypass is present",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-26",
+      "claim": "notification follows the explicit owner contract value, not a default",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-27",
+      "claim": "invalid interval and contact id are refused",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-28",
+      "claim": "reschedule without an appointment id is refused",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-29",
+      "claim": "account booking without an account calendar is refused",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-30",
+      "claim": "cancel is a status change on the provider appointment, never a delete",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-31",
+      "claim": "execute is denied by default and sends nothing",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-32",
+      "claim": "a command id that is not a UUIDv4 is denied",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-33",
+      "claim": "a payload that differs from the reviewed hash is denied",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-34",
+      "claim": "a repeated command replays its receipt and writes once",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-35",
+      "claim": "a write the provider cannot read back is unconfirmed, not booked",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-36",
+      "claim": "a lost response is unknown and a retry does not write again",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-37",
+      "claim": "negative control: a lost response cannot be reported as booked",
+      "negativeControl": true
+    },
+    {
+      "id": "CC-38",
+      "claim": "readback was performed to confirm provider state",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-39",
+      "claim": "booking routes are role-gated (execute admin only)",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-40",
+      "claim": "execute is bound to the owner-controlled writer switch",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-41",
+      "claim": "the month calendar reads the selected-range endpoint",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-42",
+      "claim": "local events are labelled as local and not as bookings",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-43",
+      "claim": "the calendar names its display timezone",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-44",
+      "claim": "workflow guidance no longer contradicts the supported handoffs",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-45",
+      "claim": "no provider network attempt occurred during the certification",
+      "negativeControl": false
+    }
+  ]
+}

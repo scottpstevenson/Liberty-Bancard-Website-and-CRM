@@ -101,8 +101,10 @@ export async function commandInboxWork(input:{
     const [item]=changed ? await tx.update(inboxItems).set({...changes,version:before.version+1,updatedAt:new Date()})
       .where(eq(inboxItems.id,before.id)).returning():[before];
     let taskId:number|null=null;
-    const bookingUrl=process.env.GHL_CALENDAR_ID
-      ? `https://api.leadconnectorhq.com/widget/booking/${encodeURIComponent(process.env.GHL_CALENDAR_ID)}`:null;
+    // Purpose-resolved booking address (sales vs account calendar). Never a raw location/calendar environment value.
+    const {bookingForPurpose}=await import("./ghl-calendar-purpose");
+    const purposeBooking=bookingForPurpose(deal?.pipeline==="onboarding"?"account":"sales");
+    const bookingUrl=purposeBooking.available?purposeBooking.widgetUrl:null;
     if(input.operation!=="edit") {
       const {storage}=await import("../storage");
       const task=await storage.createAuthorityTask({

@@ -224,7 +224,25 @@ export default function Workflows() {
     updateMutation.mutate({ id: detailWorkflow.id, body });
   }
 
-  const statusIcon = (status: string | null) => {
+  // A recorded "completed" status is shown as recorded; older runs whose log has failed, blocked, unknown or locally
+  // queued steps additionally show that the outcome was incomplete. History is never rewritten.
+  const runStepProblems = (run: { log?: unknown }) => {
+    const entries = Array.isArray(run.log) ? run.log as Array<{ step?: number; action?: string; status?: string }> : [];
+    const last = new Map<string, number>();
+    entries.forEach((e, i) => { if (typeof e?.step === "number" && e.step > 0) last.set(`${e.step}:${e.action}`, i); });
+    // After a controlled retry the latest entry per step is its outcome.
+    return entries.filter((e, i) => !(typeof e?.step === "number" && e.step > 0 && last.get(`${e.step}:${e.action}`) !== i))
+      .filter((e) => ["failed", "queued_no_ghl", "unknown_outcome", "blocked"].includes(e?.status ?? "")).length;
+  };
+  const runStatusLabel = (run: { status: string | null; log?: unknown }) => {
+    const problems = runStepProblems(run);
+    return run.status === "completed" && problems > 0
+      ? `completed · ${problems} step${problems === 1 ? "" : "s"} not delivered`
+      : (run.status ?? "unknown");
+  };
+  const statusIcon = (status: string | null, problems = 0) => {
+    if (status === "completed" && problems > 0) return <AlertTriangle className="w-4 h-4 text-amber-500" />;
+    if (status === "blocked") return <AlertTriangle className="w-4 h-4 text-amber-500" />;
     if (status === "completed") return <CheckCircle2 className="w-4 h-4 text-green-500" />;
     if (status === "failed") return <XCircle className="w-4 h-4 text-red-500" />;
     if (status === "running") return <Clock className="w-4 h-4 text-yellow-500 animate-spin" />;
@@ -476,8 +494,8 @@ export default function Workflows() {
                           <TableCell>{wf?.name || `Workflow #${run.workflowId}`}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1.5">
-                              {statusIcon(run.status)}
-                              <span className="text-sm capitalize">{run.status}</span>
+                              {statusIcon(run.status, runStepProblems(run))}
+                              <span className="text-sm capitalize" data-testid={`text-run-status-${run.id}`}>{runStatusLabel(run)}</span>
                             </div>
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
@@ -596,8 +614,8 @@ export default function Workflows() {
                   <div className="space-y-1 mt-1">
                     {detailRuns.slice(0, 5).map((run) => (
                       <div key={run.id} className="flex items-center gap-2 text-xs text-muted-foreground">
-                        {statusIcon(run.status)}
-                        <span className="capitalize">{run.status}</span>
+                        {statusIcon(run.status, runStepProblems(run))}
+                        <span className="capitalize">{runStatusLabel(run)}</span>
                         <span>•</span>
                         <span>{run.createdAt ? new Date(run.createdAt).toLocaleString() : "-"}</span>
                       </div>

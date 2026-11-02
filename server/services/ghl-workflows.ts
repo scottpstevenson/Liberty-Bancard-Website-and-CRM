@@ -166,6 +166,16 @@ export async function resolveLocalContactIdForGhlContactId(ghlContactId: string)
   }
 }
 
+/** Typed reading of the provider's trigger response: returns a refusal reason, or null when nothing says it was refused. */
+export function workflowTriggerRefusal(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const record = body as Record<string, unknown>;
+  for (const key of ["succeeded", "succeded", "success"]) {
+    if (record[key] === false) return `${key}=false`;
+  }
+  return null;
+}
+
 export async function getWorkflowId(workflowKey: string): Promise<string | null> {
   const workflow = GHL_WORKFLOW_REGISTRY.find(w => w.id === workflowKey);
   if (!workflow) return null;
@@ -261,11 +271,15 @@ export async function enrollInGhlWorkflow(params: {
       return { success: false, error: `Workflow ${params.workflowKey} not configured (set ${registryEntry?.envKey ?? params.workflowKey})` };
     }
 
-    await triggerWorkflow({
+    const trigger = await triggerWorkflow({
       workflowId,
       contactId: params.ghlContactId,
       metadata: params.metadata,
     });
+    // The provider's response body is the acceptance fact. HighLevel documents `succeded` (sic) and some tenants return
+    // `succeeded` or `success`; an explicit false is a definite refusal, never an enrollment.
+    const refusal = workflowTriggerRefusal(trigger);
+    if (refusal) throw new Error(`GHL workflow enrollment refused by provider: ${refusal}`);
 
     console.log(`[GHL Workflows] Enrolled GHL contact ${params.ghlContactId} in workflow ${params.workflowKey}`);
     return { success: true };

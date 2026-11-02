@@ -177,7 +177,8 @@ export async function onAppointmentBooked(merchantId: number, appointmentData: A
     await db.update(sdrLeadState)
       .set({
         currentStage: "MEETING_SET",
-        meetingId,
+        // Never replaces a different current meeting; the scheduling handlers derive the current appointment.
+        meetingId: state.meetingId || meetingId,
         lastTouchAt: new Date(),
         updatedAt: new Date(),
       })

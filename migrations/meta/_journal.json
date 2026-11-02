@@ -2667,6 +2667,13 @@
       "when":1800400240000,
       "tag":"0377_ghl_workflow_handoff_dispatches",
       "breakpoints":true
+    },
+    {
+      "idx":381,
+      "version":"7",
+      "when":1800400250000,
+      "tag":"0378_stage4c2_appointment_followup_authority",
+      "breakpoints":true
     }
   ]
 }

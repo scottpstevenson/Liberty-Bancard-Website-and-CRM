@@ -28,6 +28,7 @@
  */
 
 import { claimHandoffDispatch, settleHandoffDispatch } from "./ghl-handoff-dispatch-ledger";
+import { occurrenceKeyOf } from "./ghl-occurrence";
 import { storage } from "../storage";
 import { pool } from "../db";
 import { isGhlConfigured, upsertGhlContact, sendGhlEmail, sendGhlSms } from "./ghl";
@@ -1051,12 +1052,20 @@ export async function enrollWorkflowHandoff(input: {
 }): Promise<AppointmentEnrollmentOutcome> {
   const { workflowKey, ghlContactId, contactId, identity } = input;
   const { getWorkflowId, enrollInGhlWorkflowCompliant } = await import("./ghl-workflows");
-  if (!await getWorkflowId(workflowKey)) return { state: "skipped", reason: "workflow_not_configured" };
+  if (!await getWorkflowId(workflowKey)) {
+    // A reviewed workflow that is not installed is a held handoff, visible in the audit trail, not a silent skip. It is
+    // deliberately not deferred for later replay: a confirmation sent days after the booking would be stale, and the
+    // native workflow installation is owned by the owner-run acceptance step.
+    await storage.createAuditLog({
+      action: "ghl_appointment_workflow_held", entityType: "contact", entityId: contactId,
+      details: { ...input.auditContext, workflowKey, reason: "workflow_not_configured", durable: false },
+    }).catch(() => undefined);
+    return { state: "held", reason: "workflow_not_configured", durable: false };
+  }
 
   // One appointment occurrence owns one handoff obligation. A second booking of the same contact is a different
   // occurrence; cancelling one occurrence cancels only its obligation.
-  const occurrenceKey = String(input.metadata.appointmentId ?? input.metadata.appointmentDate ?? input.metadata.meetingId
-    ?? input.metadata.callId ?? "");
+  const occurrenceKey = occurrenceKeyOf(input.metadata) ?? "";
   const idempotencyKey = identity?.receiptId
     ? `${identity.receiptId}:${identity.stepKey}`
     : `handoff:${workflowKey}:${contactId}:${occurrenceKey}`;

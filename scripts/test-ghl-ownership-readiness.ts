@@ -19,6 +19,8 @@ const callerSources = walk("server").filter(f => f !== "server/services/ghl-work
 const hasCaller = (id: string) =>
   new RegExp(`workflowKey:\\s*["'\`]${id}["'\`]`).test(callerSources) ||
   new RegExp(`enrollMerchantWorkflow\\([^,]+,\\s*["'\`]${id}["'\`]`).test(callerSources) ||
+  // sdr/scheduling.ts enrolls through enrollStep(stepKey, merchant, workflowKey, ...), where the merchant may be an object literal.
+  new RegExp(`enrollStep\\([^;]*?,\\s*["'\`]${id}["'\`],`, "s").test(callerSources) ||
   (id === "inbound_confirmation" && /GHL_WORKFLOW_INBOUND_CONFIRMATION/.test(callerSources));
 
 let checks = 0;

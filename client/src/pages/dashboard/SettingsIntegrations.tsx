@@ -552,10 +552,10 @@ Eligibility, underwriting, card brand rules, and applicable laws apply.`;
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">5</span>
-              <p className="text-sm font-semibold text-foreground">(Optional) Add Wait → <Clock className="w-3.5 h-3.5 inline mx-0.5" /> 24 Hours → If/Else: no appointment booked → Send follow-up nudge</p>
+              <p className="text-sm font-semibold text-foreground">Do not add a 24-hour nudge here — the 24-hour reminder is its own reviewed workflow slot, so a second one would send twice</p>
             </div>
             <div className="ml-7">
-              <p className="text-xs text-muted-foreground">Condition: <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">Appointment is not set</code> (or check the deal stage via a custom field). Send a second email with subject <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">Still want to see how much you could save, {"{{contact.first_name}}"}?</code> and the booking link.</p>
+              <p className="text-xs text-muted-foreground">Keep this workflow to the booking confirmation only. Reminders and no-show follow-ups belong to their own reviewed slots, and Replit stops a reminder when the appointment is canceled or rescheduled.</p>
             </div>
           </div>
 

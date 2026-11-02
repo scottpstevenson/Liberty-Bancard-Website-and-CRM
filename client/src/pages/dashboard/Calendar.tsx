@@ -154,9 +154,11 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
   });
 
   const { data: appointmentRead, isLoading: appointmentsLoading, isError: appointmentsError, refetch: retryAppointments } = useQuery<AppointmentRead>({
-    queryKey: ["/api/appointments"],
+    // Month-range reader: the selected window (exclusive end) and the sales calendar, not the bounded "next 10" queue.
+    queryKey: ["/api/appointments/range", startParam, endParam, "sales"],
     queryFn: async ({ signal }) => {
-      const response = await apiRequest("GET", "/api/appointments", undefined, undefined, signal);
+      const params = new URLSearchParams({ start: startParam, end: endParam, purpose: "sales" });
+      const response = await apiRequest("GET", `/api/appointments/range?${params}`, undefined, undefined, signal);
       return response.json();
     },
     refetchInterval: 300000,
@@ -195,7 +197,7 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
       queryClient.invalidateQueries({ queryKey: ["/api/calendar-events"] });
       setShowAddDialog(false);
       setEventForm({ title: "", description: "", date: "", startTime: "09:00", endTime: "10:00", type: "meeting", contactId: "", notes: "" });
-      toast({ title: "Event created" });
+      toast({ title: "Local event created", description: "Not a GoHighLevel appointment." });
     },
     onError: () => {
       toast({ title: "Failed to create event", variant: "destructive" });
@@ -367,8 +369,8 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
   const dealsPartial = Boolean(dealsRes && dealsRes.data.length < dealsRes.total);
   const appointmentPartial = Boolean(appointmentRead && (
     (typeof appointmentRead.exact !== "boolean" && !appointmentRead.completeness) ||
-    appointmentRead.exact === false ||
-    Boolean(appointmentRead.completeness && !["complete", "all_sources_exhausted"].includes(appointmentRead.completeness)) ||
+    (appointmentRead.exact === false && appointmentRead.completeness !== "provider_range") ||
+    Boolean(appointmentRead.completeness && !["complete", "all_sources_exhausted", "provider_range"].includes(appointmentRead.completeness)) ||
     Boolean(appointmentRead.status && ["failed", "error", "unavailable", "partial"].includes(appointmentRead.status.toLowerCase())) ||
     appointmentRead.sourceStatus?.some(source => source.status === "failed" || source.truncated)
   ));
@@ -392,9 +394,12 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
         <div className="flex items-center gap-2">
           <CalendarIcon className="h-6 w-6 text-muted-foreground" />
           {embedded ? <h2 className="text-lg font-semibold" data-testid="text-calendar-title">Calendar</h2> : <PageTitle className="text-2xl font-bold" data-testid="text-calendar-title">Calendar</PageTitle>}
+          <span className="text-xs text-muted-foreground" data-testid="text-calendar-timezone">
+            Times shown in {Intl.DateTimeFormat().resolvedOptions().timeZone} · sales calendar appointments
+          </span>
         </div>
         <Button onClick={() => { setEventForm(f => ({ ...f, date: selectedDate })); setShowAddDialog(true); }} data-testid="button-add-event">
-          <Plus className="h-4 w-4 mr-1" /> Add Event
+          <Plus className="h-4 w-4 mr-1" /> Add local event
         </Button>
       </div>
 
@@ -682,7 +687,8 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
         <DialogContent data-testid="dialog-add-event">
           <DialogHeader>
-            <DialogTitle>Add Event</DialogTitle>
+            <DialogTitle>Add local event</DialogTitle>
+            <p className="text-xs text-muted-foreground" data-testid="text-local-event-note">Saved in this CRM only. It does not book a GoHighLevel appointment or send a message.</p>
           </DialogHeader>
           <div className="space-y-4">
             <div>

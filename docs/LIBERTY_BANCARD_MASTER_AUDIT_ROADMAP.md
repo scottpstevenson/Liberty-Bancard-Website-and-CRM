@@ -678,3 +678,5 @@ Stage 4A (catalog and operational truth) is published. Stage 4B (SFP supply and 
 - **4C1 (content workspace):** source-partial, unpublished. Contract, token and booking repairs, draft CAS, transport previews, premium drafts as proposals and the asset disposition are in source. Remaining 4C1: grouped workspace views, paired package publication (3/5-touch, started-journey protection), draft adoption UI, 1280/768/390 browser proof. See the ledger entry of the same date.
 - **4C2:** native appointment, calendar and SMS and native workflow install. Account-purpose booking destination and merchant-referral destination are prerequisites noted by the CTA contract.
 - **4D:** integrated acceptance. Outbound stays paused until then.
+
+- **4C2 (appointment and follow-up authority) — 2026-11-02:** source-implemented, unpublished; see ledger entry "Stage 4C2" and `docs/certification/stage4-c2/owner-map-and-disposition.md`. Open: browser matrix, calendar drawer/source filter, run-history paging, SMS purpose audit, native workflow installation (4D).

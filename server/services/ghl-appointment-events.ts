@@ -11,7 +11,7 @@
  *
  * Ordering rules:
  *  - an older event never overwrites a newer one;
- *  - canceled and showed are terminal; late update/reschedule events cannot revive or regress them
+ *  - canceled, showed and no_show are terminal; late update/reschedule events cannot revive or regress them
  *    (a re-book in GHL creates a new appointment id);
  *  - the one-time booked effect has its own identity (booked_effect_receipt_id): a booked event that arrives after
  *    an update owns the booked effect exactly once without regressing the newer state, and a booked event that arrives
@@ -23,7 +23,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { runReceiptTxStep, currentReceiptId, type DbTx } from "./ghl-webhook-effects";
 
-export type AppointmentEventKind = "booked" | "updated" | "rescheduled" | "showed" | "canceled";
+export type AppointmentEventKind = "booked" | "updated" | "rescheduled" | "showed" | "canceled" | "no_show";
 
 export interface AppointmentEventInput {
   kind: AppointmentEventKind;
@@ -99,7 +99,7 @@ function normalizeAppointmentEvent(input: AppointmentEventInput): NormalizedAppo
   };
 }
 
-const TERMINAL_STATUSES = ["showed", "canceled"];
+const TERMINAL_STATUSES = ["showed", "canceled", "no_show"];
 
 type Executor = Pick<DbTx, "execute">;
 
@@ -108,10 +108,63 @@ export async function lockGhlAppointment(tx: Executor, appointmentId: string): P
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`ghl_appointment:${appointmentId}`}, 0))`);
 }
 
+/** Serializes the "which appointment is current" decision for one contact and calendar purpose. Taken BEFORE any
+ * per-appointment lock and before the merchant row (lock order: contact+purpose, appointment, merchant). */
+export async function lockGhlContactPurpose(tx: Executor, ghlContactId: string, purpose: string): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`ghl_contact_purpose:${ghlContactId}:${purpose}`}, 0))`);
+}
+
+export interface OpenAppointmentRow { appointment_id: string; calendar_id: string | null; start_time: string | Date | null; status: string }
+
+/** Non-terminal appointments of one contact (the pool the current meeting is derived from). */
+export async function readOpenAppointments(tx: Executor, ghlContactId: string): Promise<OpenAppointmentRow[]> {
+  return (await tx.execute(sql`SELECT appointment_id, calendar_id, start_time, status FROM ghl_appointment_state
+    WHERE ghl_contact_id = ${ghlContactId} AND status NOT IN ('showed', 'canceled', 'no_show')`)).rows as unknown as OpenAppointmentRow[];
+}
+
+/**
+ * The current meeting is derived from recorded appointment state, never from whichever webhook arrived last:
+ * the earliest open appointment of the purpose (a missing start time sorts last), ties broken by appointment id.
+ */
+export function deriveCurrentAppointmentId(
+  rows: ReadonlyArray<OpenAppointmentRow>, purposeOf: (calendarId: string | null) => string, purpose: string,
+): string | null {
+  const own = rows.filter(r => purposeOf(r.calendar_id) === purpose);
+  own.sort((a, b) => {
+    const ta = a.start_time ? new Date(a.start_time).getTime() : Number.POSITIVE_INFINITY;
+    const tb = b.start_time ? new Date(b.start_time).getTime() : Number.POSITIVE_INFINITY;
+    return ta === tb ? (a.appointment_id < b.appointment_id ? -1 : a.appointment_id > b.appointment_id ? 1 : 0) : ta - tb;
+  });
+  return own[0]?.appointment_id ?? null;
+}
+
+/** Provider appointment status text -> lifecycle kind. Unknown text maps to null (never guessed). */
+export function normalizeAppointmentStatus(raw: unknown): AppointmentEventKind | null {
+  if (typeof raw !== "string") return null;
+  const v = raw.toLowerCase().replace(/[\s_-]+/g, "");
+  if (v === "noshow") return "no_show";
+  if (v === "showed" || v === "completed") return "showed";
+  if (v === "canceled" || v === "cancelled") return "canceled";
+  if (v === "booked" || v === "confirmed" || v === "new") return "booked";
+  return null;
+}
+
 export function ghlAppointmentIdOf(payload: unknown): string | null {
   const p = (payload && typeof payload === "object" ? payload : {}) as Record<string, unknown>;
   const appointment = (p.appointment && typeof p.appointment === "object" ? p.appointment : {}) as Record<string, unknown>;
   return text(p.appointmentId) ?? text(appointment.id) ?? text(p.id);
+}
+
+export function ghlContactIdOf(payload: unknown): string | null {
+  const p = (payload && typeof payload === "object" ? payload : {}) as Record<string, unknown>;
+  const appointment = (p.appointment && typeof p.appointment === "object" ? p.appointment : {}) as Record<string, unknown>;
+  return text(p.contactId) ?? text(appointment.contactId);
+}
+
+export function ghlStartTimeOf(payload: unknown): string | null {
+  const p = (payload && typeof payload === "object" ? payload : {}) as Record<string, unknown>;
+  const appointment = (p.appointment && typeof p.appointment === "object" ? p.appointment : {}) as Record<string, unknown>;
+  return text(p.startTime) ?? text(appointment.startTime);
 }
 
 interface StateRow { status: string; last_event_at: string | Date; booked_effect_receipt_id: string | null }

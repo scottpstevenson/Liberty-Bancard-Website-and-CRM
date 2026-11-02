@@ -14,9 +14,9 @@ import { bridgeContactsToBusinesses, getDedupeStats, ingestBusiness } from "../s
 import { getAllFlags, featureFlags } from "../services/feature-flags";
 import { validateWebhookSignature, getSdrGhlConfig, isSdrGhlConfigured, fetchCalendars } from "../services/sdr/ghl-client";
 import { handleContactUpdated, handleMessageReceived, handleCallOutcome, handleAppointmentBooked, handleAppointmentCanceled, handleOptOut, handleEmailBounce } from "../services/sdr/webhook-handlers";
-import { handleAppointmentShowed } from "../services/sdr/scheduling";
+import { handleAppointmentShowed, handleAppointmentNoShow, handleAppointmentTimeChange } from "../services/sdr/scheduling";
 import { ghlWebhookReceiptMiddleware } from "../services/ghl-webhook-receipts";
-import { acceptGhlAppointmentTransition, configuredAppointmentCalendarIds, type AppointmentEventKind } from "../services/ghl-appointment-events";
+import { acceptGhlAppointmentTransition, configuredAppointmentCalendarIds, normalizeAppointmentStatus, type AppointmentEventKind } from "../services/ghl-appointment-events";
 import { runReceiptStep, runReceiptTxStep } from "../services/ghl-webhook-effects";
 import { handleConversationCreated, handleChatMessage, handleSmsThread, handleEmailThread, handleChatBooking } from "../services/sdr/chat-handlers";
 import { parse } from "csv-parse/sync";
@@ -858,6 +858,31 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
+  // A provider no-show is its own lifecycle kind (terminal, like canceled/showed). A payload whose status text names a
+  // different lifecycle than this route is refused rather than guessed at.
+  app.post("/api/webhooks/ghl/appointment-no-show", async (req, res) => {
+    try {
+      const signature = req.headers["x-ghl-signature"] as string || "";
+      if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
+        return res.status(401).json({ message: "Invalid webhook signature" });
+      }
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const nested = (body.appointment && typeof body.appointment === "object" ? body.appointment : {}) as Record<string, unknown>;
+      const statedKind = normalizeAppointmentStatus(body.status ?? body.appointmentStatus ?? nested.status ?? nested.appointmentStatus);
+      if (statedKind && statedKind !== "no_show") {
+        return res.status(422).json({ received: false, error: "status_mismatch" });
+      }
+      if (!await gateAppointmentLifecycle("no_show", body, res)) return;
+      await handleAppointmentNoShow(body);
+      res.json({ received: true });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[SDR Webhook] appointment-no-show error:", errMsg);
+      trackWebhookFailure();
+      res.status(500).json({ message: safeMessage(errMsg) });
+    }
+  });
+
   app.post("/api/webhooks/ghl/appointment-canceled", async (req, res) => {
     try {
       const signature = req.headers["x-ghl-signature"] as string || "";
@@ -917,6 +942,7 @@ export function registerSdrRoutes(app: Express) {
         }
         // The audit row is a transactional step of this receipt: written exactly once with the step record, and a
         // retry after any later failure finds the step complete.
+        if (verdict.decision === "apply") await handleAppointmentTimeChange(kind, payload as Parameters<typeof handleAppointmentTimeChange>[1]);
         if (verdict.decision === "apply" && typeof payload.contactId === "string") {
           const contactId = payload.contactId;
           await runReceiptTxStep("audit_event", async tx => {
@@ -1508,10 +1534,13 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
-  app.post("/api/sdr/send-booking-link/:merchantId", isAuthenticated, async (req, res) => {
+  // Sends a real message to a merchant: dashboard staff with an admin/manager role only, and the merchant must exist
+  // (404 before any work). Merchant-portal and other non-staff sessions are refused with 403 before the object lookup.
+  app.post("/api/sdr/send-booking-link/:merchantId", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const merchantId = Number(req.params.merchantId);
       if (!Number.isFinite(merchantId) || merchantId <= 0) return res.status(400).json({ message: "Invalid merchantId" });
+      if (!(await storage.getSdrMerchant(merchantId))) return res.status(404).json({ message: "Merchant not found" });
       const channel = req.body.channel || "sms";
       if (!["sms", "email", "chat"].includes(channel)) return res.status(400).json({ message: "Channel must be sms, email, or chat" });
       const { sendBookingLink } = await import("../services/sdr/scheduling");

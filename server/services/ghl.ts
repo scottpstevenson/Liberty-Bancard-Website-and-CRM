@@ -1739,8 +1739,9 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
   }
 
   if (deliveryStatus && contactId) {
-    const { data: contacts } = await storage.getContacts({ limit: 500 });
-    const contact = contacts.find(c => c.ghlContactId === contactId);
+    const { resolveInboundIdentity } = await import("./ghl-inbound-identity");
+    const deliveryIdentity = await resolveInboundIdentity(contactId);
+    const contact = deliveryIdentity.state === "resolved" ? deliveryIdentity.contact : null;
     if (contact) {
       const recentLogs = await storage.getGhlActivityLogs(contact.id);
       const matchingLog = recentLogs.find(l => l.ghlMessageId === messageId);
@@ -1756,13 +1757,21 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
       return;
     }
 
-    const { data: contacts } = await storage.getContacts({ limit: 500 });
-    const contact = contacts.find(c => c.ghlContactId === contactId);
+    const { resolveInboundIdentity } = await import("./ghl-inbound-identity");
+    const identity = await resolveInboundIdentity(contactId, payload.opportunityId ?? payload.opportunity?.id);
+    if (identity.state !== "resolved") {
+      // Named outcome, not a silent no-op: an unknown/ambiguous/archived recipient is recorded for review.
+      console.warn(`[GHL Webhook] Inbound message not applied: ${identity.state}`);
+      await storage.createAuditLog({
+        action: "ghl_inbound_identity_unresolved", entityType: "ghl_webhook", entityId: null,
+        details: { state: identity.state, messageId: messageId ?? null, type: type ?? null },
+      }).catch(() => {});
+      return;
+    }
+    const contact = identity.contact;
     if (contact) {
       const channel = type === "SMS" ? "sms" : "email";
-
-      const { data: deals } = await storage.getDeals({ limit: 500 });
-      const contactDeal = deals.find(d => d.contactId === contact.id);
+      const contactDeal = identity.deal ?? undefined;
 
       const inboundActivity = await storage.createGhlActivityLog({
         contactId: contact.id,
@@ -2747,4 +2756,12 @@ function classifyInboundMessage(message: string): {
   if (keywords.length > 0) return { intent: "question", priority: "medium", keywords };
 
   return { intent: "neutral", priority: "low", keywords: [] };
+}
+
+/**
+ * Narrow provider writer for the explicit calendar booking command (Stage 4C2). It goes through the same pause,
+ * capability and approval gates as every other GHL write; unknown templates stay denied by the classifier.
+ */
+export async function ghlCalendarAppointmentWrite(method: "POST" | "PUT", path: string, body: Record<string, unknown>): Promise<any> {
+  return ghlFetch(path, { method, body: JSON.stringify(body) });
 }

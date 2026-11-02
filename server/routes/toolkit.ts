@@ -348,6 +348,84 @@ export function registerToolkitRoutes(app: Express, readerDependencies?: {
   });
 
 
+  // Selected-range reader for the month calendar: exact window (exclusive end) and calendar purpose, with source
+  // completeness. The bounded /api/appointments queue above stays backward-compatible for its existing consumers.
+  app.get("/api/appointments/range", isDashboardUser, async (req, res) => {
+    const { buildRangeRequest, providerRangePath, eventsInRange } = await import("../services/appointment-range");
+    const request = buildRangeRequest(req.query);
+    if (!request.ok) return res.status(request.status).json({ appointments: [], status: request.status === 409 ? "not_configured" : "invalid_request", error: request.error, completeness: "unavailable" });
+    try {
+      const config = readerDependencies?.appointments ? readerDependencies.appointments.config() : getGhlConfig();
+      if (!config) return res.json({ appointments: [], configured: false, status: "not_configured", source: "ghl_appointments", completeness: "unavailable" });
+      const result = await (readerDependencies?.appointments?.read ?? ghlFetch)(providerRangePath(config.locationId, request));
+      const rawEvents = result?.events ?? result?.data;
+      if (!Array.isArray(rawEvents)) throw new Error("APPOINTMENT_PROVIDER_SHAPE_INVALID");
+      const events = eventsInRange(rawEvents, request.startMs, request.endMs);
+      const externalIds = [...new Set(events.map((e: any) => e.contact?.id || e.contactId).filter((id: unknown) => typeof id === "string"))] as string[];
+      const localContacts = externalIds.length ? await db.select({ id: contacts.id, ghlId: contacts.ghlContactId, owner: contacts.assignedTo })
+        .from(contacts).where(inArray(contacts.ghlContactId, externalIds)) : [];
+      const authorized = new Map(localContacts.filter(c => canAccessOwner(req.user as any, c.owner, false)).map(c => [c.ghlId, c.id]));
+      const agent = (req.user as any)?.role === "agent";
+      const appointments = events
+        .filter((e: any) => !agent || authorized.has(e.contact?.id || e.contactId))
+        .map((e: any) => ({
+          id: e.id, title: e.title || e.summary || "Appointment",
+          contactName: e.contact?.name || e.contactName || "Contact",
+          contactId: authorized.get(e.contact?.id || e.contactId) ?? null,
+          startTime: e.startTime || e.start?.dateTime || e.startDate, endTime: e.endTime || e.end?.dateTime || e.endDate,
+          status: e.status || "booked", purpose: request.purpose, source: "ghl_appointments",
+        }));
+      res.json({ appointments, configured: true, status: "available", source: "ghl_appointments", purpose: request.purpose,
+        completeness: "provider_range", providerLimit: null, scope: agent ? "authorized_local_mapping" : "management",
+        asOf: new Date().toISOString(),
+        window: { start: new Date(request.startMs).toISOString(), endExclusive: new Date(request.endMs).toISOString(), timezone: "UTC" } });
+    } catch (err: any) {
+      console.error("[Appointments/range] error:", err.message);
+      res.status(503).json({ appointments: [], configured: true, status: "provider_failed", source: "ghl_appointments", completeness: "unavailable", error: "Appointments unavailable" });
+    }
+  });
+
+  // Explicit provider booking command. Preview is read-only. Execute is admin-only and DENIED unless the owner has
+  // enabled the writer (system setting ghl_booking_writer_enabled = "true"); the browser cannot select notification or
+  // slot-validation behavior: those come from the reviewed payload hash.
+  const bookingRequestFromBody = (body: any) => ({
+    operation: body?.operation, purpose: body?.purpose === "account" ? "account" : "sales",
+    ghlContactId: String(body?.ghlContactId ?? ""), startTimeIso: body?.startTime, endTimeIso: body?.endTime,
+    title: typeof body?.title === "string" ? body.title : undefined, appointmentId: typeof body?.appointmentId === "string" ? body.appointmentId : undefined,
+  } as import("../services/ghl-booking-command").BookingRequest);
+  app.post("/api/appointments/booking/preview", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    const { previewBookingCommand } = await import("../services/ghl-booking-command");
+    if (!["create", "reschedule", "cancel"].includes(req.body?.operation)) return res.status(400).json({ message: "Invalid operation" });
+    const preview = previewBookingCommand(bookingRequestFromBody(req.body));
+    if (!preview.ok) return res.status(422).json({ ok: false, reason: preview.reason });
+    res.json({ ...preview, sent: false, note: "Preview only. Nothing was booked or sent." });
+  });
+  app.post("/api/appointments/booking/execute", isDashboardUser, requireRole("admin"), async (req, res) => {
+    try {
+      const { executeBookingCommand } = await import("../services/ghl-booking-command");
+      const { ghlCalendarAppointmentWrite } = await import("../services/ghl");
+      if (!["create", "reschedule", "cancel"].includes(req.body?.operation)) return res.status(400).json({ message: "Invalid operation" });
+      const writerEnabled = (await storage.getSystemSetting("ghl_booking_writer_enabled")) === "true";
+      const result = await executeBookingCommand({
+        actorId: String((req.user as any)?.id ?? ""), commandId: String(req.body?.commandId ?? ""),
+        expectedVersion: typeof req.body?.expectedVersion === "number" ? req.body.expectedVersion : null,
+        reviewedPayloadHash: String(req.body?.payloadHash ?? ""), request: bookingRequestFromBody(req.body), writerEnabled,
+        provider: {
+          write: (method, path, body) => ghlCalendarAppointmentWrite(method, path, body),
+          readAppointment: async (id) => {
+            const read = await ghlFetch(`/calendars/events/appointments/${encodeURIComponent(id)}`);
+            const event = read?.appointment ?? read?.event ?? read;
+            return event?.id ? { found: true, status: event.appointmentStatus ?? event.status } : { found: false };
+          },
+        },
+      });
+      res.status(result.state === "denied" ? 403 : 200).json(result);
+    } catch (err: any) {
+      console.error("[Booking command] error:", err.message);
+      res.status(503).json({ state: "unavailable", message: "Booking command unavailable" });
+    }
+  });
+
   // === BIN LOOKUP ===
   app.get("/api/tools/bin-lookup", isAuthenticated, async (req, res) => {
     try {

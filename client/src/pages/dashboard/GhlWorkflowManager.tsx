@@ -1763,8 +1763,8 @@ export default function GhlWorkflowManager() {
         <p className="text-xs text-blue-800 dark:text-blue-300 leading-relaxed">
           <span className="font-semibold">Architecture note:</span> Replit owns all sequence cadences, routing logic, enrollment gates, suppression, sender policy, and audit.
           GHL is used only for email/SMS delivery, the conversation inbox, contact sync, and inbound webhook events.
-          The workflow IDs below are <span className="font-semibold">reference only</span> — outbound sequence execution happens inside Replit's sequence engine, not GHL native workflows.
-          Only the <span className="font-semibold">Inbound Confirmation</span> slot in Settings → Integrations → GHL Workflow IDs needs to be configured.
+          Outbound sequence cadences run inside Replit's sequence engine. Appointment follow-ups (booking confirmation, 24-hour reminder, no-show reschedule) are handed to the reviewed native workflow in the matching slot under Settings → Integrations → GHL Workflow IDs only after the owner installs and configures it.
+          A slot that is not configured holds that handoff visibly; it is never reported as sent.
         </p>
       </div>
 
@@ -1811,8 +1811,8 @@ export default function GhlWorkflowManager() {
                   />
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Replit's sequence engine schedules and sends all outbound messages. These workflow IDs are for reference only —
-                  only the inbound confirmation slot in Settings → Integrations needs to be active.
+                  Replit's sequence engine schedules outbound sequence messages. Appointment follow-up workflows run natively in GHL
+                  only once their slot in Settings → Integrations is configured; an unconfigured slot holds the handoff and nothing is sent.
                 </p>
               </CardContent>
             </Card>

@@ -2,10 +2,13 @@ import { db } from "../../db";
 import { sdrLeadState, sdrLeadEvents, sdrMerchants, sdrChannelAttempts } from "@shared/schema";
 import type { SdrMerchant } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
-import { fetchCalendars, isSdrGhlConfigured } from "./ghl-client";
+import { isSdrGhlConfigured } from "./ghl-client";
 import { onStageChange } from "./ghl-sync-rules";
 import { runReceiptStep, runReceiptTxStep, type DbTx } from "../ghl-webhook-effects";
-import { ghlAppointmentSuperseded } from "../ghl-appointment-events";
+import {
+  ghlAppointmentSuperseded, ghlAppointmentIdOf, lockGhlContactPurpose, ghlContactIdOf, ghlStartTimeOf, readOpenAppointments, deriveCurrentAppointmentId,
+} from "../ghl-appointment-events";
+import { calendarPurposeOf, bookingForPurpose, type CalendarPurpose } from "../ghl-calendar-purpose";
 import { enrollWorkflowHandoff, type AppointmentEnrollmentOutcome } from "../ghl-workflow-enrollment";
 
 async function enrollMerchantWorkflow(
@@ -89,8 +92,14 @@ export interface CalendarSelection {
   calendarId: string;
   calendarName: string;
   reason: string;
+  bookingUrl: string;
 }
 
+/**
+ * Calendar for a merchant's sales booking link: the vertical-specific calendar when configured, otherwise the one
+ * validated sales booking resolution. There is no "first calendar GHL returns" fallback: if neither is configured the
+ * caller gets null and reports that no calendar is available.
+ */
 export async function decideBestCalendar(merchant: SdrMerchant): Promise<CalendarSelection | null> {
   if (!isSdrGhlConfigured()) return null;
 
@@ -103,34 +112,19 @@ export async function decideBestCalendar(merchant: SdrMerchant): Promise<Calenda
         calendarId,
         calendarName: `${normalized} Calendar`,
         reason: `Matched by vertical: ${merchant.vertical} → ${normalized}`,
+        bookingUrl: `https://api.leadconnectorhq.com/widget/booking/${encodeURIComponent(calendarId)}`,
       };
     }
   }
 
-  const defaultCalendarId = process.env.GHL_DEFAULT_CALENDAR_ID;
-  if (defaultCalendarId) {
-    return {
-      calendarId: defaultCalendarId,
-      calendarName: "Default Calendar",
-      reason: "Default calendar (no vertical-specific calendar configured)",
-    };
-  }
-
-  try {
-    const calendars = await fetchCalendars();
-    if (calendars.length > 0) {
-      return {
-        calendarId: calendars[0].id,
-        calendarName: calendars[0].name,
-        reason: "First available calendar from GHL",
-      };
-    }
-  } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    console.error("[Scheduling] Failed to fetch calendars:", errMsg);
-  }
-
-  return null;
+  const sales = bookingForPurpose("sales");
+  if (!sales.available) return null;
+  return {
+    calendarId: sales.calendarId,
+    calendarName: "Sales Calendar",
+    reason: "Validated sales booking (no vertical-specific calendar configured)",
+    bookingUrl: sales.widgetUrl,
+  };
 }
 
 export interface BookingLinkResult {
@@ -171,8 +165,7 @@ export async function sendBookingLink(
     return { sent: false, reason: "No calendar available" };
   }
 
-  const locationId = process.env.GHL_LOCATION_ID || "";
-  const bookingUrl = `https://api.leadconnectorhq.com/widget/booking/${calendar.calendarId}`;
+  const bookingUrl = calendar.bookingUrl;
 
   if (!isSdrGhlConfigured() || !merchant.ghlContactId) {
     const reason = !isSdrGhlConfigured() ? "GHL not configured" : "No GHL contact ID";
@@ -290,27 +283,76 @@ async function recordOrphanAppointmentEvent(tx: DbTx, eventType: string, webhook
   });
 }
 
+/**
+ * Cross-appointment authority (Stage 4C2). Lock order for every lifecycle handler: contact+calendar-purpose lock,
+ * then the per-appointment lock (inside ghlAppointmentSuperseded), then the merchant/lead-state rows. The recorded
+ * transition (ghl_appointment_state) is the only source of "which appointment is current": the earliest open
+ * appointment of the sales purpose, ties by appointment id. The last webhook to arrive never decides it, and an event
+ * about one appointment never moves the pointer, the stage or the outreach pause that belong to another.
+ */
+async function eventPurpose(tx: DbTx, webhookData: AppointmentWebhookData): Promise<CalendarPurpose> {
+  const appointmentId = ghlAppointmentIdOf(webhookData);
+  const nested = (webhookData.appointment && typeof webhookData.appointment === "object" ? webhookData.appointment : {}) as Record<string, unknown>;
+  let calendarId = typeof webhookData.calendarId === "string" ? webhookData.calendarId
+    : typeof nested.calendarId === "string" ? nested.calendarId : null;
+  if (!calendarId && appointmentId) {
+    const row = (await tx.execute(sql`SELECT calendar_id FROM ghl_appointment_state WHERE appointment_id = ${appointmentId}`)).rows[0] as { calendar_id: string | null } | undefined;
+    calendarId = row?.calendar_id ?? null;
+  }
+  return calendarPurposeOf(calendarId);
+}
+
+interface CurrentMeeting { appointmentId: string | null; startTime: string | null }
+async function currentSalesMeeting(tx: DbTx, ghlContactId: string): Promise<CurrentMeeting> {
+  const rows = await readOpenAppointments(tx, ghlContactId);
+  const id = deriveCurrentAppointmentId(rows, calendarPurposeOf, "sales");
+  const row = rows.find(r => r.appointment_id === id);
+  return { appointmentId: id, startTime: row?.start_time ? new Date(row.start_time).toISOString() : null };
+}
+
+/** A pointer owned by another appointment never matches. An empty pointer is claimable. */
+function pointerMatches(current: string | null | undefined, eventAppointmentId: string | null): boolean {
+  return !current || current === eventAppointmentId;
+}
+
+async function recordHistoryOnly(tx: DbTx, merchantId: number, eventType: string, webhookData: AppointmentWebhookData, reason: string) {
+  await tx.insert(sdrLeadEvents).values({
+    merchantId, eventType, channel: "calendar", actorType: "merchant", payloadJson: webhookData,
+    ghlRefId: ghlAppointmentIdOf(webhookData), decisionReason: reason,
+  });
+}
+
 export async function handleAppointmentBooked(webhookData: AppointmentWebhookData): Promise<void> {
-  const ghlContactId = webhookData.contactId;
+  const ghlContactId = ghlContactIdOf(webhookData);
   if (!ghlContactId) return;
 
   // Local effects commit together with their step record, under the appointment lock, unless a later accepted
   // transition (cancel/showed) already superseded this booked effect.
   const { result: local } = await runReceiptTxStep("booked:local", async tx => {
+    const purpose = await eventPurpose(tx, webhookData);
+    await lockGhlContactPurpose(tx, ghlContactId, purpose);
     if (await ghlAppointmentSuperseded(tx, webhookData, "booked")) return { outcome: "superseded" as const };
     const [merchant] = await tx.select().from(sdrMerchants).where(eq(sdrMerchants.ghlContactId, ghlContactId));
     if (!merchant) {
       await recordOrphanAppointmentEvent(tx, "appointment_booked", webhookData, ghlContactId);
       return { outcome: "orphan" as const };
     }
-    const meetingId = webhookData.appointmentId || webhookData.id || null;
+    const bookedId = ghlAppointmentIdOf(webhookData);
+    if (purpose !== "sales") {
+      await recordHistoryOnly(tx, merchant.id, "appointment_booked", webhookData, `Appointment booked on the ${purpose} calendar; the sales pipeline is unchanged`);
+      return { outcome: "history" as const };
+    }
+    const current = await currentSalesMeeting(tx, ghlContactId);
+    const meetingId = current.appointmentId ?? bookedId;
     const [state] = await tx.select().from(sdrLeadState).where(eq(sdrLeadState.merchantId, merchant.id));
     const oldStage = state?.currentStage ?? null;
-    const nextActionPayload = { appointmentId: meetingId, startTime: webhookData.startTime, outreachPaused: true };
+    const becomesCurrent = meetingId === bookedId;
+    const nextActionPayload = { appointmentId: meetingId, startTime: current.startTime ?? ghlStartTimeOf(webhookData), outreachPaused: true };
     if (state) {
       await tx.update(sdrLeadState).set({
-        currentStage: "MEETING_SET", meetingId, lastTouchAt: new Date(), nextAction: "send_appointment_reminder",
-        nextActionType: "reminder", nextActionPayload, updatedAt: new Date(),
+        currentStage: "MEETING_SET", meetingId, lastTouchAt: new Date(),
+        ...(becomesCurrent || oldStage !== "MEETING_SET" ? { nextAction: "send_appointment_reminder", nextActionType: "reminder", nextActionPayload } : {}),
+        updatedAt: new Date(),
       }).where(eq(sdrLeadState.merchantId, merchant.id));
     } else {
       await tx.insert(sdrLeadState).values({
@@ -320,10 +362,12 @@ export async function handleAppointmentBooked(webhookData: AppointmentWebhookDat
     }
     await tx.insert(sdrLeadEvents).values({
       merchantId: merchant.id, eventType: "appointment_booked", channel: "calendar", actorType: "merchant",
-      payloadJson: webhookData, ghlRefId: meetingId,
-      decisionReason: `Appointment booked — advanced to MEETING_SET from ${oldStage || "unknown"}`,
+      payloadJson: webhookData, ghlRefId: bookedId,
+      decisionReason: becomesCurrent
+        ? `Appointment booked — advanced to MEETING_SET from ${oldStage || "unknown"}`
+        : `Appointment booked — current meeting remains ${meetingId} (earlier appointment)`,
     });
-    return { outcome: "applied" as const, merchantId: merchant.id, oldStage, meetingId };
+    return { outcome: "applied" as const, merchantId: merchant.id, oldStage, meetingId: bookedId };
   });
   if (local.outcome !== "applied") return;
 
@@ -334,35 +378,50 @@ export async function handleAppointmentBooked(webhookData: AppointmentWebhookDat
     await runReceiptStep("booked:stage_sync", () => onStageChange(local.merchantId, "MEETING_SET", local.oldStage ?? undefined));
   }
   if (await ghlAppointmentSuperseded(null, webhookData, "booked")) return;
-  // Awaited: a failed handoff fails the webhook receipt so the provider retry recovers it.
+  // Awaited: a failed handoff fails the webhook receipt so the provider retry recovers it. Every booked appointment
+  // owes its own confirmation (its own occurrence), whether or not it is the current meeting.
   await enrollStep("booked:enroll_booking_confirmation", merchant, "booking_confirmation",
-    { appointmentId: webhookData.appointmentId || webhookData.id || local.meetingId, meetingId: local.meetingId, startTime: webhookData.startTime });
+    { appointmentId: local.meetingId, meetingId: local.meetingId, startTime: ghlStartTimeOf(webhookData) });
 
   console.log(`[Scheduling] Appointment booked for merchant ${local.merchantId}: ${local.meetingId}`);
 }
 
 /**
- * #appointment-to-statement — When GHL fires an appointment-showed event,
- * advance the lead to STATEMENT_REQUESTED and enroll in the statement-request workflow.
+ * #appointment-to-statement — When GHL fires an appointment-showed event for the CURRENT meeting, advance the lead to
+ * STATEMENT_REQUESTED and enroll in the statement-request workflow. A showed event for any other appointment is
+ * recorded as history and changes nothing.
  */
 export async function handleAppointmentShowed(webhookData: AppointmentWebhookData): Promise<void> {
-  const ghlContactId = webhookData.contactId;
+  const ghlContactId = ghlContactIdOf(webhookData);
   if (!ghlContactId) return;
 
   const { result: local } = await runReceiptTxStep("showed:local", async tx => {
+    const purpose = await eventPurpose(tx, webhookData);
+    await lockGhlContactPurpose(tx, ghlContactId, purpose);
     if (await ghlAppointmentSuperseded(tx, webhookData, "showed")) return { outcome: "superseded" as const };
     const [merchant] = await tx.select().from(sdrMerchants).where(eq(sdrMerchants.ghlContactId, ghlContactId));
     if (!merchant) {
       await recordOrphanAppointmentEvent(tx, "appointment_showed", webhookData, ghlContactId);
       return { outcome: "orphan" as const };
     }
-    const meetingId = webhookData.appointmentId || webhookData.id || null;
+    const meetingId = ghlAppointmentIdOf(webhookData);
+    if (purpose !== "sales") {
+      await recordHistoryOnly(tx, merchant.id, "appointment_showed", webhookData, `Appointment showed on the ${purpose} calendar; the sales pipeline is unchanged`);
+      return { outcome: "history" as const };
+    }
     const [state] = await tx.select().from(sdrLeadState).where(eq(sdrLeadState.merchantId, merchant.id));
+    if (state && !pointerMatches(state.meetingId, meetingId)) {
+      await recordHistoryOnly(tx, merchant.id, "appointment_showed", webhookData,
+        `Appointment ${meetingId} showed but the current meeting is ${state.meetingId} — history only, stage unchanged`);
+      return { outcome: "history" as const };
+    }
+    const next = await currentSalesMeeting(tx, ghlContactId);
     const oldStage = state?.currentStage ?? null;
     if (state) {
       await tx.update(sdrLeadState).set({
-        currentStage: "STATEMENT_REQUESTED", lastTouchAt: new Date(), nextAction: "statement_request_followup",
-        nextActionType: "email", nextActionPayload: { meetingId, shownAt: webhookData.startTime }, updatedAt: new Date(),
+        currentStage: "STATEMENT_REQUESTED", meetingId: next.appointmentId ?? meetingId, lastTouchAt: new Date(),
+        nextAction: "statement_request_followup", nextActionType: "email",
+        nextActionPayload: { meetingId, shownAt: ghlStartTimeOf(webhookData) }, updatedAt: new Date(),
       }).where(eq(sdrLeadState.merchantId, merchant.id));
     } else {
       await tx.insert(sdrLeadState).values({
@@ -384,58 +443,126 @@ export async function handleAppointmentShowed(webhookData: AppointmentWebhookDat
   }
   if (isSdrGhlConfigured()) {
     await enrollStep("showed:enroll_statement_request", { id: local.merchantId, ghlContactId }, "statement_request_after_meeting",
-      { meetingId: local.meetingId, shownAt: webhookData.startTime });
+      { meetingId: local.meetingId, appointmentId: local.meetingId, shownAt: ghlStartTimeOf(webhookData) });
   }
   console.log(`[Scheduling] Appointment showed for merchant ${local.merchantId}: ${local.meetingId}`);
 }
 
-export async function handleAppointmentCanceled(webhookData: AppointmentWebhookData): Promise<void> {
-  const ghlContactId = webhookData.contactId;
+/**
+ * Canceled and no-show share one authority: they end ONE appointment. Only that appointment's owed obligations are
+ * removed. The pointer, the stage, the outreach pause and the recovery workflow move only when the ended appointment
+ * is the current meeting AND no other open appointment remains; otherwise the next open appointment becomes current.
+ */
+async function handleAppointmentEnded(kind: "canceled" | "no_show", webhookData: AppointmentWebhookData): Promise<void> {
+  const ghlContactId = ghlContactIdOf(webhookData);
   if (!ghlContactId) return;
-  const canceledId = webhookData.appointmentId || webhookData.id;
+  const endedId = ghlAppointmentIdOf(webhookData);
+  const eventType = kind === "canceled" ? "appointment_canceled" : "appointment_no_show";
+  const label = kind === "canceled" ? "canceled" : "no-show";
 
-  const { result: local } = await runReceiptTxStep("canceled:local", async tx => {
-    if (await ghlAppointmentSuperseded(tx, webhookData, "canceled")) return { outcome: "superseded" as const };
-    // A booking confirmation still owed by the deferred-enrollment recovery (held by a pause or a lost response) must
-    // not be delivered for an appointment that has since been canceled. Committed with the cancellation itself.
-    // Only this appointment's obligation is cancelled (a second booking of the same contact is a different occurrence),
-    // serialised with the recovery worker's final dispatch so a claimed item cannot still be sent.
+  const { result: local } = await runReceiptTxStep(`${kind}:local`, async tx => {
+    const purpose = await eventPurpose(tx, webhookData);
+    await lockGhlContactPurpose(tx, ghlContactId, purpose);
+    if (await ghlAppointmentSuperseded(tx, webhookData, kind)) return { outcome: "superseded" as const };
+    // Obligations still owed by the deferred-enrollment recovery (held by a pause or a lost response) must not be
+    // delivered for an appointment that has ended. Only THIS occurrence's obligations are cancelled (a second booking
+    // is a different occurrence; an event without an identity cancels nothing), serialised with the recovery worker's
+    // final dispatch so a claimed item cannot still be sent. Committed with the transition itself.
     const { cancelDeferredEnrollmentsInTx } = await import("../ghl-enrollment-recovery");
-    await cancelDeferredEnrollmentsInTx(tx, {
-      ghlContactId, workflowKey: "booking_confirmation", occurrenceKey: canceledId ?? null,
-    });
+    for (const workflowKey of ["booking_confirmation", "booking_reminder_24h"]) {
+      await cancelDeferredEnrollmentsInTx(tx, { ghlContactId, workflowKey, occurrenceKey: endedId });
+    }
     const [merchant] = await tx.select().from(sdrMerchants).where(eq(sdrMerchants.ghlContactId, ghlContactId));
     if (!merchant) {
-      await recordOrphanAppointmentEvent(tx, "appointment_canceled", webhookData, ghlContactId);
+      await recordOrphanAppointmentEvent(tx, eventType, webhookData, ghlContactId);
       return { outcome: "orphan" as const };
     }
+    if (purpose !== "sales") {
+      await recordHistoryOnly(tx, merchant.id, eventType, webhookData, `Appointment ${label} on the ${purpose} calendar; the sales pipeline is unchanged`);
+      return { outcome: "history" as const };
+    }
     const [state] = await tx.select().from(sdrLeadState).where(eq(sdrLeadState.merchantId, merchant.id));
+    if (state && !pointerMatches(state.meetingId, endedId)) {
+      await recordHistoryOnly(tx, merchant.id, eventType, webhookData,
+        `Appointment ${endedId} ${label} but the current meeting is ${state.meetingId} — its obligations were cancelled, stage and pointer unchanged`);
+      return { outcome: "history" as const };
+    }
+    const next = await currentSalesMeeting(tx, ghlContactId);
+    if (next.appointmentId) {
+      await tx.update(sdrLeadState).set({
+        meetingId: next.appointmentId, nextAction: "send_appointment_reminder", nextActionType: "reminder",
+        nextActionPayload: { appointmentId: next.appointmentId, startTime: next.startTime, outreachPaused: true },
+        updatedAt: new Date(),
+      }).where(eq(sdrLeadState.merchantId, merchant.id));
+      await recordHistoryOnly(tx, merchant.id, eventType, webhookData,
+        `Appointment ${endedId} ${label} — current meeting is now ${next.appointmentId}; no recovery started`);
+      return { outcome: "history" as const };
+    }
     const wasMeetingSet = state?.currentStage === "MEETING_SET";
     if (wasMeetingSet) {
       await tx.update(sdrLeadState).set({
         currentStage: "ENGAGED", meetingId: null, nextAction: "no_show_recovery", nextActionType: "recovery_sequence",
-        nextActionAt: new Date(Date.now() + 30 * 60_000), nextActionPayload: { canceledAppointmentId: canceledId },
+        nextActionAt: new Date(Date.now() + 30 * 60_000), nextActionPayload: { canceledAppointmentId: endedId },
         updatedAt: new Date(),
       }).where(eq(sdrLeadState.merchantId, merchant.id));
     }
     await tx.insert(sdrLeadEvents).values({
-      merchantId: merchant.id, eventType: "appointment_canceled", channel: "calendar", actorType: "merchant",
-      payloadJson: webhookData, ghlRefId: webhookData.appointmentId || webhookData.id || null,
-      decisionReason: "Appointment canceled — triggered no-show recovery sequence",
+      merchantId: merchant.id, eventType, channel: "calendar", actorType: "merchant",
+      payloadJson: webhookData, ghlRefId: endedId,
+      decisionReason: `Appointment ${label} — last open appointment, triggered recovery sequence`,
     });
     return { outcome: "applied" as const, merchantId: merchant.id, wasMeetingSet };
   });
   if (local.outcome !== "applied") return;
 
   if (local.wasMeetingSet) {
-    await runReceiptStep("canceled:stage_sync", () => onStageChange(local.merchantId, "ENGAGED", "MEETING_SET"));
+    await runReceiptStep(`${kind}:stage_sync`, () => onStageChange(local.merchantId, "ENGAGED", "MEETING_SET"));
     const { upsertOutreachPause } = await import("./compliance-engine");
-    await runReceiptStep("canceled:outreach_resume", () => upsertOutreachPause(local.merchantId, false, "Outreach resumed — appointment canceled, recovery sequence triggered"));
+    await runReceiptStep(`${kind}:outreach_resume`, () => upsertOutreachPause(local.merchantId, false, `Outreach resumed — appointment ${label}, recovery sequence triggered`));
   }
-  await enrollStep("canceled:enroll_no_show_reschedule", { id: local.merchantId, ghlContactId }, "no_show_reschedule",
-    { canceledAppointmentId: canceledId });
+  await enrollStep(`${kind}:enroll_no_show_reschedule`, { id: local.merchantId, ghlContactId }, "no_show_reschedule",
+    { canceledAppointmentId: endedId, reason: kind });
 
-  console.log(`[Scheduling] Appointment canceled for merchant ${local.merchantId}`);
+  console.log(`[Scheduling] Appointment ${label} for merchant ${local.merchantId}`);
+}
+
+export const handleAppointmentCanceled = (webhookData: AppointmentWebhookData) => handleAppointmentEnded("canceled", webhookData);
+export const handleAppointmentNoShow = (webhookData: AppointmentWebhookData) => handleAppointmentEnded("no_show", webhookData);
+
+/**
+ * Updated / rescheduled appointment: re-derives the current meeting from recorded state (the transition already stored
+ * the new start time) and, for a reschedule, retargets the occurrence's owed obligations: the stale 24h reminder is
+ * cancelled, a pending first confirmation keeps its identity and carries the new time. It never creates another first
+ * confirmation and never changes the stage.
+ */
+export async function handleAppointmentTimeChange(kind: "updated" | "rescheduled", webhookData: AppointmentWebhookData): Promise<void> {
+  const ghlContactId = ghlContactIdOf(webhookData);
+  const appointmentId = ghlAppointmentIdOf(webhookData);
+  if (!ghlContactId || !appointmentId) return;
+  await runReceiptTxStep("time_change:local", async tx => {
+    const purpose = await eventPurpose(tx, webhookData);
+    await lockGhlContactPurpose(tx, ghlContactId, purpose);
+    if (kind === "rescheduled") {
+      const stored = (await tx.execute(sql`SELECT start_time FROM ghl_appointment_state WHERE appointment_id = ${appointmentId}`)).rows[0] as { start_time: string | Date | null } | undefined;
+      const { applyRescheduleToDeferredEnrollmentsInTx } = await import("../ghl-enrollment-recovery");
+      await applyRescheduleToDeferredEnrollmentsInTx(tx, {
+        ghlContactId, occurrenceKey: appointmentId, startTime: stored?.start_time ? new Date(stored.start_time).toISOString() : null,
+      });
+    }
+    if (purpose !== "sales") return { moved: false };
+    const [merchant] = await tx.select().from(sdrMerchants).where(eq(sdrMerchants.ghlContactId, ghlContactId));
+    if (!merchant) return { moved: false };
+    const [state] = await tx.select().from(sdrLeadState).where(eq(sdrLeadState.merchantId, merchant.id));
+    if (!state || state.currentStage !== "MEETING_SET") return { moved: false };
+    const current = await currentSalesMeeting(tx, ghlContactId);
+    if (!current.appointmentId || current.appointmentId === state.meetingId) return { moved: false };
+    await tx.update(sdrLeadState).set({
+      meetingId: current.appointmentId, nextAction: "send_appointment_reminder", nextActionType: "reminder",
+      nextActionPayload: { appointmentId: current.appointmentId, startTime: current.startTime, outreachPaused: true },
+      updatedAt: new Date(),
+    }).where(eq(sdrLeadState.merchantId, merchant.id));
+    return { moved: true };
+  });
 }
 
 export async function sendReminders(merchantId: number): Promise<boolean> {

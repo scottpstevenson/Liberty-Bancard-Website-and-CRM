@@ -12,7 +12,7 @@ import { handleCallDisposition, CALL_DISPOSITIONS, type CallDisposition } from "
 import { handleAppointmentBooked as schedulingHandleBooked, handleAppointmentCanceled as schedulingHandleCanceled } from "./scheduling";
 import { enrollInAppointmentWorkflow, tagContactForInboxOrganization } from "../ghl-workflow-enrollment";
 import { runReceiptStep, runReceiptTxStep, currentReceiptId, ReceiptClaimLostError } from "../ghl-webhook-effects";
-import { ghlAppointmentSuperseded } from "../ghl-appointment-events";
+import { ghlAppointmentSuperseded, ghlContactIdOf } from "../ghl-appointment-events";
 import { checkAndLogCompliance } from "./compliance-engine";
 import { processCommunicationEvent } from "../communication-feedback";
 import { getCanonicalLeadVertical } from "./vertical-resolver";
@@ -426,7 +426,7 @@ export async function handleAppointmentBooked(rawPayload: unknown): Promise<void
     return;
   }
   const payload = parsed.data;
-  const ghlContactId = payload.contactId;
+  const ghlContactId = ghlContactIdOf(payload) ?? undefined;
 
   await schedulingHandleBooked(payload);
 
