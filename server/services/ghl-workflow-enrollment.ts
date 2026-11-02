@@ -753,7 +753,11 @@ export async function enrollInInboundConfirmation(params: {
   };
 
   // ── SMS (optional, non-blocking) ────────────────────────────────────────────
-  if (contact.consentSms && contact.phone && fallbackGhlContactId && ghlAvailable) {
+  // Consent and number come from the canonical authority; the legacy consentSms flag is not consulted.
+  const smsRecipient = fallbackGhlContactId && ghlAvailable
+    ? await (await import("./sms-recipient-authority")).resolveSmsRecipient({ contactId, purpose: "inbound_confirmation", commercialPurpose: "transactional_response" })
+    : null;
+  if (smsRecipient?.allowed && fallbackGhlContactId && ghlAvailable) {
     try {
       const smsParams = {
         contactId,

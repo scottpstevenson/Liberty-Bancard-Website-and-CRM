@@ -15,11 +15,12 @@ import {
   decideCr06PromotionalLifecycle,
 } from "./cr06-promotional-lifecycle-decision";
 
-async function canSendWorkflowTemplate(templateId: number, contactId: number): Promise<{ allowed: boolean; reason?: string }> {
+async function canSendWorkflowTemplate(templateId: number, contactId: number): Promise<{ allowed: boolean; reason?: string; boundPhone?: string }> {
   const template = await storage.getMessageTemplate(templateId);
   if (!template || !template.isActive || !["email", "sms"].includes(template.channel)) {
     return { allowed: false, reason: "Workflow template is missing, inactive, or has an unsupported channel" };
   }
+  if (template.channel === "sms") return canSendWorkflowSms(contactId, "workflow_template");
   const { evaluateContactability } = await import("./contactability");
   const decision = await evaluateContactability({
     contactId,
@@ -30,14 +31,27 @@ async function canSendWorkflowTemplate(templateId: number, contactId: number): P
   return { allowed: decision.allowed, reason: decision.reason };
 }
 
+/**
+ * SMS permission for a workflow step from the canonical consent authority. The returned number is the one the decision
+ * was made for; it travels with the send so a number change before dispatch is refused instead of texting the new owner.
+ */
+async function canSendWorkflowSms(contactId: number, purpose: string): Promise<{ allowed: boolean; reason?: string; boundPhone?: string }> {
+  const { resolveSmsRecipient } = await import("./sms-recipient-authority");
+  const resolution = await resolveSmsRecipient({ contactId, purpose });
+  if (!resolution.allowed) return { allowed: false, reason: `${resolution.code}: ${resolution.reason}` };
+  return { allowed: true, boundPhone: resolution.phone };
+}
+
 export async function sendWorkflowEmail(params: { contactId: number; dealId?: number; subject: string; body: string }) {
   const { channelOrchestrator } = await import("./transports/index");
   return channelOrchestrator.sendEmail(params);
 }
 
-export async function sendWorkflowSms(params: { contactId: number; dealId?: number; body: string }) {
+export async function sendWorkflowSms(params: { contactId: number; dealId?: number; body: string; boundPhone?: string | null }) {
   const { channelOrchestrator } = await import("./transports/index");
-  return channelOrchestrator.sendSms(params);
+  const result = await channelOrchestrator.sendSms({ ...params, purpose: "workflow_sms" });
+  // A fence refusal carries its reason in skipReason; without mapping it the receipt and step log lose why nothing went out.
+  return result.success ? result : { ...result, error: result.error ?? result.skipReason ?? "sms_not_sent" };
 }
 
 interface WorkflowContext {
@@ -388,12 +402,17 @@ export async function executeWorkflowActions(
           if (action.templateId) {
             const permission = await canSendWorkflowTemplate(action.templateId, contactId);
             const result: StepSendResult = permission.allowed
-              ? await guardedSend(createdRunId, i, "sms", () => sendTemplatedMessage({ templateId: action.templateId, contactId, dealId }))
+              ? await guardedSend(createdRunId, i, "sms", () => sendTemplatedMessage({ templateId: action.templateId, contactId, dealId, boundPhone: permission.boundPhone, purpose: "workflow_template" }))
               : { success: false, error: permission.reason };
             logEntries.push({ step: i + 1, action: "send_ghl_sms", templateId: action.templateId, status: stepStatus(result), error: result.error, timestamp: new Date().toISOString() });
           } else {
             const body = await renderWorkflowMessage(action.body || "", contactId, dealId, "text");
-            const result = await guardedSend(createdRunId, i, "sms", () => sendWorkflowSms({ contactId, dealId, body }));
+            // Decided inside the receipt so a replayed accepted step is never re-judged, and a refusal stays re-claimable.
+            const result = await guardedSend(createdRunId, i, "sms", async () => {
+              const permission = await canSendWorkflowSms(contactId, "workflow_sms");
+              if (!permission.allowed) return { success: false, error: permission.reason };
+              return sendWorkflowSms({ contactId, dealId, body, boundPhone: permission.boundPhone });
+            });
             logEntries.push({ step: i + 1, action: "send_ghl_sms", status: stepStatus(result), error: result.error, timestamp: new Date().toISOString() });
           }
         } else {

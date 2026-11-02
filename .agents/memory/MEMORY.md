@@ -198,3 +198,4 @@
 - [Insufficient-evidence rates](insufficient-evidence-rates.md) — zero-denominator rates are null/n-a; dashboard windows are SQL aggregates failing per section to null; bg-run and browser flake quirks.
 - [SFP package fence & stored-copy adoption](sfp-package-publication-fence.md) — paired publish only (409 pinned rows); sequence adoption is plan-hash bound, never pauses; shared worker interpolation.
 - [Follow-up effect receipts](followup-effect-receipts.md) — receipt before I/O; delivered only when accepted; occurrence-keyed runs; booking writer default-denied.
+- [SMS recipient authority](sms-recipient-authority.md) — one canonical consent+number decision right before every text in every transport; legacy flags never authority.

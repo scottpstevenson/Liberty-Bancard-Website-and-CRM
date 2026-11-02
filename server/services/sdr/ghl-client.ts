@@ -721,6 +721,12 @@ export async function sendSmsReply(params: {
   const { deregisterInflight } = await import("../outbound-control-service");
   const { tokenId, epoch } = await assertPauseAllowed("sendSmsReply");
   try {
+    // Final consent/number decision from the canonical authority, immediately before provider I/O (STOP race, number change).
+    const { assertSmsRecipientAllowed } = await import("../sms-recipient-authority");
+    await assertSmsRecipientAllowed({
+      contactId: dbContactId!, purpose: "sdr_sms_reply", commercialPurpose: params.commercialPurpose,
+      inboundRequestId: params.inboundRequestId, intendedRecipientContactId: params.intendedRecipientContactId,
+    });
     return await sdrGhlFetch("/conversations/messages", {
       method: "POST",
       body: JSON.stringify({

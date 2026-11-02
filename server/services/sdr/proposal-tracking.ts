@@ -221,18 +221,21 @@ export async function sendProposalSmsFollowUp(leadId: number): Promise<boolean> 
     const [lead] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.id, leadId));
     if (!lead) return false;
     if (lead.assignedOwnerType === "human") return false;
-    if (!lead.consentSms || lead.optedOutSms) return false;
+    if (!lead.contactId || !isGhlConfigured()) return false;
+
+    // Consent and number come from the canonical authority for the contact and the lead, not the legacy lead flags.
+    const { resolveSmsRecipient } = await import("../sms-recipient-authority");
+    const recipient = await resolveSmsRecipient({ contactId: lead.contactId, leadStateId: lead.id, purpose: "proposal_sms_followup" });
+    if (!recipient.allowed) return false;
 
     const firstName = lead.ownerName?.split(" ")[0] || "there";
-
-    if (isGhlConfigured() && lead.contactId) {
-      const smsBody = `Hi ${firstName}, your processing analysis is ready — found real savings on interchange markup and fees. Reply YES to schedule a walkthrough. — Liberty Bancard`;
-      try {
-        await sendGhlSms({ contactId: lead.contactId, body: smsBody });
-      } catch (err) {
-        console.error("[ProposalTracking] SMS follow-up failed:", err);
-        return false;
-      }
+    const smsBody = `Hi ${firstName}, your processing analysis is ready — found real savings on interchange markup and fees. Reply YES to schedule a walkthrough. — Liberty Bancard`;
+    try {
+      const sent = await sendGhlSms({ contactId: lead.contactId, body: smsBody, purpose: "proposal_sms_followup", leadStateId: lead.id, boundPhone: recipient.phone });
+      if (!sent.success) return false;
+    } catch (err) {
+      console.error("[ProposalTracking] SMS follow-up failed:", err);
+      return false;
     }
 
     await db.insert(sdrLeadEvents).values({

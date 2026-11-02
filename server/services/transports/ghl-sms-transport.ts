@@ -19,6 +19,9 @@ export class GhlSmsTransport implements SmsTransport {
         dealId: params.dealId,
         body: params.body,
         templateId: params.templateId,
+        purpose: params.purpose,
+        boundPhone: params.boundPhone,
+        leadStateId: params.leadStateId,
       });
       return {
         success: result.success,

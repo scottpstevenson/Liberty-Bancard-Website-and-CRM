@@ -1453,6 +1453,12 @@ export async function sendGhlSms(params: {
   commercialPurpose?: "marketing_outreach" | "transactional_response";
   inboundRequestId?: string;
   intendedRecipientContactId?: number;
+  /** Why this text is sent; recorded with the consent decision. */
+  purpose?: string;
+  /** The number the caller's decision was made for. A changed number is refused at dispatch. */
+  boundPhone?: string | null;
+  /** SDR lead whose consent subject must also permit the text. */
+  leadStateId?: number;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   await denyCro03cForbiddenEffect("sms");
   // ── Unavoidable commercial-classification gate (transport boundary) ───────
@@ -1505,17 +1511,53 @@ export async function sendGhlSms(params: {
   }
 }
 
+/**
+ * Final consent/number/purpose decision for one text, taken from the canonical consent authority immediately before
+ * provider I/O. Throws `sms_not_permitted:<code>` when the recipient may not be texted at this number for this purpose.
+ */
+export async function assertGhlSmsRecipientAuthorized(params: {
+  contactId: number;
+  purpose?: string;
+  boundPhone?: string | null;
+  leadStateId?: number;
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
+  inboundRequestId?: string;
+  intendedRecipientContactId?: number;
+}): Promise<{ phone: string }> {
+  const { resolveSmsRecipient, smsDenialDetail } = await import("./sms-recipient-authority");
+  const hasInboundBinding = params.commercialPurpose === "transactional_response"
+    && !!params.inboundRequestId?.trim()
+    && params.intendedRecipientContactId === params.contactId;
+  const resolution = await resolveSmsRecipient({
+    contactId: params.contactId,
+    purpose: params.purpose ?? "ghl_sms_transport",
+    boundPhone: params.boundPhone,
+    leadStateId: params.leadStateId,
+    commercialPurpose: params.commercialPurpose,
+    inboundRequestId: hasInboundBinding ? params.inboundRequestId : undefined,
+    intendedRecipientContactId: hasInboundBinding ? params.intendedRecipientContactId : undefined,
+  });
+  if (!resolution.allowed) throw new Error(smsDenialDetail(resolution));
+  return { phone: resolution.phone };
+}
+
 async function _sendGhlSmsInner(params: {
   contactId: number;
   dealId?: number;
   body: string;
   templateId?: number;
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
+  inboundRequestId?: string;
+  intendedRecipientContactId?: number;
+  purpose?: string;
+  boundPhone?: string | null;
+  leadStateId?: number;
 }, _pauseEpoch: bigint): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
     const contact = await storage.getContact(params.contactId);
     if (!contact) throw new Error("Contact not found");
-    if (!contact.phone) throw new Error("Contact has no phone");
-    if (!contact.consentSms) throw new Error("Contact has not consented to SMS");
+    // Consent and number come from the canonical consent authority, never from the legacy consent_sms flag.
+    await assertGhlSmsRecipientAuthorized(params);
 
     let ghlContactId = contact.ghlContactId;
     if (!ghlContactId) {
@@ -1610,6 +1652,10 @@ export async function sendTemplatedMessage(params: {
   contactId: number;
   dealId?: number;
   extraData?: Record<string, any>;
+  /** SMS only: the number the caller's consent decision was made for (see sendGhlSms). */
+  boundPhone?: string | null;
+  /** SMS only: why this template is being sent. */
+  purpose?: string;
 }): Promise<{ success: boolean; error?: string }> {
   const template = await storage.getMessageTemplate(params.templateId);
   if (!template) return { success: false, error: "Template not found" };
@@ -1674,6 +1720,8 @@ export async function sendTemplatedMessage(params: {
       dealId: params.dealId,
       body: resolvedBody,
       templateId: template.id,
+      purpose: params.purpose ?? "message_template",
+      boundPhone: params.boundPhone,
     });
   }
 
@@ -2590,8 +2638,8 @@ async function handleNoteAdded(payload: any): Promise<void> {
 
     if (!ghlContactId) return;
 
-    const { data: contacts } = await storage.getContacts({ limit: 500 });
-    const contact = contacts.find(c => c.ghlContactId === ghlContactId);
+    // Exact indexed lookup: a bounded page scan silently missed every contact outside the first rows.
+    const contact = await storage.getContactByGhlContactId(String(ghlContactId));
     if (!contact) return;
 
     const noteContent = noteData.body || noteData.content || "Note from GHL";
@@ -2663,8 +2711,7 @@ async function handleTagAdded(payload: any): Promise<void> {
 
 async function autoEnrollNoShowRecovery(ghlContactId: string): Promise<void> {
   const { storage } = await import("../storage");
-  const { data: contacts } = await storage.getContacts({ limit: 1000 });
-  const contact = contacts.find((c: { ghlContactId?: string | null }) => c.ghlContactId === ghlContactId);
+  const contact = await storage.getContactByGhlContactId(ghlContactId);
   if (!contact) {
     console.warn(`[GHL Webhook] No-show tag received for unknown GHL contact: ${ghlContactId}`);
     return;

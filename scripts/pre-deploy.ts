@@ -150,6 +150,8 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
     timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Stage 4C2 journey authority (honest outcomes, receipts, run ownership, inbound identity)",script:"scripts/certification/test-stage4c2-journey-authority.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
+  {name:"SMS recipient authority (canonical consent, number binding, STOP race, SMS-denied/email-allowed)",script:"scripts/certification/test-sms-recipient-authority.ts",
+    timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Stage 4C2 calendar contract (purpose, range, booking command, capability templates)",script:"scripts/certification/test-stage4c2-calendar-contract.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Message copy convergence and token contract",script:"scripts/certification/test-message-copy-convergence.ts",

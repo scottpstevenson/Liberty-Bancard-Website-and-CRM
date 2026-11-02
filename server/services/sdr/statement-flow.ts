@@ -7,6 +7,7 @@ import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "../ghl";
 import { selectBestInbox, recordSend, rollbackSend } from "./inbox-rotation";
 import crypto from "crypto";
 import { runFollowupEffect, hasAcceptedEffect } from "../followup-effects";
+import { resolveSmsRecipient, smsDenialDetail, parseSmsDenialDetail } from "../sms-recipient-authority";
 
 function generateUploadToken(): string {
   return crypto.randomBytes(24).toString("hex");
@@ -20,7 +21,11 @@ function getUploadUrl(token: string): string {
   return `${baseUrl}/statement-upload/${token}`;
 }
 
-type ChannelResult = { channel: "email" | "sms"; state: "accepted" | "refused" | "unknown"; detail?: string };
+type ChannelResult = {
+  channel: "email" | "sms"; state: "accepted" | "refused" | "unknown"; detail?: string;
+  /** SMS only: the recipient/number is not permitted (a standing "no"), as opposed to a retryable condition. */
+  smsDenied?: boolean;
+};
 
 /** One statement email through the rotating inbox, as a durable per-channel effect (receipt written before the send). */
 async function deliverStatementEmail(
@@ -49,13 +54,26 @@ async function deliverStatementEmail(
   return { channel: "email", state: outcome.state, detail: outcome.detail };
 }
 
-async function deliverStatementSms(lead: SdrLeadState, effectKey: string, body: string): Promise<ChannelResult> {
-  if (!isGhlConfigured() || !lead.contactId) return { channel: "sms", state: "refused", detail: !lead.contactId ? "no_contact" : "ghl_not_configured" };
-  if (!(lead.consentSms && !lead.optedOutSms && (lead.ownerPhone || lead.phone))) return { channel: "sms", state: "refused", detail: "sms_not_permitted" };
+/** Statement texts cannot be sent by anything but the canonical SMS recipient authority; the sender and clock are test seams only. */
+export async function deliverStatementSms(
+  lead: SdrLeadState, effectKey: string, body: string, purpose: string,
+  deps: { send?: typeof sendGhlSms; currentTime?: Date } = {},
+): Promise<ChannelResult> {
+  const send = deps.send ?? sendGhlSms;
+  if (!lead.contactId) return { channel: "sms", state: "refused", detail: "no_contact" };
+  // Consent, number and purpose come from the canonical authority for the contact and the lead; the legacy lead flags
+  // (consentSms, optedOutSms, ownerPhone) are never consulted. Decided before the receipt so a denial claims nothing.
+  const recipient = await resolveSmsRecipient({ contactId: lead.contactId, leadStateId: lead.id, purpose, currentTime: deps.currentTime });
+  if (!recipient.allowed) {
+    return { channel: "sms", state: "refused", detail: smsDenialDetail(recipient), smsDenied: !recipient.transient };
+  }
+  if (!isGhlConfigured()) return { channel: "sms", state: "refused", detail: "ghl_not_configured" };
   const outcome = await runFollowupEffect(
     { effectKey, ownerKind: "statement", ownerId: String(lead.id), channel: "sms" },
-    () => sendGhlSms({ contactId: lead.contactId!, body }));
-  return { channel: "sms", state: outcome.state, detail: outcome.detail };
+    // The transport re-resolves immediately before dispatch, so a STOP or number change after the check above is honored.
+    () => send({ contactId: lead.contactId!, body, purpose, leadStateId: lead.id, boundPhone: recipient.phone }));
+  const denial = outcome.state === "refused" ? parseSmsDenialDetail(outcome.detail) : null;
+  return { channel: "sms", state: outcome.state, detail: outcome.detail, smsDenied: !!denial && !denial.transient };
 }
 
 const describeUndelivered = (results: ChannelResult[]) =>
@@ -109,7 +127,7 @@ export async function sendStatementRequest(leadId: number): Promise<boolean> {
 
     const results = [
       await deliverStatementEmail(lead, `statement_request:${leadId}:email`, emailSubject, emailBody),
-      await deliverStatementSms(lead, `statement_request:${leadId}:sms`, smsBody),
+      await deliverStatementSms(lead, `statement_request:${leadId}:sms`, smsBody, "statement_request"),
     ];
     const delivered = results.some(r => r.state === "accepted");
 
@@ -169,8 +187,18 @@ export async function sendStatementReminder(leadId: number): Promise<boolean> {
     const results: ChannelResult[] = [];
 
     if (reminderCount === 1) {
-      results.push(await deliverStatementSms(lead, `statement_reminder:${leadId}:1:sms`,
-        `Hi ${firstName}, still waiting on your processing statement. Upload here anytime: ${uploadUrl} — Liberty Bancard`));
+      const sms = await deliverStatementSms(lead, `statement_reminder:${leadId}:1:sms`,
+        `Hi ${firstName}, still waiting on your processing statement. Upload here anytime: ${uploadUrl} — Liberty Bancard`,
+        "statement_reminder");
+      results.push(sms);
+      // A standing SMS denial (STOP, no consent for this number, suppression) must not strand the reminder: the same
+      // reminder goes by email, which has its own consent and receipt. A retryable condition (quiet hours) waits instead.
+      if (sms.state === "refused" && sms.smsDenied) {
+        channel = "email";
+        results.push(await deliverStatementEmail(lead, `statement_reminder:${leadId}:1:email`,
+          `Quick reminder — your statement review for ${lead.companyName || "your business"}`,
+          `Hi ${firstName},\n\nJust a friendly reminder — we're ready to review your processing statement once you upload it.\n\nUpload here (secure, 30 seconds): ${uploadUrl}\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.`));
+      }
       nextActionAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
     } else if (reminderCount === 2) {
       channel = "email";

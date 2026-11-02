@@ -57,6 +57,12 @@ export interface SmsSendParams {
   dealId?: number;
   body: string;
   templateId?: number;
+  /** Why the text is sent; carried to the transport's final consent decision. */
+  purpose?: string;
+  /** The number the caller's decision was made for; a changed number is refused at dispatch. */
+  boundPhone?: string | null;
+  /** SDR lead whose consent subject must also permit the text. */
+  leadStateId?: number;
 }
 
 export interface RvmSendParams {
