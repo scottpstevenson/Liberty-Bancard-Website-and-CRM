@@ -88,6 +88,7 @@ check(classifyGhlOperation("POST", "/calendars/events/appointments/abc/extra/dee
 check(classifyGhlOperation("DELETE", "/calendars/events/abc123") === "crm_write", "provider event deletion has an exact template (never used for local history)");
 rejects(() => assert.equal(classifyGhlOperation("POST", "/calendars/unknown-thing"), "crm_write"), "an unknown calendar operation is not writable");
 
+const read = (p: string) => readFileSync(new URL(`../../${p}`, import.meta.url), "utf8");
 // ── D ────────────────────────────────────────────────────────────────────────────────────
 const base = { operation: "create" as const, purpose: "sales" as const, ghlContactId: "contactAbc", startTimeIso: "2026-11-10T15:00:00Z", endTimeIso: "2026-11-10T15:30:00Z", title: "Intro" };
 const pv = booking.previewBookingCommand(base, env);
@@ -102,10 +103,15 @@ check(cancel.ok && cancel.method === "PUT" && (cancel.payload as any).appointmen
 
 const hash = pv.ok ? pv.payloadHash : "";
 let writes = 0; let readbacks = 0;
-const mkProvider = (opts: { id?: string; found?: boolean; throws?: boolean }) => ({
-  write: async () => { writes++; if (opts.throws) throw new Error("fetch failed: ETIMEDOUT"); return { id: opts.id ?? "appt-new" }; },
-  readAppointment: async () => { readbacks++; return { found: opts.found ?? true, status: "booked" }; },
-});
+type ProviderState = { found?: boolean; status?: string; calendarId?: string; startTime?: string; endTime?: string; version?: number | null };
+const mkProvider = (opts: { id?: string; found?: boolean; throws?: boolean; before?: ProviderState; after?: ProviderState }) => {
+  let wrote = false;
+  const initial: ProviderState = { found: opts.found ?? true, status: "booked", calendarId: SALES_ID, startTime: base.startTimeIso, endTime: base.endTimeIso, version: 100 };
+  return {
+    write: async () => { writes++; wrote = true; if (opts.throws) throw new Error("fetch failed: ETIMEDOUT"); return { id: opts.id ?? "appt-new" }; },
+    readAppointment: async () => { readbacks++; const st = wrote ? { ...initial, ...(opts.after ?? {}) } : { ...initial, ...(opts.before ?? {}) }; return { ...st, found: st.found ?? true }; },
+  };
+};
 const cmd = () => crypto.randomUUID();
 const ex = (over: Partial<Parameters<typeof booking.executeBookingCommand>[0]>) => booking.executeBookingCommand({
   actorId: "actor-1", commandId: cmd(), expectedVersion: null, reviewedPayloadHash: hash, request: base, writerEnabled: true, provider: mkProvider({}), ...over,
@@ -127,8 +133,36 @@ check(lost.state === "unknown" && retry.state === "unknown" && writes === 1, "a 
 rejects(() => assert.equal(retry.state, "confirmed"), "a lost response cannot be reported as booked");
 check(readbacks >= 2, "readback was performed to confirm provider state");
 
+// ── D2: reviewed version precondition and operation-specific readback ────────────────────
+const NEW_START = "2026-11-11T16:00:00.000Z", NEW_END = "2026-11-11T16:30:00.000Z";
+const reqResched = { ...base, operation: "reschedule" as const, appointmentId: "appt1", startTimeIso: NEW_START, endTimeIso: NEW_END };
+const pvR = booking.previewBookingCommand(reqResched, env); const hashR = pvR.ok ? pvR.payloadHash : "";
+const exR = (over: Partial<Parameters<typeof booking.executeBookingCommand>[0]>) => booking.executeBookingCommand({
+  actorId: "actor-1", commandId: cmd(), expectedVersion: 100, reviewedPayloadHash: hashR, request: reqResched, writerEnabled: true, provider: mkProvider({}), ...over }, env);
+writes = 0;
+check((await exR({ expectedVersion: null })) .state === "denied" && writes === 0, "a reschedule without the reviewed resource version is denied");
+const stale = await exR({ expectedVersion: 99 });
+check(stale.state === "refused" && (stale as any).reason === "stale_expected_version" && writes === 0, "a stale expected version is refused and nothing is written");
+rejects(() => assert.notEqual(writes, 0, "a stale version must not write"), "a stale version that still writes is rejected");
+const wrongCal = await exR({ provider: mkProvider({ before: { calendarId: "OtherCal0123456789abc" } }) });
+check(wrongCal.state === "refused" && writes === 0, "an appointment on another calendar is refused before any write");
+const missing = await exR({ provider: mkProvider({ before: { found: false } }) });
+check(missing.state === "refused" && writes === 0, "an appointment the provider cannot find is refused before any write");
+const okR = await exR({ provider: mkProvider({ after: { startTime: NEW_START, endTime: NEW_END, version: 101 } }) });
+check(okR.state === "confirmed" && writes === 1, "a reschedule is confirmed only when the readback carries the requested times");
+const unchanged = await exR({ provider: mkProvider({}) });
+check(unchanged.state === "unconfirmed" && (unchanged as any).reason === "readback_did_not_confirm", "a refused or ignored reschedule (times unchanged on readback) is unconfirmed, not confirmed");
+rejects(() => assert.equal(unchanged.state, "confirmed"), "reporting an unchanged appointment as rescheduled is rejected");
+const reqCancel = { operation: "cancel" as const, purpose: "sales" as const, ghlContactId: "contactAbc", appointmentId: "appt1" };
+const pvC = booking.previewBookingCommand(reqCancel, env); const hashC = pvC.ok ? pvC.payloadHash : "";
+const exC = (provider: any) => booking.executeBookingCommand({ actorId: "actor-1", commandId: cmd(), expectedVersion: 100, reviewedPayloadHash: hashC, request: reqCancel, writerEnabled: true, provider }, env);
+check((await exC(mkProvider({}))).state === "unconfirmed", "a cancel whose readback is still booked is unconfirmed");
+check((await exC(mkProvider({ after: { status: "cancelled" } }))).state === "confirmed", "a cancel is confirmed when the readback shows cancelled");
+check((await booking.executeBookingCommand({ actorId: "actor-1", commandId: cmd(), expectedVersion: 100, reviewedPayloadHash: hashC, request: reqCancel, writerEnabled: true, provider: mkProvider({ before: { version: 7 } }) }, env)).state === "refused", "a cancel against a changed appointment version is refused");
+check((await ex({ commandId: cmd(), provider: mkProvider({ after: { startTime: "2026-11-10T09:00:00Z" } }) })).state === "unconfirmed", "a create whose readback times differ from the request is unconfirmed");
+check(/currentVersion/.test(read("server/routes/toolkit.ts")) && /readAppointment: readProviderAppointment/.test(read("server/routes/toolkit.ts")), "preview exposes the provider's current version and execute reads back through the same reader");
+
 // ── E ────────────────────────────────────────────────────────────────────────────────────
-const read = (p: string) => readFileSync(new URL(`../../${p}`, import.meta.url), "utf8");
 const toolkit = read("server/routes/toolkit.ts");
 check(/\/api\/appointments\/booking\/execute", isDashboardUser, requireRole\("admin"\)/.test(toolkit) && /\/api\/appointments\/booking\/preview", isDashboardUser, requireRole\("admin", "manager"\)/.test(toolkit), "booking routes are role-gated (execute admin only)");
 check(/ghl_booking_writer_enabled/.test(toolkit), "execute is bound to the owner-controlled writer switch");

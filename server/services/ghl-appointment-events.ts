@@ -21,6 +21,7 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
+import { resolveAccountBooking } from "./ghl-calendar-purpose";
 import { runReceiptTxStep, currentReceiptId, type DbTx } from "./ghl-webhook-effects";
 
 export type AppointmentEventKind = "booked" | "updated" | "rescheduled" | "showed" | "canceled" | "no_show";
@@ -59,7 +60,10 @@ function time(v: unknown): Date | null {
 }
 
 export function configuredAppointmentCalendarIds(env: NodeJS.ProcessEnv = process.env): string[] {
-  return [env.GHL_APPOINTMENT_CALENDAR_ID, env.GHL_DEFAULT_CALENDAR_ID, env.GHL_CALENDAR_ID]
+  // The validated account-management calendar (from AM_CALENDAR_URL) is a trusted origin: its events are recorded as
+  // account-purpose history. An invalid or missing AM_CALENDAR_URL adds nothing.
+  const account = resolveAccountBooking(env);
+  return [env.GHL_APPOINTMENT_CALENDAR_ID, env.GHL_DEFAULT_CALENDAR_ID, env.GHL_CALENDAR_ID, account.available ? account.calendarId : undefined]
     .filter((v): v is string => typeof v === "string" && v.length > 0);
 }
 

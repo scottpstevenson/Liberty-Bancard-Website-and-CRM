@@ -416,6 +416,20 @@ export async function handleAppointmentShowed(webhookData: AppointmentWebhookDat
       return { outcome: "history" as const };
     }
     const next = await currentSalesMeeting(tx, ghlContactId);
+    if (next.appointmentId && next.appointmentId !== meetingId) {
+      // Another sales appointment is still open: the lead stays in its meeting stage, B becomes current, and no
+      // post-meeting statement chase starts until the last open meeting has been held.
+      if (state) {
+        await tx.update(sdrLeadState).set({
+          meetingId: next.appointmentId, nextAction: "send_appointment_reminder", nextActionType: "reminder",
+          nextActionPayload: { appointmentId: next.appointmentId, startTime: next.startTime, outreachPaused: true },
+          updatedAt: new Date(),
+        }).where(eq(sdrLeadState.merchantId, merchant.id));
+      }
+      await recordHistoryOnly(tx, merchant.id, "appointment_showed", webhookData,
+        `Appointment ${meetingId} showed — current meeting is now ${next.appointmentId}; stage unchanged, no statement request started`);
+      return { outcome: "history" as const };
+    }
     const oldStage = state?.currentStage ?? null;
     if (state) {
       await tx.update(sdrLeadState).set({

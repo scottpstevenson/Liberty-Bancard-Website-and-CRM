@@ -409,12 +409,29 @@ export function registerToolkitRoutes(app: Express, readerDependencies?: {
     ghlContactId: String(body?.ghlContactId ?? ""), startTimeIso: body?.startTime, endTimeIso: body?.endTime,
     title: typeof body?.title === "string" ? body.title : undefined, appointmentId: typeof body?.appointmentId === "string" ? body.appointmentId : undefined,
   } as import("../services/ghl-booking-command").BookingRequest);
+  const readProviderAppointment = async (id: string) => {
+    const read = await ghlFetch(`/calendars/events/appointments/${encodeURIComponent(id)}`);
+    const event = read?.appointment ?? read?.event ?? read;
+    if (!event?.id) return { found: false };
+    const updated = Date.parse(event.dateUpdated ?? event.updatedAt ?? "");
+    return {
+      found: true, status: event.appointmentStatus ?? event.status, calendarId: event.calendarId,
+      startTime: event.startTime, endTime: event.endTime, version: Number.isFinite(updated) ? updated : null,
+    };
+  };
   app.post("/api/appointments/booking/preview", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     const { previewBookingCommand } = await import("../services/ghl-booking-command");
     if (!["create", "reschedule", "cancel"].includes(req.body?.operation)) return res.status(400).json({ message: "Invalid operation" });
     const preview = previewBookingCommand(bookingRequestFromBody(req.body));
     if (!preview.ok) return res.status(422).json({ ok: false, reason: preview.reason });
-    res.json({ ...preview, sent: false, note: "Preview only. Nothing was booked or sent." });
+    // The reviewed resource version for reschedule/cancel comes from the provider's own record (read only).
+    let currentVersion: number | null = null;
+    if (preview.operation !== "create") {
+      const live = await readProviderAppointment(String(req.body?.appointmentId)).catch(() => null);
+      if (!live?.found) return res.status(422).json({ ok: false, reason: "appointment_not_readable" });
+      currentVersion = typeof live.version === "number" ? live.version : null;
+    }
+    res.json({ ...preview, currentVersion, sent: false, note: "Preview only. Nothing was booked or sent." });
   });
   app.post("/api/appointments/booking/execute", isDashboardUser, requireRole("admin"), async (req, res) => {
     try {
@@ -428,11 +445,7 @@ export function registerToolkitRoutes(app: Express, readerDependencies?: {
         reviewedPayloadHash: String(req.body?.payloadHash ?? ""), request: bookingRequestFromBody(req.body), writerEnabled,
         provider: {
           write: (method, path, body) => ghlCalendarAppointmentWrite(method, path, body),
-          readAppointment: async (id) => {
-            const read = await ghlFetch(`/calendars/events/appointments/${encodeURIComponent(id)}`);
-            const event = read?.appointment ?? read?.event ?? read;
-            return event?.id ? { found: true, status: event.appointmentStatus ?? event.status } : { found: false };
-          },
+          readAppointment: readProviderAppointment,
         },
       });
       res.status(result.state === "denied" ? 403 : 200).json(result);

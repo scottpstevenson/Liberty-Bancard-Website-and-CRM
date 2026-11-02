@@ -10,7 +10,10 @@ import { bookingForPurpose, type CalendarPurpose } from "./ghl-calendar-purpose"
  *    the receipt, never by sending again);
  *  - `toNotify` is always set explicitly from the owner contract (default false: no native message is implied by the
  *    calendar write); availability validation stays on and no ignore-slot/date-range bypass is ever sent;
- *  - success is confirmed only by a provider readback of the appointment id.
+ *  - reschedule/cancel require the reviewed resource version; inside the receipt (before the provider write) the live
+ *    appointment must exist on the purpose calendar at exactly that version, else the command is refused without any write;
+ *  - success is confirmed only by a provider readback that matches the requested operation (times for create/reschedule,
+ *    a cancelled status for cancel), never by the mere existence of the appointment id.
  * Cancel is a status change on the provider appointment; local history is never hard-deleted to represent it.
  */
 export type BookingOperation = "create" | "reschedule" | "cancel";
@@ -60,7 +63,12 @@ export function previewBookingCommand(req: BookingRequest, env: Record<string, s
 
 export interface BookingProvider {
   write(method: "POST" | "PUT", path: string, body: Record<string, unknown>): Promise<any>;
-  readAppointment(appointmentId: string): Promise<{ found: boolean; status?: string } | null>;
+  /** `version` is the provider's last-update time in epoch ms; it is the reviewed resource version for reschedule/cancel. */
+  readAppointment(appointmentId: string): Promise<ProviderAppointment | null>;
+}
+
+export interface ProviderAppointment {
+  found: boolean; status?: string; calendarId?: string; startTime?: string; endTime?: string; version?: number | null;
 }
 
 export interface BookingExecuteInput {
@@ -78,6 +86,9 @@ export async function executeBookingCommand(input: BookingExecuteInput, env: Rec
   if (!UUID.test(input.commandId)) return { state: "denied", reason: "command_id_must_be_uuid_v4" };
   const preview = previewBookingCommand(input.request, env);
   if (!preview.ok) return { state: "denied", reason: preview.reason };
+  if (preview.operation !== "create" && !(typeof input.expectedVersion === "number" && Number.isFinite(input.expectedVersion))) {
+    return { state: "denied", reason: "expected_version_required" };
+  }
   if (preview.payloadHash !== input.reviewedPayloadHash) return { state: "denied", reason: "payload_changed_since_preview" };
   let appointmentId = input.request.appointmentId;
   const outcome = await runFollowupEffect(
@@ -86,6 +97,14 @@ export async function executeBookingCommand(input: BookingExecuteInput, env: Rec
       // before the provider answered; a create is linkable only once accepted (its id is the receipt detail).
       channel: `calendar_${preview.operation}${input.request.appointmentId ? `:${input.request.appointmentId}` : ""}` },
     async () => {
+      if (preview.operation !== "create") {
+        // Resource/version precondition, checked against the provider's own record immediately before the write.
+        const live = await input.provider.readAppointment(input.request.appointmentId!).catch(() => null);
+        if (!live) return { success: false, error: "precondition_unreadable" };
+        if (!live.found) return { success: false, error: "appointment_not_found" };
+        if (live.calendarId && live.calendarId !== preview.payload.calendarId) return { success: false, error: "appointment_on_other_calendar" };
+        if (typeof live.version !== "number" || live.version !== input.expectedVersion) return { success: false, error: "stale_expected_version" };
+      }
       const response = await input.provider.write(preview.method, preview.path, preview.payload);
       appointmentId = appointmentId ?? (typeof response?.id === "string" ? response.id : response?.appointment?.id);
       return { success: true, detail: appointmentId };
@@ -96,6 +115,15 @@ export async function executeBookingCommand(input: BookingExecuteInput, env: Rec
   // Readback: only the provider's own record confirms the write.
   if (!appointmentId) return { state: "unconfirmed", replay: outcome.replay, reason: "no_appointment_id_to_read_back" };
   const read = await input.provider.readAppointment(appointmentId).catch(() => null);
-  const confirmed = !!read?.found && (preview.operation !== "cancel" || /cancel/i.test(read.status ?? ""));
+  const sameInstant = (a?: string, b?: unknown) => {
+    const x = a ? Date.parse(a) : NaN, y = typeof b === "string" ? Date.parse(b) : NaN;
+    return Number.isFinite(x) && Number.isFinite(y) && x === y;
+  };
+  const matchesRequest = !!read?.found
+    && (!read.calendarId || read.calendarId === preview.payload.calendarId)
+    && (preview.operation === "cancel"
+      ? /cancel/i.test(read.status ?? "")
+      : sameInstant(read.startTime, preview.payload.startTime) && sameInstant(read.endTime, preview.payload.endTime));
+  const confirmed = matchesRequest;
   return confirmed ? { state: "confirmed", replay: outcome.replay, appointmentId } : { state: "unconfirmed", replay: outcome.replay, appointmentId, reason: "readback_did_not_confirm" };
 }

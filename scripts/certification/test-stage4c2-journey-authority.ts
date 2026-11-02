@@ -26,7 +26,8 @@ const { classifyWorkflowRunOutcome, executeWorkflowActions, retryFailedWorkflowR
 const { nextApplicationReminderDay } = await import("../../server/services/sla-worker");
 const { runFollowupEffect, hasAcceptedEffect } = await import("../../server/services/followup-effects");
 const { claimDueWorkflowRuns, releaseWorkflowRunLease } = await import("../../server/services/workflow-run-lease");
-const { deriveCurrentAppointmentId, normalizeAppointmentStatus } = await import("../../server/services/ghl-appointment-events");
+const { deriveCurrentAppointmentId, normalizeAppointmentStatus, acceptGhlAppointmentTransition, configuredAppointmentCalendarIds } = await import("../../server/services/ghl-appointment-events");
+const { handleAppointmentShowed } = await import("../../server/services/sdr/scheduling");
 const { occurrenceKeyOf } = await import("../../server/services/ghl-occurrence");
 const { selectInboundDeal, resolveInboundIdentity } = await import("../../server/services/ghl-inbound-identity");
 const { workflowTriggerRefusal } = await import("../../server/services/ghl-workflows");
@@ -170,6 +171,42 @@ check(parkedRow.status === "blocked" && dueAfter.length === 0, "a run whose work
 rejects(() => assert.equal(dueAfter.length, 1), "a released-but-still-waiting run would repeat on every scan");
 const sla = read0("server/services/sla-worker.ts");
 check(/handledThisScan/.test(sla) && /retryFailedWorkflowRun/.test(sla), "the waiting-run loop cannot repeat a run within a scan and reminders use the controlled retry");
+
+// ── F3: boundary-level A/B appointments and account-calendar scope ─────────────────────
+const SALES_CAL = "SalesCal0123456789ab", ACCT_CAL = "AcctCal0123456789abc";
+process.env.GHL_CALENDAR_ID = SALES_CAL;
+process.env.AM_CALENDAR_URL = `https://api.leadconnectorhq.com/widget/booking/${ACCT_CAL}`;
+const ghlC = `ab4c2${Date.now()}`;
+const allowed = configuredAppointmentCalendarIds();
+check(allowed.includes(SALES_CAL) && allowed.includes(ACCT_CAL), "the webhook calendar allowlist trusts both the sales and the validated account calendar");
+rejects(() => assert.ok(!allowed.includes(ACCT_CAL)), "an allowlist that omits the account calendar is rejected");
+check(!configuredAppointmentCalendarIds({ GHL_CALENDAR_ID: SALES_CAL, AM_CALENDAR_URL: "https://evil.example/widget/booking/" + ACCT_CAL }).includes(ACCT_CAL), "an invalid account calendar address adds nothing to the allowlist");
+check(/configuredAppointmentCalendarIds\(\)/.test(read0("server/routes/sdr.ts")), "the webhook route scope uses the shared allowlist");
+const gate = (kind: any, id: string, calendarId: string, startIso: string, updated: string, contact = ghlC) => acceptGhlAppointmentTransition({
+  kind, payload: { appointmentId: id, contactId: contact, calendarId, startTime: startIso, dateUpdated: updated }, allowedLocationId: null, allowedCalendarIds: allowed,
+} as any);
+const acctDecision = await gate("booked", `acct-${ghlC}`, ACCT_CAL, "2026-12-01T15:00:00Z", "2026-11-01T10:00:00Z", `${ghlC}-other`);
+const salesDecision = await gate("booked", `sales-x-${ghlC}`, SALES_CAL, "2026-12-02T15:00:00Z", "2026-11-01T10:00:00Z", `${ghlC}-other`);
+check(acctDecision.decision === "apply" && salesDecision.decision === "apply", "events from both calendar purposes pass the lifecycle gate");
+const foreign = await gate("booked", `foreign-${ghlC}`, "ForeignCal0123456789", "2026-12-03T15:00:00Z", "2026-11-01T10:00:00Z", `${ghlC}-other`);
+check(foreign.decision === "rejected", "an event from an untrusted calendar is still rejected");
+// A and B booked on the sales calendar; showing the current A must not start the statement chase while B is open.
+const [mer] = (await pool.query(`INSERT INTO sdr_merchants (business_name, ghl_contact_id) VALUES ($1, $2) RETURNING id`, [`4c2 AB ${tag}`, ghlC])).rows;
+const apptA = `A-${ghlC}`, apptB = `B-${ghlC}`;
+await gate("booked", apptA, SALES_CAL, "2026-12-05T15:00:00Z", "2026-11-01T11:00:00Z");
+await gate("booked", apptB, SALES_CAL, "2026-12-06T15:00:00Z", "2026-11-01T11:05:00Z");
+await pool.query(`INSERT INTO sdr_lead_state (merchant_id, current_stage, stage, meeting_id) VALUES ($1, 'MEETING_SET', 'MEETING_SET', $2)`, [mer.id, apptA]);
+const showedPayload = { appointmentId: apptA, contactId: ghlC, calendarId: SALES_CAL, startTime: "2026-12-05T15:00:00Z", dateUpdated: "2026-12-05T16:00:00Z" };
+const showedDecision = await gate("showed", apptA, SALES_CAL, "2026-12-05T15:00:00Z", "2026-12-05T16:00:00Z");
+check(showedDecision.decision === "apply", "the showed event for the current appointment is accepted by the gate");
+await handleAppointmentShowed(showedPayload as any);
+const abState = (await pool.query(`SELECT current_stage, meeting_id FROM sdr_lead_state WHERE merchant_id=$1`, [mer.id])).rows[0];
+const abDispatch = (await pool.query(`SELECT count(*)::int AS n FROM ghl_workflow_handoff_dispatches WHERE ghl_contact_id=$1 AND workflow_key='statement_request_after_meeting'`, [ghlC])).rows[0].n;
+check(abState.current_stage === "MEETING_SET" && abState.meeting_id === apptB, "showing A while B is open keeps the lead in its meeting stage and makes B current");
+check(abDispatch === 0, "no statement-request handoff starts for A while B is still open");
+rejects(() => assert.equal(abState.current_stage, "STATEMENT_REQUESTED"), "advancing the lead to STATEMENT_REQUESTED while another meeting is open is rejected");
+const abEvent = (await pool.query(`SELECT decision_reason FROM sdr_lead_events WHERE merchant_id=$1 AND event_type='appointment_showed'`, [mer.id])).rows;
+check(abEvent.length === 1 && /stage unchanged/.test(abEvent[0].decision_reason), "the showed event is recorded as history with the stage unchanged");
 
 // ── G ────────────────────────────────────────────────────────────────────────────────────
 const ghlId = `cert4c2${Date.now()}`;

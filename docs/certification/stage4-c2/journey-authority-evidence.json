@@ -1,7 +1,7 @@
 {
   "suite": "stage4c2-journey-authority",
-  "checks": 60,
-  "negativeControls": 10,
+  "checks": 71,
+  "negativeControls": 12,
   "results": [
     {
       "id": "JA-01",
@@ -250,56 +250,111 @@
     },
     {
       "id": "JA-50",
-      "claim": "an unknown GHL contact is a named not_found outcome",
+      "claim": "the webhook calendar allowlist trusts both the sales and the validated account calendar",
       "negativeControl": false
     },
     {
       "id": "JA-51",
-      "claim": "contact with several deals and no association resolves with no deal",
-      "negativeControl": false
+      "claim": "negative control: an allowlist that omits the account calendar is rejected",
+      "negativeControl": true
     },
     {
       "id": "JA-52",
-      "claim": "the linked deal is selected by the opportunity association",
+      "claim": "an invalid account calendar address adds nothing to the allowlist",
       "negativeControl": false
     },
     {
       "id": "JA-53",
-      "claim": "an archived contact is a named archived outcome",
+      "claim": "the webhook route scope uses the shared allowlist",
       "negativeControl": false
     },
     {
       "id": "JA-54",
-      "claim": "the statement upload token and URL are never logged",
+      "claim": "events from both calendar purposes pass the lifecycle gate",
       "negativeControl": false
     },
     {
       "id": "JA-55",
-      "claim": "negative control: a token log line would be detected",
-      "negativeControl": true
+      "claim": "an event from an untrusted calendar is still rejected",
+      "negativeControl": false
     },
     {
       "id": "JA-56",
-      "claim": "the booking-link route requires a dashboard staff role",
+      "claim": "the showed event for the current appointment is accepted by the gate",
       "negativeControl": false
     },
     {
       "id": "JA-57",
-      "claim": "an unconfigured native workflow is a held handoff, not a skip",
+      "claim": "showing A while B is open keeps the lead in its meeting stage and makes B current",
       "negativeControl": false
     },
     {
       "id": "JA-58",
-      "claim": "Inbox preparation derives its booking address from the shared purpose resolver",
+      "claim": "no statement-request handoff starts for A while B is still open",
       "negativeControl": false
     },
     {
       "id": "JA-59",
+      "claim": "negative control: advancing the lead to STATEMENT_REQUESTED while another meeting is open is rejected",
+      "negativeControl": true
+    },
+    {
+      "id": "JA-60",
+      "claim": "the showed event is recorded as history with the stage unchanged",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-61",
+      "claim": "an unknown GHL contact is a named not_found outcome",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-62",
+      "claim": "contact with several deals and no association resolves with no deal",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-63",
+      "claim": "the linked deal is selected by the opportunity association",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-64",
+      "claim": "an archived contact is a named archived outcome",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-65",
+      "claim": "the statement upload token and URL are never logged",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-66",
+      "claim": "negative control: a token log line would be detected",
+      "negativeControl": true
+    },
+    {
+      "id": "JA-67",
+      "claim": "the booking-link route requires a dashboard staff role",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-68",
+      "claim": "an unconfigured native workflow is a held handoff, not a skip",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-69",
+      "claim": "Inbox preparation derives its booking address from the shared purpose resolver",
+      "negativeControl": false
+    },
+    {
+      "id": "JA-70",
       "claim": "application reminders no longer scan the first 500 deals",
       "negativeControl": false
     },
     {
-      "id": "JA-60",
+      "id": "JA-71",
       "claim": "no provider network attempt occurred during the certification",
       "negativeControl": false
     }

@@ -1,7 +1,7 @@
 {
   "suite": "stage4c2-calendar-contract",
-  "checks": 45,
-  "negativeControls": 4,
+  "checks": 58,
+  "negativeControls": 6,
   "results": [
     {
       "id": "CC-01",
@@ -195,36 +195,101 @@
     },
     {
       "id": "CC-39",
-      "claim": "booking routes are role-gated (execute admin only)",
+      "claim": "a reschedule without the reviewed resource version is denied",
       "negativeControl": false
     },
     {
       "id": "CC-40",
-      "claim": "execute is bound to the owner-controlled writer switch",
+      "claim": "a stale expected version is refused and nothing is written",
       "negativeControl": false
     },
     {
       "id": "CC-41",
-      "claim": "the month calendar reads the selected-range endpoint",
-      "negativeControl": false
+      "claim": "negative control: a stale version that still writes is rejected",
+      "negativeControl": true
     },
     {
       "id": "CC-42",
-      "claim": "local events are labelled as local and not as bookings",
+      "claim": "an appointment on another calendar is refused before any write",
       "negativeControl": false
     },
     {
       "id": "CC-43",
-      "claim": "the calendar names its display timezone",
+      "claim": "an appointment the provider cannot find is refused before any write",
       "negativeControl": false
     },
     {
       "id": "CC-44",
-      "claim": "workflow guidance no longer contradicts the supported handoffs",
+      "claim": "a reschedule is confirmed only when the readback carries the requested times",
       "negativeControl": false
     },
     {
       "id": "CC-45",
+      "claim": "a refused or ignored reschedule (times unchanged on readback) is unconfirmed, not confirmed",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-46",
+      "claim": "negative control: reporting an unchanged appointment as rescheduled is rejected",
+      "negativeControl": true
+    },
+    {
+      "id": "CC-47",
+      "claim": "a cancel whose readback is still booked is unconfirmed",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-48",
+      "claim": "a cancel is confirmed when the readback shows cancelled",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-49",
+      "claim": "a cancel against a changed appointment version is refused",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-50",
+      "claim": "a create whose readback times differ from the request is unconfirmed",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-51",
+      "claim": "preview exposes the provider's current version and execute reads back through the same reader",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-52",
+      "claim": "booking routes are role-gated (execute admin only)",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-53",
+      "claim": "execute is bound to the owner-controlled writer switch",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-54",
+      "claim": "the month calendar reads the selected-range endpoint",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-55",
+      "claim": "local events are labelled as local and not as bookings",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-56",
+      "claim": "the calendar names its display timezone",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-57",
+      "claim": "workflow guidance no longer contradicts the supported handoffs",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-58",
       "claim": "no provider network attempt occurred during the certification",
       "negativeControl": false
     }
