@@ -98,7 +98,7 @@ import {
   roleplayExchanges, type RoleplayExchange, type InsertRoleplayExchange,
   leaderboardSettings, type LeaderboardSettings,
 } from "@shared/schema";
-import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
+import { eq, desc, and, lt, isNull, isNotNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 import { auditChange } from "../services/audit-change";
 import { deriveLinkedDealClassInTransaction } from "../services/commercial-classification-authority";
@@ -254,6 +254,14 @@ export async function readBoardingDealPopulation(scope:DealReadScope&{recordClas
     return { data, total: totalResult.count, limit, offset };
   }
 
+
+  /** Exact-predicate read of deals that have a contact but no GHL opportunity yet (no first-N window). */
+  async getDealsPendingGhlSync(limit: number) {
+    return db.select().from(deals)
+      .where(and(dealReadWhere(), isNull(deals.ghlOpportunityId), isNotNull(deals.contactId)))
+      .orderBy(desc(deals.updatedAt), desc(deals.id))
+      .limit(limit);
+  }
 
   async getDeal(id: number) {
     const [row] = await db

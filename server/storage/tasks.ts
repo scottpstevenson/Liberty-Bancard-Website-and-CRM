@@ -118,8 +118,11 @@ export type TaskAuthorityState = typeof TASK_AUTHORITY_STATES[number];
 // Explicit compatibility mapping for legacy task readers and writers.
 
   export class TasksStorage {
-    async getTasks(opts?: { limit?: number; offset?: number; source?: "sla" | "manual"; scope?: TaskReadScope }) {
-    const whereClause = taskReadPredicate({ asOf: new Date(), timezone: "UTC", ...opts?.scope, source: opts?.source ?? opts?.scope?.source });
+    async getTasks(opts?: { limit?: number; offset?: number; source?: "sla" | "manual"; scope?: TaskReadScope; taskId?: number }) {
+    const whereClause = and(
+      taskReadPredicate({ asOf: new Date(), timezone: "UTC", ...opts?.scope, source: opts?.source ?? opts?.scope?.source }),
+      opts?.taskId !== undefined ? eq(tasks.id, opts.taskId) : undefined,
+    );
     let query = db.select(taskReadColumns).from(tasks).where(whereClause).orderBy(desc(tasks.createdAt)) as any;
     if (opts?.limit) query = query.limit(opts.limit);
     if (opts?.offset) query = query.offset(opts.offset);

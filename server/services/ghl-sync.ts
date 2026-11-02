@@ -1631,8 +1631,7 @@ export async function syncTaskToGhl(taskId: number): Promise<{ success: boolean;
     const config = getConfig();
     if (!config) return { success: false, error: "GHL not configured" };
 
-    const allTasks = await storage.getTasks({ limit: 500 });
-    const task = allTasks.find((t: any) => t.id === taskId);
+    const [task] = await storage.getTasks({ taskId, limit: 1 });
     if (!task) return { success: false, error: "Task not found" };
 
     let ghlContactId: string | undefined;
@@ -2765,10 +2764,9 @@ async function runLegacyEntityPhases(
 ): Promise<{ ok: boolean; error?: string; counts: { deals: number; tasks: number; companies: number } }> {
   const counts = { deals: 0, tasks: 0, companies: 0 };
   if (flags.deals) {
-    const { data: deals } = await storage.getDeals({ limit: 500 });
-    const unsyncedDeals = deals.filter(d => !d.ghlOpportunityId && d.contactId);
+    const unsyncedDeals = await storage.getDealsPendingGhlSync(5);
     let dealsSynced = 0;
-    for (const deal of unsyncedDeals.slice(0, 5)) {
+    for (const deal of unsyncedDeals) {
       await assertOwnership();
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         tripCircuitThreshold("deals phase");

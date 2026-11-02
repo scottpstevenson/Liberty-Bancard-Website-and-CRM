@@ -183,6 +183,7 @@ export interface IStorage {
 
   getDeals(params?: PaginationParams): Promise<PaginatedResult<typeof deals.$inferSelect>>;
   getDeal(id: number): Promise<typeof deals.$inferSelect | undefined>;
+  getDealsPendingGhlSync(limit: number): Promise<typeof deals.$inferSelect[]>;
   getDealByGhlOpportunityId(ghlOpportunityId: string): Promise<typeof deals.$inferSelect | undefined>;
   getDealsByIds(ids: number[]): Promise<typeof deals.$inferSelect[]>;
   getDealsByContactIds(contactIds: number[]): Promise<typeof deals.$inferSelect[]>;
@@ -201,7 +202,7 @@ export interface IStorage {
   transitionAuthorityTicket(id: number, input: { toState: import("./storage/tasks").TaskAuthorityState; expectedFence: number; producer: string; eventKey: string; commandKey?: string; terminalReason?: string | null; canonicalAssignee?: string | null }): Promise<typeof tickets.$inferSelect | null>;
   updateTicket(id: number, ticket: UpdateTicketRequest): Promise<typeof tickets.$inferSelect | undefined>;
 
-  getTasks(opts?: { limit?: number; offset?: number }): Promise<typeof tasks.$inferSelect[]>;
+  getTasks(opts?: { limit?: number; offset?: number; taskId?: number }): Promise<typeof tasks.$inferSelect[]>;
   getTasksByDeal(dealId: number): Promise<typeof tasks.$inferSelect[]>;
   getTaskById(id: number): Promise<typeof tasks.$inferSelect | null>;
   getTaskByGhlTaskId(ghlTaskId: string): Promise<typeof tasks.$inferSelect | undefined>;
