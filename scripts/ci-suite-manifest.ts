@@ -195,6 +195,8 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     capability:"deterministic-integration",providerDenial:"private compiled client, real incoming-sync handlers and service on a disposable database with persisted production-sized runs; GHL contact pages come from an in-process fake, egress is denied by the fixture; outbound stays paused"},
   {name:"Stage 3 C5 Matched Client Performance",script:"scripts/test-stage3-c5-performance.ts",capability:"deterministic-integration",
     providerDenial:"Explicit disposable certification: serves the pre-C5 client (built locally into generated-artifacts) and the candidate against the same loopback API/DB; no provider calls"},
+  {name:"Stage 4D Matched Calendar Performance",script:"scripts/test-stage4d-calendar-performance.ts",capability:"deterministic-integration",
+    providerDenial:"Explicit disposable certification: serves the pre-4D client (built locally into generated-artifacts) and the candidate against the same loopback API/DB; no provider calls"},
   {name:"Stage 3 C5 Cutover Browser Smoke",script:"scripts/test-stage3-c5-browser.ts",
     isolateInfrastructure:true,
     capability:"deterministic-integration",providerDenial:"private compiled client, real sessions for admin/manager/agent, disposable database; every non-session API answers 501; navigation and read-only observation only; no write, send or provider path"},

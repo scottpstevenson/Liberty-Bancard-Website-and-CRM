@@ -298,7 +298,7 @@ rejects(() => assert.equal(String(good.id), "confirmed"), "treating a readback w
 
 // ── H. Static wiring ─────────────────────────────────────────────────────────────────────
 const panel = src("client/src/components/BookingCommandPanel.tsx");
-check(/button-booking-check-saved/.test(panel) && /\/api\/appointments\/booking\/command\//.test(panel) && /writePending\(storageKey, saved\)/.test(panel) && /purgeOtherScopes/.test(panel), "RC4B: the panel saves, restores and checks an unresolved command and clears other actors' entries");
+check(/button-\$\{testPrefix\}-check-saved/.test(panel) && /PendingRecovery/.test(panel) && /\/api\/appointments\/booking\/command\//.test(panel) && /writePending\(storageKey, saved\)/.test(panel) && /purgeOtherScopes/.test(panel), "RC4B: the panel saves, restores and checks an unresolved command and clears other actors' entries");
 check(/disabled=\{busy !== null \|\| pending !== null\}/.test(panel), "RC4B: a new preview cannot mint a replacement command while one is unresolved");
 const pendingShape = panel.split("interface PendingCommand")[1]?.split("\n")[0] ?? "";
 check(!/contact|phone|email|token|authorization/i.test(pendingShape) || /payloadHash/.test(pendingShape) && !/contactId|phone|email|authorization/i.test(pendingShape), "RC4B: the saved record holds only command identity and reviewed numbers");

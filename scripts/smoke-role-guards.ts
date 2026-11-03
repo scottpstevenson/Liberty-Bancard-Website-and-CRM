@@ -22,7 +22,7 @@ import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard"
 await assertDisposableTestInfrastructure({operation:"Role-guard mutation smoke",requireRedis:true});
 const { db } = await import("../server/db");
 import { users } from "../shared/models/auth";
-import { campaignSteps, campaigns, contacts, documents, followUpSequences, sequenceSteps } from "../shared/schema";
+import { campaignSteps, campaigns, contacts, documents, followUpSequences, sequenceSteps, partnerOrganizations, partnerOrgUsers } from "../shared/schema";
 import { eq, sql as drizzleSql } from "drizzle-orm";
 
 const crmOperationsSource = readFileSync(new URL("../server/routes/crm-operations.ts", import.meta.url), "utf8");
@@ -753,6 +753,61 @@ async function run(): Promise<void> {
       for (const [label, status, expected] of [["guessed command id is not found", guessed.status, [404]], ["malformed command id is rejected", malformed.status, [400]], ["merchant cannot read command status", merchantStatus.status, [403]], ["anonymous cannot read command status", anonStatus.status, [401]]] as const) {
         if (!(expected as readonly number[]).includes(status)) { console.log(`✗ booking status: ${label}: ${status}`); failures++; }
         else console.log(`✓ booking status: ${label}`);
+      }
+
+      // Resolve route: administrator only. Every other principal is denied before anything is written.
+      const resolveBody = JSON.stringify({ resolution: "not_created", note: "role guard probe" });
+      const resolveUrl = `${BASE_URL}/api/appointments/booking/command/${randomUUID()}/resolve`;
+      const postAs = (auth: { cookie: string; token: string } | null) => fetch(resolveUrl, { method: "POST", headers: { "content-type": "application/json", ...(auth ? { cookie: auth.cookie, "x-csrf-token": auth.token } : {}) }, body: resolveBody });
+      const receiptsBeforeResolve = await receiptCount();
+      for (const [label, response, expected] of [
+        ["resolve: manager denied", await postAs(managerAuth), [403]],
+        ["resolve: agent denied", await postAs(agentAuth), [403]],
+        ["resolve: merchant denied", await postAs(merchantAuth), [403]],
+        ["resolve: anonymous denied", await postAs(null), [401, 403]],
+      ] as Array<[string, Response, number[]]>) {
+        if (!expected.includes(response.status)) { console.log(`✗ booking ${label}: ${response.status}`); failures++; }
+        else console.log(`✓ booking ${label}`);
+      }
+      if (await receiptCount() !== receiptsBeforeResolve) { console.log("✗ booking: a denied resolve wrote a receipt"); failures++; }
+      else console.log("✓ booking: denied resolve requests wrote no receipt");
+
+      // A partner-organization session (a separate session system) is not a dashboard principal on any booking route.
+      const partnerSlug = `smoke-partner-${Date.now()}`;
+      const partnerPassword = `P-${randomUUID()}`;
+      const [partnerOrg] = await db.insert(partnerOrganizations).values({ name: "Smoke Partner", slug: partnerSlug, status: "active" }).returning();
+      const partnerEmail = `${partnerSlug}@example.test`;
+      await db.insert(partnerOrgUsers).values({ partnerOrgId: partnerOrg.id, email: partnerEmail, firstName: "Smoke", passwordHash: await bcrypt.hash(partnerPassword, 10), status: "active" });
+      try {
+        const loginResponse = await fetch(`${BASE_URL}/api/partner-org/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: partnerEmail, password: partnerPassword, slug: partnerSlug }) });
+        const sessionCookie = ((loginResponse.headers as unknown as { getSetCookie: () => string[] }).getSetCookie()).map(c => c.split(";")[0].trim()).filter(Boolean).join("; ");
+        if (loginResponse.status !== 200 || !sessionCookie) { console.log(`✗ booking partner fixture login failed: ${loginResponse.status}`); failures++; }
+        else {
+          const csrfResponse = await fetch(`${BASE_URL}/api/csrf-token`, { headers: { cookie: sessionCookie } });
+          const csrfToken = ((await csrfResponse.json().catch(() => ({}))) as { token?: string }).token ?? "";
+          const csrfCookie = ((csrfResponse.headers as unknown as { getSetCookie: () => string[] }).getSetCookie()).map(c => c.split(";")[0].trim()).filter(Boolean).join("; ");
+          const partnerCookie = csrfCookie ? `${sessionCookie}; ${csrfCookie}` : sessionCookie;
+          const partnerHeaders = { "content-type": "application/json", cookie: partnerCookie, "x-csrf-token": csrfToken };
+          const receiptsBeforePartner = await receiptCount();
+          const sessionOk = await fetch(`${BASE_URL}/api/partner-org/session`, { headers: { cookie: sessionCookie } });
+          console.log(sessionOk.status === 200 ? "✓ booking partner fixture: partner session is valid" : "✗ booking partner fixture: partner session not valid");
+          if (sessionOk.status !== 200) failures++;
+          for (const [label, path, method, body] of [
+            ["preview", "/api/appointments/booking/preview", "POST", { ...base, contactId: linked[0].id }],
+            ["execute", "/api/appointments/booking/execute", "POST", { ...base, contactId: linked[0].id, commandId, payloadHash: "x", expectedVersion: null }],
+            ["status", `/api/appointments/booking/command/${randomUUID()}`, "GET", undefined],
+            ["resolve", `/api/appointments/booking/command/${randomUUID()}/resolve`, "POST", { resolution: "not_created", note: "role guard probe" }],
+          ] as Array<[string, string, string, unknown]>) {
+            const response = await fetch(`${BASE_URL}${path}`, { method, headers: partnerHeaders, body: body === undefined ? undefined : JSON.stringify(body) });
+            if (![401, 403].includes(response.status)) { console.log(`✗ booking partner ${label} denied expected 401/403, got ${response.status}`); failures++; }
+            else console.log(`✓ booking partner ${label} denied (${response.status})`);
+          }
+          if (await receiptCount() !== receiptsBeforePartner) { console.log("✗ booking partner: a denied request wrote a command receipt"); failures++; }
+          else console.log("✓ booking partner: no denied request wrote a command receipt");
+        }
+      } finally {
+        await db.delete(partnerOrgUsers).where(eq(partnerOrgUsers.partnerOrgId, partnerOrg.id)).catch(() => undefined);
+        await db.delete(partnerOrganizations).where(eq(partnerOrganizations.id, partnerOrg.id)).catch(() => undefined);
       }
     }
 

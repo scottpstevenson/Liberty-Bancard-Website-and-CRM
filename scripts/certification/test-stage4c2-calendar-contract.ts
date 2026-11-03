@@ -125,7 +125,7 @@ const id1 = cmd();
 const done = await ex({ commandId: id1 });
 const replay = await ex({ commandId: id1 });
 check(done.state === "confirmed" && replay.state === "confirmed" && (replay as any).replay === true && writes === 1, "a repeated command replays its receipt and writes once");
-check((await ex({ commandId: cmd(), provider: mkProvider({ id: "appt-x", found: false }) })).state === "unconfirmed", "a write the provider cannot read back is unconfirmed, not booked");
+check((await ex({ actorId: "actor-unconfirmed", commandId: cmd(), provider: mkProvider({ id: "appt-x", found: false }) })).state === "unconfirmed", "a write the provider cannot read back is unconfirmed, not booked");
 const id2 = cmd();
 writes = 0;
 const lost = await ex({ commandId: id2, provider: mkProvider({ throws: true }) });
@@ -160,7 +160,7 @@ const exC = (provider: any) => booking.executeBookingCommand({ actorId: "actor-1
 check((await exC(mkProvider({}))).state === "unconfirmed", "a cancel whose readback is still booked is unconfirmed");
 check((await exC(mkProvider({ after: { status: "cancelled" } }))).state === "confirmed", "a cancel is confirmed when the readback shows cancelled");
 check((await booking.executeBookingCommand({ actorId: "actor-1", commandId: cmd(), expectedVersion: 100, reviewedPayloadHash: hashC, request: reqCancel, writerEnabled: true, provider: mkProvider({ before: { version: 7 } }) }, env)).state === "refused", "a cancel against a changed appointment version is refused");
-check((await ex({ commandId: cmd(), provider: mkProvider({ after: { startTime: "2026-11-10T09:00:00Z" } }) })).state === "unconfirmed", "a create whose readback times differ from the request is unconfirmed");
+check((await ex({ actorId: "actor-mismatch", commandId: cmd(), provider: mkProvider({ after: { startTime: "2026-11-10T09:00:00Z" } }) })).state === "unconfirmed", "a create whose readback times differ from the request is unconfirmed");
 check(/currentVersion/.test(read("server/routes/toolkit.ts")) && /readAppointment: readProviderAppointment/.test(read("server/routes/toolkit.ts")), "preview exposes the provider's current version and execute reads back through the same reader");
 
 // ── D3: identity, location and command-binding refusals (correction pass) ────────────────

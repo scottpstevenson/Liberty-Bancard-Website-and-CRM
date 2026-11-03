@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { pool } from "../db";
 import { runFollowupEffect, EffectBindingConflictError } from "./followup-effects";
 import { bookingForPurpose, type CalendarPurpose } from "./ghl-calendar-purpose";
 
@@ -80,12 +81,147 @@ export interface ProviderAppointment {
 export interface BookingExecuteInput {
   actorId: string; commandId: string; expectedVersion: number | null; reviewedPayloadHash: string;
   request: BookingRequest; writerEnabled: boolean; provider: BookingProvider;
+  /** Test seam only: lets a certification hold a request between its durable intent record and its receipt claim. */
+  hooks?: { afterIntentRecorded?: () => Promise<void> };
 }
 export type BookingExecuteResult =
-  | { state: "denied"; reason: string }
+  | { state: "denied"; reason: string; blockingCommandId?: string }
   | { state: "confirmed" | "unconfirmed" | "unknown" | "refused"; replay: boolean; appointmentId?: string; reason?: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+
+/** The reviewed bindings a trusted confirmation compares against. Provider contact ids are server-side only. */
+export interface BookingIntent {
+  operation: BookingOperation; calendarId: string; locationId: string; ghlContactId: string;
+  startTime?: string; endTime?: string; appointmentId?: string; payloadHash: string; expectedVersion: number | null; purpose: string;
+}
+
+/**
+ * Exact identity AND content: the record read back must name the same appointment, calendar, location and contact as the
+ * command, and carry the requested time (or cancelled status). A field the provider did not return is unconfirmed, never
+ * assumed to match. Raw provider readability alone is never confirmation.
+ */
+export function readbackConfirms(read: ProviderAppointment | null | undefined, appointmentId: string,
+  expect: { operation: BookingOperation; calendarId: string; locationId: string; ghlContactId: string; startTime?: string; endTime?: string }): boolean {
+  const sameInstant = (a?: string, b?: unknown) => {
+    const x = a ? Date.parse(a) : NaN, y = typeof b === "string" ? Date.parse(b) : NaN;
+    return Number.isFinite(x) && Number.isFinite(y) && x === y;
+  };
+  const sameIdentity = !!read?.found && read.id === appointmentId
+    && !!read.calendarId && read.calendarId === expect.calendarId
+    && !!read.locationId && read.locationId === expect.locationId
+    && !!read.contactId && read.contactId === expect.ghlContactId;
+  if (!sameIdentity) return false;
+  if (expect.operation === "cancel") return /cancel/i.test(read!.status ?? "");
+  return sameInstant(read!.startTime, expect.startTime) && sameInstant(read!.endTime, expect.endTime) && !/cancel/i.test(read!.status ?? "");
+}
+
+const RECOVERY_WINDOW_DAYS = 30;
+const IN_FLIGHT_GRACE_SECONDS = 120;
+
+/** Durable, server-side record of what was reviewed and executed (no secrets; provider ids stay server-side). */
+async function recordBookingIntent(client: { query: (q: string, v?: unknown[]) => Promise<any> }, commandId: string, actorId: string, intent: BookingIntent) {
+  const exists = await client.query(
+    `SELECT 1 FROM audit_logs WHERE action = 'booking_command_intent' AND entity_type = 'booking_command' AND entity_key = $1 LIMIT 1`, [commandId]);
+  if (exists.rows[0]) return;
+  await client.query(
+    `INSERT INTO audit_logs (user_id, action, entity_type, entity_key, details, actor_type, actor_id)
+     VALUES ($1, 'booking_command_intent', 'booking_command', $2, $3::jsonb, 'user', $1)`, [actorId, commandId, JSON.stringify(intent)]);
+}
+
+export async function recordBookingResolution(commandId: string, actorId: string, action: "booking_command_confirmed" | "booking_command_resolved", details: Record<string, unknown>) {
+  await pool.query(
+    `INSERT INTO audit_logs (user_id, action, entity_type, entity_key, details, actor_type, actor_id)
+     VALUES ($1, $2, 'booking_command', $3, $4::jsonb, 'user', $1)`, [actorId, action, commandId, JSON.stringify(details)]);
+}
+
+/**
+ * A create that was started but never confirmed, refused or explicitly resolved blocks any replacement create by the same
+ * actor. Different command ids do not deduplicate the same human intent, so the block is keyed on the actor.
+ */
+async function findUnresolvedCreate(client: { query: (q: string, v?: unknown[]) => Promise<any> }, actorId: string, exceptCommandId: string): Promise<string | null> {
+  const row = (await client.query(
+    `SELECT i.entity_key FROM audit_logs i
+      WHERE i.action = 'booking_command_intent' AND i.entity_type = 'booking_command' AND i.user_id = $1
+        AND i.details->>'operation' = 'create' AND i.entity_key <> $2
+        AND i.created_at > now() - ($3::int * interval '1 day')
+        AND NOT EXISTS (SELECT 1 FROM audit_logs r WHERE r.entity_type = 'booking_command' AND r.entity_key = i.entity_key
+                          AND r.action IN ('booking_command_confirmed', 'booking_command_resolved'))
+        AND NOT EXISTS (SELECT 1 FROM followup_effect_receipts f WHERE f.owner_kind = 'booking_command' AND f.owner_id = i.entity_key AND f.state = 'refused')
+      LIMIT 1`, [actorId, exceptCommandId, RECOVERY_WINDOW_DAYS])).rows[0];
+  return row ? String(row.entity_key) : null;
+}
+
+export type BookingConfirmation = "confirmed" | "mismatch" | "unreadable" | "no_reviewed_intent" | "not_applicable";
+export interface BookingReconciliation {
+  commandId: string; operation: string | null; appointmentId: string | null;
+  state: "accepted" | "refused" | "unknown" | "started"; confirmation: BookingConfirmation; resolved: boolean;
+  attempts: number; startedAt: unknown; settledAt: unknown; provider: unknown; sent: false;
+}
+
+/** Read-only reconcile of one command. null = not observed (no receipt, or not visible to this actor). Never sends or settles. */
+export async function reconcileBookingCommand(commandId: string, actor: { id: string; role: string }, readAppointment: (id: string) => Promise<ProviderAppointment | null>): Promise<BookingReconciliation | null> {
+  const row = (await pool.query(
+    `SELECT effect_key, channel, state, detail, attempt_count, created_at, settled_at FROM followup_effect_receipts
+      WHERE owner_kind = 'booking_command' AND owner_id = $1 ORDER BY created_at DESC LIMIT 1`, [commandId])).rows[0];
+  if (!row || (actor.role !== "admin" && !String(row.effect_key).startsWith(`booking_command:${actor.id}:`))) return null;
+  const [, operation, namedAppointment] = String(row.channel).match(/^calendar_([a-z]+)(?::(.+))?$/) ?? [];
+  const appointmentId = namedAppointment ?? (row.state === "accepted" ? row.detail : null);
+  const audit = (await pool.query(
+    `SELECT action, details FROM audit_logs WHERE entity_type = 'booking_command' AND entity_key = $1 ORDER BY id DESC`, [commandId])).rows;
+  const intent = audit.find((a: any) => a.action === "booking_command_intent")?.details as BookingIntent | undefined;
+  const resolved = audit.some((a: any) => a.action === "booking_command_resolved" || a.action === "booking_command_confirmed");
+  let provider: unknown = { checked: false };
+  let live: ProviderAppointment | null = null;
+  if (appointmentId && /^[A-Za-z0-9_-]{1,128}$/.test(appointmentId)) {
+    live = await readAppointment(appointmentId).catch(() => null);
+    provider = live ? { checked: true, ...live } : { checked: false, reason: "provider_unreadable" };
+  }
+  let confirmation: BookingConfirmation = "not_applicable";
+  if (row.state === "accepted") {
+    if (!intent) confirmation = "no_reviewed_intent";
+    else if (!live) confirmation = "unreadable";
+    else confirmation = readbackConfirms(live, appointmentId!, intent) ? "confirmed" : "mismatch";
+    if (confirmation === "confirmed" && !resolved) {
+      await recordBookingResolution(commandId, actor.id, "booking_command_confirmed", { via: "status_readback", appointmentId }).catch(() => undefined);
+    }
+  }
+  return {
+    commandId, operation: operation ?? null, appointmentId: appointmentId ?? null,
+    state: row.state === "accepted" ? "accepted" : row.state === "refused" ? "refused" : row.state === "started" ? "started" : "unknown",
+    confirmation, resolved: resolved || confirmation === "confirmed", attempts: row.attempt_count ?? 1, startedAt: row.created_at, settledAt: row.settled_at, provider, sent: false,
+  };
+}
+
+export type BookingResolutionResult = { ok: true } | { ok: false; status: number; reason: string };
+
+/**
+ * Explicit, recorded operator resolution for a command that trusted reconciliation cannot settle. "not_created" on a
+ * command with no receipt writes a fence receipt so a delayed original request can never claim it afterwards; it is
+ * refused while a receipt says accepted, or started within the in-flight grace period. Nothing is ever sent here.
+ */
+export async function resolveBookingCommand(commandId: string, actorId: string, resolution: "not_created" | "created_verified", note: string): Promise<BookingResolutionResult> {
+  const effectKey = `booking_command:${actorId}:${commandId}`;
+  const row = (await pool.query(
+    `SELECT state, created_at, EXTRACT(EPOCH FROM (now() - created_at)) AS age FROM followup_effect_receipts WHERE effect_key = $1`, [effectKey])).rows[0];
+  if (row?.state === "refused") return { ok: false, status: 409, reason: "already_refused" };
+  if (row?.state === "started" && Number(row.age) < IN_FLIGHT_GRACE_SECONDS) return { ok: false, status: 409, reason: "still_in_flight" };
+  if (resolution === "not_created" && row?.state === "accepted") return { ok: false, status: 409, reason: "receipt_says_accepted" };
+  if (resolution === "created_verified" && !row) return { ok: false, status: 409, reason: "no_receipt_to_verify" };
+  if (resolution === "not_created" && !row) {
+    // Fence: a refused receipt bound to a fingerprint no real request can produce. The original request then fails its
+    // claim with a binding conflict, before any provider I/O.
+    await pool.query(
+      `INSERT INTO followup_effect_receipts (effect_key, owner_kind, owner_id, channel, state, detail, request_fingerprint, settled_at)
+       VALUES ($1, 'booking_command', $2, 'calendar_create', 'refused', 'operator_resolved_not_created', $3, now()) ON CONFLICT (effect_key) DO NOTHING`,
+      [effectKey, commandId, `operator_fence:${commandId}`]);
+    const check = (await pool.query(`SELECT state FROM followup_effect_receipts WHERE effect_key = $1`, [effectKey])).rows[0];
+    if (check?.state !== "refused") return { ok: false, status: 409, reason: "command_started_concurrently" };
+  }
+  await recordBookingResolution(commandId, actorId, "booking_command_resolved", { resolution, note: note.slice(0, 300), receiptState: row?.state ?? "none" });
+  return { ok: true };
+}
 
 export async function executeBookingCommand(input: BookingExecuteInput, env: Record<string, string | undefined> = process.env): Promise<BookingExecuteResult> {
   if (!input.writerEnabled) return { state: "denied", reason: "booking_writer_not_enabled" };
@@ -100,6 +236,33 @@ export async function executeBookingCommand(input: BookingExecuteInput, env: Rec
   // The receipt key is bound to the whole reviewed intent (payload hash, location and expected version): reusing a command
   // id for a different intent is refused before any provider I/O.
   const requestFingerprint = crypto.createHash("sha256").update(`${preview.payloadHash}:${input.expectedVersion ?? "none"}`).digest("hex");
+  // Durable reviewed intent BEFORE any claim or provider I/O, serialized per actor with the unresolved-create check, so a
+  // replacement create cannot start while an earlier one is neither confirmed, refused nor explicitly resolved. A record
+  // that cannot be written is a denial with no provider call.
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`booking_create:${input.actorId}`]);
+      const blocking = preview.operation === "create" ? await findUnresolvedCreate(client, input.actorId, input.commandId) : null;
+      if (blocking) {
+        await client.query("ROLLBACK");
+        return { state: "denied", reason: "unresolved_prior_create", blockingCommandId: blocking };
+      }
+      await recordBookingIntent(client, input.commandId, input.actorId, {
+        operation: preview.operation, calendarId: String(preview.payload.calendarId), locationId: preview.locationId, ghlContactId: input.request.ghlContactId,
+        startTime: preview.payload.startTime as string | undefined, endTime: preview.payload.endTime as string | undefined,
+        appointmentId: input.request.appointmentId, payloadHash: preview.payloadHash, expectedVersion: input.expectedVersion, purpose: input.request.purpose,
+      });
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally { client.release(); }
+  } catch {
+    return { state: "denied", reason: "intent_record_unavailable" };
+  }
+  if (input.hooks?.afterIntentRecorded) await input.hooks.afterIntentRecorded();
   let outcome;
   try {
     outcome = await runFollowupEffect(
@@ -132,23 +295,10 @@ export async function executeBookingCommand(input: BookingExecuteInput, env: Rec
   // Readback: only the provider's own record confirms the write.
   if (!appointmentId) return { state: "unconfirmed", replay: outcome.replay, reason: "no_appointment_id_to_read_back" };
   const read = await input.provider.readAppointment(appointmentId).catch(() => null);
-  const sameInstant = (a?: string, b?: unknown) => {
-    const x = a ? Date.parse(a) : NaN, y = typeof b === "string" ? Date.parse(b) : NaN;
-    return Number.isFinite(x) && Number.isFinite(y) && x === y;
-  };
-  // Exact identity AND content: the record read back must name the same appointment, calendar, location and contact as the
-  // command, and carry the requested time (or cancelled status). A field the provider did not return is unconfirmed,
-  // never assumed to match.
-  const sameIdentity = !!read?.found
-    && read.id === appointmentId
-    && !!read.calendarId && read.calendarId === preview.payload.calendarId
-    && !!read.locationId && read.locationId === preview.locationId
-    && !!read.contactId && read.contactId === input.request.ghlContactId;
-  const matchesRequest = sameIdentity
-    && (preview.operation === "cancel"
-      ? /cancel/i.test(read!.status ?? "")
-      : sameInstant(read!.startTime, preview.payload.startTime) && sameInstant(read!.endTime, preview.payload.endTime)
-        && !/cancel/i.test(read!.status ?? ""));
-  const confirmed = matchesRequest;
+  const confirmed = readbackConfirms(read, appointmentId, {
+    operation: preview.operation, calendarId: String(preview.payload.calendarId), locationId: preview.locationId,
+    ghlContactId: input.request.ghlContactId, startTime: preview.payload.startTime as string | undefined, endTime: preview.payload.endTime as string | undefined,
+  });
+  if (confirmed) await recordBookingResolution(input.commandId, input.actorId, "booking_command_confirmed", { via: "execute_readback", appointmentId }).catch(() => undefined);
   return confirmed ? { state: "confirmed", replay: outcome.replay, appointmentId } : { state: "unconfirmed", replay: outcome.replay, appointmentId, reason: "readback_did_not_confirm" };
 }

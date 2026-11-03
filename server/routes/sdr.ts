@@ -12,7 +12,7 @@ import { getEnrollmentStatus, getWorkflowMappings, getInboxSmartListTags } from 
 import { buildGhlVoicePayload, getAllVoiceScripts, getVoiceScript, personalizeVoiceScript, resolveVoiceScriptForLead } from "../services/sdr/voice-orchestrator";
 import { bridgeContactsToBusinesses, getDedupeStats, ingestBusiness } from "../services/sdr/dedupe";
 import { getAllFlags, featureFlags } from "../services/feature-flags";
-import { validateWebhookSignature, getSdrGhlConfig, isSdrGhlConfigured, fetchCalendars } from "../services/sdr/ghl-client";
+import { validateWebhookSignature, validateWebhookRequest, getSdrGhlConfig, isSdrGhlConfigured, fetchCalendars } from "../services/sdr/ghl-client";
 import { handleContactUpdated, handleMessageReceived, handleCallOutcome, handleAppointmentBooked, handleAppointmentCanceled, handleOptOut, handleEmailBounce } from "../services/sdr/webhook-handlers";
 import { handleAppointmentShowed, handleAppointmentNoShow, handleAppointmentTimeChange } from "../services/sdr/scheduling";
 import { ghlWebhookReceiptMiddleware } from "../services/ghl-webhook-receipts";
@@ -735,7 +735,6 @@ export function registerSdrRoutes(app: Express) {
   // Replay window: 5 minutes (dateAdded/createdAt/timestamp / x-ghl-timestamp).
   app.use("/api/webhooks/ghl/", (req, res, next) => {
     const rawBody = getSdrWebhookRawBody(req);
-    const { validateWebhookRequest } = require("../services/sdr/ghl-client") as typeof import("../services/sdr/ghl-client");
     const result = validateWebhookRequest(rawBody, req.headers as Record<string, string | string[] | undefined>);
     if (!result.valid) {
       if (result.replayRejected) {

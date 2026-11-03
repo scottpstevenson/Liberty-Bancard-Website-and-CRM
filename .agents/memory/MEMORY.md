@@ -26,7 +26,6 @@
 - [GHL data-sync authority](ghl-data-sync-authority.md) — One-way GHL-to-production contact sync; no GHL record writes, and outbound communications stay paused.
 - [GHL appointment calendar](ghl-appointment-calendar.md) — User selected Sales Meeting for appointment reads; keep selection independent of outbound booking configuration.
 - [Enrichment worker OOM crash](enrichment-oom.md) — fix needs all 3: re-entrancy flags on enrichment batches, capped streaming body reads, SUNBIZ_ENRICHMENT_ENABLED gating (prod-default).
-- [Wave 10 draft persistence](wave10-draft-persistence.md) — Draft hash; never autosave EIN/SSN/bank. Final dedupe is EIN-only; prefill Map TTL is 24h.
 - [Finalize IIFE contact lookup](finalize-iife-contact-lookup.md) — Avoid limit-1000 lookup; select by email and capture req.ip before IIFE.
 - [Compliance scanner allowlist design](compliance-scanner-allowlist.md) — Require per-site CALL_SITE_ALLOWLIST; skip definition lines and classify non-email sends.
 - [Discovery vertical classification mapping](discovery-vertical-mapping.md) — coarse classifyVertical() bucket and canonical normalizeDiscoveryVertical() output are separate on purpose.
@@ -60,7 +59,6 @@
 - [Test fixture isolation](test-contact-prefixes.md) — Prefix/FK rules; [unique phones/EINs](test-phone-isolation.md) and [GHL cleanup](ghl-test-contact-cleanup.md).
 - [Processor boarding authority pattern](processor-boarding-authority.md) — activation snapshot is the single gate for all provider I/O; MIDs masked in every response.
 - [Equipment Shipments Device Fields](equipment-shipments-device-fields.md) — device_type/serial_number; POST/PATCH/GET /api/boarding/equipment CRUD; merchant_mids IS the master MID registry.
-- [Pre-deploy gate quirks](appointment-statement-polling-fix.md) — GHL fix: pollUntil(12s); see [predeploy-port-5000-conflict.md](predeploy-port-5000-conflict.md): dev owns port 5000.
 - [Outbound Pause Authority](outbound-pause-authority.md) — canonical pause authority must initialize successfully before workers start.
 - [Queue Coordinator & Hold Ledger](queue-coordinator-hold-ledger.md) — durable holds retain pause causality; unpause recovery must not bypass physical actuation boundaries.
 - [ZeroBounce validation safety](zerobounce-validation-safety.md) — Canonical predicates and retryable-failure guard; attempts table is claim/source of truth.
@@ -197,5 +195,6 @@
 - [Follow-up effect receipts](followup-effect-receipts.md) — receipt before I/O; delivered only when accepted; occurrence-keyed runs; booking writer default-denied.
 - [SMS recipient authority](sms-recipient-authority.md) — one canonical consent+number decision right before every text in every transport; legacy flags never authority.
 - [Browser suite query-cache and overlays](browser-suite-query-cache-and-overlays.md) — reload after fixture env changes (stale cache hides state); floating assistant covers bottom-right controls.
-- [Stage 4C2 correction lessons](stage4c2-correction-lessons.md) — one statement owner, audit key `owner` is masked, halt-after-failed-send fixtures, roster registration, browser rebuild rule.
 - [Stage 4D reliability patterns](stage4d-reliability-patterns.md) — atomic inbound evidence, atomic reply-stop pause, non-sending hold expiry, full-number SMS identity, local-contact-only booking create.
+- [Stage 4D reliability patterns](stage4d-reliability-patterns.md) — writer-flag jsonb read-back trap, transport-gate refusal, build-identity rebuilds, sdr.ts ESM require.
+- [Pre-deploy gate quirks](appointment-statement-polling-fix.md) — GHL fix: pollUntil(12s); see [predeploy-port-5000-conflict.md](predeploy-port-5000-conflict.md): dev owns port 5000.

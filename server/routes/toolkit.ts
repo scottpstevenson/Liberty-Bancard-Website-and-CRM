@@ -499,42 +499,47 @@ export function registerToolkitRoutes(app: Express, readerDependencies?: {
           readAppointment: readProviderAppointment,
         },
       });
-      res.status(result.state === "denied" ? (result.reason === "command_id_bound_to_different_request" ? 409 : 403) : 200).json(result);
+      res.status(result.state === "denied" ? (result.reason === "command_id_bound_to_different_request" || result.reason === "unresolved_prior_create" ? 409 : result.reason === "intent_record_unavailable" ? 503 : 403) : 200).json(result);
     } catch (err: any) {
       console.error("[Booking command] error:", err.message);
       res.status(503).json({ state: "unavailable", message: "Booking command unavailable" });
     }
   });
 
-  // Read-only status/reconcile for one booking command: the durable receipt (state, attempts) plus, when the command
-  // names an appointment, the provider's current record. It never sends, retries or settles anything.
+  // Read-only status/reconcile for one booking command: the durable receipt plus an exact provider readback compared with
+  // the reviewed intent recorded before execution. It never sends, retries or settles anything. 404 means only "not
+  // observed" (no receipt yet or not visible to you): it is not proof that nothing was or will be sent.
   app.get("/api/appointments/booking/command/:commandId", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const commandId = String(req.params.commandId);
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(commandId)) return res.status(400).json({ message: "Invalid command id" });
       const actor = req.user as any;
-      const row = (await (await import("../db")).pool.query(
-        `SELECT effect_key, channel, state, detail, attempt_count, created_at, settled_at FROM followup_effect_receipts
-          WHERE owner_kind = 'booking_command' AND owner_id = $1 ORDER BY created_at DESC LIMIT 1`, [commandId])).rows[0];
-      // A manager sees only their own commands; an admin sees any. A command that is not visible is "not found".
-      if (!row || (actor?.role !== "admin" && !String(row.effect_key).startsWith(`booking_command:${actor?.id}:`))) {
-        return res.status(404).json({ message: "Not found" });
-      }
-      const [, operation, namedAppointment] = String(row.channel).match(/^calendar_([a-z]+)(?::(.+))?$/) ?? [];
-      const appointmentId = namedAppointment ?? (row.state === "accepted" ? row.detail : null);
-      let provider: unknown = { checked: false };
-      if (appointmentId && /^[A-Za-z0-9_-]{1,128}$/.test(appointmentId)) {
-        const live = await readProviderAppointment(appointmentId).catch(() => null);
-        provider = live ? { checked: true, ...live } : { checked: false, reason: "provider_unreadable" };
-      }
-      res.json({
-        commandId, operation: operation ?? null, appointmentId: appointmentId ?? null,
-        state: row.state === "accepted" ? "accepted" : row.state === "refused" ? "refused" : "unknown",
-        attempts: row.attempt_count ?? 1, startedAt: row.created_at, settledAt: row.settled_at, provider, sent: false,
-      });
+      const { reconcileBookingCommand } = await import("../services/ghl-booking-command");
+      const result = await reconcileBookingCommand(commandId, { id: String(actor?.id ?? ""), role: String(actor?.role ?? "") }, readProviderAppointment);
+      if (!result) return res.status(404).json({ message: "Not observed", observed: false });
+      res.json(result);
     } catch (err: any) {
       console.error("[Booking command status] error:", err.message);
       res.status(503).json({ message: "Command status unavailable" });
+    }
+  });
+
+  // Explicit recorded resolution for a command trusted reconciliation cannot settle (admin only, audited, sends nothing).
+  app.post("/api/appointments/booking/command/:commandId/resolve", isDashboardUser, requireRole("admin"), async (req, res) => {
+    try {
+      const commandId = String(req.params.commandId);
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(commandId)) return res.status(400).json({ message: "Invalid command id" });
+      const resolution = req.body?.resolution;
+      if (resolution !== "not_created" && resolution !== "created_verified") return res.status(400).json({ message: "resolution must be not_created or created_verified" });
+      const note = typeof req.body?.note === "string" ? req.body.note.trim() : "";
+      if (note.length < 5) return res.status(400).json({ message: "A note saying what was checked is required" });
+      const { resolveBookingCommand } = await import("../services/ghl-booking-command");
+      const result = await resolveBookingCommand(commandId, String((req.user as any)?.id ?? ""), resolution, note);
+      if (!result.ok) return res.status(result.status).json({ message: result.reason, reason: result.reason });
+      res.json({ resolved: true, resolution, sent: false });
+    } catch (err: any) {
+      console.error("[Booking command resolve] error:", err.message);
+      res.status(503).json({ message: "Resolution unavailable" });
     }
   });
 

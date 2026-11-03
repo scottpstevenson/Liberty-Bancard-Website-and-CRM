@@ -650,8 +650,12 @@ server.close();
   check((await ev("updated", 5)).applied, "First appointment event is recorded");
   check((await ev("rescheduled", 3)).reason === "stale", "An older event never overwrites a newer one (reordered delivery)");
   check((await ev("rescheduled", 7, { startTime: t(30) })).applied, "A newer reschedule is applied");
-  check((await ev("booked", 9)).applied === true && (await ev("booked", 9)).reason === "replay",
+  // A legitimate booked event names its start time (the handler rejects one that does not; see the separate refusal case).
+  check((await ev("booked", 9, { startTime: t(30) })).applied === true && (await ev("booked", 9, { startTime: t(30) })).reason === "replay",
     "A booked event after updates owns the one-time booked effect exactly once; a repeat is a replay");
+  const missingStart = await appointments.recordGhlAppointmentEvent({ kind: "booked", payload: { appointmentId: `${aid}-nostart`, locationId: "loc_cert_fake", contactId: "gc1", dateUpdated: t(9) }, ...base });
+  check(missingStart.applied !== true && missingStart.reason === "missing_start_time" && !(await pool.query(`SELECT 1 FROM ghl_appointment_state WHERE appointment_id=$1`, [`${aid}-nostart`])).rows[0],
+    "A booked event with no start time is rejected as missing_start_time and records no appointment state");
   check((await ev("canceled", 10)).applied, "Cancel is applied");
   check((await ev("updated", 20)).reason === "terminal", "A late update cannot revive a canceled appointment");
   const row = (await pool.query(`SELECT status, reschedule_count FROM ghl_appointment_state WHERE appointment_id=$1`, [aid])).rows[0];
@@ -890,10 +894,12 @@ server.close();
   check((await rec("updated", ok({ appointmentId: `${aid}-nt` }))).reason === "missing_event_time", "A missing event time is rejected, never defaulted to the arrival time");
   check((await dec("booked", ok({ appointmentId: `${aid}-dt` }))).decision === "rejected", "The pre-handler decision also rejects an event with no event time");
   check((await dec("showed", ok({ dateUpdated: t(0) }))).decision === "stale", "A stale lifecycle event is decided before any handler runs");
-  check((await dec("booked", ok({ dateUpdated: t(2) }))).decision === "apply", "A booked event that arrives after an update still owns its one-time handler");
+  check((await dec("booked", ok({ dateUpdated: t(2), startTime: t(40) }))).decision === "apply", "A booked event that arrives after an update still owns its one-time handler");
+  const decMissingStart = await dec("booked", ok({ dateUpdated: t(2) }));
+  check(decMissingStart.decision === "rejected" && (decMissingStart as any).reason === "missing_start_time", "The pre-handler decision rejects a booked event with no start time (separate refusal case; the handler is not relaxed)");
   check((await dec("updated", ok({ dateUpdated: t(1) }))).decision === "replay", "An exact replay is recognised before any effect");
   check((await rec("canceled", ok({ dateUpdated: t(5) }))).applied, "Cancel is recorded");
-  check((await dec("showed", ok({ dateUpdated: t(9) }))).decision === "terminal" && (await dec("booked", ok({ dateUpdated: t(9) }))).decision === "terminal",
+  check((await dec("showed", ok({ dateUpdated: t(9) }))).decision === "terminal" && (await dec("booked", ok({ dateUpdated: t(9), startTime: t(40) }))).decision === "terminal",
     "After a terminal state no booked/showed handler may run");
   check((await dec("canceled", ok({ dateUpdated: t(5) }))).decision === "replay", "A replayed terminal event is a replay, not a second cancellation");
   const sdrSrc = readFileSync("server/routes/sdr.ts", "utf8");
@@ -1762,7 +1768,8 @@ server.close();
     const t = (n: number) => new Date(Date.UTC(2026, 9, 24, 15, n)).toISOString();
     let evSeq = 0;
     const delivery = async (kind: "booked" | "updated" | "canceled", payload: Record<string, unknown>, handler?: (p: any) => Promise<void>) => {
-      const body = { eventId: `h6-${run}-${++evSeq}`, locationId: "loc_cert_fake", ...payload };
+      // A booking names its start time (the handler rejects one that does not); fixtures supply a valid one.
+      const body = { eventId: `h6-${run}-${++evSeq}`, locationId: "loc_cert_fake", ...(kind === "booked" ? { startTime: t(30) } : {}), ...payload };
       const occ = receipts.ghlWebhookOccurrence(`appointment-${kind}`, body);
       const claim = await receipts.claimGhlWebhookReceipt(occ.eventKey, `appointment-${kind}`, { ...receipts.extractReceiptMeta(body), payloadFingerprint: occ.fingerprint }, occ.legacyEventKey);
       assert(claim.decision === "process", `delivery claim ${claim.decision}`);
@@ -1786,7 +1793,7 @@ server.close();
     // Reproduced case 5: a booked event that arrives after an update, then repeats.
     {
       const m = await mkMerchant(); const aid = `h6a-${run}`;
-      const base = { appointmentId: aid, contactId: m.ghl, calendarId: "cal_x" };
+      const base = { appointmentId: aid, contactId: m.ghl, calendarId: "cal_x", startTime: t(30) };
       await delivery("updated", { ...base, dateUpdated: t(5) });
       const v1 = await delivery("booked", { ...base, dateUpdated: t(3) }, handlers.handleAppointmentBooked);
       const v2 = await delivery("booked", { ...base, dateUpdated: t(3) }, handlers.handleAppointmentBooked);
@@ -1877,6 +1884,11 @@ server.close();
         }
         return prevResponder(call);
       };
+      // The request body carries only the provider's documented field (eventStartTime); the stable effect identity and the
+      // attempt count live in the durable handoff dispatch ledger, which is what a retry consults before sending.
+      const ledger = async (ghl: string) => (await pool.query(
+        `SELECT idempotency_key, workflow_key, state, attempt_count FROM ghl_workflow_handoff_dispatches WHERE ghl_contact_id = $1 ORDER BY started_at`, [ghl])).rows as Array<{ idempotency_key: string; workflow_key: string; state: string; attempt_count: number }>;
+      const documentedBodyOnly = (b: any) => !!b && Object.keys(b).every(k => k === "eventStartTime");
       const setPause = async (paused: boolean) => {
         await pool.query(`UPDATE outbound_pause_control SET state=$1, committed_at=NOW()`, [paused ? "paused" : "unpaused"]);
         pauseAuth.invalidatePauseStateCache();
@@ -1962,18 +1974,20 @@ server.close();
         const b3 = bookedBody(p3.ghl, "accepted");
         const w3 = wf.length;
         const d3 = await deliverFixed("booked", b3, webhookHandlers.handleAppointmentBooked);
-        check(d3.decision === "applied" && wf.length === w3 + 1 && wf[w3].body.idempotencyKey === `${d3.receiptId}:booked:enroll_booking_confirmation` && wf[w3].body.attempt === 1
+        check(d3.decision === "applied" && wf.length === w3 + 1 && documentedBodyOnly(wf[w3].body)
+          && (await ledger(p3.ghl)).length === 1 && (await ledger(p3.ghl))[0].state === "accepted" && (await ledger(p3.ghl))[0].attempt_count === 1 && (await ledger(p3.ghl))[0].workflow_key === "booking_confirmation"
           && !(await deferredRow(p3.ghl)) && !(await heldEvent(p3.m!.id)),
-          "C: an accepted handoff is one provider request carrying the stable {receiptId, stepKey, attempt} identity, with no deferral and no held event");
+          "C: an accepted handoff is one provider request (documented field only) recorded once in the durable dispatch ledger as accepted attempt 1, with no deferral and no held event");
         const p3b = await mkPair(false);
         const w3b = wf.length;
         const d3b = await deliverFixed("booked", bookedBody(p3b.ghl, "crm-only"), webhookHandlers.handleAppointmentBooked);
-        check(d3b.decision === "applied" && wf.length === w3b + 1 && wf[w3b].body.idempotencyKey === `${d3b.receiptId}:booked:crm_appointment_workflow`,
-          "C: a CRM contact with no SDR merchant is handed off by the CRM step under its own stable identity");
+        check(d3b.decision === "applied" && wf.length === w3b + 1 && documentedBodyOnly(wf[w3b].body)
+          && (await ledger(p3b.ghl)).length === 1 && (await ledger(p3b.ghl))[0].state === "accepted",
+          "C: a CRM contact with no SDR merchant is handed off once by the CRM step and recorded as accepted in the dispatch ledger");
         // cancellation after acceptance: the accepted enrollment is not repeated and nothing is owed
         const w3c = wf.length;
         const c3 = await deliverFixed("canceled", { eventId: `h6c3-${run}-accepted-cancel`, locationId: "loc_cert_fake", appointmentId: b3.appointmentId, contactId: p3.ghl, calendarId: "cal_x", dateUpdated: t(6) }, webhookHandlers.handleAppointmentCanceled);
-        check(c3.decision === "applied" && wf.filter((w, i) => i >= w3c && w.body?.idempotencyKey?.includes("booked:")).length === 0 && !(await deferredRow(p3.ghl)),
+        check(c3.decision === "applied" && wf.length === w3c && (await ledger(p3.ghl)).length === 1 && (await ledger(p3.ghl))[0].state === "accepted" && !(await deferredRow(p3.ghl)),
           "C: a cancellation after the provider accepted the booking handoff repeats nothing and leaves nothing owed");
 
         // 4. lost response: unknown outcome, owned by the recovery job, not an error and not a silent success.
@@ -2003,8 +2017,9 @@ server.close();
         mode.value = "ok";
         const w5 = wf.length;
         const r5 = await deliverFixed("booked", b5, webhookHandlers.handleAppointmentBooked, { accept: false });
-        check(r5.decision === "applied" && wf.length === w5 + 1 && wf[w5].body.idempotencyKey === `${d5.receiptId}:booked:enroll_booking_confirmation` && wf[w5].body.attempt === 2,
-          "C: the retry re-runs only the failed step under the same identity with the attempt counted");
+        check(r5.decision === "applied" && wf.length === w5 + 1 && documentedBodyOnly(wf[w5].body)
+          && (await ledger(p5.ghl)).length === 1 && (await ledger(p5.ghl))[0].state === "accepted" && (await ledger(p5.ghl))[0].attempt_count === 2,
+          "C: the retry re-runs only the refused handoff under the same ledger identity with the attempt counted (refused attempt 1, accepted attempt 2)");
 
         // 6. local completion failure after provider acceptance: retry repeats the call under the SAME identity (provider-idempotent).
         const p6 = await mkPair();
@@ -2021,7 +2036,7 @@ server.close();
         try { d6 = await deliverFixed("booked", b6, webhookHandlers.handleAppointmentBooked); } finally { (pool as any).query = realQuery; }
         check(d6.decision === "failed" && /injected completion failure/.test(d6.error ?? "") && wf.length === w6 + 1, "C: a local completion failure after provider acceptance fails the receipt");
         const r6 = await deliverFixed("booked", b6, webhookHandlers.handleAppointmentBooked, { accept: false });
-        const sameKey = wf.slice(w6).every(w => w.body.idempotencyKey === `${d6.receiptId}:booked:enroll_booking_confirmation`);
+        const sameKey = (await ledger(p6.ghl)).length === 1 && (await ledger(p6.ghl))[0].state === "accepted" && (await ledger(p6.ghl))[0].attempt_count === 1;
         check(r6.decision === "applied" && wf.length === w6 + 1 && sameKey,
           "C: the retry after a local completion failure does not send a second enrollment (the dispatch ledger holds the accepted handoff)");
 

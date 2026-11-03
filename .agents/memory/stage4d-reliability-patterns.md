@@ -1,13 +1,13 @@
 ---
-name: Stage 4D reliability patterns
-description: Durable rules from the inbound-evidence, reply-stop pause, held-expiry, SMS identity and booking-create repairs.
+name: Stage 4D reliability and certification patterns
+description: Durable lessons from booking recovery, signed-reply journeys, browser suites and fixture traps
 ---
-- Inbound reply evidence is written through the effect-receipt transaction (receipt + communication event commit together); every webhook alias (generic, SDR message, SDR bounce) uses the same canonical identity key so aliases converge.
-- Reply-stop/bounce pause and its audit commit in one transaction; audit only when rows really changed; the returned count is the real changed count.
-- Held GHL enrollments expire through a non-sending sweep that also runs while the system is paused; it never claims, retry-counts or calls a provider. An old test that required the paused worker to leave an expired hold pending was intentionally replaced.
-- Direct SMS transport re-reads the provider contact number every attempt and compares the full normalized number; unreadable = transient, mismatch = transport identity (never a consent withdrawal).
-- Provider booking create requires an authorized local contact already linked to a provider id; the browser pending record keeps only command identity and reviewed numbers, never contact names or ids.
-**Why:** Stage 4D closed narrow gaps left by 4C2; the booking pending-record rule is asserted by an older certification.
-**How to apply:** keep these invariants when touching inbound webhooks, pause paths, deferred enrollments or the Calendar create console. Native acceptance stays blocked until an owner-authorized protected test path exists.
-- Scanners recognize reviewed scoped senders (partner invite, inbound ack, protected seed) only while every gate marker is still in the file (shared registry), never by file name; the seed stays classed as cold outreach, not internal. Voicemail SMS passes only through the canonical SMS recipient decision gating the call.
-- Completion discipline: do not mark a staged spec complete while rosters, browser runs, journey matrix or evidence docs are unrun; state partial/open items explicitly. Suites not in a runner's registered list fail with "Unknown suite script path" — register them rather than running outside the disposable launcher. Background batches must write logs under the workspace (generated-artifacts/), because /tmp can be cleared.
+- Booking create: server is the recovery authority (durable intent row before provider I/O; same-actor unresolved create blocks a replacement). Tests need distinct actors. Browser localStorage is convenience only.
+- `ghl_booking_writer_enabled` is read via Drizzle jsonb, which JSON-parses a second time. Only a double-encoded jsonb string reads as "true"; plain jsonb "true" or boolean reads as boolean and stays DENIED. Fixtures use `to_jsonb('"true"'::text)`.
+- Writer on is not enough to reach a provider: `authorizeGhlCrmOperation` also needs runtime selection, native review and an operation allowlist. A browser journey with the writer on correctly ends `refused: runtime_not_selected`; assert that, not a confirmed write.
+- `server/routes/sdr.ts` must not use `require()` (undefined under ESM tsx tests; prod CJS bundle hid it). Specialized message-received STOP must withdraw consent with the generic path's event key so aliases converge.
+- Editing anything under `scripts/` or `client/` changes the candidate build identity: run `npm run build` (foreground) before each browser suite rerun. Long suites go in a background script file.
+- Disposable runner only accepts scripts registered in pre-deploy; check the exact path (certification/ subdir) before running.
+- Matched perf baseline: `git archive <commit>` to a temp dir, copy `attached_assets` contents (not tracked fully), `npx vite build`, copy `dist/public`. Delete the 2 GB temp dir afterwards.
+**Why:** each cost one or more failed reruns. **How to apply:** before writing browser/journey fixtures for booking or webhooks.
+Related: see stage4c2-correction-lessons.md (one statement owner, masked audit key, halt-after-failed-send fixtures).

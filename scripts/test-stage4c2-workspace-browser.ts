@@ -456,7 +456,7 @@ try {
   await until(async () => (await count(`[data-testid="button-event-details-appointment_${s1}"]`)) === 1, "s1 item for the saved command");
   await b.click(`[data-testid="button-event-details-appointment_${s1}"]`);
   await until(async () => (await count('[data-testid="drawer-booking-command"]')) === 1, "booking panel for the saved command");
-  const savedKey = await b.evaluate(`(async()=>{const u=await (await fetch('/api/auth/user')).json();return 'liberty.booking-command.v1:'+u.id+':'+(u.accountVersion??0)+':x:'+${JSON.stringify(s1)}})()`) as string;
+  const savedKey = await b.evaluate(`(async()=>{const u=await (await fetch('/api/auth/user')).json();return 'liberty.booking-command.v1:'+u.id+':'+${JSON.stringify(s1)}})()`) as string;
   await b.evaluate(`localStorage.setItem(${JSON.stringify(savedKey)},JSON.stringify(${JSON.stringify({ commandId: savedCmd, operation: "reschedule", payloadHash: savedPreview.payloadHash, expectedVersion: PROVIDER_VERSION, start: "", durationMinutes: "30", savedAt: Date.now() })}))`);
   await b.evaluate(`location.reload()`);
   // The open drawer is part of the URL state, so it reopens by itself after a reload.
@@ -469,16 +469,26 @@ try {
   await until(async () => /Still unknown/.test(await text('[data-testid="booking-notice"]')), "saved command check answer");
   check((await count('[data-testid="booking-pending-saved"]')) === 1 && (await sideEffects()).f === receiptsBeforeCheck && h.externalCalls() === 0,
     "\"Check saved result\" reads the recorded state only: the unknown command stays saved, nothing is retried and no provider is called");
-  // A saved id with no server record resolves to "nothing was sent" and is cleared.
-  await b.evaluate(`localStorage.setItem(${JSON.stringify(savedKey)},JSON.stringify(${JSON.stringify({ commandId: uuid(), operation: "reschedule", payloadHash: savedPreview.payloadHash, expectedVersion: PROVIDER_VERSION, start: "", durationMinutes: "30", savedAt: Date.now() })}))`);
+  // A saved id with no server record is "not observed". That is NOT proof nothing was sent: it stays saved (no 404 clear).
+  const unseenCmd = uuid();
+  await b.evaluate(`localStorage.setItem(${JSON.stringify(savedKey)},JSON.stringify(${JSON.stringify({ commandId: unseenCmd, operation: "reschedule", payloadHash: savedPreview.payloadHash, expectedVersion: PROVIDER_VERSION, start: "", durationMinutes: "30", savedAt: Date.now() - 3 * 24 * 3600 * 1000 })}))`);
   await b.evaluate(`location.reload()`);
   // The open drawer is part of the URL state, so it reopens by itself after a reload.
   await until(async () => (await count('[data-testid="drawer-booking-command"]')) === 1 || (await count(`[data-testid="button-event-details-appointment_${s1}"]`)) === 1, "s1 after second reload");
   if ((await count('[data-testid="drawer-booking-command"]')) !== 1) await b.click(`[data-testid="button-event-details-appointment_${s1}"]`);
-  await until(async () => (await count('[data-testid="button-booking-check-saved"]')) === 1, "second saved command restored");
+  await until(async () => (await count('[data-testid="button-booking-check-saved"]')) === 1, "second saved command restored (three days old: no expiry)");
   await b.click('[data-testid="button-booking-check-saved"]');
-  await until(async () => (await count('[data-testid="booking-pending-saved"]')) === 0, "unknown-to-server saved command cleared");
-  check(await b.evaluate(`localStorage.getItem(${JSON.stringify(savedKey)})`) === null, "negative control: a saved command the server has no record of is cleared and never replayed");
+  await until(async () => /Not observed/.test(await text('[data-testid="booking-notice"]')), "not-observed answer");
+  check((await count('[data-testid="booking-pending-saved"]')) === 1 && await b.evaluate(`localStorage.getItem(${JSON.stringify(savedKey)})`) !== null && !/nothing was sent/i.test(await text('[data-testid="booking-notice"]')),
+    "negative control: a saved command the server has not observed is NOT cleared by the 404, is not described as unsent, and survives three days");
+  check((await count('[data-testid="booking-resolution"]')) === 1 && (await count('[data-testid="button-booking-resolve"]')) === 1 && await b.evaluate(`document.querySelector('[data-testid="button-booking-resolve"]').disabled`) === true,
+    "an administrator is offered a recorded resolution, disabled until a note says what was checked");
+  const receiptsBeforeResolve = (await sideEffects()).f;
+  await b.evaluate(`(()=>{const el=document.querySelector('[data-testid="booking-resolution-note"]');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(el,'checked the provider calendar; nothing there');el.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await b.click('[data-testid="button-booking-resolve"]');
+  await until(async () => (await count('[data-testid="booking-pending-saved"]')) === 0, "recorded resolution releases the saved command");
+  check(await b.evaluate(`localStorage.getItem(${JSON.stringify(savedKey)})`) === null && h.externalCalls() === 0 && (await sideEffects()).f === receiptsBeforeResolve + 1,
+    "a recorded resolution releases the saved command, writes only the operator fence receipt and calls no provider");
   await b.evaluate(`localStorage.removeItem(${JSON.stringify(savedKey)})`);
   await b.evaluate(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
 
@@ -550,6 +560,130 @@ try {
     "browsing, filtering and previewing created no outbound message, workflow run or appointment state");
   check(b.exceptions.length === 0, "no uncaught browser exceptions");
   check(h.externalCalls() === 0, "no external provider egress (the provider read was the injected fixture)");
+
+  // ── 10. Stage 4D R1/R2: the filled create journey (create -> preview -> fake execute -> reload) and the zoned-time guard ──
+  // The provider is a counting fake behind the real transport, pause authority, receipts and reconcile code. The writer flag and
+  // the pause are changed on the DISPOSABLE database only and restored afterwards. No request leaves the process.
+  {
+    const pauseAuth = await import("../server/services/outbound-pause-authority.ts");
+    const tokenBefore = process.env.GHL_PRIVATE_INTEGRATION_TOKEN;
+    process.env.GHL_PRIVATE_INTEGRATION_TOKEN ||= "cert-token";
+    const writerBefore = (await h.pool.query(`SELECT value FROM system_settings WHERE key='ghl_booking_writer_enabled'`)).rows[0]?.value ?? null;
+    const pauseBefore = (await h.pool.query(`SELECT state FROM outbound_pause_control LIMIT 1`)).rows[0]?.state as string | undefined;
+    const GHL_HOST = "https://services.leadconnectorhq.com";
+    const providerLog: Array<{ method: string; path: string; body: any }> = [];
+    let created: any = null;
+    const createdId = `appt-created-${tag}`;
+    const fetchBefore = globalThis.fetch;
+    const jsonResponse = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    globalThis.fetch = (async (input: any, init?: any) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input?.url ?? "";
+      if (!url.startsWith(GHL_HOST)) return fetchBefore(input, init);
+      const pathOnly = url.slice(GHL_HOST.length).split("?")[0];
+      const method = String(init?.method ?? "GET").toUpperCase();
+      let body: any = null; try { body = typeof init?.body === "string" ? JSON.parse(init.body) : null; } catch { body = null; }
+      providerLog.push({ method, path: pathOnly, body });
+      if (method === "POST" && pathOnly === "/calendars/events/appointments") { created = body; return jsonResponse({ id: createdId }); }
+      if (method === "GET" && pathOnly === `/calendars/events/appointments/${createdId}` && created) {
+        return jsonResponse({ appointment: { id: createdId, appointmentStatus: "confirmed", calendarId: created.calendarId, contactId: created.contactId,
+          locationId: created.locationId, startTime: created.startTime, endTime: created.endTime, dateUpdated: new Date().toISOString() } });
+      }
+      if (method === "GET" && pathOnly === `/calendars/${SALES_ID}`) return jsonResponse({ calendar: { id: SALES_ID, slotDuration: 30, slotDurationUnit: "mins" } });
+      return new Response(JSON.stringify({ message: "fixture: unexpected provider request" }), { status: 404, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    try {
+      await h.pool.query(`INSERT INTO system_settings(key,value) VALUES('ghl_booking_writer_enabled', to_jsonb('"true"'::text)) ON CONFLICT (key) DO UPDATE SET value=to_jsonb('"true"'::text)`);
+      // Representation matters: drizzle parses a jsonb string once more on read, so only the double-encoded string reads back as
+      // the string "true" that the execute route compares with. A plain jsonb "true" or boolean reads back as boolean true and stays DENIED.
+
+      const setField = (selector: string, value: string, kind: "input" | "select" = "input") => b!.evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});
+        const proto=${kind === "select" ? "HTMLSelectElement" : "HTMLInputElement"}.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(el,${JSON.stringify(value)});
+        el.dispatchEvent(new Event(${JSON.stringify(kind === "select" ? "change" : "input")},{bubbles:true}));})()`);
+      const hookFetch = () => b!.evaluate(`(()=>{window.__bookingBodies=[];if(!window.__bookingHooked){window.__bookingHooked=true;const f=window.fetch.bind(window);
+        window.fetch=(input,init)=>{const url=typeof input==='string'?input:input.url;if(/\\/api\\/appointments\\/booking\\/(preview|execute)/.test(url)&&init&&typeof init.body==='string'){window.__bookingBodies.push({url:url,body:JSON.parse(init.body)});}const p=f(input,init);if(/booking\\/execute/.test(url))p.then(r=>r.clone().text().then(t=>{window.__execResp=r.status+' '+t.slice(0,300);}));return p;};}})()`);
+      const bodies = () => b!.evaluate(`window.__bookingBodies`) as Promise<Array<{ url: string; body: any }>>;
+      const openCreate = async () => {
+        await setView(1280, "light");
+        await openCalendar();
+        await b!.click('[data-testid="button-create-provider-appointment"]');
+        await until(async () => (await count('[data-testid="booking-create-panel"]')) === 1, "create console");
+        await settle(500);
+        await hookFetch();
+      };
+      const pickOwned = async () => {
+        await b!.set('[data-testid="booking-create-contact-search"]', "Ownedfirst");
+        await until(async () => (await count(`[data-testid="booking-create-contact-option-${owned}"]`)) === 1, "owned contact option");
+        await b!.click(`[data-testid="booking-create-contact-option-${owned}"]`);
+      };
+
+      // R2 in the browser: a wall time that does not exist is refused client-side; no preview request is ever made.
+      await openCreate();
+      await setField('[data-testid="booking-create-zone"]', "America/New_York", "select");
+      await setField('[data-testid="booking-create-title"]', `Gap ${tag}`);
+      await setField('[data-testid="booking-create-start"]', "2027-03-14T02:30");
+      await pickOwned();
+      await until(async () => (await count('[data-testid="booking-create-time-error"]')) === 1, "nonexistent-time message");
+      check(/does not exist|skipped|clocks/i.test(await text('[data-testid="booking-create-time-error"]'))
+        && await b.evaluate(`document.querySelector('[data-testid="button-booking-create-preview"]').disabled`) === true && (await bodies()).length === 0,
+        "R2 browser: 2027-03-14 02:30 America/New_York (a skipped hour) is explained, preview is disabled and no request was sent");
+      // A repeated wall time needs an explicit choice; the preview request then carries exactly the reviewed UTC instant.
+      await setField('[data-testid="booking-create-start"]', "2026-11-01T01:30");
+      await until(async () => (await count('[data-testid="booking-create-occurrence-select"]')) === 1, "repeated-hour choice");
+      check(await b.evaluate(`document.querySelector('[data-testid="button-booking-create-preview"]').disabled`) === true,
+        "R2 browser: a repeated local time (2026-11-01 01:30 New York) disables preview until the occurrence is chosen");
+      await setField('[data-testid="booking-create-occurrence-select"]', "second", "select");
+      await b.click('[data-testid="button-booking-create-preview"]');
+      await until(async () => (await count('[data-testid="booking-create-preview-result"]')) === 1, "preview for the chosen occurrence");
+      const repeatedPreview = (await bodies()).filter(x => /preview/.test(x.url)).pop();
+      check(repeatedPreview?.body.startTime === "2026-11-01T06:30:00.000Z" && /2026-11-01T06:30:00.000Z UTC/.test(await text('[data-testid="booking-create-preview-detail"]')),
+        "R2 browser: the second occurrence of the repeated hour is sent as 06:30Z and the reviewed text shows the same UTC instant");
+
+      // The filled journey: unambiguous time, preview, execute against the fake, reload.
+      await openCreate();
+      await setField('[data-testid="booking-create-zone"]', "America/New_York", "select");
+      await setField('[data-testid="booking-create-title"]', `Journey ${tag}`);
+      await setField('[data-testid="booking-create-start"]', "2027-06-15T10:00");
+      await setField('[data-testid="booking-create-duration"]', "45");
+      await pickOwned();
+      await until(async () => await b!.evaluate(`document.querySelector('[data-testid="button-booking-create-preview"]').disabled`) === false, "preview enabled once filled");
+      await b.click('[data-testid="button-booking-create-preview"]');
+      await until(async () => (await count('[data-testid="booking-create-preview-result"]')) === 1, "journey preview");
+      const journeyPreview = (await bodies()).filter(x => /preview/.test(x.url)).pop();
+      check(journeyPreview?.body.startTime === "2027-06-15T14:00:00.000Z" && journeyPreview?.body.endTime === "2027-06-15T14:45:00.000Z" && journeyPreview?.body.contactId === owned
+        && journeyPreview?.body.ghlContactId === undefined && providerLog.every(c => c.method === "GET"),
+        "journey: the preview request equals the reviewed UTC (10:00 EDT = 14:00Z, 45 minutes), names the local contact only, and the preview sent nothing to the provider");
+      check(/2027-06-15T14:00:00.000Z UTC/.test(await text('[data-testid="booking-create-preview-detail"]')) && /Journey/.test(await text('[data-testid="booking-create-preview-detail"]')),
+        "journey: the reviewed panel shows the same UTC instant and the title");
+      await b.click('[data-testid="button-booking-create-execute"]');
+      // The writer flag is ON here, but the OUTGOING GHL authority (runtime selection, native review, reviewed operation allowlist)
+      // is not configured on this disposable database, exactly as in production. The execute route must therefore reach the real
+      // transport gate and be REFUSED there, before any provider write. The confirmed-write path with a fake provider behind the
+      // command writer is certified separately (test-stage4d-booking-recovery, test-stage4c2-calendar-contract).
+      await until(async () => (await count('[data-testid="booking-create-outcome-refused"]')) === 1, "refused outcome");
+      const executeBody = (await bodies()).filter(x => /execute/.test(x.url)).pop();
+      const execResponse = String(await b.evaluate(`window.__execResp||''`));
+      check(executeBody?.body.startTime === "2027-06-15T14:00:00.000Z" && executeBody?.body.contactId === owned && executeBody?.body.expectedVersion === null,
+        "journey: the execute request carried exactly the reviewed UTC instant and the local contact (no provider id from the browser)");
+      check(/^200 .*"state":"refused".*runtime_not_selected/.test(execResponse),
+        `journey: with the writer ON but outgoing GHL authority unselected, the server refused at the transport gate (${execResponse.slice(0, 120)})`);
+      check(!providerLog.some(c => c.method === "POST") && !providerLog.some(c => !/^\/(calendars|conversations)\//.test(c.path)),
+        "journey: the provider saw no write of any kind (only calendar and conversation reads)");
+      check(/refus|blocked|not selected/i.test(await text('[data-testid="booking-create-outcome-refused"]')),
+        "journey: the operator sees a refused outcome, not a success");
+      await b.evaluate(`location.reload()`);
+      await until(async () => (await count('[data-testid="calendar-page"]')) === 1, "calendar after reload");
+      const leftover = await b.evaluate(`Object.keys(localStorage).filter(k=>k.startsWith('liberty.booking-command.v1:')&&k.endsWith('create:new'))`) as string[];
+      check(leftover.length === 0, "journey: a definitive refusal leaves nothing saved as pending, so a reload offers no recovery for a write that never happened");
+    } finally {
+      globalThis.fetch = fetchBefore;
+      if (writerBefore === null) await h.pool.query(`DELETE FROM system_settings WHERE key='ghl_booking_writer_enabled'`); else await h.pool.query(`UPDATE system_settings SET value=$1::jsonb WHERE key='ghl_booking_writer_enabled'`, [JSON.stringify(writerBefore)]);
+      if (pauseBefore) await h.pool.query(`UPDATE outbound_pause_control SET state=$1, committed_at=NOW()`, [pauseBefore]);
+      pauseAuth.invalidatePauseStateCache();
+      if (tokenBefore === undefined) delete process.env.GHL_PRIVATE_INTEGRATION_TOKEN; else process.env.GHL_PRIVATE_INTEGRATION_TOKEN = tokenBefore;
+    }
+    check(h.externalCalls() === 0, "the filled journey made no external provider egress (the fake provider answered inside the process)");
+    check(b.exceptions.length === 0, "no uncaught browser exceptions during the filled journey");
+  }
   await writeFile(`${dir}/receipt.json`, JSON.stringify({ status: "passed", identity, fixture: h.prefix, checks, matrix,
     qualification: "Real-browser run on a disposable database with the compiled client and real sessions; the appointment provider read is an injected fixture and booking-command receipts come from the real command writer with a fake provider. 1280/768/390 in light and dark. Not published-candidate or production acceptance; no live provider appointment or booking command was exercised." }, null, 2));
   console.log(`STAGE4C2_BROWSER_PASS (${checks.length} checks)`);

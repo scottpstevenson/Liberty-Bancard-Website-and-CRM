@@ -27,10 +27,15 @@
     },
     "livePackages": {
       "touches": 3,
-      "daysFromStart": [
+      "relativeDelayDays": [
         0,
         3,
         5
+      ],
+      "cumulativeDays": [
+        0,
+        3,
+        8
       ]
     }
   },
@@ -39,18 +44,20 @@
     "complianceScan": [
       "server/services/partner-approval-delivery.ts:107",
       "server/services/sdr/voice-orchestrator.ts:594",
-      "scripts/sfp-seed-test.ts:219"
+      "server/services/sfp-seed-test.ts:219"
     ],
     "queueScan": [
       "inbound-acknowledgement.ts",
       "partner-approval-delivery.ts",
-      "sfp-seed-test.ts"
+      "server/services/sfp-seed-test.ts"
     ]
   },
   "notRun": [
     "full TypeScript check (spec forbids)",
-    "browser verification of Calendar create dialog and Program Health note",
-    "full pre-deploy roster"
+    "browser verification of the Campaigns ownership filter and the Program Health held-expiry note",
+    "full pre-deploy roster",
+    "native acceptance (blocked)",
+    "production performance measurement"
   ],
   "productionRecapture": {
     "capturedAtUtc": "2026-11-03T17:02Z",
@@ -82,6 +89,67 @@
       "total": 127
     },
     "contacts": 161048,
-    "note": "Unchanged from the 11:00Z observation. The earlier 'draft/paused/unapproved pins' wording referred to the five-touch drafts, which are not adopted; the live current packages are three-step."
+    "note": "Unchanged from the 11:00Z observation. The earlier 'draft/paused/unapproved pins' wording referred to the five-touch drafts, which are not adopted; the live current packages are three-step.",
+    "contactsNote": "161,048 is the all-record-class contact count at the 17:02Z recapture; see projectionAllClass and canonicalScoped for the as-of reconciliation"
+  },
+  "liveCadenceRelativeDelays": {
+    "touches": 3,
+    "relativeDelayDays": [
+      0,
+      3,
+      5
+    ],
+    "cumulativeDays": [
+      0,
+      3,
+      8
+    ],
+    "note": "The earlier field 'daysFromStart [0,3,5]' described relative delays, not cumulative days."
+  },
+  "reconciliationAsOf20261103T1948Z": {
+    "method": "read-only production replica aggregates, recorded 2026-11-03T19:48Z (the canonical-scoped figures below were recorded at 18:36:22Z)",
+    "projectionAllClass": {
+      "unit": "contacts",
+      "predicate": "all rows, all record classes",
+      "count": 161048,
+      "byRecordClass": {
+        "production": 160646,
+        "test": 402
+      },
+      "businessesAllClass": 177328,
+      "businessesByRecordClass": {
+        "canonical": 99982,
+        "production": 77309,
+        "unknown": 37
+      }
+    },
+    "canonicalScoped": {
+      "unit": "contacts",
+      "predicate": "record_class='production' AND archived_at IS NULL",
+      "count": 160568,
+      "composition": {
+        "valid": 1629,
+        "unvalidated": 157488,
+        "blocked": 1451
+      },
+      "asOfUtc": "2026-11-03T18:36:22Z",
+      "businesses": {
+        "unit": "businesses",
+        "predicate": "record_class='canonical'",
+        "count": 99982,
+        "composition": {
+          "mapped": 8297,
+          "unresolved": 76270,
+          "excluded": 15415
+        },
+        "asOfUtc": "2026-11-03T18:36:22Z"
+      }
+    },
+    "contactArithmetic": "161,048 = 160,568 unarchived production + 78 archived production + 402 test",
+    "controls": {
+      "outboundPause": "paused",
+      "bookingWriterRow": "absent"
+    },
+    "caveat": "The two populations answer different questions and must not be compared as if they were the same count. Composition counts (valid/unvalidated/blocked, mapped/unresolved/excluded) were taken at 18:36:22Z and were not re-derived at 19:48Z."
   }
 }

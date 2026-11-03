@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { zonedWallTimeToUtcMs } from "@/lib/zoned-time";
+import { resolveZonedWallTime, ZONED_REASON_COPY } from "@/lib/zoned-time";
 import { AuthorizedContactPicker, type ContactChoice } from "@/components/crm/AuthorizedContactPicker";
 import {
-  OUTCOME_COPY, REASON_COPY, reasonText, PENDING_PREFIX, errorBody, readPending, writePending, clearPending, purgeOtherScopes,
+  OUTCOME_COPY, REASON_COPY, reasonText, PENDING_PREFIX, errorBody, readPending, writePending, clearPending, purgeOtherScopes, PendingRecovery,
   type Preview, type Outcome, type PendingCommand,
 } from "@/components/BookingCommandPanel";
 
@@ -41,18 +41,16 @@ export function BookingCreatePanel({ purpose: initialPurpose, canExecute, onSett
   const [contact, setContact] = useState<ContactChoice | null>(null);
   const [title, setTitle] = useState("");
   const [start, setStart] = useState(defaultStart);
+  const [occurrence, setOccurrence] = useState<"first" | "second" | "">("");
   const [durationMinutes, setDurationMinutes] = useState("30");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [commandId, setCommandId] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"preview" | "execute" | "check" | null>(null);
+  const [busy, setBusy] = useState<"preview" | "execute" | null>(null);
   const [notice, setNotice] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [pending, setPending] = useState<PendingCommand | null>(null);
 
-  const scope = useMemo(
-    () => user?.id ? `${PENDING_PREFIX}${user.id}:${user.accountVersion ?? 0}:${canExecute ? "x" : "p"}:` : null,
-    [user?.id, user?.accountVersion, canExecute],
-  );
+  const scope = useMemo(() => user?.id ? `${PENDING_PREFIX}${user.id}:` : null, [user?.id]);
   const storageKey = scope ? `${scope}${CREATE_KEY_SUFFIX}` : null;
 
   const reset = () => { setPreview(null); setCommandId(null); setOutcome(null); setNotice(null); };
@@ -72,9 +70,11 @@ export function BookingCreatePanel({ purpose: initialPurpose, canExecute, onSett
     }
   }, [scope, storageKey]);
 
+  const repeatedTime = useMemo(() => { const r = resolveZonedWallTime(start, zone); return !r.ok && r.reason === "ambiguous_local_time"; }, [start, zone]);
+  const timeResolution = useMemo(() => resolveZonedWallTime(start, zone, occurrence || undefined), [start, zone, occurrence]);
   const requestBody = () => {
     // The wall time is read in the explicitly chosen IANA zone; the payload carries UTC only.
-    const startMs = zonedWallTimeToUtcMs(start, zone);
+    const startMs = timeResolution.ok ? timeResolution.ms : NaN;
     const minutes = Number(durationMinutes);
     return {
       operation: "create", purpose, displayTimezone: zone, contactId: contact?.id, title: title.trim().slice(0, 120),
@@ -82,30 +82,6 @@ export function BookingCreatePanel({ purpose: initialPurpose, canExecute, onSett
       endTime: Number.isFinite(startMs) && minutes > 0 ? new Date(startMs + minutes * 60000).toISOString() : "",
     };
   };
-
-  const checkSaved = useCallback(async () => {
-    if (!pending || !storageKey) return;
-    setBusy("check"); setNotice(null);
-    try {
-      const res = await apiRequest("GET", `/api/appointments/booking/command/${pending.commandId}`);
-      const body = await res.json() as { state: string; appointmentId?: string | null; provider?: { checked?: boolean } };
-      if (body.state === "unknown") {
-        setNotice({ tone: "info", text: "Still unknown. The provider may have created the appointment. It is not retried automatically; check the provider calendar before creating another." });
-        return;
-      }
-      clearPending(storageKey); setPending(null);
-      setOutcome({ state: body.state === "accepted" ? "unconfirmed" : body.state, reason: body.state === "accepted" ? "saved_command_accepted_check_provider_record" : undefined });
-      onSettled();
-    } catch (error) {
-      const text = error instanceof Error ? error.message : String(error);
-      if (/^404:/.test(text)) {
-        clearPending(storageKey); setPending(null);
-        setNotice({ tone: "info", text: "No record of that command exists, so nothing was created. You can preview again." });
-      } else {
-        setNotice({ tone: "error", text: "The saved command could not be checked right now. It is kept; try again." });
-      }
-    } finally { setBusy(null); }
-  }, [pending, storageKey, onSettled]);
 
   const runPreview = async () => {
     if (!contact) { setNotice({ tone: "error", text: REASON_COPY.local_contact_required }); return; }
@@ -130,9 +106,11 @@ export function BookingCreatePanel({ purpose: initialPurpose, canExecute, onSett
     const saved: PendingCommand = {
       commandId, operation: "create", payloadHash: preview.payloadHash, expectedVersion: null, start, durationMinutes, savedAt: Date.now(),
     };
-    if (storageKey) writePending(storageKey, saved);
+    if (!storageKey || !writePending(storageKey, saved)) {
+      setBusy(null); setNotice({ tone: "error", text: "This browser cannot save the recovery record for this command, so nothing was sent. Allow site storage and try again." }); return;
+    }
     const settle = (state: string | undefined) => {
-      if (state === "confirmed" || state === "refused" || state === "denied") { if (storageKey) clearPending(storageKey); setPending(null); }
+      if (state === "confirmed" || state === "refused" || state === "denied") { clearPending(storageKey); setPending(null); }
       else setPending(saved);
     };
     try {
@@ -142,13 +120,18 @@ export function BookingCreatePanel({ purpose: initialPurpose, canExecute, onSett
       onSettled();
     } catch (error) {
       const body = errorBody(error);
-      if (body.state === "denied" || body.reason) { setOutcome({ state: body.state ?? "denied", reason: body.reason }); settle(body.state ?? "denied"); }
+      if (body.reason === "unresolved_prior_create" && body.blockingCommandId && storageKey) {
+        // The server knows an earlier create is unresolved even if this browser lost it: adopt it so it can be checked.
+        const adopted: PendingCommand = { commandId: body.blockingCommandId, operation: "create", payloadHash: "", expectedVersion: null, start, durationMinutes, savedAt: Date.now() };
+        writePending(storageKey, adopted); setPending(adopted); setOutcome({ state: "denied", reason: body.reason });
+      }
+      else if (body.state === "denied" || body.reason) { setOutcome({ state: body.state ?? "denied", reason: body.reason }); settle(body.state ?? "denied"); }
       else { settle(undefined); setNotice({ tone: "error", text: "The command status could not be read. It may or may not have run; check the provider calendar before creating another." }); }
       onSettled();
     } finally { setBusy(null); }
   };
 
-  const formInvalid = !contact || !title.trim() || !start || !(Number(durationMinutes) >= 5 && Number(durationMinutes) <= 480);
+  const formInvalid = !contact || !title.trim() || !start || !timeResolution.ok || !(Number(durationMinutes) >= 5 && Number(durationMinutes) <= 480);
 
   return (
     <section className="space-y-3" aria-labelledby="booking-create-h" data-testid="booking-create-panel">
@@ -157,14 +140,9 @@ export function BookingCreatePanel({ purpose: initialPurpose, canExecute, onSett
         Preview is read-only and sends nothing. {canExecute ? "Creating is refused unless the booking writer is enabled." : "Only an administrator can create."}
         {" "}The contact is not notified by this command. Times are read in the zone you choose and sent as UTC.
       </p>
-      {pending && (
-        <div className="rounded-md border p-3 text-sm space-y-2" role="status" data-testid="booking-create-pending-saved">
-          <p className="font-medium">A previous create has no confirmed result.</p>
-          <p className="text-xs text-muted-foreground">Check the saved result before creating another. Nothing is sent by checking.</p>
-          <Button type="button" variant="outline" className="min-h-11" disabled={busy !== null} onClick={() => void checkSaved()} data-testid="button-booking-create-check-saved">
-            {busy === "check" ? "Checking…" : "Check saved result"}
-          </Button>
-        </div>
+      {pending && storageKey && (
+        <PendingRecovery pending={pending} storageKey={storageKey} canResolve={canExecute} testPrefix="booking-create" label="A previous create"
+          onCleared={(o) => { setPending(null); if (o) setOutcome(o); onSettled(); }} />
       )}
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1"><Label htmlFor="booking-create-purpose">Purpose</Label>
@@ -174,7 +152,7 @@ export function BookingCreatePanel({ purpose: initialPurpose, canExecute, onSett
           </select></div>
         <div className="space-y-1"><Label htmlFor="booking-create-zone">Time zone</Label>
           <select id="booking-create-zone" className="min-h-11 w-full rounded-md border bg-background px-2 text-sm" value={zone}
-            onChange={e => { setZone(e.target.value); reset(); }} data-testid="booking-create-zone">
+            onChange={e => { setZone(e.target.value); setOccurrence(""); reset(); }} data-testid="booking-create-zone">
             {ZONES.map(z => <option key={z} value={z}>{z}</option>)}
           </select></div>
       </div>
@@ -188,10 +166,27 @@ export function BookingCreatePanel({ purpose: initialPurpose, canExecute, onSett
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1"><Label htmlFor="booking-create-start">Start</Label>
-          <Input id="booking-create-start" type="datetime-local" value={start} onChange={e => { setStart(e.target.value); reset(); }} data-testid="booking-create-start" /></div>
+          <Input id="booking-create-start" type="datetime-local" value={start} onChange={e => { setStart(e.target.value); setOccurrence(""); reset(); }} data-testid="booking-create-start" /></div>
         <div className="space-y-1"><Label htmlFor="booking-create-duration">Minutes</Label>
           <Input id="booking-create-duration" type="number" min={5} max={480} value={durationMinutes} onChange={e => { setDurationMinutes(e.target.value); reset(); }} data-testid="booking-create-duration" /></div>
       </div>
+      {!timeResolution.ok && start && !(repeatedTime && timeResolution.reason === "ambiguous_local_time" && !occurrence) && (
+        <p role="alert" className="text-xs text-destructive" data-testid="booking-create-time-error">{ZONED_REASON_COPY[timeResolution.reason]}</p>
+      )}
+      {repeatedTime && (
+        <div className="space-y-1" data-testid="booking-create-occurrence">
+          <Label htmlFor="booking-create-occurrence-select">Repeated hour</Label>
+          <select id="booking-create-occurrence-select" className="min-h-11 w-full rounded-md border bg-background px-2 text-sm" value={occurrence}
+            onChange={e => { setOccurrence(e.target.value === "second" ? "second" : e.target.value === "first" ? "first" : ""); reset(); }} data-testid="booking-create-occurrence-select">
+            <option value="">Choose…</option>
+            <option value="first">First time (before the clocks change)</option>
+            <option value="second">Second time (after the clocks change)</option>
+          </select>
+        </div>
+      )}
+      {timeResolution.ok && timeResolution.ambiguous && (
+        <p className="text-xs text-muted-foreground" data-testid="booking-create-occurrence-chosen">Repeated local time: using the {occurrence} occurrence (UTC{timeResolution.offsetMinutes < 0 ? "-" : "+"}{Math.abs(timeResolution.offsetMinutes / 60)}).</p>
+      )}
       <Button type="button" variant="outline" className="min-h-11" disabled={busy !== null || pending !== null || formInvalid} onClick={() => void runPreview()} data-testid="button-booking-create-preview">
         {busy === "preview" ? "Reviewing…" : "Preview appointment"}
       </Button>

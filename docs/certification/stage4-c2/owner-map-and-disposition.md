@@ -110,3 +110,7 @@ Input: `Liberty-Stage4C2-Merged-Repair-Review-2026-11-02`. Production serves `ce
 Browser matrix: 1280/768/390 in light and dark for admin, manager (read-only preview panel, no apply control) and agent (no booking panel; no run history). Baselines (unchanged files, recorded not green): compliance scan 3 failures; queue-compliance 3 coordinator warnings. Not run: full pre-deploy roster, full TypeScript. Rollback: revert the source; migration 0379 is untouched and additive.
 
 **4D remaining:** native workflow install + one test enrollment each; cancel-disposition approval; booking-writer enablement and one canary; calendar-purpose configuration; delivery/readback proof; role and performance acceptance on the served build.
+
+## Stage 4D update (2026-11-03)
+
+Native acceptance remains BLOCKED. The corrected native packet (separate operation allowances, no single generic permit) is in `docs/certification/stage4-d/owner-and-native-matrix.md`. The `no_show` constraint repair packet is in `docs/certification/stage4-d/schema-repair/`. The booking writer row is still absent; note that the writer flag must read back as the string `"true"` through the application (a plain jsonb `"true"` or boolean reads as boolean and stays denied).

@@ -692,3 +692,11 @@ Separate verdicts (details in `docs/certification/stage4-d/`, including `publica
 - **Roles/UI/performance:** roles and the Calendar console verified in a real browser; Campaigns filter and Program Health note not browser-verified; no performance measurement.
 - **Publication/schema/rollback:** no migration; uncommitted working-tree changes on HEAD `73272418`; `ghl_appointment_state_status_chk` still lacks `'no_show'` in production (owner SQL repair). Known baseline failure: `ghl-projection-authority` GPA-99.
 - **Overall:** implementation ready; acceptance blocked. Open items are listed in the evidence packet.
+
+### Stage 4D — completion status update (2026-11-03, after the published-build audit; earlier text above is kept as history)
+
+- **Publication:** Stage 4D is merged and published as `548812f0` (build id `77138085-bcf3-4620-afee-0c69ab641d14`, built 2026-11-03T18:22:41Z). The earlier line "uncommitted working-tree changes on HEAD `73272418`" described the first pass and is superseded. Repository head `087a657e` also holds later Payarc changes that are not in the serving build.
+- **Closed this pass (disposable database and fakes):** booking-create recovery (R1), zoned time (R2), GPA-99 (R3), bad-source journey, signed reply/STOP/bounce through both entrances, partner denial on booking routes, 4B/4C1/4C2 browser reruns, matched Calendar performance, schema repair and rollback rehearsal.
+- **Found and fixed, not yet published:** SDR webhook signature middleware `require()` failure under ESM; a STOP arriving only through the specialized `message-received` route did not withdraw consent.
+- **Still open:** native acceptance (BLOCKED, no authorized path), production `no_show` constraint repair (owner-run packet), production performance not measured, Campaigns filter and Program Health note not browser-verified, the two fixes need Publish.
+- **Separate verdicts and evidence:** `docs/certification/stage4-d/publication-and-verdicts.md`. Stage 4D is not called complete because code is published.

@@ -194,6 +194,24 @@ export async function handleMessageReceived(rawPayload: unknown): Promise<void> 
             ghlMessageId: payload.messageId ?? null,
             metadata: { source: "sdr_message_received", eventKind },
           });
+          // A STOP that arrives ONLY through this specialized entrance must withdraw consent, exactly as the generic
+          // entrance does. The event key is the generic entrance's key, so a STOP delivered through both entrances
+          // converges on one consent event per channel. Acknowledged: a failure propagates and the sender retries.
+          if (eventKind === "opt_out") {
+            const { canonicalInboundMessageIdentity } = await import("../ghl-inbound-effects");
+            const inboundOccurrenceId = String((payload as any).id ?? payload.messageId ?? canonicalInboundMessageIdentity(payload as any).key);
+            const withdrawalChannels = channel === "sms" ? ["sms", "automated_phone"] as const : ["email"] as const;
+            await Promise.all(withdrawalChannels.map((withdrawalChannel) => applyConsentCommand({
+              subject: { type: "contact", id: crmContact.id },
+              kind: "opt_out",
+              channel: withdrawalChannel,
+              purpose: "outreach",
+              eventNamespace: "ghl_inbound_message",
+              eventKey: `${crmContact.id}:${channel}:${inboundOccurrenceId}:${withdrawalChannel}`,
+              source: "ghl_inbound_message",
+              evidence: { channel, withdrawalChannel, messageId: payload.messageId ?? null, inboundOccurrenceId, entrance: "sdr_message_received" },
+            })));
+          }
         }
         const replyEventType = channel === "sms" ? "sms_reply" : channel === "email" ? "email_reply" : null;
         if (replyEventType) {
