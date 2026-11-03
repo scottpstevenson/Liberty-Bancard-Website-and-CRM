@@ -590,9 +590,9 @@ try {
   }
   if (
     workflowExecutorSrc.includes("channelOrchestrator.sendEmail(params)") &&
-    workflowExecutorSrc.includes("channelOrchestrator.sendSms(params)") &&
-    workflowExecutorSrc.includes("await sendWorkflowEmail(") &&
-    workflowExecutorSrc.includes("await sendWorkflowSms(")
+    workflowExecutorSrc.includes("channelOrchestrator.sendSms({ ...params, purpose: \"workflow_sms\" })") &&
+    workflowExecutorSrc.includes("sendWorkflowEmail({") &&
+    workflowExecutorSrc.includes("sendWorkflowSms({")
   ) {
     ok("workflow email/SMS, packet, proposal, and review paths delegate through the mandatory contactability fence");
   } else {
@@ -768,6 +768,7 @@ try {
     "server/routes/integrations.ts":             "Integration-confirmation — calls sendGhlEmail / sendGhlSms (gated)",
     "server/routes/public.ts":                   "Public inbound confirmation — calls sendGhlEmail (gated)",
     "server/routes/savings.ts":                  "Savings alert — calls sendGhlEmail (gated)",
+    "server/routes/toolkit.ts":                  "SMS inbox manual reply — calls sendGhlSms (gated; consent/number binding re-checked per attempt)",
     "server/routes/wizard.ts":                   "Wizard completion — calls sendGhlEmail (gated)",
   };
 
