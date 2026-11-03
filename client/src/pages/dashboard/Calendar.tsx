@@ -498,7 +498,7 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
         <div className="flex flex-wrap items-center gap-2">
           {canUseProviderCreate && (
             <Button variant="outline" className="min-h-11" onClick={() => setShowProviderCreate(true)} data-testid="button-create-provider-appointment">
-              <CalendarIcon className="h-4 w-4 mr-1" /> Create provider appointment
+              <CalendarIcon className="h-4 w-4 mr-1" /> New provider appointment
             </Button>
           )}
           <Button onClick={() => { setEventForm(f => ({ ...f, date: selectedDate })); setShowAddDialog(true); }} data-testid="button-add-event">
@@ -856,7 +856,7 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
         <Dialog open={showProviderCreate} onOpenChange={setShowProviderCreate}>
           <DialogContent className="max-h-[90vh] overflow-y-auto" data-testid="dialog-create-provider-appointment">
             <DialogHeader>
-              <DialogTitle>Create provider appointment</DialogTitle>
+              <DialogTitle>New provider appointment</DialogTitle>
             </DialogHeader>
             <BookingCreatePanel purpose={appointmentPurpose} canExecute={calendarRole === "admin"}
               onSettled={() => { void retryAppointments(); }} />

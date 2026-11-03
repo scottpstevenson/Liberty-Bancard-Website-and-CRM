@@ -11,6 +11,7 @@
  * Exit: 0 = all pass, 1 = any failure.
  */
 
+import { provenAuthority } from "./scanner-reviewed-gates";
 import { readFileSync, readdirSync, statSync } from "fs";
 import { join, extname } from "path";
 
@@ -172,6 +173,8 @@ function checkOutboundHandlersDualGate(): CheckResult {
   for (const f of files) {
     const fileName = f.split("/").pop() ?? "";
     if (AUTHORITY_ONLY_ALLOWED.has(fileName)) continue;
+    // A scoped sender with its own reviewed per-message authority is recognized only while every gate marker is present.
+    if (provenAuthority(f.replace(`${process.cwd()}/`, ""))) continue;
     const src = readSrc(f);
     const hasAuthorityImport = src.includes("outbound-pause-authority");
     const hasCoordinatorImport = src.includes("outbound-queue-coordinator");

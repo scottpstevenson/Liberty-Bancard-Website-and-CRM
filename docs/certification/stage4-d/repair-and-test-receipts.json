@@ -1,11 +1,17 @@
 {
-  "newCertification": { "name": "stage4d-integrated-acceptance", "script": "scripts/certification/test-stage4d-integrated-acceptance.ts", "checks": 27, "negativeControls": 6, "result": "passed", "runner": "scripts/run-sfp2060-certification-disposable.ts --only stage4d-integrated-acceptance", "registered": ["scripts/run-sfp2060-certification-disposable.ts", "scripts/pre-deploy.ts"] },
-  "rerunExisting": [
-    { "name": "sms-recipient-authority", "checks": 42, "result": "passed" },
-    { "name": "stage4c2-completion-pass", "checks": 65, "result": "passed", "note": "updated: a paused worker now terminalizes an already-expired hold (non-sending); the unpaused path is exercised with a second expired hold; the booking pending record keeps no contact details" },
-    { "name": "stage4c2-calendar-contract", "checks": 67, "result": "passed" }
+  "capturedAtUtc": "2026-11-03",
+  "testedIdentity": "HEAD 73272418da8fdbd43631af00fdaee0f5f315c171 plus this session's uncommitted working-tree changes (listed in publication-and-verdicts.md); no commit was made by the agent",
+  "newCertifications": [
+    { "name": "stage4d-integrated-acceptance", "script": "scripts/certification/test-stage4d-integrated-acceptance.ts", "checks": 47, "result": "passed", "covers": "D02 atomic inbound evidence, D03 audited pause, D04 hold expiry, D05 SMS provider identity, D06 null-workflow retry, scanner adjudication with gate-removal negative controls, zone/UTC conversion, create-console contract" },
+    { "name": "stage4d-vertical-county-matrix", "script": "scripts/test-stage4d-vertical-county-matrix.ts", "checks": 16, "result": "passed", "covers": "516 rows, 5 verticals x 3 counties, real classifier/geography/package plan/selector (pure)" }
   ],
-  "baselineFailures": [{"name":"ghl-projection-authority","failingCheck":"GPA-99 booked-event one-time effect","sameOnUntouchedHead":true,"checksPassedBefore":98}],
-  "notRunHere": [ "full pre-deploy roster", "full TypeScript check"],
+  "roleGuardSmoke": { "script": "scripts/smoke-role-guards.ts", "added": "12 booking create/preview/execute role+authority cases, receipt non-write, 4 command-status cases", "result": "passed on disposable launcher" },
+  "browser": { "script": "scripts/test-stage4c2-workspace-browser.ts", "checks": 173, "result": "passed", "added": "New provider appointment console at 1280/768/390 x light/dark (labels, purpose/zone controls, disabled preview, no apply before preview, fit, touch targets, no sideways scroll, no execute request)", "qualification": "disposable DB, compiled client, injected provider read fixture" },
+  "scanners": { "compliance-scan": "passed (96 call sites, no blanket allowlist)", "check-queue-compliance": "passed", "check-api-coverage": "passed", "ci-suite-manifest --check": "valid", "build": "npm run build exit 0" },
+  "section19Roster": {
+    "passed": ["canonical-recipient-preparation (104)", "canonical-release-authority (27)", "sfp-launch-content (632)", "stage4c1-content-workspace (45)", "stage4c1-package-publication (39)", "stage4c1-asset-preview (22)", "stage4c1-generic-route-fence (14)", "stage4c1-stored-copy-adoption (63)", "stage4c2-journey-authority (71)", "stage4c2-correction-pass (36)", "stage4c2-completion-pass (65)", "stage4c2-calendar-contract (67)", "sfp-launch-runner-e2e (26)", "sfp-launch-lifecycle-e2e (116)", "sfp-seed-test (84)", "sfp-launch-release-ui (38)", "five-vertical-fairness", "stage4b-supply-throughput", "stage4b-staging-worker", "appointment-statement", "ghl-webhooks", "channel-orchestrator", "ghl-sync-exact-lookups", "background-profile", "sfp-vertical-classifier-v2 (direct)", "paid-provider-controls-convergence (17, registered on the disposable roster this pass)", "stage4c1-cta-contract", "stage4c1-premium-drafts", "stage4c1-workspace-navigation", "sms-recipient-authority (42)", "partner-approval-delivery", "inbound-acknowledgement"],
+    "notRun": ["test-stage4b-workspace-browser", "test-stage4c1-browser", "sfp-seed real-path send (design decision pending)", "full pre-deploy roster", "full TypeScript check (spec forbids)"]
+  },
+  "baselineFailures": [{ "name": "ghl-projection-authority", "failingCheck": "GPA-99 booked-event one-time effect", "sameOnUntouchedHead": true, "checksPassedBefore": 98, "note": "measured earlier against an untouched export of the then-HEAD; not repaired" }],
   "providerNetworkAttempts": 0
 }

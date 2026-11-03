@@ -2251,10 +2251,11 @@ Audit input: `Liberty-Stage4C2-Merged-Repair-Review-2026-11-02`. Production serv
 
 ## Stage 4D — integrated acceptance (2026-11-03)
 
-Separate verdicts (details in `docs/certification/stage4-d/`):
-- **Implementation:** passed on disposable databases. New `stage4d-integrated-acceptance` (27 checks, 6 negative controls); sms-recipient-authority 42, stage4c2-completion-pass 65, stage4c2-calendar-contract 67 re-run green. No provider network attempt. Full TypeScript check and full pre-deploy roster were not run.
-- **Repairs:** inbound reply evidence and receipt in one transaction (aliases converge); reply-stop pause + audit atomic with real count; expired GHL holds terminalized by a non-sending sweep even while paused (diagnostics on Program Health); direct SMS transport compares the full provider number each attempt; failed workflow run with no workflow parks for review; booking-confirmation wording is confirmation-only; governed provider-appointment create console (local authorized contact required, admin executes); campaign Current SFP/Historical badges.
-- **Data/count, SFP prep/staging, content/CTA:** unchanged; five current package pins remain draft/paused/unapproved.
-- **Native GHL/calendar:** **BLOCKED** — no authorized protected test path (booking writer default-denied, outgoing GHL disabled epoch 16). Owner steps in `owner-and-native-matrix.md`.
-- **Roles/UI/performance:** new controls are source-verified only; no signed-in browser pass.
-- **Publication/schema/rollback:** no migration; `ghl_appointment_state_status_chk` still lacks `'no_show'` in production (owner SQL repair). Scanner baselines (compliance 3 sites, queue 3 files) remain open and unadjudicated.
+Separate verdicts (details in `docs/certification/stage4-d/`, including `publication-and-verdicts.md` and `integrated-journey-matrix.md`):
+- **Implementation:** ready. `stage4d-integrated-acceptance` (47 checks incl. scanner gate-removal negative controls), `stage4d-vertical-county-matrix` (16, 516 rows), role-guard smoke (booking create/preview/execute roles, no receipt on denial), 173-check browser run including the New provider appointment console at 1280/768/390 x light/dark, and the section 19 suites that were run all pass on disposable infrastructure. `npm run build` passes. Compliance scan and queue-compliance now pass by per-file gate proof (no blanket allowlist). No provider network attempt.
+- **Repairs:** inbound reply evidence and receipt in one transaction; audited reply-stop pause; non-sending expiry sweep for held GHL enrollments (also while paused); full-number SMS provider identity; null-workflow retry parks for review; governed create console with explicit purpose, IANA zone to UTC, server-owned preview context; campaign ownership filter.
+- **Data/count, SFP prep/staging, content/CTA:** unchanged. Production recapture: five current v2 packages, 3 steps each, campaigns draft and sequences paused; five-touch drafts verified, not adopted or approved.
+- **Native GHL/calendar:** **BLOCKED** — no authorized protected test path (booking writer default-denied, outgoing GHL disabled epoch 16). Feasibility packet and proposed protected path in `owner-and-native-matrix.md`.
+- **Roles/UI/performance:** roles and the Calendar console verified in a real browser; Campaigns filter and Program Health note not browser-verified; no performance measurement.
+- **Publication/schema/rollback:** no migration; uncommitted working-tree changes on HEAD `73272418`; `ghl_appointment_state_status_chk` still lacks `'no_show'` in production (owner SQL repair). Known baseline failure: `ghl-projection-authority` GPA-99.
+- **Overall:** implementation ready; acceptance blocked. Open items are listed in the evidence packet.

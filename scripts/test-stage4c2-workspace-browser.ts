@@ -520,6 +520,32 @@ try {
     } finally { await rb.close(); }
   }
 
+  // ── 9. Stage 4D: the governed "New provider appointment" console, 1280/768/390 × light/dark ──
+  for (const theme of ["light", "dark"] as const) {
+    for (const width of [1280, 768, 390]) {
+      await setView(width, theme);
+      await openCalendar();
+      check(/New provider appointment/.test(await text('[data-testid="button-create-provider-appointment"]')) && /Add local event/.test(await text('[data-testid="button-add-event"]')),
+        `provider and local creation are labelled separately at ${width}px ${theme}`);
+      await b.click('[data-testid="button-create-provider-appointment"]');
+      await until(async () => (await count('[data-testid="booking-create-panel"]')) === 1, `create console at ${width} ${theme}`);
+      await settle(500);
+      check((await count('[data-testid="booking-create-purpose"]')) === 1 && (await count('[data-testid="booking-create-zone"]')) === 1
+        && (await count('[data-testid="booking-create-purpose"] option')) === 2 && (await count('[data-testid="booking-create-zone"] option')) >= 2,
+        `the console offers an explicit Sales/Account purpose and an explicit IANA time zone at ${width}px ${theme}`);
+      check(await b.evaluate(`document.querySelector('[data-testid="button-booking-create-preview"]').disabled`) === true,
+        `negative control: preview is not available before a contact and title are chosen (${width}px ${theme})`);
+      check(await count('[data-testid="button-booking-create-execute"]') === 0 && await count('[data-testid="booking-create-preview-result"]') === 0,
+        `no apply control exists before a reviewed preview (${width}px ${theme})`);
+      const dlg = await fits('[data-testid="dialog-create-provider-appointment"]');
+      check(!!dlg && dlg.l >= -1 && dlg.r <= dlg.w + 1, `the create dialog fits the ${width}px viewport (${theme})`);
+      const targets = await b.evaluate(`[...document.querySelectorAll('[data-testid="booking-create-panel"] select, [data-testid="booking-create-panel"] button')].every(e=>e.getBoundingClientRect().height>=40)`) as boolean;
+      check(targets, `the create console's controls are touch-sized at ${width}px ${theme}`);
+      check((await overflow()) <= 1, `the create console does not scroll the page sideways at ${width}px ${theme}`);
+    }
+  }
+  check(!b.requests.some((r) => /\/api\/appointments\/booking\/execute/.test(r.url)), "opening the create console made no execute request");
+
   check((await sideEffects()).o === before.o && (await sideEffects()).r === before.r && (await sideEffects()).s === before.s,
     "browsing, filtering and previewing created no outbound message, workflow run or appointment state");
   check(b.exceptions.length === 0, "no uncaught browser exceptions");

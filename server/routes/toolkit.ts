@@ -450,7 +450,33 @@ export function registerToolkitRoutes(app: Express, readerDependencies?: {
       if (!live?.found) return res.status(422).json({ ok: false, reason: "appointment_not_readable" });
       currentVersion = typeof live.version === "number" ? live.version : null;
     }
-    res.json({ ...preview, currentVersion, sent: false, note: "Preview only. Nothing was booked or sent." });
+    // Display-only context for the reviewed request (never part of the reviewed hash and never browser-authoritative).
+    const requestedZone = typeof req.body?.displayTimezone === "string" ? req.body.displayTimezone : "";
+    const validZone = (() => { try { return requestedZone && new Intl.DateTimeFormat("en-US", { timeZone: requestedZone }).resolvedOptions().timeZone; } catch { return ""; } })();
+    const calendarId = String((preview.payload as any)?.calendarId ?? "");
+    let calendarConfig: { available: boolean; slotMinutes?: number; reason?: string } = { available: false, reason: "not_read" };
+    if (preview.operation === "create" && calendarId) {
+      // The reviewed calendar's own slot length (read-only). Unreadable is reported as unavailable, never guessed.
+      try {
+        const read = await ghlFetch(`/calendars/${encodeURIComponent(calendarId)}`);
+        const cal = read?.calendar ?? read;
+        const unit = String(cal?.slotDurationUnit ?? "mins").toLowerCase();
+        const raw = Number(cal?.slotDuration);
+        const minutes = Number.isFinite(raw) && raw > 0 ? (unit.startsWith("hour") ? raw * 60 : raw) : NaN;
+        calendarConfig = Number.isFinite(minutes) ? { available: true, slotMinutes: minutes } : { available: false, reason: "slot_duration_not_configured" };
+      } catch { calendarConfig = { available: false, reason: "calendar_unreadable" }; }
+    }
+    res.json({
+      ...preview, currentVersion, sent: false, note: "Preview only. Nothing was booked or sent.",
+      context: {
+        purpose: req.body?.purpose === "account" ? "account" : "sales",
+        calendarRef: calendarId ? `…${calendarId.slice(-6)}` : null,
+        displayTimezone: validZone || null,
+        notificationPolicy: (preview.payload as any)?.toNotify === true ? "contact_notified" : "contact_not_notified",
+        revision: preview.payloadHash.slice(0, 12),
+        calendarConfig,
+      },
+    });
   });
   app.post("/api/appointments/booking/execute", isDashboardUser, requireRole("admin"), async (req, res) => {
     try {

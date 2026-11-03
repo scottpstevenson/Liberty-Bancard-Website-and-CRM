@@ -144,6 +144,56 @@ const toolkit = src("server/routes/toolkit.ts");
 check(toolkit.includes("local_contact_required") && toolkit.includes("resolveCreateContact(req.body)"), "booking create requires an authorized local contact on preview and execute");
 check(!/1h reminder/.test(src("server/services/ghl-workflows.ts")), "the booking confirmation workflow no longer claims a reminder it does not own");
 check(src("client/src/components/BookingCreatePanel.tsx").includes("expectedVersion: null") && src("client/src/pages/dashboard/Calendar.tsx").includes("button-create-provider-appointment"), "the Calendar offers the governed create console");
+// ── G. D20 scanner adjudications: recognized by proof, with gate-removal negative controls ──────────────
+{
+  const { REVIEWED_SCOPED_AUTHORITIES, missingMarkers } = await import("../scanner-reviewed-gates");
+  const { execFileSync, spawnSync } = await import("node:child_process");
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  for (const authority of REVIEWED_SCOPED_AUTHORITIES) {
+    const source = src(authority.file);
+    check(missingMarkers(source, authority).length === 0, `${authority.file}: the whole reviewed gate is present in the live source`);
+    const everyMarkerMatters = authority.markers.every((m) => missingMarkers(source.split(m).join(""), authority).includes(m));
+    check(everyMarkerMatters, `negative control: removing any one marker from ${authority.file} withdraws the scanner recognition`, true);
+  }
+  const tsx = join(process.cwd(), "node_modules/.bin/tsx");
+  const scan = (root: string) => spawnSync(tsx, [join(process.cwd(), "scripts/compliance-scan.ts")], { cwd: root, encoding: "utf8", timeout: 120_000 }).stdout ?? "";
+  const voice = src("server/services/sdr/voice-orchestrator.ts");
+  const withGate = mkdtempSync(join(tmpdir(), "s4d-scan-a-")), withoutGate = mkdtempSync(join(tmpdir(), "s4d-scan-b-"));
+  try {
+    for (const [root, text] of [[withGate, voice], [withoutGate, voice.replace(/resolveSmsRecipient\(/g, "lookupRecipient(")]] as const) {
+      mkdirSync(join(root, "server/services/sdr"), { recursive: true });
+      writeFileSync(join(root, "server/services/sdr/voice-orchestrator.ts"), text);
+    }
+    const failLine = /^FAIL \| server\/services\/sdr\/voice-orchestrator\.ts:\d+ .*\| sms/m;
+    check(!failLine.test(scan(withGate)), "the voicemail SMS send passes the compliance scan through the canonical SMS recipient gate");
+    check(failLine.test(scan(withoutGate)), "negative control: without the canonical SMS recipient gate the same send fails the compliance scan", true);
+  } finally { rmSync(withGate, { recursive: true, force: true }); rmSync(withoutGate, { recursive: true, force: true }); }
+  const live = spawnSync(tsx, [join(process.cwd(), "scripts/compliance-scan.ts")], { encoding: "utf8", timeout: 120_000 });
+  const queue = spawnSync(tsx, [join(process.cwd(), "scripts/check-queue-compliance.ts")], { encoding: "utf8", timeout: 120_000 });
+  check(live.status === 0 && queue.status === 0, "the live compliance scan and queue-compliance check both pass with no blanket allowlist");
+  void execFileSync;
+}
+
+// ── H. create console: explicit zone → UTC conversion, purpose, read-only preview context ──────────────
+{
+  const { zonedWallTimeToUtcMs } = await import("../../client/src/lib/zoned-time");
+  const iso = (ms: number) => new Date(ms).toISOString();
+  check(iso(zonedWallTimeToUtcMs("2026-11-10T09:00", "America/New_York")) === "2026-11-10T14:00:00.000Z", "winter wall time in New York converts to UTC (EST, -5)");
+  check(iso(zonedWallTimeToUtcMs("2026-07-10T09:00", "America/New_York")) === "2026-07-10T13:00:00.000Z", "summer wall time in New York converts to UTC (EDT, -4)");
+  check(iso(zonedWallTimeToUtcMs("2026-11-10T09:00", "America/Los_Angeles")) === "2026-11-10T17:00:00.000Z", "the same wall time in another explicit zone gives a different UTC instant");
+  check(iso(zonedWallTimeToUtcMs("2026-03-08T12:00", "America/New_York")) === "2026-03-08T16:00:00.000Z", "a wall time after the spring-forward change uses the new offset");
+  check(iso(zonedWallTimeToUtcMs("2026-11-01T12:00", "America/New_York")) === "2026-11-01T17:00:00.000Z", "a wall time after the fall-back change uses the new offset");
+  check(Number.isNaN(zonedWallTimeToUtcMs("not a time", "UTC")), "an unparsable wall time is not coerced");
+  rejects(() => assert.equal(iso(zonedWallTimeToUtcMs("2026-11-10T09:00", "America/Los_Angeles")), "2026-11-10T14:00:00.000Z"), "ignoring the chosen zone would book the wrong instant");
+  const panel = src("client/src/components/BookingCreatePanel.tsx");
+  check(["booking-create-purpose", "booking-create-zone", "booking-create-preview-detail", "displayTimezone: zone"].every((t) => panel.includes(t)), "the create console exposes purpose, explicit IANA zone and a preview detail block");
+  check(panel.includes("expectedVersion: null") && !panel.includes("expectedVersion: preview"), "a create carries a null reviewed version and never a guessed one");
+  check(/context: \{[\s\S]*notificationPolicy[\s\S]*revision[\s\S]*calendarConfig/.test(src("server/routes/toolkit.ts")), "the preview returns server-owned context (purpose, calendar ref, notification, revision, calendar slot)");
+  check(src("client/src/pages/dashboard/Calendar.tsx").includes("New provider appointment") && src("client/src/pages/dashboard/Calendar.tsx").includes("Add local event"), "the Calendar labels provider and local creation separately");
+}
+
 check(getBlockedCertificationNetworkAttemptCount() === 0, "no provider network attempt occurred during the certification");
 
 console.log(`\nStage 4D integrated acceptance: ${checks} checks passed`);

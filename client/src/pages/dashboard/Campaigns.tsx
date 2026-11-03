@@ -1119,6 +1119,19 @@ export default function Campaigns() {
   const listMap = new Map<number, ProspectList>();
   prospectLists?.forEach((l) => listMap.set(l.id, l));
 
+  // Ownership grouping comes only from the catalog authority. When it is unavailable the filter is not offered and no
+  // campaign is hidden or relabeled; "Other" is everything the authority did not mark current or historical.
+  const [ownershipFilter, setOwnershipFilter] = useState<"all" | "current" | "historical" | "other">("all");
+  const ownershipOf = (id: number): "current" | "historical" | "other" => {
+    const cls = catalogClassByCampaign?.get(id)?.catalogClass;
+    return cls === "current" || cls === "historical" ? cls : "other";
+  };
+  const ownershipCounts = { current: 0, historical: 0, other: 0 };
+  if (catalogClassByCampaign) campaigns?.forEach((c) => { ownershipCounts[ownershipOf(c.id)]++; });
+  const shownCampaigns = !catalogClassByCampaign || ownershipFilter === "all"
+    ? (campaigns ?? [])
+    : (campaigns ?? []).filter((c) => ownershipOf(c.id) === ownershipFilter);
+
   return (
     <div className="space-y-6">
       <ContentWorkspaceEntrance />
@@ -1429,8 +1442,22 @@ export default function Campaigns() {
           ))}
         </div>
       ) : campaigns && campaigns.length > 0 ? (
+        <>
+        {catalogClassByCampaign && (
+          <div className="mb-3 flex flex-wrap items-center gap-2" role="group" aria-label="Campaign ownership" data-testid="campaign-ownership-filter">
+            {([["all", `All (${campaigns.length})`], ["current", `Current SFP (${ownershipCounts.current})`], ["historical", `Historical (${ownershipCounts.historical})`], ["other", `Other (${ownershipCounts.other})`]] as const).map(([value, label]) => (
+              <Button key={value} type="button" size="sm" className="min-h-11" variant={ownershipFilter === value ? "default" : "outline"}
+                aria-pressed={ownershipFilter === value} onClick={() => setOwnershipFilter(value)} data-testid={`button-ownership-${value}`}>
+                {label}
+              </Button>
+            ))}
+          </div>
+        )}
+        {shownCampaigns.length === 0 && (
+          <p className="text-sm text-muted-foreground" data-testid="text-ownership-empty">No campaigns in this group.</p>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {campaigns.map((campaign) => {
+          {shownCampaigns.map((campaign) => {
             const targetList = campaign.targetListId ? listMap.get(campaign.targetListId) : null;
             const isExpanded = expandedId === campaign.id;
 
@@ -1552,6 +1579,7 @@ export default function Campaigns() {
             );
           })}
         </div>
+        </>
       ) : (
         <Card>
           <CardContent className="p-8 text-center">

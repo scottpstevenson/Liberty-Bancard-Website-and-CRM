@@ -46,6 +46,7 @@
  *   npx tsx scripts/compliance-scan.ts
  */
 
+import { provenAuthority } from "./scanner-reviewed-gates";
 import fs from "fs";
 import path from "path";
 import {
@@ -912,10 +913,15 @@ function detectEnclosingFunction(lines: string[], callLineIdx: number): string {
  * Search within SCAN_RADIUS lines before the call site for an evaluateContactability call.
  * Returns the line number (1-based) and context if found, "none" otherwise.
  */
-function findNearestGate(lines: string[], callLineIdx: number, SCAN_RADIUS = 120): string {
+function findNearestGate(lines: string[], callLineIdx: number, SCAN_RADIUS = 120, channel = ""): string {
   const start = Math.max(0, callLineIdx - SCAN_RADIUS);
   for (let i = callLineIdx; i >= start; i--) {
     if (/evaluateContactability|checkBeforeSend|canEnrollContactInSequence|canSendWorkflowTemplate/.test(lines[i])) {
+      return `line ${i + 1}: ${lines[i].trim().slice(0, 80)}`;
+    }
+    // The canonical SMS recipient authority (consent + exact number + quiet hours) is the SMS gate. It counts only when
+    // its allow decision gates the call: the send must be inside a branch that tests `recipient.allowed`.
+    if (channel === "sms" && /resolveSmsRecipient\(/.test(lines[i]) && lines.slice(i, callLineIdx + 1).some((l) => /recipient\.allowed/.test(l))) {
       return `line ${i + 1}: ${lines[i].trim().slice(0, 80)}`;
     }
   }
@@ -1030,7 +1036,7 @@ function scanFile(absPath: string): Finding[] {
       }
 
       const enclosingFunction = detectEnclosingFunction(lines, idx);
-      const nearestGate = findNearestGate(lines, idx);
+      const nearestGate = findNearestGate(lines, idx, 120, channel);
       const isEmailChannel = channel.includes("email");
       const emailCategory: EmailCategory | null = isEmailChannel
         ? classifyEmailCategory(enclosingFunction, rel, line)
@@ -1051,6 +1057,23 @@ function scanFile(absPath: string): Finding[] {
           nearestGate,
           reason: `Call-site allowlisted (reviewed ${allowlistEntry.reviewDate}): ${allowlistEntry.reason}`,
           suggestedFix: "No action required.",
+        });
+        return;
+      }
+
+      // Reviewed scoped authority: recognized only while its whole gate (every marker) is still in the source.
+      const proven = provenAuthority(rel);
+      if (proven && isEmailChannel) {
+        findings.push({
+          verdict: "PASS",
+          file: rel,
+          line: lineNum,
+          enclosingFunction,
+          channel,
+          emailCategory: (proven.messageClass === "protected_cold_outreach_seed" ? "marketing_outreach" : "transactional_merchant") as EmailCategory,
+          nearestGate: `reviewed scoped authority (${proven.runtimeProof})`,
+          reason: `Reviewed scoped authority, proven by source markers: ${proven.reason}`,
+          suggestedFix: "No action required while every marker remains present.",
         });
         return;
       }

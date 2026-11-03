@@ -160,6 +160,7 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
     timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Stage 4D integrated acceptance (inbound evidence atomicity, reply-stop pause audit, hold expiry, SMS provider identity, unlinked workflow retry, booking create contract)",script:"scripts/certification/test-stage4d-integrated-acceptance.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
+  {name:"Stage 4D five-vertical by three-county matrix (classifier, geography, package plan, selector; pure)",script:"scripts/test-stage4d-vertical-county-matrix.ts",timeoutSecs:300},
   {name:"Message copy convergence and token contract",script:"scripts/certification/test-message-copy-convergence.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Workflow email wording",script:"scripts/certification/test-workflow-email-wording.ts",

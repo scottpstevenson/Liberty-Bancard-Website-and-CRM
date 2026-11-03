@@ -11,8 +11,17 @@ import { Label } from "@/components/ui/label";
  * panel shows the server's refusal instead of hiding the control. The browser never chooses notification or slot-validation
  * behavior and never names the provider contact: the server resolves it from the local contact.
  */
-export interface Preview { operation: string; payloadHash: string; currentVersion: number | null; note?: string; payload?: { startTime?: string; endTime?: string } }
+export interface Preview { operation: string; payloadHash: string; currentVersion: number | null; note?: string; payload?: { startTime?: string; endTime?: string; title?: string };
+  context?: { purpose: "sales" | "account"; calendarRef: string | null; displayTimezone: string | null; notificationPolicy: string; revision: string; calendarConfig?: { available: boolean; slotMinutes?: number; reason?: string } } }
 export type Outcome = { state: string; reason?: string; appointmentId?: string; replay?: boolean };
+
+/** Reason copy; `<purpose>_calendar_unavailable:<why>` is explicit and never falls back to another calendar. */
+export function reasonText(reason: string | undefined): string {
+  if (!reason) return "";
+  const m = /^(sales|account)_calendar_unavailable(?::(.*))?$/.exec(reason);
+  if (m) return `The ${m[1]} calendar is not available${m[2] ? ` (${m[2]})` : ""}. Nothing falls back to another calendar.`;
+  return REASON_COPY[reason] ?? reason;
+}
 
 export const OUTCOME_COPY: Record<string, string> = {
   confirmed: "Confirmed: the provider record matches the reviewed change.",

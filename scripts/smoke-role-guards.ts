@@ -700,6 +700,62 @@ async function run(): Promise<void> {
       }else console.log(`✓ retained replay ${test.label}`);
     }
 
+    // Stage 4D: governed provider-appointment create/preview. Real sessions + CSRF; the provider is never reached
+    // (writer default-denied in the disposable database) and no command receipt may be written by a denied request.
+    {
+      const bookingRows = await db.execute(drizzleSql`SELECT value FROM system_settings WHERE key='ghl_booking_writer_enabled'`);
+      const writerOn = ((bookingRows as any).rows ?? bookingRows).some((r: any) => String(r.value).replaceAll('"', "") === "true");
+      if (writerOn) { console.log("✗ booking create guards: writer unexpectedly enabled in the fixture database"); failures++; }
+      const unlinked = await db.insert(contacts).values({
+        firstName: "SmokeBooking", lastName: "Unlinked", email: `${fixtureName}-bk-unlinked@example.test`,
+        phone: `+1${String(Date.now() + 1).slice(-10)}`, status: "active", leadSource: "test", sourceCategory: "test",
+      } as any).returning();
+      const linked = await db.insert(contacts).values({
+        firstName: "SmokeBooking", lastName: "Linked", email: `${fixtureName}-bk-linked@example.test`, ghlContactId: `smokebk${Date.now()}`,
+        phone: `+1${String(Date.now() + 2).slice(-10)}`, status: "active", leadSource: "test", sourceCategory: "test",
+      } as any).returning();
+      fixtureIds.contacts.push(unlinked[0].id, linked[0].id);
+      const when = new Date(Date.now() + 48 * 3600_000);
+      const base = { operation: "create", purpose: "sales", title: "Smoke", startTime: when.toISOString(), endTime: new Date(when.getTime() + 1800_000).toISOString() };
+      const commandId = randomUUID();
+      const receiptCount = async () => Number(((await db.execute(drizzleSql`SELECT count(*)::int AS n FROM followup_effect_receipts WHERE owner_kind='booking_command'`)) as any).rows?.[0]?.n ?? 0);
+      const receiptsBefore = await receiptCount();
+      const reason = async (r: Response) => { try { const j = await r.json() as any; return j.reason ?? j.state ?? ""; } catch { return ""; } };
+      const bookingCases: Array<{ label: string; auth: typeof adminAuth; path: string; body: unknown; status: number[]; reason?: string }> = [
+        { label: "preview: merchant denied", auth: merchantAuth, path: "/api/appointments/booking/preview", body: { ...base, contactId: linked[0].id }, status: [403] },
+        { label: "preview: agent denied", auth: agentAuth, path: "/api/appointments/booking/preview", body: { ...base, contactId: linked[0].id }, status: [403] },
+        { label: "preview: invalid local id refused", auth: managerAuth, path: "/api/appointments/booking/preview", body: { ...base, contactId: "abc" }, status: [422], reason: "local_contact_required" },
+        { label: "preview: raw provider contact id injection refused", auth: managerAuth, path: "/api/appointments/booking/preview", body: { ...base, ghlContactId: "attackerSuppliedId" }, status: [422], reason: "local_contact_required" },
+        { label: "preview: nonexistent local contact refused", auth: managerAuth, path: "/api/appointments/booking/preview", body: { ...base, contactId: 2147483000 }, status: [422], reason: "local_contact_not_found" },
+        { label: "preview: contact without provider mapping is unavailable, not implicitly created", auth: managerAuth, path: "/api/appointments/booking/preview", body: { ...base, contactId: unlinked[0].id }, status: [422], reason: "local_contact_not_linked_to_provider" },
+        { label: "preview: manager reaches a read-only preview for a mapped contact", auth: managerAuth, path: "/api/appointments/booking/preview", body: { ...base, contactId: linked[0].id }, status: [200, 422] },
+        { label: "execute: manager denied (apply is admin only)", auth: managerAuth, path: "/api/appointments/booking/execute", body: { ...base, contactId: linked[0].id, commandId, payloadHash: "x", expectedVersion: null }, status: [403] },
+        { label: "execute: agent denied", auth: agentAuth, path: "/api/appointments/booking/execute", body: { ...base, contactId: linked[0].id, commandId, payloadHash: "x", expectedVersion: null }, status: [403] },
+        { label: "execute: merchant denied", auth: merchantAuth, path: "/api/appointments/booking/execute", body: { ...base, contactId: linked[0].id, commandId, payloadHash: "x", expectedVersion: null }, status: [403] },
+        { label: "execute: admin with raw provider id and no local contact denied before any provider call", auth: adminAuth, path: "/api/appointments/booking/execute", body: { ...base, ghlContactId: "attackerSuppliedId", commandId, payloadHash: "x", expectedVersion: null }, status: [422], reason: "local_contact_required" },
+        { label: "execute: admin, unmapped contact denied", auth: adminAuth, path: "/api/appointments/booking/execute", body: { ...base, contactId: unlinked[0].id, commandId, payloadHash: "x", expectedVersion: null }, status: [422], reason: "local_contact_not_linked_to_provider" },
+        { label: "execute: admin, mapped contact, writer disabled -> no provider write", auth: adminAuth, path: "/api/appointments/booking/execute", body: { ...base, contactId: linked[0].id, commandId, payloadHash: "x", expectedVersion: null }, status: [403], reason: "booking_writer_not_enabled" },
+      ];
+      for (const t of bookingCases) {
+        const response = await mutate(t.auth, "POST", t.path, t.body);
+        const got = await reason(response);
+        const ok = t.status.includes(response.status) && (!t.reason || got === t.reason);
+        if (!ok) { console.log(`✗ booking ${t.label}: ${response.status} ${got}, expected ${t.status.join("/")} ${t.reason ?? ""}`); failures++; }
+        else console.log(`✓ booking ${t.label}`);
+      }
+      const receiptsAfter = await receiptCount();
+      if (receiptsAfter !== receiptsBefore) { console.log(`✗ booking: denied requests wrote ${receiptsAfter - receiptsBefore} command receipt(s)`); failures++; }
+      else console.log("✓ booking: no denied request wrote a command receipt");
+      const guessed = await fetch(`${BASE_URL}/api/appointments/booking/command/${randomUUID()}`, { headers: { cookie: managerAuth.cookie } });
+      const malformed = await fetch(`${BASE_URL}/api/appointments/booking/command/not-a-uuid`, { headers: { cookie: managerAuth.cookie } });
+      const merchantStatus = await fetch(`${BASE_URL}/api/appointments/booking/command/${randomUUID()}`, { headers: { cookie: merchantAuth.cookie } });
+      const anonStatus = await fetch(`${BASE_URL}/api/appointments/booking/command/${randomUUID()}`);
+      for (const [label, status, expected] of [["guessed command id is not found", guessed.status, [404]], ["malformed command id is rejected", malformed.status, [400]], ["merchant cannot read command status", merchantStatus.status, [403]], ["anonymous cannot read command status", anonStatus.status, [401]]] as const) {
+        if (!(expected as readonly number[]).includes(status)) { console.log(`✗ booking status: ${label}: ${status}`); failures++; }
+        else console.log(`✓ booking status: ${label}`);
+      }
+    }
+
     const [archiveContactFixture] = await db.insert(contacts).values({
       firstName: "SmokeArchive",
       lastName: "RoleGuard",
