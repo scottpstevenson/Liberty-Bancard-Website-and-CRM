@@ -245,20 +245,19 @@ check("KL12: Registry requires activation snapshot concept (not just env var)", 
   pass("KL12: Registry has typed health state (activation snapshot gate concept present)");
 });
 
-// ── Kill Line 13: #1737 domain functions — verified ops implemented, unverified stay held ──
+// ── Kill Line 13: REV-06A domain functions — documented reads implemented, upload stays held ──
 //
-// REV-06A §13 update (Sept 9 2026): Sandbox probes confirmed 2xx for:
-//   get_charges (GET /charges)         → getDailyStats IMPLEMENTED with real MERCHANT_KEY calls
-//   get_daily_stats (GET /merchant_statements) → getTransactions IMPLEMENTED
-//   get_disputes (GET /cases)          → listing confirmed; upload still HeldResult
-//
-// Still HeldResult (no verified 2xx):
-//   getResiduals        — GET /residuals → 405 (POST only); POST schema unknown
-//   submitDisputeEvidence — POST /cases/{id}/upload not yet probed
-//
+// Task #1777 update (replaces the Sept 2026 "getResiduals must permanently be HeldResult" rule):
+//   get_charges / get_daily_stats / get_disputes (merchant key)   implemented (REV-06A)
+//   get_batch_reports, residual summary/table/details (partner)   implemented in payarc-reads.ts
+//   get_dispute_chart (merchant, aggregate only)                  implemented in payarc-reads.ts
+// Still HeldResult: submitDisputeEvidence (POST /cases/{id}/upload is documented, but its
+//   authorization and a safe submission are unproven), and the legacy numeric getResiduals shape.
+// Behavioral proof that only documented, GET-only, snapshot-gated reads run lives in KL16 below and
+// in scripts/test-payarc-revenue-reads.ts.
 // REV-06A §9: submitChargeback → submitDisputeEvidence (canonical rename).
 
-check("KL13: Unverified operations still held; implemented ops use real MERCHANT_KEY; no simulation data", () => {
+check("KL13: Upload stays held; implemented ops use real credentials; no simulation data", () => {
   const src = readFile("server/services/processors/payarc.adapter.ts");
   let ok = true;
 
@@ -305,13 +304,24 @@ check("KL13: Unverified operations still held; implemented ops use real MERCHANT
     }
   }
 
-  // ── Still-held: getResiduals must return HeldResult (GET /residuals 405 — POST only) ──
+  // ── Documented partner/merchant reads must be exposed through the adapter and delegate to payarc-reads ──
+  for (const m of ["getBatchReports", "getResidualReport", "listDisputeCases", "getDisputeChart"]) {
+    const sec = extractMethod(src, m);
+    if (!sec) {
+      fail(`KL13: ${m}() not found in payarc.adapter.ts`);
+      ok = false;
+    } else if (!/run(BatchReports|ResidualReport|DisputeCaseList|DisputeChart)\(/.test(sec)) {
+      fail(`KL13: ${m}() does not delegate to the documented-contract reader in payarc-reads.ts`);
+      ok = false;
+    }
+  }
+  // The legacy numeric getResiduals shape must not recommend the unsupported POST /residuals path.
   const residualsSection = extractMethod(src, "getResiduals");
   if (!residualsSection) {
     fail("KL13: getResiduals() not found in payarc.adapter.ts");
     ok = false;
-  } else if (!/status: "held"/.test(residualsSection)) {
-    fail("KL13: getResiduals() must remain HeldResult — GET /residuals returns 405 (POST only), POST schema unconfirmed");
+  } else if (/POST\s+\/(v1\/)?residuals/.test(residualsSection)) {
+    fail("KL13: getResiduals() recommends POST /residuals — unsupported as a partner endpoint");
     ok = false;
   }
 
@@ -343,7 +353,7 @@ check("KL13: Unverified operations still held; implemented ops use real MERCHANT
     ok = false;
   }
 
-  if (ok) pass("KL13: Verified ops implemented with MERCHANT_KEY (no simulation); unverified ops (getResiduals, submitDisputeEvidence) remain HeldResult");
+  if (ok) pass("KL13: Documented reads delegate to payarc-reads; submitDisputeEvidence remains HeldResult; no simulation data");
 });
 
 // ── Kill Line 14: No simulation data in any #1737 domain method ──
@@ -882,6 +892,88 @@ check("KL15: Deterministic adapter runtime behaviors (no-fetch HeldResult, malfo
   }
 
   if (ok) pass("KL15: All runtime behavior contracts verified (snapshot URL, envelope, pagination progress/bound, revocation, mixed/absent MID, missing amount/date/status → HeldResult, short-page continues, zero-dollar fabrication blocked)");
+});
+
+// ── Kill Line 16: Task #1777 documented-read guards (behavioral) ──────────────
+//
+// Proves — with a fake transport, no network — that the revenue/dispute readers (a) send nothing
+// without a snapshot-authorized reporting host, (b) only issue GETs against documented routes,
+// (c) refuse the Connect host, (d) refuse a key declared for the other environment, and (e) that
+// no read module contains write-method, upload, OAuth, residuals-POST, or Connect references.
+
+check("KL16: Documented reads are GET-only, snapshot-URL gated, host/environment bound (behavioral)", async () => {
+  const reads = await import("../server/services/processors/payarc-reads");
+  const calls: Array<{ url: string; hasBody: boolean }> = [];
+  const transport = async (req: { url: string; jsonBody?: unknown }) => {
+    calls.push({ url: req.url, hasBody: req.jsonBody !== undefined });
+    return {
+      status: 200,
+      text: JSON.stringify({ header_data: [], row_data: [], data: [] }),
+      headers: { "x-ratelimit-remaining": "100" },
+    };
+  };
+  const base = { keyClass: "partner" as const, apiKey: "k", transport, env: {} as NodeJS.ProcessEnv };
+  const window = { fromDate: "2026-09-01", toDate: "2026-09-30" };
+  let ok = true;
+
+  const noUrl = await reads.runResidualReport({ ...base, baseUrl: null }, { source: "residual_details", ...window });
+  if (!reads.isHeld(noUrl) || calls.length !== 0) {
+    fail("KL16: a read without a snapshot-authorized URL must hold before any request");
+    ok = false;
+  }
+  const connect = await reads.runResidualReport({ ...base, baseUrl: "https://connect.payarc.net/v3" }, { source: "residual_details", ...window });
+  if (!reads.isHeld(connect) || calls.length !== 0) {
+    fail("KL16: a non-reporting (Connect/other) host must be refused before any request");
+    ok = false;
+  }
+  const mismatch = await reads.runResidualReport(
+    { ...base, baseUrl: "https://testapi.payarc.net/v1", env: { PAYARC_PARTNER_KEY_ENVIRONMENT: "production" } as NodeJS.ProcessEnv },
+    { source: "residual_details", ...window },
+  );
+  if (!reads.isHeld(mismatch) || calls.length !== 0) {
+    fail("KL16: a key declared for production must never be sent to the sandbox host");
+    ok = false;
+  }
+  await reads.runResidualReport({ ...base, baseUrl: "https://api.payarc.net/v1" }, { source: "residual_details", ...window });
+  await reads.runBatchReports({ ...base, baseUrl: "https://api.payarc.net/v1" }, { ...window, filterPlacement: "query" });
+  if (calls.length !== 2 || calls.some((c) => c.hasBody || !/^https:\/\/api\.payarc\.net\/v1\/(residual-details|agent\/batch\/reports)\?/.test(c.url))) {
+    fail("KL16: authorized reads must be GET requests to documented reporting routes only");
+    ok = false;
+  }
+
+  const forbidden: Array<[RegExp, string]> = [
+    [/method:\s*"(POST|PATCH|DELETE|PUT)"/, "write HTTP method"],
+    [/\/upload\b/, "evidence upload route"],
+    [/oauth/i, "OAuth exchange"],
+    [/["'`]\/residuals/, "unsupported /residuals path"],
+    [/\/agent_residual\/details/, "unimplemented agent_residual/details route"],
+    [/\/v3\/|connect\.payarc/i, "Connect terminal host/route"],
+    [/transactions\/sale/, "terminal sale"],
+  ];
+  for (const file of [
+    "server/services/processors/payarc-reads.ts",
+    "server/services/processors/payarc-read-transport.ts",
+    "server/services/processors/payarc-access-canary.ts",
+    "scripts/probe-payarc-endpoints.ts",
+  ]) {
+    // Ignore comment lines: the guards document what is deliberately NOT used.
+    const code = readFile(file)
+      .split("\n")
+      .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l))
+      .join("\n");
+    if (!code) {
+      fail(`KL16: ${file} missing or empty`);
+      ok = false;
+      continue;
+    }
+    for (const [re, label] of forbidden) {
+      if (re.test(code)) {
+        fail(`KL16: ${file} references ${label}`);
+        ok = false;
+      }
+    }
+  }
+  if (ok) pass("KL16: Documented reads are GET-only, snapshot-URL gated, host/environment bound; no write/upload/OAuth/Connect references");
 });
 
 // ── Summary ──────────────────────────────────────────────────────────────────

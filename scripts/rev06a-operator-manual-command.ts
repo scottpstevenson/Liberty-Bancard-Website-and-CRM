@@ -1,41 +1,35 @@
 #!/usr/bin/env npx tsx
 /**
- * rev06a-operator-manual-command.ts — REV-06A Operator Manual Command
+ * rev06a-operator-manual-command.ts — REV-06A Operator Manual Command (revised, Task #1777)
  *
- * Manual-first operator script for the REV-06A lifecycle.
- * Accepts a canonical MID generation + date range, gates on the activation
- * snapshot, and invokes verified Payarc endpoints (GET /charges and
- * GET /merchant_statements) via the adapter using the snapshot-authorized
- * base URL.
+ * Manual, read-only, ONE-TIME command. It runs exactly the operation you name, with the
+ * explicit scope you give, after the per-operation activation snapshot gate passes.
+ * It prints precise holds and masked counts/metadata only — never sample rows, case ids,
+ * identifiers, or amounts — and it never ingests, posts, reconciles, pays, uploads evidence,
+ * calls Connect/terminal endpoints, or changes lifecycle state. No schedule is registered.
  *
- * IMPORTANT: No recurring schedule is registered here. This is a ONE-TIME
- * manually triggered command only. Automation is a separate follow-up task.
+ * Operations (snapshot operation that must authorize each, separately):
+ *   transactions              merchant key  GET /charges                    get_charges        (needs --mid-id)
+ *   daily-stats               merchant key  GET /merchant_statements        get_daily_stats    (needs --mid-id)
+ *   dispute-cases             merchant key  GET /cases                      get_disputes       (--mid-id optional; binds MID)
+ *   dispute-chart             merchant key  GET /dispute-chart (aggregate)  get_dispute_chart
+ *   batch-reports             partner key   GET /agent/batch/reports        get_batch_reports  (needs --batch-filter-placement)
+ *   residual-summary          partner key   GET /agent_residual/summary     get_residual_summary         (needs --bank)
+ *   residual-table-summaries  partner key   GET /residual_table_summaries   get_residual_table_summaries
+ *   residual-details          partner key   GET /residual-details           get_residual_details
+ *
+ * Scope flags: --start-date/--end-date (YYYY-MM-DD) or --month YYYY-MM (batch/residual/disputes),
+ *   --bank NNNN, --agent-id N, --mid-id <merchant_mids.id>, --batch-filter-placement query|body.
+ *
+ * With no --operation the legacy pair (daily-stats + transactions) runs, as before.
  *
  * Usage:
- *   npx tsx scripts/rev06a-operator-manual-command.ts \
- *     --mid-id <merchant_mids.id> \
- *     --start-date 2026-08-01 \
- *     --end-date 2026-08-31
+ *   npx tsx scripts/rev06a-operator-manual-command.ts --mid-id 12 --start-date 2026-08-01 --end-date 2026-08-31
+ *   npx tsx scripts/rev06a-operator-manual-command.ts --operation residual-summary --bank <bank> --month 2026-09
+ *   npx tsx scripts/rev06a-operator-manual-command.ts --operation dispute-cases --start-date 2026-10-01 --end-date 2026-10-31
  *
- * Per §13 Completion Rule:
- *   This command preserves HeldResult for all operations that were not
- *   confirmed via a sandbox 2xx. Only get_daily_stats and get_charges are
- *   authorized in the current sandbox_verified snapshot (migration 0238).
- *   getResiduals and submitDisputeEvidence remain HeldResult until their
- *   Payarc endpoints return a verified 2xx.
- *
- * REV-06A §4a Final Probe Results (Sept 9 2026):
- *   PAYARC_MERCHANT_API_KEY (sandbox) on testapi.payarc.net/v1:
- *     GET /accounts/me           → 200 ✓
- *     GET /charges               → 200 ✓  (data[] empty in sandbox account)
- *     GET /merchant_statements   → 200 ✓  (data[] empty in sandbox account)
- *     GET /cases (date range)    → 200 ✓  (dispute listing)
- *     GET /deposits              → 404 ✗
- *     GET /residuals             → 405 ✗  (POST only)
- *     GET /disputes              → 404 ✗
- *   PAYARC_API_KEY (production partner) on api.payarc.net/v1:
- *     GET /accounts/me           → 200 ✓  (identity only)
- *     All data endpoints         → 401 ✗  (permissions not granted)
+ * A snapshot that does not list an operation blocks that operation; the owner must grant it.
+ * A merchant-key response is one merchant account, never portfolio-wide coverage.
  */
 
 import { db } from "../server/db";
@@ -44,168 +38,197 @@ import { eq } from "drizzle-orm";
 import { requireConfirmedActivationSnapshot } from "../server/services/processors/registry";
 import { getProcessor, getDefaultProcessor } from "../server/services/processors/registry";
 import { maskMid } from "../server/utils/mask-mid";
+import { monthToWindow, residualOperationFor } from "../server/services/processors/payarc-reads";
+import { summarizeRead } from "../server/services/processors/payarc-read-summary";
+import type { BatchFilterPlacement, ResidualSource } from "../server/services/processors/payarc-report-types";
+
+const OPERATIONS = [
+  "transactions",
+  "daily-stats",
+  "dispute-cases",
+  "dispute-chart",
+  "batch-reports",
+  "residual-summary",
+  "residual-table-summaries",
+  "residual-details",
+] as const;
+type Operation = (typeof OPERATIONS)[number];
+
+const SNAPSHOT_OP: Record<Operation, string> = {
+  transactions: "get_charges",
+  "daily-stats": "get_daily_stats",
+  "dispute-cases": "get_disputes",
+  "dispute-chart": "get_dispute_chart",
+  "batch-reports": "get_batch_reports",
+  "residual-summary": residualOperationFor("agent_residual_summary"),
+  "residual-table-summaries": residualOperationFor("residual_table_summaries"),
+  "residual-details": residualOperationFor("residual_details"),
+};
 
 // ── CLI Argument Parsing ───────────────────────────────────────────────────────
 
-function parseArgs(): { midId: number; startDate: string; endDate: string } {
+interface Args {
+  operations: Operation[];
+  midId?: number;
+  startDate: string;
+  endDate: string;
+  bank?: string;
+  agentId?: string;
+  placement?: BatchFilterPlacement;
+}
+
+function parseArgs(): Args {
   const args = process.argv.slice(2);
   const get = (flag: string) => {
     const idx = args.indexOf(flag);
     return idx !== -1 ? args[idx + 1] : undefined;
   };
-  const midIdStr = get("--mid-id");
-  const startDate = get("--start-date");
-  const endDate = get("--end-date");
-
-  if (!midIdStr || !startDate || !endDate) {
-    console.error("Usage: npx tsx scripts/rev06a-operator-manual-command.ts --mid-id <id> --start-date YYYY-MM-DD --end-date YYYY-MM-DD");
+  const die = (m: string): never => {
+    console.error(m);
     process.exit(1);
+  };
+  const op = get("--operation");
+  if (op !== undefined && !(OPERATIONS as readonly string[]).includes(op)) die(`--operation must be one of: ${OPERATIONS.join(", ")}`);
+  const operations: Operation[] = op ? [op as Operation] : ["daily-stats", "transactions"];
+
+  const midIdStr = get("--mid-id");
+  const month = get("--month");
+  let startDate = get("--start-date");
+  let endDate = get("--end-date");
+  if (month) {
+    const w = monthToWindow(month);
+    if (!w) die("--month must be YYYY-MM");
+    if (startDate || endDate) die("use either --month or --start-date/--end-date, not both");
+    startDate = w!.fromDate;
+    endDate = w!.toDate;
   }
+  if (!startDate || !endDate) {
+    die("Usage: --start-date YYYY-MM-DD --end-date YYYY-MM-DD (or --month YYYY-MM) is required; reads are always bounded");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate!)) die("--start-date must be YYYY-MM-DD");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate!)) die("--end-date must be YYYY-MM-DD");
+  if (startDate! > endDate!) die("--start-date must be <= --end-date");
 
-  const midId = parseInt(midIdStr, 10);
-  if (isNaN(midId)) { console.error("--mid-id must be a number"); process.exit(1); }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) { console.error("--start-date must be YYYY-MM-DD"); process.exit(1); }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) { console.error("--end-date must be YYYY-MM-DD"); process.exit(1); }
-  if (startDate > endDate) { console.error("--start-date must be ≤ --end-date"); process.exit(1); }
+  let midId: number | undefined;
+  if (midIdStr !== undefined) {
+    midId = parseInt(midIdStr, 10);
+    if (Number.isNaN(midId)) die("--mid-id must be a number");
+  }
+  if ((operations.includes("transactions") || operations.includes("daily-stats")) && midId === undefined) {
+    die("--mid-id is required for transactions and daily-stats");
+  }
+  const placement = get("--batch-filter-placement");
+  if (placement !== undefined && placement !== "query" && placement !== "body") die("--batch-filter-placement must be query or body");
+  const bank = get("--bank");
+  if (bank !== undefined && !/^\d{4}$/.test(bank)) die("--bank must be four digits");
+  const agentId = get("--agent-id");
+  if (agentId !== undefined && !/^\d+$/.test(agentId)) die("--agent-id must be digits");
 
-  return { midId, startDate, endDate };
+  return { operations, midId, startDate: startDate!, endDate: endDate!, bank, agentId, placement: placement as BatchFilterPlacement | undefined };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const { midId, startDate, endDate } = parseArgs();
+  const { operations, midId, startDate, endDate, bank, agentId, placement } = parseArgs();
 
-  console.log("\n[REV-06A] Operator Manual Command");
-  console.log(`  MID row ID: ${midId}`);
+  console.log("\n[REV-06A] Operator Manual Command (read-only)");
+  console.log(`  Operations: ${operations.join(", ")}`);
   console.log(`  Date range: ${startDate} → ${endDate}`);
   console.log(`  Timestamp:  ${new Date().toISOString()}`);
   console.log("─".repeat(70));
 
-  // ── Step 1: Load MID row ───────────────────────────────────────────────────
-
-  const rows = await db.select().from(merchantMids).where(eq(merchantMids.id, midId)).limit(1);
-  if (rows.length === 0) {
-    console.error(`[FAIL] MID row ${midId} not found in merchant_mids`);
-    process.exit(1);
-  }
-  const midRow = rows[0];
-  const midMasked = maskMid(midRow.mid);
-  const processorName = midRow.processorName || "payarc";
-  console.log(`[OK] MID row found: ${midMasked} (status=${midRow.status}, processor=${processorName})`);
-
-  // ── Step 2: Activation snapshot gate ──────────────────────────────────────
-
-  console.log("\n[REV-06A] Checking activation snapshot gate...");
-
-  // Sandbox_verified snapshot (migration 0238) authorizes:
-  //   get_charges, get_daily_stats, get_disputes
-  // HeldResult operations: get_residuals, submit_dispute_evidence
-  const candidateOps = ["get_charges", "get_daily_stats", "get_disputes", "get_residuals", "submit_dispute_evidence"];
-  const snapshotResults: Record<string, { granted: boolean; reason: string; authorizedBaseUrl?: string | null }> = {};
-
-  let dailyStatsBaseUrl: string | null = null;
-  let chargesBaseUrl: string | null = null;
-
-  for (const op of candidateOps) {
-    try {
-      const snap = await requireConfirmedActivationSnapshot(processorName, op);
-      snapshotResults[op] = { granted: true, reason: "snapshot_authorized", authorizedBaseUrl: snap.authorizedBaseUrl };
-      console.log(`  ✓ ${op}: AUTHORIZED (base=${snap.authorizedBaseUrl ?? "null"})`);
-      if (op === "get_daily_stats") dailyStatsBaseUrl = snap.authorizedBaseUrl;
-      if (op === "get_charges") chargesBaseUrl = snap.authorizedBaseUrl;
-    } catch (e: any) {
-      snapshotResults[op] = { granted: false, reason: e?.code ?? e?.message?.slice(0, 80) ?? "error" };
-      console.log(`  ✗ ${op}: BLOCKED — ${snapshotResults[op].reason}`);
+  // ── Step 1: Optional MID row (binds results to one canonical MID generation) ──
+  let mid: string | undefined;
+  let processorName = "payarc";
+  let midMasked: string | null = null;
+  if (midId !== undefined) {
+    const rows = await db.select().from(merchantMids).where(eq(merchantMids.id, midId)).limit(1);
+    if (rows.length === 0) {
+      console.error(`[FAIL] MID row ${midId} not found in merchant_mids`);
+      process.exit(1);
     }
+    mid = rows[0].mid;
+    midMasked = maskMid(mid);
+    processorName = rows[0].processorName || "payarc";
+    console.log(`[OK] MID row ${midId}: ${midMasked} (status=${rows[0].status}, processor=${processorName})`);
   }
-
-  const grantedOps = Object.entries(snapshotResults).filter(([, v]) => v.granted).map(([k]) => k);
-
-  // ── Step 3: Invoke adapter for authorized operations ───────────────────────
-
-  console.log(`\n[REV-06A] Executing ${grantedOps.length} authorized operation(s)...`);
 
   const adapter = getProcessor(processorName) ?? getDefaultProcessor();
+  const window = { fromDate: startDate, toDate: endDate };
   const results: Record<string, unknown> = {};
 
-  if (snapshotResults["get_daily_stats"]?.granted) {
-    console.log(`\n  → getDailyStats(${midMasked}, ${startDate}, ${endDate})`);
+  for (const operation of operations) {
+    const snapshotOp = SNAPSHOT_OP[operation];
+    console.log(`\n[${operation}] snapshot operation: ${snapshotOp}`);
+
+    // ── Per-operation activation snapshot gate (revocation honored per operation) ──
+    let baseUrl: string | null;
     try {
-      const stats = await adapter.getDailyStats(midRow.mid, startDate, endDate, {
-        snapshotAuthorizedBaseUrl: dailyStatsBaseUrl,
-      });
-      if (Array.isArray(stats)) {
-        console.log(`     Result: ${stats.length} statement(s)`);
-        if (stats.length === 0) {
-          console.log("     (Sandbox account has no statement data for this date range — empty is correct, not an error)");
-        }
-        results["get_daily_stats"] = { status: "ok", count: stats.length, sample: stats.slice(0, 2) };
-      } else {
-        console.log(`     HeldResult: ${(stats as any).reason}`);
-        results["get_daily_stats"] = { status: "held", reason: (stats as any).reason };
-      }
-    } catch (err: any) {
-      console.error(`     Error: ${err?.message}`);
-      results["get_daily_stats"] = { status: "error", error: err?.message };
+      baseUrl = (await requireConfirmedActivationSnapshot(processorName, snapshotOp)).authorizedBaseUrl;
+      console.log("  ✓ AUTHORIZED by activation snapshot");
+    } catch (e: any) {
+      const reason = e?.code ?? e?.message?.slice(0, 80) ?? "error";
+      console.log(`  ✗ BLOCKED — ${reason} (owner must grant this operation in an activation snapshot)`);
+      results[operation] = { status: "held", code: "snapshot_not_authorized", reason };
+      continue;
     }
-  }
+    const options = { snapshotAuthorizedBaseUrl: baseUrl };
 
-  if (snapshotResults["get_charges"]?.granted) {
-    console.log(`\n  → getTransactions(${midMasked}, ${startDate}, ${endDate})`);
     try {
-      const txns = await adapter.getTransactions(midRow.mid, startDate, endDate, {
-        snapshotAuthorizedBaseUrl: chargesBaseUrl,
-      });
-      if (Array.isArray(txns)) {
-        console.log(`     Result: ${txns.length} charge(s)`);
-        if (txns.length === 0) {
-          console.log("     (Sandbox account has no charge data for this date range — empty is correct, not an error)");
+      let summary;
+      switch (operation) {
+        case "daily-stats": {
+          const r = await adapter.getDailyStats(mid!, startDate, endDate, options);
+          summary = Array.isArray(r)
+            ? { status: "ok", recordCount: r.length, notes: ["empty is not reconciliation proof"] }
+            : { status: "held", reason: r.reason, code: r.code };
+          break;
         }
-        results["get_charges"] = { status: "ok", count: txns.length, sample: txns.slice(0, 2) };
-      } else {
-        console.log(`     HeldResult: ${(txns as any).reason}`);
-        results["get_charges"] = { status: "held", reason: (txns as any).reason };
+        case "transactions": {
+          const r = await adapter.getTransactions(mid!, startDate, endDate, options);
+          summary = Array.isArray(r)
+            ? { status: "ok", recordCount: r.length, notes: ["empty is not reconciliation proof"] }
+            : { status: "held", reason: r.reason, code: r.code };
+          break;
+        }
+        case "dispute-cases":
+          summary = summarizeRead(await adapter.listDisputeCases({ ...window, mid }, options));
+          break;
+        case "dispute-chart":
+          summary = summarizeRead(await adapter.getDisputeChart(window, options));
+          break;
+        case "batch-reports":
+          if (!placement) {
+            summary = { status: "held", code: "filter_placement_unverified", reason: "pass --batch-filter-placement query|body (provider docs conflict)" };
+          } else {
+            summary = summarizeRead(await adapter.getBatchReports({ ...window, filterPlacement: placement, merchantAccountNumber: mid }, options));
+          }
+          break;
+        default: {
+          const source: ResidualSource =
+            operation === "residual-summary"
+              ? "agent_residual_summary"
+              : operation === "residual-table-summaries"
+                ? "residual_table_summaries"
+                : "residual_details";
+          summary = summarizeRead(await adapter.getResidualReport({ source, ...window, bank, mid, agentId }, options));
+        }
       }
+      results[operation] = summary;
     } catch (err: any) {
-      console.error(`     Error: ${err?.message}`);
-      results["get_charges"] = { status: "error", error: err?.message };
+      results[operation] = { status: "error", error: String(err?.message ?? err).slice(0, 120) };
     }
   }
 
-  // Report held operations
-  for (const op of ["get_residuals", "submit_dispute_evidence"]) {
-    if (!snapshotResults[op]?.granted) {
-      results[op] = { status: "held", reason: snapshotResults[op]?.reason ?? "not authorized" };
-    }
-  }
-
-  // ── Step 4: Summary ────────────────────────────────────────────────────────
-
-  console.log("\n[REV-06A] Execution Summary:");
-  console.log(`  MID (masked):       ${midMasked}`);
-  console.log(`  Processor:          ${processorName}`);
-  console.log(`  Date range:         ${startDate} → ${endDate}`);
-  console.log(`  Authorized ops:     ${grantedOps.join(", ") || "none"}`);
-  console.log(`  Completed at:       ${new Date().toISOString()}`);
-  console.log("\n  Per-operation results:");
-  for (const [op, result] of Object.entries(results)) {
-    const r = result as any;
-    if (r.status === "ok") {
-      console.log(`    ✓ ${op}: ${r.count} record(s)`);
-    } else {
-      console.log(`    ✗ ${op}: ${r.status} — ${r.reason ?? r.error ?? ""}`);
-    }
-  }
-
+  console.log("\n[REV-06A] Execution Summary (masked; counts and metadata only):");
+  console.log(`  MID (masked): ${midMasked ?? "not bound"}`);
+  console.log(`  Processor:    ${processorName}`);
+  console.log(JSON.stringify(results, null, 2));
   console.log("\n[REV-06A] Notes:");
-  console.log("  • No recurring schedule was registered in this command.");
-  console.log("  • Sandbox data arrays are expected to be empty — the sandbox merchant");
-  console.log("    account has no processed transactions.");
-  console.log("  • Production data requires a production_authorized snapshot and a");
-  console.log("    production PAYARC_MERCHANT_API_KEY.");
-  console.log("  • getResiduals: held — GET /residuals returns 405 (POST only); POST schema unknown.");
-  console.log("  • submitDisputeEvidence: held — POST /cases/{id}/upload not yet probed.");
+  console.log("  • Read-only. Nothing was ingested, posted, reconciled, paid, uploaded, or scheduled.");
+  console.log("  • Empty HTTP 200 responses show access only, not financial reconciliation.");
+  console.log("  • submitDisputeEvidence stays held; webhook handling and Connect calls are out of scope.");
   console.log("─".repeat(70) + "\n");
 
   process.exit(0);

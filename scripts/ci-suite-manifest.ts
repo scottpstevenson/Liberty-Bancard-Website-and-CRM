@@ -394,6 +394,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "pure source scan; no DB, no providers, no server",
   },
   {
+    name: "Payarc Revenue/Dispute Documented Reads",
+    script: "scripts/test-payarc-revenue-reads.ts",
+    capability: "deterministic-static",
+    providerDenial: "fake read transport and stubbed global fetch; no DB, no network, no provider credentials",
+  },
+  {
     name: "CRO-03A South Florida Candidate Qualification",
     script: "scripts/test-cro03a-static.ts",
     capability: "deterministic-static",

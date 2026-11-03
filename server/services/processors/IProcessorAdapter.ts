@@ -32,7 +32,25 @@ export type ProcessorHealthState =
 export interface HeldResult {
   status: "held";
   reason: string;
+  /**
+   * Machine-readable hold code (optional; legacy holds carry only `reason`). Examples:
+   * entitlement_required, bank_required, filter_placement_unverified, filters_ignored,
+   * environment_mismatch, snapshot_url_required, malformed_response, mid_binding_mismatch.
+   */
+  code?: string;
 }
+
+import type {
+  BatchReportRequest,
+  BatchReportResult,
+  DisputeCaseListRequest,
+  DisputeCaseListResult,
+  DisputeChartRequest,
+  DisputeChartResult,
+  PayarcReadOptions,
+  ResidualReportRequest,
+  ResidualReportResult,
+} from "./payarc-report-types";
 
 // ─── Merchant Profile ────────────────────────────────────────────────────────
 
@@ -242,10 +260,37 @@ export interface IProcessorAdapter {
   getTransactions(mid: string, startDate: string, endDate: string, options?: { snapshotAuthorizedBaseUrl?: string | null }): Promise<Transaction[] | HeldResult>;
 
   /**
-   * Fetch residuals for a given month.
-   * #1737 DOMAIN — returns HeldResult until REV-06A certifies this path.
+   * Legacy numeric residual shape (cannot carry decimal text, nullable calculated values, or
+   * the summary/line-item distinction). Adapters keep this as a correctly-worded hold; use
+   * getResidualReport() for documented partner residual reads.
    */
   getResiduals(month: string, agentId?: string): Promise<Residual[] | HeldResult>;
+
+  /**
+   * Partner-key agent batch report (GET /v1/agent/batch/reports). Bounded dates; the caller must
+   * choose the filter placement because the provider docs contradict themselves.
+   * Authorized per operation: snapshot operation `get_batch_reports`.
+   */
+  getBatchReports(request: BatchReportRequest, options?: PayarcReadOptions): Promise<BatchReportResult | HeldResult>;
+
+  /**
+   * Partner-key residual read from ONE documented source (summary, table summary, or fee line
+   * items). Sources overlap and are never combined. Snapshot operation per source:
+   * get_residual_summary | get_residual_table_summaries | get_residual_details.
+   */
+  getResidualReport(request: ResidualReportRequest, options?: PayarcReadOptions): Promise<ResidualReportResult | HeldResult>;
+
+  /**
+   * Merchant-key dispute CASE listing (GET /v1/cases). One merchant account — not portfolio-wide.
+   * Snapshot operation `get_disputes`.
+   */
+  listDisputeCases(request: DisputeCaseListRequest, options?: PayarcReadOptions): Promise<DisputeCaseListResult | HeldResult>;
+
+  /**
+   * Merchant-key AGGREGATE dispute chart (GET /v1/dispute-chart). Chart metrics only — not a case
+   * source. Snapshot operation `get_dispute_chart`.
+   */
+  getDisputeChart(request: DisputeChartRequest, options?: PayarcReadOptions): Promise<DisputeChartResult | HeldResult>;
 
   /**
    * Fetch daily stats for a MID over a date range.

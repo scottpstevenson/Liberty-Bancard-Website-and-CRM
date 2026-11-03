@@ -240,6 +240,23 @@ export class NmiProcessorAdapter implements IProcessorAdapter {
     return { status: "held", reason: "pending_task_1737" };
   }
 
+  // Task #1777: Payarc-specific documented revenue/dispute reads are not supported by this adapter.
+  async getBatchReports(_request: unknown, _options?: unknown): Promise<HeldResult> {
+    return { status: "held", reason: "not_supported_by_adapter", code: "not_supported" };
+  }
+
+  async getResidualReport(_request: unknown, _options?: unknown): Promise<HeldResult> {
+    return { status: "held", reason: "not_supported_by_adapter", code: "not_supported" };
+  }
+
+  async listDisputeCases(_request: unknown, _options?: unknown): Promise<HeldResult> {
+    return { status: "held", reason: "not_supported_by_adapter", code: "not_supported" };
+  }
+
+  async getDisputeChart(_request: unknown, _options?: unknown): Promise<HeldResult> {
+    return { status: "held", reason: "not_supported_by_adapter", code: "not_supported" };
+  }
+
   // REV-05A §13/#1737: getDailyStats is a #1737-domain function.
   // Returns held result — pending_task_1737 owns daily stats and
   // all simulation data generation has been removed.

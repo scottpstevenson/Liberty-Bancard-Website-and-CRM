@@ -8,11 +8,9 @@
  *   - ping() no longer returns true on HTTP 404. Only 2xx = success.
  *   - getHealthState() returns typed ProcessorHealthState enum.
  *   - Simulation fallback in boardMerchant() is preserved (dev/test only).
- *   - #1737 domain functions (getDailyStats, getResiduals, getTransactions,
- *     submitChargeback) return HeldResult when credentials ARE configured
- *     (they were previously calling live Payarc endpoints, but those paths
- *     are Task #1737 scope and must not be certified here).
- *   - Simulation path in getDailyStats REMOVED; now returns HeldResult.
+ *   - Simulation path in getDailyStats REMOVED.
+ *   - Task #1777: documented bounded reads (batch reports, residual summaries/line items,
+ *     dispute case list, dispute chart) live in payarc-reads.ts and are exposed here.
  *   - updateMerchant simulation path REMOVED; returns error when unconfigured.
  *   - Transport remains paused until activation snapshot is confirmed.
  *
@@ -36,6 +34,26 @@ import type {
   ProcessorHealthState,
   HeldResult,
 } from "./IProcessorAdapter";
+import {
+  held,
+  runBatchReports,
+  runDisputeCaseList,
+  runDisputeChart,
+  runResidualReport,
+  type ReadContext,
+} from "./payarc-reads";
+import type { ReadTransport } from "./payarc-read-transport";
+import type {
+  BatchReportRequest,
+  BatchReportResult,
+  DisputeCaseListRequest,
+  DisputeCaseListResult,
+  DisputeChartRequest,
+  DisputeChartResult,
+  PayarcReadOptions,
+  ResidualReportRequest,
+  ResidualReportResult,
+} from "./payarc-report-types";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -354,29 +372,33 @@ export async function payarcFetchAll<T = unknown>(
 
 // ─── Adapter ──────────────────────────────────────────────────────────────────
 
-// ── REV-06A Merchant API constants ────────────────────────────────────────────
+// ── REV-06A / Task #1777 CREDENTIAL AUTHORITY MATRIX (credential classes) ────
 //
-// Payarc has two separate API credential classes:
-//   PARTNER KEY (PAYARC_API_KEY)         — boarding, applicant status
-//   MERCHANT KEY (PAYARC_MERCHANT_API_KEY) — charges, statements, disputes
+// Payarc has two credential classes. They are never interchangeable and are never tried
+// against each other:
+//   PARTNER KEY  (PAYARC_API_KEY)          boarding/applicant status (Partner Hub), agent batch
+//                                          reports, agent residual reads (provider-confirmed
+//                                          for /agent/batch/reports and /agent_residual/summary)
+//   MERCHANT KEY (PAYARC_MERCHANT_API_KEY) charges, merchant statements, dispute cases,
+//                                          dispute chart, webhook subscription listing
 //
-// Both use Bearer token auth. In sandbox, both keys work on testapi.payarc.net.
-// Probe-verified (Sept 9 2026):
-//   GET /charges                                    → 200 (MERCHANT_KEY, testapi)
-//   GET /merchant_statements?from_date=&to_date=   → 200 (MERCHANT_KEY, testapi)
-//   GET /cases?report_date[gte]=&report_date[lte]= → 200 (MERCHANT_KEY, testapi)
-//
-// HELD (no verified 2xx):
-//   GET /residuals (405 — POST only)
-//   GET /deposits (404)
-//   POST /cases/{id}/upload (not yet probed)
-//   All partner key data endpoints on api.payarc.net (401 — permissions not granted)
+// Reporting hosts: https://testapi.payarc.net/v1 (sandbox), https://api.payarc.net/v1
+// (production). Credentials are environment-specific. The Payarc Connect terminal host is a
+// different system and is never used here. The full capability matrix, with documented support
+// kept separate from account access, is in docs/rev06a-certification-report.md.
 
 const MERCHANT_SANDBOX_BASE = "https://testapi.payarc.net/v1";
 
 export class PayarcProcessorAdapter implements IProcessorAdapter {
   readonly name = "payarc";
   readonly displayName = "Payarc";
+
+  /** Injectable for deterministic tests; production uses the default transport. */
+  private readonly readTransport?: ReadTransport;
+
+  constructor(deps?: { readTransport?: ReadTransport }) {
+    this.readTransport = deps?.readTransport;
+  }
 
   private get apiKey(): string | undefined {
     return process.env.PAYARC_API_KEY || undefined;
@@ -393,10 +415,9 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
 
   /**
    * Base URL for merchant-scoped operations (charges, statements, disputes).
-   * Probe confirmed: PAYARC_MERCHANT_API_KEY (sandbox) works on testapi.payarc.net.
-   * Production merchant key and base URL not yet issued/verified — held until
-   * a production merchant key probe succeeds and a new production_authorized
-   * snapshot is issued.
+   * Historical (Sept 2026) evidence: the merchant key returned HTTP 200 on testapi.payarc.net.
+   * Whether the configured value is sandbox- or production-issued is declared separately via
+   * PAYARC_MERCHANT_KEY_ENVIRONMENT; the snapshot URL, not this getter, governs new reads.
    */
   private get merchantApiBase(): string {
     const configuredBase = this.baseUrl;
@@ -657,68 +678,27 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
     };
   }
 
-  // ── #1737 DOMAIN FUNCTIONS ────────────────────────────────────────────────
-  // ─── REV-06A HeldResult domain (getDailyStats, getResiduals, getTransactions,
-  //     submitDisputeEvidence) ───────────────────────────────────────────────────
+  // ── REV-06A DOMAIN FUNCTIONS ──────────────────────────────────────────────
   //
-  // ── TWO-API ARCHITECTURE (discovered Sept 2026 from docs.payarc.net) ──────────
+  // Operation → credential → snapshot operation name (each authorized separately):
+  //   getTransactions     merchant  GET /charges                      get_charges
+  //   getDailyStats       merchant  GET /merchant_statements          get_daily_stats
+  //   listDisputeCases    merchant  GET /cases (YYYY/MM/DD)           get_disputes
+  //   getDisputeChart     merchant  GET /dispute-chart (aggregate)    get_dispute_chart
+  //   getBatchReports     partner   GET /agent/batch/reports          get_batch_reports
+  //   getResidualReport   partner   GET /agent_residual/summary       get_residual_summary
+  //                       partner   GET /residual_table_summaries     get_residual_table_summaries
+  //                       partner   GET /residual-details             get_residual_details
+  //   submitDisputeEvidence         held: POST /cases/{id}/upload is documented (multipart, file
+  //                                 required) but its authorization and a safe sandbox submission
+  //                                 are unproven; owned by the dispute-evidence safety work.
   //
-  // Payarc exposes TWO separate API bases with separate credentials:
+  // Not used: POST /residuals (unsupported as a partner endpoint), /agent_residual/details
+  // (a distinct route), Connect /v3/transactions/sale, OAuth exchanges, token-reveal endpoints.
   //
-  //   PARTNER/AGENT API  → https://testapi.payarc.net/v1  (sandbox)
-  //                        Credential: PAYARC_API_KEY (static Bearer from Partner Hub)
-  //                        Endpoints: applicants, merchants, agent batch, residuals,
-  //                                   disputes (agent-scoped)
-  //
-  //   MERCHANT API       → https://testap1.payarc.net/v1  (sandbox)
-  //                        Credential: PAYARC_MERCHANT_API_KEY (from merchant dashboard)
-  //                        Endpoints: charges, deposits, residuals (merchant-scoped),
-  //                                   disputes, statements, accounts
-  //                        Confirmed from docs:
-  //                          GET /v1/accounts  (List All Accounts)
-  //                          GET /v1/merchant_statements?from_date=&to_date=
-  //
-  // ── CREDENTIAL AUTHORITY MATRIX — FINAL PROBE RESULTS (Sept 9 2026) ───────────
-  //
-  //  PARTNER KEY (PAYARC_API_KEY) — production key
-  //    api.payarc.net/v1    /accounts/me             ✓ 200 (identity confirmed)
-  //    api.payarc.net/v1    /agent/batch/reports      ✗ 401 (permissions not granted)
-  //    api.payarc.net/v1    /agent_residual/summary   ✗ 401
-  //    api.payarc.net/v1    /dispute-chart            ✗ 401
-  //    api.payarc.net/v1    /charges                  ✗ 401 (merchant key required)
-  //    api.payarc.net/v1    /merchant_statements       ✗ 401
-  //    testapi.payarc.net/v1 all endpoints            ✗ 401 (production key vs sandbox)
-  //
-  //  MERCHANT KEY (PAYARC_MERCHANT_API_KEY) — sandbox token
-  //    testapi.payarc.net/v1 /accounts/me            ✓ 200 ✓ VERIFIED
-  //    testapi.payarc.net/v1 /charges                ✓ 200 ✓ VERIFIED (pagination: limit/page)
-  //    testapi.payarc.net/v1 /merchant_statements    ✓ 200 ✓ VERIFIED (from_date/to_date)
-  //    testapi.payarc.net/v1 /cases (date range)     ✓ 200 ✓ VERIFIED (report_date[gte/lte])
-  //    testapi.payarc.net/v1 /deposits               ✗ 404 (route not found)
-  //    testapi.payarc.net/v1 /residuals              ✗ 405 (POST only)
-  //    testapi.payarc.net/v1 /disputes               ✗ 404 (route not found)
-  //    api.payarc.net/v1    all endpoints            ✗ 401 (sandbox key vs production)
-  //
-  // ── IMPLEMENTED OPERATIONS ─────────────────────────────────────────────────
-  //   get_charges   → GET /charges           (MERCHANT_KEY, testapi.payarc.net)
-  //   get_daily_stats → GET /merchant_statements (MERCHANT_KEY, testapi.payarc.net)
-  //   get_disputes  → GET /cases (date range) (MERCHANT_KEY, testapi.payarc.net)
-  //
-  // ── HELD OPERATIONS (no verified 2xx) ─────────────────────────────────────
-  //   getResiduals          → /residuals 405 (POST only), agent residual 401
-  //   submitDisputeEvidence → POST /cases/{id}/upload not yet probed
-  //   agent batch reports   → partner key 401, permissions not granted by Payarc
-  //
-  // ── IMPLEMENTATION PLAN (once credentials verified) ──────────────────────────
-  //   - getDailyStats        → MERCHANT_API GET /v1/merchant_statements or
-  //                            PARTNER_API  GET /v1/agent/batch/reports  (amounts in cents)
-  //   - getResiduals         → PARTNER_API  GET /v1/agent_residual/summary
-  //                            (requires bank param — get from Payarc support)
-  //   - getTransactions      → MERCHANT_API GET /v1/charges
-  //   - submitDisputeEvidence→ PARTNER_API  POST /v1/cases/{hashedId}/upload
-  //                            (disputes listed via GET /v1/dispute-chart)
-  //
-  // ────────────────────────────────────────────────────────────────────────────────
+  // Historical evidence (Sept 2026, not fresh access proof): merchant key HTTP 200 with empty
+  // arrays on identity/charges/statements/cases (sandbox); partner key identity 200 (production).
+  // A 401/403 on a partner endpoint is an entitlement result (Payarc must enable it).
 
   /**
    * Fetch charges (transactions) for a merchant via GET /v1/charges.
@@ -854,16 +834,40 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
   }
 
   /**
-   * HeldResult: GET /v1/residuals → 405 (POST only in Payarc sandbox).
-   * GET residuals endpoint does not exist — POST /v1/residuals is used to
-   * query residual data but the required POST body schema is not yet confirmed.
-   * Partner key agent_residual endpoints also return 401.
+   * Legacy numeric residual shape. Intentionally still a hold: the documented residual routes
+   * return decimal text, nullable calculated values, and either merchant aggregates or fee line
+   * items, none of which fit `Residual`. Use getResidualReport().
    */
   async getResiduals(_month: string, _agentId?: string): Promise<Residual[] | HeldResult> {
+    return held(
+      "use_typed_residual_report",
+      "getResiduals() returns the legacy numeric shape, which cannot represent the documented residual envelopes. Use getResidualReport() with an explicit source, bounded dates, and (for /agent_residual/summary) a bank value.",
+    );
+  }
+
+  private readContext(keyClass: "partner" | "merchant", options?: PayarcReadOptions): ReadContext {
     return {
-      status: "held",
-      reason: "GET /v1/residuals returns 405 (POST only). POST body schema not confirmed. Agent residual endpoint (agent_residual/summary) requires partner key permissions not yet granted by Payarc.",
+      keyClass,
+      apiKey: keyClass === "partner" ? this.apiKey : this.merchantApiKey,
+      baseUrl: options?.snapshotAuthorizedBaseUrl,
+      transport: this.readTransport,
     };
+  }
+
+  async getBatchReports(request: BatchReportRequest, options?: PayarcReadOptions): Promise<BatchReportResult | HeldResult> {
+    return runBatchReports(this.readContext("partner", options), request);
+  }
+
+  async getResidualReport(request: ResidualReportRequest, options?: PayarcReadOptions): Promise<ResidualReportResult | HeldResult> {
+    return runResidualReport(this.readContext("partner", options), request);
+  }
+
+  async listDisputeCases(request: DisputeCaseListRequest, options?: PayarcReadOptions): Promise<DisputeCaseListResult | HeldResult> {
+    return runDisputeCaseList(this.readContext("merchant", options), request);
+  }
+
+  async getDisputeChart(request: DisputeChartRequest, options?: PayarcReadOptions): Promise<DisputeChartResult | HeldResult> {
+    return runDisputeChart(this.readContext("merchant", options), request);
   }
 
   /**

@@ -362,6 +362,11 @@ export const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "Payarc Revenue/Dispute Documented Reads (Task #1777 — fake transport, sanitized fixtures, no DB/network)",
+    script: "scripts/test-payarc-revenue-reads.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "Root Dependency Policy (portable HTTPS lock, freshness, integrity)",
     script: "scripts/check-dependency-policy.ts",
     timeoutSecs: 60,
