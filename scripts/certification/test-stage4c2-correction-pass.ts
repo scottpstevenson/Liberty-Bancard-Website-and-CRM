@@ -108,13 +108,15 @@ rejects(() => assert.ok(suppressedResult !== null, "a token was minted for an op
 
 // ── E. Effect binding ────────────────────────────────────────────────────────────────────
 const effectKey = `cp_bind:${tag}`;
-const first = await runFollowupEffect({ effectKey, ownerKind: "booking_command", ownerId: crypto.randomUUID(), channel: "calendar_cancel:a1", requestFingerprint: "fp-one" }, async () => ({ success: true, detail: "ok" }));
+// The real command identity names ONE owner (the command id); the binding includes owner and channel, so the fixture keeps it fixed.
+const bindOwner = crypto.randomUUID();
+const first = await runFollowupEffect({ effectKey, ownerKind: "booking_command", ownerId: bindOwner, channel: "calendar_cancel:a1", requestFingerprint: "fp-one" }, async () => ({ success: true, detail: "ok" }));
 let providerCalls = 0;
 let conflict = false;
-try { await runFollowupEffect({ effectKey, ownerKind: "booking_command", ownerId: crypto.randomUUID(), channel: "calendar_cancel:a1", requestFingerprint: "fp-two" }, async () => { providerCalls++; return { success: true }; }); }
+try { await runFollowupEffect({ effectKey, ownerKind: "booking_command", ownerId: bindOwner, channel: "calendar_cancel:a1", requestFingerprint: "fp-two" }, async () => { providerCalls++; return { success: true }; }); }
 catch (error) { conflict = error instanceof EffectBindingConflictError; }
 check(first.state === "accepted" && conflict && providerCalls === 0, "the same command id with a different request fingerprint is a conflict before any provider call");
-const replay = await runFollowupEffect({ effectKey, ownerKind: "booking_command", ownerId: crypto.randomUUID(), channel: "calendar_cancel:a1", requestFingerprint: "fp-one" }, async () => { providerCalls++; return { success: true }; });
+const replay = await runFollowupEffect({ effectKey, ownerKind: "booking_command", ownerId: bindOwner, channel: "calendar_cancel:a1", requestFingerprint: "fp-one" }, async () => { providerCalls++; return { success: true }; });
 check(replay.state === "accepted" && replay.replay === true && providerCalls === 0, "the same request replays its accepted receipt without a second call");
 const receiptRow = (await pool.query(`SELECT attempt_count FROM followup_effect_receipts WHERE effect_key=$1`, [effectKey])).rows[0];
 check(receiptRow && Number(receiptRow.attempt_count) >= 1, "the receipt records its attempt count");

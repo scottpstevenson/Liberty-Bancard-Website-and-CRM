@@ -265,6 +265,11 @@ async function enrollStep(
     if (outcome.state === "failed" && !outcome.durable) {
       throw new Error(`workflow_enrollment_failed:${workflowKey}:${outcome.reason.slice(0, 120)}`);
     }
+    // A required hold only satisfies the handoff once its obligation is verified durable. A hold whose persistence
+    // failed (database error, terminal-row conflict) has no future owner, so the step stays retryable and visible.
+    if (outcome.state === "held" && !outcome.durable) {
+      throw new Error(`workflow_hold_not_durable:${workflowKey}:${outcome.reason.slice(0, 120)}`);
+    }
     const durable = outcome.state === "skipped" ? false : outcome.durable;
     await db.insert(sdrLeadEvents).values({
       merchantId: merchant.id, eventType: "workflow_enrollment_held", channel: "system", actorType: "system",

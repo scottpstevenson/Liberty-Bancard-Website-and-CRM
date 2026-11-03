@@ -194,7 +194,8 @@ function sanitizeChannelAuditEntry<T extends InsertChannelAuditLog | ChannelAudi
     return log;
   }
 
-  async createAuditLog(insertLog: InsertAuditLog) {
+  /** `executor` lets a caller write the audit row inside its own transaction (e.g. with an effect receipt). */
+  async createAuditLog(insertLog: InsertAuditLog, executor: Pick<typeof db, "insert"> = db) {
     // C-13 (#1626): sanitize caller payloads at the DB-insert boundary.
     // communication_events (business message content) does NOT go through here.
     const sanitized = {
@@ -204,7 +205,7 @@ function sanitizeChannelAuditEntry<T extends InsertChannelAuditLog | ChannelAudi
       beforeState: (sanitizeAuditPayload((insertLog as any).beforeState) as any) ?? null,
       afterState: (sanitizeAuditPayload((insertLog as any).afterState) as any) ?? null,
     };
-    const [log] = await db.insert(auditLogs).values(sanitized).returning();
+    const [log] = await executor.insert(auditLogs).values(sanitized).returning();
     return log;
   }
 

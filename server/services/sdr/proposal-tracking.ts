@@ -1,9 +1,7 @@
 import { db } from "../../db";
 import { sdrLeadState, sdrLeadEvents } from "@shared/schema";
 import { eq } from "drizzle-orm";
-import { storage } from "../../storage";
-import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "../ghl";
-import { selectBestInbox, recordSend, rollbackSend } from "./inbox-rotation";
+import { sendGhlSms, isGhlConfigured } from "../ghl";
 import crypto from "crypto";
 
 function generateTrackingId(): string {
@@ -140,80 +138,15 @@ export async function markProposalClickedByTrackingId(trackingId: string): Promi
   }
 }
 
-const ALTERNATE_SUBJECTS = [
-  "{{company_name}} — 3 pricing options, pick one",
-  "Your effective rate vs. what we'd charge",
-  "One question about your proposal",
-  "{{company_name}}: the switching question answered",
-];
-
+/**
+ * RETIRED. This export has no caller (the proposal worker does not resend by email) and its body sent through the raw
+ * email transport without a durable per-channel receipt or the canonical recipient decision. It is fenced fail-closed:
+ * it sends nothing and changes nothing. A future resend must be built on runFollowupEffect with the shared recipient
+ * authority before it is exposed. (This is a dormant export, not an active duplicate sender.)
+ */
 export async function resendProposalEmail(leadId: number): Promise<boolean> {
-  try {
-    const [lead] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.id, leadId));
-    if (!lead) return false;
-    if (lead.assignedOwnerType === "human") return false;
-
-    const resendCount = (lead.proposalResendCount || 0) + 1;
-    const firstName = lead.ownerName?.split(" ")[0] || "there";
-    const companyName = lead.companyName || "your business";
-    const subjectTemplate = ALTERNATE_SUBJECTS[(resendCount - 1) % ALTERNATE_SUBJECTS.length];
-    const subject = subjectTemplate.replace(/\{\{company_name\}\}/g, companyName);
-
-    if (isGhlConfigured() && lead.contactId) {
-      const selectedInbox = await selectBestInbox(lead.merchantId, lead.vertical || undefined);
-      if (selectedInbox) {
-        const body = `Hi ${firstName},\n\nThe savings analysis for ${companyName} is done — three pricing options with a line-by-line cost comparison against what you're paying now.\n\nThe most popular option eliminates the interchange markup entirely and moves you to true cost-plus pricing.\n\nReply YES and we'll schedule a walkthrough this week.\n\nLiberty Bancard\n\nEligibility, underwriting, card brand rules, and applicable laws apply.`;
-
-        try {
-          const reserved = await recordSend(selectedInbox.id, lead.merchantId);
-          if (!reserved) {
-            console.warn(`[ProposalTracking] Inbox at daily cap for lead ${leadId} — proposal resend skipped`);
-            storage.createAuditLog({ action: "DAILY_CAP_REACHED", entityType: "sdr_lead", entityId: leadId, details: `ProposalTracking inbox ${selectedInbox.emailAddress} at daily cap — proposal resend not sent` }).catch(() => {});
-          } else {
-            try {
-              await sendGhlEmail({
-                contactId: lead.contactId,
-                subject,
-                body,
-                fromEmail: selectedInbox.emailAddress,
-                fromName: selectedInbox.label,
-              });
-            } catch (sendErr) {
-              await rollbackSend(selectedInbox.id);
-              throw sendErr;
-            }
-          }
-        } catch (err) {
-          console.error("[ProposalTracking] Resend email failed:", err);
-          return false;
-        }
-      }
-    }
-
-    await db.update(sdrLeadState).set({
-      proposalResendCount: resendCount,
-      lastEmailAt: new Date(),
-      nextActionType: "check_proposal_engagement",
-      nextActionAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
-      decisionReason: `Proposal resent (#${resendCount}) with alternate subject`,
-      updatedAt: new Date(),
-    }).where(eq(sdrLeadState.id, leadId));
-
-    await db.insert(sdrLeadEvents).values({
-      leadStateId: leadId,
-      eventType: "proposal_resent",
-      actionType: "resend_proposal_email",
-      channel: "email",
-      decisionReason: `Resent proposal email #${resendCount} (not viewed)`,
-      metadata: { subject, resendCount },
-    });
-
-    console.log(`[ProposalTracking] Proposal resent for lead ${leadId} (attempt #${resendCount})`);
-    return true;
-  } catch (err) {
-    console.error("[ProposalTracking] Resend error:", err);
-    return false;
-  }
+  console.warn(`[ProposalTracking] resendProposalEmail is retired and fenced; nothing was sent for lead ${leadId}`);
+  return false;
 }
 
 export async function sendProposalSmsFollowUp(leadId: number): Promise<boolean> {

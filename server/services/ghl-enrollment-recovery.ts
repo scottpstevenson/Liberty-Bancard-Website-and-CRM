@@ -108,7 +108,10 @@ export async function deferGhlEnrollment(params: {
          NOW(), 0, ${nextRetryAt}::timestamptz, ${lastError}, 'pending')
       ON CONFLICT (id) DO UPDATE SET
         last_error    = EXCLUDED.last_error,
-        next_retry_at = EXCLUDED.next_retry_at
+        next_retry_at = EXCLUDED.next_retry_at,
+        -- A newer revision of the same occurrence amends a still-pending obligation (the latest reviewed facts win);
+        -- a terminal row is never reopened or rewritten.
+        metadata      = COALESCE(EXCLUDED.metadata, deferred_ghl_enrollments.metadata)
       WHERE deferred_ghl_enrollments.status = 'pending'
       RETURNING id
     `);
@@ -197,6 +200,8 @@ const RECOVERY_HOLD_PATTERN = /paus|coordinator hold|authority|could not verify|
 
 type RecoveryDispatch =
   | { kind: "cancelled" }
+  /** A required hold passed its expiry (read under the lock): retired to a terminal visible row, nothing sent. */
+  | { kind: "expired"; expiredAt: string }
   /** The durable dispatch ledger shows this effect was already accepted: retire the obligation, send nothing. */
   | { kind: "already_accepted" }
   /** The ledger shows a started, unsettled dispatch: the outcome is unknown and is never re-sent. */
@@ -208,20 +213,34 @@ type RecoveryDispatch =
  * and is pending (a cancel wins here), then (2) runs the same compliance gate as a first attempt - workflow
  * verification, pause, contact identity, suppression/consent/quiet hours - and (3) only then calls the provider.
  */
-async function dispatchClaimedEnrollment(entry: {
+async function dispatchClaimedEnrollment(claimedEntry: {
   id: string; ghl_contact_id: string; workflow_key: string; metadata: any; retry_count: number;
 }): Promise<RecoveryDispatch> {
+  let entry = claimedEntry;
   const { pool } = await import("../db");
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [occurrenceLockText(entry.id)]);
-    const current = await client.query<{ status: string }>(
-      `SELECT status FROM deferred_ghl_enrollments WHERE id = $1`, [entry.id],
+    // Re-read the CURRENT obligation under the lock: cancellation, the latest revision's facts and the expiry are all
+    // decided here, never from the snapshot taken when the batch was claimed.
+    const current = await client.query<{ status: string; metadata: any; retry_count: number }>(
+      `SELECT status, metadata, retry_count FROM deferred_ghl_enrollments WHERE id = $1`, [entry.id],
     );
     if (current.rows[0]?.status !== "pending") {
       await client.query("COMMIT");
       return { kind: "cancelled" };
+    }
+    entry = { ...entry, metadata: current.rows[0].metadata, retry_count: current.rows[0].retry_count };
+    const expiresRaw = entry.metadata?._holdForConfiguration && typeof entry.metadata?._expiresAt === "string"
+      ? entry.metadata._expiresAt as string : null;
+    if (expiresRaw !== null && Date.now() > new Date(expiresRaw).getTime()) {
+      // Terminal and observable (status failed, reason hold_expired); the provider is never called.
+      await client.query(
+        `UPDATE deferred_ghl_enrollments SET status = 'failed', failed_at = NOW(), last_error = 'hold_expired' WHERE id = $1 AND status = 'pending'`,
+        [entry.id]);
+      await client.query("COMMIT");
+      return { kind: "expired", expiredAt: expiresRaw };
     }
     const { enrollInGhlWorkflowCompliant, resolveLocalContactIdForGhlContactId } = await import("./ghl-workflows");
     const { claimHandoffDispatch, settleHandoffDispatch } = await import("./ghl-handoff-dispatch-ledger");
@@ -373,20 +392,6 @@ export async function retryDeferredEnrollments(): Promise<{
   for (const entry of rows) {
     stats.attempted++;
 
-    // A required obligation held for missing native configuration expires: a confirmation delivered after its
-    // appointment (or long after the booking) would be stale. Expired work is retired with an audit row, never sent.
-    const heldExpiry = entry.metadata?._holdForConfiguration && typeof entry.metadata?._expiresAt === "string"
-      ? new Date(entry.metadata._expiresAt).getTime() : null;
-    if (heldExpiry !== null && Date.now() > heldExpiry) {
-      await db.execute(sql`DELETE FROM deferred_ghl_enrollments WHERE id = ${entry.id} AND status = 'pending'`);
-      await auditChange({
-        actorType: "system", action: "ghl_enrollment_hold_expired", entityType: "ghl_sync", entityKey: entry.ghl_contact_id,
-        details: { workflowKey: entry.workflow_key, expiredAt: entry.metadata._expiresAt, sent: false },
-      }).catch(() => {});
-      stats.permanentlyFailed++;
-      continue;
-    }
-
     // Permanently fail if retry budget exhausted
     if (entry.retry_count >= MAX_RETRIES) {
       await db.execute(sql`
@@ -487,6 +492,15 @@ export async function retryDeferredEnrollments(): Promise<{
       if (dispatch.kind === "cancelled") {
         // The obligation was cancelled (or retired) after this worker claimed it: nothing is sent.
         console.log(`[GHL Recovery] ${entry.id} no longer pending at final dispatch - not sent`);
+        releaseJobLock(lockKey, false, undefined, recoveryLock).catch(() => {});
+        continue;
+      }
+      if (dispatch.kind === "expired") {
+        await auditChange({
+          actorType: "system", action: "ghl_enrollment_hold_expired", entityType: "ghl_sync", entityKey: entry.ghl_contact_id,
+          details: { workflowKey: entry.workflow_key, expiredAt: dispatch.expiredAt, sent: false, disposition: "terminal_failed_hold_expired" },
+        }).catch(() => {});
+        stats.permanentlyFailed++;
         releaseJobLock(lockKey, false, undefined, recoveryLock).catch(() => {});
         continue;
       }

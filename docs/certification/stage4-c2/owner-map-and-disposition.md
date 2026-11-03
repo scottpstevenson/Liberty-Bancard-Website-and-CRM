@@ -87,3 +87,26 @@ Additional finite owner decisions for 4D:
 
 ## Publication handoff
 Publish is required for any of this to run in production; paid/provider runs execute the published build. Migrations 0378 and 0379 apply through the normal migration path. After publish: verify `followup_effect_receipts` (incl. `request_fingerprint`, `attempt_count`), `workflow_runs.occurrence_key` and `workflow_runs.input_context` exist, keep outbound pause (epoch 1) and outgoing GHL owner-pause (epoch 16) unchanged, and leave `ghl_booking_writer_enabled` unset.
+
+
+## Completion pass (2026-11-02, source-only; unpublished)
+Input: `Liberty-Stage4C2-Merged-Repair-Review-2026-11-02`. Production serves `ce4d7865`; `main` `f8245106` has the same tree; this pass was tested on `8ca031a1` plus the uncommitted working tree.
+
+| Finding | Disposition | Evidence |
+|---|---|---|
+| RC1A local workflow effects | **Fixed:** row + receipt in one transaction under a share-locked lease check | completion-pass CM-14…CM-22 |
+| RC1B fingerprint binding | **Fixed:** inside the atomic claim; exact match, NULL only matches NULL; owner/channel bound | CM-06…CM-13 |
+| RC2A generic inbound webhook | **Fixed:** canonical provider message identity, per-effect receipts; no-id deliveries converge on a payload fingerprint with an explicit audit | CM-23…CM-31 |
+| RC2B non-durable hold | **Fixed:** fails at the owning step, retryable | CM-32 |
+| RC2C recovery | **Fixed:** lock-protected re-read, amend-on-pending, expired hold terminal (`hold_expired`), no provider call | CM-33…CM-39 |
+| RC3A per-channel owed state | **Fixed** | CM-40…CM-46 |
+| RC3B SDR SMS | **Fixed:** provider-vs-local number and per-attempt recheck; dormant proposal resend retired | CM-47…CM-49 |
+| RC4A readback identity | **Fixed:** appointment, calendar, location, contact, time/status | CM-50…CM-56; calendar-contract 67 |
+| RC4B saved command | **Fixed** (browser: restore after reload, check saved result, unknown stays saved, unknown-to-server cleared) | browser suite 130 checks |
+| RC4C create flow | **Deferred to 4D by explicit decision** (backend tested, no console form) | this section |
+| RC4D historical runs | **Fixed** (browser) | browser suite |
+| RC5 manifest | **Fixed** (`ci-suite-manifest --check` passes; suite passes on the disposable runner) | |
+
+Browser matrix: 1280/768/390 in light and dark for admin, manager (read-only preview panel, no apply control) and agent (no booking panel; no run history). Baselines (unchanged files, recorded not green): compliance scan 3 failures; queue-compliance 3 coordinator warnings. Not run: full pre-deploy roster, full TypeScript. Rollback: revert the source; migration 0379 is untouched and additive.
+
+**4D remaining:** native workflow install + one test enrollment each; cancel-disposition approval; booking-writer enablement and one canary; calendar-purpose configuration; delivery/readback proof; role and performance acceptance on the served build.

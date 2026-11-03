@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,8 +26,44 @@ const REASON_COPY: Record<string, string> = {
   booking_writer_not_enabled: "The booking writer is not enabled for this deployment, so no provider change can be made from here.",
   expected_version_required: "The reviewed appointment version is missing. Preview again.",
   payload_changed_since_preview: "The request changed since the preview. Preview again.",
+  saved_command_accepted_check_provider_record: "The saved command was recorded as accepted by the provider. Confirm the appointment time in the provider calendar.",
   command_id_bound_to_different_request: "This command id was already used for a different request. Preview again.",
 };
+
+/**
+ * An unresolved command is remembered so a reload cannot lose it and a new preview cannot mint a replacement for the same
+ * intent. Only the command identity and the reviewed numbers are stored: never contact details, provider ids of people,
+ * tokens or the payload. The key is scoped to the actor, account version, permission and appointment; a different scope
+ * never sees it and any entry from another scope is removed.
+ */
+const PENDING_PREFIX = "liberty.booking-command.v1:";
+const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
+interface PendingCommand { commandId: string; operation: "reschedule" | "cancel"; payloadHash: string; expectedVersion: number | null; start: string; durationMinutes: string; savedAt: number }
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function readPending(key: string): PendingCommand | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<PendingCommand>;
+    const valid = typeof value.commandId === "string" && UUID_V4.test(value.commandId)
+      && (value.operation === "reschedule" || value.operation === "cancel") && typeof value.payloadHash === "string"
+      && typeof value.savedAt === "number" && Date.now() - value.savedAt < PENDING_TTL_MS;
+    if (!valid) { window.localStorage.removeItem(key); return null; }
+    return { commandId: value.commandId!, operation: value.operation!, payloadHash: value.payloadHash!, expectedVersion: typeof value.expectedVersion === "number" ? value.expectedVersion : null,
+      start: typeof value.start === "string" ? value.start : "", durationMinutes: typeof value.durationMinutes === "string" ? value.durationMinutes : "30", savedAt: value.savedAt! };
+  } catch { return null; }
+}
+const writePending = (key: string, value: PendingCommand) => { try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage unavailable: in-memory state still guards this session */ } };
+const clearPending = (key: string) => { try { window.localStorage.removeItem(key); } catch { /* ignore */ } };
+function purgeOtherScopes(currentScope: string) {
+  try {
+    for (let i = window.localStorage.length - 1; i >= 0; i--) {
+      const k = window.localStorage.key(i);
+      if (k && k.startsWith(PENDING_PREFIX) && !k.startsWith(currentScope)) window.localStorage.removeItem(k);
+    }
+  } catch { /* ignore */ }
+}
 
 const errorBody = (error: unknown): { message?: string; reason?: string; state?: string } => {
   const text = error instanceof Error ? error.message : String(error);
@@ -53,9 +90,47 @@ export function BookingCommandPanel({ appointmentId, contactId, title, purpose, 
   });
   const [preview, setPreview] = useState<Preview | null>(null);
   const [commandId, setCommandId] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"preview" | "execute" | null>(null);
+  const [busy, setBusy] = useState<"preview" | "execute" | "check" | null>(null);
   const [notice, setNotice] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [pending, setPending] = useState<PendingCommand | null>(null);
+  const { user } = useAuth();
+  const scope = useMemo(() => user?.id ? `${PENDING_PREFIX}${user.id}:${user.accountVersion ?? 0}:${canExecute ? "x" : "p"}:` : null, [user?.id, user?.accountVersion, canExecute]);
+  const storageKey = scope && /^[A-Za-z0-9_-]{1,128}$/.test(appointmentId) ? `${scope}${appointmentId}` : null;
+
+  // Restore on load / on any actor, permission or appointment change; entries of other scopes are removed.
+  useEffect(() => {
+    setPreview(null); setCommandId(null); setOutcome(null); setNotice(null);
+    if (!scope || !storageKey) { setPending(null); return; }
+    purgeOtherScopes(scope);
+    const saved = readPending(storageKey);
+    setPending(saved);
+    if (saved) { setOperation(saved.operation); if (saved.start) setStart(saved.start); setDurationMinutes(saved.durationMinutes); }
+  }, [scope, storageKey]);
+
+  const checkSaved = useCallback(async () => {
+    if (!pending || !storageKey) return;
+    setBusy("check"); setNotice(null);
+    try {
+      const res = await apiRequest("GET", `/api/appointments/booking/command/${pending.commandId}`);
+      const body = await res.json() as { state: string; provider?: { checked?: boolean; startTime?: string; status?: string } };
+      if (body.state === "unknown") {
+        setNotice({ tone: "info", text: "Still unknown. The provider may have processed it. It is not retried automatically; check the provider calendar." });
+        return;
+      }
+      clearPending(storageKey); setPending(null);
+      setOutcome({ state: body.state === "accepted" ? "unconfirmed" : body.state, reason: body.state === "accepted" ? "saved_command_accepted_check_provider_record" : undefined });
+      onSettled();
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      if (/^404:/.test(text)) {
+        clearPending(storageKey); setPending(null);
+        setNotice({ tone: "info", text: "No record of that command exists, so nothing was sent. You can preview again." });
+      } else {
+        setNotice({ tone: "error", text: "The saved command could not be checked right now. It is kept; try again." });
+      }
+    } finally { setBusy(null); }
+  }, [pending, storageKey, onSettled]);
 
   const requestBody = () => {
     const base = { operation, purpose, contactId, appointmentId, title };
@@ -85,16 +160,25 @@ export function BookingCommandPanel({ appointmentId, contactId, title, purpose, 
   const runExecute = async () => {
     if (!preview || !commandId) return;
     setBusy("execute"); setNotice(null);
+    // The identity is saved BEFORE the request: a reload or lost response can never lose an unresolved command.
+    const saved: PendingCommand = { commandId, operation, payloadHash: preview.payloadHash, expectedVersion: preview.currentVersion, start, durationMinutes, savedAt: Date.now() };
+    if (storageKey) writePending(storageKey, saved);
+    const settle = (state: string | undefined) => {
+      // confirmed / refused / denied are definite; anything else stays pending until checked.
+      if (state === "confirmed" || state === "refused" || state === "denied") { if (storageKey) clearPending(storageKey); setPending(null); }
+      else setPending(saved);
+    };
     try {
       const res = await apiRequest("POST", "/api/appointments/booking/execute", {
         ...requestBody(), commandId, payloadHash: preview.payloadHash, expectedVersion: preview.currentVersion,
       });
-      setOutcome((await res.json()) as Outcome);
+      const result = (await res.json()) as Outcome;
+      setOutcome(result); settle(result.state);
       onSettled();
     } catch (error) {
       const body = errorBody(error);
-      if (body.state === "denied" || body.reason) setOutcome({ state: body.state ?? "denied", reason: body.reason });
-      else setNotice({ tone: "error", text: "The command status could not be read. It may or may not have run; check the provider calendar before trying again." });
+      if (body.state === "denied" || body.reason) { setOutcome({ state: body.state ?? "denied", reason: body.reason }); settle(body.state ?? "denied"); }
+      else { settle(undefined); setNotice({ tone: "error", text: "The command status could not be read. It may or may not have run; check the provider calendar before trying again." }); }
       onSettled();
     } finally { setBusy(null); }
   };
@@ -106,6 +190,15 @@ export function BookingCommandPanel({ appointmentId, contactId, title, purpose, 
         Preview is read-only and sends nothing. {canExecute ? "Applying a change is refused unless the booking writer is enabled." : "Only an administrator can apply a change."}
         {" "}The contact is not notified by this command.
       </p>
+      {pending && (
+        <div className="rounded-md border p-3 text-sm space-y-2" role="status" data-testid="booking-pending-saved">
+          <p className="font-medium">A previous {pending.operation} for this appointment has no confirmed result.</p>
+          <p className="text-xs text-muted-foreground">Check the saved result before making another change. Nothing is sent by checking.</p>
+          <Button type="button" variant="outline" className="min-h-11" disabled={busy !== null} onClick={() => void checkSaved()} data-testid="button-booking-check-saved">
+            {busy === "check" ? "Checking…" : "Check saved result"}
+          </Button>
+        </div>
+      )}
       <div className="flex gap-2" role="group" aria-label="Operation">
         {(["reschedule", "cancel"] as const).map(op => (
           <Button key={op} type="button" size="sm" variant={operation === op ? "default" : "outline"} className="min-h-11 capitalize"
@@ -120,7 +213,7 @@ export function BookingCommandPanel({ appointmentId, contactId, title, purpose, 
             <Input id="booking-duration" type="number" min={5} max={480} value={durationMinutes} onChange={e => { setDurationMinutes(e.target.value); reset(); }} data-testid="booking-duration" /></div>
         </div>
       )}
-      <Button type="button" variant="outline" className="min-h-11" disabled={busy !== null} onClick={() => void runPreview()} data-testid="button-booking-preview">
+      <Button type="button" variant="outline" className="min-h-11" disabled={busy !== null || pending !== null} onClick={() => void runPreview()} data-testid="button-booking-preview">
         {busy === "preview" ? "Reading provider record…" : "Preview change"}
       </Button>
       {preview && (

@@ -415,7 +415,7 @@ export function registerToolkitRoutes(app: Express, readerDependencies?: {
     if (!event?.id) return { found: false };
     const updated = Date.parse(event.dateUpdated ?? event.updatedAt ?? "");
     return {
-      found: true, status: event.appointmentStatus ?? event.status, calendarId: event.calendarId,
+      found: true, id: typeof event.id === "string" ? event.id : undefined, status: event.appointmentStatus ?? event.status, calendarId: event.calendarId,
       contactId: typeof event.contactId === "string" ? event.contactId : undefined,
       locationId: typeof event.locationId === "string" ? event.locationId : undefined,
       startTime: event.startTime, endTime: event.endTime, version: Number.isFinite(updated) ? updated : null,

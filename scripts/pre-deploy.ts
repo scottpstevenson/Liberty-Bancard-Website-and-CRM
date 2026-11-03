@@ -156,6 +156,8 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
     timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Stage 4C2 correction pass (migration 0379, trigger decoder, held handoff, statement race, command binding, wiring)",script:"scripts/certification/test-stage4c2-correction-pass.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
+  {name:"Stage 4C2 completion pass (command binding, local effect fence, inbound convergence, hold expiry, channel owed state, readback identity)",script:"scripts/certification/test-stage4c2-completion-pass.ts",
+    timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Message copy convergence and token contract",script:"scripts/certification/test-message-copy-convergence.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Workflow email wording",script:"scripts/certification/test-workflow-email-wording.ts",

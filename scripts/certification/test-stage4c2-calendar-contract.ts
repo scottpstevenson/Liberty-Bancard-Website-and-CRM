@@ -104,13 +104,13 @@ check(cancel.ok && cancel.method === "PUT" && (cancel.payload as any).appointmen
 
 const hash = pv.ok ? pv.payloadHash : "";
 let writes = 0; let readbacks = 0;
-type ProviderState = { found?: boolean; status?: string; calendarId?: string; contactId?: string; locationId?: string; startTime?: string; endTime?: string; version?: number | null };
+type ProviderState = { found?: boolean; id?: string; status?: string; calendarId?: string; contactId?: string; locationId?: string; startTime?: string; endTime?: string; version?: number | null };
 const mkProvider = (opts: { id?: string; found?: boolean; throws?: boolean; before?: ProviderState; after?: ProviderState }) => {
   let wrote = false;
   const initial: ProviderState = { found: opts.found ?? true, status: "booked", calendarId: SALES_ID, contactId: "contactAbc", locationId: "locFixture1", startTime: base.startTimeIso, endTime: base.endTimeIso, version: 100 };
   return {
     write: async () => { writes++; wrote = true; if (opts.throws) throw new Error("fetch failed: ETIMEDOUT"); return { id: opts.id ?? "appt-new" }; },
-    readAppointment: async () => { readbacks++; const st = wrote ? { ...initial, ...(opts.after ?? {}) } : { ...initial, ...(opts.before ?? {}) }; return { ...st, found: st.found ?? true }; },
+    readAppointment: async (readId: string) => { readbacks++; const st = wrote ? { ...initial, ...(opts.after ?? {}) } : { ...initial, ...(opts.before ?? {}) }; return { id: readId, ...st, found: st.found ?? true }; },
   };
 };
 const cmd = () => crypto.randomUUID();

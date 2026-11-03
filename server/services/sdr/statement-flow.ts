@@ -116,13 +116,48 @@ async function statementStopReason(leadId: number): Promise<string | null> {
   return null;
 }
 
-/** The SMS channel of the request was held for a condition that clears (quiet hours, pause): it is still owed. */
+/**
+ * Per-channel owed state of the statement request, read from each channel's own durable receipt:
+ *  - delivered: accepted (replayed, never re-sent, and never erased by another channel's outcome);
+ *  - owed_temporary: refused for a condition that clears (quiet hours, pause, inbox cap): still owed, retried;
+ *  - permanent_refusal: a standing "no" (STOP, no consent, suppression, bounce): not retried, and never blocks the other channel;
+ *  - unknown: sent-or-not could not be determined (started, never settled) or the refusal cause is unclassified: never re-sent;
+ *  - not_attempted: no receipt yet.
+ */
+export type StatementChannelState = "delivered" | "owed_temporary" | "permanent_refusal" | "unknown" | "not_attempted";
+
+const EMAIL_PERMANENT = /unsubscrib|suppress|opt.?out|do.?not|invalid|bounc|no_contact|consent/i;
+const EMAIL_TEMPORARY = /cap|no_inbox|paus|hold|quiet|rate|timeout|temporar|unavailable|ghl_not_configured/i;
+
+export function classifyStatementChannelReceipt(
+  channel: "email" | "sms", row: { state: string; detail?: string | null } | undefined,
+): StatementChannelState {
+  if (!row) return "not_attempted";
+  if (row.state === "accepted") return "delivered";
+  if (row.state !== "refused") return "unknown";
+  if (channel === "sms") {
+    const denial = parseSmsDenialDetail(row.detail ?? undefined);
+    if (!denial) return "unknown";
+    return denial.transient ? "owed_temporary" : "permanent_refusal";
+  }
+  const detail = row.detail ?? "";
+  if (EMAIL_PERMANENT.test(detail)) return "permanent_refusal";
+  if (EMAIL_TEMPORARY.test(detail)) return "owed_temporary";
+  return "unknown";
+}
+
+export async function statementRequestChannelStates(leadId: number): Promise<Record<"email" | "sms", StatementChannelState>> {
+  const rows = (await pool.query(
+    `SELECT channel, state, detail FROM followup_effect_receipts WHERE effect_key = ANY($1::text[])`,
+    [[`statement_request:${leadId}:email`, `statement_request:${leadId}:sms`]])).rows as Array<{ channel: string; state: string; detail: string | null }>;
+  const byChannel = (c: "email" | "sms") => rows.find(r => r.channel === c);
+  return { email: classifyStatementChannelReceipt("email", byChannel("email")), sms: classifyStatementChannelReceipt("sms", byChannel("sms")) };
+}
+
+/** Any channel of the request still owed for a clearing condition (an accepted channel never hides a held one). */
 async function requestChannelRetryOwed(leadId: number): Promise<boolean> {
-  const row = (await pool.query(
-    `SELECT state, detail FROM followup_effect_receipts WHERE effect_key = $1`, [`statement_request:${leadId}:sms`])).rows[0];
-  if (!row || row.state !== "refused") return false;
-  const denial = parseSmsDenialDetail(row.detail);
-  return !!denial && denial.transient;
+  const states = await statementRequestChannelStates(leadId);
+  return states.email === "owed_temporary" || states.sms === "owed_temporary";
 }
 
 /**
@@ -170,8 +205,9 @@ export async function sendStatementRequest(leadId: number): Promise<boolean> {
       : await deliverStatementSms(lead, `statement_request:${leadId}:sms`, smsBody, "statement_request");
     const results = [emailResult, smsResult];
     const delivered = results.some(r => r.state === "accepted");
-    const retryOwed = delivered && smsResult.state === "refused" && !smsResult.smsDenied
-      && (parseSmsDenialDetail(smsResult.detail)?.transient ?? false);
+    const retryOwed = delivered && (
+      classifyStatementChannelReceipt("sms", smsResult.state === "refused" ? { state: "refused", detail: smsResult.detail } : undefined) === "owed_temporary"
+      || classifyStatementChannelReceipt("email", emailResult.state === "refused" ? { state: "refused", detail: emailResult.detail } : undefined) === "owed_temporary");
 
     if (delivered) {
       await db.update(sdrLeadState).set({

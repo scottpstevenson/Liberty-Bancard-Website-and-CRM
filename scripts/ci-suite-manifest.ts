@@ -1014,6 +1014,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true",
   },
   {
+    name: "GHL sync exact lookups",
+    script: "scripts/test-ghl-sync-exact-lookups.ts",
+    capability: "deterministic-integration",
+    providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; >500-row fixtures are written to the disposable DB only and removed in finally",
+  },
+  {
     name: "BullMQ Resilience",
     script: "scripts/test-bullmq-resilience.ts",
     capability: "deterministic-integration",

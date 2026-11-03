@@ -24,21 +24,27 @@ export interface EffectSendResult { success: boolean; error?: string; detail?: s
 export async function runFollowupEffect(
   identity: EffectIdentity, send: () => Promise<EffectSendResult>,
 ): Promise<EffectOutcome> {
-  if (identity.requestFingerprint) {
-    const bound = (await pool.query(`SELECT request_fingerprint FROM followup_effect_receipts WHERE effect_key = $1`, [identity.effectKey])).rows[0];
-    if (bound?.request_fingerprint && bound.request_fingerprint !== identity.requestFingerprint) throw new EffectBindingConflictError(identity.effectKey);
-  }
+  // The binding is part of the one atomic claim: a refused row is re-claimed only by the SAME request fingerprint.
+  // Fingerprints must match exactly; NULL matches only NULL. A legacy row without a fingerprint therefore cannot be
+  // adopted by a fingerprinted request (it conflicts, with no provider call) and a fingerprinted row cannot be
+  // reclaimed by an unbound caller. Existing receipts are never reset or rebound.
+  const fingerprint = identity.requestFingerprint ?? null;
   const claimed = await pool.query(
     `INSERT INTO followup_effect_receipts AS r (effect_key, owner_kind, owner_id, channel, state, request_fingerprint)
      VALUES ($1, $2, $3, $4, 'started', $5)
      ON CONFLICT (effect_key) DO UPDATE SET state = 'started', detail = NULL, settled_at = NULL, created_at = now(),
-       attempt_count = r.attempt_count + 1, request_fingerprint = COALESCE(r.request_fingerprint, EXCLUDED.request_fingerprint)
-       WHERE r.state = 'refused'
+       attempt_count = r.attempt_count + 1
+       WHERE r.state = 'refused' AND r.request_fingerprint IS NOT DISTINCT FROM EXCLUDED.request_fingerprint
+         AND r.owner_kind = EXCLUDED.owner_kind AND r.owner_id = EXCLUDED.owner_id AND r.channel = EXCLUDED.channel
      RETURNING state`,
-    [identity.effectKey, identity.ownerKind, identity.ownerId, identity.channel, identity.requestFingerprint ?? null]);
+    [identity.effectKey, identity.ownerKind, identity.ownerId, identity.channel, fingerprint]);
   if (!claimed.rows[0]) {
-    const existing = (await pool.query(`SELECT state, detail, request_fingerprint FROM followup_effect_receipts WHERE effect_key = $1`, [identity.effectKey])).rows[0];
-    if (identity.requestFingerprint && existing?.request_fingerprint && existing.request_fingerprint !== identity.requestFingerprint) throw new EffectBindingConflictError(identity.effectKey);
+    const existing = (await pool.query(
+      `SELECT state, detail, request_fingerprint, owner_kind, owner_id, channel FROM followup_effect_receipts WHERE effect_key = $1`, [identity.effectKey])).rows[0];
+    const sameBinding = !!existing && (existing.request_fingerprint ?? null) === fingerprint
+      && existing.owner_kind === identity.ownerKind && existing.owner_id === identity.ownerId && existing.channel === identity.channel;
+    // Only a request carrying a fingerprint can be told it is a different request; unbound callers keep replay semantics.
+    if (existing && !sameBinding && (identity.requestFingerprint || existing.request_fingerprint)) throw new EffectBindingConflictError(identity.effectKey);
     if (existing?.state === "accepted") return { state: "accepted", replay: true, detail: existing.detail ?? undefined };
     return { state: "unknown", replay: true, detail: "prior_dispatch_outcome_unknown" };
   }

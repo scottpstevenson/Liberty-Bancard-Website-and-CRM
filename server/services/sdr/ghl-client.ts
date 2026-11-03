@@ -113,7 +113,11 @@ export interface GhlApiResponse {
 }
 
 // Options type that carries the authorized pause epoch through retry loops.
-type SdrGhlFetchOptions = RequestInit & { pauseEpoch?: bigint };
+type SdrGhlFetchOptions = RequestInit & {
+  pauseEpoch?: bigint;
+  /** Re-decided before EVERY attempt (including one after a rate-limit wait); a throw aborts the send. */
+  beforeAttempt?: () => Promise<void>;
+};
 
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -139,7 +143,7 @@ async function sdrGhlFetch(path: string, options: SdrGhlFetchOptions = {}, retri
   if (!token) throw new Error("GHL not configured. Set GHL_PRIVATE_INTEGRATION_TOKEN or GHL_API_KEY.");
 
   // Extract pause epoch before building the fetch-compatible options
-  const { pauseEpoch, ...fetchOptions } = options;
+  const { pauseEpoch, beforeAttempt, ...fetchOptions } = options;
 
   await rateLimit();
 
@@ -153,6 +157,7 @@ async function sdrGhlFetch(path: string, options: SdrGhlFetchOptions = {}, retri
 
   let lastRateLimited = false;
   for (let attempt = 0; attempt < retries; attempt++) {
+    if (beforeAttempt) await beforeAttempt();
     // ── Per-attempt cross-process epoch recheck ────────────────────────────
     // Called at the TOP of every iteration (including after backoff waits) so
     // a pause committed in any process blocks subsequent retry attempts.
@@ -712,6 +717,20 @@ export async function sendChatReply(params: {
   }
 }
 
+/** Provider-target read, replaceable in certification (the provider network is denied there). */
+export const sdrSmsProviderDeps = {
+  async readContactPhone(ghlContactId: string): Promise<string | null> {
+    const result = await sdrGhlFetch(`/contacts/${encodeURIComponent(ghlContactId)}`) as Record<string, any>;
+    const contact = (result?.contact ?? result) as Record<string, unknown>;
+    return typeof contact?.phone === "string" && contact.phone ? contact.phone : null;
+  },
+};
+const phoneTail = (value: string) => value.replace(/\D/g, "").slice(-10);
+
+/**
+ * SDR text reply. The recipient decision (consent, STOP, purpose, exact number) comes from the canonical authority and is
+ * re-taken before EVERY provider attempt, and the number the provider will text must be the number approved locally.
+ */
 export async function sendSmsReply(params: {
   contactId: string;
   message: string;
@@ -725,12 +744,16 @@ export async function sendSmsReply(params: {
   const { deregisterInflight } = await import("../outbound-control-service");
   const { tokenId, epoch } = await assertPauseAllowed("sendSmsReply");
   try {
-    // Final consent/number decision from the canonical authority, immediately before provider I/O (STOP race, number change).
     const { assertSmsRecipientAllowed } = await import("../sms-recipient-authority");
-    await assertSmsRecipientAllowed({
+    const decision = {
       contactId: dbContactId!, purpose: "sdr_sms_reply", commercialPurpose: params.commercialPurpose,
       inboundRequestId: params.inboundRequestId, intendedRecipientContactId: params.intendedRecipientContactId,
-    });
+    };
+    const approvedPhone = await assertSmsRecipientAllowed(decision);
+    // The number approved locally must be the number the provider will actually text.
+    const providerPhone = await sdrSmsProviderDeps.readContactPhone(params.contactId);
+    if (!providerPhone) throw new Error("sms_not_permitted:provider_target_unverified");
+    if (phoneTail(providerPhone) !== phoneTail(approvedPhone)) throw new Error("sms_not_permitted:provider_number_mismatch");
     return await sdrGhlFetch("/conversations/messages", {
       method: "POST",
       body: JSON.stringify({
@@ -739,6 +762,8 @@ export async function sendSmsReply(params: {
         message: params.message,
       }),
       pauseEpoch: epoch,
+      // Consent, STOP, purpose and the exact number are decided again before each attempt, including after a backoff wait.
+      beforeAttempt: async () => { await assertSmsRecipientAllowed({ ...decision, boundPhone: approvedPhone }); },
     }) as unknown as SendMessageResult;
   } finally {
     deregisterInflight(tokenId);

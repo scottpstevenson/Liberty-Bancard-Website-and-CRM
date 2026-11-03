@@ -11,8 +11,9 @@ export class NotificationsStorage {
     return listActorNotifications(params);
   }
   getNotificationsUnreadCount(userId?:string) {return countActorNotifications(userId);}
-  async createNotification(input:InsertNotification) {
-    const [notification]=await db.insert(notifications).values(await bindNotificationAudience(input)).returning();
+  /** `executor` lets a caller write the notification inside its own transaction (e.g. with an effect receipt). */
+  async createNotification(input:InsertNotification,executor:Pick<typeof db,"insert">=db) {
+    const [notification]=await executor.insert(notifications).values(await bindNotificationAudience(input)).returning();
     return notification;
   }
   markNotificationRead(id:number,userId?:string) {return acknowledgeActorNotifications(userId,"read",id);}

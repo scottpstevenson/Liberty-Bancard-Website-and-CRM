@@ -6,6 +6,7 @@ import { resolvePacketVertical, GENERAL_FALLBACK_VERTICAL } from "../../shared/c
 import { applyConsentCommand } from "./consent-authority";
 import crypto from "crypto";
 import { runFollowupEffect } from "./followup-effects";
+import { applyLocalWorkflowAction } from "./workflow-local-actions";
 import { workflowDefinitionPin } from "./workflow-run-lease";
 import { renderMessage, type TokenSource } from "./message-token-registry";
 import { FIRST_PARTY_BOOK_URL, resolveSalesBooking } from "./message-cta-contract";
@@ -203,20 +204,6 @@ async function saveRunFenced(runId: number, token: string | undefined, patch: Re
 }
 const NOT_DELIVERED_STATUSES = new Set(["failed", "unknown_outcome", "queued_no_ghl", "blocked"]);
 
-/** Local (non-provider) action receipt: an accepted step is never repeated after a crash between the action and the log save. */
-async function localActionDone(runId: number, step: number): Promise<boolean> {
-  const { pool } = await import("../db");
-  const { rows } = await pool.query(`SELECT 1 FROM followup_effect_receipts WHERE effect_key = $1 AND state = 'accepted'`, [`wf_local:${runId}:${step}`]);
-  return rows.length > 0;
-}
-async function markLocalActionDone(runId: number, step: number): Promise<void> {
-  const { pool } = await import("../db");
-  await pool.query(
-    `INSERT INTO followup_effect_receipts (effect_key, owner_kind, owner_id, channel, state, settled_at)
-     VALUES ($1, 'workflow_local', $2, $3, 'accepted', now()) ON CONFLICT (effect_key) DO NOTHING`,
-    [`wf_local:${runId}:${step}`, String(runId), `local:${step}`]);
-}
-
 type StepSendResult = { success: boolean; error?: string; unknown?: boolean; replay?: boolean };
 const SEND_ACTIONS = new Set(["send_ghl_email", "send_ghl_sms", "send_packet", "generate_proposal", "request_review"]);
 export const RUN_TERMINAL_STATUSES = ["completed", "failed", "cancelled", "blocked"];
@@ -408,32 +395,28 @@ export async function executeWorkflowActions(
         }
         logEntries.push({ step: i + 1, action: "create_task", title: action.title, assignmentStatus, status: "completed", timestamp: new Date().toISOString() });
 
-      } else if (action.type === "send_notification" && await localActionDone(createdRunId!, i + 1)) {
-        logEntries.push({ step: i + 1, action: "send_notification", title: action.title, status: "completed", replay: true, timestamp: new Date().toISOString() });
-
       } else if (action.type === "send_notification") {
-        await storage.createNotification({
+        const notification = {
           channel: action.channel || "internal",
           title: await interpolateTemplate(action.title || "Workflow Notification", contactId, dealId),
           message: await interpolateTemplate(action.message || "", contactId, dealId),
           type: action.notificationType || "info",
           metadata: { workflowId, dealId, contactId },
-        });
-        await markLocalActionDone(createdRunId!, i + 1);
-        logEntries.push({ step: i + 1, action: "send_notification", title: action.title, status: "completed", timestamp: new Date().toISOString() });
-
-      } else if (action.type === "create_audit_log" && await localActionDone(createdRunId!, i + 1)) {
-        logEntries.push({ step: i + 1, action: "create_audit_log", status: "completed", replay: true, timestamp: new Date().toISOString() });
+        };
+        // Notification and its run/step receipt commit together; a lost lease or failed write leaves neither.
+        const outcome = await applyLocalWorkflowAction(createdRunId!, i + 1, leaseToken, (tx) => storage.createNotification(notification, tx).then(() => undefined));
+        if (outcome === "lost_lease") return lostLease();
+        logEntries.push({ step: i + 1, action: "send_notification", title: action.title, status: "completed", ...(outcome === "replay" ? { replay: true } : {}), timestamp: new Date().toISOString() });
 
       } else if (action.type === "create_audit_log") {
-        await storage.createAuditLog({
+        const outcome = await applyLocalWorkflowAction(createdRunId!, i + 1, leaseToken, (tx) => storage.createAuditLog({
           action: action.logAction || "workflow_action",
           entityType: ctx.entityType || "workflow",
           entityId: ctx.entityId || createdRunId,
           details: { workflowId, step: i + 1 },
-        });
-        await markLocalActionDone(createdRunId!, i + 1);
-        logEntries.push({ step: i + 1, action: "create_audit_log", status: "completed", timestamp: new Date().toISOString() });
+        }, tx).then(() => undefined));
+        if (outcome === "lost_lease") return lostLease();
+        logEntries.push({ step: i + 1, action: "create_audit_log", status: "completed", ...(outcome === "replay" ? { replay: true } : {}), timestamp: new Date().toISOString() });
 
       } else if (action.type === "update_deal" && dealId) {
         if (action.stage) {

@@ -872,6 +872,17 @@ const STEP_STATE_COPY: Record<string, string> = {
   skipped: "Skipped",
 };
 
+/** Redacts credentials, addresses and long numbers from raw provider text before it is shown in diagnostics. */
+function sanitizeDiagnostic(text: string): string {
+  return text
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
+    .replace(/("?(?:token|authorization|api[_-]?key|secret|password)"?\s*[:=]\s*)"?[^",}\s]+"?/gi, "$1[redacted]")
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[email]")
+    .replace(/\+?\d[\d\s().-]{8,}\d/g, "[number]")
+    .slice(0, 800);
+}
+const looksLikeRawProviderPayload = (text: string) => /^\s*[{[]/.test(text) || /\{\s*"/.test(text);
+
 /** Run detail from recorded state only: owner, occurrence, next owed step, reason and per-step outcomes. */
 function RunDetailBody({ run, workflowName, asOf }: { run: WorkflowRun; workflowName?: string; asOf?: string }) {
   const entries = (Array.isArray(run.log) ? run.log : []) as RunLogEntry[];
@@ -880,6 +891,15 @@ function RunDetailBody({ run, workflowName, asOf }: { run: WorkflowRun; workflow
   const steps = [...latest.values()].sort((a, b) => (a.step ?? 0) - (b.step ?? 0));
   const owed = steps.find((e) => ["failed", "blocked", "queued_no_ghl", "unknown_outcome"].includes(e.status ?? ""));
   const occurrence = (run as unknown as { occurrenceKey?: string | null }).occurrenceKey ?? null;
+  // "Next owed step" is reserved for a CURRENT obligation with identity. A completed run, or one with no occurrence
+  // identity, can only show a historical record: it is never offered a retry and never described as owed.
+  const historical = !!owed && (!occurrence || run.status === "completed");
+  const owedText = (e: RunLogEntry) => {
+    const detail = e.reason ?? e.error ?? "";
+    const raw = detail && looksLikeRawProviderPayload(detail);
+    return { summary: `Step ${e.step} (${e.action}): ${STEP_STATE_COPY[e.status ?? ""] ?? e.status}${detail && !raw ? ` — ${detail}` : raw ? " — provider response recorded (see diagnostics)" : ""}`, diagnostics: raw ? sanitizeDiagnostic(detail) : null };
+  };
+  const owedView = owed ? owedText(owed) : null;
   const row = (label: string, value: string, mono = false) => (
     <div className="grid grid-cols-3 gap-2 text-sm"><dt className="text-muted-foreground">{label}</dt><dd className={`col-span-2 break-words ${mono ? "font-mono text-xs" : ""}`}>{value}</dd></div>
   );
@@ -899,12 +919,18 @@ function RunDetailBody({ run, workflowName, asOf }: { run: WorkflowRun; workflow
         {row("Page read", asOf ?? "-")}
       </dl>
       <section className="mt-5 space-y-2" aria-labelledby="run-owed-h" data-testid="run-detail-owed">
-        <h3 id="run-owed-h" className="text-sm font-semibold">Next owed step</h3>
+        <h3 id="run-owed-h" className="text-sm font-semibold">{historical ? "Historical unresolved step — review required" : "Next owed step"}</h3>
         <p className="text-sm text-muted-foreground">
-          {owed
-            ? `Step ${owed.step} (${owed.action}): ${STEP_STATE_COPY[owed.status ?? ""] ?? owed.status}${owed.reason || owed.error ? ` — ${owed.reason ?? owed.error}` : ""}`
+          {owedView
+            ? `${owedView.summary}${historical ? ". This is an old record with no current obligation; it is not retried." : ""}`
             : run.status === "waiting" ? "The run is waiting for its next scheduled step." : "No unresolved step is recorded."}
         </p>
+        {owedView?.diagnostics && (
+          <details className="text-xs" data-testid="run-detail-diagnostics">
+            <summary className="min-h-11 flex items-center cursor-pointer">Diagnostics (sanitized)</summary>
+            <pre className="whitespace-pre-wrap break-words rounded-md border p-2">{owedView.diagnostics}</pre>
+          </details>
+        )}
       </section>
       <section className="mt-5 space-y-2" aria-labelledby="run-steps-h" data-testid="run-detail-steps">
         <h3 id="run-steps-h" className="text-sm font-semibold">Recorded step outcomes</h3>

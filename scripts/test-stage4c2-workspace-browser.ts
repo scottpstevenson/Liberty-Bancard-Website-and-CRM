@@ -113,7 +113,7 @@ try {
     let wrote = false;
     return {
       write: async () => { if (behaviour.throws) throw new Error("socket hang up"); wrote = true; return { id: appointmentId }; },
-      readAppointment: async () => ({ found: true, status: wrote && behaviour.cancelledAfter ? "cancelled" : "booked", calendarId: SALES_ID,
+      readAppointment: async () => ({ found: true, id: appointmentId, status: wrote && behaviour.cancelledAfter ? "cancelled" : "booked", calendarId: SALES_ID,
         contactId: ghlOwned, locationId: process.env.GHL_LOCATION_ID!, startTime: hour(0), endTime: hour(1), version: PROVIDER_VERSION }),
     };
   };
@@ -436,6 +436,89 @@ try {
   await b.evaluate(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
   await until(async () => (await count('[data-testid="run-detail-drawer"]')) === 0, "run detail closed by keyboard");
   check(true, "the run Details sheet closes from the keyboard");
+
+  // ── 7. Completion pass: historical run label and a saved, unresolved booking command ──
+  const historicalRunId = (await h.pool.query(`SELECT id FROM workflow_runs WHERE entity_id=880001 AND workflow_id=$1`, [wfOther])).rows[0].id as number;
+  await b.navigate(`/dashboard/workflows?wf_tab=runs&wf_q=${encodeURIComponent(`4c2-zebra-${tag}`)}&wf_run=${historicalRunId}`);
+  await until(async () => (await count('[data-testid="run-detail-owed"]')) === 1 || (await count('[data-testid="run-detail-not-on-page"]')) === 1, "historical run detail");
+  const owedText = await text('[data-testid="run-detail-owed"]');
+  check(/Historical unresolved step — review required/.test(owedText) && !/Next owed step/.test(owedText) && (await count('[data-testid="button-retry-run"]')) === 0,
+    "an old completed run with an undelivered step is labelled as a historical unresolved step and offers no retry");
+  check(!/\{"|status":/.test(owedText), "raw provider JSON is not shown inline; it sits in the collapsed diagnostics");
+  await b.evaluate(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+  await until(async () => (await count('[data-testid="run-detail-drawer"]')) === 0 && await b!.evaluate(`document.body.style.pointerEvents!=='none'`) === true, "historical run sheet closed and the page interactive");
+
+  const savedCmd = uuid();
+  const savedRun = await run(savedCmd, "reschedule", s1, mkProvider(s1, { throws: true }));
+  check(savedRun.state === "unknown", "the saved-command fixture is an unknown outcome written by the real command writer");
+  const savedPreview = previewBookingCommand({ operation: "reschedule", purpose: "sales", ghlContactId: ghlOwned, appointmentId: s1, startTimeIso: hour(30), endTimeIso: hour(31) } as any) as any;
+  await openCalendar();
+  await until(async () => (await count(`[data-testid="button-event-details-appointment_${s1}"]`)) === 1, "s1 item for the saved command");
+  await b.click(`[data-testid="button-event-details-appointment_${s1}"]`);
+  await until(async () => (await count('[data-testid="drawer-booking-command"]')) === 1, "booking panel for the saved command");
+  const savedKey = await b.evaluate(`(async()=>{const u=await (await fetch('/api/auth/user')).json();return 'liberty.booking-command.v1:'+u.id+':'+(u.accountVersion??0)+':x:'+${JSON.stringify(s1)}})()`) as string;
+  await b.evaluate(`localStorage.setItem(${JSON.stringify(savedKey)},JSON.stringify(${JSON.stringify({ commandId: savedCmd, operation: "reschedule", payloadHash: savedPreview.payloadHash, expectedVersion: PROVIDER_VERSION, start: "", durationMinutes: "30", savedAt: Date.now() })}))`);
+  await b.evaluate(`location.reload()`);
+  // The open drawer is part of the URL state, so it reopens by itself after a reload.
+  await until(async () => (await count('[data-testid="drawer-booking-command"]')) === 1 || (await count(`[data-testid="button-event-details-appointment_${s1}"]`)) === 1, "s1 after reload");
+  if ((await count('[data-testid="drawer-booking-command"]')) !== 1) await b.click(`[data-testid="button-event-details-appointment_${s1}"]`);
+  await until(async () => (await count('[data-testid="booking-pending-saved"]')) === 1, "saved command restored after reload");
+  check(await b.evaluate(`document.querySelector('[data-testid="button-booking-preview"]').disabled`) === true, "while a saved command is unresolved a new preview cannot be started");
+  const receiptsBeforeCheck = (await sideEffects()).f;
+  await b.click('[data-testid="button-booking-check-saved"]');
+  await until(async () => /Still unknown/.test(await text('[data-testid="booking-notice"]')), "saved command check answer");
+  check((await count('[data-testid="booking-pending-saved"]')) === 1 && (await sideEffects()).f === receiptsBeforeCheck && h.externalCalls() === 0,
+    "\"Check saved result\" reads the recorded state only: the unknown command stays saved, nothing is retried and no provider is called");
+  // A saved id with no server record resolves to "nothing was sent" and is cleared.
+  await b.evaluate(`localStorage.setItem(${JSON.stringify(savedKey)},JSON.stringify(${JSON.stringify({ commandId: uuid(), operation: "reschedule", payloadHash: savedPreview.payloadHash, expectedVersion: PROVIDER_VERSION, start: "", durationMinutes: "30", savedAt: Date.now() })}))`);
+  await b.evaluate(`location.reload()`);
+  // The open drawer is part of the URL state, so it reopens by itself after a reload.
+  await until(async () => (await count('[data-testid="drawer-booking-command"]')) === 1 || (await count(`[data-testid="button-event-details-appointment_${s1}"]`)) === 1, "s1 after second reload");
+  if ((await count('[data-testid="drawer-booking-command"]')) !== 1) await b.click(`[data-testid="button-event-details-appointment_${s1}"]`);
+  await until(async () => (await count('[data-testid="button-booking-check-saved"]')) === 1, "second saved command restored");
+  await b.click('[data-testid="button-booking-check-saved"]');
+  await until(async () => (await count('[data-testid="booking-pending-saved"]')) === 0, "unknown-to-server saved command cleared");
+  check(await b.evaluate(`localStorage.getItem(${JSON.stringify(savedKey)})`) === null, "negative control: a saved command the server has no record of is cleared and never replayed");
+  await b.evaluate(`localStorage.removeItem(${JSON.stringify(savedKey)})`);
+  await b.evaluate(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+
+  // ── 8. Role matrix in a real browser: manager and agent sessions (admin ran above) at 1280/768/390 in light and dark ──
+  for (const role of ["manager", "agent"] as const) {
+    const rb = await privateStage3Browser(h.base, h.sessions.get(role)!.cookie, h.originalFetch, dir, { realInput: true, startupTimeoutMs: 30000 });
+    try {
+      await rb.call("Network.setBypassServiceWorker", { bypass: true });
+      const rcount = (selector: string) => rb.evaluate(`document.querySelectorAll(${JSON.stringify(selector)}).length`) as Promise<number>;
+      const runtil = async (fn: () => Promise<boolean>, label: string) => { for (let i = 0; i < 80; i++) { if (await fn()) return; await settle(250); } throw new Error(`Timed out: ${role} ${label}`); };
+      for (const theme of ["light", "dark"] as const) {
+        for (const width of [1280, 768, 390]) {
+          const phone = width < 600;
+          await rb.call("Emulation.setDeviceMetricsOverride", { width, height: phone ? 844 : 900, deviceScaleFactor: phone ? 2 : 1, mobile: phone });
+          if (await rb.evaluate("location.protocol") === "about:") await rb.navigate("/favicon.png");
+          await rb.evaluate(`localStorage.setItem('prefer_desktop','true');localStorage.setItem('liberty-theme',${JSON.stringify(theme)})`);
+          await rb.navigate(`/dashboard/tasks-appointments?tab=calendar&cal_item=appointment_${s1}`);
+          await runtil(async () => (await rcount('[data-testid="calendar-page"]')) === 1 && (await rcount('[data-testid="calendar-loading"]')) === 0, "calendar page");
+          await runtil(async () => (await rcount('[data-testid="drawer-current"]')) === 1, "appointment drawer from the URL");
+          await runtil(async () => (await rcount('[data-testid="drawer-booking-command"]')) === 1 || role === "agent" && (await rcount('[data-testid="link-drawer-contact"]')) === 1, "drawer content");
+          const panel = await rcount('[data-testid="drawer-booking-command"]');
+          const executeButton = await rcount('[data-testid="button-booking-execute"]');
+          const over = await rb.evaluate("document.documentElement.scrollWidth - window.innerWidth") as number;
+          check((role === "manager" ? panel === 1 : panel === 0) && executeButton === 0 && over <= 1,
+            `${role}: appointment drawer at ${width}px ${theme} ${role === "manager" ? "offers the read-only preview panel" : "offers no booking panel"}, no apply control, no overflow`);
+        }
+      }
+      if (role === "manager") {
+        await rb.click('[data-testid="booking-op-cancel"]');
+        await rb.click('[data-testid="button-booking-preview"]');
+        await runtil(async () => (await rcount('[data-testid="booking-preview-result"]')) === 1 || (await rcount('[data-testid="booking-notice"]')) === 1, "manager preview answer");
+        check((await rcount('[data-testid="button-booking-execute"]')) === 0, "manager: a previewed command can never be applied from the manager session");
+      }
+      await rb.navigate("/dashboard/workflows");
+      await settle(1500);
+      const runsVisible = await rb.evaluate(`!!document.querySelector('[data-testid="tab-runs"]')`) as boolean;
+      check(role === "manager" ? true : !runsVisible, `${role}: Workflow Automation run history ${role === "agent" ? "is not offered" : "page opens"}`);
+      check(rb.exceptions.length === 0, `${role}: no uncaught browser exceptions`);
+    } finally { await rb.close(); }
+  }
 
   check((await sideEffects()).o === before.o && (await sideEffects()).r === before.r && (await sideEffects()).s === before.s,
     "browsing, filtering and previewing created no outbound message, workflow run or appointment state");

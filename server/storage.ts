@@ -228,7 +228,7 @@ export interface IStorage {
   getAuditLogsByActions(actions: readonly string[], opts?: { limit?: number; offset?: number }): Promise<{ rows: typeof auditLogs.$inferSelect[]; total: number; hasMore: boolean }>;
   getAuditLogsByEntity(entityType: string, entityId: number | string, limit?: number): Promise<typeof auditLogs.$inferSelect[]>;
   getLastAuditLogByAction(action: string, entityType: string, entityId: number): Promise<typeof auditLogs.$inferSelect | undefined>;
-  createAuditLog(log: InsertAuditLog): Promise<typeof auditLogs.$inferSelect>;
+  createAuditLog(log: InsertAuditLog, executor?: Pick<typeof db, "insert">): Promise<typeof auditLogs.$inferSelect>;
   createChannelAuditLog(entry: InsertChannelAuditLog): Promise<ChannelAuditLog>;
   getChannelAuditLog(channel: string, filters?: { action?: string; actor?: string; startDate?: Date; endDate?: Date; limit?: number; offset?: number }): Promise<{ entries: ChannelAuditLog[]; total: number }>;
   getAiAuditLog(id: number): Promise<import("@shared/schema").AiAuditLog | undefined>;
@@ -241,7 +241,7 @@ export interface IStorage {
   getNotifications(): Promise<typeof notifications.$inferSelect[]>;
   getNotificationsPaginated(params: { limit: number; offset: number; category?: string; userId?: string }): Promise<{ data: typeof notifications.$inferSelect[]; total: number }>;
   getNotificationsUnreadCount(userId?: string): Promise<number>;
-  createNotification(notification: InsertNotification): Promise<typeof notifications.$inferSelect>;
+  createNotification(notification: InsertNotification, executor?: Pick<typeof db, "insert">): Promise<typeof notifications.$inferSelect>;
   markNotificationRead(id: number,userId?:string): Promise<number>;
   deleteNotification(id: number, userId?: string): Promise<boolean>;
   clearOldReadNotifications(userId?: string): Promise<number>;

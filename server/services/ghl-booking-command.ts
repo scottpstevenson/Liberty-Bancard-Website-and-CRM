@@ -73,7 +73,7 @@ export interface BookingProvider {
 }
 
 export interface ProviderAppointment {
-  found: boolean; status?: string; calendarId?: string; contactId?: string; locationId?: string;
+  found: boolean; id?: string; status?: string; calendarId?: string; contactId?: string; locationId?: string;
   startTime?: string; endTime?: string; version?: number | null;
 }
 
@@ -136,11 +136,19 @@ export async function executeBookingCommand(input: BookingExecuteInput, env: Rec
     const x = a ? Date.parse(a) : NaN, y = typeof b === "string" ? Date.parse(b) : NaN;
     return Number.isFinite(x) && Number.isFinite(y) && x === y;
   };
-  const matchesRequest = !!read?.found
-    && (!read.calendarId || read.calendarId === preview.payload.calendarId)
+  // Exact identity AND content: the record read back must name the same appointment, calendar, location and contact as the
+  // command, and carry the requested time (or cancelled status). A field the provider did not return is unconfirmed,
+  // never assumed to match.
+  const sameIdentity = !!read?.found
+    && read.id === appointmentId
+    && !!read.calendarId && read.calendarId === preview.payload.calendarId
+    && !!read.locationId && read.locationId === preview.locationId
+    && !!read.contactId && read.contactId === input.request.ghlContactId;
+  const matchesRequest = sameIdentity
     && (preview.operation === "cancel"
-      ? /cancel/i.test(read.status ?? "")
-      : sameInstant(read.startTime, preview.payload.startTime) && sameInstant(read.endTime, preview.payload.endTime));
+      ? /cancel/i.test(read!.status ?? "")
+      : sameInstant(read!.startTime, preview.payload.startTime) && sameInstant(read!.endTime, preview.payload.endTime)
+        && !/cancel/i.test(read!.status ?? ""));
   const confirmed = matchesRequest;
   return confirmed ? { state: "confirmed", replay: outcome.replay, appointmentId } : { state: "unconfirmed", replay: outcome.replay, appointmentId, reason: "readback_did_not_confirm" };
 }

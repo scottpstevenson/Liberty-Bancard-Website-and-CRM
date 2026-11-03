@@ -1762,7 +1762,9 @@ export function normalizeGhlInboundChannel(raw: unknown): "sms" | "email" | null
 
 export async function handleGhlWebhook(payload: any): Promise<void> {
   const { type, contactId, messageId, direction, body, subject, status: deliveryStatus } = payload;
-  const webhookOccurrenceId = String(messageId ?? payload.eventId ?? payload.id ?? crypto.randomUUID());
+  // Never a random fallback: a missing provider identity is the payload's own canonical fingerprint, so a redelivery of the
+  // same payload converges instead of minting a new consent event key per attempt.
+  const webhookOccurrenceId = (await import("./ghl-inbound-effects")).canonicalInboundMessageIdentity(payload).key;
 
   if (type === "ContactUpdate" || type === "contact-updated" || type === "ContactCreate" || type === "contact-created") {
     const { reconcileGhlInboundWebhookContact } = await import("./ghl-inbound-sync");
@@ -1861,30 +1863,56 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
       }
       const contactDeal = identity.deal ?? undefined;
 
-      const inboundActivity = await storage.createGhlActivityLog({
-        contactId: contact.id,
-        dealId: contactDeal?.id || null,
-        direction: "inbound",
-        channel,
-        templateId: null,
-        subject: subject || null,
-        body: body || null,
-        status: "received",
-        ghlMessageId: messageId || null,
+      // One canonical identity per provider message, shared by every delivery alias of it (generic and specialized
+      // copies, re-sent webhooks). Every local effect below has its own receipt written in the SAME transaction as the
+      // effect, so a repeated delivery repeats nothing and a partial failure leaves only the missing effects owed.
+      const { canonicalInboundMessageIdentity } = await import("./ghl-inbound-effects");
+      const messageIdentity = canonicalInboundMessageIdentity(payload);
+      const { applyLocalEffectOnce } = await import("./workflow-local-actions");
+      const effectOnce = (effect: string, mutate: Parameters<typeof applyLocalEffectOnce>[1]) => applyLocalEffectOnce({
+        effectKey: `ghl_inbound:${contact.id}:${messageIdentity.key}:${effect}`,
+        ownerKind: "ghl_inbound_message", ownerId: `${contact.id}:${messageIdentity.key}`, channel: effect,
+      }, mutate);
+      const taskCommandKey = (kind: string) => `ghl_inbound:${contact.id}:${messageIdentity.key}:task:${kind}`;
+      if (messageIdentity.basis !== "provider_message_id") {
+        // Missing provider identity is explicit, not defaulted into a shared key: identity is this payload's own fingerprint.
+        await effectOnce("identity_basis", async (tx) => {
+          await storage.createAuditLog({
+            action: "ghl_inbound_identity_unavailable", entityType: "ghl_webhook", entityId: null,
+            details: { basis: messageIdentity.basis, type: type ?? null, contactId: contact.id },
+          }, tx);
+        });
+      }
+
+      const { ghlActivityLog } = await import("@shared/schema");
+      await effectOnce("activity", async (tx) => {
+        await tx.insert(ghlActivityLog).values({
+          contactId: contact.id,
+          dealId: contactDeal?.id || null,
+          direction: "inbound",
+          channel,
+          templateId: null,
+          subject: subject || null,
+          body: body || null,
+          status: "received",
+          ghlMessageId: messageId || null,
+        });
       });
 
       // Inbound canonical persistence is acknowledged: webhook failure must be
       // retryable rather than later appearing as confirmed reply absence.
       const { recordInboundEvent } = await import("./communication-events");
-      await recordInboundEvent({
-        contactId: contact.id,
-        dealId: contactDeal?.id ?? null,
-        channel: channel as "email" | "sms",
-        provider: "ghl",
-        subject: subject || null,
-        body: body || null,
-        status: "received",
-        ghlMessageId: messageId || null,
+      await effectOnce("communication_event", async () => {
+        await recordInboundEvent({
+          contactId: contact.id,
+          dealId: contactDeal?.id ?? null,
+          channel: channel as "email" | "sms",
+          provider: "ghl",
+          subject: subject || null,
+          body: body || null,
+          status: "received",
+          ghlMessageId: messageId || null,
+        });
       });
 
       await storage.updateContact(contact.id, {
@@ -1894,21 +1922,23 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
 
       const messageClassification = classifyInboundMessage(body || "");
 
-      await storage.createNotification({
-        channel: "internal",
-        title: `Inbound ${channel.toUpperCase()} from ${contact.firstName} ${contact.lastName}`,
-        message: body?.substring(0, 200) || "New message received",
-        type: messageClassification.priority === "high" ? "warning" : "info",
-        metadata: {
-          contactId: contact.id,
-          dealId: contactDeal?.id,
-          channel,
-          classification: messageClassification,
-        },
+      await effectOnce("notification", async (tx) => {
+        await storage.createNotification({
+          channel: "internal",
+          title: `Inbound ${channel.toUpperCase()} from ${contact.firstName} ${contact.lastName}`,
+          message: body?.substring(0, 200) || "New message received",
+          type: messageClassification.priority === "high" ? "warning" : "info",
+          metadata: {
+            contactId: contact.id,
+            dealId: contactDeal?.id,
+            channel,
+            classification: messageClassification,
+          },
+        }, tx);
       });
 
       if (messageClassification.intent === "unsubscribe") {
-        const inboundOccurrenceId = String(payload.id ?? payload.messageId ?? `activity:${inboundActivity.id}`);
+        const inboundOccurrenceId = String(payload.id ?? payload.messageId ?? messageIdentity.key);
         const withdrawalChannels = channel === "sms"
           ? ["sms", "automated_phone"] as const
           : ["email"] as const;
@@ -1922,25 +1952,30 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
           source: "ghl_inbound_message",
           evidence: { channel, withdrawalChannel, messageId: payload.id ?? payload.messageId ?? null, inboundOccurrenceId },
         })));
-        await storage.createAuditLog({
-          action: "contact_unsubscribed",
-          entityType: "contact",
-          entityId: contact.id,
-          details: { source: "ghl_inbound_message", channel },
+        await effectOnce("unsubscribe_audit", async (tx) => {
+          await storage.createAuditLog({
+            action: "contact_unsubscribed",
+            entityType: "contact",
+            entityId: contact.id,
+            details: { source: "ghl_inbound_message", channel },
+          }, tx);
         });
 
       }
 
       if (messageClassification.intent === "positive_reply" && contactDeal) {
         if (["New Lead", "Contacted"].includes(contactDeal.stage)) {
+          // Audit receipt first, then the (idempotent, stage-guarded) advance: a failure after the audit leaves only the advance owed.
+          await effectOnce("deal_progress_audit", async (tx) => {
+            await storage.createAuditLog({
+              action: "deal_auto_progressed",
+              entityType: "deal",
+              entityId: contactDeal.id,
+              details: { from: contactDeal.stage, to: "Engaged", reason: "inbound_reply" },
+            }, tx);
+          });
           const { advanceDealStage } = await import("./deal-stage-service");
           await advanceDealStage(contactDeal.id, "Engaged", "ghl_inbound_interested");
-          await storage.createAuditLog({
-            action: "deal_auto_progressed",
-            entityType: "deal",
-            entityId: contactDeal.id,
-            details: { from: contactDeal.stage, to: "Engaged", reason: "inbound_reply" },
-          });
         }
       }
 
@@ -1952,7 +1987,7 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
           dueDate: new Date(Date.now() + 4 * 60 * 60 * 1000),
           dealId: contactDeal?.id,
           contactId: contact.id,
-        });
+        }, { commandKey: taskCommandKey("follow_up") });
       }
 
       if (messageClassification.intent === "booking_intent") {
@@ -1963,7 +1998,7 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
           dueDate: new Date(Date.now() + 1 * 60 * 60 * 1000),
           dealId: contactDeal?.id,
           contactId: contact.id,
-        });
+        }, { commandKey: taskCommandKey("callback") });
       }
 
       // ── Reply-stop: ANY inbound reply pauses active sequence enrollments ──────────────────
@@ -1971,18 +2006,21 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
       // intents (positive_reply, booking_intent, question, support, objection, neutral) also
       // pause so prospects aren't double-touched by automation while a rep handles the reply.
       if (messageClassification.intent !== "unsubscribe") {
+        // The pause is idempotent; its audit row is written once per message together with its receipt.
         const pausedCount = await storage.pauseAllActiveEnrollments(contact.id);
         if (pausedCount > 0) {
-          await storage.createAuditLog({
-            action: "enrollments_paused_on_reply",
-            entityType: "contact",
-            entityId: contact.id,
-            details: {
-              source: "ghl_inbound_message",
-              channel,
-              intent: messageClassification.intent,
-              pausedCount,
-            },
+          await effectOnce("enrollments_paused_audit", async (tx) => {
+            await storage.createAuditLog({
+              action: "enrollments_paused_on_reply",
+              entityType: "contact",
+              entityId: contact.id,
+              details: {
+                source: "ghl_inbound_message",
+                channel,
+                intent: messageClassification.intent,
+                pausedCount,
+              },
+            }, tx);
           });
         }
         // Create a rep review task for intents that don't already create one above
@@ -1997,7 +2035,7 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
             dueDate: new Date(Date.now() + 4 * 60 * 60 * 1000),
             dealId: contactDeal?.id,
             contactId: contact.id,
-          });
+          }, { commandKey: taskCommandKey("review") });
         }
       }
 
@@ -2006,39 +2044,47 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
         await triggerWorkflowsByEvent("inbound_message", {
           entityType: "contact",
           entityId: contact.id,
-          // The provider message identity is the occurrence, so a replayed delivery returns the existing run.
-          occurrenceId: messageId ?? payload.eventId ?? payload.id ? webhookOccurrenceId : undefined,
+          // The canonical message identity is the occurrence, so a replayed delivery returns the existing run.
+          occurrenceId: messageIdentity.key,
           data: { channel, body, subject, classification: messageClassification },
         });
       } catch (e) {
         console.error("[GHL Webhook] Workflow trigger error:", e);
       }
 
-      await storage.createAuditLog({
-        action: "inbound_message_processed",
-        entityType: "contact",
-        entityId: contact.id,
-        details: {
-          channel,
-          classification: messageClassification,
-          dealId: contactDeal?.id,
-          messagePreview: (body || "").substring(0, 100),
-        },
+      await effectOnce("processed_audit", async (tx) => {
+        await storage.createAuditLog({
+          action: "inbound_message_processed",
+          entityType: "contact",
+          entityId: contact.id,
+          details: {
+            channel,
+            classification: messageClassification,
+            dealId: contactDeal?.id,
+            messagePreview: (body || "").substring(0, 100),
+          },
+        }, tx);
       });
 
       try {
-        const autoReplyResult = await sendAiAutoReply({
-          contact,
-          deal: contactDeal,
-          channel,
-          inboundMessage: body || "",
-          classification: messageClassification,
+        // The reply is a send: it carries its own receipt so a repeated delivery cannot send a second automatic reply.
+        const { runFollowupEffect } = await import("./followup-effects");
+        const autoReply = await runFollowupEffect({
+          effectKey: `ghl_inbound:${contact.id}:${messageIdentity.key}:auto_reply`,
+          ownerKind: "ghl_inbound_message", ownerId: `${contact.id}:${messageIdentity.key}`, channel: `auto_reply:${channel}`,
+        }, async () => {
+          const result = await sendAiAutoReply({
+            contact,
+            deal: contactDeal,
+            channel,
+            inboundMessage: body || "",
+            classification: messageClassification,
+          });
+          if (result.sent) console.log(`[GHL Webhook] AI auto-reply sent to ${contact.firstName} ${contact.lastName} via ${channel}`);
+          else console.log(`[GHL Webhook] AI auto-reply skipped: ${result.error}`);
+          return { success: result.sent, error: result.error };
         });
-        if (autoReplyResult.sent) {
-          console.log(`[GHL Webhook] AI auto-reply sent to ${contact.firstName} ${contact.lastName} via ${channel}`);
-        } else {
-          console.log(`[GHL Webhook] AI auto-reply skipped: ${autoReplyResult.error}`);
-        }
+        if (autoReply.replay) console.log(`[GHL Webhook] AI auto-reply already handled for this message (${autoReply.state})`);
       } catch (autoReplyErr: any) {
         console.error("[GHL Webhook] AI auto-reply error:", autoReplyErr.message);
       }

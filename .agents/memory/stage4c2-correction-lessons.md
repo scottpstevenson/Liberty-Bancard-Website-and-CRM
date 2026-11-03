@@ -10,3 +10,6 @@ description: Non-obvious constraints from the appointment/follow-up correction p
 - Browser suites: the build identity covers `scripts/`, so any script or roster edit needs `npm run build` before the browser run; wait for dialog animation before typing into a picker (a click can land on a result row). A browser run exceeds the 300s tool limit only if started in the background with nohup; run it in the foreground with timeout instead (nohup logs vanished).
 - Tests not in a roster are invisible to the runner: register standalone tests in pre-deploy.ts (`--only` throws for unregistered scripts).
 **How to apply:** before claiming a suite ran, confirm it appears in a roster and the runner printed child-exit.
+- Fingerprint binding in `runFollowupEffect` also compares owner and channel; fixtures must reuse the same owner id for replays (a per-call random owner now conflicts).
+- Recovery worker tests in a disposable DB: no pause row = fail-closed (nothing processed); insert an unpaused `outbound_pause_control` row, call `invalidatePauseStateCache()` (5s cache), and restore paused in `finally`.
+- Calendar drawer open state lives in the URL (`cal_item`): after a reload the drawer reopens by itself, so browser steps must not click the covered list button.
