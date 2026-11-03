@@ -228,8 +228,16 @@ export async function sendProposalSmsFollowUp(leadId: number): Promise<boolean> 
     const recipient = await resolveSmsRecipient({ contactId: lead.contactId, leadStateId: lead.id, purpose: "proposal_sms_followup" });
     if (!recipient.allowed) return false;
 
+    // The text refers to a proposal only when that proposal resource actually exists for this contact.
+    const { deals } = await import("@shared/schema");
+    const { and, inArray, isNotNull } = await import("drizzle-orm");
+    const [readyProposal] = await db.select({ id: deals.id }).from(deals).where(and(
+      eq(deals.contactId, lead.contactId), isNotNull(deals.proposalToken), isNotNull(deals.savingsProposal),
+      inArray(deals.proposalStatus, ["sent", "resent", "viewed"]))).limit(1);
+    if (!readyProposal) return false;
+
     const firstName = lead.ownerName?.split(" ")[0] || "there";
-    const smsBody = `Hi ${firstName}, your processing analysis is ready — found real savings on interchange markup and fees. Reply YES to schedule a walkthrough. — Liberty Bancard`;
+    const smsBody = `Hi ${firstName}, your proposal from Liberty Bancard is ready to review. Reply YES if you would like to schedule a walkthrough. — Liberty Bancard`;
     try {
       const sent = await sendGhlSms({ contactId: lead.contactId, body: smsBody, purpose: "proposal_sms_followup", leadStateId: lead.id, boundPhone: recipient.phone });
       if (!sent.success) return false;

@@ -240,7 +240,9 @@ export function registerWorkflowsRoutes(app: Express) {
         if (req.query.search !== undefined && search === undefined) return res.status(400).json({ message: "Invalid search" });
         if (status !== undefined && !/^[a-z_]{1,32}$/.test(status)) return res.status(400).json({ message: "Invalid status" });
         const page = await storage.getWorkflowRunsPage({ workflowId, search, status, ...pagination });
-        return res.json({ ...page, limit: pagination.limit, offset: pagination.offset });
+        // The lease token and definition pin are internal fencing values; they are never sent to the browser.
+        const publicRun = ({ leaseToken: _lease, inputPin: _pin, ...rest }: any) => rest;
+        return res.json({ ...page, data: Array.isArray((page as any).data) ? (page as any).data.map(publicRun) : (page as any).data, limit: pagination.limit, offset: pagination.offset });
       }
       const runs = workflowId
         ? await storage.getWorkflowRunsByWorkflow(workflowId)

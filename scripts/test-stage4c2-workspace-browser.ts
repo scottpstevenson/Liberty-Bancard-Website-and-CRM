@@ -24,6 +24,8 @@ const ACCT_ID = "ZyXwVuTsRqPoNmLkJiHg";
 const envBefore = { sales: process.env.GHL_DEFAULT_CALENDAR_ID, account: process.env.AM_CALENDAR_URL,
   url: process.env.GHL_CALENDAR_BOOKING_URL, link: process.env.GHL_DEFAULT_BOOKING_LINK };
 process.env.GHL_DEFAULT_CALENDAR_ID = SALES_ID;
+const locationBefore = process.env.GHL_LOCATION_ID;
+process.env.GHL_LOCATION_ID = `loc-fixture${randomUUID().replaceAll("-", "").slice(0, 8)}`;
 delete process.env.GHL_CALENDAR_BOOKING_URL;
 delete process.env.GHL_DEFAULT_BOOKING_LINK;
 const ACCOUNT_URL = `https://api.leadconnectorhq.com/widget/booking/${ACCT_ID}`;
@@ -52,7 +54,7 @@ const h = await stage3BHttpFixture(async (app) => {
   (await import("../server/routes/workflows.ts")).registerWorkflowsRoutes(app);
   (await import("../server/routes/toolkit.ts")).registerToolkitRoutes(app, {
     appointments: {
-      config: () => ({ locationId: `loc-${tag}` }) as any,
+      config: () => ({ locationId: process.env.GHL_LOCATION_ID! }) as any,
       read: async (providerPath: string) => {
         providerReads.push(providerPath);
         const calendarId = new URL(providerPath, "http://provider.invalid").searchParams.get("calendarId") ?? "";
@@ -98,25 +100,44 @@ try {
   const s1 = `appt-s1-${tag}`, s2 = `appt-s2-${tag}`, s3 = `appt-s3-${tag}`, a1 = `appt-a1-${tag}`;
   for (const [id, ghl, start, end] of [[s1, ghlOwned, hour(0), hour(1)], [s2, ghlOwned, hour(3), hour(4)], [s3, ghlOther, hour(5), hour(6)]]) {
     await h.pool.query(`INSERT INTO ghl_appointment_state(appointment_id,ghl_contact_id,calendar_id,location_id,status,start_time,end_time,last_event_at)
-      VALUES($1,$2,$3,$4,'booked',$5,$6,NOW()-INTERVAL '2 hours')`, [id, ghl, SALES_ID, `loc-${tag}`, start, end]);
+      VALUES($1,$2,$3,$4,'booked',$5,$6,NOW()-INTERVAL '2 hours')`, [id, ghl, SALES_ID, process.env.GHL_LOCATION_ID, start, end]);
   }
 
   // ── Booking-command receipts written by the real command writer (fake provider, writer enabled in-process only) ──
   const { executeBookingCommand, previewBookingCommand } = await import("../server/services/ghl-booking-command.ts");
   const uuid = () => randomUUID();
-  const run = (commandId: string, operation: "reschedule" | "cancel" | "create", appointmentId: string | undefined, provider: any) => {
+  const PROVIDER_VERSION = 100;
+  // The provider's own record for the targeted appointment: identity (calendar, contact, location) and version are what
+  // the command's precondition is checked against. The fixture is stateful so a readback sees the written result.
+  const mkProvider = (appointmentId: string, behaviour: { throws?: boolean; cancelledAfter?: boolean }) => {
+    let wrote = false;
+    return {
+      write: async () => { if (behaviour.throws) throw new Error("socket hang up"); wrote = true; return { id: appointmentId }; },
+      readAppointment: async () => ({ found: true, status: wrote && behaviour.cancelledAfter ? "cancelled" : "booked", calendarId: SALES_ID,
+        contactId: ghlOwned, locationId: process.env.GHL_LOCATION_ID!, startTime: hour(0), endTime: hour(1), version: PROVIDER_VERSION }),
+    };
+  };
+  const run = (commandId: string, operation: "reschedule" | "cancel" | "create", appointmentId: string | undefined, provider: any, expectedVersion: number | null = PROVIDER_VERSION) => {
     const request = { operation, purpose: "sales" as const, ghlContactId: ghlOwned, appointmentId,
       ...(operation === "cancel" ? {} : { startTimeIso: hour(30), endTimeIso: hour(31) }) };
     const preview = previewBookingCommand(request as any);
     assert.ok(preview.ok, "command preview must be valid for the fixture calendar");
-    return executeBookingCommand({ actorId: h.userId("admin"), commandId, expectedVersion: null, reviewedPayloadHash: (preview as any).payloadHash,
+    return executeBookingCommand({ actorId: h.userId("admin"), commandId, expectedVersion, reviewedPayloadHash: (preview as any).payloadHash,
       request: request as any, writerEnabled: true, provider });
   };
-  // Reschedule of s1: write hangs in an ambiguous way -> receipt 'unknown' (never retried automatically).
-  const unknownResult = await run(uuid(), "reschedule", s1, { write: async () => { throw new Error("socket hang up"); }, readAppointment: async () => null });
+  // Preconditions (kept): a reschedule/cancel without the reviewed version is denied before any I/O, and a stale one is refused with no write.
+  const guardAppt = `appt-guard-${tag}`;
+  let guardWrites = 0;
+  const guardProvider = { write: async () => { guardWrites++; return { id: guardAppt }; }, readAppointment: mkProvider(guardAppt, {}).readAppointment };
+  const nullVersion = await run(uuid(), "reschedule", guardAppt, guardProvider, null);
+  check(nullVersion.state === "denied" && (nullVersion as any).reason === "expected_version_required" && guardWrites === 0, "a reschedule with a null expected version is denied before any provider call");
+  const nullCancel = await run(uuid(), "cancel", guardAppt, guardProvider, null);
+  check(nullCancel.state === "denied" && (nullCancel as any).reason === "expected_version_required" && guardWrites === 0, "a cancel with a null expected version is denied before any provider call");
+  const staleVersion = await run(uuid(), "reschedule", guardAppt, guardProvider, PROVIDER_VERSION - 1);
+  check(staleVersion.state === "refused" && String((staleVersion as any).reason).includes("stale_expected_version") && guardWrites === 0, "a stale expected version is refused and nothing is written");
+  const unknownResult = await run(uuid(), "reschedule", s1, mkProvider(s1, { throws: true }));
   check(unknownResult.state === "unknown", "a lost-response reschedule is recorded as an unknown outcome by the real command writer");
-  // Cancel of s2 accepted and confirmed by readback.
-  const acceptedResult = await run(uuid(), "cancel", s2, { write: async () => ({ id: s2 }), readAppointment: async () => ({ found: true, status: "cancelled" }) });
+  const acceptedResult = await run(uuid(), "cancel", s2, mkProvider(s2, { cancelledAfter: true }));
   check(acceptedResult.state === "confirmed", "a cancel accepted by the provider and read back is confirmed by the real command writer");
   // A started receipt that never settled (crash between claim and send) is the 'pending' state.
   await h.pool.query(`INSERT INTO followup_effect_receipts(effect_key,owner_kind,owner_id,channel,state)
@@ -187,7 +208,10 @@ try {
   const openCalendar = async () => {
     await b!.navigate("/dashboard/tasks-appointments?tab=calendar");
     await until(async () => (await count('[data-testid="calendar-page"]')) === 1 && (await count('[data-testid="calendar-loading"]')) === 0, "calendar page");
-    await b!.click(`[data-testid="calendar-day-${await dayKey()}"]`);
+    // At phone width the month grid is the agenda list; pick the day from whichever is rendered.
+    const gridDay = `[data-testid="calendar-day-${await dayKey()}"]`;
+    if ((await count(gridDay)) === 1) await b!.click(gridDay);
+    else await b!.click(`[data-testid="calendar-agenda-day-${await dayKey()}"]`);
   };
   const luminance = (selector: string) => b!.evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return -1;
     const m=getComputedStyle(e).backgroundColor.match(/[\\d.]+/g)||[];const [r,g,bl]=m.slice(0,3).map(Number);return (0.2126*r+0.7152*g+0.0722*bl)/255})()`) as Promise<number>;
@@ -201,7 +225,7 @@ try {
   await until(async () => (await count(`[data-testid="event-item-appointment_${s1}"]`)) === 1, "sales appointment on the selected day");
   const shown = async () => (await b!.evaluate(`[...document.querySelectorAll('[data-testid^="event-item-"]')].map(e=>e.getAttribute('data-testid').replace('event-item-',''))`)) as string[];
   check((await count('[data-testid="calendar-source-filter"] [data-testid^="filter-source-"]')) === 4, "the source filter offers all, sales, account and local");
-  check((await shown()).includes(`appointment_${s1}`) && !(await shown()).includes(`appointment_${a1}`), "All sources reads the sales calendar and does not include the account calendar");
+  check((await shown()).includes(`appointment_${s1}`) && !(await shown()).includes(`appointment_${a1}`), "Sales + local reads the sales calendar and does not include the account calendar");
   check(/GHL · sales calendar/.test(await text(`[data-testid="badge-event-source-appointment_${s1}"]`)), "a sales appointment is labelled as the GHL sales calendar");
   const readsBeforeAccount = providerReads.length;
   await b.click('[data-testid="filter-source-account"]');
@@ -281,6 +305,7 @@ try {
   check(!b.requests.some((r) => /^\/api\/contacts\?/.test(r.url) && /limit=250/.test(r.url)), "the Calendar never requests the first 250 contacts");
   await b.click('[data-testid="button-add-event"]');
   await until(async () => (await count('[data-testid="event-contact-picker-search"]')) === 1, "contact picker");
+  await settle(900); // let the dialog open animation finish so the click lands on the input, not a result row
   await b.set('[data-testid="event-contact-picker-search"]', "Quillfeather");
   await until(async () => (await count(`[data-testid="event-contact-picker-option-${target}"]`)) === 1, "scoped search result");
   const searchReq = b.requests.filter((r) => /^\/api\/contacts\?/.test(r.url) && /search=Quillfeather/.test(r.url)).pop();
@@ -297,6 +322,7 @@ try {
   await openCalendar();
   await b.click('[data-testid="button-add-event"]');
   await until(async () => (await count('[data-testid="event-contact-picker-search"]')) === 1, "picker under failure");
+  await settle(900);
   await b.set('[data-testid="event-contact-picker-search"]', "Quill");
   await until(async () => /Contact search unavailable/.test(await bodyText()), "picker failure copy");
   check(!/No authorized contacts match/.test(await bodyText()), "negative control: a failed contact search is unavailable, not 'no match'");
@@ -323,7 +349,7 @@ try {
     "searching resets to the first page and the server returns the matching run");
   await b.set('[data-testid="input-run-search"]', `zebra-${tag}`);
   await until(async () => (await count('[data-testid^="row-run-"]')) === 2, "search by workflow name");
-  check(await b.evaluate(`[...document.querySelectorAll('[data-testid^="text-run-status-"]')].some(e=>e.textContent==='completed · 1 step not delivered')`), "a historical run with an undelivered step still reads 'completed · 1 step not delivered'");
+  check(await b.evaluate(`[...document.querySelectorAll('[data-testid^="text-run-status-"]')].some(e=>e.textContent==='completed · 1 step with unresolved or failed outcome')`), "a historical run with an undelivered step still reads 'completed · 1 step with unresolved or failed outcome'");
   await b.set('[data-testid="input-run-search"]', `no-such-run-${tag}`);
   await until(async () => (await count('[data-testid="run-history-empty"]')) === 1, "empty search");
   check(/No workflow runs match this search/.test(await text('[data-testid="run-history-empty"]')), "a search with no match says so, and offers no stale rows");
@@ -377,6 +403,40 @@ try {
     }
   }
 
+  // ── 6. Console correction pass: URL state, agenda, booking panel, run detail ──
+  await setView(1280, "light");
+  await openCalendar();
+  await b.click('[data-testid="filter-source-sales"]');
+  await until(async () => /cal_source=sales/.test(await b!.evaluate(`location.search`) as string), "source filter in URL");
+  await b.evaluate(`location.reload()`);
+  await until(async () => (await count('[data-testid="calendar-page"]')) === 1 && (await count('[data-testid="calendar-loading"]')) === 0, "calendar after reload");
+  check(/cal_source=sales/.test(await b.evaluate(`location.search`) as string), "the Calendar source filter survives a reload (it lives in the URL)");
+  await b.navigate("/dashboard/tasks-appointments?tab=calendar&cal_source=bogus&cal_date=2026-13-45&cal_month=nope");
+  await until(async () => (await count('[data-testid="calendar-page"]')) === 1 && (await count('[data-testid="calendar-loading"]')) === 0, "calendar with invalid URL state");
+  check((await count('[data-testid="calendar-page"]')) === 1 && b.exceptions.length === 0, "negative control: invalid Calendar URL values fall back to defaults without an error");
+  await b.click(`[data-testid="calendar-day-${await dayKey()}"]`);
+  await until(async () => (await count(`[data-testid="button-event-details-appointment_${s1}"]`)) === 1, "s1 item at 1280");
+  await b.click(`[data-testid="button-event-details-appointment_${s1}"]`);
+  await until(async () => (await count('[data-testid="drawer-current"]')) === 1, "drawer for the booking panel");
+  check((await count('[data-testid="drawer-booking-command"]')) === 1 && (await count('[data-testid="link-drawer-contact"]')) === 1,
+    "the admin drawer offers the reviewed booking command panel and the contact handoff link");
+  await b.click('[data-testid="booking-op-cancel"]');
+  await b.click('[data-testid="button-booking-preview"]');
+  await until(async () => (await count('[data-testid="booking-preview-result"]')) === 1 || (await count('[data-testid="booking-notice"]')) === 1, "preview answer");
+  check((await sideEffects()).f === before.f && (await sideEffects()).o === before.o, "previewing a command writes no receipt and sends nothing");
+  await b.evaluate(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+  await b.navigate("/dashboard/workflows");
+  await until(async () => (await count('[data-testid="tab-runs"]')) === 1, "runs tab for run detail");
+  await b.click('[data-testid="tab-runs"]');
+  await until(async () => (await count('[data-testid^="button-run-details-"]')) > 0, "run detail buttons");
+  await b.click('[data-testid^="button-run-details-"]');
+  await until(async () => (await count('[data-testid="run-detail-drawer"]')) === 1, "run detail sheet");
+  check(/wf_run=\d+/.test(await b.evaluate(`location.search`) as string) && (await count('[data-testid="run-detail-steps"]')) === 1 && (await count('[data-testid="button-retry-run"]')) === 0,
+    "the run Details sheet opens from the list, is addressable by URL, shows per-step outcomes and has no retry control");
+  await b.evaluate(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+  await until(async () => (await count('[data-testid="run-detail-drawer"]')) === 0, "run detail closed by keyboard");
+  check(true, "the run Details sheet closes from the keyboard");
+
   check((await sideEffects()).o === before.o && (await sideEffects()).r === before.r && (await sideEffects()).s === before.s,
     "browsing, filtering and previewing created no outbound message, workflow run or appointment state");
   check(b.exceptions.length === 0, "no uncaught browser exceptions");
@@ -392,6 +452,7 @@ try {
   throw error;
 } finally {
   const restore = (key: string, value: string | undefined) => { if (value === undefined) delete process.env[key]; else process.env[key] = value; };
+  restore("GHL_LOCATION_ID", locationBefore);
   restore("GHL_DEFAULT_CALENDAR_ID", envBefore.sales); restore("AM_CALENDAR_URL", envBefore.account);
   restore("GHL_CALENDAR_BOOKING_URL", envBefore.url); restore("GHL_DEFAULT_BOOKING_LINK", envBefore.link);
   await b?.close();

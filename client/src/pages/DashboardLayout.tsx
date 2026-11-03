@@ -234,7 +234,7 @@ const devModeLeadEngineItems: MenuItem[] = [
 
 const devModeAutomationItems: MenuItem[] = [
   { icon: BarChart3,      label: "Automation Overview", href: "/dashboard/automation",         roles: ["admin", "manager"] },
-  { icon: Zap,            label: "GHL Workflows",       href: "/dashboard/workflows",          roles: ["admin", "manager"] },
+  { icon: Zap,            label: "Workflow Automation", href: "/dashboard/workflows",          roles: ["admin", "manager"] },
   { icon: ListOrdered,    label: "Sequences",           href: "/dashboard/sequences",          roles: ["admin", "manager"] },
   { icon: Megaphone,      label: "Campaigns",           href: "/dashboard/campaigns",          roles: ["admin", "manager"] },
   { icon: FileBarChart,   label: "Sequence Report",     href: "/dashboard/sequence-report",    roles: ["admin", "manager"] },

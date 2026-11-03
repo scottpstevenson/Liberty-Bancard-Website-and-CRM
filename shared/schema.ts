@@ -2431,6 +2431,9 @@ export const workflowRuns = pgTable("workflow_runs", {
   inputPin: text("input_pin"),
   leaseToken: text("lease_token"),
   leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  // Minimum authoritative inputs the run was started with (entity, contact/deal pairing, occurrence, event facts).
+  // A resume or retry uses these, never a re-derivation from the entity id alone.
+  inputContext: jsonb("input_context"),
 }, t => [
   uniqueIndex("workflow_runs_occurrence_uidx").on(t.workflowId, t.occurrenceKey).where(sql`${t.occurrenceKey} IS NOT NULL`),
 ]);
@@ -2443,6 +2446,8 @@ export const followupEffectReceipts = pgTable("followup_effect_receipts", {
   channel: text("channel").notNull(),
   state: text("state").notNull().default("started"),
   detail: text("detail"),
+  requestFingerprint: text("request_fingerprint"),
+  attemptCount: integer("attempt_count").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   settledAt: timestamp("settled_at", { withTimezone: true }),
 }, t => [

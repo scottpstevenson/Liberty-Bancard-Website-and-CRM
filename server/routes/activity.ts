@@ -756,23 +756,19 @@ Respond in this exact JSON format:
   });
 
   app.post("/api/calendar-events", isDashboardUser, async (req, res) => {
-    try {
+    {
       const user = req.user as { id?: string } | undefined;
-      // Strip owner_id from body — always set server-side from session
-      const bodyWithoutOwner = { ...req.body };
-      delete bodyWithoutOwner.ownerId;
-      delete bodyWithoutOwner.owner_id;
-      const input = insertCalendarEventSchema.extend({startTime:z.coerce.date(),endTime:z.coerce.date()})
-        .refine(value=>value.endTime>value.startTime,{message:"End must be after start",path:["endTime"]})
-        .parse(bodyWithoutOwner);
-      if(input.contactId && !await authorizeContactAccess(req,res,input.contactId)) return;
-      if(input.dealId && !await authorizeDealAccess(req,res,input.dealId)) return;
-      // Set owner_id from authenticated session
-      const event = await storage.createCalendarEvent({ ...input, ownerId: user?.id ?? null });
+      // The owner always comes from the session; a supplied owner is ignored. Every other field must be on the DTO.
+      const { ownerId: _ownerId, owner_id: _ownerSnake, ...body } = (req.body ?? {}) as Record<string, unknown>;
+      const { calendarEventCreateSchema } = await import("../services/calendar-event-command");
+      const parsed = calendarEventCreateSchema.safeParse(body);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0]?.message ?? "Invalid calendar event", errors: parsed.error.flatten() });
+      const input = parsed.data;
+      if (input.endTime <= input.startTime) return res.status(400).json({ message: "End must be after start" });
+      if (input.contactId && !await authorizeContactAccess(req, res, input.contactId)) return;
+      if (input.dealId && !await authorizeDealAccess(req, res, input.dealId)) return;
+      const event = await storage.createCalendarEvent({ ...input, ownerId: user?.id ?? null } as any);
       res.status(201).json(event);
-    } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
     }
   });
 
@@ -780,59 +776,37 @@ Respond in this exact JSON format:
     try {
       const user = req.user as { id?: string; role?: string } | undefined;
       const eventId = Number(req.params.id);
+      if (!Number.isInteger(eventId) || eventId <= 0) return res.status(400).json({ message: "Invalid event id" });
       const isAgent = user?.role === "agent";
       const isPrivileged = user?.role === "admin" || user?.role === "manager";
+      if (!isAgent && !isPrivileged) return res.status(403).json({ message: "Forbidden" });
 
-      // Strip owner_id from body — only privileged users may reassign, handled below
-      const bodyWithoutOwner = { ...req.body };
-      delete bodyWithoutOwner.ownerId;
-      delete bodyWithoutOwner.owner_id;
-      const existingEvent=await storage.getCalendarEventById(eventId);
-      if(!existingEvent) return res.status(404).json({message:"Not found"});
-      if(isAgent && existingEvent.ownerId!==user?.id) return res.status(403).json({message:"You do not own this calendar event"});
-      const parsed=insertCalendarEventSchema.extend({startTime:z.coerce.date(),endTime:z.coerce.date()}).partial().safeParse(bodyWithoutOwner);
-      if(!parsed.success) return res.status(400).json({message:"Invalid calendar event",errors:parsed.error.flatten()});
-      const nextStart=parsed.data.startTime ?? existingEvent.startTime;
-      const nextEnd=parsed.data.endTime ?? existingEvent.endTime;
-      if(nextEnd<=nextStart) return res.status(400).json({message:"End must be after start"});
-      if(parsed.data.contactId && !await authorizeContactAccess(req,res,parsed.data.contactId)) return;
-      if(parsed.data.dealId && !await authorizeDealAccess(req,res,parsed.data.dealId)) return;
-      Object.assign(bodyWithoutOwner,parsed.data);
-
-      if (isAgent) {
-        // Agent: verify they own this event
-        const existing = await storage.getCalendarEventById(eventId);
-        if (!existing) return res.status(404).json({ message: "Not found" });
-        if (existing.ownerId !== user?.id) return res.status(403).json({ message: "You do not own this calendar event" });
-        const updated = await storage.updateCalendarEvent(eventId, bodyWithoutOwner);
-        if (!updated) return res.status(404).json({ message: "Not found" });
-        res.json(updated);
-      } else if (isPrivileged) {
-        // Manager/admin: may update any event; write audit if reassigning owner
-        const existing = await storage.getCalendarEventById(eventId);
-        if (!existing) return res.status(404).json({ message: "Not found" });
-        // If req.body contains explicit ownerId reassignment, allow it with audit
-        const newOwnerId = (req.body.ownerId ?? req.body.owner_id) ?? undefined;
-        const updatePayload: Record<string, unknown> = { ...bodyWithoutOwner };
-        if (newOwnerId !== undefined && newOwnerId !== existing.ownerId) {
-          updatePayload.ownerId = newOwnerId;
-          const { auditChange } = await import("../services/audit-change");
-          await auditChange({
-            actorType: "user",
-            userId: user?.id ?? null,
-            action: "calendar_event_reassigned",
-            entityType: "calendar_event",
-            entityId: eventId,
-            before: { ownerId: existing.ownerId },
-            after: { ownerId: newOwnerId },
-          });
-        }
-        const updated = await storage.updateCalendarEvent(eventId, updatePayload as any);
-        if (!updated) return res.status(404).json({ message: "Not found" });
-        res.json(updated);
-      } else {
-        return res.status(403).json({ message: "Forbidden" });
+      const { ownerId: bodyOwner, owner_id: bodyOwnerSnake, ...body } = (req.body ?? {}) as Record<string, unknown>;
+      const requestedOwner = bodyOwner ?? bodyOwnerSnake;
+      if (requestedOwner !== undefined && (typeof requestedOwner !== "string" || !requestedOwner)) {
+        return res.status(400).json({ message: "ownerId must be a user id" });
       }
+      // Only managers/admins may reassign; an agent naming an owner is refused rather than ignored.
+      if (requestedOwner !== undefined && !isPrivileged) return res.status(403).json({ message: "Only a manager or admin may reassign an event" });
+
+      const existingEvent = await storage.getCalendarEventById(eventId);
+      if (!existingEvent) return res.status(404).json({ message: "Not found" });
+      if (isAgent && existingEvent.ownerId !== user?.id) return res.status(403).json({ message: "You do not own this calendar event" });
+      const { calendarEventFields, updateCalendarEventAtomic } = await import("../services/calendar-event-command");
+      const parsed = calendarEventFields.safeParse(body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid calendar event", errors: parsed.error.flatten() });
+      if (parsed.data.contactId && !await authorizeContactAccess(req, res, parsed.data.contactId)) return;
+      if (parsed.data.dealId && !await authorizeDealAccess(req, res, parsed.data.dealId)) return;
+
+      const result = await updateCalendarEventAtomic({
+        id: eventId, patch: parsed.data, newOwnerId: requestedOwner as string | undefined, actorId: user?.id ?? null,
+      });
+      if (!result.ok) {
+        if (result.reason === "not_found") return res.status(404).json({ message: "Not found" });
+        if (result.reason === "invalid_interval") return res.status(400).json({ message: "End must be after start" });
+        return res.status(400).json({ message: "Unknown owner" });
+      }
+      res.json(result.event);
     } catch (err: any) {
       serverError(res, err);
     }

@@ -39,6 +39,7 @@ const SALES_ID = "AbCdEfGhIjKlMnOpQrSt";
 const ACCT_ID = "ZyXwVuTsRqPoNmLkJiHg";
 const env = {
   GHL_DEFAULT_CALENDAR_ID: SALES_ID,
+  GHL_LOCATION_ID: "locFixture1",
   AM_CALENDAR_URL: `https://api.leadconnectorhq.com/widget/booking/${ACCT_ID}`,
 };
 
@@ -103,10 +104,10 @@ check(cancel.ok && cancel.method === "PUT" && (cancel.payload as any).appointmen
 
 const hash = pv.ok ? pv.payloadHash : "";
 let writes = 0; let readbacks = 0;
-type ProviderState = { found?: boolean; status?: string; calendarId?: string; startTime?: string; endTime?: string; version?: number | null };
+type ProviderState = { found?: boolean; status?: string; calendarId?: string; contactId?: string; locationId?: string; startTime?: string; endTime?: string; version?: number | null };
 const mkProvider = (opts: { id?: string; found?: boolean; throws?: boolean; before?: ProviderState; after?: ProviderState }) => {
   let wrote = false;
-  const initial: ProviderState = { found: opts.found ?? true, status: "booked", calendarId: SALES_ID, startTime: base.startTimeIso, endTime: base.endTimeIso, version: 100 };
+  const initial: ProviderState = { found: opts.found ?? true, status: "booked", calendarId: SALES_ID, contactId: "contactAbc", locationId: "locFixture1", startTime: base.startTimeIso, endTime: base.endTimeIso, version: 100 };
   return {
     write: async () => { writes++; wrote = true; if (opts.throws) throw new Error("fetch failed: ETIMEDOUT"); return { id: opts.id ?? "appt-new" }; },
     readAppointment: async () => { readbacks++; const st = wrote ? { ...initial, ...(opts.after ?? {}) } : { ...initial, ...(opts.before ?? {}) }; return { ...st, found: st.found ?? true }; },
@@ -161,6 +162,29 @@ check((await exC(mkProvider({ after: { status: "cancelled" } }))).state === "con
 check((await booking.executeBookingCommand({ actorId: "actor-1", commandId: cmd(), expectedVersion: 100, reviewedPayloadHash: hashC, request: reqCancel, writerEnabled: true, provider: mkProvider({ before: { version: 7 } }) }, env)).state === "refused", "a cancel against a changed appointment version is refused");
 check((await ex({ commandId: cmd(), provider: mkProvider({ after: { startTime: "2026-11-10T09:00:00Z" } }) })).state === "unconfirmed", "a create whose readback times differ from the request is unconfirmed");
 check(/currentVersion/.test(read("server/routes/toolkit.ts")) && /readAppointment: readProviderAppointment/.test(read("server/routes/toolkit.ts")), "preview exposes the provider's current version and execute reads back through the same reader");
+
+// ── D3: identity, location and command-binding refusals (correction pass) ────────────────
+writes = 0;
+const otherContact = await exR({ provider: mkProvider({ before: { contactId: "someoneElse" } }) });
+check(otherContact.state === "refused" && (otherContact as any).reason === "appointment_belongs_to_other_contact" && writes === 0, "an appointment that belongs to another provider contact is refused before any write");
+const otherLocation = await exR({ provider: mkProvider({ before: { locationId: "otherLoc" } }) });
+check(otherLocation.state === "refused" && (otherLocation as any).reason === "appointment_in_other_location" && writes === 0, "an appointment in another location is refused before any write");
+const noIdentity = await exR({ provider: mkProvider({ before: { contactId: undefined as any, locationId: undefined as any } }) });
+check(noIdentity.state === "refused" && writes === 0, "a provider record with no contact/location identity is refused, never assumed to match");
+const bindId = cmd();
+const bound = await exR({ commandId: bindId, provider: mkProvider({ after: { startTime: NEW_START, endTime: NEW_END, version: 101 } }) });
+const otherReq = { ...reqResched, startTimeIso: "2026-11-12T16:00:00.000Z", endTimeIso: "2026-11-12T16:30:00.000Z" };
+const pvOther = booking.previewBookingCommand(otherReq, env);
+const rebind = await booking.executeBookingCommand({ actorId: "actor-1", commandId: bindId, expectedVersion: 100, reviewedPayloadHash: pvOther.ok ? pvOther.payloadHash : "", request: otherReq, writerEnabled: true, provider: mkProvider({}) }, env);
+check(bound.state === "confirmed" && rebind.state === "denied" && (rebind as any).reason === "command_id_bound_to_different_request", "reusing a command id for a different reviewed request is denied as a binding conflict");
+const rebindVersion = await exR({ commandId: bindId, expectedVersion: 55 });
+check(rebindVersion.state === "denied" && (rebindVersion as any).reason === "command_id_bound_to_different_request", "reusing a command id with a different expected version is also a binding conflict");
+check(!booking.previewBookingCommand(base, { ...env, GHL_LOCATION_ID: "" }).ok, "preview refuses when the location is not configured");
+const toolkitSrc = read("server/routes/toolkit.ts");
+check(/booking\/command\/:commandId/.test(toolkitSrc) && /sent: false/.test(toolkitSrc), "a read-only command status route exists and never sends");
+check(/withResolvedProviderContact/.test(toolkitSrc), "the provider contact is resolved on the server from the local contact");
+const panel = read("client/src/components/BookingCommandPanel.tsx");
+check(/booking_writer_not_enabled/.test(panel) && /canExecute/.test(panel) && !/toNotify|ignoreFreeSlot/.test(panel), "the drawer panel surfaces the default-denied writer and never chooses notification or slot-validation behavior");
 
 // ── E ────────────────────────────────────────────────────────────────────────────────────
 const toolkit = read("server/routes/toolkit.ts");

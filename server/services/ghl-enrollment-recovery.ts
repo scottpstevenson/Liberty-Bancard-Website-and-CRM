@@ -373,6 +373,20 @@ export async function retryDeferredEnrollments(): Promise<{
   for (const entry of rows) {
     stats.attempted++;
 
+    // A required obligation held for missing native configuration expires: a confirmation delivered after its
+    // appointment (or long after the booking) would be stale. Expired work is retired with an audit row, never sent.
+    const heldExpiry = entry.metadata?._holdForConfiguration && typeof entry.metadata?._expiresAt === "string"
+      ? new Date(entry.metadata._expiresAt).getTime() : null;
+    if (heldExpiry !== null && Date.now() > heldExpiry) {
+      await db.execute(sql`DELETE FROM deferred_ghl_enrollments WHERE id = ${entry.id} AND status = 'pending'`);
+      await auditChange({
+        actorType: "system", action: "ghl_enrollment_hold_expired", entityType: "ghl_sync", entityKey: entry.ghl_contact_id,
+        details: { workflowKey: entry.workflow_key, expiredAt: entry.metadata._expiresAt, sent: false },
+      }).catch(() => {});
+      stats.permanentlyFailed++;
+      continue;
+    }
+
     // Permanently fail if retry budget exhausted
     if (entry.retry_count >= MAX_RETRIES) {
       await db.execute(sql`
@@ -549,6 +563,16 @@ export async function retryDeferredEnrollments(): Promise<{
             details: { workflowKey: entry.workflow_key, reason: errMsg.slice(0, 300), retryCount: entry.retry_count },
           }).catch(() => {});
           stats.permanentlyFailed++;
+        } else if (entry.metadata?._holdForConfiguration && /not configured/i.test(errMsg)) {
+          // Still waiting for the native workflow ID: the obligation stays owed until it expires; no retry budget is spent.
+          const holdUntil = new Date(Date.now() + nextRetryDelayMs(0)).toISOString();
+          await db.execute(sql`
+            UPDATE deferred_ghl_enrollments
+            SET last_error = ${errMsg.slice(0, 500)}, next_retry_at = ${holdUntil}::timestamptz
+            WHERE id = ${entry.id} AND status = 'pending'
+          `);
+          stats.stillPending++;
+          releaseJobLock(lockKey, false, undefined, recoveryLock).catch(() => {});
         } else if (
           errMsg.includes("not configured") ||
           (errMsg.includes("Workflow") && errMsg.includes("not configured"))

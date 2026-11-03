@@ -795,18 +795,25 @@ ${getEmailSignatureHtml("accounts")}
  * Updates proposalEmailSentAt so the re-send window resets correctly.
  * Does NOT update proposalStatus — the calling worker handles that.
  */
-export async function sendProposalFollowUpEmail(dealId: number, attemptNumber: number): Promise<boolean> {
+export type ProposalFollowUpResult = { state: "accepted" | "refused" | "unknown"; channel?: string; detail?: string };
+
+/**
+ * One proposal follow-up email. The result is typed, never a boolean: `unknown` means a transport may have accepted the
+ * message (lost response/timeout), and an unknown outcome STOPS the fallback chain so a second transport can never send a
+ * duplicate. Only a definite refusal moves on to the next transport.
+ */
+export async function sendProposalFollowUpEmail(dealId: number, attemptNumber: number): Promise<ProposalFollowUpResult> {
   try {
     const deal = await storage.getDeal(dealId);
     if (!deal || !deal.savingsProposal || !deal.proposalToken) {
       console.error(`[ProposalEngine] Cannot send follow-up — no proposal for deal ${dealId}`);
-      return false;
+      return { state: "refused", detail: "no_proposal" };
     }
 
     const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
     if (!contact?.email) {
       console.error(`[ProposalEngine] No email for contact on deal ${dealId}`);
-      return false;
+      return { state: "refused", detail: "no_contact_email" };
     }
 
     const proposal = deal.savingsProposal as ProposalPayload;
@@ -880,8 +887,11 @@ ${getEmailSignatureHtml("accounts")}
 
     const { sendGhlEmail, sendGhlEmailForMerchant, isGhlConfigured } = await import("./ghl");
 
+    const { isAmbiguousDispatchMessage } = await import("./ghl-dispatch-recorder");
     let emailSent = false;
     let emailChannel = "none";
+    let unknownDetail: string | null = null;
+    const ambiguous = (message: unknown) => isAmbiguousDispatchMessage(message instanceof Error ? message.message : String(message ?? ""));
     if (isGhlConfigured()) {
       try {
         const ghlDirectResult = await sendGhlEmail({
@@ -895,23 +905,28 @@ ${getEmailSignatureHtml("accounts")}
         if (ghlDirectResult.success) {
           emailSent = true;
           emailChannel = "GHL-Direct";
-        }
+        } else if (ambiguous(ghlDirectResult.error)) unknownDetail = `GHL-Direct:${String(ghlDirectResult.error).slice(0, 120)}`;
       } catch (sendErr) {
         console.error("[ProposalEngine] GHL-Direct follow-up email error:", sendErr);
+        if (ambiguous(sendErr)) unknownDetail = `GHL-Direct:${(sendErr as Error).message.slice(0, 120)}`;
       }
 
-      if (!emailSent) {
+      if (!emailSent && !unknownDetail) {
         try {
           const ghlResult = await sendGhlEmailForMerchant({ email: contact.email, subject, body, contactId: contact.id });
           if (ghlResult.success) {
             emailSent = true;
             emailChannel = "GHL-Workflow";
-          }
+          } else if (ambiguous((ghlResult as any).error)) unknownDetail = `GHL-Workflow:${String((ghlResult as any).error).slice(0, 120)}`;
         } catch (sendErr) {
           console.error("[ProposalEngine] GHL-Workflow follow-up email error:", sendErr);
+          if (ambiguous(sendErr)) unknownDetail = `GHL-Workflow:${(sendErr as Error).message.slice(0, 120)}`;
         }
       }
     }
+
+    // An unknown outcome from any earlier transport blocks every later one.
+    if (!emailSent && unknownDetail) return { state: "unknown", detail: unknownDetail };
 
     if (!emailSent) {
       const { isSmtpConfigured, sendSmtpEmail } = await import("./smtp-email");
@@ -923,9 +938,11 @@ ${getEmailSignatureHtml("accounts")}
             emailChannel = "SMTP-Fallback";
           } else {
             console.warn(`[ProposalEngine] SMTP follow-up failed for deal ${dealId}: ${smtpResult.error}`);
+            if (ambiguous(smtpResult.error)) return { state: "unknown", detail: `SMTP:${String(smtpResult.error).slice(0, 120)}` };
           }
         } catch (smtpErr: any) {
           console.error(`[ProposalEngine] SMTP follow-up threw for deal ${dealId}:`, smtpErr.message);
+          return { state: "unknown", detail: `SMTP:${String(smtpErr.message).slice(0, 120)}` };
         }
       }
     }
@@ -934,11 +951,13 @@ ${getEmailSignatureHtml("accounts")}
       console.warn(
         `[ProposalEngine] Neither GHL nor SMTP is configured — follow-up email NOT delivered for deal ${dealId}.`,
       );
-      return false;
+      return { state: "refused", detail: "no_transport_accepted" };
     }
 
     // Reset the sent-at timestamp so the resend window is measured from this follow-up.
-    await storage.updateDeal(deal.id, { proposalEmailSentAt: new Date() });
+    // The receipt, not this timestamp, is the touch identity; a failed reset must not turn an accepted send into a failure.
+    await storage.updateDeal(deal.id, { proposalEmailSentAt: new Date() }).catch(err =>
+      console.warn("[ProposalEngine] follow-up sent but proposalEmailSentAt reset failed:", err instanceof Error ? err.message : err));
 
     // #1397 — record to canonical communication_events table
     if (contact.id) {
@@ -957,10 +976,11 @@ ${getEmailSignatureHtml("accounts")}
     console.log(
       `[ProposalEngine] Follow-up email (attempt ${attemptNumber}) sent to ${contact.email} for deal ${dealId} via ${emailChannel}`,
     );
-    return true;
+    return { state: "accepted", channel: emailChannel };
   } catch (err) {
     console.error("[ProposalEngine] Follow-up email send failed:", err);
-    return false;
+    // Every transport call is handled above, so this is a failure before any dispatch: nothing was sent.
+    return { state: "refused", detail: `unexpected:${err instanceof Error ? err.message.slice(0, 120) : "error"}` };
   }
 }
 

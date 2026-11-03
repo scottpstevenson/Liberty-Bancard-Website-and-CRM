@@ -12,7 +12,8 @@ import { handleCallDisposition, CALL_DISPOSITIONS, type CallDisposition } from "
 import { handleAppointmentBooked as schedulingHandleBooked, handleAppointmentCanceled as schedulingHandleCanceled } from "./scheduling";
 import { enrollInAppointmentWorkflow, tagContactForInboxOrganization } from "../ghl-workflow-enrollment";
 import { runReceiptStep, runReceiptTxStep, currentReceiptId, ReceiptClaimLostError } from "../ghl-webhook-effects";
-import { ghlAppointmentSuperseded, ghlContactIdOf } from "../ghl-appointment-events";
+import { ghlAppointmentSuperseded, ghlContactIdOf, ghlStartTimeOf, ghlAppointmentIdOf } from "../ghl-appointment-events";
+import { calendarPurposeOf } from "../ghl-calendar-purpose";
 import { checkAndLogCompliance } from "./compliance-engine";
 import { processCommunicationEvent } from "../communication-feedback";
 import { getCanonicalLeadVertical } from "./vertical-resolver";
@@ -379,38 +380,50 @@ export async function handleCallOutcome(rawPayload: unknown): Promise<void> {
   const STATEMENT_TRIGGER_DISPOSITIONS = ["interested", "booked_meeting", "promised_statement"];
   const rawDisp2 = (payload.status || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
   if (STATEMENT_TRIGGER_DISPOSITIONS.includes(rawDisp2)) {
-    // SDR pipeline path: sendStatementRequest sends email/SMS and marks lead stage
+    // ONE business owner per call occurrence. A merchant with an SDR lead is owned by the SDR statement flow (its
+    // per-channel receipts are the send authority); only a contact with no SDR lead is owned by the CRM lifecycle
+    // acquisition path. The two never both start for the same call. The decision is recorded durably, and the request
+    // intent (single token, requested-at) is established and awaited BEFORE this webhook is acknowledged; delivery then
+    // proceeds under its own receipts and, if the process stops, is recovered by the statement follow-up action.
+    const callKey = String((payload as any).callId ?? "");
+    let leadState: typeof sdrLeadState.$inferSelect | undefined;
     if (merchant) {
       try {
-        const [leadState] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.merchantId, merchant.id));
-        if (leadState && !leadState.statementRequestedAt && leadState.stage !== "STATEMENT_REQUESTED") {
-          console.log(`[SDR Webhook] Auto-triggering statement request for merchant ${merchant.id} (disposition=${rawDisp2})`);
-          import("./statement-flow").then(({ sendStatementRequest }) => {
-            sendStatementRequest(leadState.id).catch(err =>
-              console.error(`[SDR Webhook] Auto statement request failed for lead ${leadState.id}:`, err)
-            );
-          }).catch(() => {});
-        }
+        [leadState] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.merchantId, merchant.id));
       } catch (err) {
-        console.error(`[SDR Webhook] Statement auto-trigger SDR lookup failed:`, err);
+        console.error(`[SDR Webhook] Statement owner lookup failed:`, err);
+        throw err;
       }
     }
+    const owner = leadState ? "sdr_statement_flow" : (ghlContactId ? "crm_lifecycle_acquisition" : "none");
+    const ownerContactId = crmContactForCallOutcome?.id ?? null;
+    await storage.createAuditLog({
+      action: "statement_request_owner_selected", entityType: ownerContactId ? "contact" : "sdr_lead",
+      entityId: ownerContactId ?? leadState?.id ?? 0,
+      details: { statementOwner: owner, callId: callKey || null, disposition: rawDisp2, sdrLeadId: leadState?.id ?? null },
+    }).catch(() => undefined);
 
-    // CRM lifecycle path: transition contact to APPOINTMENT_COMPLETED → STATEMENT_REQUESTED
-    // This fires statement-acquisition.ts:onStatementRequested → sequence enrollment
-    if (ghlContactId) {
+    if (owner === "sdr_statement_flow" && leadState) {
+      if (!leadState.statementRequestedAt && leadState.stage !== "STATEMENT_REQUESTED") {
+        console.log(`[SDR Webhook] Statement request owned by the SDR flow for merchant ${merchant!.id} (disposition=${rawDisp2})`);
+        const { establishStatementRequest, sendStatementRequest } = await import("./statement-flow");
+        // Durable handoff first: the intent exists before acknowledgement, whatever happens to the delivery below.
+        const established = await establishStatementRequest(leadState.id);
+        if (established) {
+          sendStatementRequest(leadState.id).catch(err =>
+            console.error(`[SDR Webhook] Statement request delivery failed for lead ${leadState.id}:`, err));
+        }
+      }
+    } else if (owner === "crm_lifecycle_acquisition" && ghlContactId) {
+      // CRM lifecycle path: APPOINTMENT_COMPLETED -> STATEMENT_REQUESTED (statement-acquisition owns the chase).
       const [lc] = await db.select({ id: contacts.id, lifecycleState: contacts.lifecycleState })
         .from(contacts).where(eq(contacts.ghlContactId, ghlContactId)).limit(1);
       if (lc && !["STATEMENT_REQUESTED", "STATEMENT_RECEIVED", "PROPOSAL_SENT", "CLOSED_WON", "CLOSED_LOST"].includes(lc.lifecycleState ?? "")) {
-        import("../lifecycle-service").then(({ LifecycleService }) => {
-          LifecycleService.transition(lc.id, "APPOINTMENT_COMPLETED", {
-            trigger: `call_outcome_${rawDisp2}`, metadata: { callId: payload.callId },
-          }).then(() =>
-            LifecycleService.transition(lc.id, "STATEMENT_REQUESTED", {
-              trigger: "auto_statement_request_on_call",
-            })
-          ).catch(err => console.warn(`[SDR Webhook] Lifecycle auto-transition failed for contact ${lc.id}:`, err));
-        }).catch(() => {});
+        const { LifecycleService } = await import("../lifecycle-service");
+        await LifecycleService.transition(lc.id, "APPOINTMENT_COMPLETED", {
+          trigger: `call_outcome_${rawDisp2}`, metadata: { callId: payload.callId },
+        }).then(() => LifecycleService.transition(lc.id, "STATEMENT_REQUESTED", { trigger: "auto_statement_request_on_call" }))
+          .catch(err => console.warn(`[SDR Webhook] Lifecycle auto-transition failed for contact ${lc.id}:`, err));
       }
     }
   }
@@ -434,8 +447,20 @@ export async function handleAppointmentBooked(rawPayload: unknown): Promise<void
     // Each CRM-side effect is a durable step of this receipt: a retry after a later failure never repeats a
     // completed enrollment, analytics event or tag, and a booked effect superseded by a cancel does not start.
     const [crmContact] = await db.select().from(contacts).where(eq(contacts.ghlContactId, ghlContactId)).limit(1);
-    if (crmContact && !(await ghlAppointmentSuperseded(null, payload, "booked"))) {
-      const appointmentDate = payload.startTime ? new Date(payload.startTime) : new Date(Date.now() + 24 * 60 * 60 * 1000);
+    // One normalized reading of the event (nested or top-level facts alike): the recorded start time and calendar
+    // purpose. No start time is invented, and an account-calendar booking never enters the sales confirmation path.
+    const nestedPayload = (payload.appointment && typeof payload.appointment === "object" ? payload.appointment : {}) as Record<string, unknown>;
+    const eventCalendarId = typeof payload.calendarId === "string" ? payload.calendarId
+      : typeof nestedPayload.calendarId === "string" ? nestedPayload.calendarId : null;
+    const eventPurpose = calendarPurposeOf(eventCalendarId);
+    const eventStart = ghlStartTimeOf(payload);
+    const normalizedAppointmentId = ghlAppointmentIdOf(payload) ?? undefined;
+    if (crmContact && eventPurpose !== "sales") {
+      console.log(`[SDR Webhook] appointment-booked on the ${eventPurpose} calendar for contact ${crmContact.id}: history only, no sales confirmation`);
+    } else if (crmContact && !eventStart) {
+      console.warn(`[SDR Webhook] appointment-booked for contact ${crmContact.id} has no start time: no confirmation handoff was fabricated`);
+    } else if (crmContact && !(await ghlAppointmentSuperseded(null, payload, "booked"))) {
+      const appointmentDate = new Date(eventStart!);
       // The SDR merchant path and this CRM-contact path address the same GHL contact and workflow. When the merchant
       // step of this receipt already completed (in any structured state) it, or its durable deferred enrollment, owns
       // the handoff; this step must not enrol a second time.
@@ -445,7 +470,7 @@ export async function handleAppointmentBooked(rawPayload: unknown): Promise<void
         await runReceiptStep("booked:crm_appointment_workflow", async info => {
           const outcome = await enrollInAppointmentWorkflow({
             contactId: crmContact.id, appointmentDate, calendarType: "sales",
-            appointmentId: payload.appointmentId || payload.id || undefined,
+            appointmentId: normalizedAppointmentId,
           }, info);
           // A failure with no durable owner fails the receipt so the provider retry recovers it; every other state is a
           // structured, recorded result (held handoffs with a verified deferred enrollment are owned by the recovery job; an unknown outcome stays an explicit hold and is never re-sent).
@@ -459,8 +484,8 @@ export async function handleAppointmentBooked(rawPayload: unknown): Promise<void
         await recordAnalyticsEvent({
           eventName: "appointment_booked",
           contactId: crmContact.id,
-          occurredAt: payload.startTime ? new Date(payload.startTime) : new Date(),
-          metadata: { calendarType: "sales", source: "ghl_webhook" },
+          occurredAt: new Date(eventStart!),
+          metadata: { calendarType: eventPurpose, source: "ghl_webhook" },
         });
       }).catch(err => {
         if (err instanceof ReceiptClaimLostError) throw err;

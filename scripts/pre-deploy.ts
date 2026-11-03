@@ -154,6 +154,8 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
     timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Stage 4C2 calendar contract (purpose, range, booking command, capability templates)",script:"scripts/certification/test-stage4c2-calendar-contract.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
+  {name:"Stage 4C2 correction pass (migration 0379, trigger decoder, held handoff, statement race, command binding, wiring)",script:"scripts/certification/test-stage4c2-correction-pass.ts",
+    timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Message copy convergence and token contract",script:"scripts/certification/test-message-copy-convergence.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Workflow email wording",script:"scripts/certification/test-workflow-email-wording.ts",
@@ -641,6 +643,11 @@ export const MANDATORY_SUITES: Suite[] = [
     name: "Appointment-to-Statement (positive call outcome auto-triggers statement request)",
     script: "scripts/test-appointment-statement.ts",
     timeoutSecs: 180,
+  },
+  {
+    name: "GHL sync exact lookups (task/deal lookups are exact-key, not first-500 scans)",
+    script: "scripts/test-ghl-sync-exact-lookups.ts",
+    timeoutSecs: 120,
   },
   {
     name: "BullMQ Resilience (retry/backoff/DLQ/operator-visibility)",

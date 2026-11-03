@@ -5,7 +5,7 @@ import { DEFAULT_SLA_RULES } from "@shared/sla-rules";
 import { autoCloseResolvedTickets } from "./ticket-auto-close";
 import { db } from "../db";
 import { tasks, contacts } from "@shared/schema";
-import { isNull, isNotNull, inArray, eq, or, and, lt, gte, sql as drizzleSql } from "drizzle-orm";
+import { isNull, isNotNull, inArray, desc, eq, or, and, lt, gte, sql as drizzleSql } from "drizzle-orm";
 import { LEAD_SLA_SCORE_THRESHOLD, LEAD_SLA_MINUTES } from "./process-new-lead";
 import { sendGhlEmail, isGhlConfigured, createGhlTask } from "./ghl";
 import { getEmailSignatureHtml } from "./email-signatures";
@@ -764,7 +764,10 @@ async function checkUnderwritingConditionSlas(): Promise<void> {
 async function checkWaitingWorkflows() {
   try {
     const { executeWorkflowActions } = await import("./workflow-executor");
-    const { claimDueWorkflowRuns, releaseWorkflowRunLease } = await import("./workflow-run-lease");
+    const { claimDueWorkflowRuns, releaseWorkflowRunLease, parkInterruptedWorkflowRuns } = await import("./workflow-run-lease");
+    // A run that was mid-flight when its process died (lease lapsed, never finished) is parked visibly, not resumed.
+    const parked = await parkInterruptedWorkflowRuns();
+    if (parked > 0) console.warn(`[Workflow] Parked ${parked} interrupted run(s) for review`);
     // Due runs are claimed in SQL (oldest first, bounded batch, skip-locked, leased). A second worker or a retry after a
     // crash cannot resume a run whose lease is live; the executor also checks the definition pin and the send receipts.
     const handledThisScan = new Set<number>();
@@ -784,7 +787,7 @@ async function checkWaitingWorkflows() {
           await executeWorkflowActions(run.workflowId, actions, {
             entityType: run.entityType || undefined,
             entityId: run.entityId || undefined,
-          }, run.id, run.currentStep);
+          }, run.id, run.currentStep, { leaseToken: run.leaseToken });
           console.log(`[Workflow] Resumed waiting workflow "${workflow?.name ?? run.workflowId}" from step ${run.currentStep}`);
         } finally {
           await releaseWorkflowRunLease(run.id, run.leaseToken);
@@ -1080,36 +1083,44 @@ async function checkApplicationReminders() {
       afterId = page[page.length - 1].id;
       const now = Date.now();
       for (const deal of page) {
-        // Authoritative occurrence start: the earliest onboarding-entry audit row; never an unrelated updatedAt.
+        // Authoritative occurrence start: the MOST RECENT entry into the onboarding application stage (a re-entry begins a
+        // new occurrence). The canonical transition writes `deal_stage_transitioned`; the older `deal_stage_changed` row
+        // and the closed-won onboarding row are read too. There is no fallback to deal creation or updatedAt.
         const [entry] = await db.select({ createdAt: auditLogs.createdAt }).from(auditLogs).where(and(
           eq(auditLogs.entityType, "deal"), eq(auditLogs.entityId, deal.id),
           or(eq(auditLogs.action, "closed_won_onboarding_workflow"),
-            and(eq(auditLogs.action, "deal_stage_changed"), drizzleSql`${auditLogs.details}->>'to' = 'Contract Sent'`)),
-        )).orderBy(auditLogs.createdAt).limit(1);
-        const occurrenceStart = entry?.createdAt ?? deal.createdAt;
-        if (!occurrenceStart) continue; // no authoritative start: nothing is fabricated from updatedAt
+            and(inArray(auditLogs.action, ["deal_stage_transitioned", "deal_stage_changed"]), drizzleSql`${auditLogs.details}->>'to' = 'Contract Sent'`)),
+        )).orderBy(desc(auditLogs.createdAt)).limit(1);
+        const occurrenceStart = entry?.createdAt ?? null;
+        if (!occurrenceStart) { console.log(`[Reminder] Deal #${deal.id} has no authoritative application start; no reminder is scheduled`); continue; }
+        const occurrenceStartMs = new Date(occurrenceStart).getTime();
         const delivered = await db.select({ ownerId: followupEffectReceipts.ownerId, settledAt: followupEffectReceipts.settledAt })
           .from(followupEffectReceipts).where(and(
             eq(followupEffectReceipts.ownerKind, "application_reminder"),
-            drizzleSql`${followupEffectReceipts.ownerId} LIKE ${`${deal.id}:day%`}`,
+            drizzleSql`${followupEffectReceipts.ownerId} LIKE ${`${deal.id}:%day%`}`,
             eq(followupEffectReceipts.state, "accepted")));
-        // Milestones recorded before receipts existed are historical sends and still count as delivered.
-        const legacy = await db.select({ action: auditLogs.action, createdAt: auditLogs.createdAt }).from(auditLogs).where(and(
-          eq(auditLogs.entityType, "deal"), eq(auditLogs.entityId, deal.id), drizzleSql`${auditLogs.action} ~ '^application_reminder_day[0-9]+_sent$'`));
-        const deliveredDays = [
-          ...delivered.map(r => Number(/day(\d+)$/.exec(r.ownerId)?.[1])),
-          ...legacy.map(r => Number(/day(\d+)_sent$/.exec(r.action)?.[1])),
-        ].filter(n => Number.isFinite(n));
-        const deliveredTimes = [...delivered.map(r => r.settledAt?.getTime()), ...legacy.map(r => r.createdAt ? new Date(r.createdAt).getTime() : undefined)]
-          .filter((t): t is number => typeof t === "number");
+        // Only receipts of THIS occurrence count (a re-entry restarts the cadence).
+        const thisOccurrence = delivered.filter(r => (r.settledAt?.getTime() ?? 0) >= occurrenceStartMs);
+        // Old `application_reminder_dayN_sent` audit rows were inferred "sent" from a workflow log, not accepted delivery
+        // evidence. They are historical: they are never counted as delivered (not in the delivered times), but a milestone
+        // they name is not blindly sent a second time either.
+        const historical = await db.select({ action: auditLogs.action, createdAt: auditLogs.createdAt }).from(auditLogs).where(and(
+          eq(auditLogs.entityType, "deal"), eq(auditLogs.entityId, deal.id), drizzleSql`${auditLogs.action} ~ '^application_reminder_day[0-9]+_sent$'`,
+          drizzleSql`${auditLogs.createdAt} >= ${new Date(occurrenceStartMs)}`));
+        const historicalDays = historical.map(r => Number(/day(\d+)_sent$/.exec(r.action)?.[1])).filter(n => Number.isFinite(n));
+        const deliveredDays = [...thisOccurrence.map(r => Number(/day(\d+)$/.exec(r.ownerId)?.[1])), ...historicalDays].filter(n => Number.isFinite(n));
+        const deliveredTimes = thisOccurrence.map(r => r.settledAt?.getTime()).filter((t): t is number => typeof t === "number");
         const lastDeliveredMs = deliveredTimes.length ? Math.max(...deliveredTimes) : null;
-        const dayNumber = nextApplicationReminderDay({ nowMs: now, occurrenceStartMs: new Date(occurrenceStart).getTime(), deliveredDays, lastDeliveredMs });
+        const dayNumber = nextApplicationReminderDay({ nowMs: now, occurrenceStartMs, deliveredDays, lastDeliveredMs });
         if (dayNumber === null) continue;
 
-        const ownerId = `${deal.id}:day${dayNumber}`;
+        // Final revalidation immediately before dispatch: a submitted/completed/archived/moved application is obsolete work.
+        const [fresh] = await db.select({ stage: deals.stage, appCompleted: deals.appCompleted, archivedAt: deals.archivedAt, pipeline: deals.pipeline }).from(deals).where(eq(deals.id, deal.id));
+        if (!fresh || fresh.appCompleted || fresh.archivedAt || fresh.pipeline !== "onboarding" || !["Contract Sent", "Application Started"].includes(fresh.stage ?? "")) continue;
+
         const results = await triggerWorkflowsByEvent("application_reminder", {
           entityType: "deal", entityId: deal.id, contactId: deal.contactId || undefined, dealId: deal.id,
-          occurrenceId: `application_reminder_day${dayNumber}`,
+          occurrenceId: `application_reminder_o${occurrenceStartMs}_day${dayNumber}`,
         }, { dayNumber });
 
         // Controlled retry: a replayed run that failed or is blocked is retried for its definitely-undelivered steps
@@ -1125,16 +1136,21 @@ async function checkApplicationReminders() {
 
         // The milestone is consumed only by an ACCEPTED delivery. A started, waiting, held, failed or failed-send
         // completed run leaves the milestone owed (and the run row is the visible durable owner).
+        // Per required workflow: it must have run to completion (the executor halts a run on an undelivered required send),
+        // and at least one send must have been ACCEPTED. One independent success never consumes another's failure.
         const deliveredCount = results.reduce((n, r) => n + (r.status === "completed" || r.status === "waiting" ? (r.delivered ?? 0) : 0), 0);
-        if (deliveredCount > 0) {
+        const everyRunClean = results.length > 0 && results.every(r => r.status === "completed" || r.status === "waiting");
+        if (deliveredCount > 0 && everyRunClean) {
           const { pool } = await import("../db");
+          // One accepted receipt per run (the per-workflow acceptance fact) plus the occurrence-bound milestone receipt.
+          const occurrenceOwner = `${deal.id}:o${occurrenceStartMs}:day${dayNumber}`;
           await pool.query(
-            `INSERT INTO followup_effect_receipts (effect_key, owner_kind, owner_id, channel, state, settled_at)
-             VALUES ($1, 'application_reminder', $2, 'workflow', 'accepted', now()) ON CONFLICT (effect_key) DO NOTHING`,
-            [`application_reminder:${ownerId}`, ownerId]);
+            `INSERT INTO followup_effect_receipts (effect_key, owner_kind, owner_id, channel, state, detail, settled_at)
+             VALUES ($1, 'application_reminder', $2, 'workflow', 'accepted', $3, now()) ON CONFLICT (effect_key) DO NOTHING`,
+            [`application_reminder:${occurrenceOwner}`, occurrenceOwner, `accepted_steps:${deliveredCount};runs:${results.map(r => r.runId ?? "none").join(",")}`.slice(0, 280)]);
           await storage.createAuditLog({
-            action: `application_reminder_day${dayNumber}_sent`, entityType: "deal", entityId: deal.id,
-            details: { dayNumber, deliveredSteps: deliveredCount, onboardingStartTime: new Date(occurrenceStart).toISOString() },
+            action: `application_reminder_day${dayNumber}_accepted`, entityType: "deal", entityId: deal.id,
+            details: { dayNumber, acceptedSteps: deliveredCount, delivered: "not_confirmed_by_provider", onboardingStartTime: new Date(occurrenceStart).toISOString() },
           });
           console.log(`[Reminder] Day ${dayNumber} application reminder delivered for deal #${deal.id}`);
         } else {

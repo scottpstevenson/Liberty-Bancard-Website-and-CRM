@@ -47,6 +47,8 @@ type GhlFetchOptions = RequestInit & {
   pauseEpoch?: bigint;
   ghlCrmPauseEpoch?: bigint;
   ghlCrmDecision?: GhlCrmDecision;
+  /** Runs at the top of EVERY attempt (including after a backoff). Throwing aborts the dispatch before provider I/O. */
+  beforeAttempt?: () => Promise<void>;
 };
 
 const GHL_MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -232,7 +234,7 @@ async function ghlFetch(path: string, options: GhlFetchOptions = {}, retries = 3
   }
 
   // Extract pause epoch before building the fetch-compatible options
-  const { pauseEpoch, ghlCrmPauseEpoch, ghlCrmDecision: _ghlCrmDecision, ...rawFetchOptions } = options;
+  const { pauseEpoch, ghlCrmPauseEpoch, ghlCrmDecision: _ghlCrmDecision, beforeAttempt, ...rawFetchOptions } = options;
   const fetchOptions: RequestInit = bodyValue && typeof bodyValue === "object"
       && Array.isArray((bodyValue as any).customFields)
     ? {
@@ -267,6 +269,7 @@ async function ghlFetch(path: string, options: GhlFetchOptions = {}, retries = 3
         );
       }
     }
+    if (beforeAttempt) await beforeAttempt();
     if (crmDecision) {
       const { recheckGhlCrmOperation, recheckGhlCrmPauseEpoch } = await import("./ghl-sync-control");
       if (!await recheckGhlCrmOperation(crmDecision)
@@ -1541,6 +1544,16 @@ export async function assertGhlSmsRecipientAuthorized(params: {
   return { phone: resolution.phone };
 }
 
+const digitsTail = (value: string) => value.replace(/\D/g, "").slice(-10);
+/** Provider-target read, replaceable in certification (the provider network is denied there). */
+export const smsProviderDeps = {
+  async readContactPhone(ghlContactId: string): Promise<string | null> {
+    const result = await ghlFetch(`/contacts/${encodeURIComponent(ghlContactId)}`);
+    const contact = result?.contact ?? result;
+    return typeof contact?.phone === "string" && contact.phone ? contact.phone : null;
+  },
+};
+
 async function _sendGhlSmsInner(params: {
   contactId: number;
   dealId?: number;
@@ -1557,11 +1570,19 @@ async function _sendGhlSmsInner(params: {
     const contact = await storage.getContact(params.contactId);
     if (!contact) throw new Error("Contact not found");
     // Consent and number come from the canonical consent authority, never from the legacy consent_sms flag.
-    await assertGhlSmsRecipientAuthorized(params);
+    const authorized = await assertGhlSmsRecipientAuthorized(params);
+    const boundParams = { ...params, boundPhone: authorized.phone };
 
     let ghlContactId = contact.ghlContactId;
     if (!ghlContactId) {
       ghlContactId = await upsertGhlContact(contact);
+      // Consent, STOP and the number can change while the contact is created: decide again before dispatch.
+      await assertGhlSmsRecipientAuthorized(boundParams);
+    } else {
+      // The number approved locally must be the number the provider will actually text.
+      const providerPhone = await smsProviderDeps.readContactPhone(ghlContactId);
+      if (!providerPhone) throw new Error("sms_not_permitted:provider_target_unverified");
+      if (digitsTail(providerPhone) !== digitsTail(authorized.phone)) throw new Error("sms_not_permitted:provider_number_mismatch");
     }
 
     const smsPayload = {
@@ -1574,6 +1595,8 @@ async function _sendGhlSmsInner(params: {
       method: "POST",
       body: JSON.stringify(smsPayload),
       pauseEpoch: _pauseEpoch,
+      // Re-decided from the canonical authority before every attempt, including one after a rate-limit/backoff wait.
+      beforeAttempt: async () => { await assertGhlSmsRecipientAuthorized(boundParams); },
     });
 
     if (result?.messageId) trackOutboundMessageId(result.messageId);
@@ -1728,6 +1751,15 @@ export async function sendTemplatedMessage(params: {
   return { success: false, error: `Unknown channel: ${template.channel}` };
 }
 
+/** One supported alias contract for the provider's message type/channel. Anything else is unsupported (null), never email by default. */
+export function normalizeGhlInboundChannel(raw: unknown): "sms" | "email" | null {
+  if (typeof raw !== "string") return null;
+  const v = raw.toLowerCase().replace(/^type_/, "").replace(/[\s_-]+/g, "");
+  if (v === "sms" || v === "text") return "sms";
+  if (v === "email") return "email";
+  return null;
+}
+
 export async function handleGhlWebhook(payload: any): Promise<void> {
   const { type, contactId, messageId, direction, body, subject, status: deliveryStatus } = payload;
   const webhookOccurrenceId = String(messageId ?? payload.eventId ?? payload.id ?? crypto.randomUUID());
@@ -1818,7 +1850,15 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
     }
     const contact = identity.contact;
     if (contact) {
-      const channel = type === "SMS" ? "sms" : "email";
+      const channel = normalizeGhlInboundChannel(payload.messageType ?? payload.channel ?? type);
+      if (!channel) {
+        // An unsupported channel is not recorded as email.
+        await storage.createAuditLog({
+          action: "ghl_inbound_channel_unsupported", entityType: "ghl_webhook", entityId: null,
+          details: { messageId: messageId ?? null, type: type ?? null },
+        }).catch(() => {});
+        return;
+      }
       const contactDeal = identity.deal ?? undefined;
 
       const inboundActivity = await storage.createGhlActivityLog({
@@ -1966,6 +2006,8 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
         await triggerWorkflowsByEvent("inbound_message", {
           entityType: "contact",
           entityId: contact.id,
+          // The provider message identity is the occurrence, so a replayed delivery returns the existing run.
+          occurrenceId: messageId ?? payload.eventId ?? payload.id ? webhookOccurrenceId : undefined,
           data: { channel, body, subject, classification: messageClassification },
         });
       } catch (e) {

@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useUrlParam } from "@/hooks/use-url-param";
 import { Plus, Play, Trash2, Zap, Clock, CheckCircle2, XCircle, AlertTriangle, Settings, MessageSquare, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
@@ -93,12 +95,21 @@ export default function Workflows() {
 
   const { data: workflows, isLoading, isError, refetch } = useQuery<Workflow[]>({ queryKey: ["/api/workflows"] });
   // Run history is server-paged and searchable: one bounded page is read at a time, never the whole table.
-  const [runSearchInput, setRunSearchInput] = useState("");
-  const [runSearch, setRunSearch] = useState("");
-  const [runStatus, setRunStatus] = useState("all");
-  const [runOffset, setRunOffset] = useState(0);
+  // Tab, search, status, page and the opened run are validated URL parameters (reload and Back/Forward keep them).
+  const [activeTab, setActiveTab] = useUrlParam<string>("wf_tab", "workflows", raw => (["workflows", "runs"].includes(raw) ? raw : undefined));
+  const [runSearch, setRunSearch] = useUrlParam<string>("wf_q", "", raw => (raw.length <= 120 ? raw : undefined), { history: "replace" });
+  const [runSearchInput, setRunSearchInput] = useState(runSearch);
+  const [runStatus, setRunStatus] = useUrlParam<string>("wf_status", "all", raw => (raw === "all" || (RUN_STATUS_FILTERS as readonly string[]).includes(raw) ? raw : undefined));
+  const [runPage, setRunPage] = useUrlParam<number>("wf_page", 1, raw => (/^[1-9]\d{0,5}$/.test(raw) ? Number(raw) : undefined));
+  const [openRunParam, setOpenRunParam] = useUrlParam<number>("wf_run", 0, raw => (/^[1-9]\d{0,9}$/.test(raw) ? Number(raw) : undefined));
+  const runOffset = (runPage - 1) * RUN_PAGE_SIZE;
+  const setRunOffset = (offset: number) => setRunPage(Math.floor(offset / RUN_PAGE_SIZE) + 1);
+  useEffect(() => { setRunSearchInput(runSearch); }, [runSearch]);
   useEffect(() => {
-    const timer = setTimeout(() => { setRunSearch(runSearchInput.trim()); setRunOffset(0); }, 300);
+    const timer = setTimeout(() => {
+      const trimmed = runSearchInput.trim();
+      if (trimmed !== runSearch) { setRunSearch(trimmed); setRunPage(1); }
+    }, 300);
     return () => clearTimeout(timer);
   }, [runSearchInput]);
   const runsParams = { limit: RUN_PAGE_SIZE, offset: runOffset, search: runSearch, status: runStatus === "all" ? "" : runStatus };
@@ -107,6 +118,8 @@ export default function Workflows() {
     queryFn: async ({ signal }) => readRunsPage(runsParams, signal),
   });
   const runs = runsPage?.data;
+  const openRun = openRunParam > 0 ? (runs?.find((r) => r.id === openRunParam) ?? null) : null;
+  const runsFetchedAt = runsPage ? new Date().toLocaleString() : undefined;
 
   const createMutation = useMutation({
     mutationFn: async (body: any) => {
@@ -269,7 +282,7 @@ export default function Workflows() {
   const runStatusLabel = (run: { status: string | null; log?: unknown }) => {
     const problems = runStepProblems(run);
     return run.status === "completed" && problems > 0
-      ? `completed · ${problems} step${problems === 1 ? "" : "s"} not delivered`
+      ? `completed · ${problems} step${problems === 1 ? "" : "s"} with unresolved or failed outcome`
       : (run.status ?? "unknown");
   };
   const statusIcon = (status: string | null, problems = 0) => {
@@ -392,7 +405,7 @@ export default function Workflows() {
         </Dialog>
       </div>
 
-      <Tabs defaultValue="workflows">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList data-testid="tabs-workflows">
           <TabsTrigger value="workflows" data-testid="tab-workflows">Workflows ({workflows?.length || 0})</TabsTrigger>
           <TabsTrigger value="runs" data-testid="tab-runs">Run History ({runsPage ? runsPage.total : "…"})</TabsTrigger>
@@ -512,7 +525,7 @@ export default function Workflows() {
                 data-testid="input-run-search"
               />
             </div>
-            <Select value={runStatus} onValueChange={(value) => { setRunStatus(value); setRunOffset(0); }}>
+            <Select value={runStatus} onValueChange={(value) => { setRunStatus(value); setRunPage(1); }}>
               <SelectTrigger className="w-full sm:w-44" aria-label="Filter runs by status" data-testid="select-run-status">
                 <SelectValue />
               </SelectTrigger>
@@ -554,6 +567,7 @@ export default function Workflows() {
                       <TableHead>Entity</TableHead>
                       <TableHead>Started</TableHead>
                       <TableHead>Completed</TableHead>
+                      <TableHead><span className="sr-only">Details</span></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -577,6 +591,10 @@ export default function Workflows() {
                           </TableCell>
                           <TableCell className="text-sm">
                             {run.completedAt ? new Date(run.completedAt).toLocaleString() : "-"}
+                          </TableCell>
+                          <TableCell>
+                            <Button variant="outline" size="sm" className="min-h-11" onClick={() => setOpenRunParam(run.id)}
+                              aria-label={`View details for run ${run.id}`} data-testid={`button-run-details-${run.id}`}>Details</Button>
                           </TableCell>
                         </TableRow>
                       );
@@ -602,6 +620,23 @@ export default function Workflows() {
           )}
         </TabsContent>
       </Tabs>
+
+      <Sheet open={openRun !== null || (openRunParam > 0 && !!runsPage)} onOpenChange={(open) => { if (!open) setOpenRunParam(0); }}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-md" data-testid="run-detail-drawer">
+          {openRun ? <RunDetailBody run={openRun} workflowName={workflows?.find((w) => w.id === openRun.workflowId)?.name} asOf={runsFetchedAt} />
+            : (
+              <>
+                <SheetHeader>
+                  <SheetTitle>Run #{openRunParam}</SheetTitle>
+                  <SheetDescription>This run is not on the displayed page.</SheetDescription>
+                </SheetHeader>
+                <p className="mt-4 text-sm text-muted-foreground" role="status" data-testid="run-detail-not-on-page">
+                  The run is not in the current search, status filter or page. Clear the filters or change the page to find it; its absence here does not mean it does not exist.
+                </p>
+              </>
+            )}
+        </SheetContent>
+      </Sheet>
 
       <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) setDetailWorkflow(null); }}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
@@ -823,5 +858,68 @@ function ActionCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+
+type RunLogEntry = { step?: number; action?: string; status?: string; reason?: string; error?: string; replay?: boolean; timestamp?: string };
+const STEP_STATE_COPY: Record<string, string> = {
+  completed: "Completed",
+  failed: "Failed (the provider or action refused it)",
+  blocked: "Blocked (held for review; not delivered)",
+  queued_no_ghl: "Held locally; nothing was delivered",
+  unknown_outcome: "Unknown: the provider may have accepted it; it is never re-sent automatically",
+  skipped: "Skipped",
+};
+
+/** Run detail from recorded state only: owner, occurrence, next owed step, reason and per-step outcomes. */
+function RunDetailBody({ run, workflowName, asOf }: { run: WorkflowRun; workflowName?: string; asOf?: string }) {
+  const entries = (Array.isArray(run.log) ? run.log : []) as RunLogEntry[];
+  const latest = new Map<string, RunLogEntry>();
+  entries.forEach((e) => { if (typeof e?.step === "number" && e.step > 0) latest.set(`${e.step}:${e.action}`, e); });
+  const steps = [...latest.values()].sort((a, b) => (a.step ?? 0) - (b.step ?? 0));
+  const owed = steps.find((e) => ["failed", "blocked", "queued_no_ghl", "unknown_outcome"].includes(e.status ?? ""));
+  const occurrence = (run as unknown as { occurrenceKey?: string | null }).occurrenceKey ?? null;
+  const row = (label: string, value: string, mono = false) => (
+    <div className="grid grid-cols-3 gap-2 text-sm"><dt className="text-muted-foreground">{label}</dt><dd className={`col-span-2 break-words ${mono ? "font-mono text-xs" : ""}`}>{value}</dd></div>
+  );
+  return (
+    <>
+      <SheetHeader>
+        <SheetTitle data-testid="run-detail-title">Run #{run.id}</SheetTitle>
+        <SheetDescription>{workflowName ?? `Workflow #${run.workflowId}`}</SheetDescription>
+      </SheetHeader>
+      <dl className="mt-4 space-y-2" data-testid="run-detail-facts">
+        {row("Status", run.status ?? "unknown")}
+        {row("Entity", run.entityType ? `${run.entityType} #${run.entityId}` : "None")}
+        {row("Occurrence", occurrence ?? "No occurrence identity (older run)", true)}
+        {row("Current step", String(run.currentStep ?? 0))}
+        {row("Next run", run.nextRunAt ? new Date(run.nextRunAt).toLocaleString() : "None scheduled")}
+        {row("Started", run.createdAt ? new Date(run.createdAt).toLocaleString() : "-")}
+        {row("Page read", asOf ?? "-")}
+      </dl>
+      <section className="mt-5 space-y-2" aria-labelledby="run-owed-h" data-testid="run-detail-owed">
+        <h3 id="run-owed-h" className="text-sm font-semibold">Next owed step</h3>
+        <p className="text-sm text-muted-foreground">
+          {owed
+            ? `Step ${owed.step} (${owed.action}): ${STEP_STATE_COPY[owed.status ?? ""] ?? owed.status}${owed.reason || owed.error ? ` — ${owed.reason ?? owed.error}` : ""}`
+            : run.status === "waiting" ? "The run is waiting for its next scheduled step." : "No unresolved step is recorded."}
+        </p>
+      </section>
+      <section className="mt-5 space-y-2" aria-labelledby="run-steps-h" data-testid="run-detail-steps">
+        <h3 id="run-steps-h" className="text-sm font-semibold">Recorded step outcomes</h3>
+        {steps.length === 0 ? <p className="text-sm text-muted-foreground">No step outcome is recorded.</p> : (
+          <ul className="space-y-2">
+            {steps.map((e) => (
+              <li key={`${e.step}-${e.action}`} className="rounded-md border p-2 text-sm">
+                <span className="font-medium">Step {e.step} · {e.action}</span>
+                <span className="block text-xs">{STEP_STATE_COPY[e.status ?? ""] ?? e.status ?? "Not recorded"}{e.replay ? " (replayed receipt)" : ""}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-xs text-muted-foreground">These are recorded outcomes. “Completed” on a send means the provider accepted it, not that the person received it. No retry is offered here.</p>
+      </section>
+    </>
   );
 }

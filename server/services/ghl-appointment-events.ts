@@ -37,7 +37,7 @@ export interface AppointmentEventInput {
 
 export type AppointmentRejectReason =
   | "missing_identity" | "location_mismatch" | "location_missing" | "calendar_not_configured" | "calendar_missing"
-  | "missing_event_time";
+  | "missing_event_time" | "identity_conflict" | "missing_recipient" | "missing_start_time";
 
 export type AppointmentDecision =
   | { decision: "apply" }
@@ -96,9 +96,15 @@ function normalizeAppointmentEvent(input: AppointmentEventInput): NormalizedAppo
   const eventAt = time(p.dateUpdated) ?? time(p.dateAdded) ?? time(p.timestamp)
     ?? time(appointment.dateUpdated) ?? time(appointment.dateAdded);
   if (!eventAt) return { rejected: "missing_event_time" };
+  const contactId = text(p.contactId) ?? text(appointment.contactId);
+  const startTime = time(p.startTime) ?? time(appointment.startTime);
+  // A booking names its recipient and start time; neither is defaulted or invented later.
+  if (input.kind === "booked") {
+    if (!contactId) return { rejected: "missing_recipient" };
+    if (!startTime) return { rejected: "missing_start_time" };
+  }
   return {
-    appointmentId, contactId: text(p.contactId) ?? text(appointment.contactId), calendarId, locationId, eventAt,
-    startTime: time(p.startTime) ?? time(appointment.startTime),
+    appointmentId, contactId, calendarId, locationId, eventAt, startTime,
     endTime: time(p.endTime) ?? time(appointment.endTime),
   };
 }
@@ -171,10 +177,10 @@ export function ghlStartTimeOf(payload: unknown): string | null {
   return text(p.startTime) ?? text(appointment.startTime);
 }
 
-interface StateRow { status: string; last_event_at: string | Date; booked_effect_receipt_id: string | null }
+interface StateRow { status: string; last_event_at: string | Date; booked_effect_receipt_id: string | null; ghl_contact_id: string | null; calendar_id: string | null; location_id: string | null }
 
 async function readState(tx: Executor, appointmentId: string): Promise<StateRow | undefined> {
-  return (await tx.execute(sql`SELECT status, last_event_at, booked_effect_receipt_id
+  return (await tx.execute(sql`SELECT status, last_event_at, booked_effect_receipt_id, ghl_contact_id, calendar_id, location_id
     FROM ghl_appointment_state WHERE appointment_id = ${appointmentId}`)).rows[0] as unknown as StateRow | undefined;
 }
 
@@ -204,6 +210,14 @@ export async function transitionGhlAppointment(
           ${receiptId}::uuid, ${kind === "rescheduled" ? 1 : 0}, ${kind === "booked" ? receiptId : null}::uuid)`);
     }
     return { decision: "apply" };
+  }
+
+  // An appointment id is bound to its first recipient, calendar and location. A later authenticated event that names
+  // different ones is an integrity conflict: nothing is rebound or applied.
+  if ((event.contactId && existing.ghl_contact_id && event.contactId !== existing.ghl_contact_id)
+    || (calendarId && existing.calendar_id && calendarId !== existing.calendar_id)
+    || (locationId && existing.location_id && locationId !== existing.location_id)) {
+    return { decision: "rejected", reason: "identity_conflict" };
   }
 
   const last = new Date(existing.last_event_at).getTime();

@@ -85,6 +85,11 @@ export function registerDealsRoutes(app: Express) {
         vertical:z.string().trim().min(1).max(160).optional(),
         offerPath:z.string().trim().min(1).max(160).optional(),
         groupContactId:z.string().regex(/^[1-9][0-9]*$/).transform(Number).refine(Number.isSafeInteger).optional(),
+        followUpFrom:z.string().datetime({offset:true}).optional(),
+        followUpTo:z.string().datetime({offset:true}).optional(),
+      }).superRefine((v,ctx)=>{
+        if((v.followUpFrom&&!v.followUpTo)||(!v.followUpFrom&&v.followUpTo)||(v.followUpFrom&&v.followUpTo&&Date.parse(v.followUpFrom)>=Date.parse(v.followUpTo)))
+          ctx.addIssue({code:"custom",message:"followUpFrom and followUpTo must both be given with from < to"});
       }).safeParse(req.query);
       if(!parsedFilters.success)return res.status(400).json({message:"Invalid deal scope filters",code:"INVALID_DEAL_FILTERS",correlationId});
       const {includeArchived,noFollowUp,unassigned,pastGoLive,createdLast7Days,...dealFilters}=parsedFilters.data;

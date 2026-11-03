@@ -1,5 +1,6 @@
+import crypto from "crypto";
 import { runFollowupEffect } from "./followup-effects";
-import { db } from "../db";
+import { db, pool } from "../db";
 import { deals, auditLogs, sequenceEnrollments, followUpSequences } from "@shared/schema";
 import { and, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { storage } from "../storage";
@@ -132,36 +133,48 @@ export async function runProposalFollowUpCheck(): Promise<{
           continue;
         }
 
-        // Count prior automated resend attempts for this deal
-        const [{ resendCount }] = await db
+        // Immutable touch identity: deal + proposal version (a hash of the proposal token, never the raw token) + touch
+        // number + channel. The send function rewrites proposalEmailSentAt and the audit row is written after the send, so
+        // neither can be part of the identity. The touch number comes from durable receipts (legacy audit rows still count
+        // toward the cap), and an unfinished/unknown touch blocks the next one.
+        if (!deal.proposalToken) { skipped++; continue; }
+        const proposalVersion = crypto.createHash("sha256").update(deal.proposalToken).digest("hex").slice(0, 16);
+        const keyPrefix = `proposal_followup:${deal.id}:${proposalVersion}:`;
+        const receipts = (await pool.query(
+          `SELECT effect_key, state, settled_at FROM followup_effect_receipts
+            WHERE owner_kind = 'proposal_followup' AND owner_id = $1 AND effect_key LIKE $2`,
+          [String(deal.id), `${keyPrefix}%`])).rows as Array<{ effect_key: string; state: string; settled_at: Date | null }>;
+        if (receipts.some(r => r.state === "unknown" || r.state === "started")) { skipped++; continue; }
+        const acceptedTouches = receipts.filter(r => r.state === "accepted");
+        const [{ resendCount: legacyAuditCount }] = await db
           .select({ resendCount: sql<number>`COUNT(*)::int` })
           .from(auditLogs)
-          .where(
-            and(
-              eq(auditLogs.action, "proposal_resend_triggered"),
-              eq(auditLogs.entityType, "deal"),
-              eq(auditLogs.entityId, deal.id),
-            ),
-          );
-
-        if (resendCount >= MAX_RESENDS) {
-          // Already hit the resend cap — do not spam the contact further.
-          skipped++;
-          continue;
-        }
-
-        const attemptNumber = resendCount + 1;
+          .where(and(eq(auditLogs.action, "proposal_resend_triggered"), eq(auditLogs.entityType, "deal"), eq(auditLogs.entityId, deal.id)));
+        const touchesDone = Math.max(legacyAuditCount, acceptedTouches.length);
+        if (touchesDone >= MAX_RESENDS) { skipped++; continue; }   // cap reached: do not spam the contact further
+        const lastSettled = acceptedTouches.map(r => r.settled_at?.getTime() ?? 0).sort((x, y) => y - x)[0];
+        if (lastSettled && Date.now() - lastSettled < PROPOSAL_NOT_OPENED_DAYS * 24 * 60 * 60 * 1000) { skipped++; continue; }
+        const attemptNumber = touchesDone + 1;
 
         const { sendProposalFollowUpEmail } = await import("./proposal-engine");
-        // Durable touch identity: proposal (deal + the version it was sent at) + attempt number. The receipt is written
-        // before the send, so a crash/retry between the send and the audit row never sends the same touch twice, and an
-        // unknown outcome is never re-sent automatically. The raw proposal token is not part of the identity.
         const touch = await runFollowupEffect(
-          {
-            effectKey: `proposal_followup:${deal.id}:${deal.proposalEmailSentAt?.getTime() ?? 0}:${attemptNumber}`,
-            ownerKind: "proposal_followup", ownerId: String(deal.id), channel: "email",
+          { effectKey: `${keyPrefix}${attemptNumber}:email`, ownerKind: "proposal_followup", ownerId: String(deal.id), channel: "email" },
+          async () => {
+            // Final guards at dispatch, not only at the scan: a viewed/closed/replaced proposal, a rep stop or a new pause
+            // between the scan and this instant stops the send (a refusal that may be retried on the next tick).
+            const current = await storage.getDeal(deal.id);
+            if (!current || current.proposalToken !== deal.proposalToken) return { success: false, error: "stopped_before_dispatch:proposal_replaced" };
+            if (!["sent", "resent"].includes(current.proposalStatus ?? "")) return { success: false, error: `stopped_before_dispatch:proposal_${current.proposalStatus}` };
+            if (/closed/i.test(current.stage ?? "") || current.appCompleted) return { success: false, error: "stopped_before_dispatch:deal_closed_or_application_complete" };
+            const finalGate = await evaluateContactability({ contactId: deal.contactId!, channel: "email", campaignType: "proposal_followup", mode: "enforcement" });
+            if (!finalGate.allowed) return { success: false, error: `stopped_before_dispatch:${finalGate.reason}` };
+            const { authorize } = await import("./outbound-pause-authority");
+            if (!(await authorize({})).allowed) return { success: false, error: "stopped_before_dispatch:outbound_paused" };
+            const sent = await sendProposalFollowUpEmail(deal.id, attemptNumber);
+            if (sent.state === "accepted") return { success: true, detail: sent.channel };
+            if (sent.state === "unknown") return { success: false, error: `GHL_AMBIGUOUS_DISPATCH: ${sent.detail ?? "outcome unknown"}` };
+            return { success: false, error: sent.detail ?? "refused" };
           },
-          async () => ({ success: await sendProposalFollowUpEmail(deal.id, attemptNumber) }),
         );
         if (touch.state !== "accepted") {
           skipped++;

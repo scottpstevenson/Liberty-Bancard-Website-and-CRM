@@ -54,7 +54,7 @@ export async function sendWorkflowSms(params: { contactId: number; dealId?: numb
   return result.success ? result : { ...result, error: result.error ?? result.skipReason ?? "sms_not_sent" };
 }
 
-interface WorkflowContext {
+export interface WorkflowContext {
   entityType?: string;
   entityId?: number;
   contactId?: number;
@@ -170,6 +170,53 @@ async function renderWorkflowMessage(text: string, contactId: number, dealId: nu
   return renderMessage("workflow", text, source, format).output;
 }
 
+
+const CONTEXT_DATA_KEYS = ["classification", "channel", "messageId", "eventId", "dayNumber", "purpose", "appointmentId", "callId", "disposition"];
+/** The minimum authoritative inputs persisted with a run (never a raw payload). */
+export function persistableWorkflowContext(ctx: WorkflowContext): Record<string, unknown> {
+  const data: Record<string, unknown> = {};
+  for (const key of CONTEXT_DATA_KEYS) if (ctx.data && ctx.data[key] !== undefined && ctx.data[key] !== null) data[key] = ctx.data[key];
+  return {
+    entityType: ctx.entityType ?? null, entityId: ctx.entityId ?? null, contactId: ctx.contactId ?? null, dealId: ctx.dealId ?? null,
+    occurrenceId: ctx.occurrenceId ?? null, data,
+  };
+}
+function contextFromStored(stored: unknown, fallback: WorkflowContext): WorkflowContext {
+  if (!stored || typeof stored !== "object") return fallback;
+  const s = stored as Record<string, any>;
+  return {
+    entityType: s.entityType ?? fallback.entityType, entityId: s.entityId ?? fallback.entityId,
+    contactId: s.contactId ?? fallback.contactId, dealId: s.dealId ?? fallback.dealId,
+    occurrenceId: s.occurrenceId ?? fallback.occurrenceId, data: { ...(fallback.data ?? {}), ...(s.data ?? {}) },
+  };
+}
+
+/** Progress writes are fenced by the run's lease token when one is held; a lost lease writes nothing. */
+async function saveRunFenced(runId: number, token: string | undefined, patch: Record<string, unknown>): Promise<boolean> {
+  if (!token) { await storage.updateWorkflowRun(runId, patch as any); return true; }
+  const { db } = await import("../db");
+  const { workflowRuns } = await import("@shared/schema");
+  const { and, eq, gt, sql } = await import("drizzle-orm");
+  const rows = await db.update(workflowRuns).set(patch as any)
+    .where(and(eq(workflowRuns.id, runId), eq(workflowRuns.leaseToken, token), gt(workflowRuns.leaseExpiresAt, sql`now()`))).returning({ id: workflowRuns.id });
+  return rows.length === 1;
+}
+const NOT_DELIVERED_STATUSES = new Set(["failed", "unknown_outcome", "queued_no_ghl", "blocked"]);
+
+/** Local (non-provider) action receipt: an accepted step is never repeated after a crash between the action and the log save. */
+async function localActionDone(runId: number, step: number): Promise<boolean> {
+  const { pool } = await import("../db");
+  const { rows } = await pool.query(`SELECT 1 FROM followup_effect_receipts WHERE effect_key = $1 AND state = 'accepted'`, [`wf_local:${runId}:${step}`]);
+  return rows.length > 0;
+}
+async function markLocalActionDone(runId: number, step: number): Promise<void> {
+  const { pool } = await import("../db");
+  await pool.query(
+    `INSERT INTO followup_effect_receipts (effect_key, owner_kind, owner_id, channel, state, settled_at)
+     VALUES ($1, 'workflow_local', $2, $3, 'accepted', now()) ON CONFLICT (effect_key) DO NOTHING`,
+    [`wf_local:${runId}:${step}`, String(runId), `local:${step}`]);
+}
+
 type StepSendResult = { success: boolean; error?: string; unknown?: boolean; replay?: boolean };
 const SEND_ACTIONS = new Set(["send_ghl_email", "send_ghl_sms", "send_packet", "generate_proposal", "request_review"]);
 export const RUN_TERMINAL_STATUSES = ["completed", "failed", "cancelled", "blocked"];
@@ -222,7 +269,7 @@ export async function executeWorkflowActions(
   ctx: WorkflowContext,
   runId?: number,
   startStep: number = 0,
-  options: { retryCompletedSteps?: ReadonlySet<number> } = {},
+  options: { retryCompletedSteps?: ReadonlySet<number>; leaseToken?: string } = {},
 ): Promise<{ status: string; log: any[]; runId: number; delivered?: number; replay?: boolean }> {
   const workflow = await storage.getWorkflow(workflowId);
   if (!workflow || workflow.retiredAt || !workflow.enabled) {
@@ -237,10 +284,25 @@ export async function executeWorkflowActions(
     }
     return { status: "blocked", log, runId: runId ?? 0 };
   }
+  let leaseToken: string | undefined;
   if (runId) {
     const existing = await storage.getWorkflowRun(runId);
     if (!existing || existing.workflowId !== workflowId || RUN_TERMINAL_STATUSES.includes(existing.status || "")) {
       return { status: "blocked", log: [{ action: "run_unavailable", status: "blocked" }], runId };
+    }
+    // Resume from the inputs the run started with (contact/deal pairing, occurrence, event facts), not from the entity id alone.
+    ctx = contextFromStored((existing as { inputContext?: unknown }).inputContext, ctx);
+    leaseToken = options.leaseToken;
+    if (!leaseToken) {
+      // A caller without a claim must take the lease; a run another worker owns is not touched.
+      const { randomUUID } = await import("node:crypto");
+      const { pool } = await import("../db");
+      const token = randomUUID();
+      const taken = await pool.query(
+        `UPDATE workflow_runs SET lease_token = $2, lease_expires_at = now() + interval '10 minutes'
+          WHERE id = $1 AND (lease_expires_at IS NULL OR lease_expires_at < now()) RETURNING id`, [runId, token]);
+      if (!taken.rows[0]) return { status: "blocked", log: [{ action: "run_owned_elsewhere", status: "blocked" }], runId };
+      leaseToken = token;
     }
     // A run resumes only against the definition it was created for; a changed workflow cannot be resumed at a stale step.
     if (existing.inputPin && existing.inputPin !== workflowDefinitionPin(actions)) {
@@ -252,10 +314,13 @@ export async function executeWorkflowActions(
   }
   const { contactId, dealId } = await resolveContext(ctx);
   let logEntries: any[] = [];
+  const lostLease = (): { status: string; log: any[]; runId: number } =>
+    ({ status: "lease_lost", log: [{ action: "lease_lost", status: "blocked" }], runId: createdRunId ?? 0 });
 
   let createdRunId = runId;
   if (!createdRunId) {
     logEntries = [{ step: 0, action: "started", timestamp: new Date().toISOString() }];
+    const newToken = (await import("node:crypto")).randomUUID();
     // One run per (workflow, occurrence): a retried event returns the existing run instead of starting a second one.
     const occurrenceKey = ctx.occurrenceId ? `${ctx.entityType ?? "none"}:${ctx.entityId ?? 0}:${ctx.occurrenceId}` : null;
     try {
@@ -268,8 +333,12 @@ export async function executeWorkflowActions(
         log: logEntries,
         occurrenceKey,
         inputPin: workflowDefinitionPin(actions),
-      });
+        inputContext: persistableWorkflowContext(ctx),
+        leaseToken: newToken,
+        leaseExpiresAt: new Date(Date.now() + 10 * 60_000),
+      } as any);
       createdRunId = run.id;
+      leaseToken = newToken;
     } catch (createErr: any) {
       if (occurrenceKey && (createErr?.code === "23505" || createErr?.cause?.code === "23505")) {
         const { db } = await import("../db");
@@ -298,6 +367,19 @@ export async function executeWorkflowActions(
     const action = actions[i];
     // Controlled retry: a step that already completed (accepted send, task, update) is never repeated.
     if (options.retryCompletedSteps?.has(i + 1)) continue;
+    // Fence: an expired or superseded worker stops here and writes nothing further for this run.
+    if (leaseToken) {
+      const { renewWorkflowRunLease } = await import("./workflow-run-lease");
+      if (!(await renewWorkflowRunLease(createdRunId!, leaseToken))) return lostLease();
+    }
+    // A send re-checks that the workflow is still enabled and unretired at the action boundary.
+    if (SEND_ACTIONS.has(action.type)) {
+      const current = await storage.getWorkflow(workflowId);
+      if (!current || current.retiredAt || !current.enabled) {
+        logEntries.push({ step: i + 1, action: action.type, status: "blocked", reason: "workflow_unavailable", timestamp: new Date().toISOString() });
+        break;
+      }
+    }
     try {
       if (action.type === "create_task") {
         const task = await storage.createAuthorityTask({
@@ -308,7 +390,7 @@ export async function executeWorkflowActions(
           dealId,
           contactId,
           description: action.description ? await interpolateTemplate(action.description, contactId, dealId) : undefined,
-        });
+        }, { commandKey: `wf_task:${createdRunId}:${i + 1}` });
         const assignmentStatus = task.assignedTo ? "assigned" : "unassigned_review_required";
         if (!task.assignedTo) {
           await storage.createAuditLog({
@@ -326,6 +408,9 @@ export async function executeWorkflowActions(
         }
         logEntries.push({ step: i + 1, action: "create_task", title: action.title, assignmentStatus, status: "completed", timestamp: new Date().toISOString() });
 
+      } else if (action.type === "send_notification" && await localActionDone(createdRunId!, i + 1)) {
+        logEntries.push({ step: i + 1, action: "send_notification", title: action.title, status: "completed", replay: true, timestamp: new Date().toISOString() });
+
       } else if (action.type === "send_notification") {
         await storage.createNotification({
           channel: action.channel || "internal",
@@ -334,7 +419,11 @@ export async function executeWorkflowActions(
           type: action.notificationType || "info",
           metadata: { workflowId, dealId, contactId },
         });
+        await markLocalActionDone(createdRunId!, i + 1);
         logEntries.push({ step: i + 1, action: "send_notification", title: action.title, status: "completed", timestamp: new Date().toISOString() });
+
+      } else if (action.type === "create_audit_log" && await localActionDone(createdRunId!, i + 1)) {
+        logEntries.push({ step: i + 1, action: "create_audit_log", status: "completed", replay: true, timestamp: new Date().toISOString() });
 
       } else if (action.type === "create_audit_log") {
         await storage.createAuditLog({
@@ -343,6 +432,7 @@ export async function executeWorkflowActions(
           entityId: ctx.entityId || createdRunId,
           details: { workflowId, step: i + 1 },
         });
+        await markLocalActionDone(createdRunId!, i + 1);
         logEntries.push({ step: i + 1, action: "create_audit_log", status: "completed", timestamp: new Date().toISOString() });
 
       } else if (action.type === "update_deal" && dealId) {
@@ -580,14 +670,17 @@ export async function executeWorkflowActions(
       } else if (action.type === "wait") {
         const waitMinutes = action.minutes || (action.hours || 1) * 60;
         logEntries.push({ step: i + 1, action: "wait", minutes: waitMinutes, status: "scheduled", timestamp: new Date().toISOString() });
-        await storage.updateWorkflowRun(createdRunId, {
+        const saved = await saveRunFenced(createdRunId, leaseToken, {
           status: "waiting",
           currentStep: i + 1,
           nextRunAt: new Date(Date.now() + waitMinutes * 60 * 1000),
           log: logEntries,
           entityType: ctx.entityType || null,
           entityId: ctx.entityId || null,
+          inputContext: persistableWorkflowContext(ctx),
+          leaseToken: null, leaseExpiresAt: null,
         });
+        if (!saved) return lostLease();
         return { status: "waiting", log: logEntries, runId: createdRunId };
       } else {
         logEntries.push({ step: i + 1, action: action.type, status: "unknown_action", timestamp: new Date().toISOString() });
@@ -595,15 +688,24 @@ export async function executeWorkflowActions(
     } catch (stepErr: any) {
       logEntries.push({ step: i + 1, action: action.type, status: "failed", error: stepErr.message, timestamp: new Date().toISOString() });
     }
+    // A required send that was refused, queued locally or left unknown stops dependent progress (later steps, a wait,
+    // a stage move). The hold stays visible in the log; an action marked optional does not stop the run.
+    const lastEntry = logEntries[logEntries.length - 1];
+    if (SEND_ACTIONS.has(action.type) && lastEntry && NOT_DELIVERED_STATUSES.has(lastEntry.status) && !action.optional && i < actions.length - 1) {
+      logEntries.push({ step: i + 1, action: "halted", status: "held", reason: `required_step_not_delivered:${lastEntry.status}`, timestamp: new Date().toISOString() });
+      break;
+    }
   }
 
   const outcome = classifyWorkflowRunOutcome(logEntries);
-  await storage.updateWorkflowRun(createdRunId, {
+  const finalSaved = await saveRunFenced(createdRunId, leaseToken, {
     status: outcome.status,
     completedAt: new Date(),
     currentStep: actions.length,
     log: logEntries,
+    leaseToken: null, leaseExpiresAt: null,
   });
+  if (!finalSaved) return lostLease();
 
   return { status: outcome.status, log: logEntries, runId: createdRunId, delivered: outcome.delivered };
 }
@@ -631,11 +733,13 @@ export async function retryFailedWorkflowRun(runId: number): Promise<
   const completed = new Set<number>();
   for (const [key, e] of latest) if (e.status === "completed" || e.status === "scheduled") completed.add(Number(key.split(":")[0]));
   const { pool } = await import("../db");
+  const retryToken = (await import("node:crypto")).randomUUID();
   const reopened = await pool.query(
-    `UPDATE workflow_runs SET status = 'running', completed_at = NULL WHERE id = $1 AND status IN ('failed','blocked') RETURNING id`, [runId]);
+    `UPDATE workflow_runs SET status = 'running', completed_at = NULL, lease_token = $2, lease_expires_at = now() + interval '10 minutes'
+      WHERE id = $1 AND status IN ('failed','blocked') AND (lease_expires_at IS NULL OR lease_expires_at < now()) RETURNING id`, [runId, retryToken]);
   if (!reopened.rows[0]) return { state: "not_retryable", reason: "another_worker_reopened_run" };
   const result = await executeWorkflowActions(run.workflowId, actions,
-    { entityType: run.entityType || undefined, entityId: run.entityId || undefined } as WorkflowContext, runId, 0, { retryCompletedSteps: completed });
+    { entityType: run.entityType || undefined, entityId: run.entityId || undefined } as WorkflowContext, runId, 0, { retryCompletedSteps: completed, leaseToken: retryToken });
   return { state: "retried", status: result.status, delivered: result.delivered ?? 0 };
 }
 

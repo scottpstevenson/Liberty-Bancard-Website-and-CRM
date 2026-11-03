@@ -1,7 +1,7 @@
-import { db } from "../../db";
+import { db, pool } from "../../db";
 import { sdrLeadState, sdrLeadEvents } from "@shared/schema";
 import type { SdrLeadState } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { storage } from "../../storage";
 import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "../ghl";
 import { selectBestInbox, recordSend, rollbackSend } from "./inbox-rotation";
@@ -79,6 +79,52 @@ export async function deliverStatementSms(
 const describeUndelivered = (results: ChannelResult[]) =>
   results.map(r => `${r.channel}:${r.state}${r.detail ? `(${r.detail.slice(0, 60)})` : ""}`).join(", ") || "no_channel_attempted";
 
+const POST_REQUEST_STAGES = new Set(["STATEMENT_RECEIVED", "PROPOSAL_SENT", "CLOSED_WON", "CLOSED_LOST"]);
+
+/**
+ * Atomically establishes the source-bound statement request: ONE upload token and ONE requested-at per lead, however many
+ * concurrent callers race. The stored token always wins (COALESCE inside the UPDATE), so two simultaneous requests can
+ * never mint different links and overwrite each other. Returns the token that is actually stored.
+ */
+export async function establishStatementRequest(leadId: number): Promise<{ token: string; created: boolean } | null> {
+  const candidate = generateUploadToken();
+  const [row] = await db.update(sdrLeadState).set({
+    statementUploadToken: sql`COALESCE(${sdrLeadState.statementUploadToken}, ${candidate})`,
+    stage: sql`CASE WHEN ${sdrLeadState.statementRequestedAt} IS NULL THEN 'STATEMENT_REQUESTED' ELSE ${sdrLeadState.stage} END`,
+    statementReminderCount: sql`CASE WHEN ${sdrLeadState.statementRequestedAt} IS NULL THEN 0 ELSE ${sdrLeadState.statementReminderCount} END`,
+    nextActionType: sql`CASE WHEN ${sdrLeadState.statementRequestedAt} IS NULL THEN 'follow_up_statement' ELSE ${sdrLeadState.nextActionType} END`,
+    nextActionAt: sql`CASE WHEN ${sdrLeadState.statementRequestedAt} IS NULL THEN now() + interval '1 hour' ELSE ${sdrLeadState.nextActionAt} END`,
+    decisionReason: sql`CASE WHEN ${sdrLeadState.statementRequestedAt} IS NULL THEN 'Statement request recorded; delivery pending' ELSE ${sdrLeadState.decisionReason} END`,
+    statementRequestedAt: sql`COALESCE(${sdrLeadState.statementRequestedAt}, now())`,
+    updatedAt: new Date(),
+  }).where(and(
+    eq(sdrLeadState.id, leadId),
+    // A rep opt-out or a later stage means no request is established at all (the handler and the sender rely on this).
+    sql`COALESCE(${sdrLeadState.enrichmentData}->>'suppressStatementAuto', '') <> 'true'`,
+    sql`${sdrLeadState.stage} NOT IN ('STATEMENT_RECEIVED','PROPOSAL_SENT','CLOSED_WON','CLOSED_LOST')`,
+  )).returning({ token: sdrLeadState.statementUploadToken });
+  if (!row?.token) return null;
+  return { token: row.token, created: row.token === candidate };
+}
+
+/** Re-read immediately before provider I/O: an upload, a rep takeover or an opt-out stops the send, whatever was decided earlier. */
+async function statementStopReason(leadId: number): Promise<string | null> {
+  const [current] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.id, leadId));
+  if (!current) return "lead_missing";
+  if (POST_REQUEST_STAGES.has(current.stage)) return `stage_${current.stage.toLowerCase()}`;
+  if ((current.enrichmentData as any)?.suppressStatementAuto === true) return "suppressed_by_rep";
+  return null;
+}
+
+/** The SMS channel of the request was held for a condition that clears (quiet hours, pause): it is still owed. */
+async function requestChannelRetryOwed(leadId: number): Promise<boolean> {
+  const row = (await pool.query(
+    `SELECT state, detail FROM followup_effect_receipts WHERE effect_key = $1`, [`statement_request:${leadId}:sms`])).rows[0];
+  if (!row || row.state !== "refused") return false;
+  const denial = parseSmsDenialDetail(row.detail);
+  return !!denial && denial.transient;
+}
+
 /**
  * Statement request. The requested INTENT (token, requested time, stage) is recorded first and kept separately from
  * delivered facts: only an accepted per-channel receipt makes the request "sent". A refused or paused attempt leaves the
@@ -98,44 +144,42 @@ export async function sendStatementRequest(leadId: number): Promise<boolean> {
       return false;
     }
 
-    if (lead.statementRequestedAt && await hasAcceptedEffect("statement", String(leadId))) {
-      console.log(`[StatementFlow] Lead ${leadId} already has a delivered statement request — skipping duplicate`);
+    const wasRequested = !!lead.statementRequestedAt;
+    const established = await establishStatementRequest(leadId);
+    if (!established) return false;
+    const uploadUrl = getUploadUrl(established.token);
+    const firstName = lead.ownerName?.split(" ")[0] || "there";
+    const companyName = lead.companyName || "your business";
+    // Re-entry: a channel that was accepted replays its receipt (nothing is re-sent); only held channels are retried.
+    if (wasRequested && await hasAcceptedEffect("statement", String(leadId)) && !(await requestChannelRetryOwed(leadId))) {
+      console.log(`[StatementFlow] Lead ${leadId} already has a delivered statement request and no owed channel — skipping duplicate`);
       return false;
     }
 
-    const token = lead.statementUploadToken || generateUploadToken();
-    const uploadUrl = getUploadUrl(token);
-    const firstName = lead.ownerName?.split(" ")[0] || "there";
-    const companyName = lead.companyName || "your business";
-
-    if (!lead.statementRequestedAt) {
-      await db.update(sdrLeadState).set({
-        statementUploadToken: token,
-        statementRequestedAt: new Date(),
-        statementReminderCount: 0,
-        stage: "STATEMENT_REQUESTED",
-        nextActionType: "follow_up_statement",
-        nextActionAt: new Date(Date.now() + 60 * 60 * 1000),
-        decisionReason: "Statement request recorded; delivery pending",
-        updatedAt: new Date(),
-      }).where(eq(sdrLeadState.id, leadId));
-    }
-
-    const emailSubject = `Your free statement analysis is ready — upload here`;
-    const emailBody = `Hi ${firstName},\n\nGreat meeting! As discussed, we'd love to review ${companyName}'s processing statement to identify savings opportunities.\n\nUpload your latest statement here (secure link, takes 30 seconds):\n${uploadUrl}\n\nOnce uploaded, we'll review it and follow up with your options.\n\nIf you have any questions, just reply to this email.\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.`;
+    const emailSubject = `Your secure statement upload link — Liberty Bancard`;
+    const emailBody = `Hi ${firstName},\n\nThanks for speaking with us. As discussed, here is the secure link to upload a recent processing statement for ${companyName}.\n\nUpload your latest statement here (secure link, takes 30 seconds):\n${uploadUrl}\n\nOnce it is uploaded, we'll review it and follow up with what we find.\n\nIf you have any questions, just reply to this email.\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.`;
     const smsBody = `Hi ${firstName}, here's your secure statement upload link: ${uploadUrl} — Liberty Bancard`;
 
-    const results = [
-      await deliverStatementEmail(lead, `statement_request:${leadId}:email`, emailSubject, emailBody),
-      await deliverStatementSms(lead, `statement_request:${leadId}:sms`, smsBody, "statement_request"),
-    ];
+    // Each channel is its own durable effect and is stop-checked immediately before its own I/O.
+    const stopped = (channel: "email" | "sms", reason: string): ChannelResult => ({ channel, state: "refused", detail: `stopped_before_dispatch:${reason}` });
+    const emailStop = await statementStopReason(leadId);
+    const emailResult = emailStop ? stopped("email", emailStop)
+      : await deliverStatementEmail(lead, `statement_request:${leadId}:email`, emailSubject, emailBody);
+    const smsStop = await statementStopReason(leadId);
+    const smsResult = smsStop ? stopped("sms", smsStop)
+      : await deliverStatementSms(lead, `statement_request:${leadId}:sms`, smsBody, "statement_request");
+    const results = [emailResult, smsResult];
     const delivered = results.some(r => r.state === "accepted");
+    const retryOwed = delivered && smsResult.state === "refused" && !smsResult.smsDenied
+      && (parseSmsDenialDetail(smsResult.detail)?.transient ?? false);
 
     if (delivered) {
       await db.update(sdrLeadState).set({
         nextActionType: "follow_up_statement",
-        nextActionAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-        decisionReason: "Statement requested, upload link delivered",
+        nextActionAt: new Date(Date.now() + (retryOwed ? 60 * 60 * 1000 : 2 * 24 * 60 * 60 * 1000)),
+        decisionReason: retryOwed
+          ? `Statement request accepted in part (${describeUndelivered(results)}); held channel still owed`
+          : `Statement requested, upload link delivered (${describeUndelivered(results)})`,
         updatedAt: new Date(),
       }).where(eq(sdrLeadState.id, leadId));
     } else {
@@ -175,7 +219,7 @@ export async function sendStatementReminder(leadId: number): Promise<boolean> {
     if (!lead) return false;
     if (lead.stage !== "STATEMENT_REQUESTED") return false;
     if (lead.assignedOwnerType === "human") return false;
-    if (!(await hasAcceptedEffect("statement", String(leadId)))) return sendStatementRequest(leadId);
+    if (!(await hasAcceptedEffect("statement", String(leadId))) || await requestChannelRetryOwed(leadId)) return sendStatementRequest(leadId);
 
     const reminderCount = (lead.statementReminderCount || 0) + 1;
     const firstName = lead.ownerName?.split(" ")[0] || "there";
@@ -186,6 +230,8 @@ export async function sendStatementReminder(leadId: number): Promise<boolean> {
     let channel = "sms";
     const results: ChannelResult[] = [];
 
+    const reminderStop = await statementStopReason(leadId);
+    if (reminderStop) return false;
     if (reminderCount === 1) {
       const sms = await deliverStatementSms(lead, `statement_reminder:${leadId}:1:sms`,
         `Hi ${firstName}, still waiting on your processing statement. Upload here anytime: ${uploadUrl} — Liberty Bancard`,

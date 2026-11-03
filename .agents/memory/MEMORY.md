@@ -35,7 +35,6 @@
 - [OpenAI max_tokens param rejected](openai-max-tokens-param.md) — gpt-5 needs `max_completion_tokens`, and a big enough budget or reasoning tokens silently eat all output.
 - [CSV import row accounting](csv-import-row-accounting.md) — onConflictDoNothing() silently drops rows without throwing; diff batch vs result length to count it.
 - [Immutable provider imports](immutable-provider-imports.md) — preserve original observations on recovery; add versioned raw evidence to the same source subject without duplicating candidates.
-- [Secret rotation restart](secret-rotation-restart.md) — new/changed secrets need a workflow restart; stale in-process secrets cause false live-HTTP failures right after a merge.
 - [AI Command Center run tracking](ai-command-center-run-tracking.md) — run-count/last-run reads audit_logs by action string; every branch (incl. no-op) must write a row.
 - [Raw fetch CSRF gap](csrf-raw-fetch-gap.md) — raw `fetch` POST/PATCH/DELETE (not `apiRequest`) skips X-CSRF-Token and gets 403'd; always attach `getCsrfToken()`.
 - [Truthful state signals](truthful-state-signals.md) — external-provider actions (SMS/email/digest) need enum states (sent/not_configured/failed/skipped), not a single boolean.
@@ -78,8 +77,7 @@
 - [Sequence dispatch linearization](sequence-dispatch-linearization.md) — serialize inbound writes and final dispatch; only expired pre-dispatch leases are retryable.
 - [Commercial/channel authority axes](commercial-resolution-authority.md) — Keep resolution, channel evidence, and identity/provenance separate; shadow never replaces legacy pre-cutover.
 - [Multi-source cursor buffering](multi-source-cursor-buffering.md) — merged pagination must retain fetched-but-not-emitted items or cursors silently drop them.
-- [Source thread URL authority](source-thread-url-authority.md) — persisted selections need exact authorized reads outside loaded windows before mounting drafts.
-- [Typed child context](typed-child-context.md) — Selected identity belongs to its destination; do not infer keys or globally carry ambiguous IDs between readers.
+- [Selection authority](source-thread-url-authority.md) — exact authorized reads before mounting drafts; see also [typed child context](typed-child-context.md): IDs belong to their destination.
 - [CR-06 immutable rollout versioning](cr06-immutable-rollout-versioning.md) — never edit an applied premium manifest in place; publish a new artifact identity/version.
 - [Inbound request authority](inbound-request-authority.md) — request occurrence owns classification, idempotency, held effects, assignment/SLA links, receipts.
 - [Dependency-free CRO03C constants module](cro03c-dependency-free-contracts.md) — contracts.ts has zero db import; never import live-execution.ts (eager db import) from DB-less CLI tools.
@@ -138,7 +136,7 @@
 - [Raw SQL contracts](raw-sql-index.md) — Driver array binding, boolean typing, correlated qualification, row casing, and lossless timestamp representations.
 - [SFP enrichment acceptance](sfp-enrichment-acceptance.md) — Recipient scale and representative business coverage are separate; GHL sync and provider completions do not establish qualification.
 - [Dev startup mutation scope](dev-startup-mutation-scope.md) — Background profile off disables jobs, not all startup reconciliations; no-mutation verification needs separate care.
-- [Dependency upgrades and design](dependency-design-preservation.md) — Security upgrades must preserve Liberty's design; installs can reintroduce nonportable mirror sources.
+- [Dependency upgrades and design](dependency-design-preservation.md) — preserve Liberty's design; installs can reintroduce nonportable mirror sources. See [secret rotation restart](secret-rotation-restart.md).
 - [SFP owner lock ordering](sfp-owner-lock-order.md) — Pin selector → owner before graph locks; queued renewal and joined FOR SHARE make inconsistent ordering dangerous.
 - [TOTP verification](totp-functional-api.md) — Use configured functional verification and explicit validity; prove wrong-code rejection and actual continuation.
 - [Retained native snapshot parity](retained-native-snapshot-parity.md) — Distinguish absent source columns from NULLs; audit source/disposable constraints before restoring historical topology.
@@ -178,8 +176,7 @@
 - [Slow dashboard page causes](slow-page-causes.md) — Outreach Queue pre-filter, SFP count snapshot, health SWR; bounded-read/late-cancel patterns, inventory policy cost, staging claim settlement.
 - [Production audit baseline](production-audit-2026-10-21.md) — dated funnel snapshot, Serper budget exhaustion, status funnel unavailable; compare later audits against it.
 - [Validation legacyInFlight hold](validation-legacy-inflight-hold.md) — retryable unknown/risky ZB ops hold addresses forever; guard left as is (paid retries).
-- [Serper discovery drop cause](serper-selector-exhaustion.md) — lookup-memory selector exhaustion, not the 50,000 counter.
-- [Domain/location automation](domain-location-automation.md) — closed-by-default worker; admin PUT enables.
+- [Serper discovery drop cause](serper-selector-exhaustion.md) — selector exhaustion not the counter; see [domain/location automation](domain-location-automation.md): closed-by-default worker.
 - [Domain/location tick resumability](domain-location-tick-resume.md) — budget-stopped windowed ticks must persist cursor to the last handled id; else progress stalls.
 - [Heading ownership claims](heading-ownership-claims.md) — one h1 per page via runtime claim; hubs embed children at h2; verify by settled-h1 crawl.
 - [D-V review repair patterns](dv-review-repair-patterns.md) — cohort URL selectors, in-page fetch hold tests, bounded CSV streaming, rebuild-after-scripts rule.
@@ -200,3 +197,4 @@
 - [Follow-up effect receipts](followup-effect-receipts.md) — receipt before I/O; delivered only when accepted; occurrence-keyed runs; booking writer default-denied.
 - [SMS recipient authority](sms-recipient-authority.md) — one canonical consent+number decision right before every text in every transport; legacy flags never authority.
 - [Browser suite query-cache and overlays](browser-suite-query-cache-and-overlays.md) — reload after fixture env changes (stale cache hides state); floating assistant covers bottom-right controls.
+- [Stage 4C2 correction lessons](stage4c2-correction-lessons.md) — one statement owner, audit key `owner` is masked, halt-after-failed-send fixtures, roster registration, browser rebuild rule.

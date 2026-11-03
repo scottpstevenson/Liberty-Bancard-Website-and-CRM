@@ -1,0 +1,187 @@
+{
+  "suite": "stage4c2-correction-pass",
+  "checks": 36,
+  "negativeControls": 4,
+  "results": [
+    {
+      "id": "CP-01",
+      "claim": "migration 0379 columns exist (workflow_runs.input_context, receipts request_fingerprint + attempt_count)",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-02",
+      "claim": "migration 0379 re-applies cleanly on an already-migrated database (idempotent)",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-03",
+      "claim": "0379 is journaled and additive only",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-04",
+      "claim": "negative control: a destructive statement in 0379 would be detected",
+      "negativeControl": true
+    },
+    {
+      "id": "CP-05",
+      "claim": "an explicit documented true result is the only success",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-06",
+      "claim": "an explicit false is a definite refusal",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-07",
+      "claim": "an empty, null, string or non-boolean response is unconfirmed (never success)",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-08",
+      "claim": "negative control: treating an empty provider response as accepted",
+      "negativeControl": true
+    },
+    {
+      "id": "CP-09",
+      "claim": "the trigger body does not carry appointment ids or upload tokens",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-10",
+      "claim": "a missing workflow ID is held and durable, not skipped",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-11",
+      "claim": "a repeated handoff for the same occurrence keeps one pending obligation",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-12",
+      "claim": "the held obligation carries an expiry no later than the appointment start",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-13",
+      "claim": "the held obligation has a stable handoff identity (not a per-attempt key)",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-14",
+      "claim": "negative control: a handoff with no occurrence identity is held but not claimed durable",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-15",
+      "claim": "negative control: a missing workflow ID cannot read as a failure that loses the handoff",
+      "negativeControl": true
+    },
+    {
+      "id": "CP-16",
+      "claim": "three concurrent requests establish exactly one token and one requested-at",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-17",
+      "claim": "exactly one caller created the request; the others reuse it",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-18",
+      "claim": "a rep opt-out establishes nothing (no token, stage unchanged)",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-19",
+      "claim": "a lead that already uploaded a statement is never moved back to STATEMENT_REQUESTED",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-20",
+      "claim": "negative control: minting a token for an opted-out lead would be detected",
+      "negativeControl": true
+    },
+    {
+      "id": "CP-21",
+      "claim": "the same command id with a different request fingerprint is a conflict before any provider call",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-22",
+      "claim": "the same request replays its accepted receipt without a second call",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-23",
+      "claim": "the receipt records its attempt count",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-24",
+      "claim": "the follow-up range is an inclusive start and EXCLUSIVE end predicate",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-25",
+      "claim": "negative control: no range means no follow-up predicate",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-26",
+      "claim": "the deals route validates the range (both bounds, start before end)",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-27",
+      "claim": "the proposal follow-up identity includes the deal, the proposal token hash and the touch number",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-28",
+      "claim": "an unknown follow-up outcome is mapped to the ambiguous-dispatch marker (never retried blindly)",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-29",
+      "claim": "reminder milestones are occurrence-scoped and audited as accepted",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-30",
+      "claim": "the SMS inbox reply is routed through the canonical SMS authority and refuses caller-supplied purpose/recipient fields",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-31",
+      "claim": "the Calendar keeps month/date/source/item in the URL, has a narrow-screen agenda and a range-bounded deals read",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-32",
+      "claim": "Run History keeps tab/search/status/page/run in the URL and has a read-only run detail with no retry control",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-33",
+      "claim": "the run label no longer says 'not delivered' for steps with unresolved outcomes",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-34",
+      "claim": "this suite is registered in the pre-deploy fixture roster beside the calendar contract",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-35",
+      "claim": "the certification runner lists the SMS authority suite and this suite",
+      "negativeControl": false
+    },
+    {
+      "id": "CP-36",
+      "claim": "no provider network attempt occurred during the certification",
+      "negativeControl": false
+    }
+  ]
+}

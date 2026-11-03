@@ -1554,8 +1554,8 @@ function GhlSetupGuide({ configuredCount, totalCount, connection }: { configured
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
               {allDone
-                ? "Sequence IDs are reference-only; IDs for supported handoff workflows are used when Replit enrolls those contacts and are skipped when missing. Replit owns cadence and sending; incoming GHL sync is controlled separately and the global outbound pause still applies."
-                : "Missing sequence IDs do not change sequence execution. A missing ID for a supported handoff workflow skips that enrollment. Replit owns cadence. Click to see steps."}
+                ? "Sequence IDs are reference-only; IDs for supported handoff workflows are used when Replit enrolls those contacts; a handoff whose workflow ID is not yet saved is held as an expiring obligation (never silently skipped) until the ID is saved. Replit owns cadence and sending; incoming GHL sync is controlled separately and the global outbound pause still applies."
+                : "Missing sequence IDs do not change sequence execution. A supported handoff workflow that is selected by a booking, call or statement step needs its ID: until it is saved, that handoff is held and visible, not skipped. Replit owns cadence. Click to see steps."}
             </p>
           </div>
         </div>

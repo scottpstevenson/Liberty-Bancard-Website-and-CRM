@@ -513,6 +513,21 @@ async function handleAppointmentEnded(kind: "canceled" | "no_show", webhookData:
       return { outcome: "history" as const };
     }
     const wasMeetingSet = state?.currentStage === "MEETING_SET";
+    if (kind === "canceled") {
+      // An explicit cancellation is not a no-show: no automatic recovery workflow, and the outreach pause is left as
+      // found (it may belong to a rep or a consent decision). The lead leaves the meeting stage with an owed rep review.
+      if (wasMeetingSet) {
+        await tx.update(sdrLeadState).set({
+          currentStage: "ENGAGED", meetingId: null, nextAction: "cancellation_rep_review", nextActionType: "task",
+          nextActionAt: null, nextActionPayload: { canceledAppointmentId: endedId }, updatedAt: new Date(),
+        }).where(eq(sdrLeadState.merchantId, merchant.id));
+      }
+      await tx.insert(sdrLeadEvents).values({
+        merchantId: merchant.id, eventType, channel: "calendar", actorType: "merchant", payloadJson: webhookData, ghlRefId: endedId,
+        decisionReason: `Appointment canceled — last open appointment; no recovery sequence started, outreach pause unchanged, rep review owed`,
+      });
+      return { outcome: "applied" as const, merchantId: merchant.id, wasMeetingSet, canceled: true };
+    }
     if (wasMeetingSet) {
       await tx.update(sdrLeadState).set({
         currentStage: "ENGAGED", meetingId: null, nextAction: "no_show_recovery", nextActionType: "recovery_sequence",
@@ -525,14 +540,20 @@ async function handleAppointmentEnded(kind: "canceled" | "no_show", webhookData:
       payloadJson: webhookData, ghlRefId: endedId,
       decisionReason: `Appointment ${label} — last open appointment, triggered recovery sequence`,
     });
-    return { outcome: "applied" as const, merchantId: merchant.id, wasMeetingSet };
+    return { outcome: "applied" as const, merchantId: merchant.id, wasMeetingSet, canceled: false };
   });
   if (local.outcome !== "applied") return;
 
   if (local.wasMeetingSet) {
     await runReceiptStep(`${kind}:stage_sync`, () => onStageChange(local.merchantId, "ENGAGED", "MEETING_SET"));
-    const { upsertOutreachPause } = await import("./compliance-engine");
-    await runReceiptStep(`${kind}:outreach_resume`, () => upsertOutreachPause(local.merchantId, false, `Outreach resumed — appointment ${label}, recovery sequence triggered`));
+    if (!local.canceled) {
+      const { upsertOutreachPause } = await import("./compliance-engine");
+      await runReceiptStep(`${kind}:outreach_resume`, () => upsertOutreachPause(local.merchantId, false, `Outreach resumed — appointment ${label}, recovery sequence triggered`));
+    }
+  }
+  if (local.canceled) {
+    console.log(`[Scheduling] Appointment canceled for merchant ${local.merchantId}; rep review owed, no recovery workflow`);
+    return;
   }
   await enrollStep(`${kind}:enroll_no_show_reschedule`, { id: local.merchantId, ghlContactId }, "no_show_reschedule",
     { canceledAppointmentId: endedId, reason: kind });
@@ -569,10 +590,15 @@ export async function handleAppointmentTimeChange(kind: "updated" | "rescheduled
     const [state] = await tx.select().from(sdrLeadState).where(eq(sdrLeadState.merchantId, merchant.id));
     if (!state || state.currentStage !== "MEETING_SET") return { moved: false };
     const current = await currentSalesMeeting(tx, ghlContactId);
-    if (!current.appointmentId || current.appointmentId === state.meetingId) return { moved: false };
+    if (!current.appointmentId) return { moved: false };
+    const prior = (state.nextActionPayload && typeof state.nextActionPayload === "object" ? state.nextActionPayload : {}) as Record<string, unknown>;
+    if (current.appointmentId === state.meetingId && prior.startTime === current.startTime) return { moved: false };
+    // The same appointment moved in time (or the current meeting changed): the one owed reminder is revised to the
+    // recorded start, never left carrying the old time. The revision counter lets a reminder sent for the old time be told apart.
     await tx.update(sdrLeadState).set({
       meetingId: current.appointmentId, nextAction: "send_appointment_reminder", nextActionType: "reminder",
-      nextActionPayload: { appointmentId: current.appointmentId, startTime: current.startTime, outreachPaused: true },
+      nextActionPayload: { appointmentId: current.appointmentId, startTime: current.startTime, outreachPaused: true,
+        reminderRevision: (typeof prior.reminderRevision === "number" ? prior.reminderRevision : 0) + 1 },
       updatedAt: new Date(),
     }).where(eq(sdrLeadState.merchantId, merchant.id));
     return { moved: true };

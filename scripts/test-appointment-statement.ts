@@ -15,7 +15,7 @@
  * Exit code 0 = all pass.
  */
 
-import { db } from "../server/db";
+import { db, pool } from "../server/db";
 import { storage } from "../server/storage";
 import {
   contacts, sdrLeadState, sdrLeadEvents, deals,
@@ -60,7 +60,7 @@ function assert(label: string, condition: boolean, detail = "") {
   }
 }
 
-async function createTestContactWithLead(suffix: string, opts: { statementAlreadyRequested?: boolean } = {}) {
+async function createTestContactWithLead(suffix: string, opts: { statementAlreadyRequested?: boolean; noLead?: boolean } = {}) {
   const ghlContactId = `c1-test-${RUN_ID}-${suffix}`;
   const contact = await storage.createContact({
     firstName: "C1Test",
@@ -71,6 +71,7 @@ async function createTestContactWithLead(suffix: string, opts: { statementAlread
     status: "Active",
   });
   contactIdsToClean.push(contact.id);
+  if (opts.noLead) return { contact, merchant: null as any, lead: null as any, ghlContactId };
 
   // Create SDR merchant (businessName is NOT NULL)
   const { sdrMerchants } = await import("../shared/schema");
@@ -138,9 +139,9 @@ async function test1PositiveOutcomeTriggers() {
 // ── Test 2: Lifecycle transitions to APPOINTMENT_COMPLETED → STATEMENT_REQUESTED ─
 
 async function test2LifecycleTransition() {
-  console.log("\n2. Lifecycle transitions APPOINTMENT_COMPLETED → STATEMENT_REQUESTED");
+  console.log("\n2. One owner per call: CRM contact (no SDR lead) → lifecycle APPOINTMENT_COMPLETED → STATEMENT_REQUESTED");
 
-  const { contact, lead, ghlContactId } = await createTestContactWithLead("lifecycle");
+  const { contact, ghlContactId } = await createTestContactWithLead("lifecycle", { noLead: true });
 
   await handleCallOutcome({
     contactId: ghlContactId,
@@ -158,10 +159,33 @@ async function test2LifecycleTransition() {
   );
   const finalState = updatedContact?.lifecycleState;
   assert(
-    "Contact lifecycle state reaches STATEMENT_REQUESTED (or later) after booked_meeting",
+    "A contact with no SDR lead is owned by the CRM lifecycle path and reaches STATEMENT_REQUESTED (or later)",
     ["STATEMENT_REQUESTED", "STATEMENT_RECEIVED", "PROPOSAL_SENT", "APPOINTMENT_COMPLETED"].includes(finalState ?? ""),
     `lifecycleState=${finalState}`
   );
+  const ownerRows = (await pool.query(
+    `SELECT details->>'statementOwner' AS owner FROM audit_logs WHERE action='statement_request_owner_selected' AND entity_id=$1 AND details->>'callId'=$2`,
+    [contact.id, `call-test-2-${RUN_ID}`])).rows;
+  assert("the owner decision is recorded once and names the CRM lifecycle path", ownerRows.length === 1 && ownerRows[0].owner === "crm_lifecycle_acquisition", JSON.stringify(ownerRows));
+}
+
+async function test2bSdrOwnsStatementRequest() {
+  console.log("\n2b. One owner per call: a merchant with an SDR lead is owned by the SDR flow only");
+  const { contact, lead, ghlContactId } = await createTestContactWithLead("owner");
+  await handleCallOutcome({
+    contactId: ghlContactId, status: "booked_meeting", callId: `call-test-2b-${RUN_ID}`, direction: "outbound", duration: 300,
+    locationId: process.env.GHL_LOCATION_ID ?? "test-loc",
+  });
+  const updated = await pollUntil(
+    () => db.select().from(sdrLeadState).where(eq(sdrLeadState.id, lead.id)).then(r => r[0]),
+    v => v?.stage === "STATEMENT_REQUESTED", { timeoutMs: 12_000 });
+  assert("the SDR flow established the request (stage, requested-at, one token) before acknowledgement",
+    updated?.stage === "STATEMENT_REQUESTED" && !!updated?.statementRequestedAt && !!updated?.statementUploadToken);
+  const ownerRows = (await pool.query(
+    `SELECT details->>'statementOwner' AS owner FROM audit_logs WHERE action='statement_request_owner_selected' AND details->>'callId'=$1`, [`call-test-2b-${RUN_ID}`])).rows;
+  assert("the owner decision names the SDR flow exactly once", ownerRows.length === 1 && ownerRows[0].owner === "sdr_statement_flow", JSON.stringify(ownerRows));
+  const after = await storage.getContact(contact.id);
+  assert("negative control: the CRM lifecycle statement transition did not also run for the SDR-owned call", after?.lifecycleState !== "STATEMENT_REQUESTED", `lifecycleState=${after?.lifecycleState}`);
 }
 
 // ── Test 3: suppressStatementAuto flag blocks auto-request ───────────────────
@@ -285,6 +309,7 @@ async function main() {
   try {
     await test1PositiveOutcomeTriggers();
     await test2LifecycleTransition();
+    await test2bSdrOwnsStatementRequest();
     await test3SuppressFlagRespected();
     await test4NegativeOutcomeSkipped();
     await test5NoDuplicate();

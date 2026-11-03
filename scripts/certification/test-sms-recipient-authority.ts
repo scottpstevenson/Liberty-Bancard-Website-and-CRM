@@ -185,14 +185,19 @@ const wfContact = await makeContact("wf");
 await grantPewc(wfContact.id, "wf");
 await stop(wfContact.id, "wf");
 const template = await storage.createMessageTemplate({ name: `sms auth ${tag}`, category: "follow_up", channel: "sms", body: "Hi {{contact.firstName}}", isActive: true } as any);
-const wf = await storage.createWorkflow({ name: `sms auth ${tag}`, triggerType: "manual", enabled: true,
-  actions: [{ type: "send_ghl_sms", templateId: template.id }, { type: "send_ghl_sms", body: "Hello there" }] } as any);
-const run = await executeWorkflowActions(wf.id, wf.actions as any[], { entityType: "contact", entityId: wfContact.id, contactId: wfContact.id, occurrenceId: `wf-${tag}` } as any);
-const smsSteps = (run.log as any[]).filter(entry => entry.action === "send_ghl_sms");
+// A required send that was not delivered halts the run, so each SMS step shape is exercised in its own workflow.
+const wfTemplate = await storage.createWorkflow({ name: `sms auth t ${tag}`, triggerType: "manual", enabled: true,
+  actions: [{ type: "send_ghl_sms", templateId: template.id }] } as any);
+const wfFree = await storage.createWorkflow({ name: `sms auth f ${tag}`, triggerType: "manual", enabled: true,
+  actions: [{ type: "send_ghl_sms", body: "Hello there" }] } as any);
+const runT = await executeWorkflowActions(wfTemplate.id, wfTemplate.actions as any[], { entityType: "contact", entityId: wfContact.id, contactId: wfContact.id, occurrenceId: `wf-t-${tag}` } as any);
+const runF = await executeWorkflowActions(wfFree.id, wfFree.actions as any[], { entityType: "contact", entityId: wfContact.id, contactId: wfContact.id, occurrenceId: `wf-f-${tag}` } as any);
+const smsSteps = [...(runT.log as any[]), ...(runF.log as any[])].filter(entry => entry.action === "send_ghl_sms");
 check(smsSteps.length === 2 && smsSteps.every(entry => entry.status === "failed" && /consent_withdrawn/.test(entry.error ?? "")),
   "workflow SMS steps (template and free text) fail with the canonical reason after STOP");
-check(run.status === "failed" && (run.delivered ?? 0) === 0, "the run is failed with nothing delivered");
-const wfReceipts = (await pool.query(`SELECT state FROM followup_effect_receipts WHERE owner_kind='workflow_run' AND owner_id=$1 AND channel='sms'`, [String(run.runId)])).rows;
+const run = runF;
+check(runT.status === "failed" && runF.status === "failed" && (runT.delivered ?? 0) === 0 && (runF.delivered ?? 0) === 0, "the run is failed with nothing delivered");
+const wfReceipts = (await pool.query(`SELECT state FROM followup_effect_receipts WHERE owner_kind='workflow_run' AND owner_id = ANY($1) AND channel='sms'`, [[String(runT.runId), String(runF.runId)]])).rows;
 check(wfReceipts.every((r: any) => r.state === "refused"), "free-text refusal leaves a re-claimable receipt (never accepted)");
 rejects(() => assert.equal(run.status, "completed"), "an SMS-denied run cannot read as completed");
 

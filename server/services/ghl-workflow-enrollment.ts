@@ -1056,25 +1056,39 @@ export async function enrollWorkflowHandoff(input: {
 }): Promise<AppointmentEnrollmentOutcome> {
   const { workflowKey, ghlContactId, contactId, identity } = input;
   const { getWorkflowId, enrollInGhlWorkflowCompliant } = await import("./ghl-workflows");
+  const { deferGhlEnrollment } = await import("./ghl-enrollment-recovery");
   if (!await getWorkflowId(workflowKey)) {
-    // A reviewed workflow that is not installed is a held handoff, visible in the audit trail, not a silent skip. It is
-    // deliberately not deferred for later replay: a confirmation sent days after the booking would be stale, and the
-    // native workflow installation is owned by the owner-run acceptance step.
+    // A reviewed workflow that is not installed is a held, durable, required obligation: it is persisted with its
+    // occurrence and an expiry, stays visible, and is recovered (after revalidation at dispatch) once the ID is saved.
+    // It expires rather than sending a stale confirmation, and it is retired by a cancel of the same occurrence.
+    const occKey = occurrenceKeyOf(input.metadata) ?? "";
+    const startRaw = input.metadata.startTime ?? input.metadata.appointmentDate;
+    const startMs = typeof startRaw === "string" ? new Date(startRaw).getTime() : NaN;
+    const capMs = Date.now() + 24 * 3600_000;
+    const expiresAt = new Date(Number.isFinite(startMs) && startMs > Date.now() ? Math.min(startMs, capMs) : Date.now() + 6 * 3600_000).toISOString();
+    const deferral = occKey
+      ? await deferGhlEnrollment({
+        ghlContactId, workflowKey, error: new Error(`Workflow ${workflowKey} not configured`), occurrenceKey: occKey,
+        metadata: { ...input.metadata, idempotencyKey: `handoff:${workflowKey}:${contactId}:${occKey}`, _holdForConfiguration: true, _expiresAt: expiresAt },
+      })
+      : { persisted: false as const, reason: "no_occurrence_identity" };
     await storage.createAuditLog({
       action: "ghl_appointment_workflow_held", entityType: "contact", entityId: contactId,
-      details: { ...input.auditContext, workflowKey, reason: "workflow_not_configured", durable: false },
+      details: { ...input.auditContext, workflowKey, reason: "workflow_not_configured", durable: deferral.persisted, expiresAt, ...(deferral.persisted ? {} : { deferralFailure: deferral.reason }) },
     }).catch(() => undefined);
-    return { state: "held", reason: "workflow_not_configured", durable: false };
+    return { state: "held", reason: "workflow_not_configured", durable: deferral.persisted };
   }
 
   // One appointment occurrence owns one handoff obligation. A second booking of the same contact is a different
   // occurrence; cancelling one occurrence cancels only its obligation.
   const occurrenceKey = occurrenceKeyOf(input.metadata) ?? "";
-  const idempotencyKey = identity?.receiptId
-    ? `${identity.receiptId}:${identity.stepKey}`
-    : `handoff:${workflowKey}:${contactId}:${occurrenceKey}`;
+  // One business effect key per (workflow, contact, occurrence) across every entrance and receipt; the receipt that
+  // asked for it is linked in the metadata, not folded into the identity. Without an occurrence the receipt+step is the identity.
+  const idempotencyKey = occurrenceKey || !identity?.receiptId
+    ? `handoff:${workflowKey}:${contactId}:${occurrenceKey}`
+    : `${identity.receiptId}:${identity.stepKey}`;
   // Stable per-effect identity: the same receipt and step produce the same key on every attempt.
-  const metadata = { ...input.metadata, idempotencyKey, attempt: identity?.attempt ?? 1 };
+  const metadata = { ...input.metadata, idempotencyKey, attempt: identity?.attempt ?? 1, ...(identity?.receiptId ? { receiptId: identity.receiptId } : {}) };
   // Durable dispatch ledger: 'started' is recorded before the request, so a later attempt with this identity never
   // re-sends over an accepted handoff (for example when only the local completion failed) or over an unknown outcome.
   const claim = await claimHandoffDispatch(idempotencyKey, workflowKey, ghlContactId);
@@ -1102,7 +1116,7 @@ export async function enrollWorkflowHandoff(input: {
   }
 
   const reason = String(result.error ?? "enrollment_failed").slice(0, 200);
-  const { isTransientGhlError, deferGhlEnrollment } = await import("./ghl-enrollment-recovery");
+  const { isTransientGhlError } = await import("./ghl-enrollment-recovery");
   const { isAmbiguousDispatchMessage } = await import("./ghl-dispatch-recorder");
   const ambiguous = isAmbiguousDispatchMessage(reason);
   const paused = /paus|coordinator hold|authority/i.test(reason);

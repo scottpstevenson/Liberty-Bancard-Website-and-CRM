@@ -123,6 +123,10 @@ export function registerToolkitRoutes(app: Express, readerDependencies?: {
       const config = getGhlConfig();
       if (!config) return res.status(503).json({ message: "GHL not configured" });
       const { conversationId, contactId, message } = req.body;
+      // Authority-bearing fields are decided by the server; a caller-supplied one is refused, never trusted.
+      const forged = ["purpose", "commercialPurpose", "boundPhone", "leadStateId", "inboundRequestId", "intendedRecipientContactId", "phone", "to"]
+        .filter(key => req.body && Object.prototype.hasOwnProperty.call(req.body, key));
+      if (forged.length) return res.status(400).json({ message: "Request contains fields only the server may set", fields: forged });
       if (!message || (!conversationId && !contactId)) {
         return res.status(400).json({ message: "message and conversationId or contactId required" });
       }
@@ -191,34 +195,22 @@ export function registerToolkitRoutes(app: Express, readerDependencies?: {
         });
       }
 
-      // ── Pause authority gate (transport boundary) ──────────────────────────
-      const { authorize, recheckEpoch } = await import("../services/outbound-pause-authority");
-      const { registerInflight, deregisterInflight } = await import("../services/outbound-control-service");
-      const pauseDecision = await authorize({});
-      if (!pauseDecision.allowed) {
-        return res.status(503).json({ message: `Outbound paused: ${pauseDecision.reasonCode}` });
+      // The send goes through the one SMS transport boundary (commercial class, pause authority, canonical consent and
+      // number binding, per-attempt recheck). The conversation was verified above to belong to this exact contact.
+      const { sendGhlSms } = await import("../services/ghl");
+      const sent = await sendGhlSms({
+        contactId: localContact.id,
+        body: String(message),
+        commercialPurpose: "transactional_response",
+        purpose: "manual_inbox_reply",
+      });
+      if (!sent.success) {
+        const reason = String(sent.error ?? "send_failed");
+        const status = /^Outbound paused|Pause gate error/i.test(reason) ? 503
+          : /sms_not_permitted|COMMERCIAL_CLASS|consent|suppress/i.test(reason) ? 409 : 502;
+        return res.status(status).json({ message: "SMS reply was not sent", reason });
       }
-      const inflightToken = crypto.randomUUID();
-      await registerInflight(inflightToken, pauseDecision.epoch);
-      let result: any;
-      try {
-        const epochOk = await recheckEpoch(pauseDecision.epoch);
-        if (!epochOk) {
-          return res.status(503).json({ message: "Outbound paused: epoch changed before send" });
-        }
-        const payload: any = {
-          type: "SMS",
-          message,
-        };
-        if (conversationId) payload.conversationId = conversationId;
-        else payload.contactId = ghlContactId;
-        result = await ghlFetch("/conversations/messages", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
-      } finally {
-        deregisterInflight(inflightToken);
-      }
+      const result = { messageId: sent.messageId };
       res.json({ success: true, messageId: result?.messageId });
     } catch (err: any) {
       console.error("[SMS Inbox] reply error:", err.message);
@@ -409,6 +401,14 @@ export function registerToolkitRoutes(app: Express, readerDependencies?: {
     ghlContactId: String(body?.ghlContactId ?? ""), startTimeIso: body?.startTime, endTimeIso: body?.endTime,
     title: typeof body?.title === "string" ? body.title : undefined, appointmentId: typeof body?.appointmentId === "string" ? body.appointmentId : undefined,
   } as import("../services/ghl-booking-command").BookingRequest);
+  // The Calendar drawer knows only the local contact. The provider contact id is resolved on the server from that
+  // contact (never taken from the browser when a local contact is named), identically for preview and execute.
+  const withResolvedProviderContact = async (body: any) => {
+    const localId = Number(body?.contactId);
+    if (!Number.isSafeInteger(localId) || localId <= 0) return body;
+    const contact = await storage.getContact(localId);
+    return { ...body, ghlContactId: contact?.ghlContactId ?? "" };
+  };
   const readProviderAppointment = async (id: string) => {
     const read = await ghlFetch(`/calendars/events/appointments/${encodeURIComponent(id)}`);
     const event = read?.appointment ?? read?.event ?? read;
@@ -416,13 +416,15 @@ export function registerToolkitRoutes(app: Express, readerDependencies?: {
     const updated = Date.parse(event.dateUpdated ?? event.updatedAt ?? "");
     return {
       found: true, status: event.appointmentStatus ?? event.status, calendarId: event.calendarId,
+      contactId: typeof event.contactId === "string" ? event.contactId : undefined,
+      locationId: typeof event.locationId === "string" ? event.locationId : undefined,
       startTime: event.startTime, endTime: event.endTime, version: Number.isFinite(updated) ? updated : null,
     };
   };
   app.post("/api/appointments/booking/preview", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     const { previewBookingCommand } = await import("../services/ghl-booking-command");
     if (!["create", "reschedule", "cancel"].includes(req.body?.operation)) return res.status(400).json({ message: "Invalid operation" });
-    const preview = previewBookingCommand(bookingRequestFromBody(req.body));
+    const preview = previewBookingCommand(bookingRequestFromBody(await withResolvedProviderContact(req.body)));
     if (!preview.ok) return res.status(422).json({ ok: false, reason: preview.reason });
     // The reviewed resource version for reschedule/cancel comes from the provider's own record (read only).
     let currentVersion: number | null = null;
@@ -442,16 +444,48 @@ export function registerToolkitRoutes(app: Express, readerDependencies?: {
       const result = await executeBookingCommand({
         actorId: String((req.user as any)?.id ?? ""), commandId: String(req.body?.commandId ?? ""),
         expectedVersion: typeof req.body?.expectedVersion === "number" ? req.body.expectedVersion : null,
-        reviewedPayloadHash: String(req.body?.payloadHash ?? ""), request: bookingRequestFromBody(req.body), writerEnabled,
+        reviewedPayloadHash: String(req.body?.payloadHash ?? ""), request: bookingRequestFromBody(await withResolvedProviderContact(req.body)), writerEnabled,
         provider: {
           write: (method, path, body) => ghlCalendarAppointmentWrite(method, path, body),
           readAppointment: readProviderAppointment,
         },
       });
-      res.status(result.state === "denied" ? 403 : 200).json(result);
+      res.status(result.state === "denied" ? (result.reason === "command_id_bound_to_different_request" ? 409 : 403) : 200).json(result);
     } catch (err: any) {
       console.error("[Booking command] error:", err.message);
       res.status(503).json({ state: "unavailable", message: "Booking command unavailable" });
+    }
+  });
+
+  // Read-only status/reconcile for one booking command: the durable receipt (state, attempts) plus, when the command
+  // names an appointment, the provider's current record. It never sends, retries or settles anything.
+  app.get("/api/appointments/booking/command/:commandId", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const commandId = String(req.params.commandId);
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(commandId)) return res.status(400).json({ message: "Invalid command id" });
+      const actor = req.user as any;
+      const row = (await (await import("../db")).pool.query(
+        `SELECT effect_key, channel, state, detail, attempt_count, created_at, settled_at FROM followup_effect_receipts
+          WHERE owner_kind = 'booking_command' AND owner_id = $1 ORDER BY created_at DESC LIMIT 1`, [commandId])).rows[0];
+      // A manager sees only their own commands; an admin sees any. A command that is not visible is "not found".
+      if (!row || (actor?.role !== "admin" && !String(row.effect_key).startsWith(`booking_command:${actor?.id}:`))) {
+        return res.status(404).json({ message: "Not found" });
+      }
+      const [, operation, namedAppointment] = String(row.channel).match(/^calendar_([a-z]+)(?::(.+))?$/) ?? [];
+      const appointmentId = namedAppointment ?? (row.state === "accepted" ? row.detail : null);
+      let provider: unknown = { checked: false };
+      if (appointmentId && /^[A-Za-z0-9_-]{1,128}$/.test(appointmentId)) {
+        const live = await readProviderAppointment(appointmentId).catch(() => null);
+        provider = live ? { checked: true, ...live } : { checked: false, reason: "provider_unreadable" };
+      }
+      res.json({
+        commandId, operation: operation ?? null, appointmentId: appointmentId ?? null,
+        state: row.state === "accepted" ? "accepted" : row.state === "refused" ? "refused" : "unknown",
+        attempts: row.attempt_count ?? 1, startedAt: row.created_at, settledAt: row.settled_at, provider, sent: false,
+      });
+    } catch (err: any) {
+      console.error("[Booking command status] error:", err.message);
+      res.status(503).json({ message: "Command status unavailable" });
     }
   });
 

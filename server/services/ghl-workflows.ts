@@ -166,14 +166,22 @@ export async function resolveLocalContactIdForGhlContactId(ghlContactId: string)
   }
 }
 
-/** Typed reading of the provider's trigger response: returns a refusal reason, or null when nothing says it was refused. */
+/**
+ * Typed reading of the provider's trigger response. Returns null ONLY for an explicit documented true result
+ * (`succeded` [sic], `succeeded` or `success`). An explicit false is a definite refusal (`key=false`). Anything else
+ * (null, `{}`, a non-boolean value) is an unconfirmed outcome after dispatch: `unconfirmed_response`, which the caller
+ * treats as unknown (never success, never an authorization to fall back or re-send).
+ */
+export const WORKFLOW_TRIGGER_UNCONFIRMED = "unconfirmed_response";
 export function workflowTriggerRefusal(body: unknown): string | null {
-  if (!body || typeof body !== "object") return null;
+  if (!body || typeof body !== "object") return WORKFLOW_TRIGGER_UNCONFIRMED;
   const record = body as Record<string, unknown>;
+  let sawTrue = false;
   for (const key of ["succeeded", "succeded", "success"]) {
     if (record[key] === false) return `${key}=false`;
+    if (record[key] === true) sawTrue = true;
   }
-  return null;
+  return sawTrue ? null : WORKFLOW_TRIGGER_UNCONFIRMED;
 }
 
 export async function getWorkflowId(workflowKey: string): Promise<string | null> {
@@ -279,6 +287,9 @@ export async function enrollInGhlWorkflow(params: {
     // The provider's response body is the acceptance fact. HighLevel documents `succeded` (sic) and some tenants return
     // `succeeded` or `success`; an explicit false is a definite refusal, never an enrollment.
     const refusal = workflowTriggerRefusal(trigger);
+    if (refusal === WORKFLOW_TRIGGER_UNCONFIRMED) {
+      throw new Error("GHL_AMBIGUOUS_DISPATCH: workflow trigger response did not confirm acceptance; outcome unknown");
+    }
     if (refusal) throw new Error(`GHL workflow enrollment refused by provider: ${refusal}`);
 
     console.log(`[GHL Workflows] Enrolled GHL contact ${params.ghlContactId} in workflow ${params.workflowKey}`);

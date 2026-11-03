@@ -1,5 +1,8 @@
 import { PageTitle } from "@/components/ui/page-header";
 import { useState, useMemo, useEffect } from "react";
+import { useUrlParam, parseMonthParam } from "@/hooks/use-url-param";
+import { useAuth } from "@/hooks/use-auth";
+import { BookingCommandPanel } from "@/components/BookingCommandPanel";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -124,7 +127,7 @@ interface AppointmentRead {
 
 type SourceFilter = "all" | "sales" | "account" | "local";
 const SOURCE_FILTERS: Array<{ value: SourceFilter; label: string; hint: string }> = [
-  { value: "all", label: "All sources", hint: "Sales appointments, local events and deal follow-ups" },
+  { value: "all", label: "Sales + local", hint: "Sales-calendar appointments, local events and deal follow-ups. The account calendar is a separate source; choose it to see those appointments." },
   { value: "sales", label: "Sales calendar", hint: "GoHighLevel sales calendar appointments only" },
   { value: "account", label: "Account calendar", hint: "GoHighLevel account-management calendar appointments only" },
   { value: "local", label: "Local", hint: "Events and deal follow-ups saved in this CRM only" },
@@ -133,6 +136,8 @@ const SOURCE_FILTERS: Array<{ value: SourceFilter; label: string; hint: string }
 interface AppointmentDetail {
   appointmentId: string;
   recorded: boolean;
+  /** The server answered 404: this actor may not read the appointment (or it is unknown). Never "no command recorded". */
+  denied?: boolean;
   occurrence: null | {
     status: string; startTime: string | null; endTime: string | null; purpose: "sales" | "account";
     rescheduleCount: number; current: boolean; currentAppointmentId: string | null;
@@ -155,12 +160,28 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
   const queryClient = useQueryClient();
 
   const today = new Date();
-  const [currentYear, setCurrentYear] = useState(today.getFullYear());
-  const [currentMonth, setCurrentMonth] = useState(today.getMonth());
-  const [selectedDate, setSelectedDate] = useState<string>(formatDateKey(today));
+  // Month, selected date, source and the opened item live in validated URL parameters so reload and Back/Forward restore them.
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const todayKeyForUrl = `${today.getFullYear()}-${pad2(today.getMonth() + 1)}-${pad2(today.getDate())}`;
+  const [monthKey, setMonthKey] = useUrlParam<string>("cal_month", todayKeyForUrl.slice(0, 7), raw => (parseMonthParam(raw) ? raw : undefined));
+  const { year: currentYear, month: currentMonth } = parseMonthParam(monthKey) ?? { year: today.getFullYear(), month: today.getMonth() };
+  const setMonthParts = (year: number, month: number) => setMonthKey(`${year}-${pad2(month + 1)}`);
+  const [selectedDate, setSelectedDate] = useUrlParam<string>("cal_date", todayKeyForUrl,
+    raw => (/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(raw) ? raw : undefined), { history: "replace" });
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
-  const [drawerItemId, setDrawerItemId] = useState<string | null>(null);
+  // At phone width the seven-column month grid is replaced by an agenda list of the days that have items.
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const mql = window.matchMedia("(max-width: 480px)");
+    const sync = () => setNarrow(mql.matches);
+    sync();
+    mql.addEventListener("change", sync);
+    return () => mql.removeEventListener("change", sync);
+  }, []);
+  const [sourceFilter, setSourceFilter] = useUrlParam<SourceFilter>("cal_source", "all",
+    raw => (["all", "sales", "account", "local"].includes(raw) ? (raw as SourceFilter) : undefined));
+  const [drawerParam, setDrawerItemId] = useUrlParam<string>("cal_item", "", raw => (/^[\w:.-]{1,120}$/.test(raw) ? raw : undefined));
+  const drawerItemId: string | null = drawerParam || null;
   const [pickedContact, setPickedContact] = useState<ContactChoice | null>(null);
   const [eventForm, setEventForm] = useState({
     title: "",
@@ -207,9 +228,11 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
     refetchInterval: 300000,
   });
   const { data: dealsRes, isLoading: dealsLoading, isError: dealsError, refetch: retryDeals } = useQuery<{ data: Deal[]; total: number }>({
-    queryKey: ["/api/deals", { calendar: true }],
+    // Scoped range reader: only deals whose follow-up falls in the displayed month (exclusive end), in the user's scope.
+    queryKey: ["/api/deals", { calendar: true, from: startParam, to: endParam }],
     queryFn: async ({ signal }) => {
-      const res = await fetch("/api/deals?limit=250&offset=0", { credentials: "include", signal });
+      const params = new URLSearchParams({ limit: "2000", offset: "0", followUpFrom: startParam, followUpTo: endParam });
+      const res = await fetch(`/api/deals?${params}`, { credentials: "include", signal });
       if (!res.ok) throw new Error("Deal follow-ups are unavailable.");
       return res.json();
     },
@@ -369,21 +392,13 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
   const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
 
   const prevMonth = () => {
-    if (currentMonth === 0) {
-      setCurrentMonth(11);
-      setCurrentYear(currentYear - 1);
-    } else {
-      setCurrentMonth(currentMonth - 1);
-    }
+    if (currentMonth === 0) setMonthParts(currentYear - 1, 11);
+    else setMonthParts(currentYear, currentMonth - 1);
   };
 
   const nextMonth = () => {
-    if (currentMonth === 11) {
-      setCurrentMonth(0);
-      setCurrentYear(currentYear + 1);
-    } else {
-      setCurrentMonth(currentMonth + 1);
-    }
+    if (currentMonth === 11) setMonthParts(currentYear + 1, 0);
+    else setMonthParts(currentYear, currentMonth + 1);
   };
 
   const handleSubmitEvent = () => {
@@ -439,8 +454,9 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
 
   useEffect(() => {
     // A month change can remove the opened item from the window; close instead of showing a stale drawer.
-    if (drawerItemId && !drawerItem) setDrawerItemId(null);
-  }, [drawerItemId, drawerItem]);
+    // Only after every reader has settled: a restored URL item must not be dropped while its month is still loading.
+    if (drawerItemId && !drawerItem && !eventsLoading && !dealsLoading && !appointmentsLoading) setDrawerItemId("");
+  }, [drawerItemId, drawerItem, eventsLoading, dealsLoading, appointmentsLoading]);
   const todayKey = formatDateKey(today);
   const dealsPartial = Boolean(dealsRes && dealsRes.data.length < dealsRes.total);
   const appointmentPartial = Boolean(appointmentRead && (
@@ -541,6 +557,25 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
               </Button>
             </CardHeader>
             <CardContent>
+              {narrow ? (
+                <ol className="space-y-2" data-testid="calendar-agenda" aria-label={`${MONTH_NAMES[currentMonth]} ${currentYear} agenda`}>
+                  {[...eventsByDate.entries()].filter(([key]) => key !== INVALID_DATE_KEY).sort(([x], [y]) => x.localeCompare(y)).map(([dateKey, items]) => (
+                    <li key={dateKey}>
+                      <button type="button" onClick={() => setSelectedDate(dateKey)}
+                        className={`flex min-h-11 w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left ${dateKey === selectedDate ? "ring-2 ring-primary bg-primary/5" : ""}`}
+                        data-testid={`calendar-agenda-day-${dateKey}`}>
+                        <span className="text-sm font-medium">{new Date(`${dateKey}T00:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</span>
+                        <span className="text-xs text-muted-foreground">{items.length} item{items.length === 1 ? "" : "s"}</span>
+                      </button>
+                    </li>
+                  ))}
+                  {[...eventsByDate.keys()].filter(key => key !== INVALID_DATE_KEY).length === 0 && (
+                    <li className="text-sm text-muted-foreground" data-testid="calendar-agenda-empty">
+                      {appointmentsLoading || eventsLoading || dealsLoading ? "Reading sources; this month is not known to be empty yet." : "No items found in the available source windows for this month."}
+                    </li>
+                  )}
+                </ol>
+              ) : (
               <div className="grid grid-cols-7 gap-px" data-testid="calendar-grid">
                 {DAY_NAMES.map(day => (
                   <div key={day} className="text-center text-xs font-medium text-muted-foreground py-2" data-testid={`calendar-day-header-${day}`}>
@@ -593,6 +628,7 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
                   );
                 })}
               </div>
+              )}
             </CardContent>
           </Card>
 
@@ -791,7 +827,7 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
         </div>
       </div>
 
-      <Sheet open={!!drawerItem} onOpenChange={open => { if (!open) setDrawerItemId(null); }}>
+      <Sheet open={!!drawerItem} onOpenChange={open => { if (!open) setDrawerItemId(""); }}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-md" data-testid="calendar-detail-drawer">
           {drawerItem && (
             <AppointmentDrawerBody
@@ -916,6 +952,8 @@ function AppointmentDrawerBody({ item, contactName, contactLookupFailed, provide
   item: CalendarItem; contactName?: string; contactLookupFailed: boolean; providerReadAt?: string;
 }) {
   const isAppointment = item.source === "appointment";
+  const { user } = useAuth();
+  const role = (user as { role?: string } | null | undefined)?.role;
   const detail = useQuery<AppointmentDetail>({
     queryKey: ["/api/appointments/detail", item.rawId],
     enabled: isAppointment,
@@ -924,7 +962,9 @@ function AppointmentDrawerBody({ item, contactName, contactLookupFailed, provide
     refetchOnMount: "always",
     queryFn: async ({ signal }) => {
       const res = await fetch(`/api/appointments/${encodeURIComponent(String(item.rawId))}/detail`, { credentials: "include", signal });
-      if (res.status === 404) return { appointmentId: String(item.rawId), recorded: false, occurrence: null, lastObservation: null, commands: [] };
+      // The server answers 404 for an appointment this actor may not read. That is "not available to you", never "no
+      // command recorded": it carries no occurrence and no command list, and the commands section says so.
+      if (res.status === 404) return { appointmentId: String(item.rawId), recorded: false, denied: true, occurrence: null, lastObservation: null, commands: [] };
       if (!res.ok) throw new Error("Appointment detail is unavailable.");
       return res.json();
     },
@@ -951,6 +991,11 @@ function AppointmentDrawerBody({ item, contactName, contactLookupFailed, provide
           </DetailRow>
         )}
         {item.description && <DetailRow label="Notes">{item.description}</DetailRow>}
+        {item.contactId && (
+          <DetailRow label="Handoff" testId="drawer-handoff-links">
+            <a href={`/dashboard/contacts/${item.contactId}`} className="inline-flex min-h-11 items-center text-sm text-primary underline" data-testid="link-drawer-contact">Open contact (journey and follow-ups)</a>
+          </DetailRow>
+        )}
       </dl>
 
       {!isAppointment ? (
@@ -969,6 +1014,10 @@ function AppointmentDrawerBody({ item, contactName, contactLookupFailed, provide
                   <p>Recorded appointment state could not be read. This is not “no record”.</p>
                   <Button size="sm" variant="outline" className="min-h-11" onClick={() => void detail.refetch()} data-testid="button-retry-detail">Retry</Button>
                 </div>
+              ) : detail.data.denied ? (
+                <p className="text-sm text-muted-foreground" role="status" data-testid="drawer-detail-denied">
+                  Recorded state for this appointment is not available to your account. This is not “no record”.
+                </p>
               ) : !detail.data.recorded || !occurrence ? (
                 <p className="text-sm text-muted-foreground" data-testid="drawer-not-recorded">
                   No recorded occurrence for this appointment. Whether it is the current meeting cannot be determined from this listing alone.
@@ -1005,6 +1054,7 @@ function AppointmentDrawerBody({ item, contactName, contactLookupFailed, provide
             <h3 id="drawer-commands-h" className="text-sm font-semibold">Booking commands</h3>
             {detail.isPending ? <p role="status" className="text-sm text-muted-foreground">Reading booking commands…</p>
               : detail.isError ? <p className="text-sm text-muted-foreground">Command state unavailable.</p>
+              : detail.data.denied ? <p className="text-sm text-muted-foreground" data-testid="drawer-commands-denied">Booking commands are not available to your account.</p>
               : detail.data.commands.length === 0 ? (
                 <p className="text-sm text-muted-foreground" data-testid="drawer-no-commands">No booking command is recorded for this appointment.</p>
               ) : (
@@ -1020,7 +1070,13 @@ function AppointmentDrawerBody({ item, contactName, contactLookupFailed, provide
               )}
           </section>
 
-          <p className="text-xs text-muted-foreground">Provider appointments are read-only in this view.</p>
+          {item.contactId && (role === "admin" || role === "manager") && !detail.data?.denied && (
+            <BookingCommandPanel
+              key={String(item.rawId)} appointmentId={String(item.rawId)} contactId={item.contactId} title={item.title.slice(0, 120)}
+              purpose={item.purpose ?? "sales"} startTime={item.startTime} endTime={item.endTime} canExecute={role === "admin"}
+              onSettled={() => { void detail.refetch(); }} />
+          )}
+          <p className="text-xs text-muted-foreground">The listing is read-only; provider changes go only through the reviewed command above.</p>
           {item.externalUrl && <a href={item.externalUrl} target="_blank" rel="noopener noreferrer"
             className="inline-flex min-h-11 items-center text-sm text-primary underline">Open appointment</a>}
         </div>

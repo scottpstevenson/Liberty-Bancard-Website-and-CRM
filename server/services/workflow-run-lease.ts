@@ -38,3 +38,24 @@ export async function releaseWorkflowRunLease(runId: number, token: string): Pro
 export function workflowDefinitionPin(actions: unknown): string {
   return createHash("sha256").update(JSON.stringify(actions ?? [])).digest("hex");
 }
+
+/**
+ * Fence: extends the lease only while this token still owns the run and the lease has not lapsed. False means another
+ * worker may now own the run; the caller must stop and write nothing further for it.
+ */
+export async function renewWorkflowRunLease(runId: number, token: string, leaseMs = WORKFLOW_RUN_LEASE_MS): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    `UPDATE workflow_runs SET lease_expires_at = now() + ($3::int * interval '1 millisecond')
+      WHERE id = $1 AND lease_token = $2 AND lease_expires_at > now()`, [runId, token, leaseMs]);
+  return (rowCount ?? 0) === 1;
+}
+
+/** Initial runs that were interrupted (process died while running, lease lapsed) are parked visibly for review, never auto-resumed. */
+export async function parkInterruptedWorkflowRuns(): Promise<number> {
+  const { rowCount } = await pool.query(
+    `UPDATE workflow_runs SET status = 'blocked', completed_at = now(), lease_token = NULL, lease_expires_at = NULL,
+            log = COALESCE(log, '[]'::jsonb) || jsonb_build_array(jsonb_build_object('action','interrupted','status','blocked',
+              'reason','run_interrupted_requires_review','timestamp', to_char(now() at time zone 'utc','YYYY-MM-DD"T"HH24:MI:SS"Z"')))
+      WHERE status = 'running' AND occurrence_key IS NOT NULL AND lease_expires_at IS NOT NULL AND lease_expires_at < now()`);
+  return rowCount ?? 0;
+}

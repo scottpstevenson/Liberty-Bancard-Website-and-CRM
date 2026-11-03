@@ -359,9 +359,13 @@ export async function triggerWorkflow(params: {
   const { deregisterInflight } = await import("../outbound-control-service");
   const { tokenId, epoch } = await assertPauseAllowed("triggerWorkflow");
   try {
+    // Only the documented request field is sent. Local appointment/occurrence context stays in the CRM; arbitrary
+    // metadata is never forwarded as if the native action could consume it.
+    const startRaw = params.metadata?.eventStartTime ?? params.metadata?.startTime ?? params.metadata?.appointmentDate;
+    const eventStart = typeof startRaw === "string" && !Number.isNaN(new Date(startRaw).getTime()) ? new Date(startRaw).toISOString() : undefined;
     return await sdrGhlFetch(`/contacts/${params.contactId}/workflow/${params.workflowId}`, {
       method: "POST",
-      body: JSON.stringify(params.metadata || {}),
+      body: JSON.stringify(eventStart ? { eventStartTime: eventStart } : {}),
       pauseEpoch: epoch,
     }) as unknown as WorkflowTriggerResult;
   } finally {

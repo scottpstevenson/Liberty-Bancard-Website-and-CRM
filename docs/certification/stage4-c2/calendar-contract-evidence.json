@@ -1,6 +1,6 @@
 {
   "suite": "stage4c2-calendar-contract",
-  "checks": 58,
+  "checks": 67,
   "negativeControls": 6,
   "results": [
     {
@@ -260,36 +260,81 @@
     },
     {
       "id": "CC-52",
-      "claim": "booking routes are role-gated (execute admin only)",
+      "claim": "an appointment that belongs to another provider contact is refused before any write",
       "negativeControl": false
     },
     {
       "id": "CC-53",
-      "claim": "execute is bound to the owner-controlled writer switch",
+      "claim": "an appointment in another location is refused before any write",
       "negativeControl": false
     },
     {
       "id": "CC-54",
-      "claim": "the month calendar reads the selected-range endpoint",
+      "claim": "a provider record with no contact/location identity is refused, never assumed to match",
       "negativeControl": false
     },
     {
       "id": "CC-55",
-      "claim": "local events are labelled as local and not as bookings",
+      "claim": "reusing a command id for a different reviewed request is denied as a binding conflict",
       "negativeControl": false
     },
     {
       "id": "CC-56",
-      "claim": "the calendar names its display timezone",
+      "claim": "reusing a command id with a different expected version is also a binding conflict",
       "negativeControl": false
     },
     {
       "id": "CC-57",
-      "claim": "workflow guidance no longer contradicts the supported handoffs",
+      "claim": "preview refuses when the location is not configured",
       "negativeControl": false
     },
     {
       "id": "CC-58",
+      "claim": "a read-only command status route exists and never sends",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-59",
+      "claim": "the provider contact is resolved on the server from the local contact",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-60",
+      "claim": "the drawer panel surfaces the default-denied writer and never chooses notification or slot-validation behavior",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-61",
+      "claim": "booking routes are role-gated (execute admin only)",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-62",
+      "claim": "execute is bound to the owner-controlled writer switch",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-63",
+      "claim": "the month calendar reads the selected-range endpoint",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-64",
+      "claim": "local events are labelled as local and not as bookings",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-65",
+      "claim": "the calendar names its display timezone",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-66",
+      "claim": "workflow guidance no longer contradicts the supported handoffs",
+      "negativeControl": false
+    },
+    {
+      "id": "CC-67",
       "claim": "no provider network attempt occurred during the certification",
       "negativeControl": false
     }
