@@ -1157,7 +1157,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
 
     const now2 = Date.now();
     const STALE_WORKER_MS = 30 * 60 * 1000; // 30 minutes
-    let workerHeartbeats: Record<string, { available: boolean; stale: boolean; staleSince?: string; lastFinishedAt?: string | null; status?: string | null; consecutiveFailures?: number | null; minutesSince?: number | null; error?: string }> = {};
+    let workerHeartbeats: Record<string, { available: boolean; stale: boolean; staleSince?: string; lastFinishedAt?: string | null; status?: string | null; consecutiveFailures?: number | null; minutesSince?: number | null; error?: string; interpretation?: string; selectedInThisProcess?: boolean; selectionScope?: string; control?: { outgoingEnabled: boolean; epoch: number } | null; meaning?: string }> = {};
     try {
       // No .catch() here — query failures must surface as query_failed, not not_registered.
       const wRows = await db.execute(sql`
@@ -1226,6 +1226,43 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       workerHeartbeats.cro08aProcessor = { available: false, stale: false, error: "query_failed" };
     }
 
+    // ── Selection / control semantics (a heartbeat alone is not "active") ────────────────────────────────────
+    // Each named worker is interpreted against (a) whether THIS process's background profile selects its queue and
+    // (b) for GHL sync, the owner's outgoing control. A fresh loop tick is a monitor tick, not observed sync writes:
+    // a disabled outgoing control reads "paused_by_control" even when the tick is recent. Real failures stay failed,
+    // an unselected worker with no recent run is expected-idle (not stale), and a selected worker that cannot be read
+    // is unavailable rather than green or zero.
+    try {
+      const { isQueueSelectedByBackgroundProfile, getBackgroundProfile } = await import("../services/background-profile");
+      const { getGhlSyncControl } = await import("../services/ghl-sync-control");
+      const WORKER_QUEUES: Record<string, string> = { enrichment: "enrichment", ghlSync: "ghl-sync", sequenceWorker: "sequences", slaWorker: "sla-checks" };
+      const profile = getBackgroundProfile();
+      const ghlControl = await getGhlSyncControl().catch(() => null);
+      for (const w of NAMED_WORKERS) {
+        const hb = workerHeartbeats[w.key];
+        if (!hb) continue;
+        const selected = isQueueSelectedByBackgroundProfile(WORKER_QUEUES[w.key]);
+        hb.selectedInThisProcess = selected;
+        hb.selectionScope = `this_process:${profile}`;
+        const failed = hb.available && (hb.status === "failed" || (hb.consecutiveFailures ?? 0) > 0);
+        if (w.key === "ghlSync") {
+          hb.control = ghlControl ? { outgoingEnabled: ghlControl.enabled === true, epoch: ghlControl.epoch } : null;
+          hb.meaning = "monitor_tick_not_sync_writes";
+        }
+        if (failed) hb.interpretation = "failed";
+        else if (w.key === "ghlSync" && ghlControl && ghlControl.enabled !== true) hb.interpretation = "paused_by_control";
+        else if (w.key === "ghlSync" && !ghlControl) hb.interpretation = "unavailable";
+        else if (!hb.available) hb.interpretation = hb.error === "query_failed" || selected ? "unavailable" : "not_selected_expected_idle";
+        else if (hb.stale) hb.interpretation = selected ? "stale" : "not_selected_expected_idle";
+        else hb.interpretation = "active";
+      }
+    } catch {
+      for (const w of NAMED_WORKERS) {
+        const hb = workerHeartbeats[w.key];
+        if (hb && !hb.interpretation) hb.interpretation = hb.available ? (hb.stale ? "stale" : "active") : "unavailable";
+      }
+    }
+
     // ── Enrichment-worker stale alert ─────────────────────────────────────────
     // Authoritative boolean derived server-side using exact ms comparison so the
     // client never has to deal with rounding. Only the enrichment worker is in
@@ -1239,6 +1276,11 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       // null msAgo means no heartbeat ever recorded → treat as stale
       enrichmentWorkerStaleAlert = enrichMsAgo === null || enrichMsAgo > workerStalenessThresholdMs;
     }
+
+    // Read-only held-enrollment expiry visibility (never claims, sends or changes a row); `unknown` is never shown as zero.
+    const heldEnrollmentExpiry = await import("../services/ghl-enrollment-recovery")
+      .then((m) => m.getHeldEnrollmentExpiryDiagnostics())
+      .catch(() => ({ heldPending: 0, expiredAwaitingSweep: 0, expiredTerminal: 0, otherPending: 0, availability: "unknown" as const }));
 
     // ── MI-08: Pipeline counts from /api/master-leads/pipeline-stats ────
     // These are fetched in-process for the health endpoint.
@@ -1363,6 +1405,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       // ── MI-08: Per-named-worker heartbeats (per-metric availability) ────
       workerStalenessThresholdMs,
       enrichmentWorkerStaleAlert,
+      heldEnrollmentExpiry,
       workerHeartbeats,
       // ── MI-09: CRO-08A scheduler/processor worker heartbeats ────────────
       cro08aSchedulerHeartbeat: workerHeartbeats.cro08aScheduler,

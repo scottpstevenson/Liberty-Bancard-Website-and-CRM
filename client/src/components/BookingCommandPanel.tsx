@@ -11,10 +11,10 @@ import { Label } from "@/components/ui/label";
  * panel shows the server's refusal instead of hiding the control. The browser never chooses notification or slot-validation
  * behavior and never names the provider contact: the server resolves it from the local contact.
  */
-interface Preview { operation: string; payloadHash: string; currentVersion: number | null; note?: string; payload?: { startTime?: string; endTime?: string } }
-type Outcome = { state: string; reason?: string; appointmentId?: string; replay?: boolean };
+export interface Preview { operation: string; payloadHash: string; currentVersion: number | null; note?: string; payload?: { startTime?: string; endTime?: string } }
+export type Outcome = { state: string; reason?: string; appointmentId?: string; replay?: boolean };
 
-const OUTCOME_COPY: Record<string, string> = {
+export const OUTCOME_COPY: Record<string, string> = {
   confirmed: "Confirmed: the provider record matches the reviewed change.",
   unconfirmed: "Unconfirmed: the provider accepted it but the read-back did not match. Check the provider calendar before trying again.",
   unknown: "Unknown: the provider may have processed it. It is not retried automatically; check the provider calendar.",
@@ -22,12 +22,15 @@ const OUTCOME_COPY: Record<string, string> = {
   denied: "Denied before any provider call. Nothing changed.",
 };
 
-const REASON_COPY: Record<string, string> = {
+export const REASON_COPY: Record<string, string> = {
   booking_writer_not_enabled: "The booking writer is not enabled for this deployment, so no provider change can be made from here.",
   expected_version_required: "The reviewed appointment version is missing. Preview again.",
   payload_changed_since_preview: "The request changed since the preview. Preview again.",
   saved_command_accepted_check_provider_record: "The saved command was recorded as accepted by the provider. Confirm the appointment time in the provider calendar.",
   command_id_bound_to_different_request: "This command id was already used for a different request. Preview again.",
+  local_contact_required: "Choose a contact from the authorized contact search. A new appointment cannot be created without one.",
+  local_contact_not_found: "That contact no longer exists. Choose another contact.",
+  local_contact_not_linked_to_provider: "That contact is not linked to the provider calendar system, so an appointment cannot be created for it from here.",
 };
 
 /**
@@ -36,27 +39,27 @@ const REASON_COPY: Record<string, string> = {
  * tokens or the payload. The key is scoped to the actor, account version, permission and appointment; a different scope
  * never sees it and any entry from another scope is removed.
  */
-const PENDING_PREFIX = "liberty.booking-command.v1:";
+export const PENDING_PREFIX = "liberty.booking-command.v1:";
 const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
-interface PendingCommand { commandId: string; operation: "reschedule" | "cancel"; payloadHash: string; expectedVersion: number | null; start: string; durationMinutes: string; savedAt: number }
+export interface PendingCommand { commandId: string; operation: "create" | "reschedule" | "cancel"; payloadHash: string; expectedVersion: number | null; start: string; durationMinutes: string; savedAt: number }
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function readPending(key: string): PendingCommand | null {
+export function readPending(key: string): PendingCommand | null {
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) return null;
     const value = JSON.parse(raw) as Partial<PendingCommand>;
     const valid = typeof value.commandId === "string" && UUID_V4.test(value.commandId)
-      && (value.operation === "reschedule" || value.operation === "cancel") && typeof value.payloadHash === "string"
+      && (value.operation === "create" || value.operation === "reschedule" || value.operation === "cancel") && typeof value.payloadHash === "string"
       && typeof value.savedAt === "number" && Date.now() - value.savedAt < PENDING_TTL_MS;
     if (!valid) { window.localStorage.removeItem(key); return null; }
     return { commandId: value.commandId!, operation: value.operation!, payloadHash: value.payloadHash!, expectedVersion: typeof value.expectedVersion === "number" ? value.expectedVersion : null,
       start: typeof value.start === "string" ? value.start : "", durationMinutes: typeof value.durationMinutes === "string" ? value.durationMinutes : "30", savedAt: value.savedAt! };
   } catch { return null; }
 }
-const writePending = (key: string, value: PendingCommand) => { try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage unavailable: in-memory state still guards this session */ } };
-const clearPending = (key: string) => { try { window.localStorage.removeItem(key); } catch { /* ignore */ } };
-function purgeOtherScopes(currentScope: string) {
+export const writePending = (key: string, value: PendingCommand) => { try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage unavailable: in-memory state still guards this session */ } };
+export const clearPending = (key: string) => { try { window.localStorage.removeItem(key); } catch { /* ignore */ } };
+export function purgeOtherScopes(currentScope: string) {
   try {
     for (let i = window.localStorage.length - 1; i >= 0; i--) {
       const k = window.localStorage.key(i);
@@ -65,13 +68,13 @@ function purgeOtherScopes(currentScope: string) {
   } catch { /* ignore */ }
 }
 
-const errorBody = (error: unknown): { message?: string; reason?: string; state?: string } => {
+export const errorBody = (error: unknown): { message?: string; reason?: string; state?: string } => {
   const text = error instanceof Error ? error.message : String(error);
   const json = text.replace(/^\d{3}:\s*/, "");
   try { return JSON.parse(json); } catch { return { message: text }; }
 };
 
-const toLocalInput = (iso: string): string => {
+export const toLocalInput = (iso: string): string => {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -105,7 +108,7 @@ export function BookingCommandPanel({ appointmentId, contactId, title, purpose, 
     purgeOtherScopes(scope);
     const saved = readPending(storageKey);
     setPending(saved);
-    if (saved) { setOperation(saved.operation); if (saved.start) setStart(saved.start); setDurationMinutes(saved.durationMinutes); }
+    if (saved && saved.operation !== "create") { setOperation(saved.operation); if (saved.start) setStart(saved.start); setDurationMinutes(saved.durationMinutes); }
   }, [scope, storageKey]);
 
   const checkSaved = useCallback(async () => {

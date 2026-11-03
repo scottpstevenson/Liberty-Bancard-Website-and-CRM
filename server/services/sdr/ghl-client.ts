@@ -725,7 +725,6 @@ export const sdrSmsProviderDeps = {
     return typeof contact?.phone === "string" && contact.phone ? contact.phone : null;
   },
 };
-const phoneTail = (value: string) => value.replace(/\D/g, "").slice(-10);
 
 /**
  * SDR text reply. The recipient decision (consent, STOP, purpose, exact number) comes from the canonical authority and is
@@ -750,10 +749,21 @@ export async function sendSmsReply(params: {
       inboundRequestId: params.inboundRequestId, intendedRecipientContactId: params.intendedRecipientContactId,
     };
     const approvedPhone = await assertSmsRecipientAllowed(decision);
-    // The number approved locally must be the number the provider will actually text.
-    const providerPhone = await sdrSmsProviderDeps.readContactPhone(params.contactId);
-    if (!providerPhone) throw new Error("sms_not_permitted:provider_target_unverified");
-    if (phoneTail(providerPhone) !== phoneTail(approvedPhone)) throw new Error("sms_not_permitted:provider_number_mismatch");
+    const { normalizeConsentPhone } = await import("../consent-authority");
+    // The number approved locally must be the number the provider will actually text: the FULL normalized number
+    // (country code included), re-read from the provider before EVERY attempt. An unreadable provider record is an
+    // unverified target (held, nothing sent), not a consent withdrawal.
+    const verifyProviderTarget = async () => {
+      let providerPhone: string | null;
+      try {
+        providerPhone = await sdrSmsProviderDeps.readContactPhone(params.contactId);
+      } catch {
+        throw new Error("sms_not_permitted:provider_target_unverified");
+      }
+      const providerNormalized = normalizeConsentPhone(providerPhone);
+      if (!providerNormalized) throw new Error("sms_not_permitted:provider_target_unverified");
+      if (providerNormalized !== normalizeConsentPhone(approvedPhone)) throw new Error("sms_not_permitted:provider_number_mismatch");
+    };
     return await sdrGhlFetch("/conversations/messages", {
       method: "POST",
       body: JSON.stringify({
@@ -762,8 +772,12 @@ export async function sendSmsReply(params: {
         message: params.message,
       }),
       pauseEpoch: epoch,
-      // Consent, STOP, purpose and the exact number are decided again before each attempt, including after a backoff wait.
-      beforeAttempt: async () => { await assertSmsRecipientAllowed({ ...decision, boundPhone: approvedPhone }); },
+      // Consent, STOP, purpose, the local number and the provider's number are decided again before each attempt,
+      // including after a backoff wait.
+      beforeAttempt: async () => {
+        await assertSmsRecipientAllowed({ ...decision, boundPhone: approvedPhone });
+        await verifyProviderTarget();
+      },
     }) as unknown as SendMessageResult;
   } finally {
     deregisterInflight(tokenId);

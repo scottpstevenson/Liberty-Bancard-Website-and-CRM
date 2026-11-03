@@ -1,0 +1,27 @@
+{
+  "capturedAt": "2026-11-03",
+  "head": "e112d19e98d3467eb3de1a6a05bdc0bd9b5babfe",
+  "originMain": "e112d19e98d3467eb3de1a6a05bdc0bd9b5babfe",
+  "treeCleanAtStart": true,
+  "node": "v22.23.4",
+  "npm": "10.9.9",
+  "npmSpecNamed": "10.9.4",
+  "migrationsEnd": "0379",
+  "newMigrations": 0,
+  "production": {
+    "observedAboutUtc": "2026-11-03T11:00Z",
+    "outboundPause": { "state": "paused", "epoch": 1 },
+    "outgoingGhl": { "enabled": false, "epoch": 16 },
+    "incomingGhl": "enabled",
+    "ghl_booking_writer_enabled": "row absent (default denied)",
+    "ghl_appointment_state_status_chk_allowsNoShow": false,
+    "currentSfpPackagePins": { "count": 5, "state": "draft/paused/unapproved" },
+    "livePackages": { "touches": 3, "daysFromStart": [0, 3, 5] }
+  },
+  "devOnlyNote": "dev outbound-pause epoch shows 750 from test cleanup; not a production fact",
+  "scannerBaselines": {
+    "complianceScan": ["server/services/partner-approval-delivery.ts:107", "server/services/sdr/voice-orchestrator.ts:594", "scripts/sfp-seed-test.ts:219"],
+    "queueScan": ["inbound-acknowledgement.ts", "partner-approval-delivery.ts", "sfp-seed-test.ts"]
+  },
+  "notRun": ["full TypeScript check (spec forbids)", "browser verification of Calendar create dialog and Program Health note", "full pre-deploy roster"]
+}

@@ -368,25 +368,33 @@ import { coerceDateFields } from "../utils/date-coerce";
     );
   }
 
+  /**
+   * Pauses every active enrollment of one contact and returns the rows this statement actually changed
+   * (UPDATE ... RETURNING, not a preceding SELECT). When `audit` is supplied, the audit fact is written in the SAME
+   * transaction as the pause, with the count and ids of the rows that really changed: either both commit or neither,
+   * and a retry that finds nothing active writes no fabricated fact.
+   */
+  async pauseActiveEnrollmentsWithAudit(
+    contactId: number,
+    audit?: (changed: { count: number; enrollmentIds: number[] }) => InsertAuditLog,
+  ): Promise<{ count: number; enrollmentIds: number[] }> {
+    return db.transaction(async (tx) => {
+      const changed = await tx.update(sequenceEnrollments)
+        .set({ status: "paused", pausedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(sequenceEnrollments.contactId, contactId), eq(sequenceEnrollments.status, "active")))
+        .returning({ id: sequenceEnrollments.id });
+      const result = { count: changed.length, enrollmentIds: changed.map((row) => row.id) };
+      if (audit && result.count > 0) {
+        // createAuditLog is mixed in from the audit domain; it sanitizes the payload and accepts the caller's transaction.
+        await (this as unknown as { createAuditLog(log: InsertAuditLog, executor: unknown): Promise<unknown> })
+          .createAuditLog(audit(result), tx);
+      }
+      return result;
+    });
+  }
+
   async pauseAllActiveEnrollments(contactId: number): Promise<number> {
-    const active = await db.select({ id: sequenceEnrollments.id })
-      .from(sequenceEnrollments)
-      .where(
-        and(
-          eq(sequenceEnrollments.contactId, contactId),
-          eq(sequenceEnrollments.status, "active")
-        )
-      );
-    if (active.length === 0) return 0;
-    await db.update(sequenceEnrollments)
-      .set({ status: "paused", pausedAt: new Date(), updatedAt: new Date() })
-      .where(
-        and(
-          eq(sequenceEnrollments.contactId, contactId),
-          eq(sequenceEnrollments.status, "active")
-        )
-      );
-    return active.length;
+    return (await this.pauseActiveEnrollmentsWithAudit(contactId)).count;
   }
 
   async getContactEnrollmentsForContacts(contactIds: number[], sequenceIds?: number[]) {

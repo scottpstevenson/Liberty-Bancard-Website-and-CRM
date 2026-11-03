@@ -1,6 +1,6 @@
 {
   "suite": "stage4c2-completion-pass",
-  "checks": 63,
+  "checks": 65,
   "negativeControls": 7,
   "results": [
     {
@@ -170,151 +170,161 @@
     },
     {
       "id": "CM-34",
-      "claim": "under the fail-closed pause default the worker neither claims nor consumes the held obligation",
+      "claim": "under the fail-closed pause default the worker neither claims nor retry-counts the obligation; an already-expired hold is terminalized by the non-sending sweep",
       "negativeControl": false
     },
     {
       "id": "CM-35",
-      "claim": "an expired required hold becomes a terminal, observable failure (not deleted, not pending)",
+      "claim": "the paused expiry sweep audits the disposition once",
       "negativeControl": false
     },
     {
       "id": "CM-36",
-      "claim": "the expired hold made no provider attempt",
+      "claim": "the paused expiry sweep made no provider attempt",
       "negativeControl": false
     },
     {
       "id": "CM-37",
-      "claim": "the expiry disposition is audited once",
+      "claim": "an expired required hold becomes a terminal, observable failure (not deleted, not pending)",
       "negativeControl": false
     },
     {
       "id": "CM-38",
-      "claim": "a terminal row is never reopened by a later revision",
+      "claim": "the expired hold made no provider attempt",
       "negativeControl": false
     },
     {
       "id": "CM-39",
-      "claim": "negative control: an expired hold left pending is rejected",
-      "negativeControl": true
+      "claim": "the expiry disposition is audited once",
+      "negativeControl": false
     },
     {
       "id": "CM-40",
-      "claim": "RC3A: SMS quiet hours is a temporary owed state",
+      "claim": "a terminal row is never reopened by a later revision",
       "negativeControl": false
     },
     {
       "id": "CM-41",
-      "claim": "RC3A: an SMS standing denial is a permanent refusal for that channel only",
-      "negativeControl": false
+      "claim": "negative control: an expired hold left pending is rejected",
+      "negativeControl": true
     },
     {
       "id": "CM-42",
-      "claim": "RC3A: accepted is delivered, an unsettled row is unknown, no row is not attempted",
+      "claim": "RC3A: SMS quiet hours is a temporary owed state",
       "negativeControl": false
     },
     {
       "id": "CM-43",
-      "claim": "RC3A: email cap is temporary; an unclassified refusal is unknown, never retried blindly",
+      "claim": "RC3A: an SMS standing denial is a permanent refusal for that channel only",
       "negativeControl": false
     },
     {
       "id": "CM-44",
-      "claim": "RC3A: an accepted email never erases a held SMS; the SMS stays owed",
+      "claim": "RC3A: accepted is delivered, an unsettled row is unknown, no row is not attempted",
       "negativeControl": false
     },
     {
       "id": "CM-45",
-      "claim": "RC3A: a permanent SMS denial does not suppress or alter the email channel",
+      "claim": "RC3A: email cap is temporary; an unclassified refusal is unknown, never retried blindly",
       "negativeControl": false
     },
     {
       "id": "CM-46",
-      "claim": "negative control: a held SMS read as delivered",
-      "negativeControl": true
+      "claim": "RC3A: an accepted email never erases a held SMS; the SMS stays owed",
+      "negativeControl": false
     },
     {
       "id": "CM-47",
-      "claim": "RC3B: an SMS reply whose provider number differs (or is unverifiable) never reaches the provider",
+      "claim": "RC3A: a permanent SMS denial does not suppress or alter the email channel",
       "negativeControl": false
     },
     {
       "id": "CM-48",
-      "claim": "RC3B: consent, STOP, purpose and the exact number are re-asserted before every attempt",
-      "negativeControl": false
+      "claim": "negative control: a held SMS read as delivered",
+      "negativeControl": true
     },
     {
       "id": "CM-49",
-      "claim": "RC3: the dormant proposal email resend export is fenced fail-closed and no longer sends",
+      "claim": "RC3B: an SMS reply whose provider number differs (or is unverifiable) never reaches the provider",
       "negativeControl": false
     },
     {
       "id": "CM-50",
-      "claim": "RC4A: a readback naming the exact appointment, calendar, location, contact and time is confirmed",
+      "claim": "RC3B: consent, STOP, purpose and the exact number are re-asserted before every attempt",
       "negativeControl": false
     },
     {
       "id": "CM-51",
-      "claim": "RC4A: a missing or different appointment id is unconfirmed",
+      "claim": "RC3: the dormant proposal email resend export is fenced fail-closed and no longer sends",
       "negativeControl": false
     },
     {
       "id": "CM-52",
-      "claim": "RC4A: a missing or different calendar is unconfirmed",
+      "claim": "RC4A: a readback naming the exact appointment, calendar, location, contact and time is confirmed",
       "negativeControl": false
     },
     {
       "id": "CM-53",
-      "claim": "RC4A: a missing or different location is unconfirmed",
+      "claim": "RC4A: a missing or different appointment id is unconfirmed",
       "negativeControl": false
     },
     {
       "id": "CM-54",
-      "claim": "RC4A: a missing or different contact is unconfirmed",
+      "claim": "RC4A: a missing or different calendar is unconfirmed",
       "negativeControl": false
     },
     {
       "id": "CM-55",
-      "claim": "RC4A: a different requested time is unconfirmed",
+      "claim": "RC4A: a missing or different location is unconfirmed",
       "negativeControl": false
     },
     {
       "id": "CM-56",
-      "claim": "negative control: treating a readback with no identity as matching is rejected",
-      "negativeControl": true
+      "claim": "RC4A: a missing or different contact is unconfirmed",
+      "negativeControl": false
     },
     {
       "id": "CM-57",
-      "claim": "RC4B: the panel saves, restores and checks an unresolved command and clears other actors' entries",
+      "claim": "RC4A: a different requested time is unconfirmed",
       "negativeControl": false
     },
     {
       "id": "CM-58",
-      "claim": "RC4B: a new preview cannot mint a replacement command while one is unresolved",
-      "negativeControl": false
+      "claim": "negative control: treating a readback with no identity as matching is rejected",
+      "negativeControl": true
     },
     {
       "id": "CM-59",
-      "claim": "RC4B: the saved record holds only command identity and reviewed numbers",
+      "claim": "RC4B: the panel saves, restores and checks an unresolved command and clears other actors' entries",
       "negativeControl": false
     },
     {
       "id": "CM-60",
-      "claim": "RC4D: historical runs are labelled as such, raw provider text is in sanitized diagnostics, and there is no retry control",
+      "claim": "RC4B: a new preview cannot mint a replacement command while one is unresolved",
       "negativeControl": false
     },
     {
       "id": "CM-61",
-      "claim": "RC5: the exact-lookup suite is in the CI suite manifest",
+      "claim": "RC4B: the saved record holds only command identity and reviewed numbers",
       "negativeControl": false
     },
     {
       "id": "CM-62",
-      "claim": "this suite is registered in the pre-deploy roster and the disposable certification runner",
+      "claim": "RC4D: historical runs are labelled as such, raw provider text is in sanitized diagnostics, and there is no retry control",
       "negativeControl": false
     },
     {
       "id": "CM-63",
+      "claim": "RC5: the exact-lookup suite is in the CI suite manifest",
+      "negativeControl": false
+    },
+    {
+      "id": "CM-64",
+      "claim": "this suite is registered in the pre-deploy roster and the disposable certification runner",
+      "negativeControl": false
+    },
+    {
+      "id": "CM-65",
       "claim": "no provider network attempt occurred during the certification",
       "negativeControl": false
     }

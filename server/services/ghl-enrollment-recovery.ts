@@ -134,6 +134,17 @@ export async function deferGhlEnrollment(params: {
 const occurrenceLockText = (id: string) => `ghl-deferred:${id}`;
 
 /**
+ * The ONE expired-hold predicate (dispatch, paused sweep and diagnostics all read it). Only a row that was saved as a
+ * hold-for-configuration with a parseable expiry can expire; a future or unparseable expiry never does.
+ */
+export function heldEnrollmentExpiry(metadata: any, now: number = Date.now()): { held: boolean; expiresAt: string | null; expired: boolean } {
+  const held = metadata?._holdForConfiguration === true;
+  const raw = held && typeof metadata?._expiresAt === "string" ? metadata._expiresAt as string : null;
+  const ms = raw === null ? NaN : new Date(raw).getTime();
+  return { held, expiresAt: raw, expired: Number.isFinite(ms) && now > ms };
+}
+
+/**
  * Cancels the deferred enrollment owned by one appointment occurrence (and only that one). Serialised with the
  * recovery worker's final dispatch through a per-obligation advisory lock, so a cancel that commits first always wins
  * against an item the worker has already claimed: the worker re-reads the row under the same lock immediately before it
@@ -232,9 +243,9 @@ async function dispatchClaimedEnrollment(claimedEntry: {
       return { kind: "cancelled" };
     }
     entry = { ...entry, metadata: current.rows[0].metadata, retry_count: current.rows[0].retry_count };
-    const expiresRaw = entry.metadata?._holdForConfiguration && typeof entry.metadata?._expiresAt === "string"
-      ? entry.metadata._expiresAt as string : null;
-    if (expiresRaw !== null && Date.now() > new Date(expiresRaw).getTime()) {
+    const expiry = heldEnrollmentExpiry(entry.metadata);
+    const expiresRaw = expiry.expiresAt;
+    if (expiry.expired && expiresRaw !== null) {
       // Terminal and observable (status failed, reason hold_expired); the provider is never called.
       await client.query(
         `UPDATE deferred_ghl_enrollments SET status = 'failed', failed_at = NOW(), last_error = 'hold_expired' WHERE id = $1 AND status = 'pending'`,
@@ -304,6 +315,81 @@ async function parkUnknownOutcome(
   console.error(`[GHL Recovery] Unknown outcome held (not re-sent): workflowKey=${entry.workflow_key} ghlContactId=${entry.ghl_contact_id}`);
 }
 
+export interface HeldEnrollmentExpiryDiagnostics {
+  /** pending rows saved as a hold that has not yet expired */
+  heldPending: number;
+  /** pending held rows whose expiry has passed and that no tick has terminalized yet (paused/coordinator-held, or between ticks) */
+  expiredAwaitingSweep: number;
+  /** terminal rows closed because the hold expired */
+  expiredTerminal: number;
+  /** pending rows that are not holds (ordinary retry obligations) */
+  otherPending: number;
+  /** `unknown` when the table could not be read: never reported as zero */
+  availability: "available" | "unknown";
+}
+
+/** Read-only visibility of held-enrollment expiry. It never claims, sends, retries or changes a row. */
+export async function getHeldEnrollmentExpiryDiagnostics(): Promise<HeldEnrollmentExpiryDiagnostics> {
+  try {
+    const rows = (await db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'pending' AND metadata->>'_holdForConfiguration' = 'true'
+          AND CASE WHEN metadata->>'_expiresAt' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' THEN (metadata->>'_expiresAt')::timestamptz <= now() ELSE false END)::int AS expired_pending,
+        COUNT(*) FILTER (WHERE status = 'pending' AND metadata->>'_holdForConfiguration' = 'true')::int AS held_pending,
+        COUNT(*) FILTER (WHERE status = 'pending')::int AS all_pending,
+        COUNT(*) FILTER (WHERE status = 'failed' AND last_error = 'hold_expired')::int AS expired_terminal
+      FROM deferred_ghl_enrollments
+    `)).rows[0] as any;
+    const heldPending = Number(rows?.held_pending ?? 0);
+    const expiredPending = Number(rows?.expired_pending ?? 0);
+    return {
+      heldPending: heldPending - expiredPending,
+      expiredAwaitingSweep: expiredPending,
+      expiredTerminal: Number(rows?.expired_terminal ?? 0),
+      otherPending: Number(rows?.all_pending ?? 0) - heldPending,
+      availability: "available",
+    };
+  } catch {
+    return { heldPending: 0, expiredAwaitingSweep: 0, expiredTerminal: 0, otherPending: 0, availability: "unknown" };
+  }
+}
+
+/**
+ * Non-sending maintenance run while outbound is paused or the queue is held. It may ONLY terminalize a pending hold
+ * whose expiry has passed (status failed, reason hold_expired) and audit that fact; it never claims a row for dispatch,
+ * calls a provider, increments a retry counter, touches send counters or unpauses anything. The expiry is re-read
+ * under the same occurrence lock as dispatch, so a cancel/reschedule that already retired the row wins, and a row
+ * terminalized here can never be terminalized (or audited) a second time.
+ */
+export async function sweepExpiredHeldEnrollments(limit = 200): Promise<{ expired: number }> {
+  const candidates = (await db.execute(sql`
+    SELECT id, ghl_contact_id, workflow_key FROM deferred_ghl_enrollments
+     WHERE status = 'pending' AND metadata->>'_holdForConfiguration' = 'true'
+       AND CASE WHEN metadata->>'_expiresAt' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' THEN (metadata->>'_expiresAt')::timestamptz <= now() ELSE false END
+     ORDER BY enqueued_at ASC LIMIT ${limit}
+  `)).rows as Array<{ id: string; ghl_contact_id: string; workflow_key: string }>;
+  let expired = 0;
+  for (const candidate of candidates) {
+    const outcome = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${occurrenceLockText(candidate.id)}, 0))`);
+      const current = (await tx.execute(sql`SELECT status, metadata FROM deferred_ghl_enrollments WHERE id = ${candidate.id} FOR UPDATE`)).rows[0] as any;
+      if (current?.status !== "pending") return null;
+      const expiry = heldEnrollmentExpiry(current.metadata);
+      if (!expiry.expired || expiry.expiresAt === null) return null;
+      await tx.execute(sql`UPDATE deferred_ghl_enrollments SET status = 'failed', failed_at = NOW(), last_error = 'hold_expired'
+        WHERE id = ${candidate.id} AND status = 'pending'`);
+      return expiry.expiresAt;
+    });
+    if (outcome === null) continue;
+    expired++;
+    await auditChange({
+      actorType: "system", action: "ghl_enrollment_hold_expired", entityType: "ghl_sync", entityKey: candidate.ghl_contact_id,
+      details: { workflowKey: candidate.workflow_key, expiredAt: outcome, sent: false, disposition: "terminal_failed_hold_expired_while_held" },
+    }).catch(() => {});
+  }
+  return { expired };
+}
+
 /**
  * Called by the BullMQ repeatable job every 30 minutes.
  *
@@ -329,11 +415,14 @@ export async function retryDeferredEnrollments(): Promise<{
     const decision = await authorize({});
     if (!decision.allowed) {
       console.log(`[GHL Recovery] Blocked by OutboundPauseAuthority (reason=${decision.reasonCode}) — deferring without incrementing retry_count`);
+      // Only expired holds are terminalized (no claim, no send, no retry count); everything else waits for unpause.
+      await sweepExpiredHeldEnrollments().catch((err) => console.warn("[GHL Recovery] paused expiry sweep failed:", err?.message ?? err));
       return stats;
     }
     const coordOk = await canExecute("ghl-enrollment-recovery");
     if (!coordOk) {
       console.log("[GHL Recovery] Coordinator hold on 'ghl-enrollment-recovery' — deferring without incrementing retry_count");
+      await sweepExpiredHeldEnrollments().catch((err) => console.warn("[GHL Recovery] held-queue expiry sweep failed:", err?.message ?? err));
       return stats;
     }
   }

@@ -76,6 +76,7 @@ async function main(): Promise<void> {
       { name: "stage4c2-calendar-contract", script: "scripts/certification/test-stage4c2-calendar-contract.ts", database: true },
       { name: "stage4c2-correction-pass", script: "scripts/certification/test-stage4c2-correction-pass.ts", database: true },
       { name: "stage4c2-completion-pass", script: "scripts/certification/test-stage4c2-completion-pass.ts", database: true },
+      { name: "stage4d-integrated-acceptance", script: "scripts/certification/test-stage4d-integrated-acceptance.ts", database: true },
       { name: "sms-recipient-authority", script: "scripts/certification/test-sms-recipient-authority.ts", database: true },
       { name: "sfp-launch-runner-e2e", script: "scripts/certification/test-sfp-launch-runner-e2e.ts", database: true },
       { name: "sfp-launch-lifecycle-e2e", script: "scripts/certification/test-sfp-launch-lifecycle-e2e.ts", database: true },

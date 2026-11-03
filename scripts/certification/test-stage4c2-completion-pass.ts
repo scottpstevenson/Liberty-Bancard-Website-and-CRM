@@ -213,7 +213,19 @@ const blockedBefore = getBlockedCertificationNetworkAttemptCount();
 // Fail-closed default: with no unpaused control row the worker touches nothing (the row is neither consumed nor retried).
 const pausedStats = await retryDeferredEnrollments();
 const stillPending = (await pool.query(`SELECT status, retry_count FROM deferred_ghl_enrollments WHERE id=$1`, [amended[0].id])).rows[0];
-check(pausedStats.attempted === 0 && stillPending.status === "pending" && stillPending.retry_count === 0, "under the fail-closed pause default the worker neither claims nor consumes the held obligation");
+// Stage 4D: while paused the worker still never claims, sends or retry-counts, but it terminalizes a hold whose expiry has passed
+// (non-sending sweep), so an expired hold is observable instead of waiting indefinitely for an unpause.
+check(pausedStats.attempted === 0 && stillPending.status === "failed" && stillPending.retry_count === 0
+  && (await pool.query(`SELECT last_error FROM deferred_ghl_enrollments WHERE id=$1`, [amended[0].id])).rows[0].last_error === "hold_expired",
+  "under the fail-closed pause default the worker neither claims nor retry-counts the obligation; an already-expired hold is terminalized by the non-sending sweep");
+check((await pool.query(`SELECT count(*)::int AS n FROM audit_logs WHERE action='ghl_enrollment_hold_expired' AND entity_key=$1`, [gc])).rows[0].n === 1, "the paused expiry sweep audits the disposition once");
+check(getBlockedCertificationNetworkAttemptCount() === blockedBefore, "the paused expiry sweep made no provider attempt");
+// A second expired hold exercises the unpaused worker path.
+const gc2 = `ghl-def2-${tag}`;
+await deferGhlEnrollment({ ghlContactId: gc2, workflowKey: "booking_confirmation", metadata: { ...metaV1, revision: 1 }, error: "workflow_not_configured", occurrenceKey: `occ2-${tag}` });
+const second = (await pool.query(`SELECT id FROM deferred_ghl_enrollments WHERE ghl_contact_id=$1`, [gc2])).rows[0];
+await pool.query(`UPDATE deferred_ghl_enrollments SET metadata = jsonb_set(metadata, '{_expiresAt}', to_jsonb($2::text)), next_retry_at = now() - interval '1 minute' WHERE id=$1`,
+  [second.id, new Date(Date.now() - 60_000).toISOString()]);
 // Disposable database only: simulate an unpaused control row so the worker reaches the held row; restored afterwards.
 const setPause = async (state: "paused" | "unpaused") => {
   const updated = await pool.query(`UPDATE outbound_pause_control SET state=$1, committed_at=NOW()`, [state]);
@@ -223,10 +235,10 @@ const setPause = async (state: "paused" | "unpaused") => {
 await setPause("unpaused");
 let stats: Awaited<ReturnType<typeof retryDeferredEnrollments>>;
 try { stats = await retryDeferredEnrollments(); } finally { await setPause("paused"); }
-const expiredRow = (await pool.query(`SELECT status, last_error FROM deferred_ghl_enrollments WHERE id=$1`, [amended[0].id])).rows[0];
+const expiredRow = (await pool.query(`SELECT status, last_error FROM deferred_ghl_enrollments WHERE id=$1`, [second.id])).rows[0];
 check(expiredRow?.status === "failed" && expiredRow?.last_error === "hold_expired" && stats.permanentlyFailed >= 1, "an expired required hold becomes a terminal, observable failure (not deleted, not pending)");
 check(getBlockedCertificationNetworkAttemptCount() === blockedBefore, "the expired hold made no provider attempt");
-const expiredAudit = (await pool.query(`SELECT count(*)::int AS n FROM audit_logs WHERE action='ghl_enrollment_hold_expired' AND entity_key=$1`, [gc])).rows[0].n as number;
+const expiredAudit = (await pool.query(`SELECT count(*)::int AS n FROM audit_logs WHERE action='ghl_enrollment_hold_expired' AND entity_key=$1`, [gc2])).rows[0].n as number;
 check(expiredAudit === 1, "the expiry disposition is audited once");
 const reopened = await deferGhlEnrollment({ ghlContactId: gc, workflowKey: "booking_confirmation", metadata: metaV1, error: "workflow_not_configured", occurrenceKey: `occ-${tag}` });
 check(!reopened.persisted && (await pool.query(`SELECT status FROM deferred_ghl_enrollments WHERE id=$1`, [amended[0].id])).rows[0].status === "failed", "a terminal row is never reopened by a later revision");

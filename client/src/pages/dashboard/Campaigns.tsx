@@ -1072,6 +1072,23 @@ export default function Campaigns() {
     queryKey: ["/api/prospect-lists"],
   });
 
+  // Package-ownership class of each campaign (current / historical / template / unresolved) from the catalog authority.
+  // It is a label only: it never changes what a campaign can do, and when it cannot be read no class is shown (never a guess).
+  const { user: campaignsUser } = useAuth();
+  const canReadCatalogClass = campaignsUser?.role === "admin" || campaignsUser?.role === "manager";
+  const { data: catalogClassByCampaign } = useCrmQuery<Map<number, { catalogClass: string; reason: string }>>({
+    queryKey: ["/api/admin/catalog-truth", "campaign-classes"],
+    enabled: canReadCatalogClass,
+    queryFn: async ({ signal }) => {
+      const res = await fetch("/api/admin/catalog-truth", { credentials: "include", signal });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const body = await res.json() as { available?: boolean; campaigns?: Array<{ id: number; catalogClass: string; reason: string }> };
+      if (!body.available || !Array.isArray(body.campaigns)) throw new Error("catalog unavailable");
+      return new Map(body.campaigns.map(c => [c.id, { catalogClass: c.catalogClass, reason: c.reason }] as const));
+    },
+    retry: false,
+  });
+
   const form = useForm<CampaignFormData>({
     resolver: zodResolver(campaignFormSchema),
     defaultValues: {
@@ -1440,6 +1457,20 @@ export default function Campaigns() {
                         Template
                       </Badge>
                     )}
+                    {(() => {
+                      const assetClass = catalogClassByCampaign?.get(campaign.id);
+                      if (!assetClass || (assetClass.catalogClass !== "current" && assetClass.catalogClass !== "historical")) return null;
+                      return (
+                        <Badge
+                          variant={assetClass.catalogClass === "current" ? "default" : "outline"}
+                          className="no-default-hover-elevate no-default-active-elevate"
+                          title={assetClass.reason}
+                          data-testid={`badge-catalog-class-${campaign.id}`}
+                        >
+                          {assetClass.catalogClass === "current" ? "Current SFP" : "Historical"}
+                        </Badge>
+                      );
+                    })()}
                     <Badge
                       variant="outline"
                       className={`no-default-hover-elevate no-default-active-elevate ${getStatusBadgeClass(campaign.status)}`}

@@ -3,6 +3,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useUrlParam, parseMonthParam } from "@/hooks/use-url-param";
 import { useAuth } from "@/hooks/use-auth";
 import { BookingCommandPanel } from "@/components/BookingCommandPanel";
+import { BookingCreatePanel } from "@/components/BookingCreatePanel";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -169,6 +170,10 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
   const [selectedDate, setSelectedDate] = useUrlParam<string>("cal_date", todayKeyForUrl,
     raw => (/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(raw) ? raw : undefined), { history: "replace" });
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showProviderCreate, setShowProviderCreate] = useState(false);
+  const { user: calendarUser } = useAuth();
+  const calendarRole = (calendarUser as { role?: string } | null | undefined)?.role;
+  const canUseProviderCreate = calendarRole === "admin" || calendarRole === "manager";
   // At phone width the seven-column month grid is replaced by an agenda list of the days that have items.
   const [narrow, setNarrow] = useState(false);
   useEffect(() => {
@@ -490,9 +495,16 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
             Times shown in {Intl.DateTimeFormat().resolvedOptions().timeZone}
           </span>
         </div>
-        <Button onClick={() => { setEventForm(f => ({ ...f, date: selectedDate })); setShowAddDialog(true); }} data-testid="button-add-event">
-          <Plus className="h-4 w-4 mr-1" /> Add local event
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {canUseProviderCreate && (
+            <Button variant="outline" className="min-h-11" onClick={() => setShowProviderCreate(true)} data-testid="button-create-provider-appointment">
+              <CalendarIcon className="h-4 w-4 mr-1" /> Create provider appointment
+            </Button>
+          )}
+          <Button onClick={() => { setEventForm(f => ({ ...f, date: selectedDate })); setShowAddDialog(true); }} data-testid="button-add-event">
+            <Plus className="h-4 w-4 mr-1" /> Add local event
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-1" data-testid="calendar-source-filter">
@@ -839,6 +851,18 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
           )}
         </SheetContent>
       </Sheet>
+
+      {canUseProviderCreate && (
+        <Dialog open={showProviderCreate} onOpenChange={setShowProviderCreate}>
+          <DialogContent className="max-h-[90vh] overflow-y-auto" data-testid="dialog-create-provider-appointment">
+            <DialogHeader>
+              <DialogTitle>Create provider appointment</DialogTitle>
+            </DialogHeader>
+            <BookingCreatePanel purpose={appointmentPurpose} canExecute={calendarRole === "admin"}
+              onSettled={() => { void retryAppointments(); }} />
+          </DialogContent>
+        </Dialog>
+      )}
 
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
         <DialogContent data-testid="dialog-add-event">

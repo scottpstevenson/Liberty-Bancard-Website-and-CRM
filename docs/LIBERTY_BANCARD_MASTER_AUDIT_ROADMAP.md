@@ -681,3 +681,13 @@ Stage 4A (catalog and operational truth) is published. Stage 4B (SFP supply and 
 
 - **4C2 (appointment and follow-up authority) — 2026-11-02:** source-implemented, unpublished; see ledger entry "Stage 4C2" and `docs/certification/stage4-c2/owner-map-and-disposition.md`. Correction pass (migration 0379) delivered the browser matrix, calendar drawer/source filter/agenda, run-history paging and SMS purpose work in source (still unpublished). Open: handler interleaving and executor-crash suites, full pre-deploy roster, queue/compliance baseline scans, native workflow installation, cancel-disposition approval and booking-writer enablement (4D).
 - **4C2 completion pass — 2026-11-02:** RC1–RC5 repaired in source and tested on disposable databases (ledger "Stage 4C2 completion pass"); create-from-console explicitly deferred to 4D (RC4C); scanner baselines recorded as failing, not green; unpublished. Remaining 4D: native workflow install, booking-writer canary, delivery/readback, role/performance acceptance on the served build.
+
+## Stage 4D — integrated acceptance (2026-11-03)
+
+Separate verdicts (details in `docs/certification/stage4-d/`):
+- **Implementation:** passed on disposable databases. New `stage4d-integrated-acceptance` (27 checks, 6 negative controls); sms-recipient-authority 42, stage4c2-completion-pass 65, stage4c2-calendar-contract 67 re-run green. No provider network attempt. Full TypeScript check and full pre-deploy roster were not run.
+- **Repairs:** inbound reply evidence and receipt in one transaction (aliases converge); reply-stop pause + audit atomic with real count; expired GHL holds terminalized by a non-sending sweep even while paused (diagnostics on Program Health); direct SMS transport compares the full provider number each attempt; failed workflow run with no workflow parks for review; booking-confirmation wording is confirmation-only; governed provider-appointment create console (local authorized contact required, admin executes); campaign Current SFP/Historical badges.
+- **Data/count, SFP prep/staging, content/CTA:** unchanged; five current package pins remain draft/paused/unapproved.
+- **Native GHL/calendar:** **BLOCKED** — no authorized protected test path (booking writer default-denied, outgoing GHL disabled epoch 16). Owner steps in `owner-and-native-matrix.md`.
+- **Roles/UI/performance:** new controls are source-verified only; no signed-in browser pass.
+- **Publication/schema/rollback:** no migration; `ghl_appointment_state_status_chk` still lacks `'no_show'` in production (owner SQL repair). Scanner baselines (compliance 3 sites, queue 3 files) remain open and unadjudicated.

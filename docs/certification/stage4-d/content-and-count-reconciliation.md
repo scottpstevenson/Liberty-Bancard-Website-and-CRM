@@ -1,0 +1,3 @@
+# Content and count reconciliation
+
+No content, CTA, package, sequence or count was changed or republished. Recorded production facts (about 2026-11-03 11:00Z): five current SFP package pins are draft/paused/unapproved; live packages run 3 touches at days 0/3/5. Five-touch drafts are not adopted automatically; adoption stays on the existing paired publication and approval authorities. The only wording change is the booking-confirmation workflow description (confirmation only; the 24h reminder is its own workflow `booking_reminder_24h`; no 1-hour reminder has an owner). Dev database counts (for example pause epoch 750) are test artefacts and are not production counts.

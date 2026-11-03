@@ -209,11 +209,23 @@ export async function processCommunicationEvent(event: CommEvent): Promise<CommE
 
   if (result.allChannelsFailed) {
     try {
-      await storage.pauseAllActiveEnrollments(event.contactId);
+      // Pause and its audit fact commit together with the rows actually changed.
+      await storage.pauseActiveEnrollmentsWithAudit(event.contactId, ({ count, enrollmentIds }) => ({
+        action: "enrollments_paused_all_channels_failed",
+        entityType: "contact",
+        entityId: event.contactId,
+        details: { source: "communication_feedback", eventType: event.type, pausedCount: count, enrollmentIds },
+      }));
     } catch (err) {
-      console.warn(`[CommFeedback] pauseAllActiveEnrollments failed for contact #${event.contactId}:`, err);
+      // Not silent: the failed pause is recorded durably so an operator can see enrollments that stayed active.
+      console.warn(`[CommFeedback] pause of active enrollments failed for contact #${event.contactId}:`, err);
+      await storage.createAuditLog({
+        action: "enrollments_pause_failed",
+        entityType: "contact",
+        entityId: event.contactId,
+        details: { source: "communication_feedback", eventType: event.type, error: err instanceof Error ? err.message : String(err) },
+      }).catch(() => {});
     }
-
   }
 
   if (result.nextAction === "sms_escalation" && contact.phone) {

@@ -393,6 +393,7 @@ export interface IStorage {
   cancelSequenceEnrollment(sequenceId: number, contactId: number): Promise<typeof sequenceEnrollments.$inferSelect | null>;
   getActiveEnrollments(): Promise<typeof sequenceEnrollments.$inferSelect[]>;
   pauseAllActiveEnrollments(contactId: number): Promise<number>;
+  pauseActiveEnrollmentsWithAudit(contactId: number, audit?: (changed: { count: number; enrollmentIds: number[] }) => InsertAuditLog): Promise<{ count: number; enrollmentIds: number[] }>;
 
   getSunbizEntities(listId?: number, params?: PaginationParams): Promise<PaginatedResult<SunbizEntity>>;
   getSunbizEntity(id: number): Promise<SunbizEntity | undefined>;

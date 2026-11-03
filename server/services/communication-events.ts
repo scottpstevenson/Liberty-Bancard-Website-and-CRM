@@ -160,7 +160,7 @@ export async function recordOutboundSend(opts: {
  * Convenience helper for recording inbound events (replies, form submissions,
  * call outcomes, appointment bookings).
  */
-export async function recordInboundEvent(opts: {
+export interface InboundEventOptions {
   contactId: number;
   dealId?: number | null;
   channel: "email" | "sms" | "call" | "voicemail" | "chat" | "form" | "portal";
@@ -176,7 +176,9 @@ export async function recordInboundEvent(opts: {
   externalMessageId?: string | null;
   metadata?: Record<string, unknown>;
   occurredAt?: Date;
-}): Promise<number> {
+}
+
+export async function recordInboundEvent(opts: InboundEventOptions): Promise<number> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -218,5 +220,42 @@ export async function recordInboundEvent(opts: {
     throw new Error("Canonical inbound communication event persistence failed", { cause: err });
   } finally {
     client.release();
+  }
+}
+
+
+/**
+ * Same strict canonical inbound writer, participating in the CALLER's transaction. The contact communication
+ * advisory lock and critical-error propagation are identical to recordInboundEvent; the difference is that the insert
+ * commits or rolls back together with the caller's other writes (for example an effect receipt), so a crash between
+ * the event commit and the receipt commit cannot leave an event whose replay inserts a second copy.
+ */
+export async function recordInboundEventInTx(
+  tx: { execute: typeof db.execute },
+  opts: InboundEventOptions,
+): Promise<number> {
+  const { sql } = await import("drizzle-orm");
+  try {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${communicationContactLockKey(opts.contactId).toString()}::bigint)`);
+    const metadata = opts.metadata == null ? null : JSON.stringify(opts.metadata);
+    const result = await tx.execute(sql`
+      INSERT INTO communication_events
+        (contact_id, deal_id, direction, channel, provider, subject, body,
+         status, sent_by, intent_classification, intent_confidence,
+         automation_stopped, automation_stop_reason, ghl_message_id,
+         external_message_id, metadata, created_at, updated_at)
+      VALUES
+        (${opts.contactId}, ${opts.dealId ?? null}, 'inbound', ${opts.channel}, ${opts.provider ?? "ghl"},
+         ${opts.subject ?? null}, ${opts.body ?? null}, ${opts.status ?? "received"}, 'human',
+         ${opts.intentClassification ?? null}, ${opts.intentConfidence ?? null},
+         ${opts.automationStopped ?? false}, ${opts.automationStopReason ?? null}, ${opts.ghlMessageId ?? null},
+         ${opts.externalMessageId ?? null}, ${metadata}::jsonb, ${opts.occurredAt ?? new Date()}, NOW())
+      RETURNING id
+    `);
+    const row = (result.rows as Array<{ id: number }>)[0];
+    if (!row) throw new Error("Canonical inbound communication event persistence returned no row");
+    return Number(row.id);
+  } catch (err) {
+    throw new Error("Canonical inbound communication event persistence failed", { cause: err });
   }
 }

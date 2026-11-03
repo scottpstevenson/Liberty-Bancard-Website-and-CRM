@@ -1901,18 +1901,17 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
 
       // Inbound canonical persistence is acknowledged: webhook failure must be
       // retryable rather than later appearing as confirmed reply absence.
-      const { recordInboundEvent } = await import("./communication-events");
-      await effectOnce("communication_event", async () => {
-        await recordInboundEvent({
-          contactId: contact.id,
-          dealId: contactDeal?.id ?? null,
-          channel: channel as "email" | "sms",
-          provider: "ghl",
-          subject: subject || null,
-          body: body || null,
-          status: "received",
-          ghlMessageId: messageId || null,
-        });
+      // One shared strict writer inside the effect transaction (same effect key as the specialized route's write).
+      const { recordCanonicalInboundMessageEventOnce } = await import("./ghl-inbound-effects");
+      await recordCanonicalInboundMessageEventOnce({
+        contactId: contact.id,
+        dealId: contactDeal?.id ?? null,
+        payload,
+        channel: channel as "email" | "sms",
+        subject: subject || null,
+        body: body || null,
+        status: "received",
+        ghlMessageId: messageId || null,
       });
 
       await storage.updateContact(contact.id, {
@@ -2006,23 +2005,20 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
       // intents (positive_reply, booking_intent, question, support, objection, neutral) also
       // pause so prospects aren't double-touched by automation while a rep handles the reply.
       if (messageClassification.intent !== "unsubscribe") {
-        // The pause is idempotent; its audit row is written once per message together with its receipt.
-        const pausedCount = await storage.pauseAllActiveEnrollments(contact.id);
-        if (pausedCount > 0) {
-          await effectOnce("enrollments_paused_audit", async (tx) => {
-            await storage.createAuditLog({
-              action: "enrollments_paused_on_reply",
-              entityType: "contact",
-              entityId: contact.id,
-              details: {
-                source: "ghl_inbound_message",
-                channel,
-                intent: messageClassification.intent,
-                pausedCount,
-              },
-            }, tx);
-          });
-        }
+        // The pause and its audit fact commit in one transaction and report the rows this statement really changed.
+        // A replay that finds nothing active writes nothing, and a failed audit rolls the pause back for retry.
+        await storage.pauseActiveEnrollmentsWithAudit(contact.id, ({ count, enrollmentIds }) => ({
+          action: "enrollments_paused_on_reply",
+          entityType: "contact",
+          entityId: contact.id,
+          details: {
+            source: "ghl_inbound_message",
+            channel,
+            intent: messageClassification.intent,
+            pausedCount: count,
+            enrollmentIds,
+          },
+        }));
         // Create a rep review task for intents that don't already create one above
         const taskAlreadyCreated = ["support", "question", "booking_intent"].includes(
           messageClassification.intent

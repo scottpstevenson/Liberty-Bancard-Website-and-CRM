@@ -22,10 +22,22 @@ export type SmsDenialCode =
   | "consent_not_recorded"
   | "consent_not_bound_to_number"
   | "contactability_blocked"
-  | "quiet_hours";
+  | "quiet_hours"
+  | "provider_target_unverified"
+  | "provider_number_mismatch";
 
-/** A denial that clears by itself with time; every other denial is a standing "no" for this recipient and number. */
-export const SMS_TRANSIENT_DENIAL_CODES: ReadonlySet<SmsDenialCode> = new Set<SmsDenialCode>(["quiet_hours"]);
+/**
+ * A denial that clears by itself with time; every other denial is a standing "no" for this recipient and number.
+ * `provider_target_unverified` (the provider's number could not be read) is a transport-identity gap: nothing was sent
+ * and it may clear, so it is transient, never an invented consent withdrawal.
+ */
+export const SMS_TRANSIENT_DENIAL_CODES: ReadonlySet<SmsDenialCode> = new Set<SmsDenialCode>(["quiet_hours", "provider_target_unverified"]);
+
+/**
+ * Denials about WHERE the provider would text, not about permission. They are not consent refusals: the recipient is
+ * held for review (state "unknown") rather than recorded as a permanent "no".
+ */
+export const SMS_TRANSPORT_IDENTITY_CODES: ReadonlySet<SmsDenialCode> = new Set<SmsDenialCode>(["provider_number_mismatch"]);
 
 export interface SmsRecipientInput {
   contactId: number;
@@ -57,11 +69,19 @@ export function smsDenialDetail(resolution: Extract<SmsRecipientResolution, { al
   return `sms_not_permitted:${resolution.code}`;
 }
 
-export function parseSmsDenialDetail(detail: string | undefined | null): { code: SmsDenialCode; transient: boolean } | null {
+const KNOWN_SMS_DENIAL_CODES: ReadonlySet<string> = new Set<SmsDenialCode>([
+  "contact_not_found", "no_phone", "recipient_number_changed", "consent_withdrawn", "global_suppressed",
+  "consent_not_recorded", "consent_not_bound_to_number", "contactability_blocked", "quiet_hours",
+  "provider_target_unverified", "provider_number_mismatch",
+]);
+
+/** An unrecognized code is `null`-coded unknown, never silently treated as a permanent refusal. */
+export function parseSmsDenialDetail(detail: string | undefined | null):
+  { code: SmsDenialCode; transient: boolean; transportIdentity: boolean } | null {
   const match = /^sms_not_permitted:([a-z_]+)/.exec(detail ?? "");
-  if (!match) return null;
+  if (!match || !KNOWN_SMS_DENIAL_CODES.has(match[1])) return null;
   const code = match[1] as SmsDenialCode;
-  return { code, transient: SMS_TRANSIENT_DENIAL_CODES.has(code) };
+  return { code, transient: SMS_TRANSIENT_DENIAL_CODES.has(code), transportIdentity: SMS_TRANSPORT_IDENTITY_CODES.has(code) };
 }
 
 interface SubjectRestriction {

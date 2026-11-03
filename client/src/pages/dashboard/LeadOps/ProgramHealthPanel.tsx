@@ -36,6 +36,12 @@ interface WorkerHeartbeat {
   consecutiveFailures?: number | null;
   minutesSince?: number | null;
   error?: string;
+  /** Server-derived reading that already accounts for selection and owner control. */
+  interpretation?: "active" | "stale" | "failed" | "unavailable" | "not_selected_expected_idle" | "paused_by_control";
+  selectedInThisProcess?: boolean;
+  selectionScope?: string;
+  control?: { outgoingEnabled: boolean; epoch: number } | null;
+  meaning?: string;
 }
 
 interface PipelineCountsMetric {
@@ -80,6 +86,7 @@ interface LeadOpsHealth {
   workerStalenessThresholdMs?: number;
   /** Server-derived: true when the enrichment worker has exceeded the staleness threshold */
   enrichmentWorkerStaleAlert?: boolean;
+  heldEnrollmentExpiry?: { heldPending: number; expiredAwaitingSweep: number; expiredTerminal: number; otherPending: number; availability: string };
   workerHeartbeats?: Record<string, WorkerHeartbeat>;
   pipelineCounts?: PipelineCountsMetric;
   freeEnrichQueueDepth?: FreeEnrichQueueDepth;
@@ -94,12 +101,28 @@ interface LeadOpsHealth {
 const WORKER_LABELS: Record<string, string> = {
   enrichment:     "Enrichment Queue",
   stager:         "Stager Worker (BullMQ)",
-  ghlSync:        "GHL Sync",
+  ghlSync:        "GHL Sync Monitor",
   sequenceWorker: "Sequence Enrollment",
   slaWorker:      "SLA Checks",
 };
 
 function WorkerStatusBadge({ hb }: { hb: WorkerHeartbeat }) {
+  if (hb.interpretation === "paused_by_control") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-amber-700" aria-label="Outgoing sync paused by owner control">
+        <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+        Paused by control{hb.control ? ` (outgoing off, epoch ${hb.control.epoch})` : ""}
+      </span>
+    );
+  }
+  if (hb.interpretation === "not_selected_expected_idle") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground" aria-label="Not selected in this deployment; expected idle">
+        <XCircle className="h-3.5 w-3.5 text-gray-400" />
+        Not selected here (expected idle)
+      </span>
+    );
+  }
   if (!hb.available) {
     return (
       <span className="inline-flex items-center gap-1 text-xs text-muted-foreground" aria-label={`Worker unavailable: ${hb.error ?? "not registered"}`}>
@@ -406,7 +429,7 @@ export function ProgramHealthPanel() {
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Worker Heartbeats</CardTitle>
           <CardDescription className="text-xs">
-            Per-named-worker last completion time. Stale = no completion in last 30 minutes.
+            Per-named-worker last completion time (30-minute freshness) read with this deployment's worker selection and the owner's sync control. A GHL monitor tick is not evidence of sync writes.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -430,6 +453,13 @@ export function ProgramHealthPanel() {
                   </div>
                 );
               })}
+            </div>
+          )}
+          {h?.heldEnrollmentExpiry && (
+            <div className="mt-3 rounded-md border bg-muted/10 px-3 py-2 text-xs text-muted-foreground" data-testid="text-held-enrollment-expiry">
+              {h.heldEnrollmentExpiry.availability === "available"
+                ? `Held GHL enrollments: ${h.heldEnrollmentExpiry.heldPending} waiting for configuration, ${h.heldEnrollmentExpiry.expiredAwaitingSweep} expired and awaiting the next non-sending sweep, ${h.heldEnrollmentExpiry.expiredTerminal} closed as expired.`
+                : "Held GHL enrollment expiry could not be read."}
             </div>
           )}
         </CardContent>
@@ -496,7 +526,12 @@ export function ProgramHealthPanel() {
       {/* ── Enrichment throughput ────────────────────────────────────────── */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm">Enrichment Throughput (24 h)</CardTitle>
+          <CardTitle className="text-sm">Legacy Sunbiz Enrichment Throughput (24 h, reference)</CardTitle>
+          <CardDescription className="text-xs">
+            Unit: raw Sunbiz source entities and their contacts, last 24 hours. This is supplemental legacy evidence, not the current
+            South Florida Prospecting count; current canonical status and backlog are on the Canonical Enrichment page. An unavailable
+            value means the query could not be read, not zero.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">

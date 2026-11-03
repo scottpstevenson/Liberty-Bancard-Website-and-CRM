@@ -1,0 +1,11 @@
+{
+  "newCertification": { "name": "stage4d-integrated-acceptance", "script": "scripts/certification/test-stage4d-integrated-acceptance.ts", "checks": 27, "negativeControls": 6, "result": "passed", "runner": "scripts/run-sfp2060-certification-disposable.ts --only stage4d-integrated-acceptance", "registered": ["scripts/run-sfp2060-certification-disposable.ts", "scripts/pre-deploy.ts"] },
+  "rerunExisting": [
+    { "name": "sms-recipient-authority", "checks": 42, "result": "passed" },
+    { "name": "stage4c2-completion-pass", "checks": 65, "result": "passed", "note": "updated: a paused worker now terminalizes an already-expired hold (non-sending); the unpaused path is exercised with a second expired hold; the booking pending record keeps no contact details" },
+    { "name": "stage4c2-calendar-contract", "checks": 67, "result": "passed" }
+  ],
+  "baselineFailures": [{"name":"ghl-projection-authority","failingCheck":"GPA-99 booked-event one-time effect","sameOnUntouchedHead":true,"checksPassedBefore":98}],
+  "notRunHere": [ "full pre-deploy roster", "full TypeScript check"],
+  "providerNetworkAttempts": 0
+}

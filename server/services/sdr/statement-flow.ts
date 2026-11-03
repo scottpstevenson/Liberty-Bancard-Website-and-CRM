@@ -138,6 +138,8 @@ export function classifyStatementChannelReceipt(
   if (channel === "sms") {
     const denial = parseSmsDenialDetail(row.detail ?? undefined);
     if (!denial) return "unknown";
+    // A provider/local number disagreement is held for review: it is not a standing consent refusal.
+    if (denial.transportIdentity) return "unknown";
     return denial.transient ? "owed_temporary" : "permanent_refusal";
   }
   const detail = row.detail ?? "";

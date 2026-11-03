@@ -2152,3 +2152,13 @@ Cross-reference: the user's report calls this §43.7; the repo receipt is ledger
 
 ## Stage 4C2 — appointment and follow-up authority (2026-11-02)
 Controlling spec: `attached_assets/Liberty-Stage4C2-Master-Preflight-and-Build-2026-11-02_1793632069713.md`. Implementation status and dispositions: `docs/certification/stage4-c2/owner-map-and-disposition.md`. Correction-pass spec: `attached_assets/Liberty-Stage4C2-Post-Publication-Audit-and-Corrections-2026-11_1793661458781.md` (migration 0379; the owner-map file records which items are fixed, narrowed, not done, or native-only).
+
+## Stage 4D — integrated acceptance (2026-11-03)
+
+Separate verdicts (details in `docs/certification/stage4-d/`):
+- **Implementation:** passed on disposable databases. New `stage4d-integrated-acceptance` (27 checks, 6 negative controls); sms-recipient-authority 42, stage4c2-completion-pass 65, stage4c2-calendar-contract 67 re-run green. No provider network attempt. Full TypeScript check and full pre-deploy roster were not run.
+- **Repairs:** inbound reply evidence and receipt in one transaction (aliases converge); reply-stop pause + audit atomic with real count; expired GHL holds terminalized by a non-sending sweep even while paused (diagnostics on Program Health); direct SMS transport compares the full provider number each attempt; failed workflow run with no workflow parks for review; booking-confirmation wording is confirmation-only; governed provider-appointment create console (local authorized contact required, admin executes); campaign Current SFP/Historical badges.
+- **Data/count, SFP prep/staging, content/CTA:** unchanged; five current package pins remain draft/paused/unapproved.
+- **Native GHL/calendar:** **BLOCKED** — no authorized protected test path (booking writer default-denied, outgoing GHL disabled epoch 16). Owner steps in `owner-and-native-matrix.md`.
+- **Roles/UI/performance:** new controls are source-verified only; no signed-in browser pass.
+- **Publication/schema/rollback:** no migration; `ghl_appointment_state_status_chk` still lacks `'no_show'` in production (owner SQL repair). Scanner baselines (compliance 3 sites, queue 3 files) remain open and unadjudicated.

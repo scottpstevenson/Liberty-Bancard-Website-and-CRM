@@ -709,7 +709,10 @@ export async function retryFailedWorkflowRun(runId: number): Promise<
   for (const e of log) if (typeof e.step === "number" && e.step > 0) latest.set(`${e.step}:${e.action}`, e);
   if ([...latest.values()].some(e => e.status === "unknown_outcome")) return { state: "needs_review", reason: "unknown_outcome_requires_review" };
   if (log.some(e => e.reason === "workflow_definition_changed")) return { state: "needs_review", reason: "workflow_definition_changed" };
-  const workflow = await storage.getWorkflow(run.workflowId);
+  // workflow_runs.workflow_id is nullable (a deleted/unlinked definition): park for review before any id-required call.
+  const workflowId = run.workflowId;
+  if (workflowId === null || workflowId === undefined) return { state: "needs_review", reason: "workflow_unavailable" };
+  const workflow = await storage.getWorkflow(workflowId);
   if (!workflow || workflow.retiredAt || !workflow.enabled) return { state: "needs_review", reason: "workflow_unavailable" };
   const actions = (workflow.actions as any[]) || [];
   if (run.inputPin && run.inputPin !== workflowDefinitionPin(actions)) return { state: "needs_review", reason: "workflow_definition_changed" };
@@ -721,7 +724,7 @@ export async function retryFailedWorkflowRun(runId: number): Promise<
     `UPDATE workflow_runs SET status = 'running', completed_at = NULL, lease_token = $2, lease_expires_at = now() + interval '10 minutes'
       WHERE id = $1 AND status IN ('failed','blocked') AND (lease_expires_at IS NULL OR lease_expires_at < now()) RETURNING id`, [runId, retryToken]);
   if (!reopened.rows[0]) return { state: "not_retryable", reason: "another_worker_reopened_run" };
-  const result = await executeWorkflowActions(run.workflowId, actions,
+  const result = await executeWorkflowActions(workflowId, actions,
     { entityType: run.entityType || undefined, entityId: run.entityId || undefined } as WorkflowContext, runId, 0, { retryCompletedSteps: completed, leaseToken: retryToken });
   return { state: "retried", status: result.status, delivered: result.delivered ?? 0 };
 }

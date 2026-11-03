@@ -158,6 +158,8 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
     timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Stage 4C2 completion pass (command binding, local effect fence, inbound convergence, hold expiry, channel owed state, readback identity)",script:"scripts/certification/test-stage4c2-completion-pass.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
+  {name:"Stage 4D integrated acceptance (inbound evidence atomicity, reply-stop pause audit, hold expiry, SMS provider identity, unlinked workflow retry, booking create contract)",script:"scripts/certification/test-stage4d-integrated-acceptance.ts",
+    timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Message copy convergence and token contract",script:"scripts/certification/test-message-copy-convergence.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Workflow email wording",script:"scripts/certification/test-workflow-email-wording.ts",

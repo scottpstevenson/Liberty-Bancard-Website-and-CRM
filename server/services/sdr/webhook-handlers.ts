@@ -177,6 +177,24 @@ export async function handleMessageReceived(rawPayload: unknown): Promise<void> 
           console.warn(`[SDR Webhook] processCommunicationEvent(sms_undeliverable) failed for contact #${crmContact.id}:`, msg);
         });
       } else if (isInboundReply) {
+        // Canonical reply-stop evidence is acknowledged: the strict writer (shared with the generic webhook under the same
+        // effect key, so aliases converge) must commit before this delivery is acknowledged. A failure propagates and
+        // the webhook is retried; it is never reported as "no reply". An opt-out is recorded as the inbound it is, not
+        // as a genuine reply (metadata.eventKind), and the feedback scoring below stays best-effort.
+        if (channel === "sms" || channel === "email") {
+          const { recordCanonicalInboundMessageEventOnce } = await import("../ghl-inbound-effects");
+          await recordCanonicalInboundMessageEventOnce({
+            contactId: crmContact.id,
+            dealId: null,
+            payload,
+            channel,
+            subject: typeof (payload as any).subject === "string" ? (payload as any).subject : null,
+            body: payload.body ?? null,
+            status: "received",
+            ghlMessageId: payload.messageId ?? null,
+            metadata: { source: "sdr_message_received", eventKind },
+          });
+        }
         const replyEventType = channel === "sms" ? "sms_reply" : channel === "email" ? "email_reply" : null;
         if (replyEventType) {
           processCommunicationEvent({
@@ -782,10 +800,9 @@ export async function handleEmailBounce(rawPayload: unknown): Promise<void> {
     }
   }
 
-  // Pause all active sequence enrollments — bounced email cannot be retried
-  const pausedCount = await storage.pauseAllActiveEnrollments(crmContact.id);
-
-  await storage.createAuditLog({
+  // Pause all active sequence enrollments — bounced email cannot be retried. The pause and its audit fact commit
+  // together and report the rows this statement really changed (a replay that finds none writes none).
+  const { count: pausedCount } = await storage.pauseActiveEnrollmentsWithAudit(crmContact.id, ({ count, enrollmentIds }) => ({
     action: "contact_email_bounced",
     entityType: "contact",
     entityId: crmContact.id,
@@ -795,20 +812,33 @@ export async function handleEmailBounce(rawPayload: unknown): Promise<void> {
       ghlContactId: ghlContactId || null,
       ghlMessageId,
       emailStatus: "bounced",
-      pausedEnrollments: pausedCount,
+      pausedEnrollments: count,
+      enrollmentIds,
     },
-  });
+  }));
+  if (pausedCount === 0) {
+    // Nothing was paused, but the bounce itself is still audited exactly once per delivery.
+    await storage.createAuditLog({
+      action: "contact_email_bounced",
+      entityType: "contact",
+      entityId: crmContact.id,
+      actorType: "system",
+      details: { source: "ghl_bounce_webhook", ghlContactId: ghlContactId || null, ghlMessageId, emailStatus: "bounced", pausedEnrollments: 0 },
+    });
+  }
 
-  const { recordInboundEvent } = await import("../communication-events");
-  await recordInboundEvent({
+  // Strict canonical event: one per provider message across replays, committed with its effect receipt.
+  const { recordCanonicalInboundMessageEventOnce } = await import("../ghl-inbound-effects");
+  await recordCanonicalInboundMessageEventOnce({
     contactId: crmContact.id,
+    payload: ghlMessageId ? { messageId: ghlMessageId } : payload,
     channel: "email",
-    provider: "ghl",
     status: "bounced",
     automationStopped: true,
     automationStopReason: "email_bounced",
     ghlMessageId: ghlMessageId || null,
     metadata: { source: "ghl_bounce_webhook", pausedEnrollments: pausedCount },
+    effect: "communication_event_bounce",
   });
 
   console.log(`[SDR Webhook] email-bounce: contact ${crmContact.id} (${crmContact.email}) marked bounced — ${pausedCount} enrollments paused`);

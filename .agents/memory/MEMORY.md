@@ -198,3 +198,4 @@
 - [SMS recipient authority](sms-recipient-authority.md) — one canonical consent+number decision right before every text in every transport; legacy flags never authority.
 - [Browser suite query-cache and overlays](browser-suite-query-cache-and-overlays.md) — reload after fixture env changes (stale cache hides state); floating assistant covers bottom-right controls.
 - [Stage 4C2 correction lessons](stage4c2-correction-lessons.md) — one statement owner, audit key `owner` is masked, halt-after-failed-send fixtures, roster registration, browser rebuild rule.
+- [Stage 4D reliability patterns](stage4d-reliability-patterns.md) — atomic inbound evidence, atomic reply-stop pause, non-sending hold expiry, full-number SMS identity, local-contact-only booking create.

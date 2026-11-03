@@ -409,6 +409,17 @@ export function registerToolkitRoutes(app: Express, readerDependencies?: {
     const contact = await storage.getContact(localId);
     return { ...body, ghlContactId: contact?.ghlContactId ?? "" };
   };
+  // A NEW booking must name an existing local contact that carries a provider contact id: the provider contact is never
+  // taken from the browser for a create, and a missing/invalid/foreign local id is refused, not passed through as the
+  // legacy raw-provider path (which stays only for reschedule/cancel of an already-bound appointment).
+  const resolveCreateContact = async (body: any): Promise<{ ok: true; body: any } | { ok: false; reason: string }> => {
+    const localId = Number(body?.contactId);
+    if (!Number.isSafeInteger(localId) || localId <= 0) return { ok: false, reason: "local_contact_required" };
+    const contact = await storage.getContact(localId);
+    if (!contact) return { ok: false, reason: "local_contact_not_found" };
+    if (!contact.ghlContactId) return { ok: false, reason: "local_contact_not_linked_to_provider" };
+    return { ok: true, body: { ...body, ghlContactId: contact.ghlContactId } };
+  };
   const readProviderAppointment = async (id: string) => {
     const read = await ghlFetch(`/calendars/events/appointments/${encodeURIComponent(id)}`);
     const event = read?.appointment ?? read?.event ?? read;
@@ -424,7 +435,13 @@ export function registerToolkitRoutes(app: Express, readerDependencies?: {
   app.post("/api/appointments/booking/preview", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     const { previewBookingCommand } = await import("../services/ghl-booking-command");
     if (!["create", "reschedule", "cancel"].includes(req.body?.operation)) return res.status(400).json({ message: "Invalid operation" });
-    const preview = previewBookingCommand(bookingRequestFromBody(await withResolvedProviderContact(req.body)));
+    let previewBody = req.body;
+    if (req.body?.operation === "create") {
+      const resolved = await resolveCreateContact(req.body);
+      if (!resolved.ok) return res.status(422).json({ ok: false, reason: resolved.reason });
+      previewBody = resolved.body;
+    } else previewBody = await withResolvedProviderContact(req.body);
+    const preview = previewBookingCommand(bookingRequestFromBody(previewBody));
     if (!preview.ok) return res.status(422).json({ ok: false, reason: preview.reason });
     // The reviewed resource version for reschedule/cancel comes from the provider's own record (read only).
     let currentVersion: number | null = null;
@@ -440,11 +457,17 @@ export function registerToolkitRoutes(app: Express, readerDependencies?: {
       const { executeBookingCommand } = await import("../services/ghl-booking-command");
       const { ghlCalendarAppointmentWrite } = await import("../services/ghl");
       if (!["create", "reschedule", "cancel"].includes(req.body?.operation)) return res.status(400).json({ message: "Invalid operation" });
+      let executeBody = req.body;
+      if (req.body?.operation === "create") {
+        const resolved = await resolveCreateContact(req.body);
+        if (!resolved.ok) return res.status(422).json({ state: "denied", reason: resolved.reason });
+        executeBody = resolved.body;
+      } else executeBody = await withResolvedProviderContact(req.body);
       const writerEnabled = (await storage.getSystemSetting("ghl_booking_writer_enabled")) === "true";
       const result = await executeBookingCommand({
         actorId: String((req.user as any)?.id ?? ""), commandId: String(req.body?.commandId ?? ""),
         expectedVersion: typeof req.body?.expectedVersion === "number" ? req.body.expectedVersion : null,
-        reviewedPayloadHash: String(req.body?.payloadHash ?? ""), request: bookingRequestFromBody(await withResolvedProviderContact(req.body)), writerEnabled,
+        reviewedPayloadHash: String(req.body?.payloadHash ?? ""), request: bookingRequestFromBody(executeBody), writerEnabled,
         provider: {
           write: (method, path, body) => ghlCalendarAppointmentWrite(method, path, body),
           readAppointment: readProviderAppointment,
