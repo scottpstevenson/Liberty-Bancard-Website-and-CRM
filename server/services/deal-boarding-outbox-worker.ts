@@ -17,6 +17,7 @@
 import { sql, eq, lt, and, isNull } from "drizzle-orm";
 import { db, pool } from "../db";
 import { deals, dealBoardingOutbox, merchantApplications, tasks } from "@shared/schema";
+import type { IProcessorAdapter } from "./processors/IProcessorAdapter";
 import { storage } from "../storage";
 import { auditChange } from "./audit-change";
 import { decryptProtectedFields } from "./merchant-protected-data";
@@ -112,11 +113,50 @@ class AlreadyTerminalError extends Error {
   }
 }
 
-async function markDelivered(id: string): Promise<void> {
-  await db
+/**
+ * Fenced delivery settlement (S5-12). Only the claim that still owns the row
+ * (status='processing' with the same attempt counter) may settle it, and a row
+ * already in a terminal state (dead_letter/delivered) is never overwritten.
+ * Returns whether this call settled the row.
+ */
+async function markDelivered(id: string, attempts: number): Promise<boolean> {
+  const settled = await db
     .update(dealBoardingOutbox)
     .set({ status: "delivered", processedAt: new Date(), lockedAt: null, updatedAt: new Date(), lastError: null })
-    .where(eq(dealBoardingOutbox.id, id));
+    .where(and(
+      eq(dealBoardingOutbox.id, id),
+      eq(dealBoardingOutbox.status, "processing"),
+      eq(dealBoardingOutbox.attempts, attempts),
+    ))
+    .returning({ id: dealBoardingOutbox.id });
+  return settled.length > 0;
+}
+
+/**
+ * Typed settlement returned by handleProcessorSubmit. Only "delivered" may be
+ * followed by markDelivered; "ambiguous" has already been settled terminally
+ * (reconciliation required) inside the handler's own fenced transaction.
+ */
+type BoardingSettlement = { settlement: "delivered" } | { settlement: "ambiguous_reconciliation_required" };
+
+/** Required provider payload fields — missing values refuse the submission; no identity is fabricated. */
+const REQUIRED_PROVIDER_FIELDS = [
+  "legalBusinessName", "ein", "businessAddress", "businessCity", "businessState", "businessZip",
+  "ownerFirstName", "ownerLastName", "ownerSsn", "ownerDob", "bankRoutingNumber", "bankAccountNumber",
+] as const;
+
+/** Names (never values) of required provider fields that are absent/blank. */
+function missingProviderFields(payload: Record<string, unknown>): string[] {
+  return REQUIRED_PROVIDER_FIELDS.filter((k) => {
+    const v = payload[k];
+    return v == null || (typeof v === "string" && v.trim() === "");
+  });
+}
+
+let processorOverrideForTest: ((name?: string | null) => IProcessorAdapter) | null = null;
+function resolveProcessor(name: string | null): IProcessorAdapter {
+  if (processorOverrideForTest && process.env.NODE_ENV === "test") return processorOverrideForTest(name);
+  return name ? getProcessor(name) : getDefaultProcessor();
 }
 
 async function markRetryOrDeadLetter(id: string, dealId: number, attempts: number, err: unknown): Promise<void> {
@@ -126,10 +166,14 @@ async function markRetryOrDeadLetter(id: string, dealId: number, attempts: numbe
     // On terminal dead-letter, transactionally flip the deal to dead_letter and
     // write a redacted audit alongside the outbox row so state stays consistent.
     await db.transaction(async (tx) => {
-      await tx
+      const fenced = await tx
         .update(dealBoardingOutbox)
         .set({ status: "dead_letter", lockedAt: null, lastError: safeErr, availableAt: new Date(), updatedAt: new Date() })
-        .where(eq(dealBoardingOutbox.id, id));
+        .where(and(eq(dealBoardingOutbox.id, id), eq(dealBoardingOutbox.status, "processing"), eq(dealBoardingOutbox.attempts, attempts)))
+        .returning({ id: dealBoardingOutbox.id });
+      // Row already settled by someone else (e.g. ambiguous/terminal) — do not
+      // flip the deal over a settlement this claim does not own.
+      if (fenced.length === 0) return;
       await tx
         .update(deals)
         .set({ boardingStatus: "dead_letter", updatedAt: new Date() })
@@ -153,7 +197,7 @@ async function markRetryOrDeadLetter(id: string, dealId: number, attempts: numbe
       availableAt: new Date(Date.now() + backoffMs(attempts)),
       updatedAt: new Date(),
     })
-    .where(eq(dealBoardingOutbox.id, id));
+    .where(and(eq(dealBoardingOutbox.id, id), eq(dealBoardingOutbox.status, "processing"), eq(dealBoardingOutbox.attempts, attempts)));
 }
 
 const BOARDING_MONITOR_SOURCE = "boarding";
@@ -176,10 +220,12 @@ async function commitBoardingSuccess(params: {
   estimatedDecisionDate?: string | Date | null;
   existingLog: any[];
   setSubmittedFields: boolean;
+  /** Confirmed program from the activation snapshot; committed with the success state, not before I/O. */
+  processorProgram?: string | null;
 }): Promise<void> {
   const {
     dealId, contactId, owner, processorName, processorApplicationId,
-    estimatedDecisionDate, existingLog, setSubmittedFields,
+    estimatedDecisionDate, existingLog, setSubmittedFields, processorProgram,
   } = params;
   const automationKey = boardingMonitorAutomationKey(dealId);
 
@@ -199,8 +245,9 @@ async function commitBoardingSuccess(params: {
           processorApplicationId,
           boardingSubmittedAt: new Date(),
           boardingLog: [...existingLog, logEntry],
+          ...(processorProgram ? { processorProgram } : {}),
           updatedAt: new Date(),
-        })
+        } as any)
         .where(eq(deals.id, dealId));
     }
 
@@ -248,7 +295,7 @@ async function commitBoardingSuccess(params: {
   });
 }
 
-async function handleProcessorSubmit(row: BoardingRow): Promise<void> {
+async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettlement> {
   const dealId = row.dealId;
 
   const deal = await storage.getDeal(dealId);
@@ -263,14 +310,14 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<void> {
       dealId,
       contactId: deal.contactId ?? null,
       owner: deal.owner ?? null,
-      processorName: (row.processorName ? getProcessor(row.processorName) : getDefaultProcessor()).name,
+      processorName: resolveProcessor(row.processorName).name,
       processorApplicationId: deal.processorApplicationId,
       estimatedDecisionDate: null,
       existingLog: (deal.boardingLog as any[]) || [],
       // Deal fields already carry submitted state; don't overwrite/re-append log.
       setSubmittedFields: false,
     });
-    return;
+    return { settlement: "delivered" };
   }
 
   // Immutable version-checked linkage: the enqueue route captured the
@@ -295,14 +342,17 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<void> {
   // Fetch only if the version and deal linkage are BOTH still valid.
   // Both the enqueue capture and this comparison use updated_at::text (PostgreSQL
   // canonical text representation) so the byte comparison is always consistent.
-  const versionRows = await db.execute(sql`
-    SELECT * FROM merchant_applications
-    WHERE id = ${row.applicationId}
-      AND deal_id = ${dealId}
-      AND updated_at::text = ${applicationLinkageVersion}
-    LIMIT 1
-  `);
-  const appRow = (versionRows.rows ?? versionRows)[0] as typeof merchantApplications.$inferSelect | undefined;
+  // S5-11: typed Drizzle select (camel-case columns) — a raw `SELECT *` returns
+  // snake-case keys that silently lose every multi-word protected/business field.
+  const [appRow] = await db
+    .select()
+    .from(merchantApplications)
+    .where(and(
+      eq(merchantApplications.id, row.applicationId),
+      eq(merchantApplications.dealId, dealId),
+      sql`${merchantApplications.updatedAt}::text = ${applicationLinkageVersion}`,
+    ))
+    .limit(1);
   // Version mismatch or re-linked → dead-letter without decrypting.
   if (!appRow) {
     throw new Error(
@@ -326,22 +376,24 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<void> {
 
   const payload = {
     dealId,
-    legalBusinessName: application?.legalBusinessName || contact?.companyName || `${contact?.firstName || ""} ${contact?.lastName || ""}`.trim() || "Unknown Business",
-    dba: application?.dba || contact?.companyName || undefined,
+    // S5-11: identity/legal/address/banking fields come ONLY from the reviewed
+    // application — no contact fallback and no fabricated "Unknown Business".
+    legalBusinessName: application.legalBusinessName || undefined,
+    dba: application.dba || undefined,
     ein: protectedFields.ein || undefined,
     businessType: application?.businessType || undefined,
-    businessAddress: application?.businessAddress || contact?.address || undefined,
-    businessCity: application?.businessCity || contact?.city || undefined,
-    businessState: application?.businessState || contact?.state || undefined,
+    businessAddress: application.businessAddress || undefined,
+    businessCity: application.businessCity || undefined,
+    businessState: application.businessState || undefined,
     businessZip: application?.businessZip || undefined,
     businessPhone: application?.businessPhone || contact?.phone || undefined,
     businessEmail: application?.businessEmail || contact?.email || undefined,
     website: application?.website || contact?.website || undefined,
     vertical: application?.vertical || contact?.vertical || deal.offerPath || undefined,
-    ownerFirstName: application?.ownerFirstName || contact?.firstName || undefined,
-    ownerLastName: application?.ownerLastName || contact?.lastName || undefined,
-    ownerEmail: application?.ownerEmail || contact?.email || undefined,
-    ownerPhone: application?.ownerPhone || contact?.phone || undefined,
+    ownerFirstName: application.ownerFirstName || undefined,
+    ownerLastName: application.ownerLastName || undefined,
+    ownerEmail: application.ownerEmail || undefined,
+    ownerPhone: application.ownerPhone || undefined,
     ownerDob: protectedFields.ownerDob || undefined,
     ownerSsn: protectedFields.ownerSsn || undefined,
     ownerAddress: application?.ownerAddress || undefined,
@@ -358,7 +410,36 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<void> {
     providerIdempotencyKey,
   };
 
-  const processor = row.processorName ? getProcessor(row.processorName) : getDefaultProcessor();
+  // S5-11: validate the complete reviewed payload BEFORE any snapshot read or
+  // transport. Names only are recorded — never values.
+  const missing = missingProviderFields(payload as Record<string, unknown>);
+  if (missing.length > 0) {
+    await db.transaction(async (tx) => {
+      const fenced = await tx.update(dealBoardingOutbox)
+        .set({ status: "dead_letter", lockedAt: null, lastError: "BOARDING_PAYLOAD_INCOMPLETE",
+               availableAt: new Date(), updatedAt: new Date() })
+        .where(and(
+          eq(dealBoardingOutbox.id, row.id),
+          eq(dealBoardingOutbox.status, "processing"),
+          eq(dealBoardingOutbox.attempts, row.attempts),
+        ))
+        .returning({ id: dealBoardingOutbox.id });
+      if (fenced.length === 0) return;
+      await tx.update(deals)
+        .set({ boardingStatus: "dead_letter", updatedAt: new Date() })
+        .where(eq(deals.id, dealId));
+      await auditChange({
+        actorType: "system",
+        action: "deal_boarding_blocked_incomplete_payload",
+        entityType: "deal",
+        entityId: dealId,
+        details: { errorCode: "BOARDING_PAYLOAD_INCOMPLETE", missingFields: missing },
+      }, tx);
+    });
+    throw new AlreadyTerminalError("BOARDING_PAYLOAD_INCOMPLETE: dead_letter written, no transport");
+  }
+
+  const processor = resolveProcessor(row.processorName);
 
   // REV-05A §6: Activation snapshot gate — fail-closed before any provider I/O.
   // No boarding transport without an owner-confirmed activation snapshot.
@@ -389,24 +470,33 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<void> {
     snapshot = await requireConfirmedActivationSnapshot(processor.name);
   } catch (err: any) {
     if (err?.code === "ACTIVATION_SNAPSHOT_REQUIRED") {
-      // Write a clear audit and dead-letter — this is a configuration gap, not a transient error.
-      await auditChange({
-        actorType: "system",
-        action: "deal_boarding_blocked_no_snapshot",
-        entityType: "deal",
-        entityId: dealId,
-        details: {
-          errorCode: "ACTIVATION_SNAPSHOT_REQUIRED",
-          processorName: processor.name,
-          note: "Transport blocked: owner has not confirmed activation snapshot. " +
-                "Create a snapshot via POST /api/admin/processor-activation-snapshots.",
-        },
+      // Dead-letter + audit in ONE transaction, only if this claim still owns the row.
+      // This is a configuration gap, not a transient error.
+      await db.transaction(async (tx) => {
+        const fenced = await tx.update(dealBoardingOutbox)
+          .set({ status: "dead_letter", lockedAt: null,
+                 lastError: "ACTIVATION_SNAPSHOT_REQUIRED",
+                 availableAt: new Date(), updatedAt: new Date() })
+          .where(and(
+            eq(dealBoardingOutbox.id, row.id),
+            eq(dealBoardingOutbox.status, "processing"),
+            eq(dealBoardingOutbox.attempts, row.attempts),
+          ))
+          .returning({ id: dealBoardingOutbox.id });
+        if (fenced.length === 0) return;
+        await auditChange({
+          actorType: "system",
+          action: "deal_boarding_blocked_no_snapshot",
+          entityType: "deal",
+          entityId: dealId,
+          details: {
+            errorCode: "ACTIVATION_SNAPSHOT_REQUIRED",
+            processorName: processor.name,
+            note: "Transport blocked: owner has not confirmed activation snapshot. " +
+                  "Create a snapshot via POST /api/admin/processor-activation-snapshots.",
+          },
+        }, tx);
       });
-      await db.update(dealBoardingOutbox)
-        .set({ status: "dead_letter", lockedAt: null,
-               lastError: "ACTIVATION_SNAPSHOT_REQUIRED",
-               availableAt: new Date(), updatedAt: new Date() })
-        .where(eq(dealBoardingOutbox.id, row.id));
       // Throw AlreadyTerminalError so tick() skips markDelivered and
       // markRetryOrDeadLetter — the outbox row is already in terminal state.
       throw new AlreadyTerminalError("ACTIVATION_SNAPSHOT_REQUIRED: dead_letter written, skip markDelivered");
@@ -414,10 +504,8 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<void> {
     throw err;
   }
 
-  // Attach the confirmed program to the deal record before I/O.
-  await db.update(deals)
-    .set({ processorProgram: snapshot.processorProgram, updatedAt: new Date() } as any)
-    .where(eq(deals.id, dealId));
+  // The confirmed program is committed atomically with the provider outcome
+  // (success or ambiguous) below — never as a standalone write before I/O.
 
   // Pass processorProgram and authorizedBaseUrl from the activation snapshot to
   // boardMerchant so the adapter can route to the correct endpoint and use
@@ -432,12 +520,26 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<void> {
   // ambiguous_reconciliation_required. Do NOT retry immediately — the operator
   // must reconcile via provider status poll before retrying.
   if (!result.success && result.ambiguous) {
+    // S5-12: ONE fenced transaction settles the outbox row (terminal, never
+    // delivered, never auto-retried) together with the deal state and audit.
     await db.transaction(async (tx) => {
-      // REV-05A: Persist boarding_ambiguous_at timestamp (migration 0220 column).
+      // Only the claim that still owns the row may settle it. A stale claim
+      // (row already reclaimed/settled) writes nothing — no deal flip, no audit.
+      const fenced = await tx.update(dealBoardingOutbox)
+        .set({ status: "dead_letter", lockedAt: null, lastError: "ambiguous_reconciliation_required",
+               availableAt: new Date(), updatedAt: new Date() })
+        .where(and(
+          eq(dealBoardingOutbox.id, row.id),
+          eq(dealBoardingOutbox.status, "processing"),
+          eq(dealBoardingOutbox.attempts, row.attempts),
+        ))
+        .returning({ id: dealBoardingOutbox.id });
+      if (fenced.length === 0) return;
       await tx.update(deals)
         .set({
           boardingStatus: "ambiguous_reconciliation_required",
           boardingAmbiguousAt: new Date(),
+          ...(snapshot.processorProgram ? { processorProgram: snapshot.processorProgram } : {}),
           updatedAt: new Date(),
         } as any)
         .where(eq(deals.id, dealId));
@@ -454,13 +556,7 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<void> {
         },
       }, tx);
     });
-    // Mark the outbox row as failed (not dead_letter) — it will not be retried
-    // automatically. Operator must initiate reconciliation and reset the row.
-    const safeErr = "ambiguous_reconciliation_required";
-    await db.update(dealBoardingOutbox)
-      .set({ status: "dead_letter", lockedAt: null, lastError: safeErr, availableAt: new Date(), updatedAt: new Date() })
-      .where(eq(dealBoardingOutbox.id, row.id));
-    return;
+    return { settlement: "ambiguous_reconciliation_required" };
   }
 
   if (!result.success) {
@@ -480,7 +576,9 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<void> {
     estimatedDecisionDate: result.estimatedDecisionDate ?? null,
     existingLog: (deal.boardingLog as any[]) || [],
     setSubmittedFields: true,
+    processorProgram: snapshot.processorProgram,
   });
+  return { settlement: "delivered" };
 }
 
 async function tick(): Promise<void> {
@@ -498,8 +596,13 @@ async function tick(): Promise<void> {
       const row = await claimOne();
       if (!row) break;
       try {
-        await handleProcessorSubmit(row);
-        await markDelivered(row.id);
+        const outcome = await handleProcessorSubmit(row);
+        if (outcome.settlement === "delivered") {
+          const settled = await markDelivered(row.id, row.attempts);
+          if (!settled) {
+            process.stderr.write(`[BoardingOutbox] deal#${row.dealId} delivery settlement skipped — row no longer owned by this claim\n`);
+          }
+        }
       } catch (err: any) {
         if (err?.alreadyHandled) {
           // AlreadyTerminalError: handleProcessorSubmit already wrote dead_letter.
@@ -527,4 +630,8 @@ export function startDealBoardingOutboxWorker(): void {
   if (typeof initial.unref === "function") initial.unref();
 }
 
-export const __test__ = { backoffMs, MAX_ATTEMPTS, STALE_LOCK_MS, scrubError };
+export const __test__ = {
+  backoffMs, MAX_ATTEMPTS, STALE_LOCK_MS, scrubError,
+  tick, claimOne, markDelivered, handleProcessorSubmit, missingProviderFields, REQUIRED_PROVIDER_FIELDS,
+  setProcessorOverride(fn: ((name?: string | null) => IProcessorAdapter) | null) { processorOverrideForTest = fn; },
+};

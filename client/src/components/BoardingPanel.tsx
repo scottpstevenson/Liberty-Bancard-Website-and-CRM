@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -88,17 +88,37 @@ export default function BoardingPanel({ dealId, dealStage, dealPipeline, onStatu
     onStatusChange?.();
   };
 
+  // S5-22: one stable Idempotency-Key per submission intent (deal + processor).
+  // It survives retries and double-clicks and is only discarded after the server
+  // accepted the command or the processor choice changes.
+  const submissionKeyRef = useRef<{ processor: string; key: string } | null>(null);
+  const submissionKey = (processor: string): string => {
+    if (!submissionKeyRef.current || submissionKeyRef.current.processor !== processor) {
+      submissionKeyRef.current = { processor, key: crypto.randomUUID() };
+    }
+    return submissionKeyRef.current.key;
+  };
+
   const submitMutation = useMutation({
     mutationFn: async () => {
       const body: Record<string, string> = {};
-      if (selectedProcessor && selectedProcessor !== "__default") body.processorName = selectedProcessor;
-      const res = await apiRequest("POST", `/api/deals/${dealId}/submit-to-processor`, body);
+      const processorChoice = selectedProcessor && selectedProcessor !== "__default" ? selectedProcessor : "";
+      if (processorChoice) body.processorName = processorChoice;
+      const res = await apiRequest(
+        "POST",
+        `/api/deals/${dealId}/submit-to-processor`,
+        body,
+        { "Idempotency-Key": submissionKey(processorChoice) },
+      );
       return res.json();
     },
-    onSuccess: (data: any) => {
+    onSuccess: () => {
+      submissionKeyRef.current = null;
+      // The route only enqueues (202); the provider application id arrives later
+      // from the durable worker, so never claim it was submitted or has an id.
       toast({
-        title: "Submitted to processor",
-        description: `Application ID: ${data.processorApplicationId}. ${data.message}`,
+        title: "Submission queued",
+        description: "Queued for processing. The processor application ID appears here once the processor accepts it.",
       });
       invalidate();
     },

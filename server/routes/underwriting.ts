@@ -6,7 +6,7 @@ import { z } from "zod";
 import { pool } from "../db";
 import { isGhlConfigured, createGhlTask } from "../services/ghl";
 import { serverError } from "../utils/server-error";
-import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
+import { authorizeGhlRouteMutation } from "./ghl-mutation-pause";
 
 export function registerUnderwritingRoutes(app: Express) {
   // ── GET current rules config ─────────────────────────────────────────────
@@ -195,7 +195,8 @@ export function registerUnderwritingRoutes(app: Express) {
           const deal = await storage.getDeal(dealId).catch(() => null);
           const contact = deal?.contactId ? await storage.getContact(deal.contactId).catch(() => null) : null;
           if (contact?.ghlContactId) {
-            if (!(await requireGhlRouteMutationAllowed(res))) return;
+            // S5-08: the local override never depends on the optional GHL task. The pause
+            // is checked AFTER the local decision commits; a paused GHL only skips the task.
             ghlTaskContext = { contactId: contact.ghlContactId, companyName: deal?.companyName || "Unknown" };
           }
         }
@@ -213,13 +214,20 @@ export function registerUnderwritingRoutes(app: Express) {
           actor: userId ?? "unknown",
         });
 
+        let ghlTaskState: "not_applicable" | "attempted" | "skipped_paused" = "not_applicable";
         if (ghlTaskContext) {
-          createGhlTask({
+          const ghlDecision = await authorizeGhlRouteMutation().catch(() => null);
+          if (ghlDecision?.allowed) {
+            ghlTaskState = "attempted";
+            createGhlTask({
             contactId: ghlTaskContext.contactId,
             title: `Underwriting Approved — Deal #${dealId}: ${ghlTaskContext.companyName} — advance to Proposal Sent`,
             dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
             assignedTo: undefined,
           }).catch((err: Error) => console.warn("[Underwriting] createGhlTask (approve, non-critical):", err.message));
+          } else {
+            ghlTaskState = "skipped_paused";
+          }
         }
 
         await storage.createAuditLog({
@@ -234,6 +242,7 @@ export function registerUnderwritingRoutes(app: Express) {
             previousDecision: decision.decision,
             overrideNote: note,
             rulesSnapshot: decision.rulesSnapshot,
+            ghlTask: ghlTaskState,
             timestamp: new Date().toISOString(),
           },
         });
@@ -265,7 +274,8 @@ export function registerUnderwritingRoutes(app: Express) {
           const deal = await storage.getDeal(dealId).catch(() => null);
           const contact = deal?.contactId ? await storage.getContact(deal.contactId).catch(() => null) : null;
           if (contact?.ghlContactId) {
-            if (!(await requireGhlRouteMutationAllowed(res))) return;
+            // S5-08: the local override never depends on the optional GHL task. The pause
+            // is checked AFTER the local decision commits; a paused GHL only skips the task.
             ghlTaskContext = { contactId: contact.ghlContactId, companyName: deal?.companyName || "Unknown" };
           }
         }
@@ -292,13 +302,20 @@ export function registerUnderwritingRoutes(app: Express) {
           metadata: { dealId, decisionId: decision.id, eventType: "underwriting_rejected" },
         });
 
+        let ghlTaskState: "not_applicable" | "attempted" | "skipped_paused" = "not_applicable";
         if (ghlTaskContext) {
-          createGhlTask({
+          const ghlDecision = await authorizeGhlRouteMutation().catch(() => null);
+          if (ghlDecision?.allowed) {
+            ghlTaskState = "attempted";
+            createGhlTask({
             contactId: ghlTaskContext.contactId,
             title: `Underwriting Rejected — Deal #${dealId}: ${ghlTaskContext.companyName} — returned to Review In Progress${note ? ` — Note: ${note}` : ""}`,
             dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
             assignedTo: undefined,
           }).catch((err: Error) => console.warn("[Underwriting] createGhlTask (reject, non-critical):", err.message));
+          } else {
+            ghlTaskState = "skipped_paused";
+          }
         }
 
         await storage.createAuditLog({
@@ -313,6 +330,7 @@ export function registerUnderwritingRoutes(app: Express) {
             previousDecision: decision.decision,
             overrideNote: note,
             rulesSnapshot: decision.rulesSnapshot,
+            ghlTask: ghlTaskState,
             timestamp: new Date().toISOString(),
           },
         });

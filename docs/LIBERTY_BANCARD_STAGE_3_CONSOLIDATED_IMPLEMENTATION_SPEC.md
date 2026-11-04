@@ -2171,3 +2171,11 @@ Separate verdicts (details in `docs/certification/stage4-d/`, including `publica
 - **Found and fixed, not yet published:** SDR webhook signature middleware `require()` failure under ESM; a STOP arriving only through the specialized `message-received` route did not withdraw consent.
 - **Still open:** native acceptance (BLOCKED, no authorized path), production `no_show` constraint repair (owner-run packet), production performance not measured, Campaigns filter and Program Health note not browser-verified, the two fixes need Publish.
 - **Separate verdicts and evidence:** `docs/certification/stage4-d/publication-and-verdicts.md`. Stage 4D is not called complete because code is published.
+
+
+### Stage 5 — Application to MID: partial status (2026-11-04; earlier text above is kept as history)
+
+- **Fixed in source and verified on a disposable database (not published, not production):** S5-06 (application outbox claim fence), S5-07 (underwriting required evidence), S5-08 partial (local approve/reject no longer blocked by a GHL pause; decision/override/stage still not one atomic command), S5-11 (boarding payload only from the application; incomplete payload dead-letters before transport), S5-12 (typed fenced settlement; ambiguous is never delivered), S5-13 (idempotency key bound to one deal/application/processor), S5-16 (sandbox host accepted), S5-19 (bounded, owner-scoped bulk refresh), S5-20 (deterministic canonical MID write and alias), S5-21 (registry reads canonical MIDs, reports totals), S5-22 (stable panel key, truthful toast).
+- **Still open (not done):** S5-01, S5-02, S5-03, S5-04, S5-05, S5-08 (atomic command), S5-09, S5-10, S5-14, S5-15, S5-17, S5-18, S5-23, S5-24.
+- **Not verified:** the Boarding panel in a browser (roles, widths, light/dark); native/production acceptance (a prepared packet exists and was not executed); publication.
+- **Evidence:** `docs/certification/stage5/verdicts.md`, `docs/certification/stage5/native-packet.md`. Stage 5 is not called complete.

@@ -29,11 +29,28 @@ export interface UnderwritingResult {
   rulesSnapshot: Record<string, unknown>;
 }
 
-/** Parse a numeric-ish string/number into a float, or null if unparseable. */
+/** Parse a numeric-ish string/number into a FINITE float, or null if unparseable/nonfinite. */
 function parseNum(val: string | number | null | undefined): number | null {
   if (val === null || val === undefined) return null;
   const n = typeof val === "number" ? val : parseFloat(String(val).replace(/[^0-9.-]/g, ""));
-  return isNaN(n) ? null : n;
+  return Number.isFinite(n) ? n : null;
+}
+
+type Evidence = { state: "absent" } | { state: "invalid" } | { state: "ok"; value: number };
+
+/**
+ * Resolve the first PRESENT candidate. A present-but-unusable value (nonfinite,
+ * unparseable, or negative) is "invalid" — never silently skipped, so it can
+ * never become a perfect score. Only fully blank candidates fall through.
+ */
+function resolveEvidence(candidates: Array<string | number | null | undefined>): Evidence {
+  for (const c of candidates) {
+    if (c === null || c === undefined || (typeof c === "string" && c.trim() === "")) continue;
+    const n = parseNum(c);
+    if (n === null || n < 0) return { state: "invalid" };
+    return { state: "ok", value: n };
+  }
+  return { state: "absent" };
 }
 
 export async function runUnderwritingEngine(
@@ -68,33 +85,74 @@ export async function runUnderwritingEngine(
   const hardFlags: string[] = [];
   let score = 100;
 
-  const minVol = parseNum(rules.minMonthlyVolume) ?? 5000;
-  const maxVol = parseNum(rules.maxMonthlyVolume) ?? 500000;
-  const rateCeiling = parseNum(rules.effectiveRateCeiling) ?? 3.5;
-  const cbLimit = parseNum(rules.chargebackRateLimit) ?? 1.0;
-  const cbHardLimit = parseNum(rules.chargebackRateHardLimit) ?? 2.0;
-  const hardDeviationPct = parseNum(rules.volumeHardDeviationPct) ?? 50;
+  // Rule thresholds come ONLY from the configured rules. No hard-coded fallback
+  // thresholds are invented: an unusable rule makes the evaluation unavailable
+  // and routes the deal to manager review instead of approving.
+  const minVol = parseNum(rules.minMonthlyVolume);
+  const maxVol = parseNum(rules.maxMonthlyVolume);
+  const rateCeiling = parseNum(rules.effectiveRateCeiling);
+  const cbLimit = parseNum(rules.chargebackRateLimit);
+  const cbHardLimit = parseNum(rules.chargebackRateHardLimit);
+  const hardDeviationPct = parseNum(rules.volumeHardDeviationPct);
+
+  const ruleProblems: string[] = [];
+  if (minVol === null) ruleProblems.push("minMonthlyVolume");
+  if (maxVol === null) ruleProblems.push("maxMonthlyVolume");
+  if (rateCeiling === null) ruleProblems.push("effectiveRateCeiling");
+  if (cbLimit === null) ruleProblems.push("chargebackRateLimit");
+  if (cbHardLimit === null) ruleProblems.push("chargebackRateHardLimit");
+  if (hardDeviationPct === null) ruleProblems.push("volumeHardDeviationPct");
+  if (minVol !== null && maxVol !== null && minVol > maxVol) ruleProblems.push("minMonthlyVolume>maxMonthlyVolume");
+  if (cbLimit !== null && cbHardLimit !== null && cbLimit > cbHardLimit) ruleProblems.push("chargebackRateLimit>chargebackRateHardLimit");
+  if (ruleProblems.length > 0) {
+    return {
+      decision: "review",
+      score: 50,
+      reasons: [
+        `REVIEW: Underwriting rules are missing, invalid or contradictory (${ruleProblems.join(", ")}) — cannot auto-approve`,
+      ],
+      rulesSnapshot,
+    };
+  }
+  const minV = minVol as number;
+  const maxV = maxVol as number;
+  const ceiling = rateCeiling as number;
+  const cbSoft = cbLimit as number;
+  const cbHard = cbHardLimit as number;
+  const hardDev = hardDeviationPct as number;
 
   // Resolve volume from inputs or deal fields
-  const rawVolume =
-    input.monthlyVolume ??
-    parseNum(deal.totalVolume) ??
-    parseNum((deal.dealBlueprint as any)?.monthlyVolume) ??
-    null;
-
+  const volumeEv = resolveEvidence([
+    input.monthlyVolume,
+    deal.totalVolume as any,
+    (deal.dealBlueprint as any)?.monthlyVolume,
+  ]);
   // Resolve effective rate
-  const rawRate =
-    input.effectiveRatePct ??
-    parseNum(deal.effectiveRate) ??
-    parseNum((deal.savingsProposal as any)?.currentEffectiveRate) ??
-    null;
-
+  const rateEv = resolveEvidence([
+    input.effectiveRatePct,
+    deal.effectiveRate as any,
+    (deal.savingsProposal as any)?.currentEffectiveRate,
+  ]);
   // Resolve chargeback rate
-  const rawCb =
-    input.chargebackRatePct ??
-    parseNum((deal.dealBlueprint as any)?.chargebackRate) ??
-    parseNum((deal.savingsProposal as any)?.chargebackRate) ??
-    null;
+  const cbEv = resolveEvidence([
+    input.chargebackRatePct,
+    (deal.dealBlueprint as any)?.chargebackRate,
+    (deal.savingsProposal as any)?.chargebackRate,
+  ]);
+  const rawVolume = volumeEv.state === "ok" ? volumeEv.value : null;
+  const rawRate = rateEv.state === "ok" ? rateEv.value : null;
+  const rawCb = cbEv.state === "ok" ? cbEv.value : null;
+
+  // Required-evidence policy: every risk check the rules define needs usable
+  // evidence. Absent/invalid evidence is a review reason, never a pass.
+  const evidenceGaps: string[] = [];
+  const noteGap = (label: string, ev: Evidence) => {
+    if (ev.state === "absent") evidenceGaps.push(`${label} evidence is missing`);
+    else if (ev.state === "invalid") evidenceGaps.push(`${label} evidence is invalid`);
+  };
+  noteGap("Monthly volume", volumeEv);
+  noteGap("Effective rate", rateEv);
+  noteGap("Chargeback rate", cbEv);
 
   // Resolve processor
   const processorName =
@@ -105,29 +163,29 @@ export async function runUnderwritingEngine(
 
   // ── Volume checks ────────────────────────────────────────────────────────
   if (rawVolume !== null) {
-    if (rawVolume < minVol) {
-      const pctBelow = ((minVol - rawVolume) / minVol) * 100;
-      if (pctBelow > hardDeviationPct) {
+    if (rawVolume < minV) {
+      const pctBelow = ((minV - rawVolume) / minV) * 100;
+      if (pctBelow > hardDev) {
         hardFlags.push(
-          `Monthly volume $${rawVolume.toLocaleString()} is more than ${hardDeviationPct}% below minimum $${minVol.toLocaleString()}`,
+          `Monthly volume $${rawVolume.toLocaleString()} is more than ${hardDev}% below minimum $${minV.toLocaleString()}`,
         );
         score -= 35;
       } else {
         softFlags.push(
-          `Monthly volume $${rawVolume.toLocaleString()} is below minimum $${minVol.toLocaleString()}`,
+          `Monthly volume $${rawVolume.toLocaleString()} is below minimum $${minV.toLocaleString()}`,
         );
         score -= 15;
       }
-    } else if (rawVolume > maxVol) {
-      const pctAbove = ((rawVolume - maxVol) / maxVol) * 100;
-      if (pctAbove > hardDeviationPct) {
+    } else if (rawVolume > maxV) {
+      const pctAbove = ((rawVolume - maxV) / maxV) * 100;
+      if (pctAbove > hardDev) {
         hardFlags.push(
-          `Monthly volume $${rawVolume.toLocaleString()} is more than ${hardDeviationPct}% above maximum $${maxVol.toLocaleString()} — enhanced underwriting required`,
+          `Monthly volume $${rawVolume.toLocaleString()} is more than ${hardDev}% above maximum $${maxV.toLocaleString()} — enhanced underwriting required`,
         );
         score -= 20;
       } else {
         softFlags.push(
-          `Monthly volume $${rawVolume.toLocaleString()} exceeds maximum $${maxVol.toLocaleString()} — may need enhanced review`,
+          `Monthly volume $${rawVolume.toLocaleString()} exceeds maximum $${maxV.toLocaleString()} — may need enhanced review`,
         );
         score -= 10;
       }
@@ -138,34 +196,34 @@ export async function runUnderwritingEngine(
 
   // ── Effective rate checks ────────────────────────────────────────────────
   if (rawRate !== null) {
-    if (rawRate > rateCeiling) {
-      const overage = rawRate - rateCeiling;
+    if (rawRate > ceiling) {
+      const overage = rawRate - ceiling;
       if (overage > 1.5) {
         hardFlags.push(
-          `Effective rate ${rawRate.toFixed(2)}% exceeds ceiling ${rateCeiling}% by more than 1.5 points — pricing review required`,
+          `Effective rate ${rawRate.toFixed(2)}% exceeds ceiling ${ceiling}% by more than 1.5 points — pricing review required`,
         );
         score -= 25;
       } else {
         softFlags.push(
-          `Effective rate ${rawRate.toFixed(2)}% exceeds configured ceiling of ${rateCeiling}%`,
+          `Effective rate ${rawRate.toFixed(2)}% exceeds configured ceiling of ${ceiling}%`,
         );
         score -= 10;
       }
     } else {
-      reasons.push(`Effective rate ${rawRate.toFixed(2)}% is within ceiling ${rateCeiling}%`);
+      reasons.push(`Effective rate ${rawRate.toFixed(2)}% is within ceiling ${ceiling}%`);
     }
   }
 
   // ── Chargeback rate checks ───────────────────────────────────────────────
   if (rawCb !== null) {
-    if (rawCb > cbHardLimit) {
+    if (rawCb > cbHard) {
       hardFlags.push(
-        `Chargeback rate ${rawCb.toFixed(2)}% exceeds hard limit ${cbHardLimit}% — high-risk hold`,
+        `Chargeback rate ${rawCb.toFixed(2)}% exceeds hard limit ${cbHard}% — high-risk hold`,
       );
       score -= 40;
-    } else if (rawCb > cbLimit) {
+    } else if (rawCb > cbSoft) {
       softFlags.push(
-        `Chargeback rate ${rawCb.toFixed(2)}% exceeds soft limit ${cbLimit}% — flagged for review`,
+        `Chargeback rate ${rawCb.toFixed(2)}% exceeds soft limit ${cbSoft}% — flagged for review`,
       );
       score -= 20;
     } else {
@@ -177,6 +235,9 @@ export async function runUnderwritingEngine(
   const blockedList: string[] = Array.isArray(rules.blockedProcessors)
     ? rules.blockedProcessors
     : [];
+  if (blockedList.length > 0 && !(typeof processorName === "string" && processorName.trim() !== "")) {
+    evidenceGaps.push("Current processor evidence is missing (blocked-processor list is configured)");
+  }
   if (processorName && blockedList.length > 0) {
     const pLower = processorName.toLowerCase();
     const blocked = blockedList.find(b => pLower.includes(b.toLowerCase()));
@@ -193,6 +254,11 @@ export async function runUnderwritingEngine(
 
   let decision: "approve" | "review" | "hold";
   const allFlagReasons = [...softFlags, ...hardFlags];
+  for (const gap of evidenceGaps) {
+    softFlags.push(`${gap} — cannot auto-approve`);
+    allFlagReasons.push(`${gap} — cannot auto-approve`);
+    score = Math.min(score, 50);
+  }
 
   if (hardFlags.length > 0) {
     decision = "hold";

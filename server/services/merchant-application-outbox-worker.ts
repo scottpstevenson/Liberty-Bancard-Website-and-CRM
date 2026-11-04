@@ -133,11 +133,27 @@ async function reclaimStale(): Promise<void> {
     );
 }
 
-async function markDelivered(id: string): Promise<void> {
-  await db
+/**
+ * Claim-fenced settlement (S5-06): only the claim that still owns the row
+ * (status='processing' with the same attempt counter) may settle it, so a
+ * worker resuming after a stale reclaim cannot overwrite a newer claim's or a
+ * terminal outcome. Returns whether this call settled the row.
+ */
+function ownedClaim(id: string, attempts: number) {
+  return and(
+    eq(merchantApplicationProtectedOutbox.id, id),
+    eq(merchantApplicationProtectedOutbox.status, "processing"),
+    eq(merchantApplicationProtectedOutbox.attempts, attempts),
+  );
+}
+
+async function markDelivered(id: string, attempts: number): Promise<boolean> {
+  const settled = await db
     .update(merchantApplicationProtectedOutbox)
     .set({ status: "delivered", processedAt: new Date(), lockedAt: null, updatedAt: new Date(), lastError: null })
-    .where(eq(merchantApplicationProtectedOutbox.id, id));
+    .where(ownedClaim(id, attempts))
+    .returning({ id: merchantApplicationProtectedOutbox.id });
+  return settled.length > 0;
 }
 
 async function markRetryOrDeadLetter(id: string, attempts: number, err: unknown): Promise<void> {
@@ -153,7 +169,7 @@ async function markRetryOrDeadLetter(id: string, attempts: number, err: unknown)
         availableAt: new Date(Date.now() + WAIT_RECHECK_MS),
         updatedAt: new Date(),
       })
-      .where(eq(merchantApplicationProtectedOutbox.id, id));
+      .where(ownedClaim(id, attempts));
     return;
   }
   const safeErr = scrubError(err);
@@ -167,7 +183,7 @@ async function markRetryOrDeadLetter(id: string, attempts: number, err: unknown)
       availableAt: terminal ? new Date() : new Date(Date.now() + backoffMs(attempts)),
       updatedAt: new Date(),
     })
-    .where(eq(merchantApplicationProtectedOutbox.id, id));
+    .where(ownedClaim(id, attempts));
 }
 
 // ── Durable evidence helpers ──────────────────────────────────────────────
@@ -562,7 +578,7 @@ async function tick(): Promise<void> {
       if (!row) break;
       try {
         await processRow(row);
-        await markDelivered(row.id);
+        await markDelivered(row.id, row.attempts);
       } catch (err) {
         // Minimal operational log — no app/profile data, no provider payloads.
         process.stderr.write(`[MerchantOutbox] ${row.eventType} app#${row.applicationId} attempt#${row.attempts} failed (${scrubError(err)})\n`);
@@ -609,4 +625,4 @@ export function triggerOutboxTick(): void {
   if (typeof t.unref === "function") t.unref();
 }
 
-export const __test__ = { backoffMs, MAX_ATTEMPTS, STALE_LOCK_MS, scrubError, tick };
+export const __test__ = { backoffMs, MAX_ATTEMPTS, STALE_LOCK_MS, scrubError, tick, claimOne, markDelivered, markRetryOrDeadLetter };

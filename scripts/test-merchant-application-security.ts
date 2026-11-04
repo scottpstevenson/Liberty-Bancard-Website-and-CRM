@@ -576,7 +576,7 @@ console.log("\n[20] Boarding route: atomic conditional claim + stable providerId
   const boardingWorker = read("server/services/deal-boarding-outbox-worker.ts");
   assert(/applicationLinkageVersion/.test(boardingWorker),
     "boarding worker reads applicationLinkageVersion from outbox payload");
-  assert(/AND deal_id =/.test(boardingWorker.replace(/\s+/g, " ")),
+  assert(/eq\(merchantApplications\.dealId, dealId\)/.test(boardingWorker.replace(/\s+/g, " ")),
     "boarding worker verifies deal_id linkage in the version check query");
   assert(/updated_at.*applicationLinkageVersion/.test(boardingWorker.replace(/\s+/g, " ")),
     "boarding worker compares updated_at to stored linkage version (version-check)");

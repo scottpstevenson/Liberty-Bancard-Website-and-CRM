@@ -11,6 +11,7 @@ import { startDealBoardingOutboxWorker } from "../services/deal-boarding-outbox-
 import { getBackgroundProfile } from "../services/background-profile";
 import { auditChange } from "../services/audit-change";
 import { advanceDealStage } from "../services/deal-stage-service";
+import { canAccessOwner } from "../services/crm-object-access";
 import crypto from "crypto";
 
 
@@ -355,17 +356,35 @@ export function registerBoardingRoutes(app: Express) {
       }
       const applicationId = appRows[0].id;
 
-      // Idempotent replay: same key returns queued/submitted status immediately.
+      const processorName = (req.body.processorName as string | undefined) || undefined;
+
+      // Idempotent replay (S5-13): the key is globally unique, so a replay is only
+      // honoured when it is the SAME command (deal, application and processor).
+      // A key already bound to a different command is a conflict, never a silent
+      // "already queued" for work that does not belong to this request.
       const [existing] = await db
-        .select({ id: dealBoardingOutbox.id, status: dealBoardingOutbox.status })
+        .select({
+          id: dealBoardingOutbox.id,
+          status: dealBoardingOutbox.status,
+          dealId: dealBoardingOutbox.dealId,
+          applicationId: dealBoardingOutbox.applicationId,
+          processorName: dealBoardingOutbox.processorName,
+        })
         .from(dealBoardingOutbox)
         .where(eq(dealBoardingOutbox.idempotencyKey, idempotencyKey))
         .limit(1);
       if (existing) {
+        const sameCommand =
+          existing.dealId === dealId &&
+          existing.applicationId === applicationId &&
+          (existing.processorName ?? null) === (processorName ?? null);
+        if (!sameCommand) {
+          return res.status(409).json({
+            message: "Idempotency-Key is already bound to a different boarding command. Use a new key for a different deal, application or processor.",
+          });
+        }
         return res.status(202).json({ status: "queued", message: "Submission already enqueued", outboxId: existing.id });
       }
-
-      const processorName = (req.body.processorName as string | undefined) || undefined;
 
       // Stable provider-level idempotency key derived from dealId + request key.
       // Stored in the outbox payload so the worker passes it to the adapter on
@@ -426,7 +445,7 @@ export function registerBoardingRoutes(app: Express) {
         }
 
         // Step 3 — Insert outbox row with the immutable linkage version.
-        await tx
+        const inserted = await tx
           .insert(dealBoardingOutbox)
           .values({
             dealId,
@@ -439,7 +458,13 @@ export function registerBoardingRoutes(app: Express) {
             payload: { dealId, applicationId, providerIdempotencyKey, applicationLinkageVersion },
             status: "pending",
           })
-          .onConflictDoNothing({ target: dealBoardingOutbox.idempotencyKey });
+          .onConflictDoNothing({ target: dealBoardingOutbox.idempotencyKey })
+          .returning({ id: dealBoardingOutbox.id });
+        if (inserted.length === 0) {
+          // A concurrent request with the same key won the insert. Roll back the
+          // deal claim made above instead of reporting this request as queued.
+          throw new Error("boarding_idempotency_conflict");
+        }
 
         // Step 4 — Audit within the same TX (atomically linked to the outbox row).
         // Never store the raw Idempotency-Key — persist only a short hash prefix.
@@ -474,6 +499,9 @@ export function registerBoardingRoutes(app: Express) {
     } catch (err: any) {
       // A re-linked application detected inside the TX throws "boarding_application_relinked".
       // Treat it as a 409 conflict, not a 500.
+      if (err?.message === "boarding_idempotency_conflict") {
+        return res.status(409).json({ message: "A boarding submission with this Idempotency-Key is already in progress. Re-send the same request to read its status." });
+      }
       if (err?.message === "boarding_application_relinked") {
         return res.status(409).json({ message: "The merchant application linked to this deal changed during submission. Please retry." });
       }
@@ -511,18 +539,44 @@ export function registerBoardingRoutes(app: Express) {
 
   app.post("/api/boarding/refresh-all", isDashboardUser, async (req, res) => {
     try {
-      const requestedIds = Array.isArray(req.body?.dealIds)
-        ? (req.body.dealIds as any[]).map((id) => Number(id)).filter((id) => !isNaN(id))
-        : undefined;
-
+      // S5-19: bulk refresh is scoped per deal. Body ids are validated, de-duplicated,
+      // bounded and each one must pass the same owner authorization as the
+      // per-deal route; the unscoped selection is a bounded SQL read of the
+      // caller's in-flight, non-archived deals — never a 10,000-row global load.
+      const BULK_REFRESH_MAX = 200;
+      const user = req.user as { role?: string; email?: string | null } | undefined;
       let targetDealIds: number[];
-      if (requestedIds && requestedIds.length > 0) {
-        targetDealIds = requestedIds;
+      let unauthorizedOrMissing = 0;
+      if (req.body?.dealIds !== undefined) {
+        if (!Array.isArray(req.body.dealIds)) {
+          return res.status(400).json({ message: "dealIds must be an array of positive integers" });
+        }
+        const ids = req.body.dealIds as unknown[];
+        if (ids.some((id) => typeof id !== "number" || !Number.isInteger(id) || id <= 0)) {
+          return res.status(400).json({ message: "dealIds must contain only positive integers" });
+        }
+        const unique = Array.from(new Set(ids as number[]));
+        if (unique.length > BULK_REFRESH_MAX) {
+          return res.status(400).json({ message: `At most ${BULK_REFRESH_MAX} deals can be refreshed per request` });
+        }
+        targetDealIds = [];
+        for (const id of unique) {
+          const d = await storage.getDeal(id);
+          if (!d || d.archivedAt || !canAccessOwner(user, d.owner, false)) { unauthorizedOrMissing++; continue; }
+          targetDealIds.push(id);
+        }
       } else {
-        const allDealsResult = await storage.getDeals({ limit: 10000 });
-        targetDealIds = allDealsResult.data
-          .filter((d) => IN_FLIGHT_BOARDING_STATUSES.includes(d.boardingStatus || ""))
-          .map((d) => d.id);
+        const privileged = user?.role === "admin" || user?.role === "manager";
+        if (!privileged && !user?.email) return res.status(403).json({ message: "Forbidden" });
+        const rows = await db.execute(sql`
+          SELECT id FROM deals
+          WHERE boarding_status IN (${sql.join(IN_FLIGHT_BOARDING_STATUSES.map((v) => sql`${v}`), sql`, `)})
+            AND archived_at IS NULL
+            ${privileged ? sql`` : sql`AND owner = ${user!.email}`}
+          ORDER BY id
+          LIMIT ${BULK_REFRESH_MAX}
+        `);
+        targetDealIds = (((rows as any).rows ?? rows) as Array<{ id: number }>).map((r) => Number(r.id));
       }
 
       if (targetDealIds.length === 0) {
@@ -532,7 +586,7 @@ export function registerBoardingRoutes(app: Express) {
           attempted: 0,
           succeeded: 0,
           failed: 0,
-          skipped: 0,
+          skipped: unauthorizedOrMissing,
           results: [],
         });
       }
@@ -542,7 +596,7 @@ export function registerBoardingRoutes(app: Express) {
 
       const succeeded = results.filter((r) => r.outcome === "success").length;
       const failed = results.filter((r) => r.outcome === "failed").length;
-      const skipped = results.filter((r) => r.outcome === "skipped").length;
+      const skipped = results.filter((r) => r.outcome === "skipped").length + unauthorizedOrMissing;
 
       let resultState: "success" | "partial_success" | "failed" | "no_op_with_reason";
       if (succeeded === results.length) {
@@ -653,18 +707,33 @@ export function registerBoardingRoutes(app: Express) {
   app.get("/api/boarding/mid-registry", requireRole("admin", "manager"), async (req, res) => {
     try {
       // REV-05A: mid_registry returns masked MID only — not raw value.
+      // S5-21: canonical merchant_mids is the MID source (deals.mid is only the
+      // compatibility alias fallback), pipelines are matched case-insensitively
+      // against the current names (sales/onboarding) plus the legacy aliases, and
+      // the response reports the true total so a capped list is never presented
+      // as complete.
+      const REGISTRY_LIMIT = 500;
+      const registryWhere = sql`
+        d.archived_at IS NULL
+        AND d.stage NOT IN ('Closed Lost', 'Disqualified')
+        AND (
+          lower(d.pipeline) IN ('sales', 'onboarding', 'boarding', 'merchant boarding')
+          OR d.stage IN (
+            'Approved', 'Underwriting', 'Underwriting Review', 'Underwriting Submitted',
+            'Go-Live Scheduled', 'Live', 'Closed Won'
+          )
+        )`;
       const result = await db.execute(sql`
         SELECT
           d.id          AS deal_id,
-          -- REV-05A: Raw MID never returned from list endpoints; masked only.
           CASE
-            WHEN d.mid IS NOT NULL AND length(d.mid) > 4
-              THEN repeat('*', length(d.mid) - 4) || right(d.mid, 4)
-            WHEN d.mid IS NOT NULL
-              THEN repeat('*', length(d.mid))
+            WHEN m.mid IS NOT NULL AND length(m.mid) > 4
+              THEN repeat('*', length(m.mid) - 4) || right(m.mid, 4)
+            WHEN m.mid IS NOT NULL
+              THEN repeat('*', length(m.mid))
             ELSE NULL
           END AS mid_masked,
-          (d.mid IS NOT NULL AND d.mid != '') AS has_mid,
+          (m.mid IS NOT NULL AND m.mid != '') AS has_mid,
           d.pipeline,
           d.stage,
           d.owner,
@@ -677,30 +746,32 @@ export function registerBoardingRoutes(app: Express) {
           d.updated_at,
           CASE
             WHEN d.stage IN ('Live', 'Go-Live Scheduled') THEN 'live'
-            WHEN d.mid IS NOT NULL AND d.mid != ''         THEN 'assigned'
+            WHEN m.mid IS NOT NULL AND m.mid != ''         THEN 'assigned'
             ELSE 'pending'
           END AS mid_status
         FROM deals d
         LEFT JOIN contacts c ON c.id = d.contact_id
-        WHERE d.archived_at IS NULL
-          AND d.stage NOT IN ('Closed Lost', 'Disqualified')
-          AND (
-            d.pipeline IN ('Sales', 'Boarding', 'Merchant Boarding')
-            OR d.stage IN (
-              'Approved', 'Underwriting', 'Underwriting Review', 'Underwriting Submitted',
-              'Go-Live Scheduled', 'Live', 'Closed Won'
-            )
-          )
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(
+            (SELECT mm.mid FROM merchant_mids mm
+              WHERE mm.deal_id = d.id AND mm.status <> 'closed'
+              ORDER BY mm.id LIMIT 1),
+            NULLIF(d.mid, '')
+          ) AS mid
+        ) m ON TRUE
+        WHERE ${registryWhere}
         ORDER BY
           CASE
             WHEN d.stage IN ('Live', 'Go-Live Scheduled') THEN 1
-            WHEN d.mid IS NOT NULL AND d.mid != ''         THEN 2
+            WHEN m.mid IS NOT NULL AND m.mid != ''         THEN 2
             ELSE 3
           END,
           d.updated_at DESC
-        LIMIT 500
+        LIMIT ${REGISTRY_LIMIT}
       `);
-      res.json({ merchants: result.rows });
+      const totalRes = await db.execute(sql`SELECT count(*)::int AS n FROM deals d WHERE ${registryWhere}`);
+      const total = Number((((totalRes as any).rows ?? totalRes)[0] as { n: number }).n);
+      res.json({ merchants: result.rows, total, returned: result.rows.length, truncated: total > result.rows.length });
     } catch (err: any) {
       serverError(res, err);
     }

@@ -181,6 +181,31 @@ check("KL7: deal-boarding-outbox-worker.ts does not blindly retry on ambiguous r
   pass("KL7: Ambiguous submissions classified as reconciliation_required, not blindly retried");
 });
 
+// KL7b (S5-12): structural guard behind the behavioural certification
+// (scripts/certification/test-stage5-boarding-worker.ts runs the real worker on a disposable DB).
+check("KL7b: tick() settles delivered only from a typed 'delivered' settlement, fenced by claim attempt", () => {
+  const src = readFile("server/services/deal-boarding-outbox-worker.ts");
+  const tick = src.slice(src.indexOf("async function tick()"));
+  if (/await handleProcessorSubmit\(row\);\s*await markDelivered\(/.test(tick)) {
+    fail("KL7b: tick() marks delivered unconditionally after handleProcessorSubmit (ambiguous/terminal rows would be overwritten)");
+    return;
+  }
+  if (!/outcome\.settlement === "delivered"/.test(tick)) {
+    fail("KL7b: tick() does not gate markDelivered on the typed delivered settlement");
+    return;
+  }
+  const md = src.slice(src.indexOf("async function markDelivered("), src.indexOf("type BoardingSettlement"));
+  if (!/eq\(dealBoardingOutbox\.status, "processing"\)/.test(md) || !/eq\(dealBoardingOutbox\.attempts, attempts\)/.test(md)) {
+    fail("KL7b: markDelivered is not fenced by status='processing' and the claim attempt counter");
+    return;
+  }
+  if (/SELECT \* FROM merchant_applications/.test(src)) {
+    fail("KL7b/S5-11: worker reads merchant_applications with a raw SELECT * (snake-case row cast loses protected fields)");
+    return;
+  }
+  pass("KL7b: delivered settlement is typed and fenced; application read is a typed select");
+});
+
 // ── Kill Line 8: Raw MID pattern (/[0-9]{8,}/) must not appear in mid_assigned or mid_created audit details ──
 
 check("KL8: audit details in merchant-mid-service.ts and boarding.ts do not include raw MID", () => {

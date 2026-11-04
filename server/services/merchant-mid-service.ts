@@ -7,7 +7,7 @@
  *   - assignMerchantMidToCanonical() exported for boarding.ts to use instead of
  *     calling storage.updateDeal() + createAuditLog() directly.
  */
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import { deals, merchantMids, type MerchantMid } from "@shared/schema";
 import { auditChange } from "./audit-change";
@@ -58,6 +58,15 @@ export async function createMerchantMid(input: {
       tids: input.tids ?? [], processorName: input.processorName ?? "payarc",
       monthlyVolumeCap: input.monthlyVolumeCap ?? null, notes: input.notes ?? null,
     }).returning();
+    // S5-20: keep the compatibility alias in step with the canonical row. Only an
+    // empty alias is filled (never overwrite a different MID the deal already shows);
+    // the deal row lock orders this against assign/refresh writers.
+    if (row.dealId) {
+      await tx.execute(sql`SELECT id FROM deals WHERE id = ${row.dealId} FOR UPDATE`);
+      await tx.update(deals)
+        .set({ mid: row.mid, updatedAt: new Date() } as any)
+        .where(and(eq(deals.id, row.dealId), or(isNull(deals.mid), eq(deals.mid, ""))));
+    }
     await auditChange({
       action: "mid_created", entityType: "merchant_mid", entityId: row.id,
       actorType: (input.actorType as any) ?? "user", actorId: input.actorId ?? null,
@@ -153,16 +162,23 @@ export async function assignMerchantMidToCanonical(input: {
   const trimmedMid = input.mid.trim();
 
   return db.transaction(async (tx) => {
-    // Get current deal to capture previous MID
+    // Serialize concurrent assignments for one deal (S5-20) and capture the previous MID.
+    await tx.execute(sql`SELECT id FROM deals WHERE id = ${input.dealId} FOR UPDATE`);
     const [deal] = await tx.select({ mid: deals.mid }).from(deals).where(eq(deals.id, input.dealId)).limit(1);
     const previousMidMasked = deal?.mid ? maskMid(deal.mid) : null;
 
-    // Check for existing merchant_mids row for this deal
-    const existing = await tx
+    // Deterministic existing-row choice: an exact match first, then the oldest
+    // non-closed row, then the oldest row — never an arbitrary first heap row.
+    const candidates = await tx
       .select()
       .from(merchantMids)
       .where(eq(merchantMids.dealId, input.dealId))
-      .limit(1);
+      .orderBy(merchantMids.id);
+    const existing = candidates.length === 0 ? [] : [
+      candidates.find((c) => c.mid === trimmedMid)
+        ?? candidates.find((c) => c.status !== "closed")
+        ?? candidates[0],
+    ];
 
     let midRow: MerchantMid;
     if (existing.length > 0) {

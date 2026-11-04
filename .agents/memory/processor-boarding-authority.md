@@ -29,3 +29,13 @@ Affected routes: `GET /api/admin/mids`, `POST /api/admin/mids`, `PATCH /api/admi
 ## #1737-domain adapter contract
 
 `getTransactions`, `getResiduals`, `getDailyStats`, `submitChargeback` must return `HeldResult` (`{ status: "held", reason: "pending_task_1737" }`) in ALL adapters (Payarc, NMI, Mock). The CI kill-line script (`scripts/check-processor-kill-lines.ts`) checks all three adapters. Simulation data generation in getDailyStats is a kill-line violation.
+
+## Outbox settlement authority (verify the gate/routing sections above against current code before relying on them)
+
+- Never read a table with raw `SELECT *` and cast to the Drizzle type: raw rows are snake_case, so multi-word protected fields silently become undefined. Use the typed select.
+- Every terminal settlement (delivered, ambiguous, dead-letter, no-snapshot refusal) must be fenced on status='processing' AND the claim's attempt counter, and the deal update plus audit must happen in the same transaction only when that fenced update matched. A stale claim returning late must write nothing.
+- Ambiguous provider outcomes are terminal reconciliation states, never "delivered" and never auto-retried.
+
+**Why:** unfenced deal or outbox writes let a stale worker overwrite a newer successful submission.
+
+**How to apply:** any new outbox worker or settlement path; test with a takeover case where the newer claim settles before the stale one returns.

@@ -1397,7 +1397,7 @@ export function registerAdminRoutes(app: Express) {
       //   2. Owner confirmation that the processor program is correct (already checked above).
       //   3. Separate allowlist entry below — never share allowlists across processors.
       const PROCESSOR_DOMAIN_ALLOWLISTS: Record<string, RegExp> = {
-        payarc: /^(api\.|sandbox\.|staging\.)?payarc\.(net|com)$/i,
+        payarc: /^(api\.|testapi\.|sandbox\.|staging\.)?payarc\.(net|com)$/i,
         // nmi: not yet defined — add *.nmi.net / *.tnmi.net once confirmed.
       };
       let parsedUrl: URL;
