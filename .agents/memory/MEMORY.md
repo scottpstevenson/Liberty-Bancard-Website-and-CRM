@@ -198,3 +198,4 @@
 - [Stage 4D reliability patterns](stage4d-reliability-patterns.md) — atomic inbound evidence, atomic reply-stop pause, non-sending hold expiry, full-number SMS identity, local-contact-only booking create.
 - [Stage 4D reliability patterns](stage4d-reliability-patterns.md) — writer-flag jsonb read-back trap, transport-gate refusal, build-identity rebuilds, sdr.ts ESM require.
 - [Pre-deploy gate quirks](appointment-statement-polling-fix.md) — GHL fix: pollUntil(12s); see [predeploy-port-5000-conflict.md](predeploy-port-5000-conflict.md): dev owns port 5000.
+- [Application-to-MID lifecycle patterns](stage5-application-to-mid-patterns.md) — dispatch markers, atomic underwriting override, shared cohort for counts/queue, pure e-sign read, journal text-append rule.

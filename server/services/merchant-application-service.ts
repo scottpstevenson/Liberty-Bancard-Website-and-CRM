@@ -29,7 +29,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { db } from "../db";
-import { merchantApplications, merchantApplicationProtectedOutbox } from "@shared/schema";
+import { merchantApplications, merchantApplicationProtectedOutbox, contacts, companies, deals } from "@shared/schema";
 import { auditChange } from "./audit-change";
 import {
   processProtectedData,
@@ -75,27 +75,15 @@ export const FORBIDDEN_PROJECTION_COLUMNS = new Set<string>([
   "finalizeIdempotencyKey",
 ]);
 
-// ── Status transition graph ───────────────────────────────────────────────
-export const STATUS_TRANSITIONS: Record<string, ReadonlySet<string>> = {
-  draft: new Set(["in_progress", "submitted", "withdrawn"]),
-  in_progress: new Set(["submitted", "withdrawn"]),
-  submitted: new Set(["under_review", "declined", "withdrawn"]),
-  under_review: new Set(["approved", "declined"]),
-  approved: new Set(),
-  declined: new Set(),
-  withdrawn: new Set(),
-};
+// ── Status transition graph (shared with the operator UI) ────────────────
+import { STATUS_TRANSITIONS, canTransition } from "@shared/merchant-application-status";
+export { STATUS_TRANSITIONS, canTransition };
 
 const TERMINAL_STATUSES = new Set(["approved", "declined", "withdrawn"]);
 const FINALIZE_ELIGIBLE_STATUSES = new Set(["draft", "in_progress"]);
 const AUTOSAVE_ELIGIBLE_STATUSES = new Set(["draft", "in_progress"]);
 // Statuses considered "existing" for duplicate detection.
 const DUP_ACTIVE_STATUSES = ["submitted", "under_review", "approved", "declined", "withdrawn"];
-
-export function canTransition(from: string, to: string): boolean {
-  const allowed = STATUS_TRANSITIONS[from];
-  return !!allowed && allowed.has(to);
-}
 
 // ── Errors ────────────────────────────────────────────────────────────────
 
@@ -115,6 +103,58 @@ export class ServiceUnavailableError extends Error {
 }
 export class ForbiddenError extends Error {
   constructor(msg = "Forbidden") { super(msg); this.name = "ForbiddenError"; }
+}
+
+
+// ── Submission completeness (S5-01) ─────────────────────────────────────────
+// The public wizard's documented required set (steps 1–6), enforced server-side so an
+// empty or partial body can never move an application to `submitted`. Optional marketing
+// consent (pewcConsent) stays optional. No universal KYC rules are invented here.
+const SUBMISSION_PLAIN_REQUIRED = [
+  "legalBusinessName", "businessType", "businessAddress", "businessCity", "businessState", "businessZip",
+  "businessPhone", "businessEmail", "vertical",
+  "ownerFirstName", "ownerLastName", "ownerEmail", "ownerPhone",
+  "ownerAddress", "ownerCity", "ownerState", "ownerZip", "ownershipPercent",
+  "bankName", "bankAccountType",
+  "estimatedMonthlyVolume", "estimatedAvgTicket", "highestTicket", "preferredProgram",
+] as const;
+const SUBMISSION_PROTECTED_REQUIRED = ["ein", "ownerDob", "ownerSsn", "bankRoutingNumber", "bankAccountNumber"] as const;
+
+/**
+ * Returns the NAMES of missing/invalid required fields (never values).
+ * `values` = request body over the stored draft row; `storedProtected` reports ciphertext
+ * already present for a protected field (presence only, never decrypted).
+ */
+export function missingSubmissionFields(
+  values: Record<string, any>,
+  storedProtected: (name: string) => boolean = () => false,
+): string[] {
+  const present = (v: unknown) => v !== undefined && v !== null && String(v).trim() !== "";
+  const missing: string[] = [];
+  for (const f of SUBMISSION_PLAIN_REQUIRED) if (!present(values[f])) missing.push(f);
+  for (const f of SUBMISSION_PROTECTED_REQUIRED) {
+    if (!present(values[f]) && !storedProtected(f)) missing.push(f);
+  }
+  if (present(values.ownerSsn) && String(values.ownerSsn).replace(/\D/g, "").length !== 9) missing.push("ownerSsn");
+  if (!Array.isArray(values.acceptedCardTypes) || values.acceptedCardTypes.length === 0) missing.push("acceptedCardTypes");
+  if (typeof values.terminalNeeded !== "boolean") missing.push("terminalNeeded");
+  if (typeof values.ecommerceNeeded !== "boolean") missing.push("ecommerceNeeded");
+  if (values.terminalNeeded === true) {
+    if (!present(values.terminalType)) missing.push("terminalType");
+    if (!present(values.terminalQuantity)) missing.push("terminalQuantity");
+  }
+  if (values.reviewConfirmed !== true) missing.push("reviewConfirmed");
+  return missing;
+}
+
+function assertSubmissionComplete(
+  values: Record<string, any>,
+  storedProtected: (name: string) => boolean = () => false,
+): void {
+  const missing = missingSubmissionFields(values, storedProtected);
+  if (missing.length > 0) {
+    throw new ValidationError(`Application is incomplete: ${missing.join(", ")}`, missing[0]);
+  }
 }
 
 // ── DTOs ────────────────────────────────────────────────────────────────────
@@ -177,6 +217,7 @@ export const finalizeDto = autosaveDto
     bankAccountType: z.string().max(60).optional(),
     additionalOwners: z.array(z.record(z.unknown())).optional(),
     pewcConsent: z.boolean().optional(),
+    pewcDisclosureVersion: z.string().max(64).optional(),
     reviewConfirmed: z.boolean().optional(),
     status: z.string().optional(),
     totalSteps: z.union([z.number(), z.string()]).optional(),
@@ -194,7 +235,6 @@ export const finalizeDto = autosaveDto
 
 export const operatorCreateDto = finalizeDto
   .extend({
-    userId: z.string().optional(),
     contactId: z.number().optional(),
     companyId: z.number().optional(),
     dealId: z.number().optional(),
@@ -209,15 +249,21 @@ export const operatorUpdateDto = z
     underwritingStatus: z.string().optional(),
     underwritingNotes: z.string().optional(),
     declineReason: z.string().optional(),
-    approvedAt: z.coerce.date().nullable().optional(),
-    declinedAt: z.coerce.date().nullable().optional(),
-    submittedAt: z.coerce.date().nullable().optional(),
-    completedAt: z.coerce.date().nullable().optional(),
-    contactId: z.number().nullable().optional(),
-    companyId: z.number().nullable().optional(),
-    dealId: z.number().nullable().optional(),
+    // S5-03/S5-02: lifecycle timestamps are server-derived on transition; clients cannot supply them.
+    contactId: z.number().int().positive().nullable().optional(),
+    companyId: z.number().int().positive().nullable().optional(),
+    dealId: z.number().int().positive().nullable().optional(),
     preferredProgram: z.string().optional(),
     currentStep: z.number().optional(),
+    // Narrow non-protected editor fields (no protected, e-sign or authority fields).
+    legalBusinessName: z.string().max(300).nullable().optional(),
+    dba: z.string().max(300).nullable().optional(),
+    ownerFirstName: z.string().max(120).nullable().optional(),
+    ownerLastName: z.string().max(120).nullable().optional(),
+    ownerEmail: z.string().max(300).nullable().optional(),
+    businessEmail: z.string().max(300).nullable().optional(),
+    // Stale-edit guard: when supplied, the update only applies at exactly this version.
+    expectedStateVersion: z.number().int().min(0).optional(),
   })
   .strict();
 
@@ -483,6 +529,7 @@ function buildFinalizeOutboxRows(
     businessPhone?: string | null;
     ownerPhone?: string | null;
     vertical?: string | null;
+    consent?: { disclosureVersion: string; consentedPhone: string; ipAddress: string; userAgent: string; submittedAt: string } | null;
   },
 ) {
   const base = { applicationId: appId };
@@ -499,7 +546,7 @@ function buildFinalizeOutboxRows(
   };
   return [
     { ...base, eventType: "contact_link", idempotencyKey: `contact_link:${appId}:${idempotencyKey}`, payload: { ...contactPayload } },
-    ...(contact.pewcConsent ? [{ ...base, eventType: "consent_record", idempotencyKey: `consent_record:${appId}:${idempotencyKey}`, payload: { ...contactPayload, pewcConsent: true } }] : []),
+    ...(contact.pewcConsent ? [{ ...base, eventType: "consent_record", idempotencyKey: `consent_record:${appId}:${idempotencyKey}`, payload: { ...contactPayload, pewcConsent: true, submissionId: idempotencyKey, ...(contact.consent ?? {}) } }] : []),
     { ...base, eventType: "ghl_sync", idempotencyKey: `ghl_sync:${appId}:${idempotencyKey}`, payload: { ...contactPayload } },
     { ...base, eventType: "workflow_enroll", idempotencyKey: `workflow_enroll:${appId}:${idempotencyKey}`, payload: { ...contactPayload } },
     { ...base, eventType: "risk_scan", idempotencyKey: `risk_scan:${appId}:${idempotencyKey}`, payload: {} },
@@ -569,6 +616,84 @@ export async function createDraft(body: unknown): Promise<{ id: number; draftTok
 }
 
 // ── Public: get autosave ─────────────────────────────────────────────────
+
+// ── Prefill drafts (S5-02) ──────────────────────────────────────────────────
+// A CRM-generated application link IS a server draft: opaque hashed capability token,
+// 24h expiry, revocation, server-side contact/deal binding, survives restarts. The link
+// carries only `<draftId>.<token>`; the contact/deal binding never leaves the server and
+// finalization lands on the bound row, so the application → intended deal link is kept.
+const PREFILL_FIELDS = [
+  "legalBusinessName", "dba", "businessType", "businessPhone", "businessEmail", "businessAddress",
+  "businessCity", "businessState", "businessZip", "website", "vertical",
+  "ownerFirstName", "ownerLastName", "ownerEmail", "ownerPhone", "estimatedMonthlyVolume", "currentProcessor",
+] as const;
+
+export async function createPrefillDraft(params: {
+  fields: Record<string, unknown>;
+  contactId?: number | null;
+  dealId?: number | null;
+  actorId?: string | null;
+}): Promise<{ id: number; token: string }> {
+  const picked: Record<string, unknown> = {};
+  for (const f of PREFILL_FIELDS) {
+    const v = params.fields[f];
+    if (typeof v === "string" && v.trim() !== "") picked[f] = v;
+  }
+  const parsed = autosaveDto.partial().parse(picked) as Record<string, unknown>;
+  const draftToken = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + DRAFT_TOKEN_TTL_MS);
+  const now = new Date();
+
+  const row = await db.transaction(async (tx) => {
+    if (params.dealId != null) {
+      // A deal has one application: unsubmitted drafts for it are revoked (never silently
+      // reused); a submitted-or-later application blocks a new link.
+      const existing = await tx.select({ id: merchantApplications.id, status: merchantApplications.status })
+        .from(merchantApplications).where(eq(merchantApplications.dealId, params.dealId)).for("update");
+      for (const e of existing) {
+        if (e.status === "draft" || e.status === "in_progress") {
+          await tx.update(merchantApplications)
+            .set({ status: "withdrawn", dealId: null, draftTokenRevokedAt: now, updatedAt: now })
+            .where(eq(merchantApplications.id, e.id));
+          await auditChange({ userId: params.actorId ?? null, actorType: "user", action: "merchant_application_prefill_superseded",
+            entityType: "merchant_application", entityId: e.id, details: { dealId: params.dealId } }, tx);
+        }
+      }
+    }
+    await assertValidLinks(tx, { contactId: params.contactId, dealId: params.dealId });
+    const [created] = await tx.insert(merchantApplications).values({
+      ...extractNonSensitive(parsed),
+      status: "in_progress",
+      currentStep: 1,
+      totalSteps: 6,
+      contactId: params.contactId ?? null,
+      dealId: params.dealId ?? null,
+      draftTokenHash: hashSecret(draftToken),
+      draftTokenExpiresAt: expiresAt,
+      stateVersion: 0,
+    } as any).returning({ id: merchantApplications.id });
+    await auditChange({ userId: params.actorId ?? null, actorType: "user", action: "merchant_application_prefill_created",
+      entityType: "merchant_application", entityId: created.id,
+      details: { contactId: params.contactId ?? null, dealId: params.dealId ?? null, fields: Object.keys(parsed) } }, tx);
+    return created;
+  });
+  return { id: row.id, token: `${row.id}.${draftToken}` };
+}
+
+/** Public read of a prefill link. Whitelisted non-protected fields only; no internal IDs. */
+export async function readPrefillDraft(composite: string): Promise<{ draftId: number; draftToken: string; fields: Record<string, unknown> }> {
+  const m = /^(\d{1,12})\.([0-9a-f]{64})$/.exec(composite ?? "");
+  if (!m) throw new NotFoundError();
+  const id = Number(m[1]);
+  const [row] = await db.select().from(merchantApplications).where(eq(merchantApplications.id, id)).limit(1);
+  if (!row || !verifyDraftToken(m[2], row as any)) throw new NotFoundError();
+  const fields: Record<string, unknown> = {};
+  for (const f of PREFILL_FIELDS) {
+    const v = (row as Record<string, any>)[f];
+    if (v != null && v !== "") fields[f] = v;
+  }
+  return { draftId: id, draftToken: m[2], fields };
+}
 
 export async function getDraftForToken(appId: number, token: string): Promise<Record<string, unknown>> {
   const [row] = await db.select().from(merchantApplications).where(eq(merchantApplications.id, appId)).limit(1);
@@ -644,10 +769,34 @@ export async function finalizeApplication(params: {
   idempotencyKey: string;
   body: unknown;
   resolvedDealId?: number;
+  /** Request evidence captured at submission, carried into the consent step (S5-05). */
+  requestEvidence?: { ipAddress?: string | null; userAgent?: string | null };
 }): Promise<FinalizeResult> {
   const { appId, draftToken, idempotencyKey, resolvedDealId } = params;
   requireMerchantKeyOr503();
   const parsed = finalizeDto.parse(params.body ?? {});
+
+  // S5-05: consent is evidence of what THIS applicant saw and typed. Refuse a stale/unknown disclosure
+  // version or a missing/unusable phone instead of recording consent the evidence cannot support.
+  let consentEvidence: { disclosureVersion: string; consentedPhone: string; ipAddress: string; userAgent: string; submittedAt: string } | null = null;
+  if (parsed.pewcConsent === true) {
+    const { PEWC_DISCLOSURE_VERSION } = await import("@shared/consent-disclosures");
+    if (parsed.pewcDisclosureVersion !== PEWC_DISCLOSURE_VERSION) {
+      throw new ValidationError("The consent disclosure is out of date. Reload the form and review it again.", "pewcDisclosureVersion");
+    }
+    const { normalizeConsentPhone } = await import("./consent-authority");
+    const phone = String(parsed.ownerPhone || parsed.businessPhone || "");
+    if (!normalizeConsentPhone(phone)) {
+      throw new ValidationError("A valid phone number is required to record text and call consent", "ownerPhone");
+    }
+    consentEvidence = {
+      disclosureVersion: PEWC_DISCLOSURE_VERSION,
+      consentedPhone: phone,
+      ipAddress: params.requestEvidence?.ipAddress || "unknown",
+      userAgent: params.requestEvidence?.userAgent || "unknown",
+      submittedAt: new Date().toISOString(),
+    };
+  }
 
   // Derive capability deterministically. Only hash is ever stored.
   const esignCapability = deriveEsignCapability(draftToken, appId, idempotencyKey);
@@ -696,6 +845,14 @@ export async function finalizeApplication(params: {
     if (!FINALIZE_ELIGIBLE_STATUSES.has(String(row.status))) {
       throw new ConflictError("Application not in a finalizable state", "invalid_state");
     }
+
+    // S5-01: refuse an incomplete submission before any write or outbox effect.
+    const rowNoProtected: Record<string, any> = { ...(row as Record<string, any>) };
+    for (const f of SUBMISSION_PROTECTED_REQUIRED) delete rowNoProtected[f];
+    assertSubmissionComplete(
+      { ...rowNoProtected, ...(parsed as Record<string, any>) },
+      (name) => (row as Record<string, any>)[name] != null && (row as Record<string, any>)[name] !== "",
+    );
 
     // In-transaction duplicate fingerprint guard (defense-in-depth; also catches
     // unique index violation from concurrent finalize with same EIN).
@@ -782,6 +939,7 @@ export async function finalizeApplication(params: {
     // Enqueue individually-keyed outbox rows (item 3).
     const outboxRows = buildFinalizeOutboxRows(appId, idempotencyKey, {
       pewcConsent: parsed.pewcConsent === true,
+      consent: consentEvidence,
       ownerEmail: parsed.ownerEmail,
       businessEmail: parsed.businessEmail,
       ownerFirstName: parsed.ownerFirstName,
@@ -807,16 +965,27 @@ export async function operatorCreate(params: {
 }): Promise<{ dto: Record<string, unknown>; applicationId: number }> {
   requireMerchantKeyOr503();
   const parsed = operatorCreateDto.parse(params.body ?? {});
+  if (parsed.pewcConsent === true) {
+    throw new ValidationError("Text and call consent can only be given by the applicant in their own submission", "pewcConsent");
+  }
 
   if (parsed.ein) {
     const isDup = await checkDuplicateEin(parsed.ein);
     if (isDup) throw new ConflictError("An application for this business already exists.", "duplicate_ein");
   }
 
+  const createStatus = parsed.status && canTransition("draft", String(parsed.status)) ? parsed.status : "submitted";
+  // S5-01: an operator-created application is only `submitted` when it is complete.
+  if (createStatus === "submitted") assertSubmissionComplete(parsed as Record<string, any>);
+
   const now = new Date();
   const idempotencyKey = `operator_create:${crypto.randomBytes(8).toString("hex")}`;
 
   const result = await db.transaction(async (tx) => {
+    await assertValidLinks(tx, {
+      contactId: parsed.contactId, companyId: parsed.companyId,
+      dealId: params.resolvedDealId ?? parsed.dealId,
+    });
     const nonSensitive = extractNonSensitive(parsed);
     let shell: any;
     try {
@@ -825,7 +994,8 @@ export async function operatorCreate(params: {
         .values({
           ...nonSensitive,
           status: parsed.status && canTransition("draft", String(parsed.status)) ? parsed.status : "submitted",
-          userId: params.userId ?? parsed.userId ?? null,
+          // S5-02: the operator is the actor, not the applicant; a body-supplied userId is never trusted.
+          userId: null,
           contactId: parsed.contactId ?? null,
           companyId: parsed.companyId ?? null,
           dealId: params.resolvedDealId ?? parsed.dealId ?? null,
@@ -864,7 +1034,8 @@ export async function operatorCreate(params: {
     }, tx);
 
     const outboxRows = buildFinalizeOutboxRows(shell.id, idempotencyKey, {
-      pewcConsent: parsed.pewcConsent === true,
+      pewcConsent: false, // an operator cannot assert the applicant's consent
+
       ownerEmail: parsed.ownerEmail,
       businessEmail: parsed.businessEmail,
       ownerFirstName: parsed.ownerFirstName,
@@ -885,6 +1056,34 @@ export async function operatorCreate(params: {
 
 // ── Operator update ──────────────────────────────────────────────────────
 
+/** S5-02: validates linked contact/company/deal exist and agree; throws before any write. */
+async function assertValidLinks(
+  tx: any,
+  l: { contactId?: number | null; companyId?: number | null; dealId?: number | null; currentContactId?: number | null; excludeAppId?: number },
+): Promise<void> {
+  if (l.contactId == null && l.companyId == null && l.dealId == null) return;
+  const contactIdForCheck = l.contactId ?? l.currentContactId ?? null;
+  if (l.contactId != null) {
+    const [c] = await tx.select({ id: contacts.id }).from(contacts).where(eq(contacts.id, l.contactId)).limit(1);
+    if (!c) throw new ValidationError("Linked contact does not exist", "contactId");
+  }
+  if (l.companyId != null) {
+    const [c] = await tx.select({ id: companies.id }).from(companies).where(eq(companies.id, l.companyId)).limit(1);
+    if (!c) throw new ValidationError("Linked company does not exist", "companyId");
+  }
+  if (l.dealId != null) {
+    const [d] = await tx.select({ id: deals.id, contactId: deals.contactId }).from(deals).where(eq(deals.id, l.dealId)).limit(1);
+    if (!d) throw new ValidationError("Linked deal does not exist", "dealId");
+    if (contactIdForCheck != null && d.contactId != null && d.contactId !== contactIdForCheck) {
+      throw new ValidationError("Linked deal belongs to a different contact", "dealId");
+    }
+    const conds = [eq(merchantApplications.dealId, l.dealId)];
+    if (l.excludeAppId != null) conds.push(sql`${merchantApplications.id} != ${l.excludeAppId}`);
+    const [other] = await tx.select({ id: merchantApplications.id }).from(merchantApplications).where(and(...conds)).limit(1);
+    if (other) throw new ConflictError("Deal is already linked to another application", "deal_already_linked");
+  }
+}
+
 export async function operatorUpdate(params: {
   appId: number;
   body: unknown;
@@ -897,11 +1096,21 @@ export async function operatorUpdate(params: {
     const [row] = await tx.select().from(merchantApplications).where(eq(merchantApplications.id, appId)).limit(1);
     if (!row) throw new NotFoundError();
 
+    if (parsed.expectedStateVersion !== undefined && parsed.expectedStateVersion !== (row.stateVersion ?? 0)) {
+      throw new ConflictError("Application changed since you opened it. Reload and try again.", "state_version_conflict");
+    }
+
     const updates: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(parsed)) {
-      if (k === "status" || k === "underwritingNotes") continue;
+      if (k === "status" || k === "underwritingNotes" || k === "expectedStateVersion") continue;
       updates[k] = v;
     }
+
+    // S5-02: relinks must reference real, mutually consistent objects.
+    await assertValidLinks(tx, {
+      contactId: parsed.contactId, companyId: parsed.companyId, dealId: parsed.dealId,
+      currentContactId: row.contactId ?? null, excludeAppId: appId,
+    });
 
     if (parsed.status && parsed.status !== row.status) {
       if (TERMINAL_STATUSES.has(String(row.status))) {
@@ -911,6 +1120,11 @@ export async function operatorUpdate(params: {
         throw new ConflictError(`Invalid status transition ${row.status}->${parsed.status}`, "invalid_transition");
       }
       updates.status = parsed.status;
+      // Lifecycle timestamps are derived by the server at the moment of the transition.
+      const at = new Date();
+      if (parsed.status === "approved") updates.approvedAt = at;
+      if (parsed.status === "declined") updates.declinedAt = at;
+      if (parsed.status === "submitted") updates.submittedAt = at;
     }
 
     const incomingNote = typeof parsed.underwritingNotes === "string" ? parsed.underwritingNotes.trim() : "";

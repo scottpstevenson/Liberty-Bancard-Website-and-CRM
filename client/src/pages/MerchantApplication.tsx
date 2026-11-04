@@ -10,6 +10,7 @@ import { getStoredUTMParams } from "@/lib/utm";
 import { trackMerchantApplication } from "@/lib/tracking";
 import { trackConversion, trackPhoneCallClick } from "@/lib/analytics";
 import { useToast } from "@/hooks/use-toast";
+import { PEWC_DISCLOSURE_TEXT, PEWC_DISCLOSURE_VERSION } from "@shared/consent-disclosures";
 import {
   Select,
   SelectContent,
@@ -94,6 +95,8 @@ export default function MerchantApplication() {
   const [draftDismissed, setDraftDismissed] = useState(false);
   const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
   const [showDraftSaved, setShowDraftSaved] = useState(false);
+  // S5-04: server acknowledgement is tracked separately from the local-device save.
+  const [serverSaveState, setServerSaveState] = useState<"idle" | "saved" | "failed">("idle");
   const [prefillApplied, setPrefillApplied] = useState(false);
   const [shareToken, setShareToken] = useState<string | null>(null);
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -281,9 +284,15 @@ export default function MerchantApplication() {
           businessAddress?: string; businessCity?: string; businessState?: string; businessZip?: string;
           website?: string; vertical?: string; currentProcessor?: string;
           ownerFirstName?: string; ownerLastName?: string; ownerEmail?: string; ownerPhone?: string;
-          estimatedMonthlyVolume?: string; dealId?: number;
+          estimatedMonthlyVolume?: string; draftId?: number; draftToken?: string;
         } | null) => {
           if (!data) return;
+          // S5-02: adopt the server-bound draft so finalization lands on the intended deal.
+          if (data.draftId && data.draftToken) {
+            setServerDraftId(data.draftId);
+            setServerDraftToken(data.draftToken);
+            try { localStorage.setItem("lb_draft_id", String(data.draftId)); localStorage.setItem("lb_draft_token", data.draftToken); } catch {}
+          }
           if (data.legalBusinessName) setLegalBusinessName(data.legalBusinessName);
           if (data.dba && typeof setDba === "function") setDba(data.dba);
           if (data.businessType && typeof setBusinessType === "function") setBusinessType(data.businessType);
@@ -345,7 +354,7 @@ export default function MerchantApplication() {
     const token = serverDraftToken;
     if (!id || !token) return;
     try {
-      await fetch(`/api/merchant-applications/${id}/autosave`, {
+      const autosaveRes = await fetch(`/api/merchant-applications/${id}/autosave`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", "X-Draft-Token": token },
         body: JSON.stringify({
@@ -360,7 +369,10 @@ export default function MerchantApplication() {
           preferredProgram, currentStep: step,
         }),
       });
-    } catch {}
+      setServerSaveState(autosaveRes.ok ? "saved" : "failed");
+    } catch {
+      setServerSaveState("failed");
+    }
   };
 
   useEffect(() => {
@@ -629,6 +641,7 @@ export default function MerchantApplication() {
     preferredProgram,
     esignStatus: "pending",
     pewcConsent,
+    ...(pewcConsent ? { pewcDisclosureVersion: PEWC_DISCLOSURE_VERSION } : {}),
     ...getStoredUTMParams(),
   });
 
@@ -661,8 +674,13 @@ export default function MerchantApplication() {
 
       // Stable idempotency key for finalize — generated once per submission,
       // reused on retry so the server dedupes identical resubmissions.
+      // S5-04: the key is retained (non-sensitive, UUID only) so a lost response followed by a
+      // reload retries the SAME submission intent instead of a new one against a finalized draft.
       if (!finalizeIdempotencyKey.current) {
-        finalizeIdempotencyKey.current = crypto.randomUUID();
+        let stored: string | null = null;
+        try { stored = localStorage.getItem("lb_finalize_key"); } catch {}
+        finalizeIdempotencyKey.current = stored || crypto.randomUUID();
+        try { localStorage.setItem("lb_finalize_key", finalizeIdempotencyKey.current); } catch {}
       }
 
       if (serverDraftId && serverDraftToken) {
@@ -702,6 +720,9 @@ export default function MerchantApplication() {
         const draftData = await draftRes.json();
         const fallbackDraftId: number = draftData.id;
         const fallbackDraftToken: string = draftData.draftToken;
+        // S5-04: retain the new draft's recovery identity BEFORE finalizing so a lost response
+        // can be recovered after reload (token is the draft capability, never a protected field).
+        try { localStorage.setItem("lb_draft_id", String(fallbackDraftId)); localStorage.setItem("lb_draft_token", fallbackDraftToken); } catch {}
 
         const finalRes = await fetch(`/api/merchant-applications/${fallbackDraftId}/finalize`, {
           method: "PATCH",
@@ -756,7 +777,7 @@ export default function MerchantApplication() {
       }
 
       localStorage.removeItem(DRAFT_KEY);
-      try { localStorage.removeItem("lb_draft_id"); localStorage.removeItem("lb_draft_token"); } catch {}
+      try { localStorage.removeItem("lb_draft_id"); localStorage.removeItem("lb_draft_token"); localStorage.removeItem("lb_finalize_key"); } catch {}
       setSubmitted(true);
       try {
         sessionStorage.setItem("lb_app_confirmation", JSON.stringify({
@@ -835,7 +856,7 @@ export default function MerchantApplication() {
                       Application Received
                     </h2>
                     <p className="text-muted-foreground mb-4" data-testid="text-esign-pending-description">
-                      Your application has been submitted successfully. Our team will contact you within 1 business day to complete the e-signature process and finalize your account setup.
+                      Your application has been submitted successfully. A member of our team will review it and follow up about the next steps, including any e-signature. We do not commit to a specific timeline.
                     </p>
                   </CardContent>
                 </Card>
@@ -852,7 +873,7 @@ export default function MerchantApplication() {
                         <span className="text-xs font-bold text-primary">1</span>
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        <span className="font-medium text-foreground">Sign your agreement</span> - Check your email for the Merchant Processing Agreement sent via GoHighLevel and complete the electronic signature.
+                        <span className="font-medium text-foreground">Agreement</span> - If an e-signature is needed, we will send the Merchant Processing Agreement to the email on your application.
                       </p>
                     </div>
                     <div className="flex items-start gap-3">
@@ -860,7 +881,7 @@ export default function MerchantApplication() {
                         <span className="text-xs font-bold text-primary">2</span>
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        <span className="font-medium text-foreground">Underwriting review</span> - Our team will review your application within 1-2 business days.
+                        <span className="font-medium text-foreground">Underwriting review</span> - Our team will review your application and may ask for additional information.
                       </p>
                     </div>
                     <div className="flex items-start gap-3">
@@ -868,7 +889,7 @@ export default function MerchantApplication() {
                         <span className="text-xs font-bold text-primary">3</span>
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        <span className="font-medium text-foreground">Get started</span> - Once approved, we'll set up your account and ship your equipment.
+                        <span className="font-medium text-foreground">Decision</span> - If your application is approved, we will tell you what happens next. Approval is not guaranteed.
                       </p>
                     </div>
                   </div>
@@ -917,7 +938,7 @@ export default function MerchantApplication() {
               Merchant <span className="text-sky-400">Application</span>
             </h1>
             <p className="text-white/70" data-testid="text-application-subheadline">
-              Complete your application in 6 simple steps. Most approvals within 1-2 business days.
+              Complete your application in 6 steps. Approval is subject to underwriting review.
             </p>
           </div>
         </section>
@@ -964,12 +985,16 @@ export default function MerchantApplication() {
               </p>
               <div className="flex items-center gap-3">
                 <span
-                  className={`text-xs flex items-center gap-1 transition-opacity duration-500 ${showDraftSaved ? "opacity-100 text-emerald-600 dark:text-emerald-400" : "opacity-0"}`}
+                  className={`text-xs flex items-center gap-1 transition-opacity duration-500 ${serverSaveState === "failed" ? "opacity-100 text-amber-600 dark:text-amber-400" : showDraftSaved ? "opacity-100 text-emerald-600 dark:text-emerald-400" : "opacity-0"}`}
                   data-testid="text-draft-saved"
                   aria-live="polite"
                 >
                   <Save className="w-3 h-3" />
-                  Draft saved
+                  {serverSaveState === "failed"
+                    ? "Saved on this device only. We could not reach the server; we will retry when you continue."
+                    : serverSaveState === "saved"
+                      ? "Draft saved"
+                      : "Saved on this device"}
                 </span>
                 <p className="text-xs text-muted-foreground">{progressPercent}% complete</p>
               </div>
@@ -1591,10 +1616,7 @@ export default function MerchantApplication() {
                           className="mt-0.5"
                         />
                         <span className="text-sm text-foreground leading-relaxed">
-                          <strong>Prior Express Written Consent (TCPA):</strong> I expressly authorize Liberty Bancard and its 
-                          agents to contact me via automated calls, prerecorded messages, and automated text messages at the phone 
-                          number(s) provided. I understand this consent is not required to obtain services. Message and data rates 
-                          may apply. Reply STOP to opt out at any time.
+                          <strong>Text and call consent (optional):</strong> {PEWC_DISCLOSURE_TEXT}
                         </span>
                       </label>
                     </div>

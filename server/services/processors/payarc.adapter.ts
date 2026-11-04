@@ -73,30 +73,27 @@ function generateMockApplicationId(): string {
 }
 
 /** Map Payarc applicant status string → our shared status enum */
-function mapPayarcStatus(raw: string): BoardingStatusResult["status"] {
-  switch ((raw ?? "").toLowerCase()) {
-    case "approved":
-    case "active":
-      return "approved";
-    case "declined":
-    case "rejected":
-    case "denied":
-      return "declined";
-    case "under_review":
-    case "in_review":
-    case "review":
-    case "processing":
-      return "under_review";
-    case "more_info_needed":
-    case "information_needed":
-    case "pending_info":
-    case "additional_info":
-      return "more_info_needed";
-    case "submitted":
-    case "pending":
-    default:
-      return "submitted";
+/**
+ * Strict status decode (S5-17). Returns null for a missing or unrecognized provider
+ * status so a status observation is never silently applied as "submitted".
+ */
+function parsePayarcStatus(raw: unknown): BoardingStatusResult["status"] | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  switch (raw.trim().toLowerCase()) {
+    case "approved": case "active": return "approved";
+    case "declined": case "rejected": case "denied": return "declined";
+    case "under_review": case "in_review": case "review": case "processing": return "under_review";
+    case "more_info_needed": case "information_needed": case "pending_info": case "additional_info": return "more_info_needed";
+    case "submitted": case "pending": return "submitted";
+    default: return null;
   }
+}
+
+/** Non-empty provider identifier (string or finite number) or null. */
+function providerIdentifier(v: unknown): string | null {
+  if (typeof v === "string" && v.trim() !== "") return v.trim();
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  return null;
 }
 
 /** Build the Payarc applicant payload from our internal MerchantProfile */
@@ -553,12 +550,23 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
 
         if (!ok) {
           console.error(`[PayarcAdapter] boardMerchant failed: HTTP ${status}`);
-          return { success: false, error: `Payarc API error (${status})` };
+          // S5-17: only a definite client-side rejection is an ordinary failure. A 5xx,
+          // gateway timeout (408) or any other non-4xx response may have been produced AFTER
+          // the provider committed the application, so it is ambiguous — never auto-retried.
+          const definiteRejection = status >= 400 && status < 500 && status !== 408;
+          if (definiteRejection) return { success: false, error: `Payarc API error (${status})` };
+          return {
+            success: false,
+            ambiguous: true,
+            error: `Payarc API error (${status}) — provider outcome unknown, hold for reconciliation`,
+          };
         }
 
         // Payarc returns { data: { object_id, id, status, ... } } or flat { object_id, ... }
+        // Identity comes only from the documented identifier fields; a missing, blank or
+        // non-scalar identifier is ambiguous (the provider answered 2xx).
         const applicant = data?.data ?? data;
-        const applicationId = applicant?.object_id || applicant?.id || applicant?.applicant_id;
+        const applicationId = providerIdentifier(applicant?.object_id) ?? providerIdentifier(applicant?.id);
 
         if (!applicationId) {
           // No application ID in response — classify as ambiguous.
@@ -571,16 +579,19 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
           };
         }
 
-        const estimatedDate = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .split("T")[0];
+        // No invented estimate: only a provider-supplied date is reported.
+        const providerEstimate = typeof applicant?.estimated_decision_date === "string" && applicant.estimated_decision_date.trim() !== ""
+          ? applicant.estimated_decision_date
+          : undefined;
 
         return {
           success: true,
-          processorApplicationId: String(applicationId),
-          status: mapPayarcStatus(applicant?.status ?? "submitted"),
-          message: `Application ${applicationId} submitted to Payarc. Estimated decision: ${estimatedDate}.`,
-          estimatedDecisionDate: applicant?.estimated_decision_date || estimatedDate,
+          processorApplicationId: applicationId,
+          // An accepted application with a missing/unrecognized status is still accepted
+          // (we hold its provider id); the status simply starts as "submitted".
+          status: parsePayarcStatus(applicant?.status) ?? "submitted",
+          message: `Application ${applicationId} submitted to Payarc.${providerEstimate ? ` Estimated decision: ${providerEstimate}.` : ""}`,
+          estimatedDecisionDate: providerEstimate,
         };
       } catch (err: any) {
         // REV-05A: ALL exceptions from a POST transport call are classified as
@@ -644,14 +655,33 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
         }
 
         const applicant = data?.data ?? data;
-        const mappedStatus = mapPayarcStatus(applicant?.status ?? "submitted");
-        const mid = applicant?.mid || applicant?.merchant_id || applicant?.merchant?.mid;
+        // S5-17: correlate the response to the requested application and decode strictly.
+        const returnedId = providerIdentifier(applicant?.object_id) ?? providerIdentifier(applicant?.id);
+        if (returnedId && returnedId !== processorApplicationId) {
+          return {
+            success: false,
+            processorApplicationId,
+            status: "submitted",
+            error: "Payarc status response identifies a different application — observation discarded",
+          };
+        }
+        const mappedStatus = parsePayarcStatus(applicant?.status);
+        if (!mappedStatus) {
+          return {
+            success: false,
+            processorApplicationId,
+            status: "submitted",
+            error: "Payarc status response has a missing or unrecognized status — observation not applied",
+          };
+        }
+        // A merchant identifier is not a MID without contract proof: only an explicit mid counts.
+        const mid = providerIdentifier(applicant?.mid) ?? providerIdentifier(applicant?.merchant?.mid);
 
         return {
           success: true,
           processorApplicationId,
           status: mappedStatus,
-          mid: mid ? String(mid) : undefined,
+          mid: mid ?? undefined,
           message: applicant?.message || applicant?.status_message || undefined,
           moreInfoRequest: applicant?.additional_info_request || applicant?.info_request || undefined,
           declineReason: applicant?.decline_reason || applicant?.rejection_reason || undefined,

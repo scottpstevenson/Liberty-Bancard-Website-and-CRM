@@ -195,87 +195,145 @@ const STANDARD_CONDITIONS: ConditionTemplate[] = [
 /**
  * Auto-create underwriting_conditions rows when a deal enters an underwriting stage.
  *
- * Idempotent — no-ops if conditions already exist for this deal.
- * Also sends the merchant an email listing required documents.
+ * Race-safe and idempotent per condition: each standard condition has an identity (automation_key) backed by a
+ * partial unique index, so concurrent or repeated runs insert only the MISSING items (a partially initialized deal
+ * is completed, never duplicated) and a previously superseded standard condition is not resurrected.
+ * The merchant chase is recorded as a durable owed row in the same transaction and delivered separately, so a
+ * paused/unconfigured sender leaves it owed instead of dropping it. Real failures propagate so the durable
+ * stage-effect intent that called this retries.
  */
 export async function initUnderwritingConditions(
   dealId: number,
   contactEmail: string | null,
   contactName: string | null,
-  contactId: number | null,
-): Promise<void> {
-  try {
-    // Idempotency: skip if conditions already exist
-    const existing = await db
-      .select({ id: underwritingConditions.id })
-      .from(underwritingConditions)
-      .where(eq(underwritingConditions.dealId, dealId))
-      .limit(1);
-
-    if (existing.length > 0) {
-      console.log(`[Underwriting] Conditions already initialized for deal #${dealId} — skipping`);
-      return;
+  _contactId: number | null,
+  deps: ChaseDeps = {},
+): Promise<{ inserted: number }> {
+  const now = new Date();
+  let inserted = 0;
+  await db.transaction(async (tx) => {
+    for (const c of STANDARD_CONDITIONS) {
+      const r = await tx.execute(sql`
+        INSERT INTO underwriting_conditions
+          (deal_id, condition_type, description, status, merchant_visible, due_date, automation_key)
+        VALUES (${dealId}, ${c.conditionType}, ${c.description}, 'pending', true,
+                ${addBusinessDays(now, c.dueDays)}, ${`std:${c.conditionType}`})
+        ON CONFLICT (deal_id, automation_key) WHERE automation_key IS NOT NULL DO NOTHING
+      `);
+      if ((r.rowCount ?? 0) > 0) inserted++;
     }
-
-    const now = new Date();
-    const conditionRows = STANDARD_CONDITIONS.map((c) => ({
-      dealId,
-      conditionType: c.conditionType,
-      description:   c.description,
-      status:        "pending" as const,
-      merchantVisible: true,
-      dueDate:       addBusinessDays(now, c.dueDays),
-      ...(contactId ? { createdBy: contactId } : {}),
-    }));
-
-    await db.insert(underwritingConditions).values(conditionRows);
-    console.log(`[Underwriting] ${conditionRows.length} conditions created for deal #${dealId}`);
-
-    // Send merchant an email listing required documents
     if (contactEmail) {
-      await sendMerchantConditionsEmail(dealId, contactEmail, contactName, STANDARD_CONDITIONS).catch(
-        (err: Error) => console.error(`[Underwriting] conditions email error for deal #${dealId}:`, err.message),
-      );
+      await tx.execute(sql`
+        INSERT INTO underwriting_condition_chases (deal_id, channel, status, recipient_email, recipient_name)
+        VALUES (${dealId}, 'email', 'owed', ${contactEmail}, ${contactName})
+        ON CONFLICT (deal_id, channel) DO NOTHING
+      `);
     }
-  } catch (err) {
-    console.error(`[Underwriting] conditions init error for deal #${dealId}:`, (err as Error).message);
-  }
+  });
+  console.log(`[Underwriting] ${inserted} missing conditions created for deal #${dealId}`);
+  // Delivery is attempted now; if it cannot go out it stays owed for the recurring sweep.
+  await retryOwedConditionChases({ dealId }, deps).catch((err: Error) =>
+    console.error(`[Underwriting] conditions chase error for deal #${dealId}:`, err.message));
+  return { inserted };
 }
 
-async function sendMerchantConditionsEmail(
-  dealId: number,
-  email: string,
-  name: string | null,
-  conditions: ConditionTemplate[],
-): Promise<void> {
-  // Upgraded to OutboundPauseAuthority + coordinator (#1532)
-  {
-    const { authorize } = await import("./outbound-pause-authority");
-    const { canExecute } = await import("./outbound-queue-coordinator");
-    const decision = await authorize({});
+export interface ChaseDeps {
+  authorize?: () => Promise<{ allowed: boolean; reasonCode?: string }>;
+  canExecute?: (key: string) => Promise<boolean>;
+  isSmtpConfigured?: () => boolean;
+  sendEmail?: (msg: { to: string; subject: string; html: string; category: string }) => Promise<unknown>;
+}
+
+export interface ChaseSweepResult { attempted: number; sent: number; stillOwed: number; notApplicable: number; heldUnknown: number }
+
+/**
+ * Delivers owed merchant chases. Each (deal, channel) is claimed with a compare-and-set (owed -> sending), so
+ * concurrent sweeps send once. A pause, hold or unconfigured sender returns the row to `owed` with the reason.
+ * A row left in `sending` (crash mid-send) is an unknown outcome and is held for review, never auto-resent.
+ */
+export async function retryOwedConditionChases(
+  scope: { dealId?: number } = {},
+  deps: ChaseDeps = {},
+): Promise<ChaseSweepResult> {
+  const result: ChaseSweepResult = { attempted: 0, sent: 0, stillOwed: 0, notApplicable: 0, heldUnknown: 0 };
+  const owed = await db.execute(sql`
+    SELECT id, deal_id, recipient_email, recipient_name FROM underwriting_condition_chases
+    WHERE channel = 'email' AND status = 'owed' ${scope.dealId != null ? sql`AND deal_id = ${scope.dealId}` : sql``}
+    ORDER BY id LIMIT 50
+  `);
+  const heldRows = await db.execute(sql`
+    SELECT count(*)::int AS n FROM underwriting_condition_chases
+    WHERE channel = 'email' AND status = 'sending' ${scope.dealId != null ? sql`AND deal_id = ${scope.dealId}` : sql``}
+  `);
+  result.heldUnknown = Number((heldRows as any).rows?.[0]?.n ?? 0);
+
+  for (const row of (owed as any).rows as Array<{ id: number; deal_id: number; recipient_email: string | null; recipient_name: string | null }>) {
+    const settle = async (status: "owed" | "sent" | "not_applicable", reason: string | null) => {
+      await db.execute(sql`
+        UPDATE underwriting_condition_chases
+        SET status = ${status}, last_reason = ${reason}, updated_at = now(),
+            sent_at = CASE WHEN ${status} = 'sent' THEN now() ELSE sent_at END
+        WHERE id = ${row.id} AND status = 'sending'
+      `);
+    };
+    // Gates are checked BEFORE the claim so a paused system does not burn an attempt.
+    const authorizeFn = deps.authorize ?? (async () => {
+      const { authorize } = await import("./outbound-pause-authority");
+      return await authorize({});
+    });
+    const decision = await authorizeFn();
     if (!decision.allowed) {
-      console.log(`[Underwriting] Blocked by OutboundPauseAuthority (reason=${decision.reasonCode}) — skipping conditions email for deal #${dealId}`);
-      return;
+      await db.execute(sql`UPDATE underwriting_condition_chases SET last_reason = ${`paused:${decision.reasonCode ?? "unknown"}`}, last_attempt_at = now(), updated_at = now() WHERE id = ${row.id} AND status = 'owed'`);
+      result.stillOwed++;
+      continue;
     }
-    const coordOk = await canExecute("underwriting-notifications");
-    if (!coordOk) {
-      console.log(`[Underwriting] Coordinator hold on 'underwriting-notifications' — skipping conditions email for deal #${dealId}`);
-      return;
+    const canExec = deps.canExecute ?? (async (k: string) => (await import("./outbound-queue-coordinator")).canExecute(k));
+    if (!(await canExec("underwriting-notifications"))) {
+      await db.execute(sql`UPDATE underwriting_condition_chases SET last_reason = 'coordinator_hold', last_attempt_at = now(), updated_at = now() WHERE id = ${row.id} AND status = 'owed'`);
+      result.stillOwed++;
+      continue;
+    }
+    const configured = deps.isSmtpConfigured ? deps.isSmtpConfigured() : (await import("./smtp-email")).isSmtpConfigured();
+    if (!configured) {
+      await db.execute(sql`UPDATE underwriting_condition_chases SET last_reason = 'smtp_not_configured', last_attempt_at = now(), updated_at = now() WHERE id = ${row.id} AND status = 'owed'`);
+      result.stillOwed++;
+      continue;
+    }
+
+    const claimed = await db.execute(sql`
+      UPDATE underwriting_condition_chases SET status = 'sending', attempts = attempts + 1, last_attempt_at = now(), updated_at = now()
+      WHERE id = ${row.id} AND status = 'owed' RETURNING id
+    `);
+    if (((claimed as any).rows ?? []).length === 0) continue; // another sweep owns it
+    result.attempted++;
+
+    try {
+      if (!row.recipient_email) { await settle("not_applicable", "no_recipient"); result.notApplicable++; continue; }
+      const open = await db.select({ conditionType: underwritingConditions.conditionType, description: underwritingConditions.description })
+        .from(underwritingConditions)
+        .where(and(eq(underwritingConditions.dealId, row.deal_id), eq(underwritingConditions.status, "pending"),
+          eq(underwritingConditions.merchantVisible, true), sql`${underwritingConditions.supersededAt} IS NULL`))
+        .orderBy(underwritingConditions.id);
+      if (open.length === 0) { await settle("not_applicable", "nothing_outstanding"); result.notApplicable++; continue; }
+      const send = deps.sendEmail ?? (async (m) => (await import("./smtp-email")).sendSmtpEmail({ ...m, contactId: undefined } as any));
+      await send(buildChaseEmail(row.recipient_email, row.recipient_name, open));
+      await settle("sent", null);
+      result.sent++;
+    } catch (err) {
+      // The send may or may not have reached the provider: leave the claim in `sending` (unknown outcome, held).
+      await db.execute(sql`UPDATE underwriting_condition_chases SET last_reason = ${`unknown_outcome:${String((err as Error).message).slice(0, 200)}`}, updated_at = now() WHERE id = ${row.id} AND status = 'sending'`);
+      result.heldUnknown++;
     }
   }
+  return result;
+}
 
-  const { isSmtpConfigured, sendSmtpEmail } = await import("./smtp-email");
-  if (!isSmtpConfigured()) return;
-
+function buildChaseEmail(email: string, name: string | null, conditions: Array<{ conditionType: string; description: string }>) {
   const greeting = name ? `Hi ${name.split(" ")[0]}` : "Hello";
   const itemsHtml = conditions
     .map((c, i) => `<li style="margin-bottom:6px"><strong>${i + 1}. ${c.conditionType.replace(/_/g, " ")}</strong><br/>${c.description}</li>`)
     .join("\n");
-  const itemsText = conditions
-    .map((c, i) => `${i + 1}. ${c.description}`)
-    .join("\n");
-
-  await sendSmtpEmail({
+  return {
     to: email,
     subject: "Action Required: Documents Needed to Complete Your Application",
     html: `
@@ -286,10 +344,7 @@ async function sendMerchantConditionsEmail(
       <p>Best regards,<br/>Liberty Bancard Underwriting Team</p>
     `,
     category: "onboarding",
-    contactId: undefined, // dealId not tracked at SMTP level
-  });
-
-  console.log(`[Underwriting] Conditions email sent to ${email} for deal #${dealId}`);
+  };
 }
 
 /**

@@ -702,6 +702,10 @@ async function runSlaCheck() {
     await checkUnderwritingConditionSlas().catch((err: Error) =>
       console.error("[SlaLoop] underwriting conditions SLA error:", err.message),
     );
+    // S5-10 — deliver merchant condition chases that were owed while sending was paused/unconfigured.
+    await import("./underwriting-checklist-service")
+      .then((m) => m.retryOwedConditionChases())
+      .catch((err: Error) => console.error("[SlaLoop] owed condition chase sweep error:", err.message));
     await releaseJobLock(JOB_NAMES.SLA_WORKER, true, undefined, lockToken);
   } catch (err: any) {
     console.error("SLA check error:", err);
@@ -724,6 +728,7 @@ async function checkUnderwritingConditionSlas(): Promise<void> {
       COUNT(*)::int AS overdue_count
     FROM underwriting_conditions uc
     WHERE uc.status = 'pending'
+      AND uc.superseded_at IS NULL
       AND uc.submitted_at IS NULL
       AND uc.due_date IS NOT NULL
       AND uc.due_date < NOW()

@@ -47,12 +47,19 @@ const admin = { role: "admin", email: "admin.fixture@example.invalid" };
 const agentA = { role: "agent", email: `agent-a-${tag}@example.invalid` };
 const SUBMIT = "POST /api/deals/:id/submit-to-processor";
 
-async function deal(label: string, over: { owner?: string; boardingStatus?: string | null } = {}) {
+async function deal(label: string, over: { owner?: string; boardingStatus?: string | null; pipeline?: string; complete?: boolean } = {}) {
   const r = await db.execute(sql`
     INSERT INTO deals (pipeline, stage, name, owner, boarding_status)
-    VALUES ('onboarding', 'Underwriting', ${`S5BR ${tag} ${label}`}, ${over.owner ?? null}, ${over.boardingStatus ?? null}) RETURNING id`);
+    VALUES (${over.pipeline ?? "onboarding"}, 'Underwriting', ${`S5BR ${tag} ${label}`}, ${over.owner ?? null}, ${over.boardingStatus ?? null}) RETURNING id`);
   const dealId = Number(((r as any).rows ?? r)[0].id);
-  await db.execute(sql`INSERT INTO merchant_applications (deal_id, legal_business_name) VALUES (${dealId}, ${`S5BR ${label}`})`);
+  if (over.complete === false) {
+    await db.execute(sql`INSERT INTO merchant_applications (deal_id, legal_business_name) VALUES (${dealId}, ${`S5BR ${label}`})`);
+  } else {
+    // Presence-only fixture values (readiness checks protected columns without decrypting).
+    await db.execute(sql`INSERT INTO merchant_applications (deal_id, legal_business_name, business_address, business_city, business_state, business_zip,
+        owner_first_name, owner_last_name, ein, owner_ssn, owner_dob, bank_routing_number, bank_account_number)
+      VALUES (${dealId}, ${`S5BR ${label}`}, '1 Fixture Way', 'Miami', 'FL', '33101', 'Fixie', 'Tester', 'enc', 'enc', 'enc', 'enc', 'enc')`);
+  }
   return dealId;
 }
 const outboxRows = async (key: string) => (((await db.execute(sql`SELECT id, deal_id, processor_name FROM deal_boarding_outbox WHERE idempotency_key = ${key}`)) as any).rows) as any[];
@@ -85,6 +92,35 @@ const boardingStatus = async (id: number) => (((await db.execute(sql`SELECT boar
   check((await outboxRows(key)).length === 1, "four concurrent identical requests create exactly one outbox row");
   check(results.filter((r) => r.code === 202).length >= 1 && results.every((r) => r.code === 202 || r.code === 409), "every concurrent request gets 202 or 409, never 500");
   check(await boardingStatus(c) === "queued", "the deal is queued once");
+}
+
+// ── S5-15: shared readiness contract at enqueue ─────────────────────────────
+{
+  const READY = "GET /api/deals/:id/boarding-readiness";
+  const sales = await deal("ready-sales", { pipeline: "sales" });
+  const k1 = `s5br-${tag}-ready-1`;
+  const r1 = await call(SUBMIT, { params: { id: String(sales) }, headers: { "idempotency-key": k1 }, body: {}, user: admin });
+  check(r1.code === 400 && r1.body.blockers?.some((b: any) => b.code === "deal_not_in_onboarding_pipeline") && (await outboxRows(k1)).length === 0,
+    "negative control: a sales-pipeline deal whose stage text says 'Underwriting' is no longer eligible (original text match allowed it)");
+  const inc = await deal("ready-incomplete", { complete: false });
+  const k2 = `s5br-${tag}-ready-2`;
+  const r2 = await call(SUBMIT, { params: { id: String(inc) }, headers: { "idempotency-key": k2 }, body: {}, user: admin });
+  const incBlocker = r2.body.blockers?.find((b: any) => b.code === "application_incomplete");
+  check(r2.code === 400 && incBlocker && incBlocker.detail.includes("bankAccountNumber") && (await outboxRows(k2)).length === 0, "an incomplete application is refused at enqueue with field names only");
+  const rej = await deal("ready-reject");
+  const [{ id: decId }] = (((await db.execute(sql`INSERT INTO underwriting_decisions (deal_id, decision, score) VALUES (${rej}, 'review', 40) RETURNING id`)) as any).rows) as any[];
+  await db.execute(sql`UPDATE underwriting_decisions SET override_action='reject' WHERE id = ${decId}`);
+  const k3 = `s5br-${tag}-ready-3`;
+  const r3 = await call(SUBMIT, { params: { id: String(rej) }, headers: { "idempotency-key": k3 }, body: {}, user: admin });
+  check(r3.code === 400 && r3.body.blockers?.some((b: any) => b.code === "internal_underwriting_not_cleared"), "a rejected latest internal decision blocks enqueue");
+  await db.execute(sql`INSERT INTO underwriting_decisions (deal_id, decision, score) VALUES (${rej}, 'approve', 90)`);
+  const r4 = await call(SUBMIT, { params: { id: String(rej) }, headers: { "idempotency-key": k3 }, body: {}, user: admin });
+  check(r4.code === 202, "control: a newer approving decision clears the block");
+  const rd = await call(READY, { params: { id: String(inc) }, user: admin });
+  check(rd.code === 200 && rd.body.ready === false && rd.body.facts.internalDecision === "none_recorded", "readiness route returns the same blockers and facts");
+  check(rd.body.policyGates.map((g: any) => g.code).sort().join() === "e_signature_by_program,required_documents_by_program"
+    && rd.body.policyGates.every((g: any) => g.state === "native_policy_required"), "document and e-sign conditions are explicit native policy gates, not silently met");
+  check((await call(READY, { params: { id: "999999999" }, user: admin })).code === 404, "readiness for an unknown deal is a 404");
 }
 
 // ── S5-19 ────────────────────────────────────────────────────────────────────
@@ -146,9 +182,51 @@ const REFRESH = "POST /api/boarding/refresh-all";
   const stage = (((await db.execute(sql`SELECT stage FROM deals WHERE id = ${uwDeal}`)) as any).rows)[0].stage;
   check(stage === "Proposal Sent", "approval advances the deal locally");
   const auditRow = (((await db.execute(sql`SELECT details FROM audit_logs WHERE action = 'underwriting_manual_approve' AND entity_id = ${uwDeal}`)) as any).rows)[0];
-  check(auditRow && auditRow.details.ghlTask === "not_applicable", "audit records the optional GHL task state truthfully");
+  check(auditRow && auditRow.details.stageMoved === true && approve.body.ghlTask === "not_applicable", "audit is written in the commit; the optional GHL task state is reported truthfully after commit");
   const src = readFileSync("server/routes/underwriting.ts", "utf8");
   check(!/requireGhlRouteMutationAllowed/.test(src), "no pre-write GHL pause gate remains on the local decision commands");
+}
+
+// ── S5-24: worker selection and pure rules read ─────────────────────────────
+{
+  const { isLocalOutboxWorkerSelected } = await import("../../server/services/background-profile");
+  const origProfile = process.env.BACKGROUND_JOB_PROFILE;
+  const sel = (v: string | undefined) => { if (v === undefined) delete process.env.BACKGROUND_JOB_PROFILE; else process.env.BACKGROUND_JOB_PROFILE = v; return isLocalOutboxWorkerSelected(); };
+  const results = {
+    off: sel("off"), missing: sel(undefined), invalid: sel("bogus"), ghlOnly: sel("ghl-sync-only"),
+    core: sel("core"), full: sel("full"),
+    selCritical: sel("selective:critical-commands"), selOther: sel("selective:enrichment,outreach"), selBad: sel("selective:nonsense"),
+  };
+  check(!results.off && !results.missing && !results.invalid && !results.ghlOnly && !results.selOther && !results.selBad,
+    "outbox workers are NOT selected for off, missing, invalid, ghl-sync-only, or a selective profile without critical-commands (negative control: the original started them for every non-off profile)");
+  check(results.core && results.full && results.selCritical, "outbox workers are selected for core, full and selective:critical-commands");
+  if (origProfile === undefined) delete process.env.BACKGROUND_JOB_PROFILE; else process.env.BACKGROUND_JOB_PROFILE = origProfile;
+
+  const saved = (((await db.execute(sql`SELECT * FROM underwriting_rules WHERE id = 1`)) as any).rows)[0];
+  await db.execute(sql`DELETE FROM underwriting_rules WHERE id = 1`);
+  try {
+    const rulesCount = async () => Number((((await db.execute(sql`SELECT count(*)::int AS n FROM underwriting_rules`)) as any).rows)[0].n);
+    const got = await call("GET /api/underwriting/rules", { user: admin });
+    check(got.code === 404 && await rulesCount() === 0, "GET rules with no configuration reports 404 and inserts nothing (negative control: the original inserted defaults from a GET)");
+    const { runUnderwritingEngine } = await import("../../server/services/underwriting-engine");
+    const decision = await runUnderwritingEngine({ deal: { id: 1, totalVolume: "50000" } as any } as any);
+    check(decision.decision === "review" && /not configured/.test(decision.reasons.join(" ")) && await rulesCount() === 0, "the engine routes to review when rules are not configured and does not create them");
+    const put = await call("PUT /api/underwriting/rules", { user: admin, body: { minMonthlyVolume: 1000, maxMonthlyVolume: 90000, autoApproveEnabled: false } });
+    check(put.code === 200 && await rulesCount() === 1, "the authorized PUT command creates the rules row from exactly the supplied values");
+  } finally {
+    await db.execute(sql`DELETE FROM underwriting_rules WHERE id = 1`);
+    if (saved) {
+      const cols = Object.keys(saved);
+      await db.execute(sql.raw(`INSERT INTO underwriting_rules (${cols.map((c) => `"${c}"`).join(",")}) VALUES (${cols.map((c) => {
+        const v = saved[c];
+        if (v === null) return "NULL";
+        if (Array.isArray(v)) return `ARRAY[${v.map((x: string) => `'${String(x).replace(/'/g, "''")}'`).join(",")}]::text[]`;
+        if (v instanceof Date) return `'${v.toISOString()}'`;
+        if (typeof v === "boolean" || typeof v === "number") return String(v);
+        return `'${String(v).replace(/'/g, "''")}'`;
+      }).join(",")})`));
+    }
+  }
 }
 
 // ── S5-22 (embedded panel contract) ─────────────────────────────────────────

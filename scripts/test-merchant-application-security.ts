@@ -203,7 +203,7 @@ async function serviceAssertions() {
     // GHL sync propagates error
     assert(/throw new Error.*GHL sync failed/.test(worker), "ghl_sync handler propagates failure");
     // Workflow enroll propagates error when ghlContactId missing
-    assert(/throw new Error.*GHL contact ID not populated/.test(worker), "workflow_enroll propagates missing ghlContactId");
+    assert(/throw new OutboxWaitError\("ghl_contact_pending"\)/.test(worker), "workflow_enroll propagates missing ghlContactId");
     // Email handlers guard with audit evidence
     assert(/hasAuditEvidence.*approval_email\|hasAuditEvidence.*decline_email/.test(worker.replace(/\s+/g, "")) || /hasAuditEvidence/.test(worker),
       "email handlers check durable audit evidence before re-sending");

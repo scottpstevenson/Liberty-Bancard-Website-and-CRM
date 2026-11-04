@@ -8,9 +8,10 @@ import { merchantApplications, dealBoardingOutbox, deals } from "@shared/schema"
 import { getProcessor, getDefaultProcessor, getEnabledAdapterNames, ingestMidDataForActiveMids } from "../services/processors/registry";
 import { serverError, safeMessage } from "../utils/server-error";
 import { startDealBoardingOutboxWorker } from "../services/deal-boarding-outbox-worker";
-import { getBackgroundProfile } from "../services/background-profile";
+import { isLocalOutboxWorkerSelected } from "../services/background-profile";
 import { auditChange } from "../services/audit-change";
 import { advanceDealStage } from "../services/deal-stage-service";
+import { evaluateBoardingReadiness } from "../services/boarding-readiness";
 import { canAccessOwner } from "../services/crm-object-access";
 import crypto from "crypto";
 
@@ -91,7 +92,19 @@ async function recordBoardingFailureAndAlert(
   return { alertCreated: true, existingAlert: false };
 }
 
-async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRefreshResult> {
+let statusProcessorOverrideForTest: ((name: string) => any) | null = null;
+export const __boardingTest__ = {
+  setStatusProcessorOverride(fn: ((name: string) => any) | null) {
+    if (process.env.NODE_ENV !== "test") throw new Error("test seam only");
+    statusProcessorOverrideForTest = fn;
+  },
+};
+function resolveStatusProcessor(name: string) {
+  if (statusProcessorOverrideForTest && process.env.NODE_ENV === "test") return statusProcessorOverrideForTest(name);
+  return getProcessor(name);
+}
+
+export async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRefreshResult> {
   let deal: Awaited<ReturnType<typeof storage.getDeal>> | undefined = undefined;
   try {
     deal = await storage.getDeal(dealId);
@@ -103,7 +116,12 @@ async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRef
     const dealLog = (deal.boardingLog as any[]) || [];
     const submittedEntry = [...dealLog].reverse().find((e: any) => e.event === "submitted");
     const dealProcessorName = submittedEntry?.processor || undefined;
-    const processor = dealProcessorName ? getProcessor(dealProcessorName) : getDefaultProcessor();
+    // S5-18: the adapter identity comes from the recorded submission. It is never inferred
+    // or defaulted — polling the wrong provider could apply a foreign application's status.
+    if (!dealProcessorName) {
+      return { dealId, outcome: "skipped", error: "No processor recorded for this deal's submission; refusing to infer one." };
+    }
+    const processor = resolveStatusProcessor(dealProcessorName);
 
     // REV-05A: Status polling is provider I/O that can mutate deal state (approved, MID).
     // It must be gated by the activation snapshot — including latest-only check,
@@ -113,7 +131,7 @@ async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRef
     // (same reason as the outbox worker — Mock never has a snapshot, and rejecting
     // it here would make dev/test status polls always skip).
     const { requireConfirmedActivationSnapshot } = await import("../services/processors/registry");
-    const processorNameForGate = dealProcessorName ?? "payarc";
+    const processorNameForGate = dealProcessorName;
     const isMockNonProd = processorNameForGate === "mock" && process.env.NODE_ENV !== "production";
     // For Mock in non-production, supply the same synthetic URL used by the outbox worker.
     // Mock never makes real network calls, so the URL is a sentinel only — but all
@@ -172,42 +190,76 @@ async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRef
     }
 
     const existingLog = (deal.boardingLog as any[]) || [];
-
-    const updates: Record<string, any> = {
-      boardingStatus: result.status,
-      boardingLog: [...existingLog, logEntry],
+    const { sanitizeBoardingLog: _sanitizeForPersist, maskMid: _maskMidApply, redactProviderText: _redactApply } =
+      await import("../utils/mask-mid");
+    const nextLog = _sanitizeForPersist([...existingLog, logEntry]);
+    const observed = {
+      processorApplicationId: deal.processorApplicationId,
+      boardingStatus: deal.boardingStatus ?? null,
+      logLength: existingLog.length,
     };
+    const TERMINAL_BOARDING = new Set(["approved", "declined"]);
 
-    if (result.status === "approved" && result.mid) {
-      updates.boardingApprovedAt = new Date();
-      // REV-05A: Route MID through canonical service — do NOT write deals.mid directly.
-      // assignMerchantMidToCanonical() handles both merchant_mids row and deals.mid alias.
+    // S5-18: ONE versioned transaction applies the observation — canonical MID, deal status,
+    // log and audit commit together or not at all. The deal row is locked and compared with
+    // the version this observation was read against; an older or foreign observation is
+    // ignored, and recorded terminal truth is never replaced by a different status.
+    const applied = await db.transaction(async (tx) => {
+      const curRes = await tx.execute(sql`
+        SELECT processor_application_id, boarding_status, boarding_log FROM deals WHERE id = ${dealId} FOR UPDATE`);
+      const cur = ((curRes as any).rows ?? curRes)[0] as any;
+      if (!cur) return { kind: "stale" as const };
+      const curLogLen = Array.isArray(cur.boarding_log) ? cur.boarding_log.length : 0;
+      if (
+        cur.processor_application_id !== observed.processorApplicationId ||
+        (cur.boarding_status ?? null) !== observed.boardingStatus ||
+        curLogLen !== observed.logLength
+      ) return { kind: "stale" as const };
+      if (cur.boarding_status && TERMINAL_BOARDING.has(cur.boarding_status) && cur.boarding_status !== result.status) {
+        return { kind: "terminal" as const, current: cur.boarding_status as string };
+      }
+      if (result.status === "approved" && result.mid) {
+        const { assignMerchantMidToCanonical } = await import("../services/merchant-mid-service");
+        await assignMerchantMidToCanonical({
+          dealId,
+          contactId: deal!.contactId ?? null,
+          mid: result.mid,
+          processorName: dealProcessorName,
+          status: "assigned",
+          actorId: null,
+          actorEmail: "system:boarding_status_refresh",
+          tx,
+        });
+      }
+      await tx.update(deals)
+        .set({
+          boardingStatus: result.status,
+          boardingLog: nextLog,
+          ...(result.status === "approved" && result.mid ? { boardingApprovedAt: new Date() } : {}),
+          updatedAt: new Date(),
+        } as any)
+        .where(eq(deals.id, dealId));
+      await auditChange({
+        actorType: "system",
+        action: "boarding_status_refreshed",
+        entityType: "deal",
+        entityId: dealId,
+        // REV-05A: raw MID omitted from audit — midMasked only.
+        details: {
+          status: result.status,
+          processor: dealProcessorName,
+          midMasked: result.mid ? _maskMidApply(result.mid) : undefined,
+          message: _redactApply(result.message),
+        },
+      }, tx);
+      return { kind: "applied" as const };
+    });
+    if (applied.kind === "stale") {
+      return { dealId, outcome: "skipped", error: "Status observation is stale (the deal changed after it was read); not applied." };
     }
-
-    // REV-05A: Sanitize log entry before persisting — strip `mid` field and
-    // redact MID-like digit sequences from all string values (message, etc.).
-    const { sanitizeBoardingLog: _sanitizeForPersist } = await import("../utils/mask-mid");
-    updates.boardingLog = _sanitizeForPersist([...existingLog, logEntry]);
-
-    if (result.status === "approved" && result.mid) {
-      // REV-05A ATOMICITY: Canonical MID assignment MUST succeed before we
-      // persist boardingStatus=approved or boardingApprovedAt. This prevents
-      // the deal from reaching an approved state without a canonical MID entry.
-      // Do NOT move this below storage.updateDeal.
-      const { assignMerchantMidToCanonical } = await import("../services/merchant-mid-service");
-      await assignMerchantMidToCanonical({
-        dealId,
-        contactId: deal.contactId ?? null,
-        mid: result.mid,
-        processorName: deal.processorApplicationId ? "payarc" : undefined,
-        status: "assigned",
-        actorId: null,
-        actorEmail: "system:boarding_status_refresh",
-      });
-      // Canonical MID is confirmed written — now safe to persist approval state.
+    if (applied.kind === "terminal") {
+      return { dealId, outcome: "skipped", error: `Provider status '${result.status}' conflicts with recorded terminal status '${applied.current}'; not applied.` };
     }
-
-    await storage.updateDeal(dealId, updates);
 
     if (result.status === "approved" && deal.pipeline === "onboarding") {
       await advanceDealStage(dealId, "Approved", "boarding_status_refresh", {
@@ -233,14 +285,6 @@ async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRef
         console.error(`[Boarding] Portal invite error for deal ${dealId}:`, err.message),
       );
     }
-
-    await storage.createAuditLog({
-      action: "boarding_status_refreshed",
-      entityType: "deal",
-      entityId: dealId,
-      // REV-05A: raw MID omitted from audit — midMasked only.
-      details: { status: result.status, midMasked: result.mid ? (await import("../utils/mask-mid")).maskMid(result.mid) : undefined, message: (await import("../utils/mask-mid")).redactProviderText(result.message) },
-    });
 
     if (result.status === "more_info_needed" && result.moreInfoRequest) {
       const existingTasks = await storage.getTasks();
@@ -311,11 +355,23 @@ export function registerBoardingRoutes(app: Express) {
   // CRO-02 observation moved to the CRO02_OBSERVATION BullMQ job — not on HTTP requests.
   // Start the durable boarding outbox worker only when background workers are enabled.
   // Off mode = HTTP/API only, no background processing.
-  if (getBackgroundProfile() !== "off") {
+  if (isLocalOutboxWorkerSelected()) {
     startDealBoardingOutboxWorker();
   } else {
-    console.log("[BackgroundProfile] off — DealBoardingOutboxWorker not started");
+    console.log("[BackgroundProfile] not selected — DealBoardingOutboxWorker not started");
   }
+
+  app.get("/api/deals/:id/boarding-readiness", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const dealId = Number(req.params.id);
+      if (!Number.isInteger(dealId) || dealId <= 0) return res.status(400).json({ message: "Invalid deal id" });
+      const readiness = await evaluateBoardingReadiness(dealId);
+      if (readiness.blockers.some((b) => b.code === "deal_not_found")) return res.status(404).json({ message: "Deal not found" });
+      res.json(readiness);
+    } catch (error) {
+      serverError(res, error, "Failed to evaluate boarding readiness");
+    }
+  });
 
   app.post("/api/deals/:id/submit-to-processor", requireRole("admin", "manager"), async (req, res) => {
     try {
@@ -330,13 +386,17 @@ export function registerBoardingRoutes(app: Express) {
       const deal = await storage.getDeal(dealId);
       if (!deal) return res.status(404).json({ message: "Deal not found" });
 
-      const isUnderwriting =
-        deal.pipeline === "onboarding" ||
-        (deal.stage ?? "").toLowerCase().includes("underwriting") ||
-        (deal.stage ?? "").toLowerCase().includes("approved");
-      if (!isUnderwriting) {
-        return res.status(400).json({
-          message: "Deal must be in the onboarding pipeline or an underwriting/approved stage before submitting to the processor.",
+      // S5-15: one shared readiness contract (same evaluation the readiness route and the
+      // dispatch use). Replaces the loose "stage text contains underwriting/approved" check.
+      const readiness = await evaluateBoardingReadiness(dealId);
+      if (!readiness.ready) {
+        const noApp = readiness.blockers.some((b) => b.code === "no_linked_application");
+        return res.status(noApp ? 409 : 400).json({
+          message: noApp
+            ? "No merchant application linked to this deal. Complete application before boarding."
+            : `Deal is not ready to submit to the processor: ${readiness.blockers.map((b) => b.code).join(", ")}.`,
+          blockers: readiness.blockers,
+          policyGates: readiness.policyGates,
         });
       }
 

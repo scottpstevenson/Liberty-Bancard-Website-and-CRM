@@ -59,6 +59,15 @@ export async function runUnderwritingEngine(
   const { deal } = input;
 
   const rules = await storage.getUnderwritingRules();
+  if (!rules) {
+    // S5-24: no configured rules row — never fabricate thresholds; manual review.
+    return {
+      decision: "review",
+      score: 50,
+      reasons: ["REVIEW: Underwriting rules are not configured — cannot auto-approve"],
+      rulesSnapshot: { configured: false },
+    };
+  }
 
   const rulesSnapshot: Record<string, unknown> = {
     minMonthlyVolume: rules.minMonthlyVolume,

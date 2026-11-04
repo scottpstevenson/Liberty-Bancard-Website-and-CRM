@@ -1,36 +1,47 @@
-# Stage 5 — Application to MID: verdicts (partial pass)
+# Stage 5 — Application to MID: verdicts
 
 Date: 2026-11-04. Baseline HEAD `d20e597a`. The preflight confirmed all 24 findings (S5-01…S5-24).
-This pass repaired a subset. It does **not** complete Stage 5. Verdicts are reported separately and none is a production claim.
+All 24 findings are addressed in source and verified at the fixture layer. Layers are reported separately. Nothing here is a production, native or release claim.
 
-## Fixed in this pass (source + disposable-database verdict only)
+## Findings and where each is proven
 
-| Finding | Change | Evidence |
+| Finding | Change (summary) | Fixture evidence (disposable DB, real handlers/services, provider denied) |
 |---|---|---|
-| S5-06 | Application outbox settlement (delivered / retry / dead-letter / wait) is fenced on `status='processing'` and the claim's attempt counter. | `test-stage5-boarding-worker.ts` (stale claim cannot settle or reset a newer claim) |
-| S5-07 | Underwriting engine: missing, invalid, nonfinite or contradictory evidence/rules → review (score ≤ 50). No hard-coded fallback thresholds. | `test-stage5-underwriting-evidence.ts` (27 checks) |
-| S5-08 (partial) | Manual approve/reject no longer return 503 before the local decision when GHL is paused; the optional GHL task is checked after the local commit and recorded as `not_applicable`/`attempted`/`skipped_paused`. The decision + override + stage advance is still not one atomic latest-decision command. | `test-stage5-boarding-routes.ts` |
-| S5-11 | Boarding payload comes only from the application (typed select; raw `SELECT *` lost every multi-word field). Contact fallback and "Unknown Business" removed. Missing required fields dead-letter with `BOARDING_PAYLOAD_INCOMPLETE` before any snapshot read or transport; audit holds field names only. | `test-stage5-boarding-worker.ts` |
-| S5-12 | Typed settlement from the handler. Only "delivered" is followed by a fenced `markDelivered`. Ambiguous provider outcome is one fenced transaction (outbox dead_letter + deal ambiguous + audit) and is never marked delivered. `processorProgram` is committed with the outcome, not before I/O. | `test-stage5-boarding-worker.ts`, kill-line KL7b |
-| S5-13 | Idempotency replay honoured only for the same deal/application/processor; otherwise 409. A lost insert race rolls back the deal claim (409). | `test-stage5-boarding-routes.ts` incl. 4-way barrier concurrency |
-| S5-16 | Activation-snapshot host allowlist accepts the documented sandbox host `testapi.payarc.net`; foreign hosts still rejected. | routes cert (source regex check) |
-| S5-19 | Bulk refresh validates, de-duplicates and caps ids (200), applies per-deal owner authorization, and replaces the 10,000-row global load with a bounded owner-scoped SQL read. | routes cert |
-| S5-20 | `createMerchantMid` fills an empty `deals.mid` alias; `assignMerchantMidToCanonical` locks the deal and chooses the existing canonical row deterministically (exact match, then oldest non-closed). No one-per-deal uniqueness was added (census/policy not done). | routes cert |
-| S5-21 | MID registry reads canonical `merchant_mids` (alias fallback), matches pipelines case-insensitively, and reports `total`/`returned`/`truncated`. MIDs stay masked. | routes cert |
-| S5-22 | Embedded Boarding panel sends one stable Idempotency-Key per (deal, processor) and its toast no longer claims a provider application id. | routes cert (source check). No browser journey was run. |
-
-## Not done (deferred, still open)
-
-S5-01, S5-02, S5-03, S5-04, S5-05, S5-08 (atomic latest-decision command), S5-09, S5-10, S5-14, S5-15, S5-17, S5-18, S5-23, S5-24.
+| S5-01 | Server-side submission completeness (stored draft merged with the final body); protected/consent fields validated; refusals leave no outbox rows or state change and never echo values. | `stage5-application-contract` |
+| S5-02 | Durable, hashed, scoped prefill capability with canonical object authorization; operator relinks validated; lifecycle timestamps are server-derived. | `stage5-application-contract` |
+| S5-03 | Narrow validated operator editor DTO; transitions derived from the shared graph; stale edits conflict; draft filter covers draft + in_progress; operator list and pending count are SQL read models (paged, uncapped total, escaped search). | `stage5-application-contract` (75 checks) |
+| S5-04 | Durable submission identity and truthful autosave state in the public wizard. | Source only (client). Not browser-driven. |
+| S5-05 | Consent evidence bound to the contact's current phone; ambiguous contact/mailbox matches are held, not first-match linked. | `stage5-application-contract` |
+| S5-06 | Application outbox settlement fenced on claim status and attempt. | `stage5-boarding-worker` |
+| S5-07 | Underwriting engine: missing/invalid/contradictory evidence → review; no fallback thresholds. | `stage5-underwriting-evidence` (27) |
+| S5-08 | GHL pause no longer blocks the local decision. Approve/reject is now ONE transaction: decision CAS + stage move + effect intents + audit; illegal transition, injected audit failure and concurrent calls roll back/produce one winner. GHL task and notification run after commit. | `stage5-underwriting-override` (25), `stage5-boarding-routes` (44) |
+| S5-09 | Queue/approved lists are paged `{rows,total,limit,offset,hasMore}` with uncapped totals; latest decision per deal is deterministic (created_at, id); KPI "now" counts and the queue list share one cohort; event counts are labelled as events; stats are SQL aggregates; Refresh refetches every reader; the empty copy no longer claims everything is approved. | `stage5-underwriting-read-model` (21, >500 fixtures); browser journey |
+| S5-10 | Condition integrity: strict commands, transition graph, supersede instead of delete, waive/reverse rules, race-safe init, durable owed-chase rows with held unknown outcomes. Migration `0380`. | `stage5-underwriting-conditions` (47) |
+| S5-11 | Boarding payload only from the application; incomplete payload dead-letters before transport. | `stage5-boarding-worker` (62) |
+| S5-12 | Typed fenced settlement; ambiguous provider outcome is never delivered or resent. | `stage5-boarding-worker` |
+| S5-13 | Idempotency key bound to one deal/application/processor. | `stage5-boarding-routes` (incl. 4-way barrier) |
+| S5-14 | Per-attempt dispatch fence and DISPATCH_STARTED marker; a crash after dispatch is never re-sent. | `stage5-boarding-worker` |
+| S5-15 | One shared readiness contract at enqueue and at dispatch; document/e-sign needs are explicit `native_policy_required` gates. | `stage5-boarding-routes`, `stage5-boarding-worker` |
+| S5-16 | Sandbox host `testapi.payarc.net` accepted; foreign hosts rejected. | `stage5-boarding-routes` (source check) |
+| S5-17 | Payarc codec: HTTP failures classified, strict unwrapping, no fabricated identity or estimate. | `stage5-payarc-codec` (29) |
+| S5-18 | Versioned atomic status-observation apply. | `stage5-status-apply` (14) |
+| S5-19 | Bulk refresh validated, de-duplicated, capped, per-deal authorized. | `stage5-boarding-routes` |
+| S5-20 | Deterministic canonical MID write and alias; no one-per-deal uniqueness added. | `stage5-boarding-routes` |
+| S5-21 | Registry reads canonical MIDs, masked, with totals. | `stage5-boarding-routes` |
+| S5-22 | Stable panel Idempotency-Key; truthful toast. | Source-checked only. Not browser-driven. |
+| S5-23 | E-sign status GET is a pure read; provider refresh is a separate governed POST that reports unavailable; scoped document reader states; no fake cooldown; public timeline/shipping promises removed. | `stage5-application-contract` (last checks source-only); focused browser journey for the detail view |
+| S5-24 | Outbox workers selected by profile/capability group; rules GET is pure. | `stage5-boarding-routes` |
 
 ## Verdicts by layer
 
-- **Source:** the items above are changed in the working tree. Not committed manually; no publish.
-- **Fixture (disposable DB, real handlers, fake transport):** PASS for the three Stage 5 suites (`stage5-boarding-worker`, `stage5-underwriting-evidence`, `stage5-boarding-routes`). They use the provider-deny boundary; no provider was contacted.
-- **UI:** NOT VERIFIED. Only `BoardingPanel.tsx` changed; no rebuilt browser journey (roles, 1280/768/390, light/dark) was run.
-- **Native / production:** NOT RUN. No production write, snapshot, boarding, e-sign, backfill or publish. See `native-packet.md` (prepared, not executed).
-- **Release:** not published. Publish is the owner's step.
+- **Source:** all changes are in the working tree. Nothing was committed manually and nothing was published. No dependency or lockfile change. Migration `0380` added with a text-append journal entry; `check-migration-integrity.ts` passes.
+- **Fixture:** PASS. Latest runs: `stage5-boarding-worker` 62, `stage5-underwriting-evidence` 27, `stage5-boarding-routes` 44, `stage5-payarc-codec` 29, `stage5-status-apply` 14, `stage5-application-contract` 75, `stage5-underwriting-conditions` 47, `stage5-underwriting-read-model` 21, `stage5-underwriting-override` 25 — all disposable-DB runs with the provider-deny boundary. Also: `check-processor-kill-lines` 18/18, `test-merchant-application-security` 271/0, `check-migration-integrity` pass, `test-cro01-revenue-contract-static` pass, pre-deploy static outbound-pause scan accepted the touched worker files.
+- **UI (focused browser, rebuilt candidate, private Chromium, real admin session, no external egress):** PASS for the 10-check journey in `scripts/test-stage5-browser.ts`; receipt and screenshots in `docs/certification/stage5/browser/`. Covered: Underwriting at 1280 light/dark, 768 dark, 390 light (KPI review+hold equals the queue badge, pager, no horizontal overflow), paging disjointness, a real-pointer approve override (badge and KPI drop together), Merchant Applications list at 1280/768/390 and its detail view (e-sign state/controls). The browser pass found and fixed two defects: the pager Next button sat under the floating assistant button, and the longer tab label overlapped at 390px.
+- **UI not browser-verified:** `BoardingPanel` (S5-22), the public application wizard (S5-04), and the operator edit form (S5-02/03 editor); these are source/esbuild-checked only. Roles other than admin were not driven in the browser (manager/agent access is proven at the handler layer).
+- **Not run:** `scripts/test-forms.ts` (live HTTP finalize) was not updated or run; the submission contract is proven by `stage5-application-contract` at the service layer instead.
+- **Native / production:** NOT RUN. No production write, activation snapshot, boarding submission, e-sign, backfill or publish. `native-packet.md` is prepared, not executed.
+- **Release:** not published. Publish is the owner's step. Outbound pauses and the GHL outgoing/incoming settings were not touched.
 
-## Baseline failure noted
+## Baseline note
 
-`scripts/test-merchant-application-security.ts` still fails one assertion, "workflow_enroll propagates missing ghlContactId". It checks a message in `merchant-application-outbox-worker.ts` that this pass did not touch for that purpose. A second assertion in that file (deal_id linkage) was updated to match the typed select.
+The earlier baseline failure in `test-merchant-application-security.ts` ("workflow_enroll propagates missing ghlContactId") no longer fails; the file passes 271/0 on the current tree.

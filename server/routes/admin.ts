@@ -4613,6 +4613,7 @@ export function registerAdminRoutes(app: Express) {
         JOIN deals d ON d.id = uc.deal_id
         LEFT JOIN contacts c ON c.id = d.contact_id
         WHERE uc.status = 'pending'
+          AND uc.superseded_at IS NULL
           AND uc.approved_at IS NULL
           AND uc.waived_at IS NULL
           ${overdueOnly ? "AND uc.due_date IS NOT NULL AND uc.due_date < NOW()" : ""}

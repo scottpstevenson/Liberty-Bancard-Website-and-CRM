@@ -44,8 +44,35 @@ interface QueueRow {
 }
 
 interface StatsData {
-  today: { approved: number; pendingReview: number; pendingHold: number; overridden: number };
-  allTime: { total: number; approved: number; review: number; hold: number; overridden: number };
+  /** Deals waiting NOW (latest decision per deal, not overridden) — the same cohort as the queue list. */
+  current: { pendingReview: number; pendingHold: number };
+  /** Decision EVENTS since local midnight. */
+  today: { approvedEvents: number; overridesRecorded: number };
+  /** Decision EVENTS over all time. */
+  history: { total: number; approved: number; review: number; hold: number; overridden: number };
+}
+
+interface PagedRows<T> { rows: T[]; total: number; limit: number; offset: number; hasMore: boolean }
+const PAGE_SIZE = 50;
+
+async function fetchPaged<T>(path: string, page: number): Promise<PagedRows<T>> {
+  const res = await fetch(`${path}?limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`, { credentials: "include" });
+  if (!res.ok) throw new Error(`${path}: ${res.status}`);
+  return res.json();
+}
+
+function Pager({ page, total, onPage, testId }: { page: number; total: number; onPage: (p: number) => void; testId: string }) {
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (total <= PAGE_SIZE) return null;
+  return (
+    <div className="flex items-center justify-between gap-2 pt-2 pb-20 pr-16" data-testid={testId}>
+      <span className="text-xs text-muted-foreground">Page {page + 1} of {pages} · {total} total</span>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" disabled={page <= 0} onClick={() => onPage(page - 1)} data-testid={`${testId}-prev`}>Previous</Button>
+        <Button variant="outline" size="sm" disabled={page + 1 >= pages} onClick={() => onPage(page + 1)} data-testid={`${testId}-next`}>Next</Button>
+      </div>
+    </div>
+  );
 }
 
 interface RulesConfig {
@@ -114,15 +141,32 @@ export default function UnderwritingPage() {
     refetchInterval: 60000,
   });
 
-  const { data: queue = [], isLoading: queueLoading, isError: queueError, refetch: refetchQueue } = useQuery<QueueRow[]>({
-    queryKey: ["/api/underwriting/queue"],
-    refetchInterval: 60000,
-  });
+  const [queuePage, setQueuePage] = useState(0);
+  const [approvedPage, setApprovedPage] = useState(0);
 
-  const { data: approvedToday = [], isLoading: approvedLoading, isError: approvedError, refetch: retryApproved } = useQuery<QueueRow[]>({
-    queryKey: ["/api/underwriting/approved-today"],
+  const { data: queueData, isLoading: queueLoading, isError: queueError, refetch: refetchQueue } = useQuery<PagedRows<QueueRow>>({
+    queryKey: ["/api/underwriting/queue", queuePage],
+    queryFn: () => fetchPaged<QueueRow>("/api/underwriting/queue", queuePage),
     refetchInterval: 60000,
   });
+  const queue = queueData?.rows ?? [];
+  const queueTotal = queueData?.total ?? 0;
+
+  const { data: approvedData, isLoading: approvedLoading, isError: approvedError, refetch: retryApproved } = useQuery<PagedRows<QueueRow>>({
+    queryKey: ["/api/underwriting/approved-today", approvedPage],
+    queryFn: () => fetchPaged<QueueRow>("/api/underwriting/approved-today", approvedPage),
+    refetchInterval: 60000,
+  });
+  const approvedToday = approvedData?.rows ?? [];
+  const approvedTotal = approvedData?.total ?? 0;
+
+  // A page that no longer exists (items were actioned elsewhere) falls back to the last real page.
+  useEffect(() => {
+    if (queueData && queueData.rows.length === 0 && queueData.total > 0 && queuePage > 0) setQueuePage(Math.max(0, Math.ceil(queueData.total / PAGE_SIZE) - 1));
+  }, [queueData, queuePage]);
+  useEffect(() => {
+    if (approvedData && approvedData.rows.length === 0 && approvedData.total > 0 && approvedPage > 0) setApprovedPage(Math.max(0, Math.ceil(approvedData.total / PAGE_SIZE) - 1));
+  }, [approvedData, approvedPage]);
 
   const { data: rules, isLoading: rulesLoading, isError: rulesError, refetch: retryRules } = useQuery<RulesConfig>({
     queryKey: ["/api/underwriting/rules"],
@@ -196,7 +240,7 @@ export default function UnderwritingPage() {
             Auto-approval engine · Risk threshold configuration · Manual overrides
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetchQueue()} data-testid="button-refresh-queue">
+        <Button variant="outline" size="sm" onClick={() => { void Promise.all([refetchQueue(), retryStats(), retryApproved(), retryRules()]); }} data-testid="button-refresh-queue">
           <RefreshCw className="w-4 h-4 mr-2" />
           Refresh
         </Button>
@@ -214,10 +258,10 @@ export default function UnderwritingPage() {
               <CardContent className="pt-4 pb-4">
                 <div className="flex items-center gap-2 mb-1">
                   <CheckCircle2 className="w-4 h-4 text-green-600" />
-                  <span className="text-xs text-muted-foreground">Auto-Approved Today</span>
+                  <span className="text-xs text-muted-foreground">Approval decisions today</span>
                 </div>
                 <div className="text-2xl font-bold text-green-700 dark:text-green-400" data-testid="text-approved-today">
-                  {stats?.today.approved ?? 0}
+                  {stats?.today.approvedEvents ?? 0}
                 </div>
               </CardContent>
             </Card>
@@ -225,10 +269,10 @@ export default function UnderwritingPage() {
               <CardContent className="pt-4 pb-4">
                 <div className="flex items-center gap-2 mb-1">
                   <Clock className="w-4 h-4 text-amber-500" />
-                  <span className="text-xs text-muted-foreground">Needs Review</span>
+                  <span className="text-xs text-muted-foreground">Deals needing review now</span>
                 </div>
                 <div className="text-2xl font-bold text-amber-600 dark:text-amber-400" data-testid="text-pending-review">
-                  {stats?.today.pendingReview ?? 0}
+                  {stats?.current.pendingReview ?? 0}
                 </div>
               </CardContent>
             </Card>
@@ -236,10 +280,10 @@ export default function UnderwritingPage() {
               <CardContent className="pt-4 pb-4">
                 <div className="flex items-center gap-2 mb-1">
                   <AlertTriangle className="w-4 h-4 text-red-500" />
-                  <span className="text-xs text-muted-foreground">Holds</span>
+                  <span className="text-xs text-muted-foreground">Deals on hold now</span>
                 </div>
                 <div className="text-2xl font-bold text-red-600 dark:text-red-400" data-testid="text-pending-hold">
-                  {stats?.today.pendingHold ?? 0}
+                  {stats?.current.pendingHold ?? 0}
                 </div>
               </CardContent>
             </Card>
@@ -247,10 +291,10 @@ export default function UnderwritingPage() {
               <CardContent className="pt-4 pb-4">
                 <div className="flex items-center gap-2 mb-1">
                   <ShieldCheck className="w-4 h-4 text-primary" />
-                  <span className="text-xs text-muted-foreground">Overridden</span>
+                  <span className="text-xs text-muted-foreground">Overrides recorded today</span>
                 </div>
                 <div className="text-2xl font-bold" data-testid="text-overridden">
-                  {stats?.today.overridden ?? 0}
+                  {stats?.today.overridesRecorded ?? 0}
                 </div>
               </CardContent>
             </Card>
@@ -259,16 +303,16 @@ export default function UnderwritingPage() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList data-testid="tabs-underwriting">
+        <TabsList className="h-auto flex-wrap justify-start" data-testid="tabs-underwriting">
           <TabsTrigger value="queue" data-testid="tab-needs-review">
             Needs Review
-            {queue.length > 0 && (
-              <span className="ml-1.5 rounded-full bg-destructive text-destructive-foreground text-[10px] px-1.5 py-0.5 font-semibold">
-                {queue.length}
+            {queueTotal > 0 && (
+              <span className="ml-1.5 rounded-full bg-destructive text-destructive-foreground text-[10px] px-1.5 py-0.5 font-semibold" data-testid="badge-queue-total">
+                {queueTotal}
               </span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="approved" data-testid="tab-auto-approved">Auto-Approved Today</TabsTrigger>
+          <TabsTrigger value="approved" data-testid="tab-auto-approved">Approvals today</TabsTrigger>
           <TabsTrigger value="config" data-testid="tab-rules-config">Rules Config</TabsTrigger>
         </TabsList>
 
@@ -282,8 +326,8 @@ export default function UnderwritingPage() {
             <Card>
               <CardContent className="py-12 text-center">
                 <ShieldCheck className="w-10 h-10 text-green-500 mx-auto mb-3" />
-                <p className="font-medium text-lg">Queue is clear</p>
-                <p className="text-muted-foreground text-sm">All deals have been reviewed or auto-approved.</p>
+                <p className="font-medium text-lg" data-testid="text-queue-empty">No deals are waiting on a review or hold decision</p>
+                <p className="text-muted-foreground text-sm">This reflects each deal's latest underwriting decision. It does not say anything about deals without a decision yet.</p>
               </CardContent>
             </Card>
           ) : (
@@ -291,7 +335,7 @@ export default function UnderwritingPage() {
               {holdRows.length > 0 && (
                 <div className="space-y-2">
                   <h3 className="text-sm font-semibold text-destructive flex items-center gap-1.5">
-                    <AlertTriangle className="w-4 h-4" /> Hard Holds ({holdRows.length})
+                    <AlertTriangle className="w-4 h-4" /> Hard Holds ({holdRows.length} on this page)
                   </h3>
                   {holdRows.map(row => (
                     <QueueCard
@@ -306,7 +350,7 @@ export default function UnderwritingPage() {
               {reviewRows.length > 0 && (
                 <div className="space-y-2">
                   <h3 className="text-sm font-semibold text-amber-600 flex items-center gap-1.5">
-                    <Clock className="w-4 h-4" /> Soft Flags — Needs Review ({reviewRows.length})
+                    <Clock className="w-4 h-4" /> Soft Flags — Needs Review ({reviewRows.length} on this page)
                   </h3>
                   {reviewRows.map(row => (
                     <QueueCard
@@ -318,6 +362,7 @@ export default function UnderwritingPage() {
                   ))}
                 </div>
               )}
+              <Pager page={queuePage} total={queueTotal} onPage={setQueuePage} testId="pager-queue" />
             </>
           )}
         </TabsContent>
@@ -328,15 +373,16 @@ export default function UnderwritingPage() {
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-green-600" />
-                Auto-Approved Today
+                Approval decisions today <span className="text-xs font-normal text-muted-foreground" data-testid="text-approved-total">({approvedTotal} recorded)</span>
               </CardTitle>
             </CardHeader>
             <CardContent>
           {approvedError ? <CrmDataState state="unavailable" message="Approved-today source unavailable." onRetry={()=>void retryApproved()}/> : approvedLoading ? (
                 <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
               ) : approvedToday.length === 0 ? (
-                <p className="text-muted-foreground text-sm text-center py-8">No auto-approvals yet today.</p>
+                <p className="text-muted-foreground text-sm text-center py-8">No approval decisions have been recorded yet today.</p>
               ) : (
+                <>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -388,6 +434,8 @@ export default function UnderwritingPage() {
                     </tbody>
                   </table>
                 </div>
+                <Pager page={approvedPage} total={approvedTotal} onPage={setApprovedPage} testId="pager-approved" />
+                </>
               )}
             </CardContent>
           </Card>

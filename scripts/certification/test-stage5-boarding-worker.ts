@@ -44,11 +44,12 @@ const origOut = process.stdout.write.bind(process.stdout);
 const SECRETS = { ein: "123456789", ssn: "512456789", dob: "1980-02-03", routing: "021000021", account: "000123456789" };
 
 type Calls = { payloads: any[] };
-function installFake(mode: "ok" | "ambiguous", calls: Calls) {
+function installFake(mode: "ok" | "ambiguous", calls: Calls, hook?: () => Promise<void>) {
   worker.__test__.setProcessorOverride(() => ({
     name: "mock",
     boardMerchant: async (profile: any) => {
       calls.payloads.push(JSON.parse(JSON.stringify(profile)));
+      if (hook) await hook();
       if (mode === "ambiguous") return { success: false, ambiguous: true, error: "fixture ambiguous" };
       return { success: true, processorApplicationId: `FAKE-APP-${tag}-${calls.payloads.length}`, status: "submitted", message: "fixture" };
     },
@@ -149,11 +150,6 @@ const auditFor = async (dealId: number) => (((await db.execute(sql`SELECT action
   check(calls.payloads.length === 1, "no automatic resubmit after an ambiguous outcome");
   o = await outbox(f.outboxId);
   check(o.status === "dead_letter", "ambiguous row is still not delivered after further ticks");
-
-  // Negative control for the fence: the delivery settlement cannot overwrite a terminal row.
-  const settled = await worker.__test__.markDelivered(f.outboxId, Number(o.attempts));
-  check(settled === false, "negative control: fenced delivery settlement refuses a terminal dead_letter row");
-  check((await outbox(f.outboxId)).status === "dead_letter", "negative control: row unchanged after refused delivery settlement");
 }
 
 // ── Barrier-driven concurrent claim ─────────────────────────────────────────
@@ -167,9 +163,20 @@ const auditFor = async (dealId: number) => (((await db.execute(sql`SELECT action
   release();
   const got = (await Promise.all(claimers)).filter(Boolean) as any[];
   check(got.length === 1 && got[0].id === f.outboxId, "four concurrent claimers: exactly one claims the row");
-  const stale = await worker.__test__.markDelivered(f.outboxId, got[0].attempts + 1);
-  check(stale === false, "a settlement carrying a stale attempt counter cannot settle the claimed row");
-  check(await worker.__test__.markDelivered(f.outboxId, got[0].attempts) === true, "the owning claim can settle delivered");
+  // Late SUCCESS from a stale claim (S5-12/14): the newer claim owns the row; the stale
+  // provider response must change nothing. Then the owning claim commits everything together.
+  const claimRow = { id: f.outboxId, dealId: f.dealId, applicationId: f.appId, processorName: "mock", attempts: got[0].attempts, payload: got[0].payload };
+  const staleRes = await worker.__test__.handleProcessorSubmit({ ...claimRow, attempts: got[0].attempts + 1 });
+  check(staleRes.settlement === "stale_claim", "a late successful result from a stale claim is discarded");
+  const d0 = await dealRow(f.dealId);
+  check(d0.boarding_status === "queued" && !d0.processor_application_id, "negative control: stale success wrote no deal state or application id");
+  check((await outbox(f.outboxId)).status === "processing", "stale success left the outbox row with its owner");
+  check(!(await auditFor(f.dealId)).some((a) => a.action === "deal_submitted_to_processor"), "stale success wrote no submission audit");
+  check(((await db.execute(sql`SELECT count(*)::int AS n FROM tasks WHERE deal_id = ${f.dealId}`)) as any).rows[0].n === 0, "stale success created no monitoring task");
+  const ownRes = await worker.__test__.handleProcessorSubmit(claimRow);
+  const d1 = await dealRow(f.dealId);
+  check(ownRes.settlement === "delivered" && d1.boarding_status === "submitted" && !!d1.processor_application_id, "the owning claim commits the submitted deal");
+  check((await outbox(f.outboxId)).status === "delivered", "the owning claim settles delivered in the same transaction");
 }
 
 // ── S5-12: a stale claim cannot overwrite a newer settlement ────────────────
@@ -185,10 +192,28 @@ const auditFor = async (dealId: number) => (((await db.execute(sql`SELECT action
   const o0 = await outbox(f.outboxId);
   await worker.__test__.handleProcessorSubmit(asRow(f, o0, 1));
   const d = await dealRow(f.dealId);
-  check(calls.payloads.length === 1, "stale claim reached the adapter (negative control: the ambiguous path actually ran)");
+  check(calls.payloads.length === 0, "a claim that no longer owns the row is fenced BEFORE provider I/O (no dispatch)");
   check(d.boarding_status === "submitted" && !d.boarding_ambiguous_at, "stale ambiguous result does not flip a newer submitted deal back to ambiguous");
   check((await outbox(f.outboxId)).status === "delivered", "stale ambiguous result leaves the newer delivered outbox row alone");
   check(!(await auditFor(f.dealId)).some((a) => a.action === "deal_boarding_ambiguous"), "stale ambiguous result writes no ambiguous audit");
+  // Takeover DURING the provider call (the marker was written while the claim was still owned).
+  for (const mode of ["ambiguous", "ok"] as const) {
+    const mid: Calls = { payloads: [] };
+    const m = await fixture(`takeover-${mode}`);
+    await db.execute(sql`UPDATE deal_boarding_outbox SET status='processing', attempts=1 WHERE id = ${m.outboxId}`);
+    installFake(mode, mid, async () => {
+      await db.execute(sql`UPDATE deal_boarding_outbox SET status='delivered', attempts=2, last_error=NULL WHERE id = ${m.outboxId}`);
+      await db.execute(sql`UPDATE deals SET boarding_status='submitted', processor_application_id='NEWER-OWNER-APP' WHERE id = ${m.dealId}`);
+    });
+    const res = await worker.__test__.handleProcessorSubmit(asRow(m, await outbox(m.outboxId), 1));
+    const dm = await dealRow(m.dealId);
+    check(mid.payloads.length === 1 && res.settlement === "stale_claim", `late ${mode} result after takeover: provider was reached and the result is discarded`);
+    check(dm.processor_application_id === "NEWER-OWNER-APP" && dm.boarding_status === "submitted" && !dm.boarding_ambiguous_at, `late ${mode} result leaves the newer owner's deal state untouched`);
+    const am = await auditFor(m.dealId);
+    check(!am.some((a) => a.action === "deal_boarding_ambiguous" || a.action === "deal_submitted_to_processor"), `late ${mode} result writes no audit`);
+    check(((await db.execute(sql`SELECT count(*)::int AS n FROM tasks WHERE deal_id = ${m.dealId}`)) as any).rows[0].n === 0, `late ${mode} result creates no task`);
+  }
+  installFake("ambiguous", calls);
   // Control: the owning claim (matching attempt) still settles ambiguous.
   const g = await fixture("owner-ambiguous");
   await db.execute(sql`UPDATE deal_boarding_outbox SET status='processing', attempts=1 WHERE id = ${g.outboxId}`);
@@ -209,6 +234,46 @@ const auditFor = async (dealId: number) => (((await db.execute(sql`SELECT action
   await db.execute(sql`UPDATE deal_boarding_outbox SET status='processing', attempts=1, processor_name='payarc' WHERE id = ${k.outboxId}`);
   try { await worker.__test__.handleProcessorSubmit({ ...asRow(k, await outbox(k.outboxId), 1), processorName: "payarc" }); } catch { /* AlreadyTerminalError expected */ }
   check((await outbox(k.outboxId)).last_error === "ACTIVATION_SNAPSHOT_REQUIRED", "control: the owning claim still dead-letters without a snapshot");
+  worker.__test__.setProcessorOverride(null);
+}
+
+// ── S5-15: dispatch re-evaluates readiness before any protected read or transport ──
+{
+  const calls: Calls = { payloads: [] };
+  installFake("ok", calls);
+  const f = await fixture("notready");
+  await db.execute(sql`UPDATE deals SET pipeline='sales' WHERE id = ${f.dealId}`);
+  await worker.__test__.tick();
+  const o = await outbox(f.outboxId);
+  check(calls.payloads.length === 0 && o.status === "dead_letter" && o.last_error === "BOARDING_NOT_READY", "a deal that is no longer ready is dead-lettered at dispatch with no transport");
+  const a = (await auditFor(f.dealId)).find((x) => x.action === "deal_boarding_blocked_not_ready");
+  check(a && JSON.stringify(a.details).includes("deal_not_in_onboarding_pipeline"), "the blocker code is audited");
+}
+
+// ── S5-14: crash after provider dispatch is never re-sent ──────────────────
+{
+  const calls: Calls = { payloads: [] };
+  const c = await fixture("crash");
+  // The provider "accepts" the request, then the process dies before any local settlement:
+  // the stale reclaim returns the row to pending and the in-flight handler's failure is fenced out.
+  installFake("ok", calls, async () => {
+    await db.execute(sql`UPDATE deal_boarding_outbox SET status='pending', locked_at=NULL, available_at=NULL WHERE id = ${c.outboxId}`);
+    throw new Error("simulated crash after provider accepted");
+  });
+  await worker.__test__.tick(); // same tick re-claims the reclaimed row (loop of up to 5 claims)
+  await worker.__test__.tick();
+  const oc = await outbox(c.outboxId);
+  const dc = await dealRow(c.dealId);
+  check(calls.payloads.length === 1, "the reclaimed row is NOT re-sent to the provider (negative control: the original retried with no local application id)");
+  check(oc.status === "dead_letter" && dc.boarding_status === "ambiguous_reconciliation_required" && !dc.processor_application_id, "the unknown outcome is held for reconciliation, not delivered");
+  check((await auditFor(c.dealId)).some((a) => a.action === "deal_boarding_ambiguous" && /never settled/.test(JSON.stringify(a.details))), "the hold is audited with the earlier-unsettled-dispatch reason");
+  // A definite local/provider failure (no dispatch outcome unknown) clears the marker and stays retryable.
+  const calls2: Calls = { payloads: [] };
+  const r = await fixture("definite-failure");
+  worker.__test__.setProcessorOverride(() => ({ name: "mock", boardMerchant: async () => { calls2.payloads.push({}); return { success: false, error: "rejected" }; } } as any));
+  await worker.__test__.tick();
+  const orr = await outbox(r.outboxId);
+  check(orr.status === "pending" && orr.last_error !== "DISPATCH_STARTED", "a definite provider rejection overwrites the marker and remains retryable");
   worker.__test__.setProcessorOverride(null);
 }
 

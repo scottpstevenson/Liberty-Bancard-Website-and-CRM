@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { PageHeader, CrmPage } from "@/components/crm/CrmPresentation";
 import type { MerchantApplication, MerchantProfile, Document as DocType, UnderwritingNoteEntry } from "@shared/schema";
+import { canTransition, STATUS_TRANSITIONS, TERMINAL_APPLICATION_STATUSES } from "@shared/merchant-application-status";
 import { applicationStatuses } from "@/lib/crm-destination-state";
 import { useC4RetainedSelection } from "@/hooks/use-c4-retained-selection";
 
@@ -31,6 +32,7 @@ const STATUS_TABS = [
   { value: "approved", label: "Approved" },
   { value: "declined", label: "Declined" },
   { value: "draft", label: "Draft" },
+  { value: "withdrawn", label: "Withdrawn" },
 ];
 
 function getStatusVariant(status: string | null | undefined): "default" | "secondary" | "destructive" | "outline" {
@@ -197,14 +199,33 @@ function ApplicationDetailView({
     select: (data) => data.filter((r) => r.riskFlag),
   });
 
-  const { data: allDocuments } = useQuery<DocType[]>({
-    queryKey: ["/api/documents"],
+  // Scoped, role-filtered merchant-document reader (not the legacy all-documents list).
+  const {
+    data: documents = [],
+    isLoading: documentsLoading,
+    isError: documentsUnavailable,
+    refetch: refetchDocuments,
+  } = useQuery<DocType[]>({
+    queryKey: ["/api/merchant-documents/contact", application.contactId],
+    queryFn: async () => {
+      const res = await fetch(`/api/merchant-documents/contact/${application.contactId}`, { credentials: "include" });
+      if (!res.ok) throw new Error(`documents_${res.status}`);
+      return res.json();
+    },
     enabled: !!application.contactId,
+    refetchOnWindowFocus: false,
   });
 
-  const documents = allDocuments?.filter(
-    (d) => application.contactId && d.contactId === application.contactId
-  ) ?? [];
+  const openDocument = async (docId: number) => {
+    try {
+      const res = await fetch(`/api/merchant-documents/${docId}/access-token`, { credentials: "include" });
+      if (!res.ok) throw new Error(String(res.status));
+      const { url } = await res.json();
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      toast({ title: "Document unavailable", description: "A secure link could not be issued for this document.", variant: "destructive" });
+    }
+  };
 
   const { data: allProfiles } = useQuery<MerchantProfile[]>({
     queryKey: ["/api/merchant-profiles"],
@@ -229,10 +250,11 @@ function ApplicationDetailView({
     refetchOnWindowFocus: false,
   });
 
-  const { data: esignStatus } = useQuery<{
+  const { data: esignStatus, isError: esignStatusUnavailable } = useQuery<{
     status: string;
-    cooldownRemaining: number;
-    lastSentAt: string | null;
+    sendState: "idle" | "queued" | "sending" | "sent" | "failed";
+    esignedAt: string | null;
+    providerDocumentRecorded: boolean;
   }>({
     queryKey: ["/api/merchant-applications", application.id, "esign-status"],
     queryFn: async () => {
@@ -290,19 +312,12 @@ function ApplicationDetailView({
     : (welcomeEmailHistoryData as any)?.total ?? 0;
 
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
-  const [esignCooldownSeconds, setEsignCooldownSeconds] = useState(0);
 
   useEffect(() => {
     if (welcomeStatus?.cooldownRemaining && welcomeStatus.cooldownRemaining > 0) {
       setCooldownSeconds(welcomeStatus.cooldownRemaining);
     }
   }, [welcomeStatus]);
-
-  useEffect(() => {
-    if (esignStatus?.cooldownRemaining && esignStatus.cooldownRemaining > 0) {
-      setEsignCooldownSeconds(esignStatus.cooldownRemaining);
-    }
-  }, [esignStatus]);
 
   useEffect(() => {
     if (cooldownSeconds <= 0) return;
@@ -317,20 +332,6 @@ function ApplicationDetailView({
     }, 1000);
     return () => clearInterval(timer);
   }, [cooldownSeconds]);
-
-  useEffect(() => {
-    if (esignCooldownSeconds <= 0) return;
-    const timer = setInterval(() => {
-      setEsignCooldownSeconds((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [esignCooldownSeconds]);
 
   const formatCooldown = useCallback((seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -373,7 +374,11 @@ function ApplicationDetailView({
 
   const updateMutation = useMutation({
     mutationFn: async (updates: Partial<MerchantApplication>) => {
-      const res = await apiRequest("PATCH", `/api/merchant-applications/${application.id}`, updates);
+      // Stale-edit guard: the server applies this only at the version this view loaded.
+      const res = await apiRequest("PATCH", `/api/merchant-applications/${application.id}`, {
+        ...updates,
+        expectedStateVersion: (application as any).stateVersion ?? 0,
+      });
       return (await res.json()) as MerchantApplication;
     },
     onSuccess: (updated) => {
@@ -385,30 +390,65 @@ function ApplicationDetailView({
   const esignMutation = useMutation({
     mutationFn: () => apiRequest("POST", `/api/merchant-applications/${application.id}/send-esign`, {}),
     onSuccess: () => {
-      toast({ title: "E-sign sent", description: "E-signature request sent to the merchant." });
-      setEsignCooldownSeconds(300);
+      // The request is queued; the provider send happens in the background and may fail or be held.
+      toast({ title: "E-sign request queued", description: "It has been queued for delivery. Delivery is not confirmed yet — check the e-sign state below." });
+      queryClient.invalidateQueries({ queryKey: ["/api/merchant-applications", application.id, "esign-status"] });
       queryClient.invalidateQueries({ queryKey: ["/api/merchant-applications"] });
     },
     onError: (err: any) => {
-      const msg = err.message || "";
-      if (msg.startsWith("429:")) {
-        try {
-          const body = JSON.parse(msg.slice(4).trim());
-          if (body.retryAfter) {
-            setEsignCooldownSeconds(body.retryAfter);
-            toast({ title: "Cooldown active", description: body.message || "Please wait before resending.", variant: "destructive" });
-            return;
-          }
-        } catch {
-        }
-      }
-      toast({ title: "E-sign failed", description: msg || "Could not send e-signature request.", variant: "destructive" });
+      toast({ title: "E-sign was not queued", description: err.message || "Could not queue the e-signature request.", variant: "destructive" });
     },
   });
 
+  const esignRefreshMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/merchant-applications/${application.id}/esign-status/refresh`, {
+        method: "POST", credentials: "include",
+        headers: { "X-CSRF-Token": getCsrfToken() ?? "" },
+      });
+      const body = await res.json().catch(() => ({}));
+      return { ok: res.ok, body };
+    },
+    onSuccess: ({ ok, body }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/merchant-applications", application.id, "esign-status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/merchant-applications"] });
+      if (!ok) {
+        toast({ title: "Provider status unavailable", description: "The e-sign provider could not be reached, so the signing state is unknown. The stored state is unchanged.", variant: "destructive" });
+      } else if (body.reason === "no_provider_document") {
+        toast({ title: "Nothing to refresh", description: "No e-sign document has been recorded for this application yet." });
+      } else if (body.status === "signed") {
+        toast({ title: "Signed", description: "The provider reports the document is signed." });
+      } else {
+        toast({ title: "Not signed yet", description: `The provider reports: ${body.providerStatus ?? "pending"}.` });
+      }
+    },
+    onError: () => toast({ title: "Provider status unavailable", description: "The refresh request failed. The signing state is unknown.", variant: "destructive" }),
+  });
+
+  const esignInFlight = !!esignStatus && ["queued", "sending", "sent"].includes(esignStatus.sendState);
+  const esignSigned = esignStatus?.status === "signed";
+  const esignStateLabel = esignStatusUnavailable
+    ? "E-sign state unavailable"
+    : !esignStatus ? "Loading e-sign state…"
+    : esignSigned ? "Signed"
+    : esignStatus.sendState === "queued" ? "Queued — not yet delivered"
+    : esignStatus.sendState === "sending" ? "Sending — outcome not yet confirmed"
+    : esignStatus.sendState === "sent" ? "Sent — awaiting signature"
+    : esignStatus.sendState === "failed" ? "Last send failed — can be requeued"
+    : "Not requested";
+
+  const handleStartReview = async () => {
+    try {
+      await updateMutation.mutateAsync({ status: "under_review" });
+      toast({ title: "Review started", description: "The application is now under review." });
+    } catch {
+      toast({ title: "Error", description: "Could not start review. It may have changed — reload and try again.", variant: "destructive" });
+    }
+  };
+
   const handleApprove = async () => {
     try {
-      await updateMutation.mutateAsync({ status: "approved", approvedAt: new Date() });
+      await updateMutation.mutateAsync({ status: "approved" });
       toast({ title: "Application approved", description: "The merchant application has been approved." });
       onClose();
     } catch {
@@ -420,7 +460,6 @@ function ApplicationDetailView({
     try {
       await updateMutation.mutateAsync({
         status: "declined",
-        declinedAt: new Date(),
         declineReason: declineReason.trim() || null,
       });
       toast({ title: "Application declined", description: "The merchant application has been declined and the merchant has been notified." });
@@ -440,7 +479,7 @@ function ApplicationDetailView({
     }
     try {
       await updateMutation.mutateAsync({
-        status: "under_review",
+        ...(canStartReview ? { status: "under_review" as const } : {}),
         underwritingStatus: "documents_needed",
         underwritingNotes: trimmed,
       });
@@ -455,17 +494,17 @@ function ApplicationDetailView({
   const handleSaveEditFields = async () => {
     try {
       // Send null for cleared optional fields so storage persists the clear.
-      const payload: Partial<MerchantApplication> = {
+      const payload: Record<string, unknown> = {
         legalBusinessName: editFields.legalBusinessName.trim() || null,
         ownerFirstName: editFields.ownerFirstName.trim() || null,
         ownerLastName: editFields.ownerLastName.trim() || null,
         ownerEmail: editFields.ownerEmail.trim() || null,
         businessEmail: editFields.businessEmail.trim() || null,
-        status: (editFields.status as any) || undefined, // status must be a valid enum; undefined = no change
+        dba: editFields.dba.trim() || null,
       };
-      // dba stored in metadata or as top-level; pass through if supported
-      (payload as any).dba = editFields.dba.trim() || null;
-      await updateMutation.mutateAsync(payload);
+      // Only send a status when it actually changes (and only legal moves are offered).
+      if (editFields.status && editFields.status !== application.status) payload.status = editFields.status;
+      await updateMutation.mutateAsync(payload as Partial<MerchantApplication>);
       toast({ title: "Application updated", description: "Changes saved successfully." });
       setIsEditMode(false);
     } catch {
@@ -477,7 +516,14 @@ function ApplicationDetailView({
   const contactName = [application.ownerFirstName, application.ownerLastName].filter(Boolean).join(" ") || "—";
   const contactEmail = application.ownerEmail || application.businessEmail || "—";
 
-  const APPLICATION_STATUSES = ["draft", "submitted", "in_progress", "under_review", "approved", "declined", "withdrawn"] as const;
+  // Operator actions come from the shared transition graph; terminal applications are read-only.
+  const currentStatus = String(application.status ?? "");
+  const isTerminal = TERMINAL_APPLICATION_STATUSES.has(currentStatus);
+  const canStartReview = canTransition(currentStatus, "under_review");
+  const canDecide = canTransition(currentStatus, "approved");
+  const canDeclineNow = canTransition(currentStatus, "declined");
+  const canRequestInfo = canStartReview || currentStatus === "under_review";
+  const statusOptions = [currentStatus, ...Array.from(STATUS_TRANSITIONS[currentStatus] ?? [])];
 
   return (
     <div className="space-y-6" data-testid="application-detail-view">
@@ -506,8 +552,20 @@ function ApplicationDetailView({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {application.status !== "approved" && application.status !== "declined" && (
+          {!isTerminal && (
             <>
+              {canStartReview && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleStartReview}
+                  disabled={updateMutation.isPending}
+                  data-testid="button-start-review"
+                >
+                  Start Review
+                </Button>
+              )}
+              {canRequestInfo && (
               <Button
                 variant="outline"
                 size="sm"
@@ -517,29 +575,40 @@ function ApplicationDetailView({
                 <MessageSquarePlus className="w-4 h-4 mr-2" />
                 Request Info
               </Button>
+              )}
               <div className="flex flex-col items-start gap-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => esignMutation.mutate()}
-                  disabled={esignMutation.isPending || esignCooldownSeconds > 0}
-                  data-testid="button-send-esign"
-                >
-                  {esignMutation.isPending ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <SendHorizonal className="w-4 h-4 mr-2" />
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => esignMutation.mutate()}
+                    disabled={esignMutation.isPending || esignInFlight || esignSigned || !esignStatus}
+                    data-testid="button-send-esign"
+                  >
+                    {esignMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <SendHorizonal className="w-4 h-4 mr-2" />
+                    )}
+                    {esignStatus?.sendState === "failed" ? "Requeue E-Sign" : "Request E-Sign"}
+                  </Button>
+                  {esignStatus?.providerDocumentRecorded && !esignSigned && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => esignRefreshMutation.mutate()}
+                      disabled={esignRefreshMutation.isPending}
+                      data-testid="button-refresh-esign"
+                    >
+                      {esignRefreshMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Check provider"}
+                    </Button>
                   )}
-                  {esignCooldownSeconds > 0
-                    ? `Available in ${formatCooldown(esignCooldownSeconds)}`
-                    : "Send E-Sign"}
-                </Button>
-                {esignCooldownSeconds > 0 && (
-                  <span className="text-xs text-muted-foreground" data-testid="text-esign-cooldown">
-                    E-sign cooldown active
-                  </span>
-                )}
+                </div>
+                <span className="text-xs text-muted-foreground" data-testid="text-esign-state">
+                  {esignStateLabel}
+                </span>
               </div>
+              {canDeclineNow && (
               <Button
                 variant="destructive"
                 size="sm"
@@ -550,6 +619,8 @@ function ApplicationDetailView({
                 <XCircle className="w-4 h-4 mr-2" />
                 Decline
               </Button>
+              )}
+              {canDecide && (
               <Button
                 size="sm"
                 onClick={handleApprove}
@@ -563,6 +634,7 @@ function ApplicationDetailView({
                 )}
                 Approve
               </Button>
+              )}
             </>
           )}
           <Button
@@ -690,7 +762,7 @@ function ApplicationDetailView({
                     <UISelectValue />
                   </UISelectTrigger>
                   <UISelectContent>
-                    {APPLICATION_STATUSES.map((s) => (
+                    {statusOptions.map((s) => (
                       <UISelectItem key={s} value={s}>{getStatusLabel(s)}</UISelectItem>
                     ))}
                   </UISelectContent>
@@ -846,7 +918,7 @@ function ApplicationDetailView({
         )}
 
         <DetailSection title="E-Signature & Underwriting" icon={ClipboardCheck}>
-          <DetailField label="E-Sign Status" value={application.esignStatus} />
+          <DetailField label="E-Sign Status" value={esignStateLabel} />
           <DetailField label="E-Signed At" value={formatDate(application.esignedAt)} />
           <DetailField label="Underwriting Status" value={application.underwritingStatus} />
           <DetailField label="Latest UW Note" value={application.underwritingNotes} />
@@ -938,9 +1010,20 @@ function ApplicationDetailView({
             <Paperclip className="w-4 h-4 text-primary" />
             Uploaded Documents
           </div>
-          {documents.length === 0 ? (
+          {!application.contactId ? (
+            <p className="text-sm text-muted-foreground" data-testid="text-documents-no-contact">
+              This application is not linked to a contact yet, so no documents can be shown.
+            </p>
+          ) : documentsLoading ? (
+            <p className="text-sm text-muted-foreground" data-testid="text-documents-loading">Loading documents…</p>
+          ) : documentsUnavailable ? (
+            <div className="flex items-center gap-2 text-sm text-destructive" data-testid="text-documents-unavailable">
+              Documents could not be loaded (not the same as having none).
+              <Button variant="outline" size="sm" onClick={() => refetchDocuments()} data-testid="button-retry-documents">Retry</Button>
+            </div>
+          ) : documents.length === 0 ? (
             <p className="text-sm text-muted-foreground" data-testid="text-no-documents">
-              No documents uploaded for this merchant.
+              No documents you can view are on file for this merchant's contact record.
             </p>
           ) : (
             <div className="space-y-2" data-testid="list-documents">
@@ -960,17 +1043,16 @@ function ApplicationDetailView({
                     </div>
                   </div>
                   {doc.storageKey && (
-                    <a
-                      href={`/api/documents/${doc.id}/download`}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       className="shrink-0"
+                      onClick={() => openDocument(doc.id)}
+                      aria-label={`Open ${doc.fileName}`}
                       data-testid={`link-doc-download-${doc.id}`}
                     >
-                      <Button variant="ghost" size="sm">
-                        <ExternalLink className="w-4 h-4" />
-                      </Button>
-                    </a>
+                      <ExternalLink className="w-4 h-4" />
+                    </Button>
                   )}
                 </div>
               ))}
@@ -982,20 +1064,25 @@ function ApplicationDetailView({
   );
 }
 
+const LIST_PAGE_SIZE = 50;
+
 export default function MerchantApplicationsList() {
   const statusState=useC4RetainedSelection("/dashboard/merchant-applications","status",applicationStatuses,"all");
   const statusFilter=statusState.value;
   const setStatusFilter=(value:string)=>{if(applicationStatuses.includes(value as typeof statusFilter))statusState.setValue(value as typeof statusFilter);};
   const [search, setSearch] = useState("");
   const [selectedApp, setSelectedApp] = useState<MerchantApplication | null>(null);
+  const [listPage, setListPage] = useState(0);
+  useEffect(() => { setListPage(0); }, [statusFilter, search]);
 
   const params = new URLSearchParams();
   if (statusFilter !== "all") params.set("status", statusFilter);
   if (search) params.set("search", search);
-  params.set("limit", "100");
+  params.set("limit", String(LIST_PAGE_SIZE));
+  params.set("offset", String(listPage * LIST_PAGE_SIZE));
 
   const { data, isLoading } = useQuery<{ applications: MerchantApplication[]; total: number }>({
-    queryKey: ["/api/merchant-applications", statusFilter, search],
+    queryKey: ["/api/merchant-applications", statusFilter, search, listPage],
     queryFn: async () => {
       const res = await fetch(`/api/merchant-applications?${params.toString()}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch applications");
@@ -1149,6 +1236,15 @@ export default function MerchantApplicationsList() {
                 })}
               </TableBody>
             </Table>
+          )}
+          {total > LIST_PAGE_SIZE && (
+            <div className="flex items-center justify-between gap-2 pt-3 pb-20 pr-16" data-testid="pager-applications">
+              <span className="text-xs text-muted-foreground">Page {listPage + 1} of {Math.ceil(total / LIST_PAGE_SIZE)} · {total} total</span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={listPage <= 0} onClick={() => setListPage((p) => Math.max(0, p - 1))} data-testid="pager-applications-prev">Previous</Button>
+                <Button variant="outline" size="sm" disabled={(listPage + 1) * LIST_PAGE_SIZE >= total} onClick={() => setListPage((p) => p + 1)} data-testid="pager-applications-next">Next</Button>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

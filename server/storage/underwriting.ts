@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { eq, desc, and, gte } from "drizzle-orm";
+import { eq, desc, and, gte, sql } from "drizzle-orm";
 import {
   underwritingRules,
   underwritingDecisions,
@@ -10,18 +10,21 @@ import {
 } from "@shared/schema";
 
 export class UnderwritingStorage {
-  async getUnderwritingRules(): Promise<UnderwritingRules> {
+  /**
+   * Pure read (S5-24). A missing configuration is reported as `undefined`; a GET never
+   * inserts default thresholds. Rules are created only by the authorized update command.
+   */
+  async getUnderwritingRules(): Promise<UnderwritingRules | undefined> {
     const [row] = await db.select().from(underwritingRules).where(eq(underwritingRules.id, 1));
-    if (row) return row;
-    const [created] = await db.insert(underwritingRules).values({ id: 1 }).returning();
-    return created;
+    return row;
   }
 
+  /** Authorized command: updates the singleton row, or creates it from exactly the supplied values. */
   async updateUnderwritingRules(updates: Partial<InsertUnderwritingRules>): Promise<UnderwritingRules> {
     const [row] = await db
-      .update(underwritingRules)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(underwritingRules.id, 1))
+      .insert(underwritingRules)
+      .values({ ...updates, id: 1 } as any)
+      .onConflictDoUpdate({ target: underwritingRules.id, set: { ...updates, updatedAt: new Date() } as any })
       .returning();
     return row;
   }
@@ -54,7 +57,7 @@ export class UnderwritingStorage {
       .select()
       .from(underwritingDecisions)
       .where(eq(underwritingDecisions.dealId, dealId))
-      .orderBy(desc(underwritingDecisions.createdAt))
+      .orderBy(desc(underwritingDecisions.createdAt), desc(underwritingDecisions.id))
       .limit(1);
     return row;
   }
@@ -115,21 +118,20 @@ export class UnderwritingStorage {
     hold: number;
     overridden: number;
   }> {
-    const filter = since
-      ? gte(underwritingDecisions.createdAt, since)
-      : undefined;
-
-    const rows = await db
-      .select()
+    // SQL aggregate: never loads the decision table into memory.
+    const [row] = await db
+      .select({
+        total: sql<number>`count(*)::int`,
+        approved: sql<number>`(count(*) filter (where ${underwritingDecisions.decision} = 'approve'))::int`,
+        review: sql<number>`(count(*) filter (where ${underwritingDecisions.decision} = 'review'))::int`,
+        hold: sql<number>`(count(*) filter (where ${underwritingDecisions.decision} = 'hold'))::int`,
+        overridden: sql<number>`(count(*) filter (where ${underwritingDecisions.overrideAction} is not null))::int`,
+      })
       .from(underwritingDecisions)
-      .where(filter as any);
-
+      .where(since ? gte(underwritingDecisions.createdAt, since) : undefined);
     return {
-      total: rows.length,
-      approved: rows.filter(r => r.decision === "approve").length,
-      review: rows.filter(r => r.decision === "review").length,
-      hold: rows.filter(r => r.decision === "hold").length,
-      overridden: rows.filter(r => r.overrideAction != null).length,
+      total: Number(row?.total ?? 0), approved: Number(row?.approved ?? 0), review: Number(row?.review ?? 0),
+      hold: Number(row?.hold ?? 0), overridden: Number(row?.overridden ?? 0),
     };
   }
 }

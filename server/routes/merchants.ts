@@ -1,4 +1,5 @@
 import type { Express, RequestHandler } from "express";
+import { listMerchantApplicationsPage, countPendingMerchantApplications } from "../services/merchant-application-read-model";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
@@ -27,7 +28,9 @@ import {
 } from "../services/merchant-application-service";
 import { ProtectedDataValidationError } from "../services/merchant-protected-data";
 import { startMerchantApplicationOutboxWorker, triggerOutboxTick } from "../services/merchant-application-outbox-worker";
-import { getBackgroundProfile } from "../services/background-profile";
+import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
+import { statusesForFilter } from "@shared/merchant-application-status";
+import { isLocalOutboxWorkerSelected } from "../services/background-profile";
 
 /**
  * Map service/domain errors to HTTP responses. Generic 404 for capability
@@ -95,42 +98,6 @@ function createEmailCooldown(cooldownMs: number) {
 
 const welcomeEmailCooldown = createEmailCooldown(EMAIL_COOLDOWN_MS);
 
-// In-memory prefill token store (24h TTL)
-interface PrefillTokenData {
-  legalBusinessName?: string;
-  dba?: string;
-  businessType?: string;
-  businessPhone?: string;
-  businessEmail?: string;
-  businessAddress?: string;
-  businessCity?: string;
-  businessState?: string;
-  businessZip?: string;
-  website?: string;
-  vertical?: string;
-  ownerFirstName?: string;
-  ownerLastName?: string;
-  ownerEmail?: string;
-  ownerPhone?: string;
-  estimatedMonthlyVolume?: string;
-  currentProcessor?: string;
-  dealId?: number;
-  expiresAt: number;
-}
-const prefillTokenMap = new Map<string, PrefillTokenData>();
-const PREFILL_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
-
-function cleanExpiredPrefillTokens() {
-  const now = Date.now();
-  for (const [k, v] of prefillTokenMap) {
-    if (v.expiresAt < now) prefillTokenMap.delete(k);
-  }
-}
-
-function hashToken(token: string): string {
-  return crypto.createHash("sha256").update(token).digest("hex");
-}
-
 const isAdminOrManager: RequestHandler = (req, res, next) => {
   const role = (req.user as any)?.role;
   if (req.isAuthenticated() && (role === "admin" || role === "manager")) {
@@ -152,10 +119,10 @@ export function registerMerchantsRoutes(app: Express) {
   // CRO-02 observation moved to the CRO02_OBSERVATION BullMQ job — not on HTTP requests.
   // Start the durable outbox worker only when background workers are enabled.
   // Off mode = HTTP/API only, no background processing.
-  if (getBackgroundProfile() !== "off") {
+  if (isLocalOutboxWorkerSelected()) {
     startMerchantApplicationOutboxWorker();
   } else {
-    console.log("[BackgroundProfile] off — MerchantApplicationOutboxWorker not started");
+    console.log("[BackgroundProfile] not selected — MerchantApplicationOutboxWorker not started");
   }
 
   // === DRAFT PERSISTENCE (server-side, public endpoints) ===
@@ -236,6 +203,7 @@ export function registerMerchantsRoutes(app: Express) {
         idempotencyKey,
         body: req.body,
         resolvedDealId,
+        requestEvidence: { ipAddress: req.ip ?? null, userAgent: String(req.headers?.["user-agent"] ?? "") || null },
       });
       // Schedule an immediate outbox tick so contact_link and consent_record rows
       // are processed promptly (otherwise the poller waits up to 15 s).
@@ -251,83 +219,68 @@ export function registerMerchantsRoutes(app: Express) {
 
   app.post("/api/merchant-applications/prefill-token", isDashboardUser, async (req, res) => {
     try {
-      cleanExpiredPrefillTokens();
-      const token = crypto.randomBytes(20).toString("hex");
-      const {
-        legalBusinessName, dba, businessType, businessPhone, businessEmail,
-        businessAddress, businessCity, businessState, businessZip, website,
-        ownerFirstName, ownerLastName, ownerEmail, ownerPhone,
-        estimatedMonthlyVolume, vertical, currentProcessor, dealId, contactId,
-      } = req.body;
-
-      // Auto-populate from contact record if contactId provided
-      let contact: Awaited<ReturnType<typeof storage.getContact>> | null = null;
-      if (contactId) {
-        contact = await storage.getContact(Number(contactId)).catch(() => null);
+      const body = (req.body ?? {}) as Record<string, any>;
+      const contactIdRaw = body.contactId, dealIdRaw = body.dealId;
+      const contactId = contactIdRaw != null && contactIdRaw !== "" ? Number(contactIdRaw) : null;
+      const dealId = dealIdRaw != null && dealIdRaw !== "" ? Number(dealIdRaw) : null;
+      if ((contactId != null && !Number.isInteger(contactId)) || (dealId != null && !Number.isInteger(dealId))) {
+        return res.status(400).json({ message: "Invalid contact or deal id" });
       }
 
-      // Enforce contact↔deal linkage when both are provided
-      if (dealId && contactId) {
-        const deal = await storage.getDeal(Number(dealId)).catch(() => null);
-        if (!deal || deal.contactId !== Number(contactId)) {
+      // Per-object authorization for every supplied ID (own/assigned scope for agents).
+      let contact: Awaited<ReturnType<typeof storage.getContact>> | null = null;
+      if (contactId != null) {
+        const c = await authorizeContactAccess(req, res, contactId);
+        if (!c) return;
+        contact = c;
+      }
+      if (dealId != null) {
+        const d = await authorizeDealAccess(req, res, dealId);
+        if (!d) return;
+        // A lone dealId is bound to the deal's own contact; a supplied contact must match.
+        if (contactId != null && d.contactId !== contactId) {
           return res.status(400).json({ message: "Deal is not linked to this contact — cannot generate prefill token" });
+        }
+        if (contactId == null && d.contactId != null) {
+          const c = await authorizeContactAccess(req, res, d.contactId);
+          if (!c) return;
+          contact = c;
         }
       }
 
-      prefillTokenMap.set(token, {
-        legalBusinessName: legalBusinessName || contact?.companyName || undefined,
-        dba: dba || undefined,
-        businessType: businessType || undefined,
-        businessPhone: businessPhone || contact?.phone || undefined,
-        businessEmail: businessEmail || contact?.email || undefined,
-        businessAddress: businessAddress || undefined,
-        businessCity: businessCity || undefined,
-        businessState: businessState || undefined,
-        businessZip: businessZip || undefined,
-        website: website || contact?.website || undefined,
-        ownerFirstName: ownerFirstName || contact?.firstName || undefined,
-        ownerLastName: ownerLastName || contact?.lastName || undefined,
-        ownerEmail: ownerEmail || contact?.email || undefined,
-        ownerPhone: ownerPhone || contact?.phone || undefined,
-        estimatedMonthlyVolume: estimatedMonthlyVolume || undefined,
-        vertical: vertical || undefined,
-        currentProcessor: currentProcessor || undefined,
-        dealId: dealId ? Number(dealId) : undefined,
-        expiresAt: Date.now() + PREFILL_TOKEN_TTL_MS,
+      const fields: Record<string, unknown> = {
+        ...body,
+        legalBusinessName: body.legalBusinessName || contact?.companyName || undefined,
+        businessPhone: body.businessPhone || contact?.phone || undefined,
+        businessEmail: body.businessEmail || contact?.email || undefined,
+        website: body.website || contact?.website || undefined,
+        ownerFirstName: body.ownerFirstName || contact?.firstName || undefined,
+        ownerLastName: body.ownerLastName || contact?.lastName || undefined,
+        ownerEmail: body.ownerEmail || contact?.email || undefined,
+        ownerPhone: body.ownerPhone || contact?.phone || undefined,
+      };
+      const created = await merchantAppService.createPrefillDraft({
+        fields,
+        contactId: contact?.id ?? contactId,
+        dealId,
+        actorId: (req.user as any)?.id ?? null,
       });
       const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
-      res.json({ token, url: `${baseUrl}/merchant-application?prefillToken=${token}` });
+      res.json({ token: created.token, url: `${baseUrl}/merchant-application?prefillToken=${created.token}` });
     } catch (err: any) {
-      serverError(res, err);
+      respondServiceError(res, err);
     }
   });
 
-  app.get("/api/merchant-applications/prefill-token/:token", publicLeadRateLimit, (req, res) => {
-    cleanExpiredPrefillTokens();
-    const data = prefillTokenMap.get(req.params.token as string);
-    if (!data || data.expiresAt < Date.now()) {
-      return res.status(404).json({ message: "Token not found or expired" });
+  app.get("/api/merchant-applications/prefill-token/:token", publicLeadRateLimit, async (req, res) => {
+    try {
+      const data = await merchantAppService.readPrefillDraft(String(req.params.token ?? ""));
+      // Strict whitelist — never expose contact/deal IDs, EIN, SSN, DOB, or bank data.
+      res.json({ ...data.fields, draftId: data.draftId, draftToken: data.draftToken });
+    } catch (err: any) {
+      if (err instanceof NotFoundError) return res.status(404).json({ message: "Token not found or expired" });
+      respondServiceError(res, err);
     }
-    // Strict whitelist — never expose internal IDs, EIN, SSN, DOB, or bank data
-    res.json({
-      legalBusinessName: data.legalBusinessName,
-      dba: data.dba,
-      businessType: data.businessType,
-      businessPhone: data.businessPhone,
-      businessEmail: data.businessEmail,
-      businessAddress: data.businessAddress,
-      businessCity: data.businessCity,
-      businessState: data.businessState,
-      businessZip: data.businessZip,
-      website: data.website,
-      ownerFirstName: data.ownerFirstName,
-      ownerLastName: data.ownerLastName,
-      ownerEmail: data.ownerEmail,
-      ownerPhone: data.ownerPhone,
-      estimatedMonthlyVolume: data.estimatedMonthlyVolume,
-      currentProcessor: data.currentProcessor,
-      vertical: data.vertical,
-    });
   });
 
   // === MERCHANT APPLICATIONS ===
@@ -359,31 +312,17 @@ export function registerMerchantsRoutes(app: Express) {
   app.get("/api/merchant-applications", isAdminOrManager, async (req, res) => {
     try {
       const { status, search, limit = "50", offset = "0" } = req.query as Record<string, string>;
-      let applications = await storage.getMerchantApplications();
-
-      if (status && status !== "all") {
-        applications = applications.filter((a) => a.status === status);
-      }
-
-      if (search) {
-        const q = search.toLowerCase();
-        applications = applications.filter(
-          (a) =>
-            (a.legalBusinessName || "").toLowerCase().includes(q) ||
-            (a.dba || "").toLowerCase().includes(q) ||
-            (a.businessEmail || "").toLowerCase().includes(q) ||
-            (a.ownerEmail || "").toLowerCase().includes(q) ||
-            (a.ownerFirstName || "").toLowerCase().includes(q) ||
-            (a.ownerLastName || "").toLowerCase().includes(q)
-        );
-      }
-
-      const total = applications.length;
-      const paginated = applications
-        .slice(Number(offset), Number(offset) + Number(limit))
-        .map((a) => merchantAppService.toOperatorDto(a as any));
-
-      res.json({ applications: paginated, total, limit: Number(limit), offset: Number(offset) });
+      const page = await listMerchantApplicationsPage({
+        statuses: status && status !== "all" ? statusesForFilter(status) : undefined,
+        search: typeof search === "string" ? search : undefined,
+        limit: Number.parseInt(String(limit), 10),
+        offset: Number.parseInt(String(offset), 10),
+      });
+      res.json({
+        applications: page.rows.map((a) => merchantAppService.toOperatorDto(a as any)),
+        total: page.total, limit: page.limit, offset: page.offset,
+        hasMore: page.offset + page.rows.length < page.total,
+      });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -391,10 +330,7 @@ export function registerMerchantsRoutes(app: Express) {
 
   app.get("/api/merchant-applications/pending-count", isAdminOrManager, async (_req, res) => {
     try {
-      const applications = await storage.getMerchantApplications();
-      const count = applications.filter(
-        (a) => a.status === "submitted" || a.status === "under_review"
-      ).length;
+      const count = await countPendingMerchantApplications();
       res.json({ count });
     } catch (err: any) {
       serverError(res, err);
@@ -503,6 +439,8 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
+  // PURE READ of the locally stored e-sign state. It never calls the provider and never writes.
+  // `sendState` distinguishes queued/sending/sent/failed; `status` is the signing state; neither is inferred.
   app.get("/api/merchant-applications/:id/esign-status", isAuthenticated, async (req, res) => {
     try {
       const appId = Number(req.params.id);
@@ -511,21 +449,44 @@ export function registerMerchantsRoutes(app: Express) {
       if (!canAccessApplication(req, application)) {
         return res.status(403).json({ message: "Forbidden" });
       }
+      res.json({
+        status: application.esignStatus || "pending",
+        sendState: (application as any).esignSendState ?? "idle",
+        esignedAt: application.esignedAt ?? null,
+        providerDocumentRecorded: !!application.esignDocumentId,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
 
-      // Poll external document status and reflect via canonical conditional updater.
-      if (application.esignDocumentId) {
-        const docStatus = await getDocumentStatus(application.esignDocumentId);
-        if (docStatus.status === "completed" || docStatus.status === "signed") {
-          await merchantAppService.applyEsignDocumentState({
-            applicationId: appId,
-            esignStatus: "signed",
-            esignedAt: docStatus.signedAt ? new Date(docStatus.signedAt) : new Date(),
-          });
-          return res.json({ status: "signed" });
-        }
+  // Governed provider refresh (explicit operator command, separate from the read above). It asks the provider for
+  // the document state and applies a "signed" observation through the canonical conditional updater. An
+  // unreachable provider is reported as unavailable (502); it is never reported as "not signed".
+  app.post("/api/merchant-applications/:id/esign-status/refresh", isAuthenticated, async (req, res) => {
+    try {
+      const appId = Number(req.params.id);
+      const application = await storage.getMerchantApplication(appId);
+      if (!application) return res.status(404).json({ message: "Application not found" });
+      if (!canAccessApplication(req, application)) {
+        return res.status(403).json({ message: "Forbidden" });
       }
-
-      res.json({ status: application.esignStatus || "pending" });
+      if (!application.esignDocumentId) {
+        return res.json({ refreshed: false, reason: "no_provider_document", status: application.esignStatus || "pending" });
+      }
+      const docStatus = await getDocumentStatus(application.esignDocumentId);
+      if (docStatus.status === "error" || docStatus.status === "unknown") {
+        return res.status(502).json({ refreshed: false, reason: "provider_unavailable", status: application.esignStatus || "pending" });
+      }
+      if (docStatus.status === "completed" || docStatus.status === "signed") {
+        await merchantAppService.applyEsignDocumentState({
+          applicationId: appId,
+          esignStatus: "signed",
+          esignedAt: docStatus.signedAt ? new Date(docStatus.signedAt) : new Date(),
+        });
+        return res.json({ refreshed: true, status: "signed" });
+      }
+      res.json({ refreshed: true, status: application.esignStatus || "pending", providerStatus: docStatus.status });
     } catch (err: any) {
       serverError(res, err);
     }

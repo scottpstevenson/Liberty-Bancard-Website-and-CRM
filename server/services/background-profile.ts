@@ -347,6 +347,20 @@ export function getBackgroundProfile(): BackgroundProfile {
   return "off";
 }
 
+/**
+ * Whether the in-process durable local outbox interval workers (merchant-application
+ * and deal-boarding outboxes) are selected by the current profile (S5-24). They are
+ * local durable command dispatch, so selective profiles select them through the
+ * `critical-commands` capability group; `off`, invalid values and `ghl-sync-only`
+ * never start them.
+ */
+export function isLocalOutboxWorkerSelected(): boolean {
+  const profile = getBackgroundProfile();
+  if (profile === "core" || profile === "full") return true;
+  if (profile === "selective") return getSelectiveGroups().includes("critical-commands");
+  return false;
+}
+
 /** Profile-level physical queue selection (independent from capability groups). */
 export function isQueueSelectedByBackgroundProfile(queueName: string): boolean {
   const profile = getBackgroundProfile();

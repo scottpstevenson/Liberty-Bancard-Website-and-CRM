@@ -80,38 +80,102 @@ function materialEffectTypes(stage: string, contactId: number | null): string[] 
   return effects;
 }
 
+/** Best-effort telemetry/notifications for an APPLIED transition. Call only after the transaction commits. */
+export async function advanceDealStageAfterCommit(updated: Deal, dealId: number, newStage: string, trigger: string): Promise<void> {
+
+  console.log(`[DealStage] Deal ${dealId} → "${newStage}" (trigger: ${trigger})`);
+
+  // Material follow-ons are deliberately dispatched only from the durable
+  // intent ledger by deal-stage-effect-worker. Analytics below stays best-effort.
+
+  // Record dedicated funnel event for key stages, plus generic stage-changed
+  const funnelEvent = STAGE_EVENT_MAP[newStage];
+  if (funnelEvent) {
+    recordAnalyticsEvent({
+      eventName: funnelEvent,
+      dealId,
+      dealStage: newStage,
+      contactId: updated.contactId ?? undefined,
+      metadata: { trigger },
+    }).catch(() => {});
+  }
+
+  recordAnalyticsEvent({
+    eventName: DEAL_STAGE_CHANGED,
+    dealId,
+    dealStage: newStage,
+    contactId: updated.contactId ?? undefined,
+    metadata: { trigger, newStage },
+  }).catch(() => {});
+
+  // Closed-Won notification/conversion telemetry is informational; onboarding
+  // itself is a durable stage-effect intent.
+  if (newStage === "Closed Won") {
+
+    // #577 — Notify the assigned agent when their deal closes
+    if (updated.owner) {
+      import("../storage").then(async ({ storage: st }) => {
+        const agentList = await st.getAgents().catch(() => []);
+        const agent = agentList.find(a => a.email === updated.owner);
+        if (agent?.email) {
+          const { createNotification } = await import("../storage").then(m => m.storage);
+          await createNotification({
+            channel: "internal",
+            title: `🎉 Deal Closed Won — ${updated.notes ? updated.notes.slice(0, 40) : `Deal #${dealId}`}`,
+            message: `Your deal #${dealId} has been marked Closed Won (trigger: ${trigger}). Time to kick off onboarding!`,
+            type: "info",
+            metadata: { dealId, newStage, assignedAgent: updated.owner, link: `/dashboard/pipeline?id=${dealId}`, eventType: "closed_won_agent_alert" },
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+
+    // #proposal-conversion — if a proposal was previously sent, record conversion
+    if (updated.proposalEmailSentAt) {
+      const daysToClosed = updated.proposalEmailSentAt
+        ? Math.round((Date.now() - new Date(updated.proposalEmailSentAt).getTime()) / 86_400_000)
+        : undefined;
+      recordAnalyticsEvent({
+        eventName: PROPOSAL_CONVERTED,
+        dealId,
+        dealStage: "Closed Won",
+        contactId: updated.contactId ?? undefined,
+        metadata: {
+          trigger,
+          proposalEmailSentAt: updated.proposalEmailSentAt?.toISOString?.() ?? null,
+          daysToClosed,
+        },
+      }).catch(() => {});
+    }
+  }
+}
+
+export interface StageTransitionOutcome {
+  stagedDeal: Deal | null;
+  applied: boolean;
+  gateBlocked: boolean;
+  blockedMissing: string[];
+}
+
 /**
- * Central deal stage transition service.
- *
- * ALL stage mutations in the app must go through this function so that:
- *   - GHL opportunity stage sync is always guaranteed after a local update
- *   - Analytics funnel events are recorded for key stages
- *   - Closed Won side-effects (onboarding deal, SLA tasks, welcome email) fire
- *     for every code path — pipeline drag, bulk-stage, AI auto-progress, and
- *     merchant application approval
- *   - Go-Live gate is enforced for onboarding pipeline deals
- *
- * Usage:
- *   await advanceDealStage(dealId, "Underwriting Submitted", "document_auto_advance");
- *
- * @param overrideContext  Admin/manager override context — only supply when the caller
- *                         has already validated the actor's role and captured a reason.
- *                         When absent, automated/system triggers are blocked (logged + thrown)
- *                         rather than silently succeeding.
+ * The transactional core of a stage transition: lock the deal row, validate, update, record effect intents and
+ * the audit row — all on the CALLER's transaction. Used directly by commands that must commit a stage move
+ * atomically with their own state (e.g. manual underwriting override); post-commit telemetry is the caller's
+ * job via advanceDealStageAfterCommit.
  */
-export async function advanceDealStage(
+export async function advanceDealStageInTx(
+  tx: any,
   dealId: number,
   newStage: string,
   trigger: string,
   overrideContext?: { reason: string; actor: string; expectedStage?: string },
   displayedStage?: string,
-): Promise<Deal | null> {
+): Promise<StageTransitionOutcome> {
   let stagedDeal: Deal | null = null;
   let applied = false;
   let gateBlocked = false;
   let blockedMissing: string[] = [];
-
-  await db.transaction(async (tx) => {
+  await (async () => {
     const dealResult = await tx.execute(sql`
       SELECT id, pipeline, stage, contact_id, mid, terminal_status
       FROM deals WHERE id = ${dealId} FOR UPDATE
@@ -179,7 +243,41 @@ export async function advanceDealStage(
           transitionKey,
         }))}::jsonb, NOW())
     `);
+  })();
+  return { stagedDeal, applied, gateBlocked, blockedMissing };
+}
+
+/**
+ * Central deal stage transition service.
+ *
+ * ALL stage mutations in the app must go through this function so that:
+ *   - GHL opportunity stage sync is always guaranteed after a local update
+ *   - Analytics funnel events are recorded for key stages
+ *   - Closed Won side-effects (onboarding deal, SLA tasks, welcome email) fire
+ *     for every code path — pipeline drag, bulk-stage, AI auto-progress, and
+ *     merchant application approval
+ *   - Go-Live gate is enforced for onboarding pipeline deals
+ *
+ * Usage:
+ *   await advanceDealStage(dealId, "Underwriting Submitted", "document_auto_advance");
+ *
+ * @param overrideContext  Admin/manager override context — only supply when the caller
+ *                         has already validated the actor's role and captured a reason.
+ *                         When absent, automated/system triggers are blocked (logged + thrown)
+ *                         rather than silently succeeding.
+ */
+export async function advanceDealStage(
+  dealId: number,
+  newStage: string,
+  trigger: string,
+  overrideContext?: { reason: string; actor: string; expectedStage?: string },
+  displayedStage?: string,
+): Promise<Deal | null> {
+  let outcome: StageTransitionOutcome = { stagedDeal: null, applied: false, gateBlocked: false, blockedMissing: [] };
+  await db.transaction(async (tx) => {
+    outcome = await advanceDealStageInTx(tx, dealId, newStage, trigger, overrideContext, displayedStage);
   });
+  const { stagedDeal, applied, gateBlocked, blockedMissing } = outcome;
 
   if (gateBlocked) throw new GoLiveGateError(dealId, newStage, blockedMissing, trigger);
 
@@ -188,72 +286,7 @@ export async function advanceDealStage(
   // Same-stage retries are a successful no-op.  Critically, do not create
   // telemetry, tasks, invitations, or provider work a second time.
   if (!applied) return updated;
-
-  console.log(`[DealStage] Deal ${dealId} → "${newStage}" (trigger: ${trigger})`);
-
-  // Material follow-ons are deliberately dispatched only from the durable
-  // intent ledger by deal-stage-effect-worker. Analytics below stays best-effort.
-
-  // Record dedicated funnel event for key stages, plus generic stage-changed
-  const funnelEvent = STAGE_EVENT_MAP[newStage];
-  if (funnelEvent) {
-    recordAnalyticsEvent({
-      eventName: funnelEvent,
-      dealId,
-      dealStage: newStage,
-      contactId: updated.contactId ?? undefined,
-      metadata: { trigger },
-    }).catch(() => {});
-  }
-
-  recordAnalyticsEvent({
-    eventName: DEAL_STAGE_CHANGED,
-    dealId,
-    dealStage: newStage,
-    contactId: updated.contactId ?? undefined,
-    metadata: { trigger, newStage },
-  }).catch(() => {});
-
-  // Closed-Won notification/conversion telemetry is informational; onboarding
-  // itself is a durable stage-effect intent.
-  if (newStage === "Closed Won") {
-
-    // #577 — Notify the assigned agent when their deal closes
-    if (updated.owner) {
-      import("../storage").then(async ({ storage: st }) => {
-        const agentList = await st.getAgents().catch(() => []);
-        const agent = agentList.find(a => a.email === updated.owner);
-        if (agent?.email) {
-          const { createNotification } = await import("../storage").then(m => m.storage);
-          await createNotification({
-            channel: "internal",
-            title: `🎉 Deal Closed Won — ${updated.notes ? updated.notes.slice(0, 40) : `Deal #${dealId}`}`,
-            message: `Your deal #${dealId} has been marked Closed Won (trigger: ${trigger}). Time to kick off onboarding!`,
-            type: "info",
-            metadata: { dealId, newStage, assignedAgent: updated.owner, link: `/dashboard/pipeline?id=${dealId}`, eventType: "closed_won_agent_alert" },
-          }).catch(() => {});
-        }
-      }).catch(() => {});
-    }
-
-    // #proposal-conversion — if a proposal was previously sent, record conversion
-    if (updated.proposalEmailSentAt) {
-      const daysToClosed = updated.proposalEmailSentAt
-        ? Math.round((Date.now() - new Date(updated.proposalEmailSentAt).getTime()) / 86_400_000)
-        : undefined;
-      recordAnalyticsEvent({
-        eventName: PROPOSAL_CONVERTED,
-        dealId,
-        dealStage: "Closed Won",
-        contactId: updated.contactId ?? undefined,
-        metadata: {
-          trigger,
-          proposalEmailSentAt: updated.proposalEmailSentAt?.toISOString?.() ?? null,
-          daysToClosed,
-        },
-      }).catch(() => {});
-    }
-  }
+  await advanceDealStageAfterCommit(updated, dealId, newStage, trigger);
 
   return updated;
 }

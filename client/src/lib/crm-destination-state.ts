@@ -39,7 +39,7 @@ export function revenueFilterUrl(search:string,hash:string,filter:Omit<RevenueFi
 }
 export const underwritingViews = ["queue","approved","config"] as const;
 export const onboardingViews = ["overview", "board"] as const;
-export const applicationStatuses = ["all","submitted","under_review","approved","declined","draft"] as const;
+export const applicationStatuses = ["all","submitted","under_review","approved","declined","draft","withdrawn"] as const;
 export const boardingStatuses = ["all","submitted","under_review","more_info_needed","approved","declined"] as const;
 export const outreachViews = ["campaigns","ab-testing","messages"] as const;
 export const leaderboardMetrics = ["deals","revenue","proposals","calls","responseRate","closeRate","contacts"] as const;

@@ -2681,6 +2681,13 @@
       "when":1800400260000,
       "tag":"0379_stage4c2_correction_pass",
       "breakpoints":true
+    },
+    {
+      "idx":383,
+      "version":"7",
+      "when":1800400270000,
+      "tag":"0380_stage5_underwriting_condition_integrity",
+      "breakpoints":true
     }
   ]
 }

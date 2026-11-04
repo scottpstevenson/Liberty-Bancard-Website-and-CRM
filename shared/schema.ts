@@ -7578,14 +7578,38 @@ export const underwritingConditions = pgTable("underwriting_conditions", {
   waivedReason:    text("waived_reason"),
   documentId:      integer("document_id"),
   notes:           text("notes"),
-  createdBy:       integer("created_by"),
-  updatedBy:       integer("updated_by"),
+  // users.id is varchar/UUID; actors are stored as their real string id (S5-10).
+  createdBy:       varchar("created_by"),
+  updatedBy:       varchar("updated_by"),
+  waivedBy:        varchar("waived_by"),
+  reversedAt:      timestamp("reversed_at"),
+  reversedBy:      varchar("reversed_by"),
+  reversalReason:  text("reversal_reason"),
+  supersededAt:    timestamp("superseded_at"),
+  supersededBy:    varchar("superseded_by"),
+  supersededReason: text("superseded_reason"),
+  automationKey:   text("automation_key"),
   createdAt:       timestamp("created_at").notNull().defaultNow(),
   updatedAt:       timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
   index("idx_uw_conditions_deal_id").on(t.dealId),
   index("idx_uw_conditions_status").on(t.dealId, t.status),
 ]);
+
+export const underwritingConditionChases = pgTable("underwriting_condition_chases", {
+  id:             serial("id").primaryKey(),
+  dealId:         integer("deal_id").notNull().references(() => deals.id, { onDelete: "cascade" }),
+  channel:        text("channel").notNull(),
+  status:         text("status").notNull().default("owed"),
+  recipientEmail: text("recipient_email"),
+  recipientName:  text("recipient_name"),
+  attempts:       integer("attempts").notNull().default(0),
+  lastReason:     text("last_reason"),
+  lastAttemptAt:  timestamp("last_attempt_at"),
+  sentAt:         timestamp("sent_at"),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at").notNull().defaultNow(),
+});
 
 export const insertUnderwritingConditionSchema = createInsertSchema(underwritingConditions).omit({
   id: true, createdAt: true, updatedAt: true,

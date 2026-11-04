@@ -158,10 +158,12 @@ export async function assignMerchantMidToCanonical(input: {
   status?: string;
   actorId?: string | null;
   actorEmail?: string | null;
+  /** Run inside the caller's transaction (S5-18) so MID, deal state and audit commit together. */
+  tx?: any;
 }): Promise<{ midRow: MerchantMid; previousMidMasked: string | null }> {
   const trimmedMid = input.mid.trim();
 
-  return db.transaction(async (tx) => {
+  const run = async (tx: any) => {
     // Serialize concurrent assignments for one deal (S5-20) and capture the previous MID.
     await tx.execute(sql`SELECT id FROM deals WHERE id = ${input.dealId} FOR UPDATE`);
     const [deal] = await tx.select({ mid: deals.mid }).from(deals).where(eq(deals.id, input.dealId)).limit(1);
@@ -225,7 +227,8 @@ export async function assignMerchantMidToCanonical(input: {
     }, tx);
 
     return { midRow, previousMidMasked };
-  });
+  };
+  return input.tx ? run(input.tx) : db.transaction(run);
 }
 
 export const MID_LEGAL_TRANSITIONS = LEGAL;

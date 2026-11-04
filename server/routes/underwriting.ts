@@ -1,4 +1,6 @@
 import type { Express } from "express";
+import { applyUnderwritingOverride, OverrideError } from "../services/underwriting-override-service";
+import { getQueuePage, getApprovedSincePage, getStatsSummary, normalizePage } from "../services/underwriting-read-model";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { runUnderwritingEngine } from "../services/underwriting-engine";
@@ -13,6 +15,7 @@ export function registerUnderwritingRoutes(app: Express) {
   app.get("/api/underwriting/rules", requireRole("admin", "manager"), async (_req, res) => {
     try {
       const rules = await storage.getUnderwritingRules();
+      if (!rules) return res.status(404).json({ message: "Underwriting rules are not configured. An admin or manager must save them." });
       res.json(rules);
     } catch (err: any) {
       serverError(res, err);
@@ -60,313 +63,107 @@ export function registerUnderwritingRoutes(app: Express) {
     },
   );
 
-  // ── GET underwriting queue (pending review/hold deals) ───────────────────
+  // ── GET underwriting queue (current work: latest decision per deal, review/hold, not overridden) ───
+  // Paginated with an uncapped total: { rows, total, limit, offset, hasMore }.
   app.get("/api/underwriting/queue", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const decision = req.query.decision as "review" | "hold" | undefined;
-
-      const params: any[] = [];
-      let decisionFilter = `latest.decision IN ('review', 'hold')`;
-      if (decision) {
-        params.push(decision);
-        decisionFilter = `latest.decision = $${params.length}`;
+      const raw = req.query.decision;
+      if (raw !== undefined && raw !== "review" && raw !== "hold") {
+        return res.status(400).json({ message: "decision must be review or hold" });
       }
-
-      // Use DISTINCT ON to return only the latest decision per deal.
-      // Overridden decisions are excluded from the queue.
-      const { rows } = await pool.query(
-        `
-        WITH latest AS (
-          SELECT DISTINCT ON (deal_id)
-            ud.*
-          FROM underwriting_decisions ud
-          ORDER BY deal_id, ud.created_at DESC
-        )
-        SELECT
-          latest.*,
-          d.stage AS deal_stage,
-          d.contact_id AS deal_contact_id,
-          d.total_volume,
-          d.effective_rate,
-          d.pipeline,
-          c.first_name,
-          c.last_name,
-          c.company_name,
-          c.email
-        FROM latest
-        LEFT JOIN deals d ON d.id = latest.deal_id
-        LEFT JOIN contacts c ON c.id = d.contact_id
-        WHERE latest.override_action IS NULL
-          AND ${decisionFilter}
-        ORDER BY
-          CASE latest.decision WHEN 'hold' THEN 0 WHEN 'review' THEN 1 ELSE 2 END,
-          latest.created_at DESC
-        LIMIT 200
-        `,
-        params,
-      );
-
-      res.json(rows);
+      const { limit, offset } = normalizePage(req.query.limit, req.query.offset);
+      res.json(await getQueuePage(pool, { decision: raw as "review" | "hold" | undefined, limit, offset }));
     } catch (err: any) {
       serverError(res, err);
     }
   });
 
-  // ── GET today's auto-approved decisions ──────────────────────────────────
+  // ── GET today's auto-approved decision EVENTS (paginated, uncapped total) ──────────────────────
   app.get("/api/underwriting/approved-today", requireRole("admin", "manager"), async (req, res) => {
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-
-      const { rows } = await pool.query(
-        `
-        SELECT
-          ud.*,
-          d.stage AS deal_stage,
-          d.contact_id AS deal_contact_id,
-          c.first_name,
-          c.last_name,
-          c.company_name
-        FROM underwriting_decisions ud
-        LEFT JOIN deals d ON d.id = ud.deal_id
-        LEFT JOIN contacts c ON c.id = d.contact_id
-        WHERE ud.decision = 'approve' AND ud.created_at >= $1
-        ORDER BY ud.created_at DESC
-        LIMIT 100
-        `,
-        [today],
-      );
-
-      res.json(rows);
+      const { limit, offset } = normalizePage(req.query.limit, req.query.offset);
+      res.json(await getApprovedSincePage(pool, { since: today, limit, offset }));
     } catch (err: any) {
       serverError(res, err);
     }
   });
 
-  // ── GET stats ────────────────────────────────────────────────────────────
-  app.get("/api/underwriting/stats", requireRole("admin", "manager"), async (req, res) => {
+  // ── GET stats: `current` (deals waiting now, same cohort as the queue) vs decision-event history ──
+  app.get("/api/underwriting/stats", requireRole("admin", "manager"), async (_req, res) => {
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-
-      const { rows } = await pool.query(`
-        SELECT
-          COUNT(*) FILTER (WHERE decision = 'approve') AS approved_today,
-          COUNT(*) FILTER (WHERE decision = 'review' AND override_action IS NULL) AS pending_review,
-          COUNT(*) FILTER (WHERE decision = 'hold' AND override_action IS NULL) AS pending_hold,
-          COUNT(*) FILTER (WHERE override_action IS NOT NULL) AS overridden_total
-        FROM underwriting_decisions
-        WHERE created_at >= $1
-      `, [today]);
-
-      const allTime = await storage.getUnderwritingStats();
-
-      res.json({
-        today: {
-          approved: parseInt(rows[0]?.approved_today ?? "0"),
-          pendingReview: parseInt(rows[0]?.pending_review ?? "0"),
-          pendingHold: parseInt(rows[0]?.pending_hold ?? "0"),
-          overridden: parseInt(rows[0]?.overridden_total ?? "0"),
-        },
-        allTime,
-      });
+      res.json(await getStatsSummary(pool, today));
     } catch (err: any) {
       serverError(res, err);
     }
   });
 
-  // ── POST manual approve override ─────────────────────────────────────────
-  app.post(
-    "/api/underwriting/deals/:id/approve",
-    requireRole("admin", "manager"),
-    async (req, res) => {
-      try {
-        const dealId = parseInt(req.params.id as string, 10);
-        const { note } = req.body;
-        const userId = (req.user as any)?.id?.toString() ?? null;
+  // ── Manual approve / reject override ─────────────────────────────────────
+  // S5-08: the decision override, stage move, effect intents and audit row commit atomically (see
+  // services/underwriting-override-service.ts). The optional GHL task is checked and attempted only AFTER commit.
+  const overrideBody = z.object({ note: z.string().max(2000).nullish() }).strict();
 
-        const decision = await storage.getUnderwritingDecisionByDeal(dealId);
-        if (!decision) {
-          return res.status(404).json({ message: "No underwriting decision found for this deal" });
-        }
+  async function handleOverride(req: any, res: any, action: "approve" | "reject") {
+    try {
+      const dealId = Number(req.params.id);
+      if (!Number.isInteger(dealId) || dealId <= 0) return res.status(400).json({ message: "Invalid deal ID" });
+      const userId = typeof req.user?.id === "string" ? req.user.id : req.user?.id != null ? String(req.user.id) : null;
+      if (!userId) return res.status(401).json({ message: "Authentication required" });
+      const body = overrideBody.safeParse(req.body ?? {});
+      if (!body.success) return res.status(400).json({ message: "Invalid request" });
+      const note = body.data.note ?? undefined;
 
-        let ghlTaskContext: { contactId: string; companyName: string } | null = null;
-        if (isGhlConfigured()) {
-          const deal = await storage.getDeal(dealId).catch(() => null);
-          const contact = deal?.contactId ? await storage.getContact(deal.contactId).catch(() => null) : null;
-          if (contact?.ghlContactId) {
-            // S5-08: the local override never depends on the optional GHL task. The pause
-            // is checked AFTER the local decision commits; a paused GHL only skips the task.
-            ghlTaskContext = { contactId: contact.ghlContactId, companyName: deal?.companyName || "Unknown" };
-          }
-        }
+      const result = await applyUnderwritingOverride({ dealId, action, note, userId });
 
-        const updated = await storage.overrideUnderwritingDecision(
-          decision.id,
-          "approve",
-          userId ?? "unknown",
-          note,
-        );
-
-        const { advanceDealStage } = await import("../services/deal-stage-service");
-        await advanceDealStage(dealId, "Proposal Sent", "underwriting_manual_approve", {
-          reason: "Manual underwriting approval",
-          actor: userId ?? "unknown",
-        });
-
-        let ghlTaskState: "not_applicable" | "attempted" | "skipped_paused" = "not_applicable";
-        if (ghlTaskContext) {
-          const ghlDecision = await authorizeGhlRouteMutation().catch(() => null);
-          if (ghlDecision?.allowed) {
-            ghlTaskState = "attempted";
-            createGhlTask({
-            contactId: ghlTaskContext.contactId,
-            title: `Underwriting Approved — Deal #${dealId}: ${ghlTaskContext.companyName} — advance to Proposal Sent`,
-            dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
-            assignedTo: undefined,
-          }).catch((err: Error) => console.warn("[Underwriting] createGhlTask (approve, non-critical):", err.message));
-          } else {
-            ghlTaskState = "skipped_paused";
-          }
-        }
-
-        await storage.createAuditLog({
-          action: "underwriting_manual_approve",
-          entityType: "deal",
-          entityId: dealId,
-          actorType: "user",
-          actorId: userId,
-          userId,
-          details: {
-            decisionId: decision.id,
-            previousDecision: decision.decision,
-            overrideNote: note,
-            rulesSnapshot: decision.rulesSnapshot,
-            ghlTask: ghlTaskState,
-            timestamp: new Date().toISOString(),
-          },
-        });
-
-        res.json({ ok: true, decision: updated });
-      } catch (err: any) {
-        serverError(res, err);
-      }
-    },
-  );
-
-  // ── POST manual reject/hold override ────────────────────────────────────
-  app.post(
-    "/api/underwriting/deals/:id/reject",
-    requireRole("admin", "manager"),
-    async (req, res) => {
-      try {
-        const dealId = parseInt(req.params.id as string, 10);
-        const { note } = req.body;
-        const userId = (req.user as any)?.id?.toString() ?? null;
-
-        const decision = await storage.getUnderwritingDecisionByDeal(dealId);
-        if (!decision) {
-          return res.status(404).json({ message: "No underwriting decision found for this deal" });
-        }
-
-        let ghlTaskContext: { contactId: string; companyName: string } | null = null;
-        if (isGhlConfigured()) {
-          const deal = await storage.getDeal(dealId).catch(() => null);
-          const contact = deal?.contactId ? await storage.getContact(deal.contactId).catch(() => null) : null;
-          if (contact?.ghlContactId) {
-            // S5-08: the local override never depends on the optional GHL task. The pause
-            // is checked AFTER the local decision commits; a paused GHL only skips the task.
-            ghlTaskContext = { contactId: contact.ghlContactId, companyName: deal?.companyName || "Unknown" };
-          }
-        }
-
-        const updated = await storage.overrideUnderwritingDecision(
-          decision.id,
-          "reject",
-          userId ?? "unknown",
-          note,
-        );
-
-        const { advanceDealStage } = await import("../services/deal-stage-service");
-        await advanceDealStage(dealId, "Review In Progress", "underwriting_manual_reject", {
-          reason: "Manual underwriting rejection",
-          actor: userId ?? "unknown",
-        });
-
+      // ── best-effort follow-ons (never change the committed outcome) ──
+      if (action === "reject") {
         await storage.createNotification({
           channel: "internal",
           title: "Underwriting Decision Rejected",
           message: `Deal #${dealId} was manually rejected and returned to Review In Progress.`,
           type: "alert",
-          recipientId: userId ?? undefined,
-          metadata: { dealId, decisionId: decision.id, eventType: "underwriting_rejected" },
-        });
-
-        let ghlTaskState: "not_applicable" | "attempted" | "skipped_paused" = "not_applicable";
-        if (ghlTaskContext) {
-          const ghlDecision = await authorizeGhlRouteMutation().catch(() => null);
-          if (ghlDecision?.allowed) {
-            ghlTaskState = "attempted";
-            createGhlTask({
-            contactId: ghlTaskContext.contactId,
-            title: `Underwriting Rejected — Deal #${dealId}: ${ghlTaskContext.companyName} — returned to Review In Progress${note ? ` — Note: ${note}` : ""}`,
-            dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
-            assignedTo: undefined,
-          }).catch((err: Error) => console.warn("[Underwriting] createGhlTask (reject, non-critical):", err.message));
-          } else {
-            ghlTaskState = "skipped_paused";
+          recipientId: userId,
+          metadata: { dealId, decisionId: result.decision.id, eventType: "underwriting_rejected" },
+        }).catch((e: Error) => console.warn("[Underwriting] reject notification (non-critical):", e.message));
+      }
+      let ghlTask: "not_applicable" | "attempted" | "skipped_paused" = "not_applicable";
+      try {
+        if (isGhlConfigured()) {
+          const deal = await storage.getDeal(dealId).catch(() => null);
+          const contact = deal?.contactId ? await storage.getContact(deal.contactId).catch(() => null) : null;
+          if (contact?.ghlContactId) {
+            const ghlDecision = await authorizeGhlRouteMutation().catch(() => null);
+            if (ghlDecision?.allowed) {
+              ghlTask = "attempted";
+              const company = deal?.companyName || "Unknown";
+              createGhlTask({
+                contactId: contact.ghlContactId,
+                title: action === "approve"
+                  ? `Underwriting Approved — Deal #${dealId}: ${company} — advance to Proposal Sent`
+                  : `Underwriting Rejected — Deal #${dealId}: ${company} — returned to Review In Progress${note ? ` — Note: ${note}` : ""}`,
+                dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+                assignedTo: undefined,
+              }).catch((err: Error) => console.warn(`[Underwriting] createGhlTask (${action}, non-critical):`, err.message));
+            } else {
+              ghlTask = "skipped_paused";
+            }
           }
         }
-
-        await storage.createAuditLog({
-          action: "underwriting_manual_reject",
-          entityType: "deal",
-          entityId: dealId,
-          actorType: "user",
-          actorId: userId,
-          userId,
-          details: {
-            decisionId: decision.id,
-            previousDecision: decision.decision,
-            overrideNote: note,
-            rulesSnapshot: decision.rulesSnapshot,
-            ghlTask: ghlTaskState,
-            timestamp: new Date().toISOString(),
-          },
-        });
-
-        res.json({ ok: true, decision: updated });
-      } catch (err: any) {
-        serverError(res, err);
+      } catch (e) {
+        console.warn("[Underwriting] GHL follow-on (non-critical):", (e as Error).message);
       }
-    },
-  );
 
-  // ── POST run underwriting engine on a specific deal (re-evaluate) ────────
-  app.post(
-    "/api/underwriting/deals/:id/evaluate",
-    requireRole("admin", "manager"),
-    async (req, res) => {
-      try {
-        const dealId = parseInt(req.params.id as string, 10);
-        const deal = await storage.getDeal(dealId);
-        if (!deal) return res.status(404).json({ message: "Deal not found" });
+      res.json({ ok: true, decision: result.decision, stageMoved: result.stageMoved, ghlTask });
+    } catch (err: any) {
+      if (err instanceof OverrideError) return res.status(err.status).json({ message: err.message, code: err.code });
+      serverError(res, err);
+    }
+  }
 
-        const result = await runUnderwritingEngine({ deal });
+  app.post("/api/underwriting/deals/:id/approve", requireRole("admin", "manager"), (req, res) => handleOverride(req, res, "approve"));
+  app.post("/api/underwriting/deals/:id/reject", requireRole("admin", "manager"), (req, res) => handleOverride(req, res, "reject"));
 
-        const decision = await storage.createUnderwritingDecision({
-          dealId,
-          decision: result.decision,
-          score: result.score,
-          reasons: result.reasons,
-          rulesSnapshot: result.rulesSnapshot,
-          decidedAt: new Date(),
-        });
-
-        res.json({ decision: result.decision, score: result.score, reasons: result.reasons, record: decision });
-      } catch (err: any) {
-        serverError(res, err);
-      }
-    },
-  );
 }

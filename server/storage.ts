@@ -749,7 +749,7 @@ export interface IStorage {
   setBackfillProgress(progress: Record<string, unknown>): Promise<void>;
 
   // Underwriting
-  getUnderwritingRules(): Promise<UnderwritingRules>;
+  getUnderwritingRules(): Promise<UnderwritingRules | undefined>;
   updateUnderwritingRules(updates: Partial<InsertUnderwritingRules>): Promise<UnderwritingRules>;
   getUnderwritingDecisions(filters?: { decision?: string; dealId?: number; since?: Date; limit?: number }): Promise<UnderwritingDecision[]>;
   getUnderwritingDecisionByDeal(dealId: number): Promise<UnderwritingDecision | undefined>;

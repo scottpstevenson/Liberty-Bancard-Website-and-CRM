@@ -20,6 +20,7 @@ import { deals, dealBoardingOutbox, merchantApplications, tasks } from "@shared/
 import type { IProcessorAdapter } from "./processors/IProcessorAdapter";
 import { storage } from "../storage";
 import { auditChange } from "./audit-change";
+import { evaluateBoardingReadiness } from "./boarding-readiness";
 import { decryptProtectedFields } from "./merchant-protected-data";
 import { getProcessor, getDefaultProcessor, requireConfirmedActivationSnapshot } from "./processors/registry";
 
@@ -62,7 +63,12 @@ interface BoardingRow {
   processorName: string | null;
   attempts: number;
   payload: Record<string, any>;
+  /** Durable marker of an earlier attempt that began dispatch but never settled (S5-14). */
+  lastError?: string | null;
 }
+
+/** Written (fenced) immediately before provider I/O; a surviving marker means the outcome is unknown. */
+const DISPATCH_STARTED = "DISPATCH_STARTED";
 
 async function claimOne(): Promise<BoardingRow | null> {
   const res = await db.execute(sql`
@@ -77,7 +83,7 @@ async function claimOne(): Promise<BoardingRow | null> {
       FOR UPDATE SKIP LOCKED
       LIMIT 1
     )
-    RETURNING id, deal_id, application_id, processor_name, attempts, payload
+    RETURNING id, deal_id, application_id, processor_name, attempts, payload, last_error
   `);
   const rows = (res as any).rows ?? res;
   if (!rows?.length) return null;
@@ -89,6 +95,7 @@ async function claimOne(): Promise<BoardingRow | null> {
     processorName: r.processor_name ?? null,
     attempts: r.attempts,
     payload: r.payload ?? {},
+    lastError: r.last_error ?? null,
   };
 }
 
@@ -114,30 +121,16 @@ class AlreadyTerminalError extends Error {
 }
 
 /**
- * Fenced delivery settlement (S5-12). Only the claim that still owns the row
- * (status='processing' with the same attempt counter) may settle it, and a row
- * already in a terminal state (dead_letter/delivered) is never overwritten.
- * Returns whether this call settled the row.
+ * Typed settlement returned by handleProcessorSubmit. Every outcome is settled
+ * inside the handler's own claim-fenced transaction: "delivered" commits the local
+ * submission effects together with the delivered outbox state, "ambiguous" settles
+ * terminally (reconciliation required), and "stale_claim" means the claim was no
+ * longer owned so nothing was written.
  */
-async function markDelivered(id: string, attempts: number): Promise<boolean> {
-  const settled = await db
-    .update(dealBoardingOutbox)
-    .set({ status: "delivered", processedAt: new Date(), lockedAt: null, updatedAt: new Date(), lastError: null })
-    .where(and(
-      eq(dealBoardingOutbox.id, id),
-      eq(dealBoardingOutbox.status, "processing"),
-      eq(dealBoardingOutbox.attempts, attempts),
-    ))
-    .returning({ id: dealBoardingOutbox.id });
-  return settled.length > 0;
-}
-
-/**
- * Typed settlement returned by handleProcessorSubmit. Only "delivered" may be
- * followed by markDelivered; "ambiguous" has already been settled terminally
- * (reconciliation required) inside the handler's own fenced transaction.
- */
-type BoardingSettlement = { settlement: "delivered" } | { settlement: "ambiguous_reconciliation_required" };
+type BoardingSettlement =
+  | { settlement: "delivered" }                       // local effects + delivered settlement committed together
+  | { settlement: "ambiguous_reconciliation_required" }
+  | { settlement: "stale_claim" };                    // claim no longer owned: nothing was written
 
 /** Required provider payload fields — missing values refuse the submission; no identity is fabricated. */
 const REQUIRED_PROVIDER_FIELDS = [
@@ -222,14 +215,29 @@ async function commitBoardingSuccess(params: {
   setSubmittedFields: boolean;
   /** Confirmed program from the activation snapshot; committed with the success state, not before I/O. */
   processorProgram?: string | null;
-}): Promise<void> {
+  /** The outbox claim this success belongs to; local effects commit only while it is still owned. */
+  claim: { id: string; attempts: number };
+}): Promise<boolean> {
   const {
     dealId, contactId, owner, processorName, processorApplicationId,
-    estimatedDecisionDate, existingLog, setSubmittedFields, processorProgram,
+    estimatedDecisionDate, existingLog, setSubmittedFields, processorProgram, claim,
   } = params;
   const automationKey = boardingMonitorAutomationKey(dealId);
 
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
+    // S5-12/14: settle the outbox row FIRST, fenced on the still-owned claim. A stale
+    // claim (row reclaimed or already settled by a newer claim) matches nothing and
+    // writes no deal state, audit or task.
+    const owned = await tx
+      .update(dealBoardingOutbox)
+      .set({ status: "delivered", processedAt: new Date(), lockedAt: null, updatedAt: new Date(), lastError: null })
+      .where(and(
+        eq(dealBoardingOutbox.id, claim.id),
+        eq(dealBoardingOutbox.status, "processing"),
+        eq(dealBoardingOutbox.attempts, claim.attempts),
+      ))
+      .returning({ id: dealBoardingOutbox.id });
+    if (owned.length === 0) return false;
     if (setSubmittedFields) {
       const logEntry = {
         timestamp: new Date().toISOString(),
@@ -292,7 +300,49 @@ async function commitBoardingSuccess(params: {
         automationKey,
       } as typeof tasks.$inferInsert);
     }
+    return true;
   });
+}
+
+/**
+ * ONE claim-fenced transaction settles an unknown provider outcome: outbox dead_letter
+ * (never delivered, never auto-retried) + deal state + audit. A stale claim writes nothing.
+ */
+async function settleAmbiguous(
+  row: BoardingRow,
+  dealId: number,
+  processorProgram: string | null | undefined,
+  note: string,
+): Promise<BoardingSettlement> {
+  const settled = await db.transaction(async (tx) => {
+    const fenced = await tx.update(dealBoardingOutbox)
+      .set({ status: "dead_letter", lockedAt: null, lastError: "ambiguous_reconciliation_required",
+             availableAt: new Date(), updatedAt: new Date() })
+      .where(and(
+        eq(dealBoardingOutbox.id, row.id),
+        eq(dealBoardingOutbox.status, "processing"),
+        eq(dealBoardingOutbox.attempts, row.attempts),
+      ))
+      .returning({ id: dealBoardingOutbox.id });
+    if (fenced.length === 0) return false;
+    await tx.update(deals)
+      .set({
+        boardingStatus: "ambiguous_reconciliation_required",
+        boardingAmbiguousAt: new Date(),
+        ...(processorProgram ? { processorProgram } : {}),
+        updatedAt: new Date(),
+      } as any)
+      .where(eq(deals.id, dealId));
+    await auditChange({
+      actorType: "system",
+      action: "deal_boarding_ambiguous",
+      entityType: "deal",
+      entityId: dealId,
+      details: { errorClass: "ambiguous_reconciliation_required", attempts: row.attempts, note },
+    }, tx);
+    return true;
+  });
+  return settled ? { settlement: "ambiguous_reconciliation_required" } : { settlement: "stale_claim" };
 }
 
 async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettlement> {
@@ -306,7 +356,7 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettleme
   // call but not the local audit/task. Reconcile any missing local effects
   // transactionally, then deliver. Idempotent read-guards prevent duplicates.
   if (deal.processorApplicationId) {
-    await commitBoardingSuccess({
+    const reconciled = await commitBoardingSuccess({
       dealId,
       contactId: deal.contactId ?? null,
       owner: deal.owner ?? null,
@@ -316,8 +366,9 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettleme
       existingLog: (deal.boardingLog as any[]) || [],
       // Deal fields already carry submitted state; don't overwrite/re-append log.
       setSubmittedFields: false,
+      claim: { id: row.id, attempts: row.attempts },
     });
-    return { settlement: "delivered" };
+    return { settlement: reconciled ? "delivered" : "stale_claim" };
   }
 
   // Immutable version-checked linkage: the enqueue route captured the
@@ -360,6 +411,35 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettleme
     );
   }
   const application: typeof merchantApplications.$inferSelect = appRow;
+
+  // S5-15: the same readiness contract as enqueue, re-evaluated at dispatch before any
+  // protected read. Field completeness is validated on the decrypted payload below.
+  const readiness = await evaluateBoardingReadiness(dealId, { includeFieldCompleteness: false });
+  if (!readiness.ready) {
+    await db.transaction(async (tx) => {
+      const fenced = await tx.update(dealBoardingOutbox)
+        .set({ status: "dead_letter", lockedAt: null, lastError: "BOARDING_NOT_READY",
+               availableAt: new Date(), updatedAt: new Date() })
+        .where(and(
+          eq(dealBoardingOutbox.id, row.id),
+          eq(dealBoardingOutbox.status, "processing"),
+          eq(dealBoardingOutbox.attempts, row.attempts),
+        ))
+        .returning({ id: dealBoardingOutbox.id });
+      if (fenced.length === 0) return;
+      await tx.update(deals)
+        .set({ boardingStatus: "dead_letter", updatedAt: new Date() })
+        .where(eq(deals.id, dealId));
+      await auditChange({
+        actorType: "system",
+        action: "deal_boarding_blocked_not_ready",
+        entityType: "deal",
+        entityId: dealId,
+        details: { errorCode: "BOARDING_NOT_READY", blockers: readiness.blockers.map((b) => b.code) },
+      }, tx);
+    });
+    throw new AlreadyTerminalError("BOARDING_NOT_READY: dead_letter written, no transport");
+  }
 
   const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
 
@@ -513,6 +593,39 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettleme
   (payload as any).processorProgram = snapshot.processorProgram;
   (payload as any).snapshotAuthorizedBaseUrl = snapshot.authorizedBaseUrl;
 
+  // S5-14: a previous attempt wrote DISPATCH_STARTED and never settled (crash, takeover or
+  // lost response). The provider may already hold the application, and Payarc dedupe by
+  // header is not certified, so re-sending could create a duplicate. Hold for reconciliation.
+  if (row.lastError === DISPATCH_STARTED) {
+    return settleAmbiguous(row, dealId, snapshot.processorProgram,
+      "An earlier attempt began provider dispatch and never settled — outcome unknown. " +
+      "Reconcile via the provider status endpoint before any resubmission.");
+  }
+
+  // Final recheck of the application revision immediately before I/O, then write the
+  // durable pre-dispatch marker fenced on the still-owned claim. Not owned => no I/O.
+  const [recheck] = await db
+    .select({ id: merchantApplications.id })
+    .from(merchantApplications)
+    .where(and(
+      eq(merchantApplications.id, row.applicationId),
+      eq(merchantApplications.dealId, dealId),
+      sql`${merchantApplications.updatedAt}::text = ${applicationLinkageVersion}`,
+    ))
+    .limit(1);
+  if (!recheck) {
+    throw new Error("Application changed immediately before dispatch — refusing to send.");
+  }
+  const marked = await db.update(dealBoardingOutbox)
+    .set({ lastError: DISPATCH_STARTED, updatedAt: new Date() })
+    .where(and(
+      eq(dealBoardingOutbox.id, row.id),
+      eq(dealBoardingOutbox.status, "processing"),
+      eq(dealBoardingOutbox.attempts, row.attempts),
+    ))
+    .returning({ id: dealBoardingOutbox.id });
+  if (marked.length === 0) return { settlement: "stale_claim" };
+
   const result = await processor.boardMerchant(payload);
 
   // REV-05A: Ambiguous result handling.
@@ -520,43 +633,9 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettleme
   // ambiguous_reconciliation_required. Do NOT retry immediately — the operator
   // must reconcile via provider status poll before retrying.
   if (!result.success && result.ambiguous) {
-    // S5-12: ONE fenced transaction settles the outbox row (terminal, never
-    // delivered, never auto-retried) together with the deal state and audit.
-    await db.transaction(async (tx) => {
-      // Only the claim that still owns the row may settle it. A stale claim
-      // (row already reclaimed/settled) writes nothing — no deal flip, no audit.
-      const fenced = await tx.update(dealBoardingOutbox)
-        .set({ status: "dead_letter", lockedAt: null, lastError: "ambiguous_reconciliation_required",
-               availableAt: new Date(), updatedAt: new Date() })
-        .where(and(
-          eq(dealBoardingOutbox.id, row.id),
-          eq(dealBoardingOutbox.status, "processing"),
-          eq(dealBoardingOutbox.attempts, row.attempts),
-        ))
-        .returning({ id: dealBoardingOutbox.id });
-      if (fenced.length === 0) return;
-      await tx.update(deals)
-        .set({
-          boardingStatus: "ambiguous_reconciliation_required",
-          boardingAmbiguousAt: new Date(),
-          ...(snapshot.processorProgram ? { processorProgram: snapshot.processorProgram } : {}),
-          updatedAt: new Date(),
-        } as any)
-        .where(eq(deals.id, dealId));
-      await auditChange({
-        actorType: "system",
-        action: "deal_boarding_ambiguous",
-        entityType: "deal",
-        entityId: dealId,
-        details: {
-          errorClass: "ambiguous_reconciliation_required",
-          attempts: row.attempts,
-          note: "Submission result is ambiguous — provider call timed out or returned no application ID. " +
-                "Do NOT retry without reconciliation via provider status endpoint.",
-        },
-      }, tx);
-    });
-    return { settlement: "ambiguous_reconciliation_required" };
+    return settleAmbiguous(row, dealId, snapshot.processorProgram,
+      "Submission result is ambiguous — provider call timed out or returned no application ID. " +
+      "Do NOT retry without reconciliation via provider status endpoint.");
   }
 
   if (!result.success) {
@@ -567,7 +646,7 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettleme
   // Post-provider: local deal state + redacted audit + idempotent monitoring
   // task are committed in ONE transaction, so a crash can never leave the
   // deal marked submitted while the audit/task are missing (item 6).
-  await commitBoardingSuccess({
+  const committed = await commitBoardingSuccess({
     dealId,
     contactId: deal.contactId ?? null,
     owner: deal.owner ?? null,
@@ -577,8 +656,9 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettleme
     existingLog: (deal.boardingLog as any[]) || [],
     setSubmittedFields: true,
     processorProgram: snapshot.processorProgram,
+    claim: { id: row.id, attempts: row.attempts },
   });
-  return { settlement: "delivered" };
+  return { settlement: committed ? "delivered" : "stale_claim" };
 }
 
 async function tick(): Promise<void> {
@@ -597,11 +677,10 @@ async function tick(): Promise<void> {
       if (!row) break;
       try {
         const outcome = await handleProcessorSubmit(row);
-        if (outcome.settlement === "delivered") {
-          const settled = await markDelivered(row.id, row.attempts);
-          if (!settled) {
-            process.stderr.write(`[BoardingOutbox] deal#${row.dealId} delivery settlement skipped — row no longer owned by this claim\n`);
-          }
+        // "delivered" was already settled inside the same transaction as the local
+        // submission effects; a stale claim wrote nothing.
+        if (outcome.settlement === "stale_claim") {
+          process.stderr.write(`[BoardingOutbox] deal#${row.dealId} result discarded — row no longer owned by this claim\n`);
         }
       } catch (err: any) {
         if (err?.alreadyHandled) {
@@ -632,6 +711,6 @@ export function startDealBoardingOutboxWorker(): void {
 
 export const __test__ = {
   backoffMs, MAX_ATTEMPTS, STALE_LOCK_MS, scrubError,
-  tick, claimOne, markDelivered, handleProcessorSubmit, missingProviderFields, REQUIRED_PROVIDER_FIELDS,
+  tick, claimOne, handleProcessorSubmit, missingProviderFields, REQUIRED_PROVIDER_FIELDS,
   setProcessorOverride(fn: ((name?: string | null) => IProcessorAdapter) | null) { processorOverrideForTest = fn; },
 };

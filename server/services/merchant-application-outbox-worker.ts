@@ -16,10 +16,11 @@
 
 import { sql, eq, lt, and } from "drizzle-orm";
 import { db, pool } from "../db";
-import { merchantApplications, merchantApplicationProtectedOutbox, contacts, auditLogs } from "@shared/schema";
+import { merchantApplications, merchantApplicationProtectedOutbox, contacts, auditLogs, deals } from "@shared/schema";
 import { storage } from "../storage";
 import { applyEsignDocumentState, applyEsignSendState } from "./merchant-application-service";
 import { createContactLocalFirst } from "./contact-writer";
+import { isLocalOutboxWorkerSelected } from "./background-profile";
 
 const MAX_ATTEMPTS = 6;
 const POLL_INTERVAL_MS = 15_000;
@@ -36,7 +37,7 @@ let running = false;
  * interval. Genuine failures keep the exponential backoff and attempt budget.
  */
 export class OutboxWaitError extends Error {
-  constructor(public readonly reason: "outbound_paused" | "contact_not_linked" | "ghl_contact_pending") {
+  constructor(public readonly reason: "outbound_paused" | "contact_not_linked" | "ghl_contact_pending" | "contact_link_ambiguous" | "contact_link_conflict") {
     super(`outbox wait: ${reason}`);
     this.name = "OutboxWaitError";
   }
@@ -212,31 +213,45 @@ async function handleContactLink(row: OutboxRow): Promise<void> {
   const contactEmail: string | null = (p.ownerEmail || p.businessEmail) as string | null;
 
   const [appRow] = await db
-    .select({ contactId: merchantApplications.contactId })
+    .select({ contactId: merchantApplications.contactId, dealId: merchantApplications.dealId })
     .from(merchantApplications)
     .where(eq(merchantApplications.id, appId))
     .limit(1);
   if (!appRow) throw new Error(`Application #${appId} not found`);
 
-  // Already linked — idempotent.
+  // Already linked (by the applicant flow, a prefill binding or an operator) — idempotent.
   if (appRow.contactId) return;
 
   if (!contactEmail) return; // no email: nothing to link
 
-  let resolvedContactId: number | null = null;
-  const [existing] = await db
+  // S5-05: mailbox uniqueness is not guaranteed, so a mailbox can resolve to several contacts. Never pick
+  // one arbitrarily; hold the step (and every step that needs the link) for an operator to link explicitly.
+  const matches = await db
     .select({ id: contacts.id })
     .from(contacts)
-    .where(eq(contacts.email, contactEmail.toLowerCase()))
-    .limit(1);
-  if (existing) {
-    resolvedContactId = existing.id;
-  } else {
+    .where(sql`lower(${contacts.email}) = ${contactEmail.toLowerCase()}`)
+    .limit(3);
+  if (matches.length > 1) throw new OutboxWaitError("contact_link_ambiguous");
+
+  let dealContactId: number | null = null;
+  if (appRow.dealId) {
+    const [d] = await db.select({ contactId: deals.contactId }).from(deals).where(eq(deals.id, appRow.dealId)).limit(1);
+    dealContactId = d?.contactId ?? null;
+  }
+  // The deal the application is bound to already names its contact; a different mailbox owner is a conflict.
+  if (dealContactId != null && matches.length === 1 && matches[0].id !== dealContactId) {
+    throw new OutboxWaitError("contact_link_conflict");
+  }
+
+  let resolvedContactId: number | null = matches[0]?.id ?? dealContactId;
+  if (resolvedContactId == null) {
+    // Canonical writer: local-first, provenance + source event + identity observation in one transaction.
     const created = await createContactLocalFirst({
       firstName: String(p.ownerFirstName || ""),
       lastName: String(p.ownerLastName || ""),
       email: contactEmail,
-      phone: String(p.businessPhone || p.ownerPhone || ""),
+      // Same number the consent step records (owner first), so a new contact and its consent agree.
+      phone: String(p.ownerPhone || p.businessPhone || ""),
       companyName: String(p.legalBusinessName || p.dba || ""),
       status: "New",
       tags: ["src_merchant_app", "merchant_application"],
@@ -248,20 +263,16 @@ async function handleContactLink(row: OutboxRow): Promise<void> {
     resolvedContactId = created.id;
   }
 
-  if (resolvedContactId) {
-    await db
-      .update(merchantApplications)
-      .set({ contactId: resolvedContactId, updatedAt: new Date() })
-      .where(eq(merchantApplications.id, appId));
-  }
+  // Compare-and-set: never overwrite a link an operator set while this step was running.
+  await db
+    .update(merchantApplications)
+    .set({ contactId: resolvedContactId, updatedAt: new Date() })
+    .where(and(eq(merchantApplications.id, appId), sql`${merchantApplications.contactId} IS NULL`));
 }
 
 async function handleConsentRecord(row: OutboxRow): Promise<void> {
   const appId = row.applicationId;
   const p = row.payload;
-  // Check durable evidence before re-recording (prevents duplicate consent rows).
-  const alreadyRecorded = await hasAuditEvidence("pewc_opt_in", "contact", 0);
-  // Get actual contactId.
   const [appRow] = await db
     .select({ contactId: merchantApplications.contactId })
     .from(merchantApplications)
@@ -269,29 +280,26 @@ async function handleConsentRecord(row: OutboxRow): Promise<void> {
     .limit(1);
   if (!appRow?.contactId) throw new OutboxWaitError("contact_not_linked");
 
-  const contactId = appRow.contactId;
-  // Check contact-scoped evidence.
-  const [consentRow] = await db
-    .select({ id: auditLogs.id })
-    .from(auditLogs)
-    .where(
-      and(
-        eq(auditLogs.action, "pewc_opt_in"),
-        eq(auditLogs.entityType, "contact"),
-        eq(auditLogs.entityId, contactId),
-      ),
-    )
-    .limit(1);
-  if (consentRow) return; // already recorded for this contact
-
+  // S5-05: the consent evidence is what the applicant submitted: the disclosure version they saw, the phone
+  // number on the form, and the request's address and agent, captured at submission and carried in the payload.
+  // Idempotency is the per-submission event key in the consent reducer, never "any prior consent exists",
+  // which would suppress a new disclosure/phone and silently drop evidence.
+  const consentedPhone = typeof p.consentedPhone === "string" ? p.consentedPhone : "";
+  const disclosureVersion = typeof p.disclosureVersion === "string" ? p.disclosureVersion : "";
+  if (!consentedPhone || !disclosureVersion) {
+    throw new Error("consent_record payload lacks submission evidence (phone/disclosure); refusing to record consent");
+  }
+  const submissionId = typeof p.submissionId === "string" ? p.submissionId : `application-${appId}`;
   const { recordPewcDecision } = await import("./consent-evidence");
   await recordPewcDecision({
-    contactId,
+    contactId: appRow.contactId,
     checked: true,
     source: "merchant_application_finalize",
-    ipAddress: "outbox",
-    userAgent: "outbox",
-    details: { applicationId: appId },
+    ipAddress: typeof p.ipAddress === "string" && p.ipAddress ? p.ipAddress : "unknown",
+    userAgent: typeof p.userAgent === "string" && p.userAgent ? p.userAgent : "unknown",
+    disclosureVersion,
+    eventKey: `merchant_application:${appId}:${submissionId}`,
+    details: { applicationId: appId, submissionId, consentedPhone, submittedAt: p.submittedAt ?? null },
   });
 }
 
@@ -611,18 +619,11 @@ export function startMerchantApplicationOutboxWorker(): void {
  * and triggering an ad-hoc tick would execute background work in HTTP/API-only mode.
  */
 export function triggerOutboxTick(): void {
-  // Use the canonical profile resolver so invalid/missing values fail closed to "off".
-  // Inline the logic (same as getBackgroundProfile) to avoid a circular import.
-  const VALID_PROFILES = new Set(["off", "core", "full"]);
-  const raw = process.env.BACKGROUND_JOB_PROFILE;
-  const profile = raw && VALID_PROFILES.has(raw) ? raw : "off";
-  if (profile === "off") {
-    // off mode (explicit or fail-closed): recurring worker was not started;
-    // skip ad-hoc tick to preserve the HTTP/API-only guarantee.
-    return;
-  }
+  // Same selection rule as the interval worker: invalid/missing/ghl-sync-only fail closed,
+  // selective needs the critical-commands group.
+  if (!isLocalOutboxWorkerSelected()) return;
   const t = setTimeout(() => { void tick(); }, 100);
   if (typeof t.unref === "function") t.unref();
 }
 
-export const __test__ = { backoffMs, MAX_ATTEMPTS, STALE_LOCK_MS, scrubError, tick, claimOne, markDelivered, markRetryOrDeadLetter };
+export const __test__ = { handleContactLink, handleConsentRecord, backoffMs, MAX_ATTEMPTS, STALE_LOCK_MS, scrubError, tick, claimOne, markDelivered, markRetryOrDeadLetter };
