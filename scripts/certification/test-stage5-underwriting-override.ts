@@ -107,6 +107,29 @@ const dTie = await mkDeal("tie", "Review In Progress");
 const lo = await mkDec(dTie, "review"), hi = await mkDec(dTie, "hold");
 check((await post("approve", dTie, {}, admin)).code === 200 && (await decRow(hi)).override_action === "approve" && (await decRow(lo)).override_action === null, "with equal timestamps the override targets the highest-id decision deterministically");
 
+// Latest, not stale: an older decision with an earlier timestamp is never touched.
+const dOld = await mkDeal("older", "Review In Progress");
+const oldDec = await mkDec(dOld, "review", "2020-01-01T00:00:00Z"), newDec = await mkDec(dOld, "hold", "2021-01-01T00:00:00Z");
+check((await post("approve", dOld, {}, admin)).code === 200 && (await decRow(newDec)).override_action === "approve" && (await decRow(oldDec)).override_action === null, "the override targets the latest decision and leaves the older one untouched");
+check((await post("reject", dOld, {}, admin)).code === 409 && (await decRow(newDec)).override_action === "approve" && await stageOf(dOld) === "Proposal Sent", "a repeat or opposite command on the same decision is a 409 and changes nothing");
+
+// Negative control: the original shape (unlocked read, then unconditional write) lets two reviewers both act
+// when released together, proving the barrier exposes the race the transaction closes.
+{
+  const dNaive = await mkDeal("naive", "Review In Progress"); const dNaiveDec = await mkDec(dNaive, "hold");
+  let release!: () => void; const gate = new Promise<void>((r) => { release = r; });
+  const naive = [0, 1].map(async (i) => {
+    await gate;
+    const row = (await q(sql`SELECT id, override_action FROM underwriting_decisions WHERE deal_id=${dNaive} ORDER BY created_at DESC LIMIT 1`))[0];
+    await new Promise((r) => setTimeout(r, 150));
+    if (row.override_action) return false;
+    await db.execute(sql`UPDATE underwriting_decisions SET override_action='approve', overridden_by=${`naive-${i}`} WHERE id=${row.id}`);
+    return true;
+  });
+  release();
+  check((await Promise.all(naive)).every(Boolean) && (await decRow(dNaiveDec)).override_action === "approve", "negative control: an unlocked read-then-write lets two reviewers both act on one decision");
+}
+
 const src = readFileSync("server/routes/underwriting.ts", "utf8");
 check(!/overrideUnderwritingDecision/.test(src), "the route no longer performs the non-atomic override + separate stage advance (source-checked)");
 console.log(`\nStage 5 underwriting override certification: ${checks} checks passed`);
