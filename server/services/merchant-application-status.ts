@@ -145,6 +145,7 @@ async function resolveGhlContactId(input: ApplicationStatusEmailInput): Promise<
  */
 export async function sendApplicationApprovedEmail(
   input: ApplicationStatusEmailInput,
+  hooks?: { beforeDispatch?: () => Promise<void> },
 ): Promise<ApplicationEmailResult> {
   const recipient = input.ownerEmail || input.businessEmail;
   if (!recipient) return { status: "skipped", reason: "no_recipient" };
@@ -156,6 +157,7 @@ export async function sendApplicationApprovedEmail(
   const businessName = input.legalBusinessName || input.dba || "";
   const subject = `Your Liberty Bancard application has been approved`;
 
+  await hooks?.beforeDispatch?.();
   await sendEmailReply({
     contactId: ghlContactId,
     subject,
@@ -172,6 +174,7 @@ export async function sendApplicationApprovedEmail(
  */
 export async function sendApplicationDeclinedEmail(
   input: ApplicationStatusEmailInput,
+  hooks?: { beforeDispatch?: () => Promise<void> },
 ): Promise<ApplicationEmailResult> {
   const recipient = input.ownerEmail || input.businessEmail;
   if (!recipient) return { status: "skipped", reason: "no_recipient" };
@@ -183,6 +186,7 @@ export async function sendApplicationDeclinedEmail(
   const businessName = input.legalBusinessName || input.dba || "";
   const subject = `Update on your Liberty Bancard application`;
 
+  await hooks?.beforeDispatch?.();
   await sendEmailReply({
     contactId: ghlContactId,
     subject,

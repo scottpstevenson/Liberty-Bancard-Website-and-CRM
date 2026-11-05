@@ -20,7 +20,7 @@ const LEGAL: Record<string, readonly string[]> = {
 };
 
 export class MerchantMidTransitionError extends Error {
-  constructor(readonly code: "MID_NOT_FOUND" | "MID_ILLEGAL_TRANSITION" | "MID_LINK_MISMATCH", message: string) {
+  constructor(readonly code: "MID_NOT_FOUND" | "MID_ILLEGAL_TRANSITION" | "MID_LINK_MISMATCH" | "MID_ALREADY_ASSIGNED" | "MID_CLOSED" | "MID_INVALID_STATUS", message: string) {
     super(message);
   }
 }
@@ -101,10 +101,25 @@ export async function updateMerchantMid(input: {
     if (input.notes !== undefined) updates.notes = input.notes;
     if (input.suspensionReason !== undefined) updates.suspensionReason = input.suspensionReason;
     const [row] = await tx.update(merchantMids).set(updates as any).where(eq(merchantMids.id, input.id)).returning();
+    // R08: closing a MID must not leave it as the deal's compatibility alias, where an alias reader (or a later
+    // write that trusts it) would treat a closed MID as live. The alias moves to the oldest other non-closed MID of
+    // the deal, or clears; the closed row itself stays as history.
+    let aliasMovedTo: "other_mid" | "cleared" | null = null;
+    if (input.status === "closed" && current.status !== "closed" && row.dealId) {
+      await tx.execute(sql`SELECT id FROM deals WHERE id = ${row.dealId} FOR UPDATE`);
+      const [dealAlias] = await tx.select({ mid: deals.mid }).from(deals).where(eq(deals.id, row.dealId)).limit(1);
+      if (dealAlias?.mid === row.mid) {
+        const others = await tx.select().from(merchantMids)
+          .where(and(eq(merchantMids.dealId, row.dealId), sql`${merchantMids.id} <> ${row.id}`, sql`${merchantMids.status} <> 'closed'`))
+          .orderBy(merchantMids.id).limit(1);
+        await tx.update(deals).set({ mid: others[0]?.mid ?? null, updatedAt: new Date() } as any).where(eq(deals.id, row.dealId));
+        aliasMovedTo = others[0] ? "other_mid" : "cleared";
+      }
+    }
     await auditChange({
       action: "mid_updated", entityType: "merchant_mid", entityId: row.id,
       actorType: (input.actorType as any) ?? "user", actorId: input.actorId ?? null,
-      details: { fromStatus: current.status, toStatus: row.status, source: "merchant-mid-service" },
+      details: { fromStatus: current.status, toStatus: row.status, aliasMovedTo, source: "merchant-mid-service" },
     }, tx);
     return row;
   });
@@ -143,73 +158,111 @@ export async function writeMidAccessReceipt(input: {
 }
 
 /**
- * assignMerchantMidToCanonical — canonical path for manual MID assignment.
+ * assignMerchantMidToCanonical — canonical path for manual or provider-reported MID assignment.
  *
- * REV-05A: All MID writes go through canonical service.
- * - Creates/updates merchant_mids row
- * - Updates deals.mid (compatibility alias only)
- * - Writes masked audit (no raw MID in details)
+ * Rules (R08):
+ *  - A deal may hold SEVERAL MIDs (no one-per-deal uniqueness). `merchant_mids.mid` is globally unique.
+ *  - An assignment never rewrites a different MID value: a new value creates a new row, history stays intact.
+ *  - A MID already attached to another deal is refused (MID_ALREADY_ASSIGNED); a closed row is history and is never
+ *    reused or reopened (MID_CLOSED).
+ *  - An existing row honors the explicitly requested status (legal transitions only) and processor. Omitting
+ *    `status` changes nothing on an existing row (the provider-refresh path must not demote an active MID).
+ *  - `deals.mid` is only a compatibility alias for the PRIMARY MID: the first live MID. It is set when empty or when the
+ *    aliased MID is closed/unknown; otherwise the new MID is secondary and the alias is left alone.
+ *  - Masked audit only.
  */
 export async function assignMerchantMidToCanonical(input: {
   dealId: number;
   contactId: number | null;
   mid: string;
   processorName?: string;
+  /** Requested status. Omitted = no change to an existing row; a new row starts as "assigned". */
   status?: string;
   actorId?: string | null;
   actorEmail?: string | null;
   /** Run inside the caller's transaction (S5-18) so MID, deal state and audit commit together. */
   tx?: any;
-}): Promise<{ midRow: MerchantMid; previousMidMasked: string | null }> {
+}): Promise<{ midRow: MerchantMid; previousMidMasked: string | null; isPrimary: boolean; created: boolean }> {
   const trimmedMid = input.mid.trim();
+  if (input.status !== undefined && !(input.status in LEGAL)) {
+    throw new MerchantMidTransitionError("MID_INVALID_STATUS", `Unknown MID status '${input.status}'`);
+  }
 
   const run = async (tx: any) => {
-    // Serialize concurrent assignments for one deal (S5-20) and capture the previous MID.
+    // Serialize concurrent assignments for one deal (S5-20) and capture the previous alias.
     await tx.execute(sql`SELECT id FROM deals WHERE id = ${input.dealId} FOR UPDATE`);
     const [deal] = await tx.select({ mid: deals.mid }).from(deals).where(eq(deals.id, input.dealId)).limit(1);
     const previousMidMasked = deal?.mid ? maskMid(deal.mid) : null;
 
-    // Deterministic existing-row choice: an exact match first, then the oldest
-    // non-closed row, then the oldest row — never an arbitrary first heap row.
-    const candidates = await tx
-      .select()
-      .from(merchantMids)
-      .where(eq(merchantMids.dealId, input.dealId))
-      .orderBy(merchantMids.id);
-    const existing = candidates.length === 0 ? [] : [
-      candidates.find((c) => c.mid === trimmedMid)
-        ?? candidates.find((c) => c.status !== "closed")
-        ?? candidates[0],
-    ];
+    const raw = await tx.execute(sql`SELECT * FROM merchant_mids WHERE mid = ${trimmedMid} FOR UPDATE`);
+    const found = ((raw.rows ?? raw)[0] as any | undefined);
+    const toRow = (r: any): MerchantMid => ({
+      ...r, contactId: r.contact_id ?? r.contactId, dealId: r.deal_id ?? r.dealId, processorName: r.processor_name ?? r.processorName,
+    });
 
     let midRow: MerchantMid;
-    if (existing.length > 0) {
-      // Update existing row
-      const [updated] = await tx.update(merchantMids)
-        .set({ mid: trimmedMid, updatedAt: new Date() })
-        .where(eq(merchantMids.id, existing[0].id))
-        .returning();
+    let created = false;
+    if (found) {
+      const foundDealId = found.deal_id ?? found.dealId ?? null;
+      const foundContactId = found.contact_id ?? found.contactId;
+      const adoptable = foundDealId === null && input.contactId !== null && foundContactId === input.contactId;
+      if (foundDealId !== input.dealId && !adoptable) {
+        throw new MerchantMidTransitionError("MID_ALREADY_ASSIGNED", "That MID is already attached to a different deal");
+      }
+      if (found.status === "closed" && !(input.status === undefined || input.status === "closed")) {
+        throw new MerchantMidTransitionError("MID_CLOSED", "A closed MID is history and is not reused; assign a new MID value");
+      }
+      if (found.status === "closed") throw new MerchantMidTransitionError("MID_CLOSED", "A closed MID is history and is not reused; assign a new MID value");
+      const now = new Date();
+      const updates: Record<string, unknown> = { updatedAt: now };
+      if (adoptable) updates.dealId = input.dealId;
+      if (input.processorName && input.processorName !== (found.processor_name ?? found.processorName)) updates.processorName = input.processorName;
+      if (input.status !== undefined && input.status !== found.status) {
+        if (!(LEGAL[found.status] ?? []).includes(input.status)) {
+          throw new MerchantMidTransitionError("MID_ILLEGAL_TRANSITION", `Illegal MID transition ${found.status} → ${input.status}`);
+        }
+        updates.status = input.status;
+        if (input.status === "active") updates.activatedAt = now;
+        if (input.status === "suspended") updates.suspendedAt = now;
+        if (input.status === "closed") updates.closedAt = now;
+      }
+      const [updated] = await tx.update(merchantMids).set(updates as any).where(eq(merchantMids.id, found.id)).returning();
       midRow = updated;
     } else if (input.contactId) {
-      // Create new canonical MID row
-      const [created] = await tx.insert(merchantMids).values({
+      const startStatus = input.status ?? "assigned";
+      if (startStatus !== "assigned" && startStatus !== "active") {
+        throw new MerchantMidTransitionError("MID_ILLEGAL_TRANSITION", `A new MID cannot start as '${startStatus}'`);
+      }
+      const [row] = await tx.insert(merchantMids).values({
         contactId: input.contactId,
         dealId: input.dealId,
         mid: trimmedMid,
         tids: [],
         processorName: input.processorName ?? "payarc",
+        status: startStatus,
+        ...(startStatus === "active" ? { activatedAt: new Date() } : {}),
       }).returning();
-      midRow = created;
+      midRow = row;
+      created = true;
     } else {
       throw new Error("Cannot create MID without contactId");
     }
 
-    // Update deals.mid as compatibility alias (after canonical merchant_mids commit)
-    await tx.update(deals)
-      .set({ mid: trimmedMid, updatedAt: new Date() } as any)
-      .where(eq(deals.id, input.dealId));
+    // Primary / alias: only a live MID may be the alias, and an existing live alias is not displaced.
+    let isPrimary = deal?.mid === trimmedMid;
+    if (!isPrimary && midRow.status !== "closed") {
+      let aliasLive = false;
+      if (deal?.mid) {
+        const [aliasRow] = await tx.select({ status: merchantMids.status }).from(merchantMids)
+          .where(and(eq(merchantMids.mid, deal.mid), eq(merchantMids.dealId, input.dealId))).limit(1);
+        aliasLive = !!aliasRow && aliasRow.status !== "closed";
+      }
+      if (!aliasLive) {
+        await tx.update(deals).set({ mid: trimmedMid, updatedAt: new Date() } as any).where(eq(deals.id, input.dealId));
+        isPrimary = true;
+      }
+    }
 
-    // Write masked audit (no raw MID in details)
     await auditChange({
       action: "mid_assigned",
       entityType: "deal",
@@ -219,14 +272,17 @@ export async function assignMerchantMidToCanonical(input: {
       details: {
         midMasked: maskMid(trimmedMid),
         previousMidMasked,
-        processorName: input.processorName ?? null,
-        status: input.status ?? "assigned",
+        midId: midRow.id,
+        created,
+        isPrimary,
+        processorName: midRow.processorName ?? input.processorName ?? null,
+        status: midRow.status,
         assignedBy: input.actorEmail ?? "admin",
         source: "merchant-mid-service",
       },
     }, tx);
 
-    return { midRow, previousMidMasked };
+    return { midRow, previousMidMasked, isPrimary, created };
   };
   return input.tx ? run(input.tx) : db.transaction(run);
 }

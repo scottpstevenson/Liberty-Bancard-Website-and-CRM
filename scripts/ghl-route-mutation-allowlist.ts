@@ -57,26 +57,8 @@ export const GHL_ROUTE_MUTATION_ALLOWLIST: readonly GhlRouteMutationCallSite[] =
     reason: "Admin retry checks configuration, contact existence, then pause authority before upsert.",
     reviewDate: "2026-08-18",
   },
-  {
-    file: "server/routes/underwriting.ts",
-    lineContains: "createGhlTask({",
-    occurrence: 1,
-    gateContains: "if (!(await requireGhlRouteMutationAllowed(res))) return;",
-    maxLinesBetween: 20,
-    disposition: "reject_503",
-    reason: "Approve override authorizes before the local override and its GHL task.",
-    reviewDate: "2026-08-18",
-  },
-  {
-    file: "server/routes/underwriting.ts",
-    lineContains: "createGhlTask({",
-    occurrence: 2,
-    gateContains: "if (!(await requireGhlRouteMutationAllowed(res))) return;",
-    maxLinesBetween: 30,
-    disposition: "reject_503",
-    reason: "Reject override authorizes before the local override and its GHL task.",
-    reviewDate: "2026-08-18",
-  },
+  // Underwriting override GHL tasks are no longer created in the route: they are durable deal_stage_effect_intents
+  // executed by deal-stage-effect-worker behind authorizeGhlRouteMutation(), so the route has no GHL mutation call site.
   {
     file: "server/routes/deals.ts",
     lineContains: "await updateCustomFields(contact.ghlContactId, fields)",

@@ -462,7 +462,7 @@ function ApplicationDetailView({
         status: "declined",
         declineReason: declineReason.trim() || null,
       });
-      toast({ title: "Application declined", description: "The merchant application has been declined and the merchant has been notified." });
+      toast({ title: "Application declined", description: "The decision is recorded. No message is sent to the merchant from this action; contact them separately if needed." });
       setShowDecline(false);
       setDeclineReason("");
       onClose();
@@ -582,7 +582,8 @@ function ApplicationDetailView({
                     variant="outline"
                     size="sm"
                     onClick={() => esignMutation.mutate()}
-                    disabled={esignMutation.isPending || esignInFlight || esignSigned || !esignStatus}
+                    disabled={esignMutation.isPending || esignInFlight || esignSigned || !esignStatus || application.status === "draft"}
+                    title={application.status === "draft" ? "A draft application is not submitted, so it cannot be sent for e-signature." : undefined}
                     data-testid="button-send-esign"
                   >
                     {esignMutation.isPending ? (
@@ -1081,17 +1082,22 @@ export default function MerchantApplicationsList() {
   params.set("limit", String(LIST_PAGE_SIZE));
   params.set("offset", String(listPage * LIST_PAGE_SIZE));
 
-  const { data, isLoading } = useQuery<{ applications: MerchantApplication[]; total: number }>({
+  const { data, isLoading, isError, error, refetch } = useQuery<{ applications: MerchantApplication[]; total: number }>({
     queryKey: ["/api/merchant-applications", statusFilter, search, listPage],
+    retry: false,
     queryFn: async () => {
       const res = await fetch(`/api/merchant-applications?${params.toString()}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch applications");
-      return res.json();
+      if (res.status === 401 || res.status === 403) throw new Error("denied");
+      if (!res.ok) throw new Error("unavailable");
+      const body = await res.json();
+      if (!Array.isArray(body?.applications) || !Number.isInteger(body?.total)) throw new Error("unavailable");
+      return body;
     },
   });
+  const denied = isError && (error as Error)?.message === "denied";
 
-  const applications = data?.applications || [];
-  const total = data?.total || 0;
+  const applications = isError ? [] : data?.applications || [];
+  const total = isError ? 0 : data?.total || 0;
 
   if (selectedApp) {
     return (
@@ -1112,7 +1118,7 @@ export default function MerchantApplicationsList() {
         actions={
           <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="text-total-count">
             <FileText className="w-4 h-4" />
-            {total} total
+            {isLoading ? "Loading" : isError ? "Total unavailable" : `${total} total`}
           </div>
         }
       />
@@ -1157,6 +1163,13 @@ export default function MerchantApplicationsList() {
                   <Skeleton className="h-4 w-24" />
                 </div>
               ))}
+            </div>
+          ) : isError ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-center" role="alert" data-testid={denied ? "applications-denied" : "applications-unavailable"}>
+              <FileText className="w-10 h-10 text-destructive" />
+              <p className="text-sm font-medium">{denied ? "You do not have access to merchant applications" : "Merchant applications are unavailable"}</p>
+              <p className="text-xs text-muted-foreground">{denied ? "Ask an administrator if you need access." : "The list could not be loaded, so no total is shown."}</p>
+              {!denied && <Button variant="outline" className="min-h-11" onClick={() => refetch()} data-testid="button-retry-applications">Retry</Button>}
             </div>
           ) : applications.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground" data-testid="empty-applications">
@@ -1237,7 +1250,7 @@ export default function MerchantApplicationsList() {
               </TableBody>
             </Table>
           )}
-          {total > LIST_PAGE_SIZE && (
+          {!isError && total > LIST_PAGE_SIZE && (
             <div className="flex items-center justify-between gap-2 pt-3 pb-20 pr-16" data-testid="pager-applications">
               <span className="text-xs text-muted-foreground">Page {listPage + 1} of {Math.ceil(total / LIST_PAGE_SIZE)} · {total} total</span>
               <div className="flex gap-2">

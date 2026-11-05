@@ -42,6 +42,28 @@ import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard"
 
 const BASE_URL = process.env.BASE_URL ?? "http://127.0.0.1:5000";
 
+/**
+ * Finalize body produced by the SAME builder the public wizard ships (shared/merchant-application-submission).
+ * A hand-written partial body is not what a visitor sends and is refused (reviewConfirmed + complete required fields).
+ * Full disposable-database journey (replay, mismatch, receipt, protected values): scripts/test-stage5-public-journey.ts.
+ */
+async function shippedFinalizeBody(o: { email: string; legalBusinessName: string; phone: string; ein: string; pewc: boolean; first: string; last: string }) {
+  const { buildPublicApplicationPayload } = await import("../shared/merchant-application-submission");
+  const { PEWC_DISCLOSURE_VERSION } = await import("../shared/consent-disclosures");
+  return buildPublicApplicationPayload({
+    legalBusinessName: o.legalBusinessName, dba: "", businessType: "llc", ein: o.ein, businessStartDate: "2015-01-01",
+    businessAddress: "1 Fixture Way", businessCity: "Miami", businessState: "FL", businessZip: "33101",
+    businessPhone: o.phone, businessEmail: o.email, website: "", vertical: "restaurant",
+    ownerFirstName: o.first, ownerLastName: o.last, ownerEmail: o.email, ownerPhone: o.phone,
+    ownerDob: "1980-01-02", ownerSsn: "123-45-6789", ownerAddress: "2 Fixture Way", ownerCity: "Miami", ownerState: "FL", ownerZip: "33101",
+    ownershipPercent: "100", bankName: "Fixture Bank", bankRoutingNumber: "021000021", bankAccountNumber: "123456789", bankAccountType: "checking",
+    estimatedMonthlyVolume: "$50,000", estimatedAvgTicket: "50", highestTicket: "500", currentProcessor: "", currentRate: "",
+    acceptedCardTypes: ["visa"], terminalNeeded: false, terminalType: "", terminalQuantity: "1", ecommerceNeeded: false, preferredProgram: "traditional",
+    reviewConfirmed: true, pewcConsent: o.pewc, pewcDisclosureVersion: PEWC_DISCLOSURE_VERSION,
+  } as any);
+}
+
+
 // ── GHL Kill Line (C-03 #1626: verified transport interception) ──────────────
 const GHL_TOKEN = process.env.GHL_PRIVATE_INTEGRATION_TOKEN ?? "";
 
@@ -687,16 +709,10 @@ async function testMerchantApplication(): Promise<void> {
         "x-draft-token": draftToken,
         "Idempotency-Key": crypto.randomUUID(),
       },
-      body: JSON.stringify({
-        ownerEmail: email,
-        ownerFirstName: "AppTest",
-        ownerLastName: "QAUser",
-        legalBusinessName: "QA_RELEASE_TEST App Co",
-        businessPhone: uniquePhone(),
-        vertical: "restaurant",
-        pewcConsent: true,
-        ein: testEin,
-      }),
+      body: JSON.stringify(await shippedFinalizeBody({
+        email, first: "AppTest", last: "QAUser", legalBusinessName: "QA_RELEASE_TEST App Co",
+        phone: uniquePhone(), pewc: true, ein: testEin,
+      })),
     });
   } catch (err) {
     assert("Merchant app finalize endpoint reachable", false, String(err));
@@ -768,16 +784,10 @@ async function testMerchantApplication(): Promise<void> {
           "x-draft-token": dup2Token,
           "Idempotency-Key": crypto.randomUUID(),
         },
-        body: JSON.stringify({
-          ownerEmail: uniqueEmail("qa-dup-finalize2"),
-          ownerFirstName: "Dup",
-          ownerLastName: "Test",
-          legalBusinessName: "QA_DUP_FINALIZE Co",
-          businessPhone: uniquePhone(),
-          vertical: "restaurant",
-          pewcConsent: false,
-          ein: testEin,
-        }),
+        body: JSON.stringify(await shippedFinalizeBody({
+          email: uniqueEmail("qa-dup-finalize2"), first: "Dup", last: "Test", legalBusinessName: "QA_DUP_FINALIZE Co",
+          phone: uniquePhone(), pewc: false, ein: testEin,
+        })),
       });
       assert(
         "Second finalize with duplicate EIN returns 409 (finalize-path duplicate enforcement)",

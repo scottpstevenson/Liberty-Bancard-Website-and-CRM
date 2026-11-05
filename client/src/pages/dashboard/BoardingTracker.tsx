@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import {useCrmQuery as useQuery} from "@/hooks/use-crm-query";
@@ -12,7 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader, CrmPage } from "@/components/crm/CrmPresentation";
 import { DataState } from "@/components/ui/data-state";
-import { boardingStatuses } from "@/lib/crm-destination-state";
+import { boardingStatuses, boardingViews } from "@/lib/crm-destination-state";
+import MidRegistryView, { type MidStatusFilter } from "@/components/boarding/MidRegistryView";
 import { useC4RetainedSelection } from "@/hooks/use-c4-retained-selection";
 import { ResponsiveTable } from "@/components/ui/responsive-table";
 import {
@@ -112,7 +113,37 @@ const IN_FLIGHT_STATUSES: BoardingStatus[] = [
   "more_info_needed",
 ];
 
+function BoardingViewSwitch({ view, setView }: { view: (typeof boardingViews)[number]; setView: (v: (typeof boardingViews)[number]) => void }) {
+  return (
+    <Tabs value={view} onValueChange={(v) => { if ((boardingViews as readonly string[]).includes(v)) setView(v as (typeof boardingViews)[number]); }} data-testid="tabs-boarding-view">
+      <TabsList className="flex-wrap h-auto gap-1">
+        <TabsTrigger value="submissions" data-testid="tab-boarding-view-submissions">Submissions</TabsTrigger>
+        <TabsTrigger value="mid-registry" data-testid="tab-boarding-view-mid-registry">MID Registry</TabsTrigger>
+      </TabsList>
+    </Tabs>
+  );
+}
+
+/** `?view=submissions|mid-registry` (typed, URL-owned). The status selector keeps its own `?status=` URL. */
 export default function BoardingTracker() {
+  const viewState = useC4RetainedSelection("/dashboard/boarding", "view", boardingViews, "submissions");
+  const [midStatus, setMidStatus] = useState<MidStatusFilter>("all");
+  const switcher = <BoardingViewSwitch view={viewState.value} setView={viewState.setValue} />;
+  if (viewState.value === "mid-registry") {
+    return (
+      <CrmPage className="space-y-6" data-testid="page-mid-registry">
+        <Helmet><title>MID Registry | Liberty Bancard</title></Helmet>
+        <PageHeader title="MID Registry" subtitle="Merchant IDs by deal. MIDs are masked; a closed MID is history, never live." />
+        {switcher}
+        {viewState.issues.map((issue) => <p key={issue.key} role="status" className="text-sm text-destructive">{issue.reason}</p>)}
+        <MidRegistryView status={midStatus} onStatusChange={setMidStatus} />
+      </CrmPage>
+    );
+  }
+  return <BoardingSubmissionsView switcher={switcher} viewIssues={viewState.issues} />;
+}
+
+function BoardingSubmissionsView({ switcher, viewIssues }: { switcher: ReactNode; viewIssues: { key: string; reason: string }[] }) {
   const { toast } = useToast();
   const statusState=useC4RetainedSelection("/dashboard/boarding","status",boardingStatuses,"all");
   const statusFilter=statusState.value;
@@ -248,6 +279,9 @@ export default function BoardingTracker() {
           </Button>
         }
       />
+
+      {switcher}
+      {viewIssues.map((issue) => <p key={issue.key} role="status" className="text-sm text-destructive">{issue.reason}</p>)}
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {(

@@ -1481,8 +1481,16 @@
         {
           "selector": "runs",
           "renderedComponents": [
+            "Search",
+            "Input",
+            "Select",
+            "SelectTrigger",
+            "SelectValue",
+            "SelectContent",
+            "SelectItem",
             "Card",
             "CardContent",
+            "Button",
             "ScrollArea",
             "Table",
             "TableHeader",
@@ -3159,6 +3167,7 @@
     "queryPolicy": {
       "allowed": [
         "status",
+        "view",
         "contactId",
         "companyId",
         "businessId",
@@ -6240,7 +6249,8 @@
             "ShieldCheck",
             "AlertTriangle",
             "QueueCard",
-            "Clock"
+            "Clock",
+            "Pager"
           ],
           "conditionExpressions": []
         },
@@ -6257,7 +6267,8 @@
             "Link",
             "LinkIcon",
             "Button",
-            "ThumbsDown"
+            "ThumbsDown",
+            "Pager"
           ],
           "conditionExpressions": []
         },
@@ -8496,8 +8507,8 @@
         {
           "selector": "sfp",
           "renderedComponents": [
-            "NamedEmailEligibilityReviewPanel",
             "SfpEnrichmentControlCenter",
+            "NamedEmailEligibilityReviewPanel",
             "SouthFloridaProspectingPanel"
           ],
           "conditionExpressions": []

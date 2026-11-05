@@ -106,46 +106,13 @@ export class ForbiddenError extends Error {
 }
 
 
-// ── Submission completeness (S5-01) ─────────────────────────────────────────
-// The public wizard's documented required set (steps 1–6), enforced server-side so an
-// empty or partial body can never move an application to `submitted`. Optional marketing
-// consent (pewcConsent) stays optional. No universal KYC rules are invented here.
-const SUBMISSION_PLAIN_REQUIRED = [
-  "legalBusinessName", "businessType", "businessAddress", "businessCity", "businessState", "businessZip",
-  "businessPhone", "businessEmail", "vertical",
-  "ownerFirstName", "ownerLastName", "ownerEmail", "ownerPhone",
-  "ownerAddress", "ownerCity", "ownerState", "ownerZip", "ownershipPercent",
-  "bankName", "bankAccountType",
-  "estimatedMonthlyVolume", "estimatedAvgTicket", "highestTicket", "preferredProgram",
-] as const;
-const SUBMISSION_PROTECTED_REQUIRED = ["ein", "ownerDob", "ownerSsn", "bankRoutingNumber", "bankAccountNumber"] as const;
-
-/**
- * Returns the NAMES of missing/invalid required fields (never values).
- * `values` = request body over the stored draft row; `storedProtected` reports ciphertext
- * already present for a protected field (presence only, never decrypted).
- */
-export function missingSubmissionFields(
-  values: Record<string, any>,
-  storedProtected: (name: string) => boolean = () => false,
-): string[] {
-  const present = (v: unknown) => v !== undefined && v !== null && String(v).trim() !== "";
-  const missing: string[] = [];
-  for (const f of SUBMISSION_PLAIN_REQUIRED) if (!present(values[f])) missing.push(f);
-  for (const f of SUBMISSION_PROTECTED_REQUIRED) {
-    if (!present(values[f]) && !storedProtected(f)) missing.push(f);
-  }
-  if (present(values.ownerSsn) && String(values.ownerSsn).replace(/\D/g, "").length !== 9) missing.push("ownerSsn");
-  if (!Array.isArray(values.acceptedCardTypes) || values.acceptedCardTypes.length === 0) missing.push("acceptedCardTypes");
-  if (typeof values.terminalNeeded !== "boolean") missing.push("terminalNeeded");
-  if (typeof values.ecommerceNeeded !== "boolean") missing.push("ecommerceNeeded");
-  if (values.terminalNeeded === true) {
-    if (!present(values.terminalType)) missing.push("terminalType");
-    if (!present(values.terminalQuantity)) missing.push("terminalQuantity");
-  }
-  if (values.reviewConfirmed !== true) missing.push("reviewConfirmed");
-  return missing;
-}
+// ── Submission completeness (S5-01 / R01) ───────────────────────────────────
+// One contract shared with the public wizard: shared/merchant-application-submission.ts.
+import {
+  SUBMISSION_PROTECTED_REQUIRED,
+  missingSubmissionFields,
+} from "@shared/merchant-application-submission";
+export { missingSubmissionFields };
 
 function assertSubmissionComplete(
   values: Record<string, any>,
@@ -529,7 +496,7 @@ function buildFinalizeOutboxRows(
     businessPhone?: string | null;
     ownerPhone?: string | null;
     vertical?: string | null;
-    consent?: { disclosureVersion: string; consentedPhone: string; ipAddress: string; userAgent: string; submittedAt: string } | null;
+    consent?: { disclosureVersion: string; disclosureHash?: string; consentedPhone: string; ipAddress: string; userAgent: string; submittedAt: string } | null;
   },
 ) {
   const base = { applicationId: appId };
@@ -646,6 +613,10 @@ export async function createPrefillDraft(params: {
 
   const row = await db.transaction(async (tx) => {
     if (params.dealId != null) {
+      // R01-3: serialize concurrent first-time prefill at the deal owner. Without this two requests
+      // both see "no application yet" and both insert, because there is no row to lock.
+      const locked = await tx.select({ id: deals.id }).from(deals).where(eq(deals.id, params.dealId)).for("update");
+      if (locked.length === 0) throw new ValidationError("Linked deal does not exist", "dealId");
       // A deal has one application: unsubmitted drafts for it are revoked (never silently
       // reused); a submitted-or-later application blocks a new link.
       const existing = await tx.select({ id: merchantApplications.id, status: merchantApplications.status })
@@ -755,6 +726,47 @@ export async function checkDuplicateEin(rawEin: string, excludeAppId?: number): 
   return !!dup;
 }
 
+/**
+ * R01-4: duplicate-EIN precheck that never blocks the draft's OWN saved submission. When valid draft
+ * credentials are supplied the draft (including its already-finalized replay) is excluded.
+ */
+export async function checkDuplicateEinForDraft(rawEin: string, appId: number | null, draftToken: string): Promise<boolean> {
+  let exclude: number | undefined;
+  if (appId && Number.isInteger(appId) && draftToken) {
+    const [row] = await db.select().from(merchantApplications).where(eq(merchantApplications.id, appId)).limit(1);
+    if (row && (verifyDraftToken(draftToken, row as any) || verifyDraftTokenForReplay(draftToken, row as any))) exclude = appId;
+  }
+  return checkDuplicateEin(rawEin, exclude);
+}
+
+/**
+ * R01-4 "Check saved submission": read-only. Reports whether THIS draft has a saved finalize for THIS
+ * idempotency key. It never dispatches a submit and never needs protected values re-entered.
+ */
+export async function getSavedSubmissionReceipt(
+  appId: number, draftToken: string, idempotencyKey: string,
+): Promise<{ saved: boolean; ack?: Record<string, unknown>; esignCapability?: string }> {
+  const [row] = await db.select().from(merchantApplications).where(eq(merchantApplications.id, appId)).limit(1);
+  if (!row || !verifyDraftTokenForReplay(draftToken, row as any)) throw new NotFoundError();
+  if (!row.finalizeIdempotencyKey || row.finalizeIdempotencyKey !== idempotencyKey) return { saved: false };
+  const ack = (row.finalizeAck as Record<string, unknown> | null) ?? toPublicAckDto(row as any);
+  return { saved: true, ack: stripAckInternals(ack), esignCapability: deriveEsignCapability(draftToken, appId, idempotencyKey) };
+}
+
+function canonicalJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
+  if (v && typeof v === "object") {
+    return `{${Object.keys(v as object).sort().filter((k) => (v as any)[k] !== undefined)
+      .map((k) => `${JSON.stringify(k)}:${canonicalJson((v as any)[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(v ?? null);
+}
+
+function stripAckInternals(ack: Record<string, unknown>): Record<string, unknown> {
+  const { _requestFp: _omit, ...rest } = ack;
+  return rest;
+}
+
 // ── Finalize (public, idempotent, atomic) ────────────────────────────────
 
 export interface FinalizeResult {
@@ -778,9 +790,9 @@ export async function finalizeApplication(params: {
 
   // S5-05: consent is evidence of what THIS applicant saw and typed. Refuse a stale/unknown disclosure
   // version or a missing/unusable phone instead of recording consent the evidence cannot support.
-  let consentEvidence: { disclosureVersion: string; consentedPhone: string; ipAddress: string; userAgent: string; submittedAt: string } | null = null;
+  let consentEvidence: { disclosureVersion: string; disclosureHash: string; consentedPhone: string; ipAddress: string; userAgent: string; submittedAt: string } | null = null;
   if (parsed.pewcConsent === true) {
-    const { PEWC_DISCLOSURE_VERSION } = await import("@shared/consent-disclosures");
+    const { PEWC_DISCLOSURE_VERSION, PEWC_DISCLOSURE_TEXT } = await import("@shared/consent-disclosures");
     if (parsed.pewcDisclosureVersion !== PEWC_DISCLOSURE_VERSION) {
       throw new ValidationError("The consent disclosure is out of date. Reload the form and review it again.", "pewcDisclosureVersion");
     }
@@ -789,14 +801,20 @@ export async function finalizeApplication(params: {
     if (!normalizeConsentPhone(phone)) {
       throw new ValidationError("A valid phone number is required to record text and call consent", "ownerPhone");
     }
+    const { disclosureHash: hashDisclosure } = await import("./consent-authority");
     consentEvidence = {
       disclosureVersion: PEWC_DISCLOSURE_VERSION,
+      // R02: the exact text the applicant saw, captured NOW — a queued grant must not be re-stamped with a later disclosure.
+      disclosureHash: hashDisclosure(PEWC_DISCLOSURE_TEXT),
       consentedPhone: phone,
       ipAddress: params.requestEvidence?.ipAddress || "unknown",
       userAgent: params.requestEvidence?.userAgent || "unknown",
       submittedAt: new Date().toISOString(),
     };
   }
+
+  // HMAC fingerprint of the reviewed request (never the values) — binds the idempotency key to one payload.
+  const requestFp = fingerprint(`finalize:${appId}:${canonicalJson(params.body ?? {})}`);
 
   // Derive capability deterministically. Only hash is ever stored.
   const esignCapability = deriveEsignCapability(draftToken, appId, idempotencyKey);
@@ -826,8 +844,18 @@ export async function finalizeApplication(params: {
       if (row.finalizeIdempotencyKey === idempotencyKey) {
         // Require token match — prevents third-party replay of someone else's submission.
         if (!verifyDraftTokenForReplay(draftToken, row as any)) throw new NotFoundError();
+        // R01-4: the same key with a different reviewed payload must never imply the changed
+        // fields were applied. Older acknowledgements carry no fingerprint and replay as before.
+        const storedAck = (row.finalizeAck as Record<string, unknown> | null) ?? null;
+        const storedFp = storedAck && typeof storedAck._requestFp === "string" ? storedAck._requestFp : null;
+        if (storedFp && storedFp !== requestFp) {
+          throw new ConflictError(
+            "This submission key was already used for different reviewed details. Nothing was changed.",
+            "finalize_payload_mismatch",
+          );
+        }
         return {
-          ack: (row.finalizeAck as Record<string, unknown>) ?? toPublicAckDto(row as any),
+          ack: storedAck ? stripAckInternals(storedAck) : toPublicAckDto(row as any),
           // Re-derive capability from the same inputs — same draftToken+appId+idempotencyKey
           // always yields the same value, so the client gets the same capability token.
           esignCapability,
@@ -845,6 +873,20 @@ export async function finalizeApplication(params: {
     if (!FINALIZE_ELIGIBLE_STATUSES.has(String(row.status))) {
       throw new ConflictError("Application not in a finalizable state", "invalid_state");
     }
+
+    // R01-3: the FINAL (contact, deal) tuple must be valid. A share link may only bind a deal when the
+    // draft is unbound, or already bound to that same deal; it can never silently rebind a prefilled draft.
+    if (resolvedDealId != null) {
+      if (row.dealId != null && row.dealId !== resolvedDealId) {
+        throw new ConflictError("This application is already linked to a different deal.", "share_token_deal_mismatch");
+      }
+      await tx.select({ id: deals.id }).from(deals).where(eq(deals.id, resolvedDealId)).for("update");
+    }
+    await assertValidLinks(tx, {
+      contactId: row.contactId ?? null,
+      dealId: resolvedDealId ?? row.dealId ?? null,
+      excludeAppId: appId,
+    });
 
     // S5-01: refuse an incomplete submission before any write or outbox effect.
     const rowNoProtected: Record<string, any> = { ...(row as Record<string, any>) };
@@ -922,7 +964,7 @@ export async function finalizeApplication(params: {
     if (!res.length) throw new ConflictError("Concurrent modification during finalize", "state_version_conflict");
 
     const ack = { ...ackDraft, esignStatus: res[0].esignStatus ?? "pending" };
-    await tx.update(merchantApplications).set({ finalizeAck: ack }).where(eq(merchantApplications.id, appId));
+    await tx.update(merchantApplications).set({ finalizeAck: { ...ack, _requestFp: requestFp } as any }).where(eq(merchantApplications.id, appId));
 
     await auditChange({
       userId: null, actorType: "user",
@@ -1107,9 +1149,19 @@ export async function operatorUpdate(params: {
     }
 
     // S5-02: relinks must reference real, mutually consistent objects.
+    // R01-3: validate the FINAL tuple. A contact-only change is checked against the unchanged deal,
+    // and a deal-only change against the unchanged contact.
+    const finalContactId = parsed.contactId !== undefined ? parsed.contactId : (row.contactId ?? null);
+    const finalDealId = parsed.dealId !== undefined ? parsed.dealId : (row.dealId ?? null);
+    if (parsed.dealId != null && parsed.dealId !== row.dealId) {
+      const locked = await tx.select({ id: deals.id }).from(deals).where(eq(deals.id, parsed.dealId)).for("update");
+      if (locked.length === 0) throw new ValidationError("Linked deal does not exist", "dealId");
+    }
     await assertValidLinks(tx, {
-      contactId: parsed.contactId, companyId: parsed.companyId, dealId: parsed.dealId,
-      currentContactId: row.contactId ?? null, excludeAppId: appId,
+      contactId: finalContactId,
+      companyId: parsed.companyId,
+      dealId: finalDealId,
+      excludeAppId: appId,
     });
 
     if (parsed.status && parsed.status !== row.status) {
@@ -1331,6 +1383,11 @@ export async function requestEsignSend(params: {
   return await db.transaction(async (tx) => {
     const [row] = await tx.select().from(merchantApplications).where(eq(merchantApplications.id, appId)).limit(1);
     if (!row) throw new NotFoundError();
+
+    // A draft is not a submitted application: nothing is requested for signature until the applicant finalizes it.
+    if (["draft", "in_progress"].includes(String(row.status ?? "").toLowerCase())) {
+      throw new ConflictError("A draft application cannot be sent for e-signature until it is submitted", "application_not_submitted");
+    }
 
     if (row.esignStatus === "sent" && row.esignDocumentId) return { status: "sent" };
 

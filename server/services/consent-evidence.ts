@@ -35,6 +35,10 @@ export async function recordPewcDecision(opts: {
   disclosureVersion?: string;
   eventKey?: string;
   details?: Record<string, unknown>;
+  /** When the applicant actually consented (submission time). A queued grant keeps its ORIGINAL time so it can never override a later STOP. */
+  effectiveAt?: Date;
+  /** Hash of the disclosure text captured at submission; defaults to the current text only for live, immediate captures. */
+  disclosureHash?: string;
 }): Promise<void> {
   const { contactId, checked, source, ipAddress, userAgent, details = {} } = opts;
   const disclosureVersion = opts.disclosureVersion ?? PEWC_DISCLOSURE_VERSION;
@@ -64,9 +68,10 @@ export async function recordPewcDecision(opts: {
         consentedPhone,
         normalizedConsentedPhone: normalizeConsentPhone(consentedPhone),
         disclosureVersion,
-        disclosureHash: disclosureHash(PEWC_DISCLOSURE_TEXT),
+        disclosureHash: opts.disclosureHash ?? disclosureHash(PEWC_DISCLOSURE_TEXT),
         channelsCovered: PEWC_CHANNELS_COVERED,
       },
+      ...(opts.effectiveAt ? { effectiveAt: opts.effectiveAt } : {}),
       details: {
         ...details,
         disclosureVersion,

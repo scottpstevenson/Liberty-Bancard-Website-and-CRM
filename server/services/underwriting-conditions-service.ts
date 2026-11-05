@@ -4,7 +4,7 @@
  * real string actor id, and an audit row. Nothing here sends or calls a provider.
  */
 import { z } from "zod";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../db";
 import { underwritingConditions, underwritingDecisions, deals, documents } from "@shared/schema";
 import { auditChange } from "./audit-change";
@@ -79,6 +79,20 @@ async function assertDecisionInDeal(tx: any, dealId: number, decisionId: number)
   if (!d || d.dealId !== dealId) throw new ConditionError(400, "Decision does not belong to this deal", "decision_out_of_context");
 }
 
+/**
+ * A new or re-opened merchant-visible obligation changes what the chase must say. Bump the obligation version and
+ * re-open a settled chase so the merchant is told about it. A chase currently `sending` is left alone: its settle
+ * step compares versions and re-opens itself.
+ */
+async function markChaseObligationChanged(tx: any, dealId: number): Promise<void> {
+  await tx.execute(sql`
+    UPDATE underwriting_condition_chases
+    SET obligation_version = obligation_version + 1,
+        status = CASE WHEN status IN ('sent','not_applicable') THEN 'owed' ELSE status END,
+        next_check_at = NULL, updated_at = now()
+    WHERE deal_id = ${dealId} AND channel = 'email'`);
+}
+
 export async function listConditions(dealId: number, opts: { includeSuperseded?: boolean } = {}) {
   const where = opts.includeSuperseded
     ? eq(underwritingConditions.dealId, dealId)
@@ -106,6 +120,7 @@ export async function createCondition(dealId: number, body: unknown, actor: Acto
       createdBy: actorId,
       updatedBy: actorId,
     }).returning();
+    if (row.merchantVisible) await markChaseObligationChanged(tx, dealId);
     await auditChange({ userId: actorId, action: "underwriting_condition_created", entityType: "underwriting_condition", entityId: row.id,
       details: { dealId, conditionType: parsed.conditionType, decisionId: parsed.decisionId ?? null, documentId: parsed.documentId ?? null } }, tx);
     return row;
@@ -174,6 +189,7 @@ export async function updateCondition(id: number, body: unknown, actor: Actor) {
     }
 
     const [updated] = await tx.update(underwritingConditions).set(updates as any).where(eq(underwritingConditions.id, id)).returning();
+    if (updates.status === "pending" && row.status !== "pending" && row.merchantVisible) await markChaseObligationChanged(tx, row.dealId);
     await auditChange({
       userId: actorId, action: "underwriting_condition_updated", entityType: "underwriting_condition", entityId: id,
       before: { status: row.status, documentId: row.documentId, approvedAt: row.approvedAt, waivedAt: row.waivedAt, waivedReason: row.waivedReason },
@@ -200,4 +216,39 @@ export async function supersedeCondition(id: number, body: unknown, actor: Actor
       before: { status: row.status }, details: { dealId: row.dealId, reason: parsed.reason } }, tx);
     return { condition: updated, alreadySuperseded: false };
   });
+}
+
+/**
+ * Read-only chase state for the operator. `held` means an earlier send may have reached the merchant: the operator
+ * can see it but there is deliberately no resend path for it.
+ */
+export async function readChaseState(dealId: number) {
+  const res = (await db.execute(sql`
+    SELECT status, attempts, last_reason, last_attempt_at, sent_at, recipient_version, obligation_version,
+           sent_recipient_version, sent_obligation_version, next_check_at,
+           (recipient_email IS NOT NULL) AS has_recipient
+    FROM underwriting_condition_chases WHERE deal_id = ${dealId} AND channel = 'email'`)) as any;
+  const r = res.rows?.[0];
+  if (!r) return null;
+  const reason = typeof r.last_reason === "string" ? r.last_reason : null;
+  return {
+    status: r.status as string,
+    state: r.status === "sending" ? "held_unknown_outcome" : r.status === "owed" ? "owed" : r.status === "sent" ? "sent" : "not_applicable",
+    attempts: Number(r.attempts),
+    reason: reason ? reason.split(":")[0] + (reason.includes(":") ? `:${reason.split(":")[1]}` : "") : null,
+    lastAttemptAt: r.last_attempt_at, sentAt: r.sent_at, nextCheckAt: r.next_check_at,
+    recipientVersion: Number(r.recipient_version), obligationVersion: Number(r.obligation_version),
+    sentRecipientVersion: r.sent_recipient_version, sentObligationVersion: r.sent_obligation_version,
+    hasRecipient: r.has_recipient === true,
+  };
+}
+
+export async function readConditionHistory(conditionId: number) {
+  const [row] = await db.select({ id: underwritingConditions.id }).from(underwritingConditions).where(eq(underwritingConditions.id, conditionId)).limit(1);
+  if (!row) throw new ConditionError(404, "Condition not found", "condition_not_found");
+  const res = (await db.execute(sql`
+    SELECT id, user_id, action, details, created_at FROM audit_logs
+    WHERE entity_type = 'underwriting_condition' AND entity_id = ${conditionId}
+    ORDER BY id DESC LIMIT 100`)) as any;
+  return (res.rows ?? []).map((r: any) => ({ id: r.id, actorId: r.user_id, action: r.action, details: r.details, at: r.created_at }));
 }

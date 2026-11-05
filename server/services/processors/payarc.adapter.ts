@@ -19,6 +19,7 @@
  *   Payfac: POST /v1/agent-hub/apply/add-lead/ (NOT activated — program must
  *           be confirmed in activation snapshot before Payfac transport activates)
  */
+import { checkProcessorBaseUrl, checkPayarcPartnerEnvironment } from "./processor-base-url";
 import type {
   IProcessorAdapter,
   MerchantProfile,
@@ -180,6 +181,18 @@ async function applyRateLimitBackoff(headers: Headers, path: string): Promise<vo
   }
 }
 
+/**
+ * Transport guard shared by boarding, status and health: the snapshot base URL must pass the same validator the admin
+ * route used when the snapshot was created, and the partner credential environment must not contradict the host.
+ */
+function guardPartnerBase(snapshotUrl: string): { ok: true; baseUrl: string } | { ok: false; error: string } {
+  const checked = checkProcessorBaseUrl("payarc", snapshotUrl);
+  if (!checked.ok) return { ok: false, error: `Payarc transport refused: ${checked.reason}` };
+  const env = checkPayarcPartnerEnvironment(checked.environment);
+  if (!env.ok) return { ok: false, error: `Payarc transport refused: ${env.reason}` };
+  return { ok: true, baseUrl: checked.baseUrl };
+}
+
 async function payarcRequest<T = unknown>(
   apiKey: string,
   baseUrl: string,
@@ -207,7 +220,13 @@ async function payarcRequest<T = unknown>(
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: controller.signal,
+      // A redirect would carry the bearer token to a host the snapshot never authorized.
+      redirect: "manual",
     });
+    if (resp.status >= 300 && resp.status < 400) {
+      clearTimeout(timer);
+      return { ok: false, status: resp.status, data: {} as T, text: "", headers: resp.headers };
+    }
 
     const text = await resp.text();
     let data: T;
@@ -458,7 +477,9 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
     if (!snapshotAuthorizedBaseUrl) {
       return "missing_contract";
     }
-    const probeBase = snapshotAuthorizedBaseUrl.replace(/\/$/, "");
+    const guarded = guardPartnerBase(snapshotAuthorizedBaseUrl);
+    if (!guarded.ok) return "missing_contract";
+    const probeBase = guarded.baseUrl;
 
     try {
       const { ok, status } = await payarcRequest<any>(
@@ -536,7 +557,9 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
                    "Obtain an activation snapshot before calling adapter transport methods.",
           };
         }
-        const effectiveBaseUrl = snapshotUrl.replace(/\/$/, "");
+        const guardedBase = guardPartnerBase(snapshotUrl);
+        if (!guardedBase.ok) return { success: false, permanent: true, error: guardedBase.error };
+        const effectiveBaseUrl = guardedBase.baseUrl;
 
         const { ok, status, data } = await payarcRequest<any>(
           this.apiKey!,
@@ -554,7 +577,12 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
           // gateway timeout (408) or any other non-4xx response may have been produced AFTER
           // the provider committed the application, so it is ambiguous — never auto-retried.
           const definiteRejection = status >= 400 && status < 500 && status !== 408;
-          if (definiteRejection) return { success: false, error: `Payarc API error (${status})` };
+          if (definiteRejection) {
+            // Permanent: the request itself (or the credential) is wrong, so repeating it cannot succeed.
+            // 429 is the provider declining to process now; that one is retryable later.
+            const permanent = status !== 429;
+            return { success: false, httpStatus: status, permanent, retryable: !permanent, error: `Payarc API error (${status})` };
+          }
           return {
             success: false,
             ambiguous: true,
@@ -635,14 +663,18 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
                "Obtain an activation snapshot before calling adapter transport methods.",
       };
     }
-    const effectiveBaseUrl = options.snapshotAuthorizedBaseUrl.replace(/\/$/, "");
+    const guardedBase = guardPartnerBase(options.snapshotAuthorizedBaseUrl);
+    if (!guardedBase.ok) {
+      return { success: false, processorApplicationId, status: "submitted", error: guardedBase.error };
+    }
+    const effectiveBaseUrl = guardedBase.baseUrl;
     if (this.isConfigured()) {
       try {
         const { ok, status, data } = await payarcRequest<any>(
           this.apiKey!,
           effectiveBaseUrl,
           "GET",
-          `/applications/${processorApplicationId}`,
+          `/applications/${encodeURIComponent(processorApplicationId)}`,
         );
 
         if (!ok) {
@@ -665,6 +697,10 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
             error: "Payarc status response identifies a different application — observation discarded",
           };
         }
+        // Contract (recorded, tested): the resource is addressed by the requested application id in the URL path, so a
+        // body that carries no identifier is attributed to that request; a body that names ANOTHER application is
+        // discarded above. The result says which case applied so the apply layer can keep the evidence.
+        const identityEchoed = returnedId === processorApplicationId;
         const mappedStatus = parsePayarcStatus(applicant?.status);
         if (!mappedStatus) {
           return {
@@ -681,6 +717,7 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
           success: true,
           processorApplicationId,
           status: mappedStatus,
+          identityEchoed,
           mid: mid ?? undefined,
           message: applicant?.message || applicant?.status_message || undefined,
           moreInfoRequest: applicant?.additional_info_request || applicant?.info_request || undefined,

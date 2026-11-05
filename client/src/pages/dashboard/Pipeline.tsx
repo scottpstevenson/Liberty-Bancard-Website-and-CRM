@@ -29,6 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { useAuth } from "@/hooks/use-auth";
 import {useAuthorizedSelectedRecord} from "@/hooks/use-authorized-selected-record";
 import { exportToCSV } from "@/lib/export-csv";
@@ -2244,7 +2245,12 @@ function PipelineWorkspace() {
         // Clearing a MID requires explicit operator revocation, not a silent blank.
         toast({
           title: "Cannot clear MID here",
-          description: "MID removal requires an explicit admin action from the MID Registry. Use the Boarding → MID Registry page to revoke.",
+          description: "MID removal is an explicit close action in Boarding → MID Registry (/dashboard/boarding?view=mid-registry). A closed MID stays in history.",
+          action: (
+            <ToastAction altText="Open the MID Registry" onClick={() => navigatePipeline("/dashboard/boarding?view=mid-registry")} data-testid="toast-action-mid-registry">
+              Open MID Registry
+            </ToastAction>
+          ),
           variant: "destructive",
         });
         setEditMid(selectedDeal.mid || ""); // restore original

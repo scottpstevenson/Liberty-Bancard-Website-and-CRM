@@ -48,6 +48,7 @@ const mkDeal = async (l: string, contactId: number | null = null) => Number((awa
 const mkDoc = async (dealId: number | null, contactId: number | null) => Number((await q(sql`INSERT INTO documents (type,file_name,deal_id,contact_id) VALUES ('Other',${`s5uc-${tag}.pdf`},${dealId},${contactId}) RETURNING id`))[0].id);
 const mkDecision = async (dealId: number) => Number((await q(sql`INSERT INTO underwriting_decisions (deal_id,decision,score) VALUES (${dealId},'hold',10) RETURNING id`))[0].id);
 
+const OK = { success: true, outcome: "sent" };
 const POST = "POST /api/underwriting/deals/:id/conditions", PATCH = "PATCH /api/underwriting/conditions/:id";
 const GET = "GET /api/underwriting/deals/:id/conditions", DEL = "DELETE /api/underwriting/conditions/:id";
 const CHASE = "POST /api/underwriting/deals/:id/conditions/chase";
@@ -115,7 +116,7 @@ check(again.code === 200 && again.body.alreadySuperseded === true && again.body.
 // ── Race-safe initialization ─────────────────────────────────────────────────
 const dealI = await mkDeal("init", await mkContact("i"));
 const sent: any[] = [];
-const open = { authorize: async () => ({ allowed: true }), canExecute: async () => true, isSmtpConfigured: () => true, sendEmail: async (m: any) => { sent.push(m); } };
+const open = { authorize: async () => ({ allowed: true }), canExecute: async () => true, isSmtpConfigured: () => true, sendEmail: async (m: any) => { sent.push(m); return OK; } };
 await Promise.all(Array.from({ length: 6 }, () => checklist.initUnderwritingConditions(dealI, "m@example.invalid", "Merch Ant", null, open)));
 const stdCount = async (d: number) => Number((await q(sql`SELECT count(*)::int AS n FROM underwriting_conditions WHERE deal_id = ${d} AND automation_key IS NOT NULL`))[0].n);
 check(await stdCount(dealI) === 6, "six concurrent initializations create exactly the six standard conditions");
@@ -136,7 +137,7 @@ check(Number((await q(sql`SELECT count(*)::int AS n FROM underwriting_conditions
 const dealP = await mkDeal("pause", await mkContact("p"));
 const sentP: any[] = [];
 let paused = true;
-const gated = { authorize: async () => paused ? { allowed: false, reasonCode: "global_pause" } : { allowed: true }, canExecute: async () => true, isSmtpConfigured: () => true, sendEmail: async (m: any) => { sentP.push(m); } };
+const gated = { authorize: async () => paused ? { allowed: false, reasonCode: "global_pause" } : { allowed: true }, canExecute: async () => true, isSmtpConfigured: () => true, sendEmail: async (m: any) => { sentP.push(m); return OK; } };
 await checklist.initUnderwritingConditions(dealP, "p@example.invalid", "Pau Se", null, gated);
 const chaseRow = async (d: number) => (await q(sql`SELECT status, attempts, last_reason, sent_at FROM underwriting_condition_chases WHERE deal_id = ${d} AND channel = 'email'`))[0];
 let cr = await chaseRow(dealP);
@@ -145,7 +146,7 @@ check((await q(sql`SELECT 1 FROM underwriting_conditions WHERE deal_id = ${dealP
 const stillPaused = await checklist.retryOwedConditionChases({ dealId: dealP }, gated);
 check(stillPaused.sent === 0 && stillPaused.stillOwed === 1, "a sweep during the pause sends nothing");
 paused = false;
-const slow: any = { ...gated, sendEmail: async (m: any) => { await new Promise((r) => setTimeout(r, 50)); sentP.push(m); } };
+const slow: any = { ...gated, sendEmail: async (m: any) => { await new Promise((r) => setTimeout(r, 50)); sentP.push(m); return OK; } };
 const sweeps = await Promise.all([checklist.retryOwedConditionChases({ dealId: dealP }, slow), checklist.retryOwedConditionChases({ dealId: dealP }, slow), checklist.retryOwedConditionChases({ dealId: dealP }, slow)]);
 cr = await chaseRow(dealP);
 check(sentP.length === 1 && sweeps.reduce((n, r) => n + r.sent, 0) === 1 && cr.status === "sent" && cr.sent_at, "after the pause lifts three concurrent sweeps send exactly once");
@@ -158,7 +159,7 @@ check(routeOk.code === 200 && routeOk.body.sent === 0, "the explicit chase route
 // Unknown outcome is held, never auto-resent.
 const dealU = await mkDeal("unknown", await mkContact("u"));
 let throwOnce = true; const sentU: any[] = [];
-const flaky = { ...open, sendEmail: async (m: any) => { if (throwOnce) { throwOnce = false; throw new Error("connection reset"); } sentU.push(m); } };
+const flaky = { ...open, sendEmail: async (m: any) => { if (throwOnce) { throwOnce = false; throw new Error("connection reset"); } sentU.push(m); return OK; } };
 await checklist.initUnderwritingConditions(dealU, "u@example.invalid", "Un Known", null, flaky);
 const held = await chaseRow(dealU);
 await checklist.retryOwedConditionChases({ dealId: dealU }, flaky);
@@ -173,6 +174,102 @@ await checklist.initUnderwritingConditions(dealD, "d@example.invalid", "Done D",
 await db.execute(sql`UPDATE underwriting_conditions SET status = 'waived', waived_reason = 'n/a' WHERE deal_id = ${dealD}`);
 await checklist.retryOwedConditionChases({ dealId: dealD }, open);
 check((await chaseRow(dealD)).status === "not_applicable", "a chase with nothing outstanding is closed as not applicable, not sent");
+
+// ── R07: only an SMTP success/outcome=sent settles sent; HTML escaping; allowlisted codes ─────────────────────
+const mkChaseDeal = async (l: string, email = `r07-${tag}-${l}@example.invalid`, name = "Rseven X") => {
+  const d = await mkDeal(l, await mkContact(`r7${l}`));
+  return { d, email, name };
+};
+const notSettled = async (label: string, ret: unknown, expectStatus: "owed" | "sending", reasonStart: string) => {
+  const { d, email, name } = await mkChaseDeal(label);
+  const calls: any[] = [];
+  const deps = { ...open, sendEmail: async (m: any) => { calls.push(m); return ret; } };
+  await checklist.initUnderwritingConditions(d, email, name, null, deps);
+  const r = await chaseRow(d);
+  check(calls.length === 1 && r.status === expectStatus && String(r.last_reason).startsWith(reasonStart) && !r.sent_at, `a ${label} result is not counted as sent (${expectStatus})`);
+  return d;
+};
+await notSettled("resolved-failure-no-outcome", { success: false, error: "550 mailbox user@example.invalid refused" }, "sending", "unknown_outcome:");
+await notSettled("undefined", undefined, "sending", "unknown_outcome:");
+await notSettled("uncertain", { success: false, outcome: "uncertain" }, "sending", "unknown_outcome:");
+await notSettled("success-without-outcome", { success: true }, "sending", "unknown_outcome:");
+const unsentDeal = await notSettled("unsent", { success: false, outcome: "unsent", error: "refused for secret@example.invalid" }, "owed", "unsent:");
+const unsentRow = (await q(sql`SELECT last_reason, next_check_at, attempts FROM underwriting_condition_chases WHERE deal_id = ${unsentDeal}`))[0];
+check(!String(unsentRow.last_reason).includes("@") && unsentRow.next_check_at && unsentRow.attempts === 1, "a proven-unsent result is retried later, keeps the attempt, and stores no provider text");
+{
+  const { d, email, name } = await mkChaseDeal("throws");
+  await checklist.initUnderwritingConditions(d, email, name, null, { ...open, sendEmail: async () => { throw Object.assign(new Error("failed for victim@example.invalid"), { code: "ETIMEDOUT" }); } });
+  const r = await chaseRow(d);
+  check(r.status === "sending" && r.last_reason === "unknown_outcome:ETIMEDOUT" && !String(r.last_reason).includes("@"), "a throw is held with an allowlisted code only");
+  const other = await mkChaseDeal("throws2");
+  await checklist.initUnderwritingConditions(other.d, other.email, other.name, null, { ...open, sendEmail: async () => { throw new Error("secret body"); } });
+  check((await chaseRow(other.d)).last_reason === "unknown_outcome:send_error", "an unknown error is stored as a generic code, never its message");
+}
+{
+  const html = checklist.buildChaseEmail("x@example.invalid", "<img src=x onerror=alert(1)> Bob", [{ conditionType: "photo_id<script>", description: "Show <b>ID</b> & \"more\"" }]).html;
+  check(!html.includes("<script>") && !html.includes("<img") && !html.includes("<b>ID</b>") && html.includes("&lt;script&gt;") && html.includes("&amp;"), "merchant and condition text is HTML-escaped in the chase email");
+}
+
+// ── R07: recipient and obligation versions ───────────────────────────────────────────────────────────────────
+{
+  const sentTo: any[] = [];
+  const rec = { ...open, sendEmail: async (m: any) => { sentTo.push(m); return OK; } };
+  const { d } = await mkChaseDeal("version");
+  const contactId = Number((await q(sql`SELECT contact_id FROM deals WHERE id = ${d}`))[0].contact_id);
+  const gatedOff = { ...open, authorize: async () => ({ allowed: false, reasonCode: "t" }) };
+  await checklist.initUnderwritingConditions(d, `old-${tag}@example.invalid`, "Old Owner", null, gatedOff);
+  await db.execute(sql`UPDATE contacts SET email = ${`new-${tag}@example.invalid`} WHERE id = ${contactId}`);
+  await checklist.retryOwedConditionChases({ dealId: d }, rec);
+  const v = (await q(sql`SELECT status, recipient_email, recipient_version, sent_recipient_version, obligation_version, sent_obligation_version FROM underwriting_condition_chases WHERE deal_id = ${d}`))[0];
+  check(sentTo.length === 1 && sentTo[0].to === `new-${tag}@example.invalid` && v.status === "sent" && v.recipient_version === 2 && v.sent_recipient_version === 2, "the chase goes to the CURRENT mailbox owner and the recipient version records the change");
+  check(v.obligation_version === 1 && v.sent_obligation_version === 1, "the sent obligation version is recorded");
+  const added = await call(POST, { params: { id: String(d) }, body: { conditionType: "extra_doc", description: "Another document" }, user: admin });
+  const v2 = (await q(sql`SELECT status, obligation_version FROM underwriting_condition_chases WHERE deal_id = ${d}`))[0];
+  check(added.code === 201 && v2.status === "owed" && v2.obligation_version === 2, "a new merchant-visible obligation re-opens a settled chase with a new obligation version");
+  await checklist.retryOwedConditionChases({ dealId: d }, rec);
+  check(sentTo.length === 2 && sentTo[1].html.includes("extra doc"), "the follow-up chase lists the new obligation");
+  const stale = (await q(sql`SELECT id, recipient_version, obligation_version FROM underwriting_condition_chases WHERE deal_id = ${d}`))[0];
+  await db.execute(sql`UPDATE underwriting_condition_chases SET status = 'owed' WHERE id = ${stale.id}`);
+  const claimedStale = await db.execute(sql`UPDATE underwriting_condition_chases SET status = 'sending' WHERE id = ${stale.id} AND status = 'owed' AND recipient_version = ${stale.recipient_version} AND obligation_version = ${stale.obligation_version - 1} RETURNING id`);
+  check(((claimedStale as any).rows ?? []).length === 0, "a claim pinned to a superseded obligation version cannot win (negative control)");
+}
+
+// ── R07: fairness beyond the first batch ───────────────────────────────────────────────────────────────────
+{
+  const ids: number[] = [];
+  const noSend = { ...open, authorize: async () => ({ allowed: false, reasonCode: "t" }) };
+  for (let i = 0; i < 60; i++) {
+    const { d, email, name } = await mkChaseDeal(`fair${i}`);
+    await checklist.initUnderwritingConditions(d, email, name, null, noSend);
+    ids.push(d);
+  }
+  await db.execute(sql`UPDATE underwriting_condition_chases SET next_check_at = NULL WHERE deal_id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`);
+  const visited = new Set<number>();
+  const probe = (deps: any) => ({ ...deps, authorize: async () => ({ allowed: false, reasonCode: "probe" }) });
+  const before = Number((await q(sql`SELECT count(*)::int AS n FROM underwriting_condition_chases WHERE status = 'owed' AND (next_check_at IS NULL OR next_check_at <= now())`))[0].n);
+  const r1 = await checklist.retryOwedConditionChases({}, probe(open));
+  const r2 = await checklist.retryOwedConditionChases({}, probe(open));
+  const touched = Number((await q(sql`SELECT count(*)::int AS n FROM underwriting_condition_chases WHERE deal_id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)}) AND next_check_at > now()`))[0].n);
+  check(before >= 60 && r1.stillOwed === 50 && touched === 60, "rows beyond the first 50 are reached by the next sweep via the durable cursor (all 60 visited in two sweeps)");
+  check(r1.stillOwed + r2.stillOwed >= 60, "two sweeps cover every owed row");
+}
+
+// ── R07: read-only chase state and history ────────────────────────────────────────────────────────────────────
+{
+  const READ_CHASE = "GET /api/underwriting/deals/:id/conditions/chase", HIST = "GET /api/underwriting/conditions/:id/history";
+  const { d } = await mkChaseDeal("readonly");
+  await checklist.initUnderwritingConditions(d, `ro-${tag}@example.invalid`, "Read Only", null, { ...open, sendEmail: async () => { throw new Error("x"); } });
+  const rc = await call(READ_CHASE, { params: { id: String(d) }, user: manager });
+  check(rc.code === 200 && rc.body.chase.state === "held_unknown_outcome" && rc.body.chase.reason === "unknown_outcome:send_error", "an unknown-outcome chase is readable as held");
+  check((await call(READ_CHASE, { params: { id: String(d) }, user: agent })).code === 403, "an agent cannot read chase state");
+  const manual = await call(CHASE, { params: { id: String(d) }, user: manager });
+  check(manual.code === 200 && manual.body.attempted === 0 && manual.body.heldUnknown === 1, "the explicit chase route never resends a held unknown outcome");
+  const cond = (await q(sql`SELECT id FROM underwriting_conditions WHERE deal_id = ${d} LIMIT 1`))[0].id;
+  await call(PATCH, { params: { id: String(cond) }, body: { status: "submitted" }, user: manager });
+  const h = await call(HIST, { params: { id: String(cond) }, user: manager });
+  check(h.code === 200 && h.body.history.some((e: any) => e.action === "underwriting_condition_updated" && e.actorId === manager.id), "condition history shows the real actor id");
+  check((await call(HIST, { params: { id: "99999999" }, user: manager })).code === 404 && (await call(HIST, { params: { id: String(cond) }, user: agent })).code === 403, "history is admin/manager only and 404s for an unknown condition");
+}
 
 console.log(`\nStage 5 underwriting conditions certification: ${checks} checks passed`);
 process.exit(0);

@@ -84,6 +84,7 @@ async function main(): Promise<void> {
       { name: "stage5-underwriting-override", script: "scripts/certification/test-stage5-underwriting-override.ts", database: true },
       { name: "stage5-underwriting-read-model", script: "scripts/certification/test-stage5-underwriting-read-model.ts", database: true },
       { name: "stage5-underwriting-conditions", script: "scripts/certification/test-stage5-underwriting-conditions.ts", database: true },
+      { name: "stage5-application-effects", script: "scripts/certification/test-stage5-application-effects.ts", database: true },
       { name: "stage5-application-contract", script: "scripts/certification/test-stage5-application-contract.ts", database: true },
       { name: "stage5-underwriting-evidence", script: "scripts/certification/test-stage5-underwriting-evidence.ts", database: true },
       { name: "stage4d-booking-recovery", script: "scripts/certification/test-stage4d-booking-recovery.ts", database: true },

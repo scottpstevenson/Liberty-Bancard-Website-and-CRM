@@ -75,8 +75,17 @@ for (const [name, body, field] of [
   for (const k of Object.keys(draftPart)) delete rest[k];
   const ack = await fin(d, rest);
   check(ack && (await status(d.id)) === "submitted" && (await outboxCount(d.id)) > 0, "valid submission (autosaved business step + final body) is accepted, becomes submitted and enqueues effects");
-  const replay = await svc.finalizeApplication({ appId: d.id, draftToken: d.draftToken, idempotencyKey: (((await db.execute(sql`SELECT finalize_idempotency_key AS k FROM merchant_applications WHERE id=${d.id}`)) as any).rows)[0].k, body: {} });
-  check(replay.replayed === true, "control: the same-key replay still returns the stored acknowledgement even with an empty body");
+  const storedKey = (((await db.execute(sql`SELECT finalize_idempotency_key AS k FROM merchant_applications WHERE id=${d.id}`)) as any).rows)[0].k;
+  const replay = await svc.finalizeApplication({ appId: d.id, draftToken: d.draftToken, idempotencyKey: storedKey, body: rest });
+  check(replay.replayed === true, "control: the same-key, same-payload replay returns the stored acknowledgement");
+  const mismatch = await refused(svc.finalizeApplication({ appId: d.id, draftToken: d.draftToken, idempotencyKey: storedKey, body: {} }));
+  check(mismatch && mismatch.name === "ConflictError" && mismatch.code === "finalize_payload_mismatch", "negative control: the same key with a different payload is a conflict (key is bound to one payload)");
+  const changed = await refused(svc.finalizeApplication({ appId: d.id, draftToken: d.draftToken, idempotencyKey: storedKey, body: { ...rest, ownerSsn: "987-65-4321" } }));
+  check(changed && changed.code === "finalize_payload_mismatch" && (await status(d.id)) === "submitted", "changing one protected value under the same key is a conflict and changes nothing");
+  const receipt = await svc.getSavedSubmissionReceipt(d.id, d.draftToken, storedKey);
+  check(receipt.saved === true && !!receipt.ack, "the read-only receipt reports the saved submission without dispatching");
+  const noReceipt = await svc.getSavedSubmissionReceipt(d.id, d.draftToken, crypto.randomUUID());
+  check(noReceipt.saved === false, "a different key reports no saved submission");
 }
 {
   const d = await svc.createDraft({});

@@ -56,7 +56,7 @@
 - [Arbitration fail-closed](arbitration-fail-closed.md) — arbitration catch block returns suppressed:true on error (was fail-open); ARBITRATION_ERROR audit log written.
 - [AI Memory Architecture](ai-memory-arch.md) — AI memory tables and /api/ai-memory routes; AI Learning Center is in OperatorDashboard.
 - [Save Cases auto-open](save-cases-auto-open.md) — openSaveCaseIfNeeded() fires after High/Critical nightly churn score; partial unique index prevents duplicate open cases per contact.
-- [Test fixture isolation](test-contact-prefixes.md) — Prefix/FK rules; [unique phones/EINs](test-phone-isolation.md) and [GHL cleanup](ghl-test-contact-cleanup.md).
+- [Test fixture isolation](test-contact-prefixes.md) — Prefix/FK rules; [unique phones/EINs](test-phone-isolation.md) and [GHL cleanup](ghl-test-contact-cleanup.md). See also [mutated-fixture reuse](cert-fixture-mutation-reuse.md), [shared SFP fixtures](sfp-shared-cert-fixtures.md).
 - [Processor boarding authority pattern](processor-boarding-authority.md) — activation snapshot is the single gate for all provider I/O; MIDs masked in every response.
 - [Equipment Shipments Device Fields](equipment-shipments-device-fields.md) — device_type/serial_number; POST/PATCH/GET /api/boarding/equipment CRUD; merchant_mids IS the master MID registry.
 - [Outbound Pause Authority](outbound-pause-authority.md) — canonical pause authority must initialize successfully before workers start.
@@ -107,7 +107,6 @@
 - [Census cursor NOWAIT skip-locked](census-cursor-nowait.md) — FOR UPDATE NOWAIT + lock_timeout '2s' on cursor rows; locked sources skip both row fetch and cursor advance.
 - [CRO runtime observations](cro03d-ceremony-architecture.md) — Fresh fleet capture is not approval; use the guarded collector for expired observations, never restore startup signing.
 - [Durable failure-write tx deadlock](durable-failure-write-tx-deadlock.md) — Do not reuse a failing tx's PK on another connection; write failures in the outer catch.
-- [Fixture isolation](cert-fixture-mutation-reuse.md) — No mutated fixture reuse; [shared SFP fixtures](sfp-shared-cert-fixtures.md).
 - [Cross-connection advisory lock deadlock](advisory-lock-cross-connection-deadlock.md) — never xact-lock a key a session-level lock on a different connection already holds.
 - [SFP paid-provider manifest gaps & reserved-keyword SQL](sfp-paid-provider-manifest-and-reserved-keyword.md) — List each shared-chain file in approvedCallers; quote `authorization` in SQL.
 - [Disposable-DB VFC diff-isolation certs need a clean tree](sfp-vfc-diff-isolation-clean-tree.md) — cert scripts assert diff isolation; stash uncommitted WIP first.
@@ -196,6 +195,6 @@
 - [SMS recipient authority](sms-recipient-authority.md) — one canonical consent+number decision right before every text in every transport; legacy flags never authority.
 - [Browser suite query-cache and overlays](browser-suite-query-cache-and-overlays.md) — reload after fixture env changes (stale cache hides state); floating assistant covers bottom-right controls.
 - [Stage 4D reliability patterns](stage4d-reliability-patterns.md) — atomic inbound evidence, atomic reply-stop pause, non-sending hold expiry, full-number SMS identity, local-contact-only booking create.
-- [Stage 4D reliability patterns](stage4d-reliability-patterns.md) — writer-flag jsonb read-back trap, transport-gate refusal, build-identity rebuilds, sdr.ts ESM require.
 - [Pre-deploy gate quirks](appointment-statement-polling-fix.md) — GHL fix: pollUntil(12s); see [predeploy-port-5000-conflict.md](predeploy-port-5000-conflict.md): dev owns port 5000.
 - [Application-to-MID lifecycle patterns](stage5-application-to-mid-patterns.md) — dispatch markers, atomic underwriting override, shared cohort for counts/queue, pure e-sign read, journal text-append rule.
+- [Stage 5 application-to-MID patterns](stage5-application-to-mid-patterns.md) — held-send markers, strict-DTO tracking-key 400, MID rules, allowlist moves, test-forms limits.

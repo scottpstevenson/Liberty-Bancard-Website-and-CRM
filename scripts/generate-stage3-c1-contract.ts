@@ -118,7 +118,7 @@ const specialQueries: Record<string,string[]> = {
   "/dashboard/merchant-risk":["tab","healthView"],
   "/dashboard/merchant-health":["healthView"],
   "/dashboard/underwriting":["underwritingView"],
-  "/dashboard/boarding":["status"],
+  "/dashboard/boarding":["status","view"],
   "/dashboard/merchant-applications":["status"],
   "/dashboard/leaderboard":["metric","period"],
   "/dashboard/onboarding":["tab"],

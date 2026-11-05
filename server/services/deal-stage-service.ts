@@ -596,6 +596,17 @@ export async function triggerClosedWonOnboarding(salesDeal: Deal): Promise<void>
       }
     }
 
+    // ── 1b. Bridge the sales deal's exact application to the onboarding deal (audited, never silent) ──
+    try {
+      const { bridgeApplicationToOnboarding } = await import("./boarding-case");
+      const bridged = await bridgeApplicationToOnboarding(onboardingDealId, null);
+      if (bridged.bridged) {
+        console.log(`[Onboarding] Bridged application #${bridged.applicationId} from sales deal #${bridged.fromDealId} to onboarding deal #${onboardingDealId}`);
+      }
+    } catch (bridgeErr) {
+      console.error(`[Onboarding] Application bridge failed for onboarding deal #${onboardingDealId}:`, bridgeErr instanceof Error ? bridgeErr.name : "error");
+    }
+
     // ── 2. Auto-initialize onboarding checklist (idempotent via onConflictDoNothing) ──
     try {
       await storage.initializeOnboardingChecklist(onboardingDealId);

@@ -40,6 +40,7 @@ export function revenueFilterUrl(search:string,hash:string,filter:Omit<RevenueFi
 export const underwritingViews = ["queue","approved","config"] as const;
 export const onboardingViews = ["overview", "board"] as const;
 export const applicationStatuses = ["all","submitted","under_review","approved","declined","draft","withdrawn"] as const;
+export const boardingViews = ["submissions","mid-registry"] as const;
 export const boardingStatuses = ["all","submitted","under_review","more_info_needed","approved","declined"] as const;
 export const outreachViews = ["campaigns","ab-testing","messages"] as const;
 export const leaderboardMetrics = ["deals","revenue","proposals","calls","responseRate","closeRate","contacts"] as const;
@@ -122,7 +123,8 @@ export function retainedSelectionUrl<T extends string>(path:string,search:string
   const routeKeys=path==="/dashboard/reporting"
     ? ["tab","outreachView","financialTab","revenueView",...revenueFilterKeys]
     : path==="/dashboard/leaderboard"?["metric","period"]
-    : ["/dashboard/boarding","/dashboard/merchant-applications"].includes(path)?["status"]
+    : path==="/dashboard/boarding"?["status","view"]
+    : path==="/dashboard/merchant-applications"?["status"]
     : c5RouteKeys[path] ? [...c5RouteKeys[path]]
     : [];
   if(!routeKeys.includes(key))throw new Error(`Unregistered route selector: ${key}`);

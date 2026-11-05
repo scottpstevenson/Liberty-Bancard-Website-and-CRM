@@ -29,6 +29,9 @@ const { sql } = await import("drizzle-orm");
 const worker = await import("../../server/services/deal-boarding-outbox-worker");
 const appWorker = await import("../../server/services/merchant-application-outbox-worker");
 const { processProtectedData, decryptProtectedFields } = await import("../../server/services/merchant-protected-data");
+const { evaluateBoardingReadiness } = await import("../../server/services/boarding-readiness");
+const { recordCertPolicy, removeCertPolicy, CERT_PROGRAM } = await import("./stage5-boarding-fixture");
+await recordCertPolicy(db, sql);
 
 let checks = 0;
 const check = (v: unknown, message: string) => { assert(v, message); checks++; console.log(`✓ [S5-BW-${String(checks).padStart(2, "0")}] ${message}`); };
@@ -56,16 +59,16 @@ function installFake(mode: "ok" | "ambiguous", calls: Calls, hook?: () => Promis
   } as any));
 }
 
-async function fixture(label: string, opts: { omitAccount?: boolean } = {}) {
+async function fixture(label: string, opts: { omitAccount?: boolean; omitCaseVersion?: boolean } = {}) {
   const dealRes = await db.execute(sql`
     INSERT INTO deals (pipeline, stage, name, boarding_status)
     VALUES ('onboarding', 'Underwriting', ${`S5BW ${tag} ${label}`}, 'queued') RETURNING id`);
   const dealId = Number(((dealRes as any).rows ?? dealRes)[0].id);
   const appRes = await db.execute(sql`
     INSERT INTO merchant_applications (deal_id, legal_business_name, dba, business_address, business_city, business_state,
-      business_zip, owner_first_name, owner_last_name, owner_email, business_phone)
+      business_zip, owner_first_name, owner_last_name, owner_email, business_phone, status, preferred_program)
     VALUES (${dealId}, ${`Fixture Legal ${tag} ${label}`}, 'Fixture DBA', '1 Fixture Way', 'Miami', 'FL', '33101',
-      'Fixie', 'Tester', 'fixie@example.invalid', '3055550100') RETURNING id`);
+      'Fixie', 'Tester', 'fixie@example.invalid', '3055550100', 'submitted', ${CERT_PROGRAM}) RETURNING id`);
   const appId = Number(((appRes as any).rows ?? appRes)[0].id);
   const enc = processProtectedData(appId, {
     ein: SECRETS.ein, ssn: SECRETS.ssn, dob: SECRETS.dob, routing: SECRETS.routing,
@@ -77,10 +80,11 @@ async function fixture(label: string, opts: { omitAccount?: boolean } = {}) {
       bank_account_number = ${enc.account?.ciphertext ?? null}
     WHERE id = ${appId}`);
   const [{ v }] = (((await db.execute(sql`SELECT updated_at::text AS v FROM merchant_applications WHERE id = ${appId}`)) as any).rows) as any[];
+  const readinessCaseVersion = opts.omitCaseVersion ? undefined : (await evaluateBoardingReadiness(dealId, { includeFieldCompleteness: false })).caseVersion;
   const outRes = await db.execute(sql`
     INSERT INTO deal_boarding_outbox (deal_id, application_id, event_type, idempotency_key, processor_name, payload, status)
     VALUES (${dealId}, ${appId}, 'processor_submit', ${`s5bw-${tag}-${label}`}, 'mock',
-      ${JSON.stringify({ dealId, applicationId: appId, providerIdempotencyKey: `pik-${label}`, applicationLinkageVersion: v })}::jsonb, 'pending')
+      ${JSON.stringify({ dealId, applicationId: appId, providerIdempotencyKey: `pik-${label}`, applicationLinkageVersion: v, readinessCaseVersion })}::jsonb, 'pending')
     RETURNING id`);
   const outboxId = String(((outRes as any).rows ?? outRes)[0].id);
   return { dealId, appId, outboxId };
@@ -274,6 +278,85 @@ const auditFor = async (dealId: number) => (((await db.execute(sql`SELECT action
   await worker.__test__.tick();
   const orr = await outbox(r.outboxId);
   check(orr.status === "pending" && orr.last_error !== "DISPATCH_STARTED", "a definite provider rejection overwrites the marker and remains retryable");
+  // R05: a permanent 4xx is terminal at once (with adapter/program/operation identity); a 429 stays retryable.
+  const perm = await fixture("permanent-4xx");
+  worker.__test__.setProcessorOverride(() => ({ name: "mock", boardMerchant: async () => ({ success: false, permanent: true, httpStatus: 422, error: "rejected" }) } as any));
+  await worker.__test__.tick();
+  const op = await outbox(perm.outboxId);
+  const permAudit = (await auditFor(perm.dealId)).find((a) => a.action === "deal_boarding_dead_letter");
+  check(op.status === "dead_letter" && op.attempts === 1 && (await dealRow(perm.dealId)).boarding_status === "dead_letter", "a permanent provider rejection is dead-lettered on the first attempt, not retried six times");
+  check(permAudit && permAudit.details.permanent === true && permAudit.details.httpStatus === 422 && permAudit.details.adapter === "mock" && permAudit.details.operation === "board_merchant" && permAudit.details.program, "the dead-letter audit records permanence, HTTP status, adapter, program and operation");
+  const rate = await fixture("rate-limited");
+  worker.__test__.setProcessorOverride(() => ({ name: "mock", boardMerchant: async () => ({ success: false, retryable: true, httpStatus: 429, error: "slow down" }) } as any));
+  await worker.__test__.tick();
+  check((await outbox(rate.outboxId)).status === "pending", "a 429 refusal is retryable and the row stays pending");
+  worker.__test__.setProcessorOverride(null);
+}
+
+// ── R03/R04: case-version fence, policy fail-closed, post-provider uncertainty, provider status ──
+{
+  // (1) A decision recorded after enqueue changes the case tuple → refused before transport.
+  const calls: Calls = { payloads: [] };
+  installFake("ok", calls);
+  const a = await fixture("case-changed");
+  await db.execute(sql`INSERT INTO underwriting_decisions (deal_id, decision, score, decided_at) VALUES (${a.dealId}, 'approve', 80, now() - interval '1 minute')`);
+  await worker.__test__.tick();
+  let o = await outbox(a.outboxId);
+  check(calls.payloads.length === 0 && o.status === "dead_letter" && o.last_error === "BOARDING_CASE_CHANGED", "a decision recorded after enqueue changes the case version and blocks transport");
+  // (2) Legacy rows without a captured version fail closed.
+  const b = await fixture("case-missing", { omitCaseVersion: true });
+  await worker.__test__.tick();
+  o = await outbox(b.outboxId);
+  check(calls.payloads.length === 0 && o.last_error === "BOARDING_CASE_VERSION_MISSING", "an outbox row without a captured case version is refused (fail closed)");
+  // (3) The owner policy is part of the verdict: removing it makes the case not ready at dispatch.
+  const c = await fixture("policy-removed");
+  await removeCertPolicy(db, sql);
+  await worker.__test__.tick();
+  o = await outbox(c.outboxId);
+  check(calls.payloads.length === 0 && o.last_error === "BOARDING_NOT_READY", "negative control: with no recorded owner policy the gates stay unresolved and dispatch is refused");
+  const ra = (await auditFor(c.dealId)).find((x) => x.action === "deal_boarding_blocked_not_ready");
+  check(ra && JSON.stringify(ra.details).includes("policy_unresolved"), "the unresolved policy gate is the audited blocker");
+  await recordCertPolicy(db, sql);
+
+  // (4) Post-provider local failure: the provider accepted, then the local commit fails. The claim must stay
+  //     ambiguous (never cleared to a retry) and the provider must not be called again.
+  const calls2: Calls = { payloads: [] };
+  let markerAtCall: string | null = null;
+  const d = await fixture("post-provider-failure");
+  worker.__test__.setProcessorOverride(() => ({
+    name: "mock",
+    boardMerchant: async (profile: any) => {
+      calls2.payloads.push(JSON.parse(JSON.stringify(profile)));
+      // Real-tick negative control: the fake provider does NOT pre-clear the claim; the durable marker is already set.
+      markerAtCall = (await outbox(d.outboxId)).last_error;
+      await db.execute(sql`CREATE OR REPLACE FUNCTION s5bw_block_commit() RETURNS trigger AS $$ BEGIN
+        IF NEW.processor_application_id IS NOT NULL THEN RAISE EXCEPTION 's5bw simulated local commit failure'; END IF; RETURN NEW; END $$ LANGUAGE plpgsql`);
+      await db.execute(sql`CREATE TRIGGER s5bw_block_commit_trg BEFORE UPDATE ON deals FOR EACH ROW WHEN (NEW.id = ${sql.raw(String(d.dealId))}) EXECUTE FUNCTION s5bw_block_commit()`);
+      return { success: true, processorApplicationId: `FAKE-APP-${tag}-pf`, status: "submitted", message: "fixture" };
+    },
+  } as any));
+  await worker.__test__.tick();
+  await db.execute(sql`DROP TRIGGER IF EXISTS s5bw_block_commit_trg ON deals`);
+  await worker.__test__.tick();
+  await worker.__test__.tick();
+  o = await outbox(d.outboxId);
+  const dd = await dealRow(d.dealId);
+  check(markerAtCall === "DISPATCH_STARTED", "the dispatch marker was durably set BEFORE the provider call (fake provider did not pre-clear it)");
+  check(calls2.payloads.length === 1, "provider called exactly once despite the local commit failure");
+  check(o.status === "dead_letter" && o.last_error === "ambiguous_reconciliation_required" && dd.boarding_status === "ambiguous_reconciliation_required",
+    "a failure after provider dispatch settles ambiguous (reconciliation required), not a clean retry");
+  check(!(await auditFor(d.dealId)).some((x) => x.action === "deal_submitted_to_processor"), "no submitted audit was written for the unsettled outcome");
+
+  // (5) The provider's own acceptance status is persisted (not always 'submitted').
+  worker.__test__.setProcessorOverride(() => ({
+    name: "mock",
+    boardMerchant: async () => ({ success: true, processorApplicationId: `FAKE-APP-${tag}-ur`, status: "under_review", message: "fixture" }),
+  } as any));
+  const e = await fixture("provider-status");
+  await worker.__test__.tick();
+  const de = await dealRow(e.dealId);
+  check(de.boarding_status === "under_review", "the provider's acceptance status (under_review) is persisted");
+  check(JSON.stringify(de.boarding_log).includes('"providerStatus":"under_review"'), "the raw provider status is kept in the submission log");
   worker.__test__.setProcessorOverride(null);
 }
 

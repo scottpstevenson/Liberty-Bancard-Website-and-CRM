@@ -10,7 +10,7 @@ import { serverError, safeMessage } from "../utils/server-error";
 import { startDealBoardingOutboxWorker } from "../services/deal-boarding-outbox-worker";
 import { isLocalOutboxWorkerSelected } from "../services/background-profile";
 import { auditChange } from "../services/audit-change";
-import { advanceDealStage } from "../services/deal-stage-service";
+import { advanceDealStage, advanceDealStageInTx, advanceDealStageAfterCommit } from "../services/deal-stage-service";
 import { evaluateBoardingReadiness } from "../services/boarding-readiness";
 import { canAccessOwner } from "../services/crm-object-access";
 import crypto from "crypto";
@@ -137,6 +137,7 @@ export async function performBoardingStatusRefresh(dealId: number): Promise<Boar
     // Mock never makes real network calls, so the URL is a sentinel only — but all
     // adapter transport methods require a non-null snapshotAuthorizedBaseUrl.
     let statusPollingBaseUrl: string | null = isMockNonProd ? "mock://internal.mock.local" : null;
+    let statusSnapshotProgram: string | null = isMockNonProd ? "traditional" : null;
     if (!isMockNonProd) {
       try {
         // REV-05A: Status polling requires the "get_merchant_status" operation to
@@ -144,6 +145,7 @@ export async function performBoardingStatusRefresh(dealId: number): Promise<Boar
         // only authorizes boarding does not implicitly authorize provider polling.
         const snapshot = await requireConfirmedActivationSnapshot(processorNameForGate, "get_merchant_status");
         statusPollingBaseUrl = snapshot.authorizedBaseUrl;
+        statusSnapshotProgram = snapshot.processorProgram ?? null;
       } catch (snapErr: any) {
         // Fail closed — if no valid snapshot, skip the poll (do not mutate state).
         return {
@@ -158,6 +160,19 @@ export async function performBoardingStatusRefresh(dealId: number): Promise<Boar
     const merchantStatusOptions = statusPollingBaseUrl
       ? { snapshotAuthorizedBaseUrl: statusPollingBaseUrl }
       : {};
+    // R04: the fence covers the FULL case tuple the observation was read against — deal identity/stage/class and
+    // the bound application's revision — not just the status and log length.
+    const readCaseTuple = async (q: { execute: (x: any) => Promise<any> }, lock: boolean) => {
+      const r = await q.execute(sql`
+        SELECT d.processor_application_id, d.boarding_status, d.boarding_log, d.pipeline, d.stage, d.contact_id,
+               d.sales_deal_id, d.archived_at IS NOT NULL AS archived, COALESCE(d.record_class,'unknown') AS record_class,
+               (SELECT a.id::text || ':' || a.updated_at::text FROM merchant_applications a WHERE a.deal_id = d.id ORDER BY a.id LIMIT 1) AS application_rev
+        FROM deals d WHERE d.id = ${dealId} ${lock ? sql.raw("FOR UPDATE OF d") : sql.raw("")}`);
+      return ((r as any).rows ?? r)[0] as any;
+    };
+    const observedRow = await readCaseTuple(db as any, false);
+    const caseKey = (c: any) => JSON.stringify([c?.pipeline, c?.stage, c?.contact_id, c?.sales_deal_id, c?.archived, c?.record_class, c?.application_rev]);
+    const observedCaseKey = caseKey(observedRow);
     const result = await processor.getMerchantStatus(deal.processorApplicationId, merchantStatusOptions as any);
 
     if (!result.success) {
@@ -179,6 +194,11 @@ export async function performBoardingStatusRefresh(dealId: number): Promise<Boar
       event: "status_check",
       status: result.status,
       message: result.message,
+      // R05: which adapter, program and operation produced this observation, and whether the provider named the application.
+      adapter: processor.name,
+      program: statusSnapshotProgram,
+      operation: "get_merchant_status",
+      identityEchoed: result.identityEchoed ?? null,
     };
 
     if (result.moreInfoRequest) logEntry.moreInfoRequest = result.moreInfoRequest;
@@ -204,11 +224,11 @@ export async function performBoardingStatusRefresh(dealId: number): Promise<Boar
     // log and audit commit together or not at all. The deal row is locked and compared with
     // the version this observation was read against; an older or foreign observation is
     // ignored, and recorded terminal truth is never replaced by a different status.
+    let stageOutcome: Awaited<ReturnType<typeof advanceDealStageInTx>> | null = null;
     const applied = await db.transaction(async (tx) => {
-      const curRes = await tx.execute(sql`
-        SELECT processor_application_id, boarding_status, boarding_log FROM deals WHERE id = ${dealId} FOR UPDATE`);
-      const cur = ((curRes as any).rows ?? curRes)[0] as any;
+      const cur = await readCaseTuple(tx as any, true);
       if (!cur) return { kind: "stale" as const };
+      if (caseKey(cur) !== observedCaseKey) return { kind: "stale" as const };
       const curLogLen = Array.isArray(cur.boarding_log) ? cur.boarding_log.length : 0;
       if (
         cur.processor_application_id !== observed.processorApplicationId ||
@@ -225,7 +245,6 @@ export async function performBoardingStatusRefresh(dealId: number): Promise<Boar
           contactId: deal!.contactId ?? null,
           mid: result.mid,
           processorName: dealProcessorName,
-          status: "assigned",
           actorId: null,
           actorEmail: "system:boarding_status_refresh",
           tx,
@@ -239,6 +258,13 @@ export async function performBoardingStatusRefresh(dealId: number): Promise<Boar
           updatedAt: new Date(),
         } as any)
         .where(eq(deals.id, dealId));
+      // R04: the stage/handoff intent commits WITH the observation (durable intent ledger rows are written by the
+      // canonical stage service inside this transaction); post-commit telemetry runs only after commit.
+      if (result.status === "approved" && deal!.pipeline === "onboarding") {
+        stageOutcome = await advanceDealStageInTx(tx, dealId, "Approved", "boarding_status_refresh", {
+          reason: "Processor boarding status approved", actor: "system", expectedStage: deal!.stage,
+        });
+      }
       await auditChange({
         actorType: "system",
         action: "boarding_status_refreshed",
@@ -261,12 +287,9 @@ export async function performBoardingStatusRefresh(dealId: number): Promise<Boar
       return { dealId, outcome: "skipped", error: `Provider status '${result.status}' conflicts with recorded terminal status '${applied.current}'; not applied.` };
     }
 
-    if (result.status === "approved" && deal.pipeline === "onboarding") {
-      await advanceDealStage(dealId, "Approved", "boarding_status_refresh", {
-        reason: "Processor boarding status approved",
-        actor: "system",
-        expectedStage: deal.stage,
-      });
+    const committedStage = stageOutcome as Awaited<ReturnType<typeof advanceDealStageInTx>> | null;
+    if (committedStage && committedStage.applied && committedStage.stagedDeal) {
+      await advanceDealStageAfterCommit(committedStage.stagedDeal, dealId, "Approved", "boarding_status_refresh");
     }
 
     // When the processor approves the deal, fire the merchant portal invitation
@@ -373,6 +396,23 @@ export function registerBoardingRoutes(app: Express) {
     }
   });
 
+  // R01-3: explicit, audited Sales→Onboarding application bridge (exact salesDealId relationship only).
+  app.post("/api/deals/:id/bridge-application", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const dealId = Number(req.params.id);
+      if (!Number.isInteger(dealId) || dealId <= 0) return res.status(400).json({ message: "Invalid deal id" });
+      const { bridgeApplicationToOnboarding } = await import("../services/boarding-case");
+      const result = await bridgeApplicationToOnboarding(dealId, String((req.user as any)?.id ?? "") || null);
+      if (!result.bridged) {
+        const status = result.reason === "already_direct" ? 200 : 409;
+        return res.status(status).json({ bridged: false, reason: result.reason });
+      }
+      res.json(result);
+    } catch (error) {
+      serverError(res, error, "Failed to bridge application");
+    }
+  });
+
   app.post("/api/deals/:id/submit-to-processor", requireRole("admin", "manager"), async (req, res) => {
     try {
       const dealId = Number(req.params.id);
@@ -400,23 +440,26 @@ export function registerBoardingRoutes(app: Express) {
         });
       }
 
-      // Require an application explicitly linked to THIS deal via deal_id.
-      // Contact-id fallback is intentionally removed: it could silently select
-      // a different application for the same contact (different deal), disclosing
-      // another merchant's protected financial/identity data to the processor.
-      // Pre-check before entering the transaction (no lock yet — definitive
-      // binding happens inside the TX below).
-      const appRows = await db
-        .select({ id: merchantApplications.id })
-        .from(merchantApplications)
-        .where(eq(merchantApplications.dealId, dealId))
-        .limit(1);
-      if (!appRows.length) {
+      // The application must be bound DIRECTLY to this deal (merchant_applications.deal_id = deal). The
+      // readiness evaluator already refused every other relationship (a sales-deal source reports
+      // application_on_sales_deal and must be bridged explicitly); there is no contact fallback.
+      const applicationId = readiness.facts.applicationId;
+      if (!applicationId || readiness.facts.applicationBinding !== "direct") {
         return res.status(409).json({ message: "No merchant application linked to this deal. Complete application before boarding." });
       }
-      const applicationId = appRows[0].id;
+      const actorId = String((req.user as any)?.id ?? "");
+      const expectedApplicationRevision = typeof req.body?.expectedApplicationRevision === "string" ? req.body.expectedApplicationRevision : null;
 
-      const processorName = (req.body.processorName as string | undefined) || undefined;
+      // R04: pin the adapter selection at enqueue. A null request name resolves to the default adapter NOW,
+      // so a later default change cannot redirect an already-accepted command.
+      let pinnedDefaultProcessor: string | undefined;
+      if (!(req.body.processorName as string | undefined)) {
+        try { pinnedDefaultProcessor = getDefaultProcessor().name; } catch { pinnedDefaultProcessor = undefined; }
+      }
+      const processorName = (req.body.processorName as string | undefined) || pinnedDefaultProcessor || undefined;
+      const [appProgramRow] = await db.select({ p: merchantApplications.preferredProgram })
+        .from(merchantApplications).where(eq(merchantApplications.id, applicationId)).limit(1);
+      const programForCommand = appProgramRow?.p ?? null;
 
       // Idempotent replay (S5-13): the key is globally unique, so a replay is only
       // honoured when it is the SAME command (deal, application and processor).
@@ -429,21 +472,36 @@ export function registerBoardingRoutes(app: Express) {
           dealId: dealBoardingOutbox.dealId,
           applicationId: dealBoardingOutbox.applicationId,
           processorName: dealBoardingOutbox.processorName,
+          payload: dealBoardingOutbox.payload,
         })
         .from(dealBoardingOutbox)
         .where(eq(dealBoardingOutbox.idempotencyKey, idempotencyKey))
         .limit(1);
       if (existing) {
+        const bound = ((existing.payload as any)?.command ?? {}) as Record<string, unknown>;
         const sameCommand =
           existing.dealId === dealId &&
           existing.applicationId === applicationId &&
-          (existing.processorName ?? null) === (processorName ?? null);
+          (existing.processorName ?? null) === (processorName ?? null) &&
+          (bound.actorId ?? null) === actorId &&
+          (bound.action ?? null) === "processor_submit" &&
+          (bound.program ?? null) === programForCommand &&
+          (expectedApplicationRevision == null || bound.applicationRevision === expectedApplicationRevision);
         if (!sameCommand) {
           return res.status(409).json({
             message: "Idempotency-Key is already bound to a different boarding command. Use a new key for a different deal, application or processor.",
           });
         }
-        return res.status(202).json({ status: "queued", message: "Submission already enqueued", outboxId: existing.id });
+        // R04: a replay returns the ACTUAL saved outcome and a receipt, never a blanket "queued".
+        const [freshDeal] = await db.select({ b: deals.boardingStatus }).from(deals).where(eq(deals.id, dealId)).limit(1);
+        const replayHttp = existing.status === "pending" || existing.status === "processing" || existing.status === "failed" ? 202 : 200;
+        return res.status(replayHttp).json({
+          status: existing.status,
+          replayed: true,
+          message: "This command was already accepted; reporting its saved outcome",
+          outboxId: existing.id,
+          receipt: { outboxId: existing.id, dealId, applicationId, processorName: existing.processorName ?? null, boardingStatus: freshDeal?.b ?? null },
+        });
       }
 
       // Stable provider-level idempotency key derived from dealId + request key.
@@ -465,6 +523,7 @@ export function registerBoardingRoutes(app: Express) {
       //     not JS ISO-8601) so the worker's SQL comparison uses the same bytes.
       //  4. Set claimed = true only after the outbox insert succeeds.
       let claimed = false;
+      let queuedOutboxId: string | null = null;
       await db.transaction(async (tx) => {
         // Step 1 — Lock the linked application row. Use updated_at::text so the
         // exact PostgreSQL text representation is captured here; the worker will
@@ -486,6 +545,14 @@ export function registerBoardingRoutes(app: Express) {
         // Immutable linkage version in PostgreSQL text format — both sides use
         // `::text` cast so the string comparison is always byte-for-byte equal.
         const applicationLinkageVersion = lockedRow.updated_at_text;
+        if (expectedApplicationRevision != null && expectedApplicationRevision !== applicationLinkageVersion) {
+          throw new Error("boarding_application_revision_conflict");
+        }
+        // R03: re-evaluate under the application lock; the case tuple that was checked is the one stored.
+        const lockedReadiness = await evaluateBoardingReadiness(dealId);
+        if (!lockedReadiness.ready || lockedReadiness.caseVersion !== readiness.caseVersion) {
+          throw new Error("boarding_case_changed");
+        }
 
         // Step 2 — Conditionally advance the deal to "queued". The WHERE guard
         // prevents two concurrent requests from both claiming the same deal.
@@ -515,7 +582,11 @@ export function registerBoardingRoutes(app: Express) {
             idempotencyKey,
             // providerIdempotencyKey and applicationLinkageVersion stored in
             // payload — never exposed in logs/responses.
-            payload: { dealId, applicationId, providerIdempotencyKey, applicationLinkageVersion },
+            payload: {
+              dealId, applicationId, providerIdempotencyKey, applicationLinkageVersion,
+              readinessCaseVersion: readiness.caseVersion,
+              command: { actorId, action: "processor_submit", dealId, applicationId, applicationRevision: applicationLinkageVersion, processorName: processorName ?? null, program: programForCommand },
+            },
             status: "pending",
           })
           .onConflictDoNothing({ target: dealBoardingOutbox.idempotencyKey })
@@ -542,6 +613,7 @@ export function registerBoardingRoutes(app: Express) {
         }, tx);
 
         // claimed is set last — only after the outbox insert succeeds.
+        queuedOutboxId = String(inserted[0].id);
         claimed = true;
       });
 
@@ -555,12 +627,24 @@ export function registerBoardingRoutes(app: Express) {
         });
       }
 
-      return res.status(202).json({ status: "queued", message: "Processor submission queued for durable processing" });
+      return res.status(202).json({
+        status: "queued",
+        replayed: false,
+        message: "Processor submission queued for durable processing",
+        outboxId: queuedOutboxId,
+        receipt: { outboxId: queuedOutboxId, dealId, applicationId, processorName: processorName ?? null, boardingStatus: "queued" },
+      });
     } catch (err: any) {
       // A re-linked application detected inside the TX throws "boarding_application_relinked".
       // Treat it as a 409 conflict, not a 500.
       if (err?.message === "boarding_idempotency_conflict") {
         return res.status(409).json({ message: "A boarding submission with this Idempotency-Key is already in progress. Re-send the same request to read its status." });
+      }
+      if (err?.message === "boarding_case_changed") {
+        return res.status(409).json({ message: "The case changed while submitting (application, decision or policy). Review readiness and retry." });
+      }
+      if (err?.message === "boarding_application_revision_conflict") {
+        return res.status(409).json({ message: "The application changed since you reviewed it. Reload and review again." });
       }
       if (err?.message === "boarding_application_relinked") {
         return res.status(409).json({ message: "The merchant application linked to this deal changed during submission. Please retry." });
@@ -732,12 +816,12 @@ export function registerBoardingRoutes(app: Express) {
       // REV-05A: Route all MID writes through canonical service.
       // deals.mid is a compatibility alias updated AFTER merchant_mids commit.
       const { assignMerchantMidToCanonical } = await import("../services/merchant-mid-service");
-      const { midRow } = await assignMerchantMidToCanonical({
+      const { midRow, isPrimary, created } = await assignMerchantMidToCanonical({
         dealId,
         contactId: deal.contactId ?? null,
         mid: mid.trim(),
         processorName: processorName ?? undefined,
-        status: status ?? "assigned",
+        status: status && status.trim() ? status.trim() : undefined,
         actorId: (req.user as any)?.id ?? null,
         actorEmail: (req.user as any)?.email ?? "admin",
       });
@@ -752,8 +836,15 @@ export function registerBoardingRoutes(app: Express) {
         midMasked: midMaskedVal,
         hasMid: true,
         midId: midRow.id,
+        isPrimary,
+        created,
+        status: midRow.status,
       });
     } catch (err: any) {
+      const { MerchantMidTransitionError: _MidErr } = await import("../services/merchant-mid-service");
+      if (err instanceof _MidErr) {
+        return res.status(err.code === "MID_INVALID_STATUS" ? 400 : 409).json({ message: err.message, code: err.code });
+      }
       serverError(res, err);
     }
   });
@@ -766,72 +857,105 @@ export function registerBoardingRoutes(app: Express) {
    */
   app.get("/api/boarding/mid-registry", requireRole("admin", "manager"), async (req, res) => {
     try {
-      // REV-05A: mid_registry returns masked MID only — not raw value.
-      // S5-21: canonical merchant_mids is the MID source (deals.mid is only the
-      // compatibility alias fallback), pipelines are matched case-insensitively
-      // against the current names (sales/onboarding) plus the legacy aliases, and
-      // the response reports the true total so a capped list is never presented
-      // as complete.
-      const REGISTRY_LIMIT = 500;
-      const registryWhere = sql`
-        d.archived_at IS NULL
-        AND d.stage NOT IN ('Closed Lost', 'Disqualified')
-        AND (
-          lower(d.pipeline) IN ('sales', 'onboarding', 'boarding', 'merchant boarding')
-          OR d.stage IN (
-            'Approved', 'Underwriting', 'Underwriting Review', 'Underwriting Submitted',
-            'Go-Live Scheduled', 'Live', 'Closed Won'
-          )
-        )`;
+      // REV-05A: masked MID only. S5-21/R08: canonical merchant_mids is the MID source; the deals.mid alias is read ONLY
+      // for a legacy deal that has no canonical rows at all, so a closed MID can never reappear through the alias.
+      // Unit: ONE ROW PER DEAL (a deal with several MIDs shows its primary and `mid_count`). The page, the total and
+      // the per-status counts come from one SQL statement (one snapshot) over the same scope, with a stable total order.
+      const { operationalDealSql } = await import("../services/deal-production-scope");
+      const rawLimit = Number.parseInt(String(req.query.limit ?? ""), 10);
+      const rawOffset = Number.parseInt(String(req.query.offset ?? ""), 10);
+      const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 50;
+      const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? rawOffset : 0;
+      const STATUSES = ["pending", "assigned", "scheduled", "live"] as const;
+      const midStatusRaw = typeof req.query.midStatus === "string" ? req.query.midStatus : "";
+      if (midStatusRaw && !(STATUSES as readonly string[]).includes(midStatusRaw)) {
+        return res.status(400).json({ message: `midStatus must be one of: ${STATUSES.join(", ")}`, code: "INVALID_MID_STATUS" });
+      }
+      const midStatusFilter = midStatusRaw ? sql`WHERE s.mid_status = ${midStatusRaw}` : sql``;
       const result = await db.execute(sql`
+        WITH scoped AS (
+          SELECT
+            d.id AS deal_id,
+            CASE
+              WHEN pm.mid IS NOT NULL AND length(pm.mid) > 4 THEN repeat('*', length(pm.mid) - 4) || right(pm.mid, 4)
+              WHEN pm.mid IS NOT NULL THEN repeat('*', length(pm.mid))
+              ELSE NULL
+            END AS mid_masked,
+            (pm.mid IS NOT NULL) AS has_mid,
+            pm.mid_record_status,
+            pm.mid_id AS primary_mid_id,
+            COALESCE(mc.n, CASE WHEN pm.mid IS NOT NULL THEN 1 ELSE 0 END)::int AS mid_count,
+            d.pipeline, d.stage, d.owner,
+            c.id AS contact_id, c.first_name, c.last_name, c.company_name, c.email,
+            d.created_at, d.updated_at,
+            CASE
+              WHEN d.stage = 'Live' THEN 'live'
+              WHEN d.stage = 'Go-Live Scheduled' THEN 'scheduled'
+              WHEN pm.mid IS NOT NULL THEN 'assigned'
+              ELSE 'pending'
+            END AS mid_status
+          FROM deals d
+          LEFT JOIN contacts c ON c.id = d.contact_id
+          LEFT JOIN LATERAL (
+            SELECT count(*)::int AS n FROM merchant_mids mm WHERE mm.deal_id = d.id AND mm.status <> 'closed'
+          ) mc ON TRUE
+          LEFT JOIN LATERAL (
+            SELECT COALESCE(
+              (SELECT mm.mid FROM merchant_mids mm
+                WHERE mm.deal_id = d.id AND mm.status <> 'closed'
+                ORDER BY (mm.mid = d.mid) DESC, mm.id LIMIT 1),
+              CASE WHEN NOT EXISTS (SELECT 1 FROM merchant_mids x WHERE x.deal_id = d.id) THEN NULLIF(d.mid, '') END
+            ) AS mid,
+            (SELECT mm.id FROM merchant_mids mm
+               WHERE mm.deal_id = d.id AND mm.status <> 'closed'
+               ORDER BY (mm.mid = d.mid) DESC, mm.id LIMIT 1) AS mid_id,
+            (SELECT mm.status FROM merchant_mids mm
+               WHERE mm.deal_id = d.id AND mm.status <> 'closed'
+               ORDER BY (mm.mid = d.mid) DESC, mm.id LIMIT 1) AS mid_record_status
+          ) pm ON TRUE
+          WHERE ${sql.raw(operationalDealSql("d"))}
+            AND (
+              lower(d.pipeline) IN ('sales', 'onboarding', 'boarding', 'merchant boarding')
+              OR d.stage IN ('Approved', 'Underwriting', 'Underwriting Review', 'Underwriting Submitted',
+                             'Go-Live Scheduled', 'Live', 'Closed Won')
+            )
+        ),
+        filtered AS (
+          SELECT s.* FROM scoped s ${midStatusFilter}
+        ),
+        page AS (
+          SELECT f.*, row_number() OVER (ORDER BY
+            CASE f.mid_status WHEN 'live' THEN 1 WHEN 'scheduled' THEN 2 WHEN 'assigned' THEN 3 ELSE 4 END,
+            f.updated_at DESC, f.deal_id DESC) AS ord
+          FROM filtered f
+          ORDER BY ord
+          LIMIT ${limit} OFFSET ${offset}
+        )
         SELECT
-          d.id          AS deal_id,
-          CASE
-            WHEN m.mid IS NOT NULL AND length(m.mid) > 4
-              THEN repeat('*', length(m.mid) - 4) || right(m.mid, 4)
-            WHEN m.mid IS NOT NULL
-              THEN repeat('*', length(m.mid))
-            ELSE NULL
-          END AS mid_masked,
-          (m.mid IS NOT NULL AND m.mid != '') AS has_mid,
-          d.pipeline,
-          d.stage,
-          d.owner,
-          c.id          AS contact_id,
-          c.first_name,
-          c.last_name,
-          c.company_name,
-          c.email,
-          d.created_at,
-          d.updated_at,
-          CASE
-            WHEN d.stage IN ('Live', 'Go-Live Scheduled') THEN 'live'
-            WHEN m.mid IS NOT NULL AND m.mid != ''         THEN 'assigned'
-            ELSE 'pending'
-          END AS mid_status
-        FROM deals d
-        LEFT JOIN contacts c ON c.id = d.contact_id
-        LEFT JOIN LATERAL (
-          SELECT COALESCE(
-            (SELECT mm.mid FROM merchant_mids mm
-              WHERE mm.deal_id = d.id AND mm.status <> 'closed'
-              ORDER BY mm.id LIMIT 1),
-            NULLIF(d.mid, '')
-          ) AS mid
-        ) m ON TRUE
-        WHERE ${registryWhere}
-        ORDER BY
-          CASE
-            WHEN d.stage IN ('Live', 'Go-Live Scheduled') THEN 1
-            WHEN m.mid IS NOT NULL AND m.mid != ''         THEN 2
-            ELSE 3
-          END,
-          d.updated_at DESC
-        LIMIT ${REGISTRY_LIMIT}
+          (SELECT count(*)::int FROM filtered) AS total,
+          (SELECT count(*)::int FROM scoped) AS scope_total,
+          COALESCE((SELECT jsonb_object_agg(k, n) FROM (SELECT mid_status AS k, count(*)::int AS n FROM scoped GROUP BY mid_status) t), '{}'::jsonb) AS by_status,
+          to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS as_of,
+          COALESCE((SELECT jsonb_agg(to_jsonb(p) - 'ord' ORDER BY p.ord) FROM page p), '[]'::jsonb) AS merchants
       `);
-      const totalRes = await db.execute(sql`SELECT count(*)::int AS n FROM deals d WHERE ${registryWhere}`);
-      const total = Number((((totalRes as any).rows ?? totalRes)[0] as { n: number }).n);
-      res.json({ merchants: result.rows, total, returned: result.rows.length, truncated: total > result.rows.length });
+      const row = (((result as any).rows ?? result)[0]) as any;
+      const merchants = Array.isArray(row.merchants) ? row.merchants : JSON.parse(row.merchants ?? "[]");
+      const total = Number(row.total);
+      const byStatus = typeof row.by_status === "string" ? JSON.parse(row.by_status) : row.by_status;
+      res.json({
+        merchants,
+        unit: "deals",
+        total,
+        scopeTotal: Number(row.scope_total),
+        returned: merchants.length,
+        limit,
+        offset,
+        hasMore: offset + merchants.length < total,
+        truncated: offset + merchants.length < total,
+        byStatus: { pending: 0, assigned: 0, scheduled: 0, live: 0, ...byStatus },
+        asOf: row.as_of,
+        filter: midStatusRaw || null,
+      });
     } catch (err: any) {
       serverError(res, err);
     }

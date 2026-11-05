@@ -1,8 +1,10 @@
 import { db } from "../db";
+import { productionDealSql } from "../services/deal-production-scope";
 import { eq, desc, and, gte, sql } from "drizzle-orm";
 import {
   underwritingRules,
   underwritingDecisions,
+  deals,
   type UnderwritingRules,
   type InsertUnderwritingRules,
   type UnderwritingDecision,
@@ -128,6 +130,7 @@ export class UnderwritingStorage {
         overridden: sql<number>`(count(*) filter (where ${underwritingDecisions.overrideAction} is not null))::int`,
       })
       .from(underwritingDecisions)
+      .innerJoin(deals, and(eq(deals.id, underwritingDecisions.dealId), sql.raw(productionDealSql("deals"))))
       .where(since ? gte(underwritingDecisions.createdAt, since) : undefined);
     return {
       total: Number(row?.total ?? 0), approved: Number(row?.approved ?? 0), review: Number(row?.review ?? 0),

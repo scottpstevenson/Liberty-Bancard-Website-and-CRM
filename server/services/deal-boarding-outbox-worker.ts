@@ -67,6 +67,29 @@ interface BoardingRow {
   lastError?: string | null;
 }
 
+/**
+ * The provider answered with a definite refusal (success=false, not ambiguous). Only this class of
+ * post-dispatch failure may clear the DISPATCH_STARTED marker and retry; anything else thrown after
+ * dispatch began (transport exception, local commit/audit failure after provider success) leaves the
+ * outcome unknown and must settle as ambiguous.
+ */
+class ProviderRejectedError extends Error {
+  /** A permanent rejection (bad request, credential or destination) cannot succeed on retry and is dead-lettered at once. */
+  readonly permanent: boolean;
+  readonly httpStatus: number | null;
+  readonly identity: ProviderOperationIdentity | null;
+  constructor(opts: { permanent?: boolean; httpStatus?: number | null; identity?: ProviderOperationIdentity | null } = {}) {
+    super(opts.permanent ? "processor_submit_rejected_permanent" : "processor_submit_failed");
+    this.name = "ProviderRejectedError";
+    this.permanent = opts.permanent === true;
+    this.httpStatus = opts.httpStatus ?? null;
+    this.identity = opts.identity ?? null;
+  }
+}
+
+/** Identity of the provider operation a settlement belongs to, kept in every outcome audit. */
+type ProviderOperationIdentity = { adapter: string; program: string | null; operation: "board_merchant" };
+
 /** Written (fenced) immediately before provider I/O; a surviving marker means the outcome is unknown. */
 const DISPATCH_STARTED = "DISPATCH_STARTED";
 
@@ -152,9 +175,10 @@ function resolveProcessor(name: string | null): IProcessorAdapter {
   return name ? getProcessor(name) : getDefaultProcessor();
 }
 
-async function markRetryOrDeadLetter(id: string, dealId: number, attempts: number, err: unknown): Promise<void> {
+async function markRetryOrDeadLetter(id: string, dealId: number, attempts: number, err: unknown, identity?: ProviderOperationIdentity | null): Promise<void> {
   const safeErr = scrubError(err);
-  const terminal = attempts >= MAX_ATTEMPTS;
+  const permanent = err instanceof ProviderRejectedError && err.permanent;
+  const terminal = permanent || attempts >= MAX_ATTEMPTS;
   if (terminal) {
     // On terminal dead-letter, transactionally flip the deal to dead_letter and
     // write a redacted audit alongside the outbox row so state stays consistent.
@@ -176,7 +200,7 @@ async function markRetryOrDeadLetter(id: string, dealId: number, attempts: numbe
         action: "deal_boarding_dead_letter",
         entityType: "deal",
         entityId: dealId,
-        details: { errorClass: safeErr, attempts },
+        details: { errorClass: safeErr, attempts, permanent, httpStatus: err instanceof ProviderRejectedError ? err.httpStatus : null, ...((err instanceof ProviderRejectedError && err.identity) || identity || {}) },
       }, tx);
     });
     return;
@@ -217,11 +241,17 @@ async function commitBoardingSuccess(params: {
   processorProgram?: string | null;
   /** The outbox claim this success belongs to; local effects commit only while it is still owned. */
   claim: { id: string; attempts: number };
+  /** The provider's own status at acceptance (R04). Only in-flight statuses are persisted as the deal status. */
+  providerStatus?: string | null;
+  identity?: ProviderOperationIdentity | null;
 }): Promise<boolean> {
   const {
     dealId, contactId, owner, processorName, processorApplicationId,
-    estimatedDecisionDate, existingLog, setSubmittedFields, processorProgram, claim,
+    estimatedDecisionDate, existingLog, setSubmittedFields, processorProgram, claim, providerStatus, identity,
   } = params;
+  // approved/declined at submit time are status observations: they go through the status-apply path (which owns
+  // MID and decision effects), so here the deal stays in-flight and the raw provider status is kept in the log.
+  const acceptedStatus = ["submitted", "under_review", "more_info_needed"].includes(String(providerStatus)) ? String(providerStatus) : "submitted";
   const automationKey = boardingMonitorAutomationKey(dealId);
 
   return db.transaction(async (tx) => {
@@ -245,11 +275,13 @@ async function commitBoardingSuccess(params: {
         processor: processorName,
         processorApplicationId,
         estimatedDecisionDate: estimatedDecisionDate ?? null,
+        providerStatus: providerStatus ?? null,
+        ...(identity ? { adapter: identity.adapter, program: identity.program, operation: identity.operation } : {}),
       };
       await tx
         .update(deals)
         .set({
-          boardingStatus: "submitted",
+          boardingStatus: acceptedStatus,
           processorApplicationId,
           boardingSubmittedAt: new Date(),
           boardingLog: [...existingLog, logEntry],
@@ -273,7 +305,7 @@ async function commitBoardingSuccess(params: {
         action: "deal_submitted_to_processor",
         entityType: "deal",
         entityId: dealId,
-        details: { processorApplicationId, status: "submitted" },
+        details: { processorApplicationId, status: "submitted", ...(identity ?? {}) },
       }, tx);
     }
 
@@ -313,6 +345,7 @@ async function settleAmbiguous(
   dealId: number,
   processorProgram: string | null | undefined,
   note: string,
+  identity?: ProviderOperationIdentity | null,
 ): Promise<BoardingSettlement> {
   const settled = await db.transaction(async (tx) => {
     const fenced = await tx.update(dealBoardingOutbox)
@@ -338,7 +371,7 @@ async function settleAmbiguous(
       action: "deal_boarding_ambiguous",
       entityType: "deal",
       entityId: dealId,
-      details: { errorClass: "ambiguous_reconciliation_required", attempts: row.attempts, note },
+      details: { errorClass: "ambiguous_reconciliation_required", attempts: row.attempts, note, ...(identity ?? {}) },
     }, tx);
     return true;
   });
@@ -439,6 +472,30 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettleme
       }, tx);
     });
     throw new AlreadyTerminalError("BOARDING_NOT_READY: dead_letter written, no transport");
+  }
+
+  // R03: the enqueue captured the exact case tuple (application/decision/policy versions). If ANY of it
+  // changed, or the row predates the capture, refuse before a protected read — fail closed.
+  const enqueuedCaseVersion = (row.payload as any)?.readinessCaseVersion as string | undefined;
+  if (!enqueuedCaseVersion || enqueuedCaseVersion !== readiness.caseVersion) {
+    const code = enqueuedCaseVersion ? "BOARDING_CASE_CHANGED" : "BOARDING_CASE_VERSION_MISSING";
+    await db.transaction(async (tx) => {
+      const fenced = await tx.update(dealBoardingOutbox)
+        .set({ status: "dead_letter", lockedAt: null, lastError: code, availableAt: new Date(), updatedAt: new Date() })
+        .where(and(
+          eq(dealBoardingOutbox.id, row.id),
+          eq(dealBoardingOutbox.status, "processing"),
+          eq(dealBoardingOutbox.attempts, row.attempts),
+        ))
+        .returning({ id: dealBoardingOutbox.id });
+      if (fenced.length === 0) return;
+      await tx.update(deals).set({ boardingStatus: "dead_letter", updatedAt: new Date() }).where(eq(deals.id, dealId));
+      await auditChange({
+        actorType: "system", action: "deal_boarding_blocked_case_changed", entityType: "deal", entityId: dealId,
+        details: { errorCode: code },
+      }, tx);
+    });
+    throw new AlreadyTerminalError(`${code}: dead_letter written, no transport`);
   }
 
   const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
@@ -590,6 +647,7 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettleme
   // Pass processorProgram and authorizedBaseUrl from the activation snapshot to
   // boardMerchant so the adapter can route to the correct endpoint and use
   // only the owner-authorized base URL (not the environment-configured default).
+  const identity: ProviderOperationIdentity = { adapter: processor.name, program: snapshot.processorProgram ?? null, operation: "board_merchant" };
   (payload as any).processorProgram = snapshot.processorProgram;
   (payload as any).snapshotAuthorizedBaseUrl = snapshot.authorizedBaseUrl;
 
@@ -599,7 +657,7 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettleme
   if (row.lastError === DISPATCH_STARTED) {
     return settleAmbiguous(row, dealId, snapshot.processorProgram,
       "An earlier attempt began provider dispatch and never settled — outcome unknown. " +
-      "Reconcile via the provider status endpoint before any resubmission.");
+      "Reconcile via the provider status endpoint before any resubmission.", identity);
   }
 
   // Final recheck of the application revision immediately before I/O, then write the
@@ -635,12 +693,12 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettleme
   if (!result.success && result.ambiguous) {
     return settleAmbiguous(row, dealId, snapshot.processorProgram,
       "Submission result is ambiguous — provider call timed out or returned no application ID. " +
-      "Do NOT retry without reconciliation via provider status endpoint.");
+      "Do NOT retry without reconciliation via provider status endpoint.", identity);
   }
 
   if (!result.success) {
     // Do NOT log result.error (may contain provider payload) — just propagate.
-    throw new Error("processor_submit_failed");
+    throw new ProviderRejectedError({ permanent: result.permanent === true, httpStatus: result.httpStatus ?? null, identity });
   }
 
   // Post-provider: local deal state + redacted audit + idempotent monitoring
@@ -657,8 +715,17 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettleme
     setSubmittedFields: true,
     processorProgram: snapshot.processorProgram,
     claim: { id: row.id, attempts: row.attempts },
+    providerStatus: (result as any).status ?? null,
+    identity,
   });
   return { settlement: committed ? "delivered" : "stale_claim" };
+}
+
+async function dispatchMarkerStillSet(row: BoardingRow): Promise<boolean> {
+  const r = await db.execute(sql`
+    SELECT 1 FROM deal_boarding_outbox
+    WHERE id = ${row.id} AND status = 'processing' AND attempts = ${row.attempts} AND last_error = ${DISPATCH_STARTED}`);
+  return (((r as any).rows ?? r) as any[]).length > 0;
 }
 
 async function tick(): Promise<void> {
@@ -688,8 +755,17 @@ async function tick(): Promise<void> {
           // Skip markDelivered and markRetryOrDeadLetter — DB state is correct.
           process.stderr.write(`[BoardingOutbox] deal#${row.dealId} already terminal: ${scrubError(err)}\n`);
         } else {
+          const failureIdentity: ProviderOperationIdentity = { adapter: row.processorName ?? "default", program: null, operation: "board_merchant" };
           process.stderr.write(`[BoardingOutbox] processor_submit deal#${row.dealId} attempt#${row.attempts} failed (${scrubError(err)})\n`);
-          await markRetryOrDeadLetter(row.id, row.dealId, row.attempts, err);
+          // R04: after DISPATCH_STARTED the provider may have accepted. Ordinary retry settlement would clear the
+          // marker and permit a duplicate send, so only a definite provider refusal may take that path.
+          if (!(err instanceof ProviderRejectedError) && await dispatchMarkerStillSet(row)) {
+            await settleAmbiguous(row, row.dealId, null,
+              "A failure occurred after provider dispatch began — the provider may have accepted the application. " +
+              "Reconcile via the provider status endpoint before any resubmission.", failureIdentity);
+          } else {
+            await markRetryOrDeadLetter(row.id, row.dealId, row.attempts, err, failureIdentity);
+          }
         }
       }
     }
@@ -711,6 +787,6 @@ export function startDealBoardingOutboxWorker(): void {
 
 export const __test__ = {
   backoffMs, MAX_ATTEMPTS, STALE_LOCK_MS, scrubError,
-  tick, claimOne, handleProcessorSubmit, missingProviderFields, REQUIRED_PROVIDER_FIELDS,
+  tick, claimOne, handleProcessorSubmit, ProviderRejectedError, missingProviderFields, REQUIRED_PROVIDER_FIELDS,
   setProcessorOverride(fn: ((name?: string | null) => IProcessorAdapter) | null) { processorOverrideForTest = fn; },
 };

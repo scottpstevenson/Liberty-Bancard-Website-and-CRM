@@ -22,6 +22,7 @@ import {
   ThumbsUp, Settings, Loader2, RefreshCw, XCircle, Link as LinkIcon,
 } from "lucide-react";
 import { Link } from "wouter";
+import { ConditionsPanel } from "@/components/underwriting/ConditionsPanel";
 
 interface QueueRow {
   id: number;
@@ -33,6 +34,8 @@ interface QueueRow {
   override_action: string | null;
   overridden_at: string | null;
   override_note: string | null;
+  /** Revision of the exact decision + rules a reviewer must present to override it. */
+  decision_revision?: string;
   deal_stage: string | null;
   deal_contact_id: number | null;
   total_volume: string | null;
@@ -46,13 +49,14 @@ interface QueueRow {
 interface StatsData {
   /** Deals waiting NOW (latest decision per deal, not overridden) — the same cohort as the queue list. */
   current: { pendingReview: number; pendingHold: number };
-  /** Decision EVENTS since local midnight. */
+  /** Decision EVENTS since midnight in the business timezone (see `window`). */
   today: { approvedEvents: number; overridesRecorded: number };
   /** Decision EVENTS over all time. */
   history: { total: number; approved: number; review: number; hold: number; overridden: number };
+  window?: { since: string; asOf: string; timezone: string };
 }
 
-interface PagedRows<T> { rows: T[]; total: number; limit: number; offset: number; hasMore: boolean }
+interface PagedRows<T> { rows: T[]; total: number; limit: number; offset: number; hasMore: boolean; unit?: string; asOf?: string; timezone?: string; since?: string }
 const PAGE_SIZE = 50;
 
 async function fetchPaged<T>(path: string, page: number): Promise<PagedRows<T>> {
@@ -128,10 +132,22 @@ export default function UnderwritingPage() {
     params.set("underwritingView",next);
     navigate(destinationUrl("/dashboard/underwriting",params,window.location.hash));
   };
+  // The dialog pins the decision + revision the reviewer saw and a command id that stays the same across retries.
   const [overrideDialog, setOverrideDialog] = useState<{
     dealId: number;
     action: "approve" | "reject";
+    decisionId: number;
+    revision: string;
+    commandId: string;
   } | null>(null);
+  const openOverride = (row: QueueRow, action: "approve" | "reject") => {
+    if (!row.deal_id || !row.decision_revision) {
+      toast({ title: "Reload needed", description: "This row has no review revision. Refresh and try again.", variant: "destructive" });
+      return;
+    }
+    setOverrideNote("");
+    setOverrideDialog({ dealId: row.deal_id, action, decisionId: row.id, revision: row.decision_revision, commandId: crypto.randomUUID() });
+  };
   const [overrideNote, setOverrideNote] = useState("");
   const [rulesForm, setRulesForm] = useState<Partial<RulesConfig>>({});
   const [blockedInput, setBlockedInput] = useState("");
@@ -172,33 +188,34 @@ export default function UnderwritingPage() {
     queryKey: ["/api/underwriting/rules"],
   } as any);
 
-  const approveMutation = useMutation({
-    mutationFn: ({ dealId, note }: { dealId: number; note: string }) =>
-      apiRequest("POST", `/api/underwriting/deals/${dealId}/approve`, { note }),
-    onSuccess: () => {
-      toast({ title: "Deal approved", description: "Deal advanced to Proposal Sent." });
+  const overrideMutation = useMutation({
+    mutationFn: async (d: NonNullable<typeof overrideDialog> & { reason: string }) => {
+      const res = await apiRequest("POST", `/api/underwriting/deals/${d.dealId}/${d.action}`, {
+        expectedDecisionId: d.decisionId, expectedRevision: d.revision, reason: d.reason, commandId: d.commandId,
+      });
+      return (await res.json()) as { replayed?: boolean; stageMoved?: boolean; followOns?: { state: string } };
+    },
+    onSuccess: (r, d) => {
+      const queued = r.followOns?.state === "queued" ? " Follow-up tasks and notifications are queued and will go out when sending is allowed." : "";
+      toast(d.action === "approve"
+        ? { title: r.replayed ? "Already approved" : "Deal approved", description: `Deal advanced to Proposal Sent.${queued}` }
+        : { title: r.replayed ? "Already recorded" : "Decision recorded", description: `Deal returned to Review In Progress.${queued}` });
       queryClient.invalidateQueries({ queryKey: ["/api/underwriting/queue"] });
       queryClient.invalidateQueries({ queryKey: ["/api/underwriting/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/underwriting/approved-today"] });
       setOverrideDialog(null);
       setOverrideNote("");
     },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: any) => {
+      // A stale review (or any 409) means nothing changed: reload so the reviewer sees the current decision.
+      if (/^409/.test(String(err?.message))) {
+        queryClient.invalidateQueries({ queryKey: ["/api/underwriting/queue"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/underwriting/approved-today"] });
+      }
+      toast({ title: "Not changed", description: err.message, variant: "destructive" });
+    },
   });
   useEffect(()=>{if(rules && !rulesError)setRulesForm(rules);},[rules,rulesError]);
-
-  const rejectMutation = useMutation({
-    mutationFn: ({ dealId, note }: { dealId: number; note: string }) =>
-      apiRequest("POST", `/api/underwriting/deals/${dealId}/reject`, { note }),
-    onSuccess: () => {
-      toast({ title: "Decision recorded", description: "Deal returned to Review In Progress." });
-      queryClient.invalidateQueries({ queryKey: ["/api/underwriting/queue"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/underwriting/stats"] });
-      setOverrideDialog(null);
-      setOverrideNote("");
-    },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
-  });
 
   const rulesMutation = useMutation({
     mutationFn: (body: Partial<RulesConfig>) =>
@@ -212,11 +229,8 @@ export default function UnderwritingPage() {
 
   function handleOverrideSubmit() {
     if (!overrideDialog) return;
-    if (overrideDialog.action === "approve") {
-      approveMutation.mutate({ dealId: overrideDialog.dealId, note: overrideNote });
-    } else {
-      rejectMutation.mutate({ dealId: overrideDialog.dealId, note: overrideNote });
-    }
+    if (overrideNote.trim().length < 3) return;
+    overrideMutation.mutate({ ...overrideDialog, reason: overrideNote.trim() });
   }
 
   function handleRulesSave() {
@@ -341,8 +355,8 @@ export default function UnderwritingPage() {
                     <QueueCard
                       key={row.id}
                       row={row}
-                      onApprove={() => setOverrideDialog({ dealId: row.deal_id!, action: "approve" })}
-                      onReject={() => setOverrideDialog({ dealId: row.deal_id!, action: "reject" })}
+                      onApprove={() => openOverride(row, "approve")}
+                      onReject={() => openOverride(row, "reject")}
                     />
                   ))}
                 </div>
@@ -356,8 +370,8 @@ export default function UnderwritingPage() {
                     <QueueCard
                       key={row.id}
                       row={row}
-                      onApprove={() => setOverrideDialog({ dealId: row.deal_id!, action: "approve" })}
-                      onReject={() => setOverrideDialog({ dealId: row.deal_id!, action: "reject" })}
+                      onApprove={() => openOverride(row, "approve")}
+                      onReject={() => openOverride(row, "reject")}
                     />
                   ))}
                 </div>
@@ -373,7 +387,7 @@ export default function UnderwritingPage() {
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-green-600" />
-                Approval decisions today <span className="text-xs font-normal text-muted-foreground" data-testid="text-approved-total">({approvedTotal} recorded)</span>
+                Approval decisions today <span className="text-xs font-normal text-muted-foreground" data-testid="text-approved-total">({approvedTotal} decision events since midnight{approvedData?.timezone ? ` ${approvedData.timezone.split("/")[1]?.replace("_"," ")}` : ""}{approvedData?.asOf ? `, as of ${new Date(approvedData.asOf).toLocaleTimeString()}` : ""})</span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -417,7 +431,7 @@ export default function UnderwritingPage() {
                                 size="sm"
                                 variant="outline"
                                 className="h-7 text-xs border-destructive/50 text-destructive hover:bg-destructive hover:text-destructive-foreground"
-                                onClick={() => setOverrideDialog({ dealId: row.deal_id!, action: "reject" })}
+                                onClick={() => openOverride(row, "reject")}
                                 data-testid={`button-rescind-${row.id}`}
                               >
                                 <ThumbsDown className="w-3 h-3 mr-1" /> Rescind
@@ -590,10 +604,10 @@ export default function UnderwritingPage() {
             <p className="text-sm text-muted-foreground">
               {overrideDialog?.action === "approve"
                 ? "This will advance the deal to Proposal Sent and create an audit log entry."
-                : "This will return the deal to Review In Progress and notify the team."}
+                : "This will return the deal to Review In Progress. A team notification is queued and delivered when sending is allowed."}
             </p>
             <div className="space-y-1">
-              <Label htmlFor="override-note">Note (optional)</Label>
+              <Label htmlFor="override-note">Reason (required)</Label>
               <Textarea
                 id="override-note"
                 placeholder="Reason for manual override..."
@@ -610,10 +624,10 @@ export default function UnderwritingPage() {
               <Button
                 variant={overrideDialog?.action === "approve" ? "default" : "destructive"}
                 onClick={handleOverrideSubmit}
-                disabled={approveMutation.isPending || rejectMutation.isPending}
+                disabled={overrideMutation.isPending || overrideNote.trim().length < 3}
                 data-testid="button-override-confirm"
               >
-                {(approveMutation.isPending || rejectMutation.isPending) && (
+                {overrideMutation.isPending && (
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 )}
                 {overrideDialog?.action === "approve" ? "Approve" : "Confirm Return"}
@@ -635,6 +649,7 @@ interface QueueCardProps {
 
 function QueueCard({ row, onApprove, onReject }: QueueCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [showConditions, setShowConditions] = useState(false);
   const isHold = row.decision === "hold";
 
   return (
@@ -702,6 +717,15 @@ function QueueCard({ row, onApprove, onReject }: QueueCardProps) {
             </div>
           )}
         </div>
+        {row.deal_id && (
+          <div className="mt-2">
+            <Button size="sm" variant="ghost" className="min-h-[44px] px-2" aria-expanded={showConditions}
+              onClick={() => setShowConditions((v) => !v)} data-testid={`button-conditions-${row.id}`}>
+              {showConditions ? "Hide conditions" : "Conditions and merchant chase"}
+            </Button>
+            {showConditions && <ConditionsPanel dealId={row.deal_id} />}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

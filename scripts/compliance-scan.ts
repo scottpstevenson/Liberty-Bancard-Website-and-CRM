@@ -796,10 +796,10 @@ const CALL_SITE_ALLOWLIST: Array<{
   // ── 2026-08-12 remediation batch ─────────────────────────────────────────
   {
     file: "server/services/underwriting-checklist-service.ts",
-    lineContains: "await sendSmtpEmail({",
+    lineContains: "sendSmtpEmail({ ...m, contactId: undefined }",
     channel: "email",
     category: "transactional_merchant",
-    reason: "Underwriting document request email — sent to the merchant when their deal enters an underwriting stage, listing the specific documents required to advance. Triggered once per deal by initUnderwritingConditions() (idempotent). Never bulk-sent; always tied to a specific deal transition. Reviewed 2026-08-12.",
+    reason: "Underwriting document request email — sent to the merchant when their deal enters an underwriting stage, listing the specific documents required to advance. Triggered once per deal by initUnderwritingConditions() (idempotent). Never bulk-sent; always tied to a specific deal transition. The chase sweep checks outbound-pause authority before claiming each row and settles sent only on an explicit sent outcome. Reviewed 2026-08-12, re-reviewed 2026-11-04.",
     reviewDate: "2026-08-12",
   },
   {

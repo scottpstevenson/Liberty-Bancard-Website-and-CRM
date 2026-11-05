@@ -416,12 +416,15 @@ console.log("\n[18] Integration-boundary hardening");
     assert(!new RegExp(`merchantApplications\\.${forbidden}\\b`).test(emailInputProj),
       `email projection excludes ${forbidden}`);
   }
-  assert(/merchant_application_approved_email_sent/.test(worker) && /merchant_application_approved_email_skipped/.test(worker),
-    "approval email writes distinct *_email_sent and *_email_skipped evidence");
-  assert(/merchant_application_declined_email_sent/.test(worker) && /merchant_application_declined_email_skipped/.test(worker),
-    "decline email writes distinct *_email_sent and *_email_skipped evidence");
+  // The send/skipped evidence names are built per kind by ONE dispatcher shared by approval and decline.
+  assert(/merchant_application_\$\{kind\}_email_sent/.test(worker) && /merchant_application_\$\{kind\}_email_skipped/.test(worker),
+    "status email dispatch writes distinct *_email_sent and *_email_skipped evidence per kind");
+  assert(/dispatchStatusEmailOnce\(row,\s*"approved"/.test(worker),
+    "approval email goes through the shared per-kind dispatcher");
+  assert(/dispatchStatusEmailOnce\(row,\s*"declined"/.test(worker),
+    "decline email goes through the shared per-kind dispatcher");
   const workerCollapsed = worker.replace(/\s+/g, "");
-  assert(/if\(result\.status==="sent"\)\{[\s\S]*?merchant_application_approved_email_sent/.test(workerCollapsed),
+  assert(/if\(result\.status==="sent"\)\{[\s\S]*?action:sentAction/.test(workerCollapsed),
     "*_email_sent evidence written ONLY when result.status==='sent'");
 
   // ── 18d. ghl-form-sync: explicit projection, masks only, safe generic
@@ -543,8 +546,11 @@ console.log("\n[20] Boarding route: atomic conditional claim + stable providerId
     "boarding application lookup does NOT fall back to contact_id (prevents cross-deal PII disclosure)");
   assert(!/ or\(/.test(submitFn) && !/\.where\(.*conditions\.length === 1/.test(submitFn),
     "boarding application lookup does NOT use OR-conditions (single explicit deal_id match)");
-  assert(/eq\(merchantApplications\.dealId,\s*dealId\)/.test(submitFn),
-    "boarding application lookup requires merchantApplications.dealId === dealId (exact deal link)");
+  const caseSrc = read("server/services/boarding-case.ts");
+  assert(/applicationBinding !== "direct"/.test(submitFn) && /readiness\.facts\.applicationId/.test(submitFn),
+    "boarding enqueue takes the application only from the readiness verdict and requires a DIRECT deal binding");
+  assert(/FROM merchant_applications WHERE deal_id = \$\{onboardingDealId\}/.test(caseSrc),
+    "the shared resolver matches the application on merchant_applications.deal_id = the onboarding deal (exact deal link)");
 
   // ── Provider adapter idempotency key forwarding ─────────────────────────
   // Both real adapters must forward providerIdempotencyKey as the standard

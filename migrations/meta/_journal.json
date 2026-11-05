@@ -2688,6 +2688,13 @@
       "when":1800400270000,
       "tag":"0380_stage5_underwriting_condition_integrity",
       "breakpoints":true
+    },
+    {
+      "idx":384,
+      "version":"7",
+      "when":1800400280000,
+      "tag":"0381_stage5_condition_chase_versioning",
+      "breakpoints":true
     }
   ]
 }

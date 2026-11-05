@@ -1,18 +1,16 @@
 ---
-name: Application-to-MID lifecycle patterns
-description: Durable design rules from the application → underwriting → processor → MID repair; check before touching boarding, applications, underwriting conditions or overrides.
+name: Stage 5 application-to-MID patterns
+description: Non-obvious rules and traps from repairing the application → underwriting → boarding → MID chain
 ---
-- Provider dispatch writes a durable DISPATCH_STARTED marker before I/O; a stale claim that already dispatched is held (never re-sent). Unknown provider outcomes are ambiguous/held, never auto-retried; pause leaves work owed without burning an attempt.
-- Status observations apply as one versioned, locked transaction (older observation cannot overwrite newer state).
-- Readiness is one shared contract; document and e-sign requirements are explicit `native_policy_required` gates. Internal approval is never relabelled as processor approval.
-- Outbox workers in selective mode belong to the `critical-commands` group; read routes must not insert defaults (rules GET is pure).
-- Submission completeness is validated server-side by merging the stored draft; prefill is a durable hashed capability, not an in-memory map; consent evidence binds to the contact's current phone; ambiguous mailbox/contact matches are held, not first-match linked.
-- Underwriting conditions: supersede instead of delete; waive = admin/manager + reason; chase rows are durable "owed" rows and a `sending` row with unknown outcome is held, not re-sent.
-- Manual underwriting override = decision CAS + stage move + effect intents + audit in ONE transaction (deal row locked first, then latest decision); illegal stage transition rolls everything back. Optional GHL task / notification run after commit. Stage core is `advanceDealStageInTx`; telemetry is `advanceDealStageAfterCommit`.
-- Underwriting readers: KPI "now" counts and queue list share one latest-decision-per-deal cohort (ties broken by id); event counts (today, history) are labelled as events. Lists are paged with an uncapped SQL total.
-- E-sign status GET is a pure read; provider refresh is a separate governed POST that reports unavailable honestly.
-
-**Why:** each was a real defect class found in the lifecycle audit (double-send, half-applied state, counts disagreeing with drill-through, silent defaults).
-**How to apply:** reuse these shapes for any new boarding/application/underwriting command.
-
-Journal edit lesson: never re-serialize migrations/meta/_journal.json (json.dump reformats everything and drops `"breakpoints": false`); append the new entry as text only.
+- Provider sends: write a dispatch-started marker BEFORE network I/O; a marker without sent/skipped evidence = held for operator, never re-sent. Resolved `{success:false}` is not "sent"; only provably-unsent (`outcome:"unsent"`) retries.
+- Processor contract: snapshot base URL exactly `https://{testapi|api}.payarc.net/v1`; never follow redirects; 429 retryable, other 4xx permanent, 5xx/408/3xx/network on POST ambiguous.
+- MIDs: `merchant_mids.mid` globally unique; many per deal; `deals.mid` is only the primary alias; closed MIDs are history. Policy matrix unrecorded → boarding fails closed; certs use a synthetic recorded policy.
+- Underwriting override: pin to the reviewed revision, one tx for decision+stage+audit+durable effect intents; GHL tasks run in the effect worker behind the pause authority (no GHL call in the route; allowlist entries removed).
+- Chases: pin recipient/obligation versions at claim; durable next_check_at cursor so a stuck head cannot starve the batch.
+- **Strict DTO + browser tracking record:** finalize is `.strict()`; the wizard must send only the five utm* fields. Spreading `getStoredUTMParams()` (landingPage, gclid, *Present) made every real submission a 400 while HTTP certs passed because they sent no tracking data. Add a cert with a realistic stored record.
+- Public wizard raw fetches need `getCsrfToken()` header (signed-in operators 403 otherwise); autosave must omit null booleans (zod rejects null).
+- E-sign request is refused for any not-yet-submitted status (draft AND in_progress).
+- Source-pattern security asserts (`test-merchant-application-security`) break when worker code is refactored to template strings; update them to the new shape, don't loosen. That suite is DB-less: run it directly with NODE_ENV=test and a random 64-hex MERCHANT_DATA_ENCRYPTION_KEY (not registered in the disposable runner).
+- Changing where a GHL/SMTP call lives requires updating `scripts/ghl-route-mutation-allowlist.ts` / `scripts/compliance-scan.ts` lineContains entries; run compliance-scan after moving send code.
+- `scripts/test-forms.ts` fails in the disposable harness for environment reasons (statement upload 503, estimate queue manager, outbox worker not started) — do not count it as a pass.
+- Any edit under scripts/ invalidates the browser-suite candidate identity: rebuild (background, log with EXIT=) before rerunning. Confirmation page test ids are `text-thanks-application-*` (ThanksApplication.tsx), not the in-wizard success section.

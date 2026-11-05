@@ -10,6 +10,11 @@
  * Every figure is a SQL aggregate or a bounded page; nothing loads the full decision table into memory.
  */
 
+import { operationalDealSql, productionDealSql } from "./deal-production-scope";
+
+/** The business day for "today" figures. Explicit, not the server's local midnight. */
+export const BUSINESS_TIMEZONE = "America/New_York";
+
 export interface Queryable { query: (sql: string, params?: any[]) => Promise<{ rows: any[] }> }
 
 export const MAX_PAGE_SIZE = 100;
@@ -24,13 +29,30 @@ export function normalizePage(rawLimit: unknown, rawOffset: unknown): { limit: n
   };
 }
 
+/**
+ * The latest decision per OPERATIONAL deal: archived, QA (test/demo/synthetic) and closed-lost deals are not
+ * underwriting work. The latest decision is chosen among a deal's decisions only, so scope never changes which row is latest.
+ */
 const LATEST_CTE = `
   latest AS (
     SELECT DISTINCT ON (ud.deal_id) ud.*
     FROM underwriting_decisions ud
+    JOIN deals sd ON sd.id = ud.deal_id AND ${operationalDealSql("sd")}
     WHERE ud.deal_id IS NOT NULL
     ORDER BY ud.deal_id, ud.created_at DESC NULLS LAST, ud.id DESC
   )`;
+
+/** Business-day window computed by the database: `dayStart` is local midnight in BUSINESS_TIMEZONE, `asOf` is now(). */
+export async function getBusinessDayWindow(db: Queryable): Promise<{ since: string; asOf: string; timezone: string }> {
+  const { rows } = await db.query(
+    `SELECT (date_trunc('day', now() AT TIME ZONE $1) AT TIME ZONE $1) AS day_start, now() AS as_of`, [BUSINESS_TIMEZONE]);
+  return { since: new Date(rows[0].day_start).toISOString(), asOf: new Date(rows[0].as_of).toISOString(), timezone: BUSINESS_TIMEZONE };
+}
+
+/** A stable revision of the exact decision + rules snapshot a reviewer saw; overrides must present it. */
+export function decisionRevisionSql(alias = "latest"): string {
+  return `md5(${alias}.id::text || ':' || ${alias}.decision || ':' || ${alias}.score::text || ':' || coalesce(${alias}.rules_snapshot::text,'') || ':' || coalesce(${alias}.created_at::text,''))`;
+}
 
 export async function getQueuePage(db: Queryable, opts: { decision?: "review" | "hold"; limit: number; offset: number }) {
   const params: any[] = [];
@@ -43,7 +65,7 @@ export async function getQueuePage(db: Queryable, opts: { decision?: "review" | 
   const limitIdx = params.length + 1, offsetIdx = params.length + 2;
   const { rows } = await db.query(
     `${base}
-     SELECT latest.*, d.stage AS deal_stage, d.contact_id AS deal_contact_id, d.total_volume, d.effective_rate, d.pipeline,
+     SELECT latest.*, ${decisionRevisionSql('latest')} AS decision_revision, d.stage AS deal_stage, d.contact_id AS deal_contact_id, d.total_volume, d.effective_rate, d.pipeline,
             c.first_name, c.last_name, c.company_name, c.email
      FROM latest
      LEFT JOIN deals d ON d.id = latest.deal_id
@@ -56,14 +78,15 @@ export async function getQueuePage(db: Queryable, opts: { decision?: "review" | 
 }
 
 /** Decision EVENTS (approve) created since `since`. */
-export async function getApprovedSincePage(db: Queryable, opts: { since: Date; limit: number; offset: number }) {
+export async function getApprovedSincePage(db: Queryable, opts: { since: Date | string; limit: number; offset: number }) {
   const { rows: countRows } = await db.query(
-    `SELECT count(*)::int AS n FROM underwriting_decisions WHERE decision = 'approve' AND created_at >= $1`, [opts.since]);
+    `SELECT count(*)::int AS n FROM underwriting_decisions ud JOIN deals sd ON sd.id = ud.deal_id AND ${productionDealSql("sd")}
+     WHERE ud.decision = 'approve' AND ud.created_at >= $1`, [opts.since]);
   const total = Number(countRows[0]?.n ?? 0);
   const { rows } = await db.query(
-    `SELECT ud.*, d.stage AS deal_stage, d.contact_id AS deal_contact_id, c.first_name, c.last_name, c.company_name
+    `SELECT ud.*, ${decisionRevisionSql('ud')} AS decision_revision, d.stage AS deal_stage, d.contact_id AS deal_contact_id, c.first_name, c.last_name, c.company_name
      FROM underwriting_decisions ud
-     LEFT JOIN deals d ON d.id = ud.deal_id
+     JOIN deals d ON d.id = ud.deal_id AND ${productionDealSql("d")}
      LEFT JOIN contacts c ON c.id = d.contact_id
      WHERE ud.decision = 'approve' AND ud.created_at >= $1
      ORDER BY ud.created_at DESC NULLS LAST, ud.id DESC
@@ -71,21 +94,21 @@ export async function getApprovedSincePage(db: Queryable, opts: { since: Date; l
   return { rows, total, limit: opts.limit, offset: opts.offset, hasMore: opts.offset + rows.length < total };
 }
 
-export async function getStatsSummary(db: Queryable, since: Date) {
+export async function getStatsSummary(db: Queryable, since: Date | string) {
   const [{ rows: cur }, { rows: today }, { rows: hist }] = await Promise.all([
     db.query(`WITH ${LATEST_CTE}
       SELECT count(*) FILTER (WHERE decision = 'review' AND override_action IS NULL)::int AS pending_review,
              count(*) FILTER (WHERE decision = 'hold' AND override_action IS NULL)::int AS pending_hold
       FROM latest`),
-    db.query(`SELECT count(*) FILTER (WHERE decision = 'approve' AND created_at >= $1)::int AS approved_events,
-                     count(*) FILTER (WHERE override_action IS NOT NULL AND overridden_at >= $1)::int AS overrides
-              FROM underwriting_decisions`, [since]),
+    db.query(`SELECT count(*) FILTER (WHERE ud.decision = 'approve' AND ud.created_at >= $1)::int AS approved_events,
+                     count(*) FILTER (WHERE ud.override_action IS NOT NULL AND ud.overridden_at >= $1)::int AS overrides
+              FROM underwriting_decisions ud JOIN deals sd ON sd.id = ud.deal_id AND ${productionDealSql("sd")}`, [since]),
     db.query(`SELECT count(*)::int AS total,
-                     count(*) FILTER (WHERE decision = 'approve')::int AS approved,
-                     count(*) FILTER (WHERE decision = 'review')::int AS review,
-                     count(*) FILTER (WHERE decision = 'hold')::int AS hold,
-                     count(*) FILTER (WHERE override_action IS NOT NULL)::int AS overridden
-              FROM underwriting_decisions`),
+                     count(*) FILTER (WHERE ud.decision = 'approve')::int AS approved,
+                     count(*) FILTER (WHERE ud.decision = 'review')::int AS review,
+                     count(*) FILTER (WHERE ud.decision = 'hold')::int AS hold,
+                     count(*) FILTER (WHERE ud.override_action IS NOT NULL)::int AS overridden
+              FROM underwriting_decisions ud JOIN deals sd ON sd.id = ud.deal_id AND ${productionDealSql("sd")}`),
   ]);
   return {
     /** Deals CURRENTLY waiting (latest decision per deal, not overridden). Same cohort as the queue list. */

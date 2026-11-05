@@ -12,7 +12,7 @@ import { db, pool } from "../db";
 import { auditChange } from "../services/audit-change";
 import { z } from "zod";
 import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, insertConsentAuditLogSchema, insertDataDeleteRequestSchema, insertHealthAlertSchema, insertResidualReportSchema, insertReviewRequestSchema, insertSendingIdentitySchema, ALLOWED_SENDING_DOMAINS, users, contacts, deals, auditLogs, automationRegistry, merchantMids, insertMerchantMidSchema } from "@shared/schema";
-import { createMerchantMid, updateMerchantMid, writeMidAccessReceipt } from "../services/merchant-mid-service";
+import { createMerchantMid, MerchantMidTransitionError, updateMerchantMid, writeMidAccessReceipt } from "../services/merchant-mid-service";
 import { desc, eq, isNull, and, gte, or, like, count, not, sql } from "drizzle-orm";
 import { parse } from "csv-parse/sync";
 import path from "path";
@@ -1327,7 +1327,7 @@ export function registerAdminRoutes(app: Express) {
   // Requires admin + explicit owner confirmation fields.
   app.post("/api/admin/processor-activation-snapshots", requireRole("admin"), async (req, res) => {
     try {
-      const {
+      let {
         processorName, processorProgram, sandboxEntitlement, productionEntitlement,
         authorizedBaseUrl, supportedOperations, ownerConfirm, notes,
       } = req.body as {
@@ -1383,49 +1383,22 @@ export function registerAdminRoutes(app: Express) {
       if (!authorizedBaseUrl) {
         return res.status(400).json({
           message: "authorizedBaseUrl is required. This is the processor API base URL authorized for this environment. " +
-                   "For Payarc, use https://api.payarc.net or the sandbox equivalent. Confirm with the processor.",
+                   "For Payarc, use https://api.payarc.net/v1 or the sandbox https://testapi.payarc.net/v1. Confirm with the processor.",
         });
       }
 
-      // REV-05A: SSRF guard — authorizedBaseUrl must be HTTPS and match the
-      // processor-specific domain allowlist. An arbitrary URL would allow an admin
-      // to exfiltrate merchant/owner/bank PII and the processor bearer token to an
-      // attacker-controlled server.
-      //
-      // Domain allowlists are processor-specific. Adding a new processor here requires:
-      //   1. Confirmed domain names from the processor's official documentation.
-      //   2. Owner confirmation that the processor program is correct (already checked above).
-      //   3. Separate allowlist entry below — never share allowlists across processors.
-      const PROCESSOR_DOMAIN_ALLOWLISTS: Record<string, RegExp> = {
-        payarc: /^(api\.|testapi\.|sandbox\.|staging\.)?payarc\.(net|com)$/i,
-        // nmi: not yet defined — add *.nmi.net / *.tnmi.net once confirmed.
-      };
-      let parsedUrl: URL;
-      try {
-        parsedUrl = new URL(authorizedBaseUrl);
-      } catch {
+      // REV-05A / R05: SSRF guard. The same validator the registry gate and the adapter transport use, so a URL accepted
+      // here is exactly what will be sent to. Allowlists are processor-specific (see processors/processor-base-url.ts):
+      // https, no userinfo/port/query/fragment, path /v1, documented API host only.
+      const { checkProcessorBaseUrl } = await import("../services/processors/processor-base-url");
+      const baseCheck = checkProcessorBaseUrl(processorName, authorizedBaseUrl);
+      if (!baseCheck.ok) {
         return res.status(400).json({
-          message: "authorizedBaseUrl must be a valid absolute URL (e.g. https://api.payarc.net).",
+          message: `authorizedBaseUrl refused: ${baseCheck.reason}. ` +
+                   "Confirm the correct endpoint with the processor before creating the snapshot (e.g. https://api.payarc.net/v1).",
         });
       }
-      if (parsedUrl.protocol !== "https:") {
-        return res.status(400).json({
-          message: "authorizedBaseUrl must use HTTPS. HTTP URLs are not permitted for processor transport.",
-        });
-      }
-      const domainAllowlist = PROCESSOR_DOMAIN_ALLOWLISTS[processorName.toLowerCase()];
-      if (!domainAllowlist) {
-        return res.status(400).json({
-          message: `No domain allowlist is configured for processor '${processorName}'. ` +
-                   "A processor-specific domain allowlist must be added to the server before creating a snapshot.",
-        });
-      }
-      if (!domainAllowlist.test(parsedUrl.hostname)) {
-        return res.status(400).json({
-          message: `authorizedBaseUrl hostname '${parsedUrl.hostname}' is not on the ${processorName} domain allowlist. ` +
-                   "Confirm the correct endpoint with the processor before creating the snapshot.",
-        });
-      }
+      authorizedBaseUrl = baseCheck.baseUrl;
       if (!supportedOperations || supportedOperations.length === 0) {
         return res.status(400).json({
           message: "supportedOperations is required (array of operation names like ['board_merchant','get_merchant_status']). " +
@@ -6148,6 +6121,9 @@ export function registerAdminRoutes(app: Express) {
         hasMid: !!row.mid,
       });
     } catch (err: any) {
+      if (err instanceof MerchantMidTransitionError) {
+        return res.status(err.code === "MID_NOT_FOUND" ? 404 : 409).json({ message: err.message, code: err.code });
+      }
       serverError(res, err);
     }
   });

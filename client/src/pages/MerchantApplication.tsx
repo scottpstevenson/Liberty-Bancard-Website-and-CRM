@@ -7,6 +7,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getStoredUTMParams } from "@/lib/utm";
+import { getCsrfToken } from "@/lib/queryClient";
+import { buildPublicApplicationPayload, finalizeAttributionExtras } from "@shared/merchant-application-submission";
+import {
+  clearSubmissionTuple, intentKeyForDraft, readDraftCredentials, readIntent, writeDraftCredentials,
+} from "@/lib/merchant-application-intent";
 import { trackMerchantApplication } from "@/lib/tracking";
 import { trackConversion, trackPhoneCallClick } from "@/lib/analytics";
 import { useToast } from "@/hooks/use-toast";
@@ -35,6 +40,9 @@ import {
   Info,
 } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
+
+/** A signed-in operator who opens the wizard carries a session, so unsafe requests need the CSRF header; anonymous visitors have none. */
+const csrfHeader = (): Record<string, string> => { const t = getCsrfToken(); return t ? { "X-CSRF-Token": t } : {}; };
 
 const DRAFT_KEY = "merchant_app_draft";
 
@@ -97,6 +105,12 @@ export default function MerchantApplication() {
   const [showDraftSaved, setShowDraftSaved] = useState(false);
   // S5-04: server acknowledgement is tracked separately from the local-device save.
   const [serverSaveState, setServerSaveState] = useState<"idle" | "saved" | "failed">("idle");
+  // R01-5: "saved" is only true for the field revision the server actually acknowledged.
+  const [savedRevision, setSavedRevision] = useState<string | null>(null);
+  // R01-4: a submission may already be saved on the server for this draft (lost response / reload).
+  const [pendingIntent, setPendingIntent] = useState<boolean>(false);
+  const [intentCheck, setIntentCheck] = useState<{ state: "idle" | "checking" | "none" | "error"; message?: string }>({ state: "idle" });
+  const [recoveryWarning, setRecoveryWarning] = useState<string | null>(null);
   const [prefillApplied, setPrefillApplied] = useState(false);
   const [shareToken, setShareToken] = useState<string | null>(null);
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -202,10 +216,15 @@ export default function MerchantApplication() {
   // Restore server draft ids from localStorage on mount, then fetch server state to rehydrate form
   useEffect(() => {
     try {
-      const savedId = localStorage.getItem("lb_draft_id");
-      const savedToken = localStorage.getItem("lb_draft_token");
-      if (savedId && savedToken) {
-        const id = Number(savedId);
+      const creds = readDraftCredentials();
+      if (creds) {
+        const id = creds.id;
+        const savedToken = creds.token;
+        const intent = readIntent();
+        if (intent && intent.draftId === id) {
+          finalizeIdempotencyKey.current = intent.key;
+          setPendingIntent(true);
+        }
         setServerDraftId(prev => prev ?? id);
         setServerDraftToken(prev => prev ?? savedToken);
         // Fetch non-sensitive draft fields from server to rehydrate form state
@@ -291,7 +310,7 @@ export default function MerchantApplication() {
           if (data.draftId && data.draftToken) {
             setServerDraftId(data.draftId);
             setServerDraftToken(data.draftToken);
-            try { localStorage.setItem("lb_draft_id", String(data.draftId)); localStorage.setItem("lb_draft_token", data.draftToken); } catch {}
+            writeDraftCredentials(data.draftId, data.draftToken);
           }
           if (data.legalBusinessName) setLegalBusinessName(data.legalBusinessName);
           if (data.dba && typeof setDba === "function") setDba(data.dba);
@@ -336,27 +355,39 @@ export default function MerchantApplication() {
     try {
       const res = await fetch("/api/merchant-applications/draft", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...csrfHeader() },
         body: JSON.stringify({ legalBusinessName: name, businessEmail: email, ownerEmail, vertical }),
       });
       if (res.ok) {
         const { id, draftToken } = await res.json();
         setServerDraftId(id);
         setServerDraftToken(draftToken);
-        try { localStorage.setItem("lb_draft_id", String(id)); localStorage.setItem("lb_draft_token", draftToken); } catch {}
+        if (!writeDraftCredentials(id, draftToken)) {
+          setRecoveryWarning("This browser could not save recovery details. Keep this page open until you see your confirmation.");
+        }
       }
     } catch {}
     finally { serverDraftCreating.current = false; }
   };
 
+  // Non-protected field revision: what the server autosave would carry (never the step number).
+  const revisionKey = JSON.stringify([
+    legalBusinessName, dba, businessType, businessStartDate, businessAddress, businessCity, businessState, businessZip,
+    businessPhone, businessEmail, website, vertical, ownerFirstName, ownerLastName, ownerEmail, ownerPhone,
+    ownerAddress, ownerCity, ownerState, ownerZip, ownershipPercent, estimatedMonthlyVolume, estimatedAvgTicket,
+    highestTicket, currentProcessor, currentRate, acceptedCardTypes, terminalNeeded, terminalType, terminalQuantity,
+    ecommerceNeeded, preferredProgram,
+  ]);
+
   const autosaveToServer = async (step: number) => {
     const id = serverDraftId;
     const token = serverDraftToken;
     if (!id || !token) return;
+    const revisionAtSend = revisionKey;
     try {
       const autosaveRes = await fetch(`/api/merchant-applications/${id}/autosave`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", "X-Draft-Token": token },
+        headers: { "Content-Type": "application/json", "X-Draft-Token": token, ...csrfHeader() },
         body: JSON.stringify({
           legalBusinessName, dba, businessType, businessStartDate,
           businessAddress, businessCity, businessState, businessZip,
@@ -365,11 +396,13 @@ export default function MerchantApplication() {
           ownerAddress, ownerCity, ownerState, ownerZip, ownershipPercent,
           estimatedMonthlyVolume, estimatedAvgTicket, highestTicket,
           currentProcessor, currentRate, acceptedCardTypes,
-          terminalNeeded, terminalType, terminalQuantity, ecommerceNeeded,
+          // null (not yet answered) is omitted; the draft schema accepts booleans only.
+          terminalNeeded: terminalNeeded ?? undefined, terminalType, terminalQuantity, ecommerceNeeded: ecommerceNeeded ?? undefined,
           preferredProgram, currentStep: step,
         }),
       });
       setServerSaveState(autosaveRes.ok ? "saved" : "failed");
+      if (autosaveRes.ok) setSavedRevision(revisionAtSend);
     } catch {
       setServerSaveState("failed");
     }
@@ -479,9 +512,51 @@ export default function MerchantApplication() {
   };
 
   const discardDraft = () => {
-    localStorage.removeItem(DRAFT_KEY);
+    // R01-4: Start Fresh clears the whole tuple (draft id, capability, key) with the local copy.
+    clearSubmissionTuple([DRAFT_KEY]);
+    setServerDraftId(null);
+    setServerDraftToken(null);
+    setPendingIntent(false);
+    setIntentCheck({ state: "idle" });
+    setSavedRevision(null);
+    setServerSaveState("idle");
+    finalizeIdempotencyKey.current = null;
     setHasDraft(false);
     setDraftDismissed(true);
+  };
+
+  // R01-4: read-only recovery. Asks the server whether THIS draft already holds a saved submission
+  // for the stored key; it never re-sends the application and needs no protected value re-entered.
+  const checkSavedSubmission = async () => {
+    const creds = readDraftCredentials();
+    const intent = readIntent();
+    if (!creds || !intent || intent.draftId !== creds.id) {
+      setIntentCheck({ state: "none", message: "No saved submission was found on this device." });
+      setPendingIntent(false);
+      return;
+    }
+    setIntentCheck({ state: "checking" });
+    try {
+      const res = await fetch(`/api/merchant-applications/${creds.id}/finalize-receipt`, {
+        headers: { "X-Draft-Token": creds.token, "Idempotency-Key": intent.key },
+        credentials: "include",
+      });
+      if (res.status === 404) {
+        setIntentCheck({ state: "none", message: "No saved submission was found for this draft. You can review and submit again." });
+        setPendingIntent(false);
+        return;
+      }
+      if (!res.ok) throw new Error("check_failed");
+      const body: { saved: boolean; ack?: { id: number }; esignCapability?: string } = await res.json();
+      if (!body.saved || !body.ack) {
+        setIntentCheck({ state: "none", message: "The server has no saved submission for this draft yet. You can review and submit." });
+        setPendingIntent(false);
+        return;
+      }
+      await completeSubmission({ id: body.ack.id, esignCapability: body.esignCapability });
+    } catch {
+      setIntentCheck({ state: "error", message: "We could not check right now. Your details are safe; try again in a moment." });
+    }
   };
 
   const toggleCardType = (type: string) => {
@@ -554,6 +629,72 @@ export default function MerchantApplication() {
     }
   };
 
+  /** Required-field gaps for the current step, in page order, each with the control id to focus. */
+  const missingFields = (): Array<{ id: string; label: string }> => {
+    const gaps: Array<{ id: string; label: string }> = [];
+    const need = (ok: boolean, id: string, label: string) => { if (!ok) gaps.push({ id, label }); };
+    const filled = (v: string) => v.trim() !== "";
+    switch (currentStep) {
+      case 1:
+        need(filled(legalBusinessName), "app-input-legal-business-name", "Legal business name");
+        need(businessType !== "", "app-select-business-type", "Business type");
+        need(filled(ein), "app-input-ein", "EIN");
+        need(filled(businessAddress), "app-input-business-address", "Business address");
+        need(filled(businessCity), "app-input-business-city", "City");
+        need(filled(businessState), "app-input-business-state", "State");
+        need(filled(businessZip), "app-input-business-zip", "ZIP");
+        need(filled(businessPhone), "app-input-business-phone", "Business phone");
+        need(filled(businessEmail), "app-input-business-email", "Business email");
+        need(vertical !== "", "app-select-vertical", "Industry");
+        break;
+      case 2:
+        need(filled(ownerFirstName), "app-input-owner-first-name", "Owner first name");
+        need(filled(ownerLastName), "app-input-owner-last-name", "Owner last name");
+        need(filled(ownerEmail), "app-input-owner-email", "Owner email");
+        need(filled(ownerPhone), "app-input-owner-phone", "Owner phone");
+        need(filled(ownerDob), "app-input-owner-dob", "Date of birth");
+        need(ownerSsn.replace(/\D/g, "").length === 9, "app-input-owner-ssn", "SSN (9 digits)");
+        need(filled(ownerAddress), "app-input-owner-address", "Owner address");
+        need(filled(ownerCity), "app-input-owner-city", "Owner city");
+        need(filled(ownerState), "app-input-owner-state", "Owner state");
+        need(filled(ownerZip), "app-input-owner-zip", "Owner ZIP");
+        need(filled(ownershipPercent), "app-input-ownership-percent", "Ownership percent");
+        break;
+      case 3:
+        need(filled(bankName), "app-input-bank-name", "Bank name");
+        need(filled(bankRoutingNumber), "app-input-routing-number", "Routing number");
+        need(filled(bankAccountNumber), "app-input-account-number", "Account number");
+        need(bankAccountType !== "", "app-select-account-type", "Account type");
+        break;
+      case 4:
+        need(filled(estimatedMonthlyVolume), "app-input-monthly-volume", "Estimated monthly volume");
+        need(filled(estimatedAvgTicket), "app-input-avg-ticket", "Average ticket");
+        need(filled(highestTicket), "app-input-highest-ticket", "Highest ticket");
+        need(acceptedCardTypes.length > 0, "app-group-card-types", "Card types accepted");
+        break;
+      case 5:
+        need(terminalNeeded !== null, "app-group-terminal", "Whether you need a terminal");
+        need(ecommerceNeeded !== null, "app-group-ecommerce", "Whether you need e-commerce processing");
+        need(preferredProgram !== "", "app-select-preferred-program", "Preferred program");
+        if (terminalNeeded === true) {
+          need(terminalType !== "", "app-select-terminal-type", "Terminal type");
+          need(filled(terminalQuantity), "app-input-terminal-quantity", "Terminal quantity");
+        }
+        break;
+      default:
+        break;
+    }
+    return gaps;
+  };
+
+  const focusField = (id: string) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const target = el.getAttribute("role") === "group" ? (el.querySelector("button,input,[role=checkbox]") as HTMLElement | null) : el;
+    target?.scrollIntoView({ block: "center" });
+    target?.focus();
+  };
+
   const handleNext = async () => {
     if (!canProceed() || currentStep >= TOTAL_STEPS) return;
 
@@ -562,7 +703,7 @@ export default function MerchantApplication() {
       try {
         const res = await fetch("/api/merchant-applications/check-duplicate", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...csrfHeader() },
           credentials: "include",
           body: JSON.stringify({ ein }),
         });
@@ -596,66 +737,36 @@ export default function MerchantApplication() {
     }
   };
 
-  const buildFullPayload = () => ({
-    status: "submitted",
-    currentStep: 6,
-    totalSteps: 6,
-    legalBusinessName,
-    dba,
-    businessType,
-    ein: ein.replace(/\D/g, "") || undefined,
-    businessStartDate,
-    businessAddress,
-    businessCity,
-    businessState,
-    businessZip,
-    businessPhone,
-    businessEmail,
-    website,
-    vertical,
-    ownerFirstName,
-    ownerLastName,
-    ownerEmail,
-    ownerPhone,
-    ownerDob,
-    ownerSsn: ownerSsn.replace(/\D/g, ""),
-    ownerAddress,
-    ownerCity,
-    ownerState,
-    ownerZip,
-    ownershipPercent: parseInt(ownershipPercent) || 0,
-    bankName,
-    bankRoutingNumber,
-    bankAccountNumber,
-    bankAccountType,
-    estimatedMonthlyVolume,
-    estimatedAvgTicket,
-    highestTicket,
-    currentProcessor: currentProcessor || null,
-    currentRate: currentRate || null,
-    acceptedCardTypes,
-    terminalNeeded: terminalNeeded === true,
-    terminalType: terminalNeeded ? terminalType : null,
-    terminalQuantity: terminalNeeded ? parseInt(terminalQuantity) || 1 : 0,
-    ecommerceNeeded: ecommerceNeeded === true,
-    preferredProgram,
-    esignStatus: "pending",
-    pewcConsent,
-    ...(pewcConsent ? { pewcDisclosureVersion: PEWC_DISCLOSURE_VERSION } : {}),
-    ...getStoredUTMParams(),
-  });
+  // The SAME builder the certification suite drives against the real HTTP routes (R01-1).
+  const buildFullPayload = () =>
+    buildPublicApplicationPayload(
+      {
+        legalBusinessName, dba, businessType, ein, businessStartDate,
+        businessAddress, businessCity, businessState, businessZip,
+        businessPhone, businessEmail, website, vertical,
+        ownerFirstName, ownerLastName, ownerEmail, ownerPhone,
+        ownerDob, ownerSsn, ownerAddress, ownerCity, ownerState, ownerZip, ownershipPercent,
+        bankName, bankRoutingNumber, bankAccountNumber, bankAccountType,
+        estimatedMonthlyVolume, estimatedAvgTicket, highestTicket,
+        currentProcessor, currentRate, acceptedCardTypes,
+        terminalNeeded, terminalType, terminalQuantity, ecommerceNeeded, preferredProgram,
+        reviewConfirmed, pewcConsent, pewcDisclosureVersion: PEWC_DISCLOSURE_VERSION,
+      },
+      finalizeAttributionExtras(getStoredUTMParams() as Record<string, unknown>),
+    );
 
   const handleSubmit = async () => {
     if (!canProceed()) return;
     setSubmitting(true);
     try {
-      // Duplicate-EIN guard before committing to server
+      // Duplicate-EIN guard. The draft's own saved submission is excluded server-side (R01-4), so
+      // replaying a lost submit is never blocked by the very row it created.
       try {
         const dupRes = await fetch("/api/merchant-applications/check-duplicate", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...csrfHeader(), ...(serverDraftToken ? { "X-Draft-Token": serverDraftToken } : {}) },
           credentials: "include",
-          body: JSON.stringify({ ein }),
+          body: JSON.stringify({ ein, ...(serverDraftId ? { draftId: serverDraftId } : {}) }),
         });
         if (dupRes.ok) {
           const dupData = await dupRes.json();
@@ -667,46 +778,16 @@ export default function MerchantApplication() {
         }
       } catch (dupErr: any) {
         if (dupErr.message?.includes("already exists")) throw dupErr;
-        // Network / endpoint error — proceed optimistically
+        // Network / endpoint error — the server re-checks at finalize.
       }
 
-      let data: { id: number; esignCapability?: string };
-
-      // Stable idempotency key for finalize — generated once per submission,
-      // reused on retry so the server dedupes identical resubmissions.
-      // S5-04: the key is retained (non-sensitive, UUID only) so a lost response followed by a
-      // reload retries the SAME submission intent instead of a new one against a finalized draft.
-      if (!finalizeIdempotencyKey.current) {
-        let stored: string | null = null;
-        try { stored = localStorage.getItem("lb_finalize_key"); } catch {}
-        finalizeIdempotencyKey.current = stored || crypto.randomUUID();
-        try { localStorage.setItem("lb_finalize_key", finalizeIdempotencyKey.current); } catch {}
-      }
-
-      if (serverDraftId && serverDraftToken) {
-        // Finalize the existing server-side draft in place
-        const res = await fetch(`/api/merchant-applications/${serverDraftId}/finalize`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Draft-Token": serverDraftToken,
-            "Idempotency-Key": finalizeIdempotencyKey.current,
-          },
-          credentials: "include",
-          body: JSON.stringify({ ...buildFullPayload(), ...(shareToken ? { _shareToken: shareToken } : {}) }),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ message: "Submission failed" }));
-          throw new Error(err.message || "Submission failed");
-        }
-        data = await res.json();
-      } else {
-        // No server draft available — create a draft first, then finalize.
-        // The operator POST route is admin-only; public applicants always use
-        // the draft+finalize path.
+      // Resolve the draft first: the idempotency key belongs to ONE draft.
+      let draftId = serverDraftId;
+      let draftToken = serverDraftToken;
+      if (!draftId || !draftToken) {
         const draftRes = await fetch("/api/merchant-applications/draft", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...csrfHeader() },
           credentials: "include",
           body: JSON.stringify({
             legalBusinessName: legalBusinessName || undefined,
@@ -718,28 +799,55 @@ export default function MerchantApplication() {
           throw new Error("Could not create application draft. Please try again.");
         }
         const draftData = await draftRes.json();
-        const fallbackDraftId: number = draftData.id;
-        const fallbackDraftToken: string = draftData.draftToken;
-        // S5-04: retain the new draft's recovery identity BEFORE finalizing so a lost response
-        // can be recovered after reload (token is the draft capability, never a protected field).
-        try { localStorage.setItem("lb_draft_id", String(fallbackDraftId)); localStorage.setItem("lb_draft_token", fallbackDraftToken); } catch {}
-
-        const finalRes = await fetch(`/api/merchant-applications/${fallbackDraftId}/finalize`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Draft-Token": fallbackDraftToken,
-            "Idempotency-Key": finalizeIdempotencyKey.current,
-          },
-          credentials: "include",
-          body: JSON.stringify({ ...buildFullPayload(), ...(shareToken ? { _shareToken: shareToken } : {}) }),
-        });
-        if (!finalRes.ok) {
-          const err = await finalRes.json().catch(() => ({ message: "Submission failed" }));
-          throw new Error(err.message || "Submission failed");
-        }
-        data = await finalRes.json();
+        draftId = draftData.id as number;
+        draftToken = draftData.draftToken as string;
+        setServerDraftId(draftId);
+        setServerDraftToken(draftToken);
       }
+      if (!writeDraftCredentials(draftId!, draftToken!)) {
+        setRecoveryWarning("This browser could not save recovery details. Keep this page open until you see your confirmation.");
+      }
+
+      // Stable per-draft idempotency key, reused on retry or reload for the same draft only.
+      const intent = intentKeyForDraft(draftId!);
+      finalizeIdempotencyKey.current = intent.key;
+      if (!intent.persisted) {
+        setRecoveryWarning("This browser could not save recovery details. Keep this page open until you see your confirmation.");
+      }
+
+      const finalRes = await fetch(`/api/merchant-applications/${draftId}/finalize`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Draft-Token": draftToken!,
+          "Idempotency-Key": intent.key,
+          ...csrfHeader(),
+        },
+        credentials: "include",
+        body: JSON.stringify({ ...buildFullPayload(), ...(shareToken ? { _shareToken: shareToken } : {}) }),
+      });
+      if (!finalRes.ok) {
+        const err = await finalRes.json().catch(() => ({ message: "Submission failed", code: undefined }));
+        if (finalRes.status === 409 && err.code === "finalize_payload_mismatch") {
+          setPendingIntent(true);
+        }
+        throw new Error(err.message || "Submission failed");
+      }
+      const data: { id: number; esignCapability?: string } = await finalRes.json();
+      await completeSubmission(data);
+    } catch (error: any) {
+      toast({
+        title: "Something went wrong",
+        description: error.message || "Please try again or call us at 954-266-8214.",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Post-acknowledgement flow shared by a fresh submit and "Check saved submission".
+  const completeSubmission = async (data: { id: number; esignCapability?: string }) => {
       trackMerchantApplication();
       trackConversion("merchant_application", {
         application_id: data.id,
@@ -759,6 +867,7 @@ export default function MerchantApplication() {
             headers: {
               "Content-Type": "application/json",
               "X-ESign-Capability": esignCapability,
+              ...csrfHeader(),
             },
             credentials: "include",
             body: JSON.stringify({ applicationId: data.id }),
@@ -776,8 +885,8 @@ export default function MerchantApplication() {
         setEsignSending(false);
       }
 
-      localStorage.removeItem(DRAFT_KEY);
-      try { localStorage.removeItem("lb_draft_id"); localStorage.removeItem("lb_draft_token"); localStorage.removeItem("lb_finalize_key"); } catch {}
+      try { localStorage.removeItem(DRAFT_KEY); } catch {}
+      clearSubmissionTuple();
       setSubmitted(true);
       try {
         sessionStorage.setItem("lb_app_confirmation", JSON.stringify({
@@ -792,15 +901,6 @@ export default function MerchantApplication() {
         }));
       } catch {}
       setLocation("/thanks/application");
-    } catch (error: any) {
-      toast({
-        title: "Something went wrong",
-        description: error.message || "Please try again or call us at 954-266-8214.",
-        variant: "destructive",
-      });
-    } finally {
-      setSubmitting(false);
-    }
   };
 
   const progressPercent = Math.round(((currentStep - 1) / (TOTAL_STEPS - 1)) * 100);
@@ -945,6 +1045,30 @@ export default function MerchantApplication() {
 
         <section className="bg-muted/30 py-12" data-testid="section-application-form">
           <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
+            {(pendingIntent || intentCheck.state === "none" || intentCheck.state === "error" || recoveryWarning) && (
+              <div
+                className="mb-4 p-4 rounded-lg border border-amber-500/40 bg-amber-500/5 flex flex-col sm:flex-row items-start sm:items-center gap-3"
+                data-testid="banner-saved-submission"
+                role="status"
+              >
+                <div className="flex-1 min-w-0 text-sm text-foreground">
+                  {pendingIntent && <p className="font-medium">A submission may already be saved for this draft.</p>}
+                  {intentCheck.message && <p data-testid="text-saved-submission-result">{intentCheck.message}</p>}
+                  {recoveryWarning && <p className="text-xs text-muted-foreground" data-testid="text-recovery-warning">{recoveryWarning}</p>}
+                </div>
+                {pendingIntent && (
+                  <Button
+                    size="sm"
+                    onClick={checkSavedSubmission}
+                    disabled={intentCheck.state === "checking"}
+                    data-testid="button-check-saved-submission"
+                  >
+                    {intentCheck.state === "checking" ? "Checking…" : "Check saved submission"}
+                  </Button>
+                )}
+              </div>
+            )}
+
             {hasDraft && !draftDismissed && (
               <div
                 className="mb-4 p-4 rounded-lg border border-primary/20 bg-primary/5 flex flex-col sm:flex-row items-start sm:items-center gap-3"
@@ -985,16 +1109,18 @@ export default function MerchantApplication() {
               </p>
               <div className="flex items-center gap-3">
                 <span
-                  className={`text-xs flex items-center gap-1 transition-opacity duration-500 ${serverSaveState === "failed" ? "opacity-100 text-amber-600 dark:text-amber-400" : showDraftSaved ? "opacity-100 text-emerald-600 dark:text-emerald-400" : "opacity-0"}`}
+                  className={`text-xs flex items-center gap-1 transition-opacity duration-500 ${serverSaveState === "failed" || (serverSaveState === "saved" && savedRevision !== revisionKey) ? "opacity-100 text-amber-600 dark:text-amber-400" : showDraftSaved ? "opacity-100 text-emerald-600 dark:text-emerald-400" : "opacity-0"}`}
                   data-testid="text-draft-saved"
                   aria-live="polite"
                 >
                   <Save className="w-3 h-3" />
                   {serverSaveState === "failed"
                     ? "Saved on this device only. We could not reach the server; we will retry when you continue."
-                    : serverSaveState === "saved"
+                    : serverSaveState === "saved" && savedRevision === revisionKey
                       ? "Draft saved"
-                      : "Saved on this device"}
+                      : serverSaveState === "saved"
+                        ? "Saved on this device. Recent changes reach the server when you continue."
+                        : "Saved on this device"}
                 </span>
                 <p className="text-xs text-muted-foreground">{progressPercent}% complete</p>
               </div>
@@ -1048,8 +1174,8 @@ export default function MerchantApplication() {
                   <div className="space-y-4" data-testid="step-business-info">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">Legal Business Name *</label>
-                        <Input
+                        <label htmlFor="app-input-legal-business-name" className="text-sm font-medium text-foreground mb-1 block">Legal Business Name *</label>
+                        <Input id="app-input-legal-business-name"
                           value={legalBusinessName}
                           onChange={(e) => setLegalBusinessName(e.target.value)}
                           placeholder="ABC Company LLC"
@@ -1057,8 +1183,8 @@ export default function MerchantApplication() {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">DBA (Doing Business As)</label>
-                        <Input
+                        <label htmlFor="app-input-dba" className="text-sm font-medium text-foreground mb-1 block">DBA (Doing Business As)</label>
+                        <Input id="app-input-dba"
                           value={dba}
                           onChange={(e) => setDba(e.target.value)}
                           placeholder="ABC Company"
@@ -1068,9 +1194,9 @@ export default function MerchantApplication() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">Business Type *</label>
+                        <label htmlFor="app-select-business-type" className="text-sm font-medium text-foreground mb-1 block">Business Type *</label>
                         <Select value={businessType} onValueChange={setBusinessType}>
-                          <SelectTrigger data-testid="select-business-type">
+                          <SelectTrigger id="app-select-business-type" data-testid="select-business-type">
                             <SelectValue placeholder="Select type" />
                           </SelectTrigger>
                           <SelectContent>
@@ -1083,8 +1209,8 @@ export default function MerchantApplication() {
                         </Select>
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">EIN *</label>
-                        <Input
+                        <label htmlFor="app-input-ein" className="text-sm font-medium text-foreground mb-1 block">EIN *</label>
+                        <Input id="app-input-ein"
                           value={ein}
                           onChange={(e) => setEin(e.target.value)}
                           placeholder="XX-XXXXXXX"
@@ -1097,8 +1223,8 @@ export default function MerchantApplication() {
                       </div>
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-foreground mb-1 block">Business Start Date</label>
-                      <Input
+                      <label htmlFor="app-input-business-start-date" className="text-sm font-medium text-foreground mb-1 block">Business Start Date</label>
+                      <Input id="app-input-business-start-date"
                         value={businessStartDate}
                         onChange={(e) => setBusinessStartDate(e.target.value)}
                         placeholder="MM/DD/YYYY"
@@ -1106,8 +1232,8 @@ export default function MerchantApplication() {
                       />
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-foreground mb-1 block">Business Address *</label>
-                      <Input
+                      <label htmlFor="app-input-business-address" className="text-sm font-medium text-foreground mb-1 block">Business Address *</label>
+                      <Input id="app-input-business-address"
                         value={businessAddress}
                         onChange={(e) => setBusinessAddress(e.target.value)}
                         placeholder="123 Main St"
@@ -1116,8 +1242,8 @@ export default function MerchantApplication() {
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">City *</label>
-                        <Input
+                        <label htmlFor="app-input-business-city" className="text-sm font-medium text-foreground mb-1 block">City *</label>
+                        <Input id="app-input-business-city"
                           value={businessCity}
                           onChange={(e) => setBusinessCity(e.target.value)}
                           placeholder="City"
@@ -1125,8 +1251,8 @@ export default function MerchantApplication() {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">State *</label>
-                        <Input
+                        <label htmlFor="app-input-business-state" className="text-sm font-medium text-foreground mb-1 block">State *</label>
+                        <Input id="app-input-business-state"
                           value={businessState}
                           onChange={(e) => setBusinessState(e.target.value)}
                           placeholder="FL"
@@ -1134,8 +1260,8 @@ export default function MerchantApplication() {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">ZIP *</label>
-                        <Input
+                        <label htmlFor="app-input-business-zip" className="text-sm font-medium text-foreground mb-1 block">ZIP *</label>
+                        <Input id="app-input-business-zip"
                           value={businessZip}
                           onChange={(e) => setBusinessZip(e.target.value)}
                           placeholder="33301"
@@ -1145,8 +1271,8 @@ export default function MerchantApplication() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">Business Phone *</label>
-                        <Input
+                        <label htmlFor="app-input-business-phone" className="text-sm font-medium text-foreground mb-1 block">Business Phone *</label>
+                        <Input id="app-input-business-phone"
                           value={businessPhone}
                           onChange={(e) => setBusinessPhone(e.target.value)}
                           placeholder="(954) 555-1234"
@@ -1154,8 +1280,8 @@ export default function MerchantApplication() {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">Business Email *</label>
-                        <Input
+                        <label htmlFor="app-input-business-email" className="text-sm font-medium text-foreground mb-1 block">Business Email *</label>
+                        <Input id="app-input-business-email"
                           type="email"
                           value={businessEmail}
                           onChange={(e) => setBusinessEmail(e.target.value)}
@@ -1165,8 +1291,8 @@ export default function MerchantApplication() {
                       </div>
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-foreground mb-1 block">Website</label>
-                      <Input
+                      <label htmlFor="app-input-website" className="text-sm font-medium text-foreground mb-1 block">Website</label>
+                      <Input id="app-input-website"
                         value={website}
                         onChange={(e) => setWebsite(e.target.value)}
                         placeholder="https://www.company.com"
@@ -1174,9 +1300,9 @@ export default function MerchantApplication() {
                       />
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-foreground mb-1 block">Business Vertical *</label>
+                      <label htmlFor="app-select-vertical" className="text-sm font-medium text-foreground mb-1 block">Business Vertical *</label>
                       <Select value={vertical} onValueChange={setVertical}>
-                        <SelectTrigger data-testid="select-vertical">
+                        <SelectTrigger id="app-select-vertical" data-testid="select-vertical">
                           <SelectValue placeholder="Select vertical" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1195,8 +1321,8 @@ export default function MerchantApplication() {
                   <div className="space-y-4" data-testid="step-owner-info">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">First Name *</label>
-                        <Input
+                        <label htmlFor="app-input-owner-first-name" className="text-sm font-medium text-foreground mb-1 block">First Name *</label>
+                        <Input id="app-input-owner-first-name"
                           value={ownerFirstName}
                           onChange={(e) => setOwnerFirstName(e.target.value)}
                           placeholder="John"
@@ -1204,8 +1330,8 @@ export default function MerchantApplication() {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">Last Name *</label>
-                        <Input
+                        <label htmlFor="app-input-owner-last-name" className="text-sm font-medium text-foreground mb-1 block">Last Name *</label>
+                        <Input id="app-input-owner-last-name"
                           value={ownerLastName}
                           onChange={(e) => setOwnerLastName(e.target.value)}
                           placeholder="Smith"
@@ -1215,8 +1341,8 @@ export default function MerchantApplication() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">Email *</label>
-                        <Input
+                        <label htmlFor="app-input-owner-email" className="text-sm font-medium text-foreground mb-1 block">Email *</label>
+                        <Input id="app-input-owner-email"
                           type="email"
                           value={ownerEmail}
                           onChange={(e) => setOwnerEmail(e.target.value)}
@@ -1225,8 +1351,8 @@ export default function MerchantApplication() {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">Phone *</label>
-                        <Input
+                        <label htmlFor="app-input-owner-phone" className="text-sm font-medium text-foreground mb-1 block">Phone *</label>
+                        <Input id="app-input-owner-phone"
                           value={ownerPhone}
                           onChange={(e) => setOwnerPhone(e.target.value)}
                           placeholder="(954) 555-1234"
@@ -1236,8 +1362,8 @@ export default function MerchantApplication() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">Date of Birth *</label>
-                        <Input
+                        <label htmlFor="app-input-owner-dob" className="text-sm font-medium text-foreground mb-1 block">Date of Birth *</label>
+                        <Input id="app-input-owner-dob"
                           value={ownerDob}
                           onChange={(e) => setOwnerDob(e.target.value)}
                           placeholder="MM/DD/YYYY"
@@ -1245,8 +1371,8 @@ export default function MerchantApplication() {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">SSN *</label>
-                        <Input
+                        <label htmlFor="app-input-owner-ssn" className="text-sm font-medium text-foreground mb-1 block">SSN *</label>
+                        <Input id="app-input-owner-ssn"
                           value={ownerSsn}
                           onChange={(e) => setOwnerSsn(maskSsn(e.target.value))}
                           placeholder="XXX-XX-XXXX"
@@ -1255,8 +1381,8 @@ export default function MerchantApplication() {
                       </div>
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-foreground mb-1 block">Home Address *</label>
-                      <Input
+                      <label htmlFor="app-input-owner-address" className="text-sm font-medium text-foreground mb-1 block">Home Address *</label>
+                      <Input id="app-input-owner-address"
                         value={ownerAddress}
                         onChange={(e) => setOwnerAddress(e.target.value)}
                         placeholder="456 Oak Ave"
@@ -1265,8 +1391,8 @@ export default function MerchantApplication() {
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">City *</label>
-                        <Input
+                        <label htmlFor="app-input-owner-city" className="text-sm font-medium text-foreground mb-1 block">City *</label>
+                        <Input id="app-input-owner-city"
                           value={ownerCity}
                           onChange={(e) => setOwnerCity(e.target.value)}
                           placeholder="City"
@@ -1274,8 +1400,8 @@ export default function MerchantApplication() {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">State *</label>
-                        <Input
+                        <label htmlFor="app-input-owner-state" className="text-sm font-medium text-foreground mb-1 block">State *</label>
+                        <Input id="app-input-owner-state"
                           value={ownerState}
                           onChange={(e) => setOwnerState(e.target.value)}
                           placeholder="FL"
@@ -1283,8 +1409,8 @@ export default function MerchantApplication() {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">ZIP *</label>
-                        <Input
+                        <label htmlFor="app-input-owner-zip" className="text-sm font-medium text-foreground mb-1 block">ZIP *</label>
+                        <Input id="app-input-owner-zip"
                           value={ownerZip}
                           onChange={(e) => setOwnerZip(e.target.value)}
                           placeholder="33301"
@@ -1293,8 +1419,8 @@ export default function MerchantApplication() {
                       </div>
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-foreground mb-1 block">Ownership Percentage *</label>
-                      <Input
+                      <label htmlFor="app-input-ownership-percent" className="text-sm font-medium text-foreground mb-1 block">Ownership Percentage *</label>
+                      <Input id="app-input-ownership-percent"
                         type="number"
                         value={ownershipPercent}
                         onChange={(e) => setOwnershipPercent(e.target.value)}
@@ -1316,8 +1442,8 @@ export default function MerchantApplication() {
                       </p>
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-foreground mb-1 block">Bank Name *</label>
-                      <Input
+                      <label htmlFor="app-input-bank-name" className="text-sm font-medium text-foreground mb-1 block">Bank Name *</label>
+                      <Input id="app-input-bank-name"
                         value={bankName}
                         onChange={(e) => setBankName(e.target.value)}
                         placeholder="First National Bank"
@@ -1326,8 +1452,8 @@ export default function MerchantApplication() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">Routing Number *</label>
-                        <Input
+                        <label htmlFor="app-input-routing-number" className="text-sm font-medium text-foreground mb-1 block">Routing Number *</label>
+                        <Input id="app-input-routing-number"
                           value={bankRoutingNumber}
                           onChange={(e) => setBankRoutingNumber(e.target.value)}
                           placeholder="XXXXXXXXX"
@@ -1335,8 +1461,8 @@ export default function MerchantApplication() {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">Account Number *</label>
-                        <Input
+                        <label htmlFor="app-input-account-number" className="text-sm font-medium text-foreground mb-1 block">Account Number *</label>
+                        <Input id="app-input-account-number"
                           value={bankAccountNumber}
                           onChange={(e) => setBankAccountNumber(e.target.value)}
                           placeholder="XXXXXXXXXXXX"
@@ -1345,9 +1471,9 @@ export default function MerchantApplication() {
                       </div>
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-foreground mb-1 block">Account Type *</label>
+                      <label htmlFor="app-select-account-type" className="text-sm font-medium text-foreground mb-1 block">Account Type *</label>
                       <Select value={bankAccountType} onValueChange={setBankAccountType}>
-                        <SelectTrigger data-testid="select-account-type">
+                        <SelectTrigger id="app-select-account-type" data-testid="select-account-type">
                           <SelectValue placeholder="Select account type" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1366,8 +1492,8 @@ export default function MerchantApplication() {
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">Est. Monthly Volume *</label>
-                        <Input
+                        <label htmlFor="app-input-monthly-volume" className="text-sm font-medium text-foreground mb-1 block">Est. Monthly Volume *</label>
+                        <Input id="app-input-monthly-volume"
                           value={estimatedMonthlyVolume}
                           onChange={(e) => setEstimatedMonthlyVolume(e.target.value)}
                           placeholder="$25,000"
@@ -1379,8 +1505,8 @@ export default function MerchantApplication() {
                         </p>
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">Average Ticket *</label>
-                        <Input
+                        <label htmlFor="app-input-avg-ticket" className="text-sm font-medium text-foreground mb-1 block">Average Ticket *</label>
+                        <Input id="app-input-avg-ticket"
                           value={estimatedAvgTicket}
                           onChange={(e) => setEstimatedAvgTicket(e.target.value)}
                           placeholder="$75"
@@ -1392,8 +1518,8 @@ export default function MerchantApplication() {
                         </p>
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">Highest Ticket *</label>
-                        <Input
+                        <label htmlFor="app-input-highest-ticket" className="text-sm font-medium text-foreground mb-1 block">Highest Ticket *</label>
+                        <Input id="app-input-highest-ticket"
                           value={highestTicket}
                           onChange={(e) => setHighestTicket(e.target.value)}
                           placeholder="$500"
@@ -1407,8 +1533,8 @@ export default function MerchantApplication() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">Current Processor</label>
-                        <Input
+                        <label htmlFor="app-input-current-processor" className="text-sm font-medium text-foreground mb-1 block">Current Processor</label>
+                        <Input id="app-input-current-processor"
                           value={currentProcessor}
                           onChange={(e) => setCurrentProcessor(e.target.value)}
                           placeholder="Optional"
@@ -1416,8 +1542,8 @@ export default function MerchantApplication() {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-foreground mb-1 block">Current Rate</label>
-                        <Input
+                        <label htmlFor="app-input-current-rate" className="text-sm font-medium text-foreground mb-1 block">Current Rate</label>
+                        <Input id="app-input-current-rate"
                           value={currentRate}
                           onChange={(e) => setCurrentRate(e.target.value)}
                           placeholder="Optional (e.g., 2.9%)"
@@ -1426,8 +1552,8 @@ export default function MerchantApplication() {
                       </div>
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-foreground mb-2 block">Card Types Accepted *</label>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <p id="app-group-card-types" className="text-sm font-medium text-foreground mb-2 block">Card Types Accepted *</p>
+                      <div role="group" aria-labelledby="app-group-card-types" className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         {CARD_TYPES.map((type) => (
                           <label
                             key={type}
@@ -1449,8 +1575,8 @@ export default function MerchantApplication() {
                 {currentStep === 5 && (
                   <div className="space-y-4" data-testid="step-equipment-program">
                     <div>
-                      <label className="text-sm font-medium text-foreground mb-2 block">Do you need a terminal? *</label>
-                      <div className="grid grid-cols-2 gap-4">
+                      <p id="app-group-terminal" className="text-sm font-medium text-foreground mb-2 block">Do you need a terminal? *</p>
+                      <div role="group" aria-labelledby="app-group-terminal" className="grid grid-cols-2 gap-4">
                         <Button
                           variant={terminalNeeded === true ? "default" : "outline"}
                           onClick={() => setTerminalNeeded(true)}
@@ -1470,9 +1596,9 @@ export default function MerchantApplication() {
                     {terminalNeeded && (
                       <>
                         <div>
-                          <label className="text-sm font-medium text-foreground mb-1 block">Terminal Type *</label>
+                          <label htmlFor="app-select-terminal-type" className="text-sm font-medium text-foreground mb-1 block">Terminal Type *</label>
                           <Select value={terminalType} onValueChange={setTerminalType}>
-                            <SelectTrigger data-testid="select-terminal-type">
+                            <SelectTrigger id="app-select-terminal-type" data-testid="select-terminal-type">
                               <SelectValue placeholder="Select terminal" />
                             </SelectTrigger>
                             <SelectContent>
@@ -1485,8 +1611,8 @@ export default function MerchantApplication() {
                           </Select>
                         </div>
                         <div>
-                          <label className="text-sm font-medium text-foreground mb-1 block">Quantity *</label>
-                          <Input
+                          <label htmlFor="app-input-terminal-quantity" className="text-sm font-medium text-foreground mb-1 block">Quantity *</label>
+                          <Input id="app-input-terminal-quantity"
                             type="number"
                             value={terminalQuantity}
                             onChange={(e) => setTerminalQuantity(e.target.value)}
@@ -1498,8 +1624,8 @@ export default function MerchantApplication() {
                       </>
                     )}
                     <div>
-                      <label className="text-sm font-medium text-foreground mb-2 block">Do you need e-commerce processing? *</label>
-                      <div className="grid grid-cols-2 gap-4">
+                      <p id="app-group-ecommerce" className="text-sm font-medium text-foreground mb-2 block">Do you need e-commerce processing? *</p>
+                      <div role="group" aria-labelledby="app-group-ecommerce" className="grid grid-cols-2 gap-4">
                         <Button
                           variant={ecommerceNeeded === true ? "default" : "outline"}
                           onClick={() => setEcommerceNeeded(true)}
@@ -1517,9 +1643,9 @@ export default function MerchantApplication() {
                       </div>
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-foreground mb-1 block">Preferred Program *</label>
+                      <label htmlFor="app-select-preferred-program" className="text-sm font-medium text-foreground mb-1 block">Preferred Program *</label>
                       <Select value={preferredProgram} onValueChange={setPreferredProgram}>
-                        <SelectTrigger data-testid="select-preferred-program">
+                        <SelectTrigger id="app-select-preferred-program" data-testid="select-preferred-program">
                           <SelectValue placeholder="Select program" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1622,6 +1748,20 @@ export default function MerchantApplication() {
                     </div>
                   </div>
                 )}
+
+                {currentStep < TOTAL_STEPS && !canProceed() && (() => {
+                  const gaps = missingFields();
+                  if (!gaps.length) return null;
+                  return (
+                    <div className="mt-6 rounded-md border border-orange-300 bg-orange-50 dark:bg-orange-950/20 p-3 text-sm" role="status" aria-live="polite" data-testid="text-step-missing">
+                      <p className="font-medium">Still needed to continue:</p>
+                      <p className="text-muted-foreground">{gaps.map((g) => g.label).join(", ")}</p>
+                      <Button type="button" variant="outline" className="mt-2 min-h-11" onClick={() => focusField(gaps[0].id)} data-testid="button-focus-first-missing">
+                        Go to {gaps[0].label}
+                      </Button>
+                    </div>
+                  );
+                })()}
 
                 <div className="flex items-center justify-between gap-4 mt-8 pt-4 border-t">
                   {currentStep > 1 ? (

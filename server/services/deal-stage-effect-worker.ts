@@ -37,6 +37,16 @@ async function complete(intent: ClaimedIntent, result: Record<string, unknown>) 
 }
 
 async function fail(intent: ClaimedIntent, error: unknown) {
+  if (error instanceof Error && error.message.startsWith("effect_deferred:")) {
+    // A pause/gate is not a failure: do not burn an attempt, re-check later.
+    await db.execute(sql`
+      UPDATE deal_stage_effect_intents
+      SET state='retryable', attempts=GREATEST(attempts-1,0), last_error=${error.message.slice(0, 200)},
+          next_attempt_at=now() + interval '5 minutes', lease_token=NULL, lease_expires_at=NULL, updated_at=now()
+      WHERE id=${intent.id}::uuid AND state='processing' AND lease_token=${intent.lease_token}::uuid
+    `);
+    return;
+  }
   const terminal = intent.attempts >= MAX_ATTEMPTS;
   const reconciliationRequired = error instanceof Error && error.message.startsWith("effect_reconcile_required:");
   await db.execute(sql`
@@ -82,6 +92,17 @@ async function completeReceipt(receipt: Receipt, result: Record<string, unknown>
 async function execute(intent: ClaimedIntent) {
   const deal = await storage.getDeal(intent.deal_id);
   if (!deal) throw new Error("deal_not_found");
+  // Gate before the receipt: a paused provider mutation must defer without claiming the side-effect boundary.
+  if (intent.effect_type === "underwriting_override_ghl_task") {
+    const { isGhlConfigured } = await import("./ghl");
+    const ghlOn = isGhlConfigured();
+    const contact = ghlOn && deal.contactId ? await storage.getContact(deal.contactId).catch(() => null) : null;
+    if (ghlOn && contact?.ghlContactId) {
+      const { authorizeGhlRouteMutation } = await import("../routes/ghl-mutation-pause");
+      const gate = await authorizeGhlRouteMutation();
+      if (!gate?.allowed) throw new Error("effect_deferred:ghl_mutation_paused");
+    }
+  }
   const receipt = await beginReceipt(intent);
   if (!receipt) return { disposition: "idempotent_receipt_replay" };
   let result: Record<string, unknown>;
@@ -129,6 +150,37 @@ async function execute(intent: ClaimedIntent) {
         dueDate: new Date(Date.now() + 7 * 86_400_000), priority: "normal",
       });
       result = { disposition: "applied" }; break;
+    }
+    case "underwriting_override_ghl_task":
+    case "underwriting_reject_notification": {
+      const m = /^underwriting_override:(\d+):(approve|reject)$/.exec(String((await db.execute(sql`SELECT transition_key FROM deal_stage_effect_intents WHERE id=${intent.id}::uuid`) as any).rows?.[0]?.transition_key ?? ""));
+      if (!m) throw new Error("override_intent_malformed");
+      const decisionId = Number(m[1]); const action = m[2] as "approve" | "reject";
+      const dec = ((await db.execute(sql`SELECT overridden_by, override_note, override_action FROM underwriting_decisions WHERE id=${decisionId} AND deal_id=${deal.id}`)) as any).rows?.[0];
+      if (!dec || dec.override_action !== action) { result = { disposition: "not_applicable" }; break; }
+      if (intent.effect_type === "underwriting_reject_notification") {
+        await storage.createNotification({
+          channel: "internal", title: "Underwriting Decision Rejected",
+          message: `Deal #${deal.id} was manually rejected and returned to Review In Progress.`,
+          type: "alert", recipientId: dec.overridden_by,
+          metadata: { dealId: deal.id, decisionId, eventType: "underwriting_rejected", intentId: intent.id },
+        });
+        result = { disposition: "applied" }; break;
+      }
+      const { isGhlConfigured, createGhlTask } = await import("./ghl");
+      const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
+      if (!isGhlConfigured() || !contact?.ghlContactId) { result = { disposition: "not_applicable" }; break; }
+      const company = deal.companyName || "Unknown";
+      const task = await createGhlTask({
+        contactId: contact.ghlContactId,
+        title: action === "approve"
+          ? `Underwriting Approved — Deal #${deal.id}: ${company} — advance to Proposal Sent`
+          : `Underwriting Rejected — Deal #${deal.id}: ${company} — returned to Review In Progress${dec.override_note ? ` — Note: ${dec.override_note}` : ""}`,
+        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        assignedTo: undefined,
+      });
+      if (!task.success) throw new Error(`ghl_task_failed:${String(task.error ?? "unknown").slice(0, 120)}`);
+      result = { disposition: "applied", taskId: task.taskId ?? null }; break;
     }
     default:
       throw new Error(`unknown_stage_effect:${intent.effect_type}`);

@@ -1,14 +1,11 @@
 import type { Express } from "express";
 import { applyUnderwritingOverride, OverrideError } from "../services/underwriting-override-service";
-import { getQueuePage, getApprovedSincePage, getStatsSummary, normalizePage } from "../services/underwriting-read-model";
+import { getQueuePage, getApprovedSincePage, getStatsSummary, normalizePage, getBusinessDayWindow } from "../services/underwriting-read-model";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
-import { runUnderwritingEngine } from "../services/underwriting-engine";
 import { z } from "zod";
 import { pool } from "../db";
-import { isGhlConfigured, createGhlTask } from "../services/ghl";
 import { serverError } from "../utils/server-error";
-import { authorizeGhlRouteMutation } from "./ghl-mutation-pause";
 
 export function registerUnderwritingRoutes(app: Express) {
   // ── GET current rules config ─────────────────────────────────────────────
@@ -72,7 +69,8 @@ export function registerUnderwritingRoutes(app: Express) {
         return res.status(400).json({ message: "decision must be review or hold" });
       }
       const { limit, offset } = normalizePage(req.query.limit, req.query.offset);
-      res.json(await getQueuePage(pool, { decision: raw as "review" | "hold" | undefined, limit, offset }));
+      const win = await getBusinessDayWindow(pool);
+      res.json({ ...(await getQueuePage(pool, { decision: raw as "review" | "hold" | undefined, limit, offset })), unit: "deals", asOf: win.asOf, timezone: win.timezone });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -81,10 +79,9 @@ export function registerUnderwritingRoutes(app: Express) {
   // ── GET today's auto-approved decision EVENTS (paginated, uncapped total) ──────────────────────
   app.get("/api/underwriting/approved-today", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const win = await getBusinessDayWindow(pool);
       const { limit, offset } = normalizePage(req.query.limit, req.query.offset);
-      res.json(await getApprovedSincePage(pool, { since: today, limit, offset }));
+      res.json({ ...(await getApprovedSincePage(pool, { since: win.since, limit, offset })), unit: "decision_events", since: win.since, asOf: win.asOf, timezone: win.timezone });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -93,18 +90,23 @@ export function registerUnderwritingRoutes(app: Express) {
   // ── GET stats: `current` (deals waiting now, same cohort as the queue) vs decision-event history ──
   app.get("/api/underwriting/stats", requireRole("admin", "manager"), async (_req, res) => {
     try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      res.json(await getStatsSummary(pool, today));
+      const win = await getBusinessDayWindow(pool);
+      res.json({ ...(await getStatsSummary(pool, win.since)), window: { since: win.since, asOf: win.asOf, timezone: win.timezone } });
     } catch (err: any) {
       serverError(res, err);
     }
   });
 
   // ── Manual approve / reject override ─────────────────────────────────────
-  // S5-08: the decision override, stage move, effect intents and audit row commit atomically (see
-  // services/underwriting-override-service.ts). The optional GHL task is checked and attempted only AFTER commit.
-  const overrideBody = z.object({ note: z.string().max(2000).nullish() }).strict();
+  // The decision override, stage move, durable follow-on intents (GHL task, reject notification) and audit row commit
+  // atomically (services/underwriting-override-service.ts). The reviewer presents the decision id + revision they saw,
+  // a reason and a client command id; a stale review is a 409 before any local change, and a repeated command id replays.
+  const overrideBody = z.object({
+    expectedDecisionId: z.number().int().positive(),
+    expectedRevision: z.string().min(8).max(64),
+    reason: z.string().trim().min(3).max(2000),
+    commandId: z.string().uuid(),
+  }).strict();
 
   async function handleOverride(req: any, res: any, action: "approve" | "reject") {
     try {
@@ -113,50 +115,15 @@ export function registerUnderwritingRoutes(app: Express) {
       const userId = typeof req.user?.id === "string" ? req.user.id : req.user?.id != null ? String(req.user.id) : null;
       if (!userId) return res.status(401).json({ message: "Authentication required" });
       const body = overrideBody.safeParse(req.body ?? {});
-      if (!body.success) return res.status(400).json({ message: "Invalid request" });
-      const note = body.data.note ?? undefined;
-
-      const result = await applyUnderwritingOverride({ dealId, action, note, userId });
-
-      // ── best-effort follow-ons (never change the committed outcome) ──
-      if (action === "reject") {
-        await storage.createNotification({
-          channel: "internal",
-          title: "Underwriting Decision Rejected",
-          message: `Deal #${dealId} was manually rejected and returned to Review In Progress.`,
-          type: "alert",
-          recipientId: userId,
-          metadata: { dealId, decisionId: result.decision.id, eventType: "underwriting_rejected" },
-        }).catch((e: Error) => console.warn("[Underwriting] reject notification (non-critical):", e.message));
+      if (!body.success) {
+        return res.status(400).json({ message: "Invalid request", code: "invalid_override_request", fields: body.error.issues.map((i) => i.path.join(".")) });
       }
-      let ghlTask: "not_applicable" | "attempted" | "skipped_paused" = "not_applicable";
-      try {
-        if (isGhlConfigured()) {
-          const deal = await storage.getDeal(dealId).catch(() => null);
-          const contact = deal?.contactId ? await storage.getContact(deal.contactId).catch(() => null) : null;
-          if (contact?.ghlContactId) {
-            const ghlDecision = await authorizeGhlRouteMutation().catch(() => null);
-            if (ghlDecision?.allowed) {
-              ghlTask = "attempted";
-              const company = deal?.companyName || "Unknown";
-              createGhlTask({
-                contactId: contact.ghlContactId,
-                title: action === "approve"
-                  ? `Underwriting Approved — Deal #${dealId}: ${company} — advance to Proposal Sent`
-                  : `Underwriting Rejected — Deal #${dealId}: ${company} — returned to Review In Progress${note ? ` — Note: ${note}` : ""}`,
-                dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
-                assignedTo: undefined,
-              }).catch((err: Error) => console.warn(`[Underwriting] createGhlTask (${action}, non-critical):`, err.message));
-            } else {
-              ghlTask = "skipped_paused";
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("[Underwriting] GHL follow-on (non-critical):", (e as Error).message);
-      }
-
-      res.json({ ok: true, decision: result.decision, stageMoved: result.stageMoved, ghlTask });
+      const result = await applyUnderwritingOverride({ dealId, action, userId, ...body.data });
+      res.status(200).json({
+        ok: true, decision: result.decision, stageMoved: result.stageMoved, replayed: result.replayed,
+        // Follow-ons are durable and executed later by the effect worker; none has happened yet.
+        followOns: { state: result.replayed ? "recorded_earlier" : "queued", effects: result.followOns },
+      });
     } catch (err: any) {
       if (err instanceof OverrideError) return res.status(err.status).json({ message: err.message, code: err.code });
       serverError(res, err);
@@ -166,4 +133,13 @@ export function registerUnderwritingRoutes(app: Express) {
   app.post("/api/underwriting/deals/:id/approve", requireRole("admin", "manager"), (req, res) => handleOverride(req, res, "approve"));
   app.post("/api/underwriting/deals/:id/reject", requireRole("admin", "manager"), (req, res) => handleOverride(req, res, "reject"));
 
+  // ── Retired: re-running the engine from a button created decisions outside the queue's pipeline ──────────────
+  // Decisions are produced by the statement-analysis pipeline. The route stays registered so callers get a stable,
+  // authenticated answer instead of a 404; nothing is evaluated or written.
+  app.post("/api/underwriting/deals/:id/evaluate", requireRole("admin", "manager"), (_req, res) => {
+    res.status(410).json({
+      code: "UNDERWRITING_EVALUATE_RETIRED", performed: false,
+      message: "Manual re-evaluation was retired. Decisions come from statement analysis; review or override the current decision instead.",
+    });
+  });
 }

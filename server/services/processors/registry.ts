@@ -254,6 +254,18 @@ export async function requireConfirmedActivationSnapshot(
     );
   }
 
+  // R05: a stored URL that predates, or bypassed, the admin validator is refused here exactly as the adapter would.
+  if (processorName.toLowerCase() === "payarc") {
+    const { checkProcessorBaseUrl } = await import("./processor-base-url");
+    const urlCheck = checkProcessorBaseUrl("payarc", latest.authorizedBaseUrl);
+    if (!urlCheck.ok) {
+      throw Object.assign(
+        new Error(`[REV-05A] Processor transport blocked: activation snapshot base URL refused (${urlCheck.reason}).`),
+        { code: "ACTIVATION_SNAPSHOT_URL_INVALID", processorName, latestStatus }
+      );
+    }
+  }
+
   return {
     processorProgram: latest.processorProgram,
     authorizedBaseUrl: latest.authorizedBaseUrl,

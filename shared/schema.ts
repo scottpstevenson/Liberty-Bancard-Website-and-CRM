@@ -7607,6 +7607,11 @@ export const underwritingConditionChases = pgTable("underwriting_condition_chase
   lastReason:     text("last_reason"),
   lastAttemptAt:  timestamp("last_attempt_at"),
   sentAt:         timestamp("sent_at"),
+  recipientVersion:     integer("recipient_version").notNull().default(1),
+  obligationVersion:    integer("obligation_version").notNull().default(1),
+  sentRecipientVersion: integer("sent_recipient_version"),
+  sentObligationVersion: integer("sent_obligation_version"),
+  nextCheckAt:    timestamp("next_check_at"),
   createdAt:      timestamp("created_at").notNull().defaultNow(),
   updatedAt:      timestamp("updated_at").notNull().defaultNow(),
 });

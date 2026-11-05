@@ -53,7 +53,7 @@ function respondServiceError(res: any, err: unknown): void {
     return void res.status(403).json({ message: "Forbidden" });
   }
   if (err instanceof ConflictError) {
-    return void res.status(409).json({ message: err.message });
+    return void res.status(409).json({ message: err.message, code: (err as any).code });
   }
   if (err instanceof ServiceUnavailableError) {
     return void res.status(503).json({ message: "Service temporarily unavailable" });
@@ -145,7 +145,11 @@ export function registerMerchantsRoutes(app: Express) {
       if (!ein || typeof ein !== "string") {
         return res.json({ exists: false });
       }
-      const exists = await merchantAppService.checkDuplicateEin(ein);
+      // R01-4: a draft's own saved submission must never be reported as a duplicate of itself.
+      const draftToken = (req.headers["x-draft-token"] as string) || "";
+      const draftId = Number(req.body?.draftId);
+      const exists = await merchantAppService.checkDuplicateEinForDraft(
+        ein, Number.isInteger(draftId) && draftId > 0 ? draftId : null, draftToken);
       res.json({ exists });
     } catch (err: any) {
       respondServiceError(res, err);
@@ -178,6 +182,19 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
+  // R01-4: read-only "Check saved submission" — never dispatches a submit.
+  app.get("/api/merchant-applications/:id/finalize-receipt", publicLeadRateLimit, async (req, res) => {
+    try {
+      const appId = Number(req.params.id);
+      const draftToken = (req.headers["x-draft-token"] as string) || "";
+      const idempotencyKey = (req.headers["idempotency-key"] as string) || "";
+      if (!draftToken || !idempotencyKey || !Number.isInteger(appId)) return res.status(404).json({ message: "Not found" });
+      res.json(await merchantAppService.getSavedSubmissionReceipt(appId, draftToken, idempotencyKey));
+    } catch (err: any) {
+      respondServiceError(res, err);
+    }
+  });
+
   // Finalize: full submission — header-only draft token, Idempotency-Key required.
   app.patch("/api/merchant-applications/:id/finalize", publicLeadRateLimit, async (req, res) => {
     try {
@@ -194,7 +211,8 @@ export function registerMerchantsRoutes(app: Express) {
       let resolvedDealId: number | undefined;
       if (_shareToken && typeof _shareToken === "string") {
         const [matchedDeal] = await db.select({ id: deals.id }).from(deals).where(eq(deals.shareToken, _shareToken)).limit(1);
-        if (matchedDeal) resolvedDealId = matchedDeal.id;
+        if (!matchedDeal) return res.status(400).json({ message: "This share link is no longer valid. Nothing was submitted." });
+        resolvedDealId = matchedDeal.id;
       }
 
       const result = await merchantAppService.finalizeApplication({
@@ -209,7 +227,7 @@ export function registerMerchantsRoutes(app: Express) {
       // are processed promptly (otherwise the poller waits up to 15 s).
       triggerOutboxTick();
       // Return safe ack with a fresh e-sign capability plaintext (once).
-      res.json({ ...result.ack, ...(result.esignCapability ? { esignCapability: result.esignCapability } : {}) });
+      res.json({ ...result.ack, replayed: result.replayed === true, ...(result.esignCapability ? { esignCapability: result.esignCapability } : {}) });
     } catch (err: any) {
       respondServiceError(res, err);
     }

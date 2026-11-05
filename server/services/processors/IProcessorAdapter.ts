@@ -112,6 +112,12 @@ export interface BoardingResult {
    * ambiguous_reconciliation_required and hold for reconciliation.
    */
   ambiguous?: boolean;
+  /** HTTP status of a definite provider rejection, when there was one. */
+  httpStatus?: number;
+  /** True when repeating the same request cannot succeed (bad request, credential, refused destination). */
+  permanent?: boolean;
+  /** True when the provider declined to process now and a later retry is reasonable (rate limit). */
+  retryable?: boolean;
 }
 
 export interface BoardingStatusResult {
@@ -123,6 +129,8 @@ export interface BoardingStatusResult {
   moreInfoRequest?: string;
   declineReason?: string;
   approvedAt?: string;
+  /** True when the provider response itself named the requested application; false when attribution rests on the request path alone. */
+  identityEchoed?: boolean;
   error?: string;
 }
 

@@ -201,3 +201,17 @@ These routes correctly use `isAuthenticated` because merchants need access, with
 | `POST /api/partners/logout` | partners.ts | Logout; no email/write risk |
 | `POST /api/partner/logout` | partners.ts | Logout; no email/write risk |
 | `GET /api/public/testimonials/approved` | public.ts | Read-only, returns sanitized data |
+
+---
+
+## Stage 5 addendum (2026-11-04) — retired and changed routes
+
+| Route | File | Auth | Status |
+|---|---|---|---|
+| `POST /api/underwriting/deals/:id/evaluate` | underwriting.ts | `requireRole("admin","manager")` | **Retired.** Always answers `410` with `code: "UNDERWRITING_EVALUATE_RETIRED"` and `performed: false`; nothing is evaluated or written. Callers use the statement-analysis decision, or review/override the current decision. Not removed outright so an authenticated caller gets a stable, explainable answer instead of a 404. |
+| `POST /api/deals/:id/submit-to-processor` | boarding.ts | admin/manager | Requires `Idempotency-Key` and `expectedApplicationRevision`; answers `202` with `{ replayed, outboxId, receipt }`. Enqueue only; no provider call from the route. |
+| `GET /api/deals/:id/boarding-readiness` | boarding.ts | admin/manager | Read-only readiness verdict shared by enqueue and dispatch. |
+| `GET /api/boarding/mid-registry` | boarding.ts | admin/manager | One row per deal, masked MIDs, one SQL statement for page + total + per-status counts. |
+| `PATCH /api/admin/mids/:id` | admin.ts | admin/manager | `status:"closed"` closes a MID (history; never reused or reopened) and moves or clears the deal alias. |
+| `PATCH /api/merchant-applications/:id/finalize` | merchants.ts | public (draft token + `Idempotency-Key`) | Requires `reviewConfirmed:true` and the complete field set produced by `shared/merchant-application-submission`. |
+| `POST /api/merchant-applications/:id/send-esign` and `POST /api/merchant-applications/request-esign` | merchants.ts | authenticated / public rate-limited | A draft application answers `409 application_not_submitted`; nothing is queued. |

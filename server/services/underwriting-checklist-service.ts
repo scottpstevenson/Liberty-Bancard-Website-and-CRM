@@ -244,22 +244,42 @@ export interface ChaseDeps {
   sendEmail?: (msg: { to: string; subject: string; html: string; category: string }) => Promise<unknown>;
 }
 
-export interface ChaseSweepResult { attempted: number; sent: number; stillOwed: number; notApplicable: number; heldUnknown: number }
+export interface ChaseSweepResult { attempted: number; sent: number; stillOwed: number; notApplicable: number; heldUnknown: number; unsent: number }
+
+const GATE_RECHECK_MINUTES = 2;
+const UNSENT_RECHECK_MINUTES = 15;
+const CHASE_BATCH = 50;
+/** Only these error codes are ever stored; provider messages can carry addresses or payloads. */
+const SAFE_CHASE_ERROR_CODES = new Set(["EAUTH", "EENVELOPE", "EMESSAGE", "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EDNS", "ESOCKET"]);
+export function chaseErrorCode(err: unknown): string {
+  const code = (err as any)?.code;
+  return typeof code === "string" && SAFE_CHASE_ERROR_CODES.has(code) ? code : "send_error";
+}
+function safeProviderCode(raw: unknown): string {
+  return typeof raw === "string" && SAFE_CHASE_ERROR_CODES.has(raw) ? raw : "provider_refused";
+}
 
 /**
- * Delivers owed merchant chases. Each (deal, channel) is claimed with a compare-and-set (owed -> sending), so
- * concurrent sweeps send once. A pause, hold or unconfigured sender returns the row to `owed` with the reason.
- * A row left in `sending` (crash mid-send) is an unknown outcome and is held for review, never auto-resent.
+ * Delivers owed merchant chases. Each (deal, channel) is claimed with a compare-and-set (owed -> sending) pinned to
+ * the recipient and obligation versions that were read, so concurrent sweeps send once and a recipient or
+ * obligation change between read and claim is not sent against stale facts.
+ *
+ * Only an SMTP result with success === true AND outcome === "sent" settles sent. A resolved refusal whose outcome
+ * is "unsent" returns to owed (retried later); anything else (uncertain, missing, a throw) is an unknown outcome
+ * held in `sending` for review and never auto-resent. Fairness beyond the first batch comes from a durable
+ * next_check_at cursor: rows that stay owed move to the back, so a stuck head cannot starve later rows.
  */
 export async function retryOwedConditionChases(
   scope: { dealId?: number } = {},
   deps: ChaseDeps = {},
 ): Promise<ChaseSweepResult> {
-  const result: ChaseSweepResult = { attempted: 0, sent: 0, stillOwed: 0, notApplicable: 0, heldUnknown: 0 };
+  const result: ChaseSweepResult = { attempted: 0, sent: 0, stillOwed: 0, notApplicable: 0, heldUnknown: 0, unsent: 0 };
   const owed = await db.execute(sql`
-    SELECT id, deal_id, recipient_email, recipient_name FROM underwriting_condition_chases
-    WHERE channel = 'email' AND status = 'owed' ${scope.dealId != null ? sql`AND deal_id = ${scope.dealId}` : sql``}
-    ORDER BY id LIMIT 50
+    SELECT id, deal_id, recipient_email, recipient_name, recipient_version, obligation_version
+    FROM underwriting_condition_chases
+    WHERE channel = 'email' AND status = 'owed'
+      ${scope.dealId != null ? sql`AND deal_id = ${scope.dealId}` : sql`AND (next_check_at IS NULL OR next_check_at <= now())`}
+    ORDER BY next_check_at NULLS FIRST, id LIMIT ${CHASE_BATCH}
   `);
   const heldRows = await db.execute(sql`
     SELECT count(*)::int AS n FROM underwriting_condition_chases
@@ -267,15 +287,13 @@ export async function retryOwedConditionChases(
   `);
   result.heldUnknown = Number((heldRows as any).rows?.[0]?.n ?? 0);
 
-  for (const row of (owed as any).rows as Array<{ id: number; deal_id: number; recipient_email: string | null; recipient_name: string | null }>) {
-    const settle = async (status: "owed" | "sent" | "not_applicable", reason: string | null) => {
-      await db.execute(sql`
-        UPDATE underwriting_condition_chases
-        SET status = ${status}, last_reason = ${reason}, updated_at = now(),
-            sent_at = CASE WHEN ${status} = 'sent' THEN now() ELSE sent_at END
-        WHERE id = ${row.id} AND status = 'sending'
-      `);
-    };
+  type OwedRow = { id: number; deal_id: number; recipient_email: string | null; recipient_name: string | null; recipient_version: number; obligation_version: number };
+  const stayOwed = async (id: number, reason: string, minutes: number) => {
+    await db.execute(sql`UPDATE underwriting_condition_chases SET last_reason = ${reason}, last_attempt_at = now(),
+      next_check_at = now() + (${minutes}::int * interval '1 minute'), updated_at = now() WHERE id = ${id} AND status = 'owed'`);
+  };
+
+  for (const row of (owed as any).rows as OwedRow[]) {
     // Gates are checked BEFORE the claim so a paused system does not burn an attempt.
     const authorizeFn = deps.authorize ?? (async () => {
       const { authorize } = await import("./outbound-pause-authority");
@@ -283,32 +301,62 @@ export async function retryOwedConditionChases(
     });
     const decision = await authorizeFn();
     if (!decision.allowed) {
-      await db.execute(sql`UPDATE underwriting_condition_chases SET last_reason = ${`paused:${decision.reasonCode ?? "unknown"}`}, last_attempt_at = now(), updated_at = now() WHERE id = ${row.id} AND status = 'owed'`);
+      await stayOwed(row.id, `paused:${decision.reasonCode ?? "unknown"}`, GATE_RECHECK_MINUTES);
       result.stillOwed++;
       continue;
     }
     const canExec = deps.canExecute ?? (async (k: string) => (await import("./outbound-queue-coordinator")).canExecute(k));
     if (!(await canExec("underwriting-notifications"))) {
-      await db.execute(sql`UPDATE underwriting_condition_chases SET last_reason = 'coordinator_hold', last_attempt_at = now(), updated_at = now() WHERE id = ${row.id} AND status = 'owed'`);
+      await stayOwed(row.id, "coordinator_hold", GATE_RECHECK_MINUTES);
       result.stillOwed++;
       continue;
     }
     const configured = deps.isSmtpConfigured ? deps.isSmtpConfigured() : (await import("./smtp-email")).isSmtpConfigured();
     if (!configured) {
-      await db.execute(sql`UPDATE underwriting_condition_chases SET last_reason = 'smtp_not_configured', last_attempt_at = now(), updated_at = now() WHERE id = ${row.id} AND status = 'owed'`);
+      await stayOwed(row.id, "smtp_not_configured", GATE_RECHECK_MINUTES);
       result.stillOwed++;
       continue;
     }
 
     const claimed = await db.execute(sql`
       UPDATE underwriting_condition_chases SET status = 'sending', attempts = attempts + 1, last_attempt_at = now(), updated_at = now()
-      WHERE id = ${row.id} AND status = 'owed' RETURNING id
+      WHERE id = ${row.id} AND status = 'owed'
+        AND recipient_version = ${row.recipient_version} AND obligation_version = ${row.obligation_version}
+      RETURNING id
     `);
-    if (((claimed as any).rows ?? []).length === 0) continue; // another sweep owns it
+    if (((claimed as any).rows ?? []).length === 0) continue; // another sweep owns it, or it changed since it was read
     result.attempted++;
 
+    let snapRecipientVersion = row.recipient_version;
+    const snapObligationVersion = row.obligation_version;
+    const settle = async (status: "owed" | "sent" | "not_applicable", reason: string | null) => {
+      await db.execute(sql`
+        UPDATE underwriting_condition_chases
+        SET status = CASE WHEN ${status}::text IN ('sent','not_applicable') AND obligation_version <> ${snapObligationVersion} THEN 'owed' ELSE ${status}::text END,
+            last_reason = ${reason}, updated_at = now(),
+            next_check_at = CASE WHEN ${status}::text = 'owed' THEN now() + (${UNSENT_RECHECK_MINUTES}::int * interval '1 minute') ELSE NULL END,
+            sent_at = CASE WHEN ${status}::text = 'sent' THEN now() ELSE sent_at END,
+            sent_recipient_version = CASE WHEN ${status}::text = 'sent' THEN ${snapRecipientVersion} ELSE sent_recipient_version END,
+            sent_obligation_version = CASE WHEN ${status}::text = 'sent' THEN ${snapObligationVersion} ELSE sent_obligation_version END
+        WHERE id = ${row.id} AND status = 'sending'
+      `);
+    };
+
     try {
-      if (!row.recipient_email) { await settle("not_applicable", "no_recipient"); result.notApplicable++; continue; }
+      // The current mailbox owner wins: re-read the deal's contact at claim time and version the change.
+      const current = ((await db.execute(sql`
+        SELECT c.email, NULLIF(trim(coalesce(c.first_name,'') || ' ' || coalesce(c.last_name,'')), '') AS name
+        FROM deals d JOIN contacts c ON c.id = d.contact_id WHERE d.id = ${row.deal_id}`)) as any).rows?.[0];
+      let recipientEmail = row.recipient_email;
+      let recipientName = row.recipient_name;
+      if (current?.email && String(current.email).toLowerCase() !== String(row.recipient_email ?? "").toLowerCase()) {
+        recipientEmail = current.email;
+        recipientName = current.name ?? row.recipient_name;
+        snapRecipientVersion = row.recipient_version + 1;
+        await db.execute(sql`UPDATE underwriting_condition_chases SET recipient_email = ${recipientEmail}, recipient_name = ${recipientName},
+          recipient_version = ${snapRecipientVersion}, updated_at = now() WHERE id = ${row.id} AND status = 'sending'`);
+      }
+      if (!recipientEmail) { await settle("not_applicable", "no_recipient"); result.notApplicable++; continue; }
       const open = await db.select({ conditionType: underwritingConditions.conditionType, description: underwritingConditions.description })
         .from(underwritingConditions)
         .where(and(eq(underwritingConditions.dealId, row.deal_id), eq(underwritingConditions.status, "pending"),
@@ -316,22 +364,35 @@ export async function retryOwedConditionChases(
         .orderBy(underwritingConditions.id);
       if (open.length === 0) { await settle("not_applicable", "nothing_outstanding"); result.notApplicable++; continue; }
       const send = deps.sendEmail ?? (async (m) => (await import("./smtp-email")).sendSmtpEmail({ ...m, contactId: undefined } as any));
-      await send(buildChaseEmail(row.recipient_email, row.recipient_name, open));
-      await settle("sent", null);
-      result.sent++;
+      const outcome = (await send(buildChaseEmail(recipientEmail, recipientName, open))) as { success?: boolean; outcome?: string; error?: string } | undefined | null;
+      if (outcome && outcome.success === true && outcome.outcome === "sent") {
+        await settle("sent", null);
+        result.sent++;
+      } else if (outcome && outcome.success === false && outcome.outcome === "unsent") {
+        // The provider proved nothing was transmitted: safe to retry later; the attempt stays counted.
+        await settle("owed", `unsent:${safeProviderCode((outcome as any).code)}`);
+        result.unsent++;
+        result.stillOwed++;
+      } else {
+        // Uncertain, missing or malformed result: the message may have been delivered. Held, never resent.
+        await db.execute(sql`UPDATE underwriting_condition_chases SET last_reason = 'unknown_outcome:uncertain', updated_at = now() WHERE id = ${row.id} AND status = 'sending'`);
+        result.heldUnknown++;
+      }
     } catch (err) {
       // The send may or may not have reached the provider: leave the claim in `sending` (unknown outcome, held).
-      await db.execute(sql`UPDATE underwriting_condition_chases SET last_reason = ${`unknown_outcome:${String((err as Error).message).slice(0, 200)}`}, updated_at = now() WHERE id = ${row.id} AND status = 'sending'`);
+      await db.execute(sql`UPDATE underwriting_condition_chases SET last_reason = ${`unknown_outcome:${chaseErrorCode(err)}`}, updated_at = now() WHERE id = ${row.id} AND status = 'sending'`);
       result.heldUnknown++;
     }
   }
   return result;
 }
 
-function buildChaseEmail(email: string, name: string | null, conditions: Array<{ conditionType: string; description: string }>) {
-  const greeting = name ? `Hi ${name.split(" ")[0]}` : "Hello";
+const escapeHtml = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+
+export function buildChaseEmail(email: string, name: string | null, conditions: Array<{ conditionType: string; description: string }>) {
+  const greeting = name ? `Hi ${escapeHtml(name.split(" ")[0])}` : "Hello";
   const itemsHtml = conditions
-    .map((c, i) => `<li style="margin-bottom:6px"><strong>${i + 1}. ${c.conditionType.replace(/_/g, " ")}</strong><br/>${c.description}</li>`)
+    .map((c, i) => `<li style="margin-bottom:6px"><strong>${i + 1}. ${escapeHtml(c.conditionType.replace(/_/g, " "))}</strong><br/>${escapeHtml(c.description)}</li>`)
     .join("\n");
   return {
     to: email,

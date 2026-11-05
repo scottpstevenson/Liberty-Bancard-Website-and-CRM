@@ -1,9 +1,9 @@
 {
   "baseline": "442fd044f10f52db4bf391dabcb1299403314eaf",
-  "sourceHead": "1422503bbce9ee7d6a11f3c4da98f2df0c2cfd05",
+  "sourceHead": "8876077cfbe98d52f14f7580ae89ad03ff7f763f",
   "toolchain": {
-    "node": "v22.22.0",
-    "npm": "10.9.4"
+    "node": "v22.23.4",
+    "npm": "10.9.9"
   },
   "servingIdentity": "Only isolated test candidate; no deployed identity inferred",
   "inputs": [
