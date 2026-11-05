@@ -39,3 +39,17 @@ export function handleHttpClientError(
     suppressed += 1;
   }
 }
+
+/**
+ * Node closes an idle keep-alive connection after 5s by default, which is shorter than the idle timeout of the
+ * proxy in front of this server. The proxy then reuses a connection the server has just closed, and the request
+ * fails as a reset upstream (a 5xx) or arrives as a truncated request (HPE_INVALID_EOF_STATE). The server must keep
+ * idle connections open longer than the proxy does, and headersTimeout must exceed keepAliveTimeout.
+ */
+export const KEEP_ALIVE_TIMEOUT_MS = 65_000;
+export const HEADERS_TIMEOUT_MS = 66_000;
+
+export function configureHttpServerTimeouts(server: { keepAliveTimeout: number; headersTimeout: number }): void {
+  server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
+  server.headersTimeout = HEADERS_TIMEOUT_MS;
+}

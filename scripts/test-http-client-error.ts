@@ -6,7 +6,7 @@
  */
 import http from "node:http";
 import net from "node:net";
-import { handleHttpClientError } from "../server/lib/http-client-error";
+import { configureHttpServerTimeouts, handleHttpClientError } from "../server/lib/http-client-error";
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = "") {
@@ -50,6 +50,13 @@ async function main() {
   for (let i = 0; i < 5; i++) await raw(port, "BAD\r\n\r\n", false);
   const summaries = warnings.filter((w) => w.includes("Rejected malformed client request"));
   check("log lines are rate limited", summaries.length === 1, `${summaries.length} lines`);
+
+  const timeoutProbe = http.createServer();
+  configureHttpServerTimeouts(timeoutProbe);
+  check("keep-alive outlasts a 60s proxy idle timeout", timeoutProbe.keepAliveTimeout > 60_000, String(timeoutProbe.keepAliveTimeout));
+  check("headersTimeout exceeds keepAliveTimeout", timeoutProbe.headersTimeout > timeoutProbe.keepAliveTimeout, String(timeoutProbe.headersTimeout));
+  const indexSrc = (await import("node:fs")).readFileSync(new URL("../server/index.ts", import.meta.url), "utf8");
+  check("server entry applies the timeouts", /configureHttpServerTimeouts\(httpServer\)/.test(indexSrc));
 
   const after = await raw(port, "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n", false);
   check("server healthy after bad connections", after.startsWith("HTTP/1.1 200"));
