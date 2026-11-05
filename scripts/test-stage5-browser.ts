@@ -174,6 +174,21 @@ try {
   assert.equal((await dealText(dSched, "mid")).trim(), masked(schedMid));
   assert.match(await b.evaluate(`document.querySelector('[data-testid="text-mid-registry-scope"]')?.textContent||''`) as string, /deal/i, "scope text states the unit");
   checks.push("MID registry: multi-MID row count, status filter, masked values, deals-unit scope text");
+  // C05: URL owns the list state; scope rule, class breakdown and masked history rail.
+  assert.match(await b.evaluate("location.search") as string, /midStatus=scheduled/, "the status filter is in the URL");
+  await b.navigate("/dashboard/boarding?view=mid-registry&midStatus=scheduled");
+  await until(`!!document.querySelector('[data-testid="text-reg-mid-${dSched}"]')`, "scheduled row after reload");
+  assert.equal(await b.evaluate(`document.querySelector('[data-testid="filter-mid-scheduled"]')?.getAttribute('aria-pressed')`), "true", "reload keeps the status filter");
+  const scopeRule = await b.evaluate(`document.querySelector('[data-testid="text-mid-registry-scope-rule"]')?.textContent||''`) as string;
+  assert.ok(/nonarchived, nonlost/.test(scopeRule) && /includes unclassified/.test(scopeRule), "the scope rule is stated");
+  assert.ok(!!(await b.evaluate(`!!document.querySelector('[data-testid="details-mid-registry-classes"]')`)), "the record-class diagnostic is present");
+  assert.ok(/Nonclosed MID records/.test(await b.evaluate(`document.body.innerText`) as string) && !/Live MIDs/.test(await b.evaluate(`document.body.innerText`) as string), "the count column is named Nonclosed MID records");
+  await b.click(`[data-testid="button-mid-history-${dSched}"]`);
+  await until(`!!document.querySelector('[data-testid="rail-mid-history-${dSched}"] [data-testid^="history-mid-"]')`, "history rail");
+  const railText = await b.evaluate(`document.querySelector('[data-testid="rail-mid-history-${dSched}"]').textContent`) as string;
+  assert.ok(railText.includes(masked(schedMid)) && !railText.includes(schedMid), "the history rail shows the masked MID only");
+  assert.match(await b.evaluate("location.search") as string, /midDeal=/, "the expanded deal is in the URL");
+  checks.push("MID registry: URL-owned status/deal, scope rule, class diagnostic, masked history rail");
   // Close a MID through the real dialog (admin).
   await b.evaluate(`document.querySelector('[data-testid="button-close-mid-${dSched}"]').scrollIntoView({block:'center'})`);
   await new Promise(r => setTimeout(r, 400));
@@ -210,7 +225,7 @@ try {
       await rbUntil(rb, `document.body.innerText.includes('MID registry unavailable') || location.pathname !== '/dashboard/boarding'`, "agent denied/redirected");
       const t = await rb.evaluate("document.body.innerText") as string;
       for (const m of allMids) assert.ok(!t.includes(m) && !t.includes(masked(m)), "agent never sees any MID value");
-      assert.ok(!(await rb.evaluate(`!!document.querySelector('[data-testid^="button-close-mid-"]')`)), "agent has no Close MID action");
+      assert.ok(!(await rb.evaluate(`!!document.querySelector('[data-testid^="button-close-mid-"]')`)), "agent has no Close local MID record action");
       assert.ok(!/Total unavailable.*\b0 deals\b/.test(t), "denied state does not render a zero total");
       await rb.screenshot("mid-registry-agent");
       checks.push("MID registry: agent sees a named unavailable/denied state (or is redirected), no MID values, no Close action");

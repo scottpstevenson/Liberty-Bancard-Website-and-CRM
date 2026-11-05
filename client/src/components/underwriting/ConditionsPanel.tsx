@@ -22,13 +22,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 interface Condition {
   id: number; conditionType: string; description: string; status: "pending" | "submitted" | "approved" | "waived";
   merchantVisible: boolean; waivedReason: string | null; reversalReason: string | null;
-  supersededAt: string | null; supersededReason: string | null; dueDate: string | null;
+  supersededAt: string | null; supersededReason: string | null; dueDate: string | null; documentId: number | null;
 }
+interface EligibleDocument { id: number; fileName: string; type: string; status: string | null; uploadedAt: string | null }
 interface ChaseState {
   status: string; state: "owed" | "sent" | "held_unknown_outcome" | "not_applicable"; attempts: number; reason: string | null;
   lastAttemptAt: string | null; sentAt: string | null; hasRecipient: boolean;
 }
-interface HistoryEntry { id: number; actorId: string | null; action: string; at: string; details: Record<string, unknown> | null }
+interface HistoryEntry {
+  id: number; actorId: string | null; action: string; at: string; details: Record<string, unknown> | null;
+  transition: string | null; reason: string | null; documentId: number | null; evidenceChanged: boolean;
+}
 
 type Reasoned = { kind: "waive" | "reverse" | "supersede"; condition: Condition } | null;
 
@@ -70,6 +74,14 @@ export function ConditionsPanel({ dealId }: { dealId: number }) {
     },
   });
   const chase = useQuery<{ chase: ChaseState | null }>({ queryKey: chaseKey });
+  // Only this deal's own files (or its contact's unbound files) can be attached; the server enforces the same set.
+  const eligibleDocs = useQuery<{ documents: EligibleDocument[] }>({ queryKey: [`/api/underwriting/deals/${dealId}/conditions/documents`] });
+  const docs = eligibleDocs.data?.documents ?? [];
+  const docLabel = (id: number | null) => {
+    if (id == null) return null;
+    const d = docs.find((x) => x.id === id);
+    return d ? `${d.fileName} (${d.type})` : `Document #${id}`;
+  };
 
   const [reasoned, setReasoned] = useState<Reasoned>(null);
   const [reason, setReason] = useState("");
@@ -166,6 +178,22 @@ export function ConditionsPanel({ dealId }: { dealId: number }) {
                   <p className="mt-1 text-muted-foreground">{c.description}</p>
                   {c.status === "waived" && c.waivedReason && <p className="mt-1">Waived: {c.waivedReason}</p>}
                   {c.reversalReason && c.status === "pending" && <p className="mt-1">Reversed: {c.reversalReason}</p>}
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <Label htmlFor={`cond-doc-${c.id}`} className="text-xs">Evidence document</Label>
+                    <select
+                      id={`cond-doc-${c.id}`}
+                      className="min-h-[44px] rounded border bg-background px-2 text-xs max-w-full"
+                      value={c.documentId ?? ""}
+                      disabled={patch.isPending || eligibleDocs.isError}
+                      onChange={(e) => patch.mutate({ id: c.id, body: { documentId: e.target.value ? Number(e.target.value) : null } })}
+                      data-testid={`select-cond-doc-${c.id}`}
+                    >
+                      <option value="">No document attached</option>
+                      {c.documentId != null && !docs.some((d) => d.id === c.documentId) && <option value={c.documentId}>{docLabel(c.documentId)}</option>}
+                      {docs.map((d) => <option key={d.id} value={d.id}>{d.fileName} ({d.type})</option>)}
+                    </select>
+                    {eligibleDocs.isError && <span className="text-destructive" role="alert">Documents could not be listed.</span>}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -208,7 +236,13 @@ export function ConditionsPanel({ dealId }: { dealId: number }) {
             : (
               <ul className="space-y-2 text-xs max-h-80 overflow-y-auto" data-testid="list-cond-history">
                 {history.data!.history.map((h) => (
-                  <li key={h.id} className="rounded border p-2"><strong>{h.action.replace(/^underwriting_condition_/, "").replace(/_/g, " ")}</strong> · {fmt(h.at)}<br /><span className="text-muted-foreground">By {h.actorId ?? "system"}</span></li>
+                  <li key={h.id} className="rounded border p-2" data-testid={`history-entry-${h.id}`}>
+                    <strong>{h.action.replace(/^underwriting_condition_/, "").replace(/_/g, " ")}</strong> · {fmt(h.at)}
+                    {h.transition && <><br /><span>Change: {h.transition.replace("->", " → ")}</span></>}
+                    {h.reason && <><br /><span>Reason: {h.reason}</span></>}
+                    {h.evidenceChanged && <><br /><span>Evidence: {h.documentId == null ? "document detached" : docLabel(h.documentId)}</span></>}
+                    <br /><span className="text-muted-foreground">By {h.actorId ?? "system"}</span>
+                  </li>
                 ))}
               </ul>
             )}

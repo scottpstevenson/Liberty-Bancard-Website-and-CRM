@@ -10,7 +10,7 @@ import { getStoredUTMParams } from "@/lib/utm";
 import { getCsrfToken } from "@/lib/queryClient";
 import { buildPublicApplicationPayload, finalizeAttributionExtras } from "@shared/merchant-application-submission";
 import {
-  clearSubmissionTuple, intentKeyForDraft, readDraftCredentials, readIntent, writeDraftCredentials,
+  clearSubmissionTuple, guardedLocalDraft, intentKeyForDraft, readDraftCredentials, readIntent, writeDraftCredentials,
 } from "@/lib/merchant-application-intent";
 import { trackMerchantApplication } from "@/lib/tracking";
 import { trackConversion, trackPhoneCallClick } from "@/lib/analytics";
@@ -104,6 +104,8 @@ export default function MerchantApplication() {
   const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
   const [showDraftSaved, setShowDraftSaved] = useState(false);
   // S5-04: server acknowledgement is tracked separately from the local-device save.
+  // False when browser storage refused the resume draft: the page must not claim it was saved on this device.
+  const [deviceSaveOk, setDeviceSaveOk] = useState(true);
   const [serverSaveState, setServerSaveState] = useState<"idle" | "saved" | "failed">("idle");
   // R01-5: "saved" is only true for the field revision the server actually acknowledged.
   const [savedRevision, setSavedRevision] = useState<string | null>(null);
@@ -169,7 +171,7 @@ export default function MerchantApplication() {
   const [pewcConsent, setPewcConsent] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem(DRAFT_KEY);
+    const saved = guardedLocalDraft.get(DRAFT_KEY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -195,13 +197,13 @@ export default function MerchantApplication() {
             }
           }
           if (mutated) {
-            localStorage.setItem(DRAFT_KEY, JSON.stringify(parsed));
+            guardedLocalDraft.set(DRAFT_KEY, JSON.stringify(parsed));
           }
           setHasDraft(true);
           setDraftTime(parsed.lastSaved || null);
         }
       } catch {
-        localStorage.removeItem(DRAFT_KEY);
+        guardedLocalDraft.remove(DRAFT_KEY);
       }
     }
   }, []);
@@ -434,7 +436,7 @@ export default function MerchantApplication() {
     };
     const now = new Date().toISOString();
     const draft = { currentStep, formData, lastSaved: now };
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    setDeviceSaveOk(guardedLocalDraft.set(DRAFT_KEY, JSON.stringify(draft)));
     if (currentStep >= 1 && (legalBusinessName.trim() !== "" || ownerFirstName.trim() !== "")) {
       setDraftSavedAt(new Date());
       setShowDraftSaved(true);
@@ -462,7 +464,7 @@ export default function MerchantApplication() {
   }, [currentStep, submitted]);
 
   const restoreDraft = () => {
-    const saved = localStorage.getItem(DRAFT_KEY);
+    const saved = guardedLocalDraft.get(DRAFT_KEY);
     if (!saved) return;
     try {
       const { currentStep: step, formData: data } = JSON.parse(saved);
@@ -507,7 +509,7 @@ export default function MerchantApplication() {
       setDraftDismissed(true);
       toast({ title: "Draft restored", description: "Your application progress has been restored." });
     } catch {
-      localStorage.removeItem(DRAFT_KEY);
+      guardedLocalDraft.remove(DRAFT_KEY);
     }
   };
 
@@ -885,7 +887,7 @@ export default function MerchantApplication() {
         setEsignSending(false);
       }
 
-      try { localStorage.removeItem(DRAFT_KEY); } catch {}
+      guardedLocalDraft.remove(DRAFT_KEY);
       clearSubmissionTuple();
       setSubmitted(true);
       try {
@@ -1109,12 +1111,14 @@ export default function MerchantApplication() {
               </p>
               <div className="flex items-center gap-3">
                 <span
-                  className={`text-xs flex items-center gap-1 transition-opacity duration-500 ${serverSaveState === "failed" || (serverSaveState === "saved" && savedRevision !== revisionKey) ? "opacity-100 text-amber-600 dark:text-amber-400" : showDraftSaved ? "opacity-100 text-emerald-600 dark:text-emerald-400" : "opacity-0"}`}
+                  className={`text-xs flex items-center gap-1 transition-opacity duration-500 ${!deviceSaveOk || serverSaveState === "failed" || (serverSaveState === "saved" && savedRevision !== revisionKey) ? "opacity-100 text-amber-600 dark:text-amber-400" : showDraftSaved ? "opacity-100 text-emerald-600 dark:text-emerald-400" : "opacity-0"}`}
                   data-testid="text-draft-saved"
                   aria-live="polite"
                 >
                   <Save className="w-3 h-3" />
-                  {serverSaveState === "failed"
+                  {!deviceSaveOk && !(serverSaveState === "saved" && savedRevision === revisionKey)
+                    ? "Not saved on this device. Keep this page open until you see your confirmation."
+                    : serverSaveState === "failed"
                     ? "Saved on this device only. We could not reach the server; we will retry when you continue."
                     : serverSaveState === "saved" && savedRevision === revisionKey
                       ? "Draft saved"

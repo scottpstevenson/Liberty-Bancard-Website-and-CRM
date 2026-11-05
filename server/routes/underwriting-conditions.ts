@@ -17,7 +17,7 @@ import { ZodError } from "zod";
 import { isAuthenticated, requireRole } from "../replit_integrations/auth";
 import { serverError } from "../utils/server-error";
 import {
-  ConditionError, listConditions, createCondition, updateCondition, supersedeCondition, readChaseState, readConditionHistory,
+  ConditionError, listConditions, createCondition, updateCondition, supersedeCondition, readChaseState, readConditionHistory, listEligibleConditionDocuments,
 } from "../services/underwriting-conditions-service";
 
 function respond(res: Response, err: unknown) {
@@ -69,6 +69,14 @@ export function registerUnderwritingConditionRoutes(app: Express) {
       const dealId = parseId(req.params.id);
       if (isNaN(dealId)) return res.status(400).json({ message: "Invalid deal ID" });
       res.json({ chase: await readChaseState(dealId) });
+    } catch (err) { respond(res, err); }
+  });
+
+  app.get("/api/underwriting/deals/:id/conditions/documents", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const dealId = parseId(req.params.id);
+      if (isNaN(dealId)) return res.status(400).json({ message: "Invalid deal ID" });
+      res.json({ documents: await listEligibleConditionDocuments(dealId) });
     } catch (err) { respond(res, err); }
   });
 

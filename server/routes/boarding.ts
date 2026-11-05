@@ -413,6 +413,39 @@ export function registerBoardingRoutes(app: Express) {
     }
   });
 
+  // Read-only saved receipt for a previously used Idempotency-Key. It evaluates no readiness and changes nothing, so
+  // it is safe after the application, decision or policy has moved on.
+  app.get("/api/deals/:id/boarding-receipt", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const dealId = Number(req.params.id);
+      if (!Number.isInteger(dealId) || dealId <= 0) return res.status(400).json({ message: "Invalid deal id" });
+      const key = String(req.query?.key ?? "").trim();
+      if (!/^[A-Za-z0-9_-]{8,128}$/.test(key)) return res.status(400).json({ message: "A saved command key is required" });
+      const actorId = String((req.user as any)?.id ?? "");
+      const [row] = await db.select({
+        id: dealBoardingOutbox.id, status: dealBoardingOutbox.status, dealId: dealBoardingOutbox.dealId,
+        applicationId: dealBoardingOutbox.applicationId, processorName: dealBoardingOutbox.processorName,
+        payload: dealBoardingOutbox.payload, lastError: dealBoardingOutbox.lastError,
+      }).from(dealBoardingOutbox).where(eq(dealBoardingOutbox.idempotencyKey, key)).limit(1);
+      const bound = ((row?.payload as any)?.command ?? {}) as Record<string, unknown>;
+      // Not found and not-yours look identical: nothing about another command is disclosed.
+      if (!row || row.dealId !== dealId || (bound.actorId ?? null) !== actorId) return res.json({ found: false });
+      const [freshDeal] = await db.select({ b: deals.boardingStatus }).from(deals).where(eq(deals.id, dealId)).limit(1);
+      res.json({
+        found: true,
+        status: row.status,
+        outboxId: row.id,
+        applicationId: row.applicationId,
+        processorName: row.processorName ?? null,
+        boardingStatus: freshDeal?.b ?? null,
+        savedApplicationRevision: typeof bound.applicationRevision === "string" ? bound.applicationRevision : null,
+        reconciliationRequired: row.lastError === "ambiguous_reconciliation_required",
+      });
+    } catch (error) {
+      serverError(res, error, "Failed to read the saved boarding result");
+    }
+  });
+
   app.post("/api/deals/:id/submit-to-processor", requireRole("admin", "manager"), async (req, res) => {
     try {
       const dealId = Number(req.params.id);
@@ -425,6 +458,51 @@ export function registerBoardingRoutes(app: Express) {
 
       const deal = await storage.getDeal(dealId);
       if (!deal) return res.status(404).json({ message: "Deal not found" });
+
+      // Idempotent replay (S5-13), resolved from the STORED command before any current readiness is evaluated: a
+      // saved command reports what it became even if the application, decision or policy has since moved on.
+      // The key is globally unique, so a replay is honoured only for the same command (deal, actor, action,
+      // explicitly requested processor and, when the caller states one, the reviewed application revision).
+      // A key bound to a different command is a conflict, never a silent "already queued".
+      const actorId = String((req.user as any)?.id ?? "");
+      const expectedApplicationRevision = typeof req.body?.expectedApplicationRevision === "string" ? req.body.expectedApplicationRevision : null;
+      const requestedProcessor = (req.body?.processorName as string | undefined) || null;
+      const [existing] = await db
+        .select({
+          id: dealBoardingOutbox.id,
+          status: dealBoardingOutbox.status,
+          dealId: dealBoardingOutbox.dealId,
+          applicationId: dealBoardingOutbox.applicationId,
+          processorName: dealBoardingOutbox.processorName,
+          payload: dealBoardingOutbox.payload,
+        })
+        .from(dealBoardingOutbox)
+        .where(eq(dealBoardingOutbox.idempotencyKey, idempotencyKey))
+        .limit(1);
+      if (existing) {
+        const bound = ((existing.payload as any)?.command ?? {}) as Record<string, unknown>;
+        const sameCommand =
+          existing.dealId === dealId &&
+          (bound.actorId ?? null) === actorId &&
+          (bound.action ?? null) === "processor_submit" &&
+          (requestedProcessor == null || (existing.processorName ?? null) === requestedProcessor) &&
+          (expectedApplicationRevision == null || bound.applicationRevision === expectedApplicationRevision);
+        if (!sameCommand) {
+          return res.status(409).json({
+            message: "Idempotency-Key is already bound to a different boarding command. Use a new key for a different deal, application or processor.",
+          });
+        }
+        // R04: a replay returns the ACTUAL saved outcome and a receipt, never a blanket "queued".
+        const [freshDeal] = await db.select({ b: deals.boardingStatus }).from(deals).where(eq(deals.id, dealId)).limit(1);
+        const replayHttp = existing.status === "pending" || existing.status === "processing" || existing.status === "failed" ? 202 : 200;
+        return res.status(replayHttp).json({
+          status: existing.status,
+          replayed: true,
+          message: "This command was already accepted; reporting its saved outcome",
+          outboxId: existing.id,
+          receipt: { outboxId: existing.id, dealId, applicationId: existing.applicationId, processorName: existing.processorName ?? null, boardingStatus: freshDeal?.b ?? null },
+        });
+      }
 
       // S5-15: one shared readiness contract (same evaluation the readiness route and the
       // dispatch use). Replaces the loose "stage text contains underwriting/approved" check.
@@ -447,8 +525,6 @@ export function registerBoardingRoutes(app: Express) {
       if (!applicationId || readiness.facts.applicationBinding !== "direct") {
         return res.status(409).json({ message: "No merchant application linked to this deal. Complete application before boarding." });
       }
-      const actorId = String((req.user as any)?.id ?? "");
-      const expectedApplicationRevision = typeof req.body?.expectedApplicationRevision === "string" ? req.body.expectedApplicationRevision : null;
 
       // R04: pin the adapter selection at enqueue. A null request name resolves to the default adapter NOW,
       // so a later default change cannot redirect an already-accepted command.
@@ -460,49 +536,6 @@ export function registerBoardingRoutes(app: Express) {
       const [appProgramRow] = await db.select({ p: merchantApplications.preferredProgram })
         .from(merchantApplications).where(eq(merchantApplications.id, applicationId)).limit(1);
       const programForCommand = appProgramRow?.p ?? null;
-
-      // Idempotent replay (S5-13): the key is globally unique, so a replay is only
-      // honoured when it is the SAME command (deal, application and processor).
-      // A key already bound to a different command is a conflict, never a silent
-      // "already queued" for work that does not belong to this request.
-      const [existing] = await db
-        .select({
-          id: dealBoardingOutbox.id,
-          status: dealBoardingOutbox.status,
-          dealId: dealBoardingOutbox.dealId,
-          applicationId: dealBoardingOutbox.applicationId,
-          processorName: dealBoardingOutbox.processorName,
-          payload: dealBoardingOutbox.payload,
-        })
-        .from(dealBoardingOutbox)
-        .where(eq(dealBoardingOutbox.idempotencyKey, idempotencyKey))
-        .limit(1);
-      if (existing) {
-        const bound = ((existing.payload as any)?.command ?? {}) as Record<string, unknown>;
-        const sameCommand =
-          existing.dealId === dealId &&
-          existing.applicationId === applicationId &&
-          (existing.processorName ?? null) === (processorName ?? null) &&
-          (bound.actorId ?? null) === actorId &&
-          (bound.action ?? null) === "processor_submit" &&
-          (bound.program ?? null) === programForCommand &&
-          (expectedApplicationRevision == null || bound.applicationRevision === expectedApplicationRevision);
-        if (!sameCommand) {
-          return res.status(409).json({
-            message: "Idempotency-Key is already bound to a different boarding command. Use a new key for a different deal, application or processor.",
-          });
-        }
-        // R04: a replay returns the ACTUAL saved outcome and a receipt, never a blanket "queued".
-        const [freshDeal] = await db.select({ b: deals.boardingStatus }).from(deals).where(eq(deals.id, dealId)).limit(1);
-        const replayHttp = existing.status === "pending" || existing.status === "processing" || existing.status === "failed" ? 202 : 200;
-        return res.status(replayHttp).json({
-          status: existing.status,
-          replayed: true,
-          message: "This command was already accepted; reporting its saved outcome",
-          outboxId: existing.id,
-          receipt: { outboxId: existing.id, dealId, applicationId, processorName: existing.processorName ?? null, boardingStatus: freshDeal?.b ?? null },
-        });
-      }
 
       // Stable provider-level idempotency key derived from dealId + request key.
       // Stored in the outbox payload so the worker passes it to the adapter on
@@ -549,7 +582,7 @@ export function registerBoardingRoutes(app: Express) {
           throw new Error("boarding_application_revision_conflict");
         }
         // R03: re-evaluate under the application lock; the case tuple that was checked is the one stored.
-        const lockedReadiness = await evaluateBoardingReadiness(dealId);
+        const lockedReadiness = await evaluateBoardingReadiness(dealId, {}, tx);
         if (!lockedReadiness.ready || lockedReadiness.caseVersion !== readiness.caseVersion) {
           throw new Error("boarding_case_changed");
         }
@@ -887,6 +920,7 @@ export function registerBoardingRoutes(app: Express) {
             COALESCE(mc.n, CASE WHEN pm.mid IS NOT NULL THEN 1 ELSE 0 END)::int AS mid_count,
             d.pipeline, d.stage, d.owner,
             c.id AS contact_id, c.first_name, c.last_name, c.company_name, c.email,
+            COALESCE(d.record_class, 'unknown') AS record_class,
             d.created_at, d.updated_at,
             CASE
               WHEN d.stage = 'Live' THEN 'live'
@@ -935,15 +969,18 @@ export function registerBoardingRoutes(app: Express) {
           (SELECT count(*)::int FROM filtered) AS total,
           (SELECT count(*)::int FROM scoped) AS scope_total,
           COALESCE((SELECT jsonb_object_agg(k, n) FROM (SELECT mid_status AS k, count(*)::int AS n FROM scoped GROUP BY mid_status) t), '{}'::jsonb) AS by_status,
+          COALESCE((SELECT jsonb_object_agg(k, n) FROM (SELECT record_class AS k, count(*)::int AS n FROM scoped GROUP BY record_class) t), '{}'::jsonb) AS by_class,
           to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS as_of,
-          COALESCE((SELECT jsonb_agg(to_jsonb(p) - 'ord' ORDER BY p.ord) FROM page p), '[]'::jsonb) AS merchants
+          COALESCE((SELECT jsonb_agg(to_jsonb(p) - 'ord' - 'record_class' ORDER BY p.ord) FROM page p), '[]'::jsonb) AS merchants
       `);
       const row = (((result as any).rows ?? result)[0]) as any;
       const merchants = Array.isArray(row.merchants) ? row.merchants : JSON.parse(row.merchants ?? "[]");
       const total = Number(row.total);
       const byStatus = typeof row.by_status === "string" ? JSON.parse(row.by_status) : row.by_status;
+      const byClass = typeof row.by_class === "string" ? JSON.parse(row.by_class) : (row.by_class ?? {});
       res.json({
         merchants,
+        byClass,
         unit: "deals",
         total,
         scopeTotal: Number(row.scope_total),
@@ -955,6 +992,37 @@ export function registerBoardingRoutes(app: Express) {
         byStatus: { pending: 0, assigned: 0, scheduled: 0, live: 0, ...byStatus },
         asOf: row.as_of,
         filter: midStatusRaw || null,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  /**
+   * GET /api/boarding/mid-registry/:dealId/mids
+   * Masked MID history for one deal (every canonical record, closed included). Read-only; the full MID is never
+   * returned, and the deal must be inside the registry's operational scope.
+   */
+  app.get("/api/boarding/mid-registry/:dealId/mids", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const dealId = Number(req.params.dealId);
+      if (!Number.isInteger(dealId) || dealId <= 0) return res.status(400).json({ message: "Invalid deal id" });
+      const { operationalDealSql } = await import("../services/deal-production-scope");
+      const result = await db.execute(sql`
+        SELECT mm.id, mm.status, mm.processor_name,
+          CASE WHEN length(mm.mid) > 4 THEN repeat('*', length(mm.mid) - 4) || right(mm.mid, 4) ELSE repeat('*', length(mm.mid)) END AS mid_masked,
+          (mm.mid = d.mid) AS is_primary_alias,
+          mm.assigned_at, mm.activated_at, mm.suspended_at, mm.closed_at
+        FROM deals d JOIN merchant_mids mm ON mm.deal_id = d.id
+        WHERE d.id = ${dealId} AND ${sql.raw(operationalDealSql("d"))}
+        ORDER BY (mm.status <> 'closed') DESC, mm.id`);
+      const rows = ((result as any).rows ?? result) as any[];
+      res.json({
+        dealId,
+        mids: rows.map((r) => ({
+          id: r.id, status: r.status, processorName: r.processor_name, midMasked: r.mid_masked, isPrimaryAlias: !!r.is_primary_alias,
+          assignedAt: r.assigned_at, activatedAt: r.activated_at, suspendedAt: r.suspended_at, closedAt: r.closed_at,
+        })),
       });
     } catch (err: any) {
       serverError(res, err);

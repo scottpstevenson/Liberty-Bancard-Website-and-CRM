@@ -246,25 +246,32 @@ for (const [name, body, field] of [
   const mkC = async (email: string) => Number((((await db.execute(sql`INSERT INTO contacts (first_name,last_name,email,phone) VALUES ('S5CL','x',${email},${`+1305558${String(Math.floor(1000 + Math.random() * 8999))}`}) RETURNING id`)) as any).rows)[0].id);
   const cid = Number((((await db.execute(sql`INSERT INTO contacts (first_name,last_name,email,phone) VALUES ('S5CL','x',${`s5cl-${tag}-consent@example.invalid`},'+13055550101') RETURNING id`)) as any).rows)[0].id);
   await db.execute(sql`UPDATE merchant_applications SET contact_id = ${cid} WHERE id = ${good.id}`);
-  const rowFor = (id: number, applicationId: number, payload: any) => ({ id, applicationId, payload } as any);
-  await worker.handleConsentRecord(rowFor(1, good.id, crow.payload));
-  await worker.handleConsentRecord(rowFor(1, good.id, crow.payload));
+  // The handlers run inside the claim fence, so each call needs a real claimed (status=processing) outbox row; a
+  // hand-built row object with no durable claim is correctly refused and would let "refused" assertions pass vacuously.
+  const claimedRow = async (eventType: string, applicationId: number, payload: any) => {
+    const ins = (await db.execute(sql`INSERT INTO merchant_application_protected_outbox (application_id, event_type, payload, idempotency_key, status, attempts)
+      VALUES (${applicationId}, ${eventType}, ${JSON.stringify(payload)}::jsonb, ${`s5ac-claim-${crypto.randomUUID()}`}, 'processing', 1) RETURNING id`)) as any;
+    return { id: ins.rows[0].id as string, applicationId, eventType, payload, attempts: 1 } as any;
+  };
+  const sharedConsentClaim = await claimedRow("consent_record", good.id, crow.payload);
+  await worker.handleConsentRecord(sharedConsentClaim);
+  await worker.handleConsentRecord(sharedConsentClaim);
   const evid = (((await db.execute(sql`SELECT disclosure_version, consented_phone, ip_address, user_agent FROM consent_audit_logs WHERE contact_id = ${cid} AND consent_type = 'express_written'`)) as any).rows) as any[];
   check(evid.length === 1 && evid[0].disclosure_version === PEWC_DISCLOSURE_VERSION && evid[0].consented_phone === "3055550101" && evid[0].ip_address === "203.0.113.9" && evid[0].user_agent === "S5AC-agent/1.0", "the real handler records the submitted evidence exactly once across a replay");
-  const otherPhone = await refused(worker.handleConsentRecord(rowFor(1, good.id, { ...crow.payload, submissionId: "other", consentedPhone: "3055559999" })));
+  const otherPhone = await refused(worker.handleConsentRecord(await claimedRow("consent_record", good.id, { ...crow.payload, submissionId: "other", consentedPhone: "3055559999" })));
   check(!!otherPhone, "consent for a number that is not the contact's current number is refused, not recorded");
-  const incomplete = await refused(worker.handleConsentRecord(rowFor(1, good.id, { pewcConsent: true })));
+  const incomplete = await refused(worker.handleConsentRecord(await claimedRow("consent_record", good.id, { pewcConsent: true })));
   check(!!incomplete, "a consent payload lacking submission evidence is refused, never recorded with placeholders");
 
   // Ambiguous mailbox: two contacts, same address ignoring case → hold, never pick one.
   const email = `s5cl-${tag}-amb@example.invalid`;
   const a1 = await mkC(email), a2 = await mkC(email.toUpperCase());
   const ambApp = await svc.operatorCreate({ body: complete("amb", { ownerEmail: email }), userId: null });
-  const ambErr = await refused(worker.handleContactLink(rowFor(2, ambApp.applicationId, { ownerEmail: email, ownerFirstName: "A", ownerLastName: "B" })));
+  const ambErr = await refused(worker.handleContactLink(await claimedRow("contact_link", ambApp.applicationId, { ownerEmail: email, ownerFirstName: "A", ownerLastName: "B" })));
   const ambLink = (((await db.execute(sql`SELECT contact_id FROM merchant_applications WHERE id = ${ambApp.applicationId}`)) as any).rows)[0].contact_id;
   check(ambErr instanceof OutboxWaitError && ambErr.reason === "contact_link_ambiguous" && ambLink === null, "an ambiguous mailbox holds the link step and links nothing");
   await db.execute(sql`UPDATE merchant_applications SET contact_id = ${a2} WHERE id = ${ambApp.applicationId}`);
-  await worker.handleContactLink(rowFor(2, ambApp.applicationId, { ownerEmail: email }));
+  await worker.handleContactLink(await claimedRow("contact_link", ambApp.applicationId, { ownerEmail: email }));
   const opLink = (((await db.execute(sql`SELECT contact_id FROM merchant_applications WHERE id = ${ambApp.applicationId}`)) as any).rows)[0].contact_id;
   check(opLink === a2, "once an operator links explicitly the step completes without relinking");
 
@@ -272,13 +279,13 @@ for (const [name, body, field] of [
   const cx = await mkC(`s5cl-${tag}-x@example.invalid`), cy = await mkC(`s5cl-${tag}-y@example.invalid`);
   const dealX = Number((((await db.execute(sql`INSERT INTO deals (pipeline,stage,name,contact_id) VALUES ('onboarding','Underwriting',${`S5CL ${tag} dx`},${cx}) RETURNING id`)) as any).rows)[0].id);
   const conflictApp = await svc.operatorCreate({ body: complete("conf", { ownerEmail: `s5cl-${tag}-y@example.invalid`, dealId: dealX }), userId: null });
-  const confErr = await refused(worker.handleContactLink(rowFor(3, conflictApp.applicationId, { ownerEmail: `s5cl-${tag}-y@example.invalid` })));
+  const confErr = await refused(worker.handleContactLink(await claimedRow("contact_link", conflictApp.applicationId, { ownerEmail: `s5cl-${tag}-y@example.invalid` })));
   check(confErr instanceof OutboxWaitError && confErr.reason === "contact_link_conflict", "a mailbox owned by a different contact than the bound deal's holds as a conflict");
   const dealX2 = Number((((await db.execute(sql`INSERT INTO deals (pipeline,stage,name,contact_id) VALUES ('onboarding','Underwriting',${`S5CL ${tag} dx2`},${cx}) RETURNING id`)) as any).rows)[0].id);
   const noMatchEmail = `s5cl-${tag}-fresh@example.invalid`;
   const reuseApp = await svc.operatorCreate({ body: complete("reuse", { ownerEmail: noMatchEmail, dealId: dealX2 }), userId: null });
   const contactsBefore = Number((((await db.execute(sql`SELECT count(*)::int AS n FROM contacts`)) as any).rows)[0].n);
-  await worker.handleContactLink(rowFor(4, reuseApp.applicationId, { ownerEmail: noMatchEmail, ownerFirstName: "N", ownerLastName: "M" }));
+  await worker.handleContactLink(await claimedRow("contact_link", reuseApp.applicationId, { ownerEmail: noMatchEmail, ownerFirstName: "N", ownerLastName: "M" }));
   const contactsAfter = Number((((await db.execute(sql`SELECT count(*)::int AS n FROM contacts`)) as any).rows)[0].n);
   const reuseLink = (((await db.execute(sql`SELECT contact_id FROM merchant_applications WHERE id = ${reuseApp.applicationId}`)) as any).rows)[0].contact_id;
   check(reuseLink === cx && contactsAfter === contactsBefore, "a deal-bound application links to the deal's contact instead of creating a duplicate");

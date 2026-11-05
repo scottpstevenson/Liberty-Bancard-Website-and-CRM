@@ -29,6 +29,9 @@ export interface BoardingReadiness {
     applicationUpdatedAt: string | null;
     applicationBinding: "direct" | "sales_source" | "none";
     applicationId: number | null;
+    /** Set only for an exact sales-deal source awaiting the audited bridge (never a boarding binding). */
+    sourceApplicationId?: number | null;
+    sourceDealId?: number | null;
   };
   /** R03: the exact tuple this verdict was computed from; compared at enqueue and at dispatch. */
   caseVersion: string;
@@ -77,11 +80,13 @@ const EMPTY_FACTS = {
 export async function evaluateBoardingReadiness(
   dealId: number,
   opts: { includeFieldCompleteness?: boolean } = {},
+  /** Optional transaction executor: a fence that holds locks must evaluate on its own connection, not a second one. */
+  exec: { execute: (q: any) => Promise<any> } = db,
 ): Promise<BoardingReadiness> {
   const includeFields = opts.includeFieldCompleteness !== false;
   const blockers: ReadinessBlocker[] = [];
 
-  const dealRes = await db.execute(sql`
+  const dealRes = await exec.execute(sql`
     SELECT id, pipeline, stage, contact_id, archived_at, record_class FROM deals WHERE id = ${dealId} LIMIT 1`);
   const deal = ((dealRes as any).rows ?? dealRes)[0] as
     { id: number; pipeline: string | null; stage: string | null; contact_id: number | null; archived_at: unknown; record_class: string | null } | undefined;
@@ -97,10 +102,10 @@ export async function evaluateBoardingReadiness(
   if (excluded) blockers.push({ code: "deal_not_operational", detail: excluded });
 
   // Only the DIRECT binding can board; an exact sales-deal source is reported so the audited bridge can move it.
-  const resolved = await resolveBoardingApplication(db as any, dealId);
+  const resolved = await resolveBoardingApplication(exec as any, dealId);
   let app: Record<string, any> | undefined;
   if (resolved.kind === "direct") {
-    const appRes = await db.execute(sql`
+    const appRes = await exec.execute(sql`
       SELECT *, updated_at::text AS updated_at_text FROM merchant_applications WHERE id = ${resolved.applicationId} LIMIT 1`);
     app = ((appRes as any).rows ?? appRes)[0];
   }
@@ -126,7 +131,7 @@ export async function evaluateBoardingReadiness(
     }
   }
 
-  const decRes = await db.execute(sql`
+  const decRes = await exec.execute(sql`
     SELECT id, decision, override_action FROM underwriting_decisions
     WHERE deal_id = ${dealId} ORDER BY created_at DESC NULLS LAST, id DESC LIMIT 1`);
   const dec = ((decRes as any).rows ?? decRes)[0] as { id: number; decision: string; override_action: string | null } | undefined;
@@ -146,7 +151,7 @@ export async function evaluateBoardingReadiness(
   if (programPolicy && app) {
     for (const g of gates) g.state = "resolved" as any;
     for (const docType of programPolicy.requiredDocuments) {
-      const c = await db.execute(sql`
+      const c = await exec.execute(sql`
         SELECT 1 FROM underwriting_conditions
         WHERE deal_id = ${dealId} AND condition_type = ${docType} AND status IN ('approved','waived') AND reversed_at IS NULL AND superseded_at IS NULL LIMIT 1`);
       if ((((c as any).rows ?? c) as any[]).length === 0) blockers.push({ code: "required_document_missing", detail: docType });
@@ -158,11 +163,20 @@ export async function evaluateBoardingReadiness(
     for (const g of gates) blockers.push({ code: `policy_unresolved:${g.code}`, detail: "native_policy_required" });
   }
 
+  // The effective revision of every REQUIRED-condition input (program policy's required document types): approved,
+  // waived, reversed and superseded changes and every update to such a row move the case version, so a queued command cannot consume stale conditions.
+  const condRes = await exec.execute(sql`
+    SELECT id, condition_type, status, (reversed_at IS NOT NULL) AS reversed, (superseded_at IS NOT NULL) AS superseded, updated_at::text AS u
+    FROM underwriting_conditions WHERE deal_id = ${dealId} ORDER BY id`);
+  const requiredTypes = new Set<string>(programPolicy && app ? programPolicy.requiredDocuments : []);
+  const conditionRevisions = (((condRes as any).rows ?? condRes) as any[]).filter((c) => requiredTypes.has(c.condition_type)).map((c) => `${c.id}:${c.status}:${c.reversed ? 1 : 0}:${c.superseded ? 1 : 0}:${c.u}`).join("|");
+
   const caseTuple: Record<string, unknown> = {
     dealId, contactId: deal.contact_id, applicationId: app?.id ?? null, applicationStatus: app?.status ?? null,
     applicationStateVersion: app?.state_version ?? null, applicationUpdatedAt: app?.updated_at_text ?? null,
     binding: resolved.kind, decisionId: dec?.id ?? null, decisionEffective: dec ? (dec.override_action ?? dec.decision) : null,
     policyVersion: programPolicy ? matrix!.version : "unrecorded",
+    conditionRevisions: crypto.createHash("sha256").update(conditionRevisions).digest("hex"),
   };
 
   return {
@@ -176,6 +190,8 @@ export async function evaluateBoardingReadiness(
       applicationUpdatedAt: app?.updated_at_text ?? null,
       applicationBinding: resolved.kind,
       applicationId: app?.id ?? null,
+      sourceApplicationId: resolved.kind === "sales_source" ? resolved.applicationId : null,
+      sourceDealId: resolved.kind === "sales_source" ? resolved.applicationDealId : null,
     },
     caseVersion: versionOf(caseTuple),
     caseTuple,

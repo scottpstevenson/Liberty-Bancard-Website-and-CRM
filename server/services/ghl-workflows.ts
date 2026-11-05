@@ -6,6 +6,10 @@ import { db } from "../db";
 import { contacts } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import type { ContactabilityChannel } from "./contactability";
+import { GhlAmbiguousDispatchError, isAmbiguousDispatchMessage } from "./ghl-dispatch-recorder";
+
+/** confirmed: accepted; unsent: pre-I/O or definite refusal; unknown: the trigger may have been accepted. */
+export type GhlEnrollmentOutcome = "confirmed" | "unsent" | "unknown";
 
 export interface GhlWorkflowConfig {
   id: string;
@@ -260,10 +264,10 @@ export async function enrollInGhlWorkflow(params: {
    * failure, so this function must not also write an unscoped one for the same requested enrollment.
    */
   _callerOwnsDeferral?: boolean;
-}): Promise<{ success: boolean; error?: string }> {
+}): Promise<{ success: boolean; error?: string; outcome?: GhlEnrollmentOutcome }> {
   try {
     if (!isSdrGhlConfigured()) {
-      return { success: false, error: "GHL not configured" };
+      return { success: false, error: "GHL not configured", outcome: "unsent" };
     }
 
     const workflowId = await getWorkflowId(params.workflowKey);
@@ -276,7 +280,7 @@ export async function enrollInGhlWorkflow(params: {
           : " (key not in registry — check GHL_WORKFLOW_REGISTRY)") +
         ` — enrollment skipped. This automation will never fire until the ID is configured.`
       );
-      return { success: false, error: `Workflow ${params.workflowKey} not configured (set ${registryEntry?.envKey ?? params.workflowKey})` };
+      return { success: false, error: `Workflow ${params.workflowKey} not configured (set ${registryEntry?.envKey ?? params.workflowKey})`, outcome: "unsent" };
     }
 
     const trigger = await triggerWorkflow({
@@ -293,7 +297,7 @@ export async function enrollInGhlWorkflow(params: {
     if (refusal) throw new Error(`GHL workflow enrollment refused by provider: ${refusal}`);
 
     console.log(`[GHL Workflows] Enrolled GHL contact ${params.ghlContactId} in workflow ${params.workflowKey}`);
-    return { success: true };
+    return { success: true, outcome: "confirmed" };
   } catch (err: any) {
     console.error(`[GHL Workflows] Enrollment failed for ${params.workflowKey}:`, err.message);
 
@@ -318,7 +322,11 @@ export async function enrollInGhlWorkflow(params: {
     const { isTransientGhlError, deferGhlEnrollment } = await import("./ghl-enrollment-recovery");
     // A lost response (the request may have been accepted) is an unknown outcome: it is never deferred for re-sending.
     const { isAmbiguousDispatchMessage } = await import("./ghl-dispatch-recorder");
-    const isTransient = isTransientGhlError(err) && !isAmbiguousDispatchMessage(err?.message);
+    const possiblyAccepted = err instanceof GhlAmbiguousDispatchError
+      || isAmbiguousDispatchMessage(err?.message)
+      || /^GHL API error (?:5\d\d|408)\b/.test(String(err?.message ?? ""))
+      || err instanceof SyntaxError;
+    const isTransient = isTransientGhlError(err) && !possiblyAccepted;
     const defersHere = !params._isRecoveryAttempt && !params._callerOwnsDeferral && isTransient;
     if (defersHere) {
       await deferGhlEnrollment({
@@ -344,7 +352,11 @@ export async function enrollInGhlWorkflow(params: {
         ...params.metadata,
       },
     }).catch(() => {});
-    return { success: false, error: err.message };
+    // Typed outcome for callers that own their own retry ledger: a possibly-accepted request is `unknown`
+    // and must not be retried by an outer queue; a pre-I/O or definite refusal is `unsent`.
+    // A provider 5xx/408 or an unreadable success body on the trigger POST may follow processing: also unknown.
+    const outcome: GhlEnrollmentOutcome = possiblyAccepted ? "unknown" : "unsent";
+    return { success: false, error: err.message, outcome };
   }
 }
 
@@ -372,7 +384,7 @@ export async function enrollInGhlWorkflowCompliant(params: {
   contactId?: number;
   /** Server-owned current inbound event binding; absent means account transactional. */
   inboundRequestId?: string;
-}): Promise<{ success: boolean; error?: string; skipped?: boolean }> {
+}): Promise<{ success: boolean; error?: string; skipped?: boolean; outcome?: GhlEnrollmentOutcome }> {
   const registryEntry = GHL_WORKFLOW_REGISTRY.find(w => w.id === params.workflowKey);
   if (!registryEntry) {
     return { success: false, error: `Unknown GHL workflow "${params.workflowKey}"`, skipped: true };

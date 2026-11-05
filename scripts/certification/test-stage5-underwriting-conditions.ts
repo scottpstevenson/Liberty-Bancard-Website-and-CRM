@@ -271,5 +271,74 @@ check(!String(unsentRow.last_reason).includes("@") && unsentRow.next_check_at &&
   check((await call(HIST, { params: { id: "99999999" }, user: manager })).code === 404 && (await call(HIST, { params: { id: String(cond) }, user: agent })).code === 403, "history is admin/manager only and 404s for an unknown condition");
 }
 
+// ── C02: effective reversal state, first-condition chase, fail-closed recipient, evidence selector, history detail ──
+{
+  const HIST = "GET /api/underwriting/conditions/:id/history", DOCS = "GET /api/underwriting/deals/:id/conditions/documents";
+  const satisfied = async (d: number, type: string) => (await q(sql`SELECT 1 FROM underwriting_conditions
+    WHERE deal_id = ${d} AND condition_type = ${type} AND status IN ('approved','waived') AND reversed_at IS NULL AND superseded_at IS NULL`)).length > 0;
+
+  // Reopen then re-approve: the effective state is satisfied again; the reversal stays in the audit history.
+  const rc = await mkContact("c02rev");
+  const dRev = await mkDeal("c02rev", rc);
+  const made = await call(POST, { params: { id: String(dRev) }, body: { conditionType: "voided_check", description: "Voided check" }, user: manager });
+  const cid = made.body.id as number;
+  for (const body of [{ status: "submitted" }, { status: "approved" }]) await call(PATCH, { params: { id: String(cid) }, body, user: manager });
+  check(await satisfied(dRev, "voided_check"), "an approved condition satisfies the required-document predicate");
+  const rev = await call(PATCH, { params: { id: String(cid) }, body: { status: "pending", reversalReason: "wrong account" }, user: manager });
+  check(rev.code === 200 && !(await satisfied(dRev, "voided_check")), "a reopened condition no longer satisfies the predicate (negative control)");
+  for (const body of [{ status: "submitted" }, { status: "approved" }]) await call(PATCH, { params: { id: String(cid) }, body, user: manager });
+  const row = (await q(sql`SELECT status, reversed_at, reversed_by, reversal_reason FROM underwriting_conditions WHERE id = ${cid}`))[0];
+  check(row.status === "approved" && row.reversed_at === null && await satisfied(dRev, "voided_check"), "a re-approved condition is effective again (the stale reversal marker is cleared)");
+  const hist = await call(HIST, { params: { id: String(cid) }, user: manager });
+  const reversal = hist.body.history.find((e: any) => e.transition === "approved->pending");
+  check(reversal && reversal.reason === "wrong account" && reversal.actorId === manager.id && reversal.at, "history keeps who, when, transition and reason of the reversal");
+  const reapproval = hist.body.history.find((e: any) => e.transition === "submitted->approved");
+  check(!!reapproval, "history lists the later re-approval as its own entry");
+  const waivedC = await call(POST, { params: { id: String(dRev) }, body: { conditionType: "waive_me", description: "w" }, user: manager });
+  await call(PATCH, { params: { id: String(waivedC.body.id) }, body: { status: "waived", waivedReason: "owner exception" }, user: admin });
+  const wh = await call(HIST, { params: { id: String(waivedC.body.id) }, user: manager });
+  check(wh.body.history.some((e: any) => e.transition === "pending->waived" && e.reason === "owner exception"), "history reports a waiver reason");
+
+  // The first manual condition on a deal with no chase row creates the owed chase in the same transaction.
+  const fc = await mkContact("c02first");
+  const dFirst = await mkDeal("c02first", fc);
+  check((await q(sql`SELECT 1 FROM underwriting_condition_chases WHERE deal_id = ${dFirst}`)).length === 0, "precondition: the deal has no chase row");
+  const firstCond = await call(POST, { params: { id: String(dFirst) }, body: { conditionType: "first_manual", description: "First" }, user: manager });
+  const chaseRows = await q(sql`SELECT status, recipient_email, obligation_version FROM underwriting_condition_chases WHERE deal_id = ${dFirst} AND channel = 'email'`);
+  check(firstCond.code === 201 && chaseRows.length === 1 && chaseRows[0].status === "owed" && String(chaseRows[0].recipient_email).startsWith("s5uc-"), "the first manual condition creates an owed chase for the current mailbox owner");
+  await call(POST, { params: { id: String(dFirst) }, body: { conditionType: "second_manual", description: "Second" }, user: manager });
+  const again = await q(sql`SELECT obligation_version FROM underwriting_condition_chases WHERE deal_id = ${dFirst} AND channel = 'email'`);
+  check(again.length === 1 && Number(again[0].obligation_version) === Number(chaseRows[0].obligation_version) + 1, "a second condition versions the same chase (no duplicate row)");
+  const internalDeal = await mkDeal("c02internal", await mkContact("c02int"));
+  await call(POST, { params: { id: String(internalDeal) }, body: { conditionType: "internal_only", description: "x", merchantVisible: false }, user: manager });
+  check((await q(sql`SELECT 1 FROM underwriting_condition_chases WHERE deal_id = ${internalDeal}`)).length === 0, "an internal-only condition creates no merchant chase (negative control)");
+
+  // Fail closed: the current contact has no email, so the saved address is never used.
+  const sentBefore = sent.length;
+  await db.execute(sql`UPDATE contacts SET email = '' WHERE id = ${fc}`);
+  const failClosed = await checklist.retryOwedConditionChases({ dealId: dFirst }, open);
+  const fcRow = (await q(sql`SELECT status, last_reason, recipient_email, recipient_version FROM underwriting_condition_chases WHERE deal_id = ${dFirst} AND channel = 'email'`))[0];
+  check(failClosed.sent === 0 && sent.length === sentBefore && fcRow.status === "not_applicable" && fcRow.last_reason === "no_recipient" && fcRow.recipient_email === null && Number(fcRow.recipient_version) === 2,
+    "a cleared current email never falls back to the saved address; the clearance is versioned and nothing is sent");
+
+  // The real SMTP adapter binds the deal's contact and a transactional purpose (no contact-less send).
+  const src = (await import("node:fs")).readFileSync("server/services/underwriting-checklist-service.ts", "utf8");
+  check(/contactId: chaseContactId, commercialPurpose: "transactional_response"/.test(src) && !/contactId: undefined/.test(src), "the real chase adapter passes the canonical contact and purpose");
+
+  // Evidence selector: only this deal's files and its contact's unbound files; display fields only.
+  const dDoc = await mkDeal("c02doc", await mkContact("c02doc"));
+  const ownContact = Number((await q(sql`SELECT contact_id FROM deals WHERE id = ${dDoc}`))[0].contact_id);
+  const own = await mkDoc(dDoc, null), unbound = await mkDoc(null, ownContact), foreign = await mkDoc(dealB, null);
+  const listed = await call(DOCS, { params: { id: String(dDoc) }, user: manager });
+  const ids = (listed.body.documents ?? []).map((x: any) => x.id);
+  check(listed.code === 200 && ids.includes(own) && ids.includes(unbound) && !ids.includes(foreign), "the selector lists this deal's and its contact's documents, never a foreign deal's");
+  check(!JSON.stringify(listed.body).match(/storage|token|path/i), "the selector exposes display fields only (no storage key or access token)");
+  check((await call(DOCS, { params: { id: String(dDoc) }, user: agent })).code === 403 && (await call(DOCS, { params: { id: "99999999" }, user: manager })).code === 404, "the selector is admin/manager only and 404s for an unknown deal");
+  const attach = await call(PATCH, { params: { id: String(firstCond.body.id) }, body: { documentId: foreign }, user: manager });
+  check(attach.code === 400, "attaching a document outside the deal is still refused (negative control)");
+  const ok = await call(PATCH, { params: { id: String(firstCond.body.id) }, body: { documentId: unbound }, user: manager });
+  check(ok.code === 400, "a document from a different deal's contact is refused for this deal");
+}
+
 console.log(`\nStage 5 underwriting conditions certification: ${checks} checks passed`);
 process.exit(0);

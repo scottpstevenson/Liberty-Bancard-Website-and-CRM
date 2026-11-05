@@ -1428,20 +1428,32 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] =
  * (which has side effects) while staying accurate for the `script: "..."` pattern
  * that every suite entry uses.
  */
+function extractSuiteArrayScripts(src: string, declaration: string): string[] {
+  // Start at the exact declaration (not the first mention in a comment); stop at the first `];` after it.
+  const start = src.indexOf(declaration);
+  if (start === -1) throw new Error(`${declaration} not found in pre-deploy.ts`);
+  const end = src.indexOf("];", start);
+  const suiteBlock = end !== -1 ? src.slice(start, end) : src.slice(start);
+  return [...suiteBlock.matchAll(/\bscript\s*:\s*"([^"]+)"/g)].map(m => m[1]);
+}
+
 function extractPreDeployScripts(): string[] {
   const preDeployPath = path.join(process.cwd(), "scripts", "pre-deploy.ts");
   if (!fs.existsSync(preDeployPath)) {
     throw new Error("scripts/pre-deploy.ts not found — cannot compare against MANDATORY_SUITES");
   }
-  const src = fs.readFileSync(preDeployPath, "utf8");
-  // Extract all `script: "..."` values within the MANDATORY_SUITES array.
-  // Start extraction from MANDATORY_SUITES declaration; stop at the first `];`.
-  const start = src.indexOf("MANDATORY_SUITES");
-  if (start === -1) throw new Error("MANDATORY_SUITES not found in pre-deploy.ts");
-  const end = src.indexOf("];", start);
-  const suiteBlock = end !== -1 ? src.slice(start, end) : src.slice(start);
-  const matches = [...suiteBlock.matchAll(/\bscript\s*:\s*"([^"]+)"/g)];
-  return matches.map(m => m[1]);
+  return extractSuiteArrayScripts(fs.readFileSync(preDeployPath, "utf8"), "export const MANDATORY_SUITES: Suite[]");
+}
+
+/**
+ * Suites declared in CERTIFICATION_FIXTURE_SUITES: runnable through the same isolated launcher with an explicit
+ * --only selection, deliberately NOT part of the default mandatory roster. A manifest entry for one of these is
+ * valid (it is classified and declared); it is not "stale", and it does not become mandatory by being classified.
+ */
+function extractCertificationFixtureScripts(): string[] {
+  const preDeployPath = path.join(process.cwd(), "scripts", "pre-deploy.ts");
+  if (!fs.existsSync(preDeployPath)) return [];
+  return extractSuiteArrayScripts(fs.readFileSync(preDeployPath, "utf8"), "export const CERTIFICATION_FIXTURE_SUITES: Suite[]");
 }
 
 function main() {
@@ -1568,14 +1580,15 @@ function main() {
     }
 
     // Suites in manifest but not in pre-deploy (stale / not registered)
-    const stale = manifestScripts.filter(s => !preDeployScripts.includes(s));
+    const fixtureScripts = extractCertificationFixtureScripts();
+    const stale = manifestScripts.filter(s => !preDeployScripts.includes(s) && !fixtureScripts.includes(s));
     if (stale.length > 0) {
       for (const s of stale) {
         console.error(`  ✗ MANIFEST STALE: '${s}' is in SUITE_MANIFEST but not in MANDATORY_SUITES`);
         errors++;
       }
     } else {
-      console.log("  ✓ No stale manifest entries (all manifest scripts are in MANDATORY_SUITES)");
+      console.log("  ✓ No stale manifest entries (every manifest script is in MANDATORY_SUITES or declared in CERTIFICATION_FIXTURE_SUITES)");
     }
   }
 

@@ -40,30 +40,50 @@ export async function resolveBoardingApplication(exec: Exec, onboardingDealId: n
 
 export type BridgeResult =
   | { bridged: true; applicationId: number; fromDealId: number }
-  | { bridged: false; reason: "already_direct" | "no_exact_source_application" | "deal_not_onboarding" };
+  | { bridged: false; reason: "already_direct" | "no_exact_source_application" | "deal_not_onboarding" | "case_changed" };
 
-/** Explicit, audited, locked bridge. Moves ONLY the exact source application; refuses everything else. */
+/**
+ * Explicit, audited, locked bridge. Moves ONLY the exact source application; refuses everything else.
+ *
+ * Lock order is the same one the submit command uses: application first, then the deals it relates in ascending
+ * id order. The whole tuple (application, onboarding deal, source deal, contact) is read again AFTER the locks and
+ * compared with the tuple the resolver proposed, so a change between resolve and lock is a conflict, never a move.
+ * The Sales origin is preserved: the onboarding deal's sales_deal_id is untouched and the audit row records it.
+ */
 export async function bridgeApplicationToOnboarding(onboardingDealId: number, actorId: string | null): Promise<BridgeResult> {
   return db.transaction(async (tx) => {
-    const d = rowsOf(await tx.execute(sql`SELECT id, pipeline, contact_id, sales_deal_id FROM deals WHERE id = ${onboardingDealId} FOR UPDATE`))[0];
-    if (!d || d.pipeline !== "onboarding") return { bridged: false as const, reason: "deal_not_onboarding" as const };
-    const resolved = await resolveBoardingApplication(tx, onboardingDealId);
-    if (resolved.kind === "direct") return { bridged: false as const, reason: "already_direct" as const };
-    if (resolved.kind !== "sales_source" || resolved.applicationId == null) {
+    const pre = rowsOf(await tx.execute(sql`SELECT id, pipeline FROM deals WHERE id = ${onboardingDealId}`))[0];
+    if (!pre || pre.pipeline !== "onboarding") return { bridged: false as const, reason: "deal_not_onboarding" as const };
+    const proposed = await resolveBoardingApplication(tx, onboardingDealId);
+    if (proposed.kind === "direct") return { bridged: false as const, reason: "already_direct" as const };
+    if (proposed.kind !== "sales_source" || proposed.applicationId == null || proposed.salesDealId == null) {
       return { bridged: false as const, reason: "no_exact_source_application" as const };
     }
-    const locked = rowsOf(await tx.execute(sql`
-      SELECT id, deal_id FROM merchant_applications WHERE id = ${resolved.applicationId} AND deal_id = ${resolved.salesDealId} FOR UPDATE`))[0];
-    if (!locked) return { bridged: false as const, reason: "no_exact_source_application" as const };
+    // 1. application, 2. deals (ascending id)
+    const app = rowsOf(await tx.execute(sql`
+      SELECT id, deal_id, contact_id FROM merchant_applications WHERE id = ${proposed.applicationId} FOR UPDATE`))[0];
+    const dealRows = rowsOf(await tx.execute(sql`
+      SELECT id, pipeline, contact_id, sales_deal_id FROM deals WHERE id IN (${onboardingDealId}, ${proposed.salesDealId}) ORDER BY id FOR UPDATE`));
+    const onb = dealRows.find((r) => r.id === onboardingDealId);
+    const src = dealRows.find((r) => r.id === proposed.salesDealId);
+    const unchanged = !!app && !!onb && !!src
+      && onb.pipeline === "onboarding" && onb.sales_deal_id === proposed.salesDealId && onb.contact_id != null
+      && src.contact_id === onb.contact_id && app.contact_id === onb.contact_id && app.deal_id === proposed.salesDealId;
+    if (!unchanged) return { bridged: false as const, reason: "case_changed" as const };
+    // Re-resolve under the locks: another application directly bound to the onboarding deal also changes the case.
+    const again = await resolveBoardingApplication(tx, onboardingDealId);
+    if (again.kind !== "sales_source" || again.applicationId !== proposed.applicationId) {
+      return { bridged: false as const, reason: again.kind === "direct" ? "already_direct" as const : "case_changed" as const };
+    }
     await tx.execute(sql`
       UPDATE merchant_applications SET deal_id = ${onboardingDealId}, updated_at = NOW(), state_version = COALESCE(state_version,0) + 1
-      WHERE id = ${resolved.applicationId} AND deal_id = ${resolved.salesDealId}`);
+      WHERE id = ${proposed.applicationId} AND deal_id = ${proposed.salesDealId} AND contact_id = ${onb.contact_id}`);
     await auditChange({
       userId: actorId, actorType: actorId ? "user" : "system",
       action: "merchant_application_bridged_to_onboarding",
-      entityType: "merchant_application", entityId: resolved.applicationId,
-      details: { fromDealId: resolved.salesDealId, toDealId: onboardingDealId },
+      entityType: "merchant_application", entityId: proposed.applicationId,
+      details: { fromDealId: proposed.salesDealId, toDealId: onboardingDealId, contactId: onb.contact_id, salesOriginDealId: onb.sales_deal_id },
     }, tx as any);
-    return { bridged: true as const, applicationId: resolved.applicationId, fromDealId: resolved.salesDealId! };
+    return { bridged: true as const, applicationId: proposed.applicationId, fromDealId: proposed.salesDealId };
   });
 }

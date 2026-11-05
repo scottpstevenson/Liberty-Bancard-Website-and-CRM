@@ -25,7 +25,12 @@ const mids = await import("../../server/services/merchant-mid-service");
 const { registerUnderwritingRoutes } = await import("../../server/routes/underwriting");
 const { registerBoardingRoutes } = await import("../../server/routes/boarding");
 const { recordCertPolicy, removeCertPolicy, CERT_PROGRAM } = await import("./stage5-boarding-fixture");
-await recordCertPolicy(db, sql);
+const CERT_DOC_PROGRAM = "Cert Doc Program", CERT_REQUIRED_DOC = "voided_check";
+const BASE_POLICY = {
+  [CERT_PROGRAM]: { requiredDocuments: [], esignRequired: false },
+  [CERT_DOC_PROGRAM]: { requiredDocuments: [CERT_REQUIRED_DOC], esignRequired: false },
+};
+await recordCertPolicy(db, sql, BASE_POLICY);
 
 let checks = 0;
 const check = (v: unknown, message: string) => { assert(v, message); checks++; console.log(`✓ [S5-BR-${String(checks).padStart(2, "0")}] ${message}`); };
@@ -163,7 +168,7 @@ const boardingStatus = async (id: number) => (((await db.execute(sql`SELECT boar
   await db.execute(sql`INSERT INTO underwriting_conditions (deal_id, condition_type, description, status) VALUES (${ok}, 'bank_statement', 'fixture', 'approved')`);
   await db.execute(sql`UPDATE merchant_applications SET esign_status = 'signed' WHERE deal_id = ${ok}`);
   check((await readiness(ok)).ready === true, "control: meeting the recorded requirements clears the blockers");
-  await recordCertPolicy(db, sql);
+  await recordCertPolicy(db, sql, BASE_POLICY);
 
   // Replay returns the actual saved outcome and a receipt, bound to actor/action/program.
   const key = `s5br-${tag}-replay`;
@@ -210,7 +215,8 @@ const boardingStatus = async (id: number) => (((await db.execute(sql`SELECT boar
   const afterApp = (((await db.execute(sql`SELECT deal_id FROM merchant_applications WHERE legal_business_name = 'Bridge Fixture' AND contact_id = ${c1}`)) as any).rows)[0];
   check(afterApp.deal_id === obD, "the application is now bound directly to the onboarding deal");
   const bridgeAudit = (((await db.execute(sql`SELECT details FROM audit_logs WHERE action = 'merchant_application_bridged_to_onboarding' AND entity_id IS NOT NULL ORDER BY id DESC LIMIT 1`)) as any).rows)[0];
-  check(bridgeAudit && bridgeAudit.details.toDealId === obD && bridgeAudit.details.fromDealId === salesD, "the bridge is audited with both deal ids");
+  check(bridgeAudit && bridgeAudit.details.toDealId === obD && bridgeAudit.details.fromDealId === salesD && bridgeAudit.details.salesOriginDealId === salesD, "the bridge is audited with both deal ids and the preserved Sales origin");
+  check((((await db.execute(sql`SELECT sales_deal_id FROM deals WHERE id = ${obD}`)) as any).rows)[0].sales_deal_id === salesD, "the onboarding deal keeps its Sales origin after the bridge");
   check((await call(BRIDGE, { params: { id: String(obD) }, user: admin })).body.reason === "already_direct", "a second bridge is a no-op (already direct)");
   // Negative controls: other-contact application and an onboarding deal with no sales source are never matched.
   const salesE = Number((((await db.execute(sql`INSERT INTO deals (pipeline, stage, name, contact_id) VALUES ('sales','Closed Won',${`S5BR ${tag} bridge-sales2`}, ${c1}) RETURNING id`)) as any).rows)[0].id);
@@ -218,6 +224,66 @@ const boardingStatus = async (id: number) => (((await db.execute(sql`SELECT boar
   await db.execute(sql`INSERT INTO merchant_applications (deal_id, contact_id, legal_business_name, status) VALUES (${salesE}, ${c1}, 'Bridge Other Contact', 'submitted')`);
   const bE = await call(BRIDGE, { params: { id: String(obE) }, user: admin });
   check(bE.code === 409 && bE.body.reason === "no_exact_source_application", "negative control: an application of a different contact is never bridged");
+  // The whole tuple is re-read AFTER the locks: a change between resolve and lock is a conflict, never a move.
+  {
+    const salesF = Number((((await db.execute(sql`INSERT INTO deals (pipeline, stage, name, contact_id) VALUES ('sales','Closed Won',${`S5BR ${tag} bridge-sales3`}, ${c1}) RETURNING id`)) as any).rows)[0].id);
+    const obF = Number((((await db.execute(sql`INSERT INTO deals (pipeline, stage, name, contact_id, sales_deal_id) VALUES ('onboarding','Underwriting',${`S5BR ${tag} bridge-ob3`}, ${c1}, ${salesF}) RETURNING id`)) as any).rows)[0].id);
+    const appF = Number((((await db.execute(sql`INSERT INTO merchant_applications (deal_id, contact_id, legal_business_name, status, preferred_program) VALUES (${salesF}, ${c1}, 'Bridge Race', 'submitted', ${CERT_PROGRAM}) RETURNING id`)) as any).rows)[0].id);
+    const holder = await pool.connect();
+    try {
+      await holder.query("BEGIN");
+      await holder.query("SELECT id FROM merchant_applications WHERE id = $1 FOR UPDATE", [appF]);
+      const racing = call(BRIDGE, { params: { id: String(obF) }, user: admin });
+      await new Promise((r) => setTimeout(r, 400));
+      await holder.query("UPDATE merchant_applications SET contact_id = $1 WHERE id = $2", [c2, appF]);
+      await holder.query("COMMIT");
+      const out = await racing;
+      const stillOnSales = (((await db.execute(sql`SELECT deal_id FROM merchant_applications WHERE id = ${appF}`)) as any).rows)[0].deal_id;
+      check(out.code === 409 && out.body.reason === "case_changed" && stillOnSales === salesF, "a tuple change between resolve and lock is a conflict and moves nothing");
+    } finally { try { await holder.query("ROLLBACK"); } catch { /* committed */ } holder.release(); }
+  }
+
+  // Saved command: resolved from the stored tuple BEFORE current readiness; read-only receipt by key.
+  {
+    const RECEIPT = "GET /api/deals/:id/boarding-receipt";
+    const rd = await deal("receipt");
+    const key = `s5br-${tag}-receipt-key`;
+    const first = await call(SUBMIT, { params: { id: String(rd) }, headers: { "idempotency-key": key }, body: {}, user: admin });
+    check(first.code === 202, "precondition: the command is queued");
+    // The application moves on: it is no longer ready, yet the saved command still reports what it became.
+    await db.execute(sql`UPDATE merchant_applications SET status = 'withdrawn' WHERE deal_id = ${rd}`);
+    const replay = await call(SUBMIT, { params: { id: String(rd) }, headers: { "idempotency-key": key }, body: {}, user: admin });
+    check(replay.code === 202 && replay.body.replayed === true && replay.body.outboxId === first.body.outboxId, "a replay is answered from the stored command even though current readiness would refuse it");
+    const fresh = await call(SUBMIT, { params: { id: String(rd) }, headers: { "idempotency-key": `${key}-other` }, body: {}, user: admin });
+    check(fresh.code === 400 || fresh.code === 409, "negative control: a NEW key is still refused by current readiness");
+    const rcpt = await call(RECEIPT, { params: { id: String(rd) }, query: { key }, user: admin });
+    check(rcpt.code === 200 && rcpt.body.found === true && rcpt.body.outboxId === first.body.outboxId && typeof rcpt.body.status === "string", "the read-only receipt reports the saved command");
+    check(JSON.stringify(rcpt.body).indexOf(key) === -1, "the receipt never echoes the key");
+    check((await call(RECEIPT, { params: { id: String(rd) }, query: { key }, user: { ...admin, id: "someone-else" } })).body.found === false, "another actor sees nothing (not found and not yours are identical)");
+    check((await call(RECEIPT, { params: { id: String(rd) }, query: { key: `${key}-missing` }, user: admin })).body.found === false, "an unknown key is not found");
+    check((await call(RECEIPT, { params: { id: String(rd) }, query: { key: "x" }, user: admin })).code === 400, "a malformed key is a 400");
+    const rowsAfter = (await outboxRows(key)).length;
+    check(rowsAfter === 1, "the receipt read created and changed nothing");
+  }
+
+  // Required-condition revisions are part of the case version.
+  {
+    const cv = await deal("condver");
+    await db.execute(sql`UPDATE merchant_applications SET preferred_program = ${CERT_DOC_PROGRAM} WHERE deal_id = ${cv}`);
+    const before = (await readiness(cv)).caseVersion;
+    await db.execute(sql`INSERT INTO underwriting_conditions (deal_id, condition_type, description, status) VALUES (${cv}, ${CERT_REQUIRED_DOC}, 'doc', 'pending')`);
+    const withCond = (await readiness(cv)).caseVersion;
+    await db.execute(sql`UPDATE underwriting_conditions SET status = 'approved', updated_at = now() WHERE deal_id = ${cv}`);
+    const approved = (await readiness(cv)).caseVersion;
+    check(before !== withCond && withCond !== approved, "adding and approving a required condition each move the case version");
+    await db.execute(sql`UPDATE underwriting_conditions SET notes = 'edit', updated_at = now() WHERE deal_id = ${cv}`);
+    check((await readiness(cv)).caseVersion !== approved, "any update to a required condition moves the case version (stale queued commands cannot consume it)");
+    await db.execute(sql`INSERT INTO underwriting_conditions (deal_id, condition_type, description, status) VALUES (${cv}, 'unrelated_internal', 'x', 'pending')`);
+    const afterUnrelated = (await readiness(cv)).caseVersion;
+    await db.execute(sql`UPDATE underwriting_conditions SET status = 'submitted', updated_at = now() WHERE deal_id = ${cv} AND condition_type = 'unrelated_internal'`);
+    check((await readiness(cv)).caseVersion === afterUnrelated, "negative control: a non-required condition does not move the case version");
+  }
+
   const loose = await deal("bridge-loose", { complete: false });
   await db.execute(sql`DELETE FROM merchant_applications WHERE deal_id = ${loose}`);
   check(codes(await readiness(loose)).includes("no_linked_application"), "no same-contact fallback: a deal with no exact application reports no_linked_application");
@@ -291,6 +357,13 @@ const REFRESH = "POST /api/boarding/refresh-all";
   check(!JSON.stringify(reg.body).includes(`CANONMID${tag}`) && regRow.mid_masked.endsWith("9999"), "registry returns masked MIDs only");
   check(typeof reg.body.total === "number" && reg.body.total >= reg.body.returned && reg.body.truncated === (reg.body.total > reg.body.returned), "registry reports total/returned/truncated");
   check(reg.body.unit === "deals" && typeof reg.body.asOf === "string" && reg.body.scopeTotal >= reg.body.total && reg.body.byStatus && typeof reg.body.byStatus.live === "number", "registry states its row unit, as-of time, scope total and per-status counts");
+  // C05: class breakdown is part of the same snapshot and sums to the scope; history is masked, complete and scoped.
+  const classSum = Object.values(reg.body.byClass as Record<string, number>).reduce((x, y) => x + y, 0);
+  check(reg.body.byClass && typeof reg.body.byClass === "object" && classSum === reg.body.scopeTotal && !(reg.body.merchants as any[]).some((m) => "record_class" in m), "registry returns a record-class breakdown that sums to the scope total without widening each row");
+  const hist = await call("GET /api/boarding/mid-registry/:dealId/mids", { params: { dealId: String(d2) }, user: admin });
+  check(hist.code === 200 && hist.body.mids.length === 1 && hist.body.mids[0].midMasked.endsWith("9999") && !JSON.stringify(hist.body).includes(`CANONMID${tag}`), "the history rail returns the deal's MID records masked only");
+  check((await call("GET /api/boarding/mid-registry/:dealId/mids", { params: { dealId: "abc" }, user: admin })).code === 400, "history refuses a non-numeric deal id");
+  check((await call("GET /api/boarding/mid-registry/:dealId/mids", { params: { dealId: "999999999" }, user: admin })).body.mids.length === 0, "history for an out-of-scope or unknown deal is empty");
   // R08: closed MID via alias never shows; Go-Live Scheduled is scheduled, not live; pagination beyond a page is stable and complete.
   const dClosed = await deal("registry-closed");
   await db.execute(sql`UPDATE deals SET contact_id = ${contact}, mid = ${`ALIASONLY${tag}7777`} WHERE id = ${dClosed}`);
@@ -428,11 +501,23 @@ const REFRESH = "POST /api/boarding/refresh-all";
     check((await gateFor(null)) === "ACTIVATION_SNAPSHOT_URL_MISSING", "negative control: a snapshot with no base URL fails closed at the gate");
   }
   const panel = readFileSync("client/src/components/BoardingPanel.tsx", "utf8");
-  check(/"Idempotency-Key"\s*:\s*keys\.get\(commandIdentity\)/.test(panel) && /commandIdentity = `\$\{user\?\.id[^`]*\$\{dealId\}[^`]*\$\{revision[^`]*processorChoice/.test(panel),
-    "BoardingPanel sends a durable key bound to actor + deal + reviewed revision + processor");
+  check(/"Idempotency-Key"\s*:\s*keys\.get\(commandIdentity\)/.test(panel) && /commandIdentity = `\$\{user\?\.id[^`]*\$\{dealId\}[^`]*processorChoice/.test(panel) && !/commandIdentity = `[^`]*revision/.test(panel),
+    "BoardingPanel sends a durable key bound to actor + deal + processor, stable across application revisions");
+  check(/button-check-saved-result/.test(panel) && /boarding-receipt\?key=/.test(panel) && /button-bridge-application/.test(panel) && /Link this application to Onboarding/.test(panel) && /canOperate && readiness\?\.blockers\.some/.test(panel),
+    "BoardingPanel offers a role-gated bridge (source/destination/application shown) and a read-only saved-result check");
   check(/expectedApplicationRevision: revision/.test(panel), "BoardingPanel sends the reviewed application revision with the command");
   check(!/data\.processorApplicationId/.test(panel.slice(panel.indexOf("submitMutation"), panel.indexOf("refreshMutation"))), "BoardingPanel does not claim an immediate provider application id from the 202 response");
   check(/midMasked/.test(panel) && !/s\.mid\b/.test(panel), "BoardingPanel reads midMasked/hasMid only");
+  const reg = readFileSync("client/src/components/boarding/MidRegistryView.tsx", "utf8");
+  check(!/Live MIDs|live MIDs|live MID count/.test(reg) && /Nonclosed MID records/.test(reg) && /Close local MID record/.test(reg) && /does not close the merchant account at the processor/.test(reg),
+    "registry uses 'Nonclosed MID records' and 'Close local MID record' and says the processor account is untouched");
+  check(/midStatus/.test(reg) && /midPage/.test(reg) && /midDeal/.test(reg) && !/useState\(0\)/.test(reg.slice(reg.indexOf("export default function"), reg.indexOf("const query"))),
+    "registry status, page and expanded deal are URL-owned (no component-state offset)");
+  check(/nonarchived, nonlost deals; excludes explicit test\/demo\/synthetic; includes unclassified/.test(reg) && /Record-class breakdown/.test(reg) && /rail-mid-history/.test(reg) && !/\.mid\b(?!Masked)/.test(reg.replace(/mid_masked|midMasked/g, "")),
+    "registry states its scope, offers a class breakdown and a masked history rail");
+  const uw = readFileSync("client/src/pages/dashboard/Underwriting.tsx", "utf8");
+  check(/aria-labelledby="label-auto-approve"/.test(uw) && /id="label-auto-approve"/.test(uw) && /text-\[hsl\(var\(--crm-danger-text\)\)\]/.test(uw), "the auto-approve switch is named by its visible label and Return uses the danger-text token");
+  check(/Requirements not recorded/.test(panel) && /policy_unresolved:/.test(panel), "unresolved-policy wording is merged into one 'Requirements not recorded' line");
 }
 
 console.log(`\nStage 5 boarding route certification: ${checks} checks passed`);

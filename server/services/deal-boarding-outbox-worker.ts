@@ -169,6 +169,8 @@ function missingProviderFields(payload: Record<string, unknown>): string[] {
   });
 }
 
+/** Test-only seam (NODE_ENV=test): runs after the dispatch readiness check and before the final-consumption fence. */
+let beforeFinalFenceForTest: (() => Promise<void>) | null = null;
 let processorOverrideForTest: ((name?: string | null) => IProcessorAdapter) | null = null;
 function resolveProcessor(name: string | null): IProcessorAdapter {
   if (processorOverrideForTest && process.env.NODE_ENV === "test") return processorOverrideForTest(name);
@@ -660,29 +662,51 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettleme
       "Reconcile via the provider status endpoint before any resubmission.", identity);
   }
 
-  // Final recheck of the application revision immediately before I/O, then write the
-  // durable pre-dispatch marker fenced on the still-owned claim. Not owned => no I/O.
-  const [recheck] = await db
-    .select({ id: merchantApplications.id })
-    .from(merchantApplications)
-    .where(and(
-      eq(merchantApplications.id, row.applicationId),
-      eq(merchantApplications.dealId, dealId),
-      sql`${merchantApplications.updatedAt}::text = ${applicationLinkageVersion}`,
-    ))
-    .limit(1);
-  if (!recheck) {
+  // Final-consumption fence, immediately before I/O: in ONE transaction lock the application at the queued revision,
+  // re-evaluate the whole case (required conditions, decision, policy, binding) on that same connection, and only then
+  // write the durable pre-dispatch marker fenced on the still-owned claim. Any drift => dead letter, no transport.
+  if (beforeFinalFenceForTest && process.env.NODE_ENV === "test") await beforeFinalFenceForTest();
+  const fence = await db.transaction(async (tx) => {
+    const lockedApp = await tx.execute(sql`
+      SELECT 1 FROM merchant_applications
+      WHERE id = ${row.applicationId} AND deal_id = ${dealId} AND updated_at::text = ${applicationLinkageVersion}
+      FOR UPDATE`);
+    if ((((lockedApp as any).rows ?? lockedApp) as any[]).length === 0) return "application_changed" as const;
+    const final = await evaluateBoardingReadiness(dealId, { includeFieldCompleteness: false }, tx);
+    if (!final.ready || final.caseVersion !== enqueuedCaseVersion) return "case_changed" as const;
+    const marked = await tx.update(dealBoardingOutbox)
+      .set({ lastError: DISPATCH_STARTED, updatedAt: new Date() })
+      .where(and(
+        eq(dealBoardingOutbox.id, row.id),
+        eq(dealBoardingOutbox.status, "processing"),
+        eq(dealBoardingOutbox.attempts, row.attempts),
+      ))
+      .returning({ id: dealBoardingOutbox.id });
+    return marked.length === 0 ? ("stale_claim" as const) : ("marked" as const);
+  });
+  if (fence === "application_changed") {
     throw new Error("Application changed immediately before dispatch — refusing to send.");
   }
-  const marked = await db.update(dealBoardingOutbox)
-    .set({ lastError: DISPATCH_STARTED, updatedAt: new Date() })
-    .where(and(
-      eq(dealBoardingOutbox.id, row.id),
-      eq(dealBoardingOutbox.status, "processing"),
-      eq(dealBoardingOutbox.attempts, row.attempts),
-    ))
-    .returning({ id: dealBoardingOutbox.id });
-  if (marked.length === 0) return { settlement: "stale_claim" };
+  if (fence === "case_changed") {
+    await db.transaction(async (tx) => {
+      const fenced = await tx.update(dealBoardingOutbox)
+        .set({ status: "dead_letter", lockedAt: null, lastError: "BOARDING_CASE_CHANGED", availableAt: new Date(), updatedAt: new Date() })
+        .where(and(
+          eq(dealBoardingOutbox.id, row.id),
+          eq(dealBoardingOutbox.status, "processing"),
+          eq(dealBoardingOutbox.attempts, row.attempts),
+        ))
+        .returning({ id: dealBoardingOutbox.id });
+      if (fenced.length === 0) return;
+      await tx.update(deals).set({ boardingStatus: "dead_letter", updatedAt: new Date() }).where(eq(deals.id, dealId));
+      await auditChange({
+        actorType: "system", action: "deal_boarding_blocked_case_changed", entityType: "deal", entityId: dealId,
+        details: { errorCode: "BOARDING_CASE_CHANGED", stage: "final_consumption_fence" },
+      }, tx);
+    });
+    throw new AlreadyTerminalError("BOARDING_CASE_CHANGED: dead_letter written at the final fence, no transport");
+  }
+  if (fence === "stale_claim") return { settlement: "stale_claim" };
 
   const result = await processor.boardMerchant(payload);
 
@@ -788,5 +812,6 @@ export function startDealBoardingOutboxWorker(): void {
 export const __test__ = {
   backoffMs, MAX_ATTEMPTS, STALE_LOCK_MS, scrubError,
   tick, claimOne, handleProcessorSubmit, ProviderRejectedError, missingProviderFields, REQUIRED_PROVIDER_FIELDS,
+  setBeforeFinalFence(fn: (() => Promise<void>) | null) { beforeFinalFenceForTest = fn; },
   setProcessorOverride(fn: ((name?: string | null) => IProcessorAdapter) | null) { processorOverrideForTest = fn; },
 };

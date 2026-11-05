@@ -318,6 +318,29 @@ const auditFor = async (dealId: number) => (((await db.execute(sql`SELECT action
   check(ra && JSON.stringify(ra.details).includes("policy_unresolved"), "the unresolved policy gate is the audited blocker");
   await recordCertPolicy(db, sql);
 
+  // (3b) Final-consumption fence: a required condition is reversed AFTER the first dispatch readiness check passed
+  //      and BEFORE the pre-dispatch marker. The fence re-evaluates the case under the application lock and refuses.
+  await recordCertPolicy(db, sql, { [CERT_PROGRAM]: { requiredDocuments: ["voided_check"], esignRequired: false } }, "cert-policy-fence");
+  const fz = await fixture("final-fence");
+  await db.execute(sql`INSERT INTO underwriting_conditions (deal_id, condition_type, description, status) VALUES (${fz.dealId}, 'voided_check', 'v', 'approved')`);
+  // The case version captured at enqueue must include the approved condition, so re-capture it now.
+  const fzVersion = (await evaluateBoardingReadiness(fz.dealId, { includeFieldCompleteness: false })).caseVersion;
+  await db.execute(sql`UPDATE deal_boarding_outbox SET payload = jsonb_set(payload, '{readinessCaseVersion}', to_jsonb(${fzVersion}::text)) WHERE id = ${fz.outboxId}`);
+  const fenceCalls: Calls = { payloads: [] };
+  worker.__test__.setProcessorOverride(() => ({ name: "mock", boardMerchant: async (profile: any) => { fenceCalls.payloads.push(profile); return { success: true, processorApplicationId: "x" }; } } as any));
+  // Runs after the dispatch readiness check passed and before the pre-dispatch marker: deterministic, no timing race.
+  worker.__test__.setBeforeFinalFence(async () => {
+    await db.execute(sql`UPDATE underwriting_conditions SET status = 'pending', reversed_at = now(), updated_at = now() WHERE deal_id = ${fz.dealId}`);
+  });
+  await worker.__test__.tick();
+  worker.__test__.setBeforeFinalFence(null);
+  worker.__test__.setProcessorOverride(null);
+  o = await outbox(fz.outboxId);
+  const fenceAudit = (await auditFor(fz.dealId)).find((x) => x.action === "deal_boarding_blocked_case_changed");
+  check(fenceCalls.payloads.length === 0 && o.status === "dead_letter" && o.last_error === "BOARDING_CASE_CHANGED" && fenceAudit?.details?.stage === "final_consumption_fence",
+    "a required condition reversed between the readiness check and dispatch is refused at the final fence with no transport");
+  await recordCertPolicy(db, sql);
+
   // (4) Post-provider local failure: the provider accepted, then the local commit fails. The claim must stay
   //     ambiguous (never cleared to a retry) and the provider must not be called again.
   const calls2: Calls = { payloads: [] };

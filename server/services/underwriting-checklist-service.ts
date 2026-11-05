@@ -345,12 +345,25 @@ export async function retryOwedConditionChases(
     try {
       // The current mailbox owner wins: re-read the deal's contact at claim time and version the change.
       const current = ((await db.execute(sql`
-        SELECT c.email, NULLIF(trim(coalesce(c.first_name,'') || ' ' || coalesce(c.last_name,'')), '') AS name
+        SELECT c.id AS contact_id, c.email, NULLIF(trim(coalesce(c.first_name,'') || ' ' || coalesce(c.last_name,'')), '') AS name
         FROM deals d JOIN contacts c ON c.id = d.contact_id WHERE d.id = ${row.deal_id}`)) as any).rows?.[0];
-      let recipientEmail = row.recipient_email;
+      const currentEmail = typeof current?.email === "string" ? current.email.trim() : "";
+      let recipientEmail: string | null = row.recipient_email;
       let recipientName = row.recipient_name;
-      if (current?.email && String(current.email).toLowerCase() !== String(row.recipient_email ?? "").toLowerCase()) {
-        recipientEmail = current.email;
+      if (!currentEmail) {
+        // Fail closed: the current mailbox owner has no address (cleared, removed or the contact is gone). A saved
+        // address is never used as a fallback; the clearance is versioned like any other recipient change.
+        if (row.recipient_email) {
+          snapRecipientVersion = row.recipient_version + 1;
+          await db.execute(sql`UPDATE underwriting_condition_chases SET recipient_email = NULL, recipient_name = NULL,
+            recipient_version = ${snapRecipientVersion}, updated_at = now() WHERE id = ${row.id} AND status = 'sending'`);
+        }
+        await settle("not_applicable", "no_recipient");
+        result.notApplicable++;
+        continue;
+      }
+      if (currentEmail.toLowerCase() !== String(row.recipient_email ?? "").toLowerCase()) {
+        recipientEmail = currentEmail;
         recipientName = current.name ?? row.recipient_name;
         snapRecipientVersion = row.recipient_version + 1;
         await db.execute(sql`UPDATE underwriting_condition_chases SET recipient_email = ${recipientEmail}, recipient_name = ${recipientName},
@@ -363,7 +376,10 @@ export async function retryOwedConditionChases(
           eq(underwritingConditions.merchantVisible, true), sql`${underwritingConditions.supersededAt} IS NULL`))
         .orderBy(underwritingConditions.id);
       if (open.length === 0) { await settle("not_applicable", "nothing_outstanding"); result.notApplicable++; continue; }
-      const send = deps.sendEmail ?? (async (m) => (await import("./smtp-email")).sendSmtpEmail({ ...m, contactId: undefined } as any));
+      // Real adapter: the send is bound to the deal's own contact and a transactional purpose so the transport
+      // applies the canonical contact/commercial authority instead of treating the message as contact-less.
+      const chaseContactId = typeof current?.contact_id === "number" ? current.contact_id : undefined;
+      const send = deps.sendEmail ?? (async (m) => (await import("./smtp-email")).sendSmtpEmail({ ...m, contactId: chaseContactId, commercialPurpose: "transactional_response" } as any));
       const outcome = (await send(buildChaseEmail(recipientEmail, recipientName, open))) as { success?: boolean; outcome?: string; error?: string } | undefined | null;
       if (outcome && outcome.success === true && outcome.outcome === "sent") {
         await settle("sent", null);

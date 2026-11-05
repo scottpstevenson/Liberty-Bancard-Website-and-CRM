@@ -21,6 +21,7 @@ import { storage } from "../storage";
 import { applyEsignDocumentState, applyEsignSendState } from "./merchant-application-service";
 import { createContactLocalFirst } from "./contact-writer";
 import { isLocalOutboxWorkerSelected } from "./background-profile";
+import { isAmbiguousDispatchMessage } from "./ghl-dispatch-recorder";
 
 const MAX_ATTEMPTS = 6;
 const POLL_INTERVAL_MS = 15_000;
@@ -56,6 +57,11 @@ export class OutboxHoldError extends Error {
   }
 }
 
+/** The originating transition is no longer current; the queued effect was recorded and skipped. */
+class EffectObsoleteError extends Error {
+  constructor() { super("outbox effect obsolete"); this.name = "EffectObsoleteError"; }
+}
+
 /** This worker no longer owns the row (stale reclaim handed it to a newer claim). No effect may run. */
 export class ClaimLostError extends Error {
   constructor() { super("outbox claim lost"); this.name = "ClaimLostError"; }
@@ -77,6 +83,46 @@ async function assertCurrentClaim(row: { id: string; attempts: number }): Promis
     WHERE id = ${row.id} AND status = 'processing' AND attempts = ${row.attempts}`);
   const rows = (res as any).rows ?? res;
   if (!rows || rows.length === 0) throw new ClaimLostError();
+}
+
+/**
+ * Atomic effect fence. Locks the outbox row for the duration of `fn` (only while this worker still owns the claim),
+ * so a stale reclaim or newer claim cannot take the row over between the ownership check and the effect, and runs
+ * `fn` inside that same transaction. `fn` receives the transaction executor for transaction-bound writes.
+ * Never wrap provider network I/O in this fence; use it for the dispatch-start marker and for local effects.
+ */
+async function withOwnedClaim<T>(row: { id: string; attempts: number }, fn: (tx: any) => Promise<T>): Promise<T> {
+  return db.transaction(async (tx) => {
+    const res = await tx.execute(sql`
+      SELECT 1 FROM merchant_application_protected_outbox
+      WHERE id = ${row.id} AND status = 'processing' AND attempts = ${row.attempts}
+      FOR UPDATE`);
+    const rows = (res as any).rows ?? res;
+    if (!rows || rows.length === 0) throw new ClaimLostError();
+    return fn(tx);
+  });
+}
+
+/** Claim-fenced durable marker: ownership is verified and the marker committed in one transaction. */
+async function recordFencedMarker(row: { id: string; attempts: number }, action: string, appId: number, details: Record<string, unknown>): Promise<void> {
+  await withOwnedClaim(row, async (tx) => {
+    await storage.createAuditLog({ action, entityType: "merchant_application", entityId: appId, details }, tx);
+  });
+}
+
+/**
+ * The originating transition of a status effect (approved/declined) must still be the application's current
+ * status; an obsolete queued effect is recorded and skipped, never applied after a later transition.
+ */
+async function statusEffectIsCurrent(tx: any, row: OutboxRow, expected: "approved" | "declined", record = true): Promise<boolean> {
+  const res = await tx.execute(sql`SELECT status FROM merchant_applications WHERE id = ${row.applicationId}`);
+  const current = ((res as any).rows ?? res)?.[0]?.status as string | undefined;
+  if (current === expected) return true;
+  if (record) await storage.createAuditLog({
+    action: "merchant_application_effect_obsolete", entityType: "merchant_application", entityId: row.applicationId,
+    details: { outboxId: row.id, eventType: row.eventType, expected, current: current ?? null },
+  }, tx);
+  return false;
 }
 
 async function assertOutboundNotPaused(): Promise<void> {
@@ -306,10 +352,12 @@ async function handleContactLink(row: OutboxRow): Promise<void> {
   }
 
   // Compare-and-set: never overwrite a link an operator set while this step was running.
-  await db
-    .update(merchantApplications)
-    .set({ contactId: resolvedContactId, updatedAt: new Date() })
-    .where(and(eq(merchantApplications.id, appId), sql`${merchantApplications.contactId} IS NULL`));
+  await withOwnedClaim(row, async (tx) => {
+    await tx
+      .update(merchantApplications)
+      .set({ contactId: resolvedContactId, updatedAt: new Date() })
+      .where(and(eq(merchantApplications.id, appId), sql`${merchantApplications.contactId} IS NULL`));
+  });
 }
 
 async function handleConsentRecord(row: OutboxRow): Promise<void> {
@@ -346,7 +394,7 @@ async function handleConsentRecord(row: OutboxRow): Promise<void> {
   }
   const submissionId = typeof p.submissionId === "string" ? p.submissionId : `application-${appId}`;
   const { recordPewcDecision } = await import("./consent-evidence");
-  await recordPewcDecision({
+  await withOwnedClaim(row, () => recordPewcDecision({
     contactId: appRow.contactId,
     checked: true,
     source: "merchant_application_finalize",
@@ -357,7 +405,7 @@ async function handleConsentRecord(row: OutboxRow): Promise<void> {
     effectiveAt: new Date(submittedAtMs),
     eventKey: `merchant_application:${appId}:${submissionId}`,
     details: { applicationId: appId, submissionId, consentedPhone, submittedAt: p.submittedAt ?? null },
-  });
+  }));
 }
 
 async function handleGhlSync(row: OutboxRow): Promise<void> {
@@ -397,30 +445,77 @@ async function handleWorkflowEnroll(row: OutboxRow): Promise<void> {
     throw new OutboxWaitError("ghl_contact_pending");
   }
 
-  await assertCurrentClaim(row);
+  const dispatchState = await workflowDispatchState(row.id, appId);
+  // A confirmed enrollment whose delivery settlement was lost is already done; never trigger a second one.
+  if (dispatchState.confirmed) return;
+  if (dispatchState.unsettled) {
+    // An earlier attempt of this very row began a dispatch that was never settled: the trigger may have been
+    // accepted. Never trigger a second enrollment; hold for operator recovery.
+    await recordWorkflowUnconfirmed(row, appId, "earlier_dispatch_unsettled");
+    throw new OutboxHoldError("possible_send_unconfirmed");
+  }
+
+  await assertOutboundNotPaused();
   const { enrollInGhlWorkflowCompliant } = await import("./ghl-workflows");
   const enroll = override("enroll") ?? enrollInGhlWorkflowCompliant;
-  const result = await enroll({
-    workflowKey: "merchant_app",
-    ghlContactId,
-    contactId: appRow.contactId,
-    metadata: { applicationId: appId },
-  });
-  // R02: a resolved {success:false} is NOT a delivery. A pause refusal is a durable wait; any other skip or
-  // refusal keeps the row visible (held / retried), it is never marked delivered.
-  if (!result || result.success !== true) {
-    if (result?.skipped === true) {
-      if (/pause/i.test(String(result.error ?? ""))) throw new OutboxWaitError("outbound_paused");
-      await storage.createAuditLog({
-        action: "merchant_application_workflow_enroll_not_delivered",
-        entityType: "merchant_application",
-        entityId: appId,
-        details: { outboxId: row.id, skipped: true },
-      });
-      throw new OutboxHoldError("workflow_enroll_not_delivered");
-    }
-    throw new Error("workflow enrollment was not accepted");
+  await recordFencedMarker(row, "merchant_application_workflow_enroll_dispatch_started", appId, { outboxId: row.id, attempt: row.attempts });
+  let result: Awaited<ReturnType<typeof enrollInGhlWorkflowCompliant>>;
+  try {
+    result = await enroll({
+      workflowKey: "merchant_app",
+      ghlContactId,
+      contactId: appRow.contactId,
+      metadata: { applicationId: appId },
+    });
+  } catch {
+    // A throw after the marker cannot prove the trigger was not accepted.
+    await recordWorkflowUnconfirmed(row, appId, "enroll_threw_after_dispatch_started");
+    throw new OutboxHoldError("possible_send_unconfirmed");
   }
+  if (result?.success === true) {
+    await storage.createAuditLog({ action: "merchant_application_workflow_enroll_dispatch_settled", entityType: "merchant_application", entityId: appId, details: { outboxId: row.id, outcome: "confirmed" } });
+    return;
+  }
+
+  // R02: a resolved {success:false} is NOT a delivery. Preserve the typed outcome through the outbox:
+  //  - unknown (the trigger may have been accepted) is held, never retried;
+  //  - a pause refusal is a durable wait; any other definite refusal keeps the row visible or retryable.
+  const ambiguous = result?.outcome === "unknown" || (result?.outcome === undefined && isAmbiguousDispatchMessage(result?.error));
+  if (ambiguous) {
+    await recordWorkflowUnconfirmed(row, appId, "trigger_outcome_unknown");
+    throw new OutboxHoldError("possible_send_unconfirmed");
+  }
+  // Definite non-dispatch: settle the marker so a later attempt is not mistaken for an unsettled dispatch.
+  await storage.createAuditLog({ action: "merchant_application_workflow_enroll_dispatch_settled", entityType: "merchant_application", entityId: appId, details: { outboxId: row.id, outcome: "unsent" } });
+  if (result?.skipped === true) {
+    if (/pause/i.test(String(result.error ?? ""))) throw new OutboxWaitError("outbound_paused");
+    await storage.createAuditLog({
+      action: "merchant_application_workflow_enroll_not_delivered",
+      entityType: "merchant_application",
+      entityId: appId,
+      details: { outboxId: row.id, skipped: true },
+    });
+    throw new OutboxHoldError("workflow_enroll_not_delivered");
+  }
+  if (/pause|Outbound blocked/i.test(String(result?.error ?? ""))) throw new OutboxWaitError("outbound_paused");
+  throw new Error("workflow enrollment was not accepted");
+}
+
+/** Dispatch markers of one outbox row: started without settlement is unsettled; a confirmed settlement is final. */
+async function workflowDispatchState(outboxId: string, appId: number): Promise<{ unsettled: boolean; confirmed: boolean }> {
+  const counts = (((await db.execute(sql`
+    SELECT count(*) FILTER (WHERE action = 'merchant_application_workflow_enroll_dispatch_started')::int AS started,
+           count(*) FILTER (WHERE action = 'merchant_application_workflow_enroll_dispatch_settled')::int AS settled,
+           count(*) FILTER (WHERE action = 'merchant_application_workflow_enroll_dispatch_settled' AND details->>'outcome' = 'confirmed')::int AS confirmed
+    FROM audit_logs WHERE entity_type = 'merchant_application' AND entity_id = ${appId}
+      AND details->>'outboxId' = ${outboxId}
+      AND action IN ('merchant_application_workflow_enroll_dispatch_started','merchant_application_workflow_enroll_dispatch_settled')`)) as any).rows ?? [{ started: 0, settled: 0, confirmed: 0 }])[0];
+  return { unsettled: Number(counts.started) > Number(counts.settled), confirmed: Number(counts.confirmed) > 0 };
+}
+
+async function recordWorkflowUnconfirmed(row: OutboxRow, appId: number, reason: string): Promise<void> {
+  if (await hasAuditEvidence("merchant_application_workflow_enroll_unconfirmed", "merchant_application", appId)) return;
+  await storage.createAuditLog({ action: "merchant_application_workflow_enroll_unconfirmed", entityType: "merchant_application", entityId: appId, details: { outboxId: row.id, reason } });
 }
 
 async function handleRiskScan(row: OutboxRow): Promise<void> {
@@ -493,12 +588,22 @@ async function dispatchStatusEmailOnce(
   try {
     result = await send(input, {
       beforeDispatch: async () => {
-        await assertCurrentClaim(row);
-        await storage.createAuditLog({ action: startedAction, entityType: "merchant_application", entityId: appId, details: { outboxId: row.id, attempt: row.attempts } });
+        // Ownership, the originating transition and the dispatch-start marker commit atomically.
+        await withOwnedClaim(row, async (tx) => {
+          if (!(await statusEffectIsCurrent(tx, row, kind, false))) throw new EffectObsoleteError();
+          await storage.createAuditLog({ action: startedAction, entityType: "merchant_application", entityId: appId, details: { outboxId: row.id, attempt: row.attempts } }, tx);
+        });
         dispatched = true;
       },
     });
   } catch (err) {
+    if (err instanceof EffectObsoleteError) {
+      await storage.createAuditLog({
+        action: "merchant_application_effect_obsolete", entityType: "merchant_application", entityId: appId,
+        details: { outboxId: row.id, eventType: row.eventType, expected: kind },
+      });
+      return;
+    }
     if (dispatched && !(err instanceof OutboxWaitError) && !(err instanceof ClaimLostError)) {
       await storage.createAuditLog({ action: unconfirmedAction, entityType: "merchant_application", entityId: appId, details: { outboxId: row.id, reason: "send_threw_after_dispatch_started" } });
       throw new OutboxHoldError("possible_send_unconfirmed");
@@ -527,17 +632,23 @@ async function handleDealStage(row: OutboxRow): Promise<void> {
   const dealId = row.payload.dealId as number | null;
   if (!dealId) return;
   const { advanceDealStage } = await import("./deal-stage-service");
-  await advanceDealStage(dealId, "Closed Won", "merchant_approval");
+  await withOwnedClaim(row, async (tx) => {
+    if (!(await statusEffectIsCurrent(tx, row, "approved"))) return;
+    await advanceDealStage(dealId, "Closed Won", "merchant_approval");
+  });
 }
 
 async function handleLifecycleApproved(row: OutboxRow): Promise<void> {
   const contactId = row.payload.contactId as number | null;
   if (!contactId) return;
   const { LifecycleService } = await import("./lifecycle-service");
-  await LifecycleService.transition(contactId, "APPROVED", {
-    trigger: "merchant_application_approved",
-    source: "outbox-worker",
-    metadata: { applicationId: row.applicationId },
+  await withOwnedClaim(row, async (tx) => {
+    if (!(await statusEffectIsCurrent(tx, row, "approved"))) return;
+    await LifecycleService.transition(contactId, "APPROVED", {
+      trigger: "merchant_application_approved",
+      source: "outbox-worker",
+      metadata: { applicationId: row.applicationId },
+    });
   });
 }
 
@@ -551,11 +662,14 @@ async function handleLifecycleDeclined(row: OutboxRow): Promise<void> {
   const contactId = row.payload.contactId as number | null;
   if (!contactId) return;
   const { LifecycleService } = await import("./lifecycle-service");
-  await LifecycleService.transition(contactId, "CLOSED_LOST", {
-    trigger: "merchant_application_declined",
-    source: "outbox-worker",
-    reason: (row.payload.declineReason as string) ?? undefined,
-    metadata: { applicationId: row.applicationId },
+  await withOwnedClaim(row, async (tx) => {
+    if (!(await statusEffectIsCurrent(tx, row, "declined"))) return;
+    await LifecycleService.transition(contactId, "CLOSED_LOST", {
+      trigger: "merchant_application_declined",
+      source: "outbox-worker",
+      reason: (row.payload.declineReason as string) ?? undefined,
+      metadata: { applicationId: row.applicationId },
+    });
   });
 }
 
@@ -565,6 +679,19 @@ async function applyEsignWithRetry(write: () => Promise<{ updated: boolean }>): 
     if ((await write()).updated) return true;
   }
   return false;
+}
+
+type EsignOutcome = "confirmed" | "unsent" | "wait" | "unknown";
+/** Normalizes a send result to its typed outcome; untyped results fall back to their evidence, never to success. */
+function classifyEsignResult(result: any): EsignOutcome {
+  const typed = result?.outcome;
+  if (typed === "confirmed") return typeof result.documentId === "string" && result.documentId ? "confirmed" : "unknown";
+  if (typed === "unsent" || typed === "wait" || typed === "unknown") return typed;
+  if (result?.success === true) return typeof result.documentId === "string" && result.documentId ? "confirmed" : "unknown";
+  const error = String(result?.error ?? "");
+  if (isAmbiguousDispatchMessage(error)) return "unknown";
+  if (/Outbound paused|pause authority|Outbound blocked/i.test(error)) return "wait";
+  return "unsent";
 }
 
 async function handleEsignSend(row: OutboxRow): Promise<void> {
@@ -607,27 +734,41 @@ async function handleEsignSend(row: OutboxRow): Promise<void> {
   }
 
   await assertOutboundNotPaused();
-  await assertCurrentClaim(row);
-  await storage.createAuditLog({ action: "merchant_application_esign_dispatch_started", entityType: "merchant_application", entityId: appId, details: { outboxId: row.id, attempt: row.attempts } });
+  // Ownership and the dispatch-start marker commit atomically: a worker that lost the claim writes no marker.
+  await recordFencedMarker(row, "merchant_application_esign_dispatch_started", appId, { outboxId: row.id, attempt: row.attempts });
   const { sendDocumentForEsign: realSendDocumentForEsign } = await import("./ghl");
   const sendDocumentForEsign = override("sendDocumentForEsign") ?? realSendDocumentForEsign;
-  let result: Awaited<ReturnType<typeof realSendDocumentForEsign>>;
+  let sent: Awaited<ReturnType<typeof realSendDocumentForEsign>>;
   try {
-    result = await sendDocumentForEsign({ documentTemplateId: templateId, recipientName, recipientEmail, applicationId: appId });
+    sent = await sendDocumentForEsign({ documentTemplateId: templateId, recipientName, recipientEmail, applicationId: appId });
   } catch (err) {
     // A throw after the marker cannot prove the agreement was not delivered.
     await storage.createAuditLog({ action: "merchant_application_esign_send_unconfirmed", entityType: "merchant_application", entityId: appId, details: { outboxId: row.id, reason: "send_threw_after_dispatch_started" } });
     throw new OutboxHoldError("possible_send_unconfirmed");
   }
 
-  if (!result.success) {
-    // A resolved refusal: the provider reported that nothing was sent. A refusal marker settles the
-    // dispatch marker so a retry is not mistaken for an unsettled dispatch.
-    await storage.createAuditLog({ action: "merchant_application_esign_dispatch_refused", entityType: "merchant_application", entityId: appId, details: { outboxId: row.id } });
+  // The typed transport outcome is preserved end to end: only a definite refusal settles the marker as refused.
+  const outcome = classifyEsignResult(sent);
+  if (outcome === "unknown") {
+    // The request may have been processed (lost response, 5xx, unreadable or identity-less success). It is neither
+    // a refusal nor a sent agreement: no refused marker, no retry, held for operator recovery.
+    await storage.createAuditLog({ action: "merchant_application_esign_send_unconfirmed", entityType: "merchant_application", entityId: appId, details: { outboxId: row.id, reason: "transport_outcome_unknown" } });
+    throw new OutboxHoldError("possible_send_unconfirmed");
+  }
+  if (outcome === "wait") {
+    // Refused before the request left this process (pause/coordinator/control): owed, not failed.
+    await storage.createAuditLog({ action: "merchant_application_esign_dispatch_refused", entityType: "merchant_application", entityId: appId, details: { outboxId: row.id, reason: "pre_io_wait" } });
+    throw new OutboxWaitError("outbound_paused");
+  }
+  if (outcome === "unsent") {
+    // A definite refusal: nothing was sent. The refusal marker settles the dispatch marker so a retry is not
+    // mistaken for an unsettled dispatch.
+    await storage.createAuditLog({ action: "merchant_application_esign_dispatch_refused", entityType: "merchant_application", entityId: appId, details: { outboxId: row.id, reason: "definite_refusal" } });
     await applyEsignSendState({ applicationId: appId, sendState: "failed" });
-    // Propagate so row stays retryable (item 2). Error scrubbed before logging.
+    // Propagate so row stays retryable. Error scrubbed before logging.
     throw new Error("e-sign provider send failed");
   }
+  const result = sent as { documentId?: string; signingUrl?: string };
 
   // The agreement has been sent. Record it with conditional writes; a refusal must be re-read, never ignored.
   const documentApplied = await applyEsignWithRetry(() => applyEsignDocumentState({
@@ -751,4 +892,4 @@ export function triggerOutboxTick(): void {
   if (typeof t.unref === "function") t.unref();
 }
 
-export const __test__ = { testOverrides, processRow, assertCurrentClaim, ClaimLostError, OutboxHoldError, handleContactLink, handleConsentRecord, backoffMs, MAX_ATTEMPTS, STALE_LOCK_MS, scrubError, tick, claimOne, markDelivered, markRetryOrDeadLetter };
+export const __test__ = { testOverrides, processRow, assertCurrentClaim, withOwnedClaim, __handleEsignSend: handleEsignSend, ClaimLostError, OutboxHoldError, handleContactLink, handleConsentRecord, backoffMs, MAX_ATTEMPTS, STALE_LOCK_MS, scrubError, tick, claimOne, markDelivered, markRetryOrDeadLetter };

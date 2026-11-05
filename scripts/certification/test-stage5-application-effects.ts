@@ -38,15 +38,15 @@ process.env.GHL_MERCHANT_AGREEMENT_TEMPLATE_ID = "tpl-s5e";
 
 let seq = 0;
 const nextPhone = () => `+1305556${String(Number(id.slice(0, 3).replace(/\D/g, "1")) % 10)}${String(1000 + (seq++)).slice(-4)}`;
-async function makeApp(label: string, opts: { ghl?: string | null; esignStatus?: string } = {}) {
+async function makeApp(label: string, opts: { ghl?: string | null; esignStatus?: string; status?: string } = {}) {
   const email = `s5e-${label}-${id}@fixture.invalid`;
   const contactId = (await pool.query(
     `INSERT INTO contacts(first_name,last_name,email,phone,ghl_contact_id) VALUES('S5E',$1,$2,$3,$4) RETURNING id`,
     [label, email, nextPhone(), opts.ghl === undefined ? `ghl-${label}-${id}` : opts.ghl])).rows[0].id as number;
   const appId = (await pool.query(
-    `INSERT INTO merchant_applications(contact_id, owner_email, owner_first_name, owner_last_name, legal_business_name, esign_status)
-     VALUES($1,$2,'S5E',$3,$4,$5) RETURNING id`,
-    [contactId, email, label, `S5E ${label} LLC`, opts.esignStatus ?? null])).rows[0].id as number;
+    `INSERT INTO merchant_applications(contact_id, owner_email, owner_first_name, owner_last_name, legal_business_name, esign_status, status)
+     VALUES($1,$2,'S5E',$3,$4,$5,$6) RETURNING id`,
+    [contactId, email, label, `S5E ${label} LLC`, opts.esignStatus ?? null, opts.status ?? "approved"])).rows[0].id as number;
   return { contactId, appId };
 }
 await pool.query(`DELETE FROM merchant_application_protected_outbox WHERE status IN ('pending','failed','processing')`);
@@ -136,7 +136,7 @@ const tick = () => T.tick();
   check((await row(r4)).status === "delivered" && await audit("merchant_application_approved_email_sent", good.appId) === 1, "a confirmed send is delivered with sent evidence");
 
   // Decline path shares the same guard.
-  const dec = await makeApp("decl");
+  const dec = await makeApp("decl", { status: "declined" });
   let dcalls = 0;
   T.testOverrides.declinedEmail = async (_i: any, hooks: any) => { dcalls++; await hooks.beforeDispatch(); throw new Error("timeout"); };
   const d1 = await enqueue(dec.appId, "decline_email");
@@ -229,6 +229,188 @@ const tick = () => T.tick();
 {
   const src = (await import("node:fs")).readFileSync("server/services/merchant-application-service.ts", "utf8");
   check(/disclosureHash: hashDisclosure\(PEWC_DISCLOSURE_TEXT\)/.test(src), "finalize captures the disclosure hash at submission time");
+}
+
+// ── 7. Real helper boundary: actual e-sign / workflow wrappers + actual worker handlers over a fake fetch ─────
+{
+  const ghl = await import("../../server/services/ghl");
+  const wf = await import("../../server/services/ghl-workflows");
+  process.env.GHL_PRIVATE_INTEGRATION_TOKEN = "fake-token-s5e";
+  process.env.GHL_LOCATION_ID = "loc-s5e";
+  process.env.GHL_WORKFLOW_MERCHANT_APP = "wf-s5e";
+  process.env.GHL_REQUEST_TIMEOUT_MS = "2000";
+  const realFetch = globalThis.fetch;
+  type Plan = "timeout" | "http500" | "http400" | "ok" | "ok_no_id" | "ok_bad_json" | "wf_ok" | "wf_unconfirmed";
+  let plan: Plan = "ok";
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: any) => {
+    const url = String(input);
+    calls.push(url);
+    const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    if (plan === "timeout") { const e: any = new Error("The operation was aborted"); e.name = "AbortError"; throw e; }
+    if (plan === "http500") return json(502, { error: "bad gateway" });
+    if (plan === "http400") return json(400, { error: "invalid template" });
+    if (plan === "ok_no_id") return json(200, { ok: true });
+    if (plan === "ok_bad_json") return new Response("<html>gateway</html>", { status: 200, headers: { "content-type": "application/json" } });
+    if (plan === "wf_ok") return json(200, { succeded: true });
+    if (plan === "wf_unconfirmed") return json(200, { note: "queued" });
+    return json(200, { id: `doc-real-${calls.length}`, signingUrl: "https://example.invalid/sign" });
+  }) as typeof fetch;
+  const dispatches = () => calls.filter((u) => u.includes("/documents/")).length;
+  const wfDispatches = () => calls.filter((u) => u.includes("/workflow/")).length;
+  T.testOverrides.sendDocumentForEsign = undefined;
+
+  // Direct wrapper contract: typed outcomes, never a flattened refusal for an uncertain delivery.
+  for (const [p, expected] of [["timeout", "unknown"], ["http500", "unknown"], ["ok_no_id", "unknown"], ["ok_bad_json", "unknown"], ["http400", "unsent"], ["ok", "confirmed"]] as const) {
+    plan = p; calls.length = 0;
+    const r = await ghl.sendDocumentForEsign({ documentTemplateId: "tpl", recipientName: "N", recipientEmail: "n@fixture.invalid", applicationId: 1 });
+    check(r.outcome === expected && r.success === (expected === "confirmed"), `real e-sign wrapper types a ${p} as ${expected}`);
+  }
+  await setPause("paused");
+  calls.length = 0;
+  const pausedSend = await ghl.sendDocumentForEsign({ documentTemplateId: "tpl", recipientName: "N", recipientEmail: "n@fixture.invalid", applicationId: 1 });
+  check(pausedSend.outcome === "wait" && dispatches() === 0, "real e-sign wrapper reports a pause as a wait before any request leaves the process");
+  await setPause("unpaused");
+
+  // Worker + real wrapper: an uncertain delivery is held and a second agreement is never sent.
+  for (const p of ["timeout", "http500", "ok_no_id", "ok_bad_json"] as const) {
+    plan = p; calls.length = 0;
+    const a = await makeApp(`real-${p}`);
+    const r1 = await enqueue(a.appId, "esign_send");
+    await tick();
+    const s1 = await row(r1);
+    check(s1.status === "dead_letter" && s1.last_error === "held:possible_send_unconfirmed" && dispatches() === 1, `real wrapper + worker: ${p} is held as possibly delivered after one dispatch`);
+    check(await audit("merchant_application_esign_dispatch_refused", a.appId) === 0, `${p} writes no false refused marker`, true);
+    plan = "ok";
+    const r2 = await enqueue(a.appId, "esign_send");
+    await tick();
+    check((await row(r2)).status === "dead_letter" && dispatches() === 1, `${p}: a second attempt makes no second dispatch`, true);
+  }
+
+  // Definite refusal is retryable and settles its marker; the retry sends once.
+  plan = "http400"; calls.length = 0;
+  const refused = await makeApp("real-4xx");
+  const rr = await enqueue(refused.appId, "esign_send");
+  await tick();
+  check((await row(rr)).status === "pending" && await audit("merchant_application_esign_dispatch_refused", refused.appId) === 1 && dispatches() === 1, "a known 4xx is a settled refusal and stays retryable");
+  plan = "ok";
+  await pool.query(`UPDATE merchant_application_protected_outbox SET available_at=now() WHERE id=$1`, [rr]);
+  await tick();
+  check((await row(rr)).status === "delivered" && dispatches() === 2, "the retry after a settled refusal sends exactly once more");
+
+  // Pause before I/O: a durable wait that keeps its attempt budget and sends nothing.
+  await setPause("paused");
+  calls.length = 0;
+  const waiting = await makeApp("real-pause");
+  const rw = await enqueue(waiting.appId, "esign_send");
+  await tick();
+  const sw = await row(rw);
+  check(sw.status === "pending" && sw.last_error === "waiting:outbound_paused" && Number(sw.attempts) === 0 && dispatches() === 0, "a pause is a durable wait without consuming attempts or dispatching");
+  await setPause("unpaused");
+
+  // Negative controls: the pre-repair flattening (untyped success:false) is classified by evidence, never as a refusal.
+  let flat = 0;
+  T.testOverrides.sendDocumentForEsign = async () => { flat++; return { success: false, error: "The operation was aborted: timeout" }; };
+  const neg = await makeApp("neg-flat");
+  const rn = await enqueue(neg.appId, "esign_send");
+  await tick();
+  check((await row(rn)).last_error === "held:possible_send_unconfirmed" && flat === 1 && await audit("merchant_application_esign_dispatch_refused", neg.appId) === 0, "an untyped timeout result is held, not recorded as a refusal", true);
+  T.testOverrides.sendDocumentForEsign = undefined;
+
+  // Workflow: real trigger wrapper over fake fetch. Possible acceptance is held, never requeued.
+  T.testOverrides.enroll = (params: any) => wf.enrollInGhlWorkflow(params);
+  for (const p of ["timeout", "http500", "wf_unconfirmed"] as const) {
+    plan = p; calls.length = 0;
+    const a = await makeApp(`wf-${p}`);
+    const r1 = await enqueue(a.appId, "workflow_enroll");
+    await tick();
+    const s1 = await row(r1);
+    check(s1.status === "dead_letter" && s1.last_error === "held:possible_send_unconfirmed" && wfDispatches() === 1, `real workflow wrapper + worker: ${p} is held, not retried`);
+    check(await audit("merchant_application_workflow_enroll_unconfirmed", a.appId) === 1, `${p}: unconfirmed evidence is durable`);
+    plan = "wf_ok";
+    const r2 = await enqueue(a.appId, "workflow_enroll");
+    await tick();
+    check(wfDispatches() === 1 || (await row(r2)).status === "delivered", `${p}: the original row never produced a second trigger`, true);
+  }
+  plan = "http400"; calls.length = 0;
+  const wf4 = await makeApp("wf-4xx");
+  const w4 = await enqueue(wf4.appId, "workflow_enroll");
+  await tick();
+  check((await row(w4)).status === "pending" && (await row(w4)).attempts === 1, "a definite workflow refusal remains an ordinary retry");
+  plan = "wf_ok"; calls.length = 0;
+  const wfok = await makeApp("wf-ok");
+  const wo = await enqueue(wfok.appId, "workflow_enroll");
+  await tick();
+  check((await row(wo)).status === "delivered" && wfDispatches() === 1, "a confirmed trigger is delivered with one dispatch");
+  T.testOverrides.enroll = undefined;
+
+  // A confirmed enrollment whose delivery settlement was lost is not triggered a second time.
+  plan = "wf_ok"; calls.length = 0;
+  const lost = await makeApp("wf-lost");
+  const ro = await enqueue(lost.appId, "workflow_enroll");
+  T.testOverrides.enroll = (params: any) => wf.enrollInGhlWorkflow(params);
+  const claimed = await T.claimOne();
+  await T.processRow(claimed!);
+  await pool.query(`UPDATE merchant_application_protected_outbox SET status='pending', locked_at=NULL, available_at=now() WHERE id=$1`, [ro]);
+  const again = await T.claimOne();
+  await T.processRow(again!);
+  check(wfDispatches() === 1, "a reclaimed row with a confirmed settlement does not trigger a second enrollment", true);
+  await pool.query(`UPDATE merchant_application_protected_outbox SET status='delivered' WHERE id=$1`, [ro]);
+  T.testOverrides.enroll = undefined;
+  globalThis.fetch = realFetch;
+}
+
+// ── 8. Atomic claim/effect fencing and obsolete transitions ───────────────────────────
+{
+  // The dispatch-start marker commits only while this worker owns the row; a takeover between the ownership
+  // check and the marker can no longer produce a marker or a dispatch.
+  const a = await makeApp("fence-esign");
+  let dispatched = 0;
+  T.testOverrides.sendDocumentForEsign = async () => { dispatched++; return { success: true, outcome: "confirmed", documentId: "doc-fenced" }; };
+  const rid = await enqueue(a.appId, "esign_send");
+  const stale = await T.claimOne();
+  await pool.query(`UPDATE merchant_application_protected_outbox SET status='pending', locked_at=NULL, available_at=now() WHERE id=$1`, [rid]);
+  const fresh = await T.claimOne();
+  let lost = false;
+  try { await T.__handleEsignSend(stale!); } catch (e) { lost = e instanceof T.ClaimLostError; }
+  check(lost && dispatched === 0 && await audit("merchant_application_esign_dispatch_started", a.appId) === 0, "a superseded claim writes no dispatch marker and never dispatches");
+  await T.processRow(fresh!);
+  check(dispatched === 1 && await audit("merchant_application_esign_dispatch_started", a.appId) === 1, "the current claim writes exactly one marker and dispatches once");
+  await pool.query(`UPDATE merchant_application_protected_outbox SET status='delivered' WHERE id=$1`, [rid]);
+
+  // The fence holds the row lock for the effect: a takeover cannot interleave while a local effect runs.
+  const b = await makeApp("fence-lock");
+  const rb = await enqueue(b.appId, "risk_scan");
+  const owned = await T.claimOne();
+  let takeoverDuringEffect: any = "unset";
+  await T.withOwnedClaim(owned!, async () => {
+    const other = await pool.connect();
+    try {
+      await other.query("SET lock_timeout = '300ms'");
+      try { await other.query(`UPDATE merchant_application_protected_outbox SET status='pending' WHERE id=$1`, [rb]); takeoverDuringEffect = "interleaved"; }
+      catch { takeoverDuringEffect = "blocked"; }
+    } finally { other.release(); }
+  });
+  check(takeoverDuringEffect === "blocked", "a takeover is blocked while the owning worker runs its fenced effect");
+  await pool.query(`UPDATE merchant_application_protected_outbox SET status='delivered' WHERE id=$1`, [rb]);
+
+  // Obsolete transitions: an approval effect queued before a later decline is recorded and skipped.
+  const c = await makeApp("obsolete");
+  await pool.query(`UPDATE merchant_applications SET status='declined' WHERE id=$1`, [c.appId]);
+  let approvedSends = 0;
+  T.testOverrides.approvedEmail = async (_i: any, hooks: any) => { await hooks.beforeDispatch(); approvedSends++; return { status: "sent" }; };
+  const re = await enqueue(c.appId, "approval_email");
+  await tick();
+  check((await row(re)).status === "delivered" && approvedSends === 0 && await audit("merchant_application_effect_obsolete", c.appId) === 1, "a stale approval email is skipped with obsolete evidence after a decline");
+  check(await audit("merchant_application_approved_email_dispatch_started", c.appId) === 0, "the obsolete approval writes no dispatch marker", true);
+  const dealRow = (await pool.query(`INSERT INTO deals(contact_id, title, stage, pipeline) VALUES($1,'S5E obsolete','Onboarding','sales') RETURNING id`, [c.contactId]).catch(() => ({ rows: [] as any[] }))).rows[0];
+  if (dealRow) {
+    const rd = await enqueue(c.appId, "deal_stage", { dealId: dealRow.id });
+    await tick();
+    const st = (await pool.query(`SELECT stage FROM deals WHERE id=$1`, [dealRow.id])).rows[0].stage;
+    check(st !== "Closed Won" && (await row(rd)).status === "delivered", "a stale deal-stage advance does not apply after a decline", true);
+  }
+  T.testOverrides.sendDocumentForEsign = undefined;
 }
 
 console.log(`\nStage 5 application effects certification: ${checks} checks passed`);

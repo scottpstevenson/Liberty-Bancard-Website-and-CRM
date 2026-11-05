@@ -129,6 +129,31 @@ try {
   check((anon.status === 401 || anon.status === 403) && (await q("SELECT 1 FROM merchant_applications WHERE legal_business_name = $1", [`S5PJ ${tag} anon`])).length === 0, `an unauthenticated caller is refused (${anon.status}) on operator create and nothing is inserted`);
   check(h.externalCalls() === 0, "no external call was attempted during the journey");
 
+  // C04: with browser storage unavailable (absent or throwing) the wizard's helpers never throw, keep one finalize key
+  // per draft for the open page, and report that the draft was NOT saved on the device.
+  {
+    const intent = await import("../client/src/lib/merchant-application-intent");
+    const run = () => {
+      intent.clearSubmissionTuple();
+      const a = intent.intentKeyForDraft(901), b = intent.intentKeyForDraft(901), other = intent.intentKeyForDraft(902);
+      return { same: a.key === b.key && a.persisted === false && b.persisted === false, other: other.key !== a.key };
+    };
+    const noStorage = run();
+    check(noStorage.same && noStorage.other, "without browser storage a retry on the open page reuses the same finalize key for the same draft only");
+    check(intent.guardedLocalDraft.set("x_draft", "v") === false && intent.guardedLocalDraft.get("x_draft") === "v", "the resume draft falls back to memory and reports it was not saved on the device");
+    intent.guardedLocalDraft.remove("x_draft");
+    check(intent.guardedLocalDraft.get("x_draft") === null, "removing the draft clears the in-memory copy");
+    const thrower = { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); }, removeItem() { throw new Error("blocked"); } };
+    (globalThis as any).localStorage = thrower;
+    try {
+      const blocked = run();
+      check(blocked.same && blocked.other && intent.readDraftCredentials() === null && intent.writeDraftCredentials(1, "t") === false, "throwing storage never throws out of the helpers and is reported as not persisted");
+      check(intent.guardedLocalDraft.set("y_draft", "v") === false && intent.guardedLocalDraft.get("y_draft") === "v", "throwing storage still keeps the open-page draft");
+      intent.clearSubmissionTuple(["y_draft"]);
+      check(intent.guardedLocalDraft.get("y_draft") === null, "a cleared tuple also clears the open-page copy");
+    } finally { delete (globalThis as any).localStorage; }
+  }
+
   console.log(`\nStage 5 public journey: ${checks} checks passed`);
 } finally {
   await h.close();

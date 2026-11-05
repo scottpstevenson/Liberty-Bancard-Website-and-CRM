@@ -2488,13 +2488,43 @@ export async function sendAiAutoReply(params: {
   }
 }
 
+/**
+ * Typed outcome of a document send. `success` is true only for `confirmed`.
+ *  - confirmed: the provider accepted the request and returned a document identity.
+ *  - unsent:    a definite refusal before or without processing (not configured, known 4xx); nothing was sent.
+ *  - wait:      a pause/coordinator/control refusal raised before the request left this process; owed, not failed.
+ *  - unknown:   the request may have been processed (lost response, 5xx, unreadable or identity-less success).
+ *               It must never be reported as a refusal and never be repeated automatically.
+ */
+export type EsignSendOutcome = "confirmed" | "unsent" | "wait" | "unknown";
+export interface EsignSendResult {
+  success: boolean;
+  outcome: EsignSendOutcome;
+  documentId?: string;
+  signingUrl?: string;
+  error?: string;
+}
+
+/** Classifies a thrown transport error. Anything not provably pre-I/O or a definite 4xx refusal is `unknown`. */
+export function classifyEsignSendError(err: unknown): { outcome: EsignSendOutcome; error: string } {
+  const message = err instanceof Error ? err.message : String(err);
+  if (err instanceof GhlAmbiguousDispatchError || /GHL_AMBIGUOUS_DISPATCH/.test(message)) return { outcome: "unknown", error: message };
+  if (/pause authority|Outbound blocked|Outbound paused|queue coordinator|GHL_PROJECTION_FENCE_LOST|control_or_native_review_changed|EPOCH_CHANGED/i.test(message)) {
+    return { outcome: "wait", error: message };
+  }
+  if (/^GHL not configured/.test(message)) return { outcome: "unsent", error: message };
+  if (/^GHL API error 4\d\d\b/.test(message) && !/^GHL API error 408\b/.test(message)) return { outcome: "unsent", error: message };
+  if (/failed after \d+ retries/.test(message)) return { outcome: "unsent", error: message };
+  return { outcome: "unknown", error: message };
+}
+
 export async function sendDocumentForEsign(opts: {
   documentTemplateId: string;
   contactId?: string;
   recipientName: string;
   recipientEmail: string;
   applicationId: number;
-}): Promise<{ success: boolean; documentId?: string; signingUrl?: string; error?: string }> {
+}): Promise<EsignSendResult> {
   // ── Unavoidable pause authority gate (transport boundary) ──────────────────
   // Document send delivers a recipient-facing email via GHL — must clear the
   // canonical pause authority before any network I/O.
@@ -2504,18 +2534,18 @@ export async function sendDocumentForEsign(opts: {
     const decision = await authorize({});
     if (!decision.allowed) {
       console.warn(`[GHL E-Sign] Blocked by pause authority: ${decision.reasonCode}`);
-      return { success: false, error: `Outbound paused: ${decision.reasonCode}` };
+      return { success: false, outcome: "wait", error: `Outbound paused: ${decision.reasonCode}` };
     }
     const token = crypto.randomUUID();
     await registerInflight(token, decision.epoch);
     try {
       const epochOk = await recheckEpoch(decision.epoch);
       if (!epochOk) {
-        return { success: false, error: "Outbound paused: epoch changed before document send" };
+        return { success: false, outcome: "wait", error: "Outbound paused: epoch changed before document send" };
       }
       const config = getConfig();
       if (!config) {
-        return { success: false, error: "GHL not configured. Set GHL_API_KEY and GHL_LOCATION_ID." };
+        return { success: false, outcome: "unsent", error: "GHL not configured. Set GHL_API_KEY and GHL_LOCATION_ID." };
       }
 
       const payload: Record<string, any> = {
@@ -2545,17 +2575,24 @@ export async function sendDocumentForEsign(opts: {
         pauseEpoch: decision.epoch,
       });
 
+      const documentId = result?.id || result?.documentId;
+      if (typeof documentId !== "string" || !documentId) {
+        // The provider answered successfully but named no document: an agreement may exist that we cannot reference.
+        return { success: false, outcome: "unknown", error: "GHL_AMBIGUOUS_DISPATCH: POST /documents: accepted without a document identity" };
+      }
       return {
         success: true,
-        documentId: result?.id || result?.documentId,
-        signingUrl: result?.signingUrl || result?.publicUrl || null,
+        outcome: "confirmed",
+        documentId,
+        signingUrl: result?.signingUrl || result?.publicUrl || undefined,
       };
     } finally {
       deregisterInflight(token);
     }
   } catch (err: any) {
-    console.error("[GHL E-Sign] Error sending document:", err.message);
-    return { success: false, error: err.message };
+    const classified = classifyEsignSendError(err);
+    console.error(`[GHL E-Sign] Error sending document (${classified.outcome}):`, classified.error);
+    return { success: false, ...classified };
   }
 }
 

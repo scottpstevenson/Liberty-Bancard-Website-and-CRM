@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ConditionsPanel } from "@/components/underwriting/ConditionsPanel";
 import {
   Send, RefreshCw, CheckCircle2, Clock, AlertCircle, XCircle,
   ChevronDown, ChevronUp, CreditCard, Info, PauseCircle, ShieldAlert,
@@ -36,7 +38,10 @@ interface BoardingStatus {
 interface Readiness {
   ready: boolean;
   blockers: Array<{ code: string; detail?: string }>;
-  facts: { applicationUpdatedAt: string | null; applicationId: number | null; applicationBinding: string };
+  facts: {
+    applicationUpdatedAt: string | null; applicationId: number | null; applicationBinding: string;
+    sourceApplicationId?: number | null; sourceDealId?: number | null;
+  };
   policyGates: Array<{ code: string; state: string; meaning: string }>;
 }
 
@@ -85,7 +90,7 @@ const BLOCKER_LABELS: Record<string, string> = {
   e_signature_required: "A signed agreement is required",
 };
 function blockerText(b: { code: string; detail?: string }): string {
-  if (b.code.startsWith("policy_unresolved:")) return "Boarding requirements are not yet recorded by the owner";
+  if (b.code.startsWith("policy_unresolved:")) return "Requirements not recorded: the owner has not recorded boarding requirements for this program";
   const base = BLOCKER_LABELS[b.code] ?? b.code.replace(/_/g, " ");
   return b.detail && !b.detail.startsWith("native_policy") ? `${base} (${b.detail})` : base;
 }
@@ -99,7 +104,11 @@ function formatTs(ts: string) {
   return new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-/** Durable command identity: the same actor, deal, reviewed application revision and processor always reuse one key. */
+/**
+ * Durable command identity: the same actor, deal and processor reuse one key across application revisions. The
+ * reviewed revision travels in the command body, so a revision that moved on is refused by the server and the
+ * saved result of the original command stays readable through its key.
+ */
 function commandKeyStore() {
   return {
     get(identity: string): string {
@@ -114,6 +123,9 @@ function commandKeyStore() {
         return crypto.randomUUID();
       }
     },
+    peek(identity: string): string | null {
+      try { return window.sessionStorage.getItem(`boarding-submit:${identity}`); } catch { return null; }
+    },
     clear(identity: string) {
       try { window.sessionStorage.removeItem(`boarding-submit:${identity}`); } catch { /* storage unavailable */ }
     },
@@ -125,6 +137,7 @@ export default function BoardingPanel({ dealId, dealStage, dealPipeline, onStatu
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [showLog, setShowLog] = useState(false);
+  const [showConditions, setShowConditions] = useState(false);
   const [selectedProcessor, setSelectedProcessor] = useState<string>("");
   const keys = useRef(commandKeyStore()).current;
   const canOperate = user?.role === "admin" || user?.role === "manager";
@@ -181,7 +194,7 @@ export default function BoardingPanel({ dealId, dealStage, dealPipeline, onStatu
 
   const processorChoice = selectedProcessor && selectedProcessor !== "__default" ? selectedProcessor : "";
   const revision = readiness?.facts.applicationUpdatedAt ?? null;
-  const commandIdentity = `${user?.id ?? "unknown"}:${dealId}:${revision ?? "none"}:${processorChoice || "default"}`;
+  const commandIdentity = `${user?.id ?? "unknown"}:${dealId}:${processorChoice || "default"}`;
 
   const submitMutation = useMutation({
     mutationFn: async () => {
@@ -215,7 +228,7 @@ export default function BoardingPanel({ dealId, dealStage, dealPipeline, onStatu
       const conflict = /^409:/.test(err.message);
       toast({
         title: conflict ? "Submission not accepted" : "Submission failed",
-        description: conflict ? `${err.message.replace(/^409:\s*/, "")} Review readiness and try again.` : err.message,
+        description: conflict ? `${err.message.replace(/^409:\s*/, "")} Review readiness, or use "Check saved result" if you already submitted.` : err.message,
         variant: "destructive",
       });
       if (conflict) invalidate();
@@ -240,6 +253,43 @@ export default function BoardingPanel({ dealId, dealStage, dealPipeline, onStatu
       toast({ title: "Refresh failed", description: err.message, variant: "destructive" });
     },
   });
+
+  // Exact Sales-source bridge: the server re-checks the whole application/deal/contact tuple under locks.
+  const [bridgeOpen, setBridgeOpen] = useState(false);
+  const bridgeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/deals/${dealId}/bridge-application`);
+      return (await res.json()) as { bridged?: boolean; reason?: string };
+    },
+    onSuccess: (r) => {
+      setBridgeOpen(false);
+      toast({
+        title: r.bridged ? "Application linked to Onboarding" : "Already linked",
+        description: r.bridged ? "The Sales deal keeps its history; readiness has been re-checked." : "This application is already on the Onboarding deal.",
+      });
+      invalidate();
+    },
+    onError: (err: Error) => {
+      setBridgeOpen(false);
+      toast({ title: "Application not linked", description: `${err.message.replace(/^\d+:\s*/, "")} Readiness has been re-checked; nothing was moved.`, variant: "destructive" });
+      invalidate();
+    },
+  });
+
+  // Read-only: reports the saved command for this panel's stored key without evaluating readiness or sending anything.
+  const [savedResult, setSavedResult] = useState<{ found: boolean; status?: string; boardingStatus?: string | null; outboxId?: string; reconciliationRequired?: boolean } | null>(null);
+  const receiptMutation = useMutation({
+    mutationFn: async () => {
+      const key = keys.peek(commandIdentity);
+      if (!key) return { found: false };
+      const res = await fetch(`/api/deals/${dealId}/boarding-receipt?key=${encodeURIComponent(key)}`, { credentials: "include" });
+      if (!res.ok) throw new Error(`Saved result could not be read (${res.status})`);
+      return await res.json();
+    },
+    onSuccess: (r) => setSavedResult(r),
+    onError: (err: Error) => toast({ title: "Saved result unavailable", description: err.message, variant: "destructive" }),
+  });
+  const hasSavedKey = !!keys.peek(commandIdentity);
 
   if (!isUnderwriting) return null;
   if (statusQuery.isLoading) return (
@@ -370,8 +420,52 @@ export default function BoardingPanel({ dealId, dealStage, dealPipeline, onStatu
         <div className="text-xs rounded border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/20 p-2 text-orange-800 dark:text-orange-300" data-testid="boarding-blockers">
           <p className="font-medium mb-1">Not ready to submit:</p>
           <ul className="list-disc pl-4 space-y-0.5">
-            {readiness.blockers.map((b, i) => <li key={`${b.code}-${i}`} data-testid={`blocker-${b.code}`}>{blockerText(b)}</li>)}
+            {/* Every unresolved policy gate says the same thing; show it once. */}
+            {readiness.blockers.filter((b, i, all) => !b.code.startsWith("policy_unresolved:") || all.findIndex((x) => x.code.startsWith("policy_unresolved:")) === i)
+              .map((b, i) => <li key={`${b.code}-${i}`} data-testid={`blocker-${b.code}`}>{blockerText(b)}</li>)}
           </ul>
+        </div>
+      )}
+
+      {canOperate && hasSavedKey && (
+        <div className="text-xs space-y-1" data-testid="boarding-saved-result">
+          <Button size="sm" variant="outline" className="min-h-11 text-xs" disabled={receiptMutation.isPending} onClick={() => receiptMutation.mutate()} data-testid="button-check-saved-result">
+            <RefreshCw className={`h-3.5 w-3.5 mr-1 ${receiptMutation.isPending ? "animate-spin" : ""}`} />
+            Check saved result
+          </Button>
+          {savedResult && (
+            <p role="status" data-testid="text-saved-result">
+              {!savedResult.found ? "No saved command was found for this key; nothing was sent."
+                : savedResult.reconciliationRequired ? "The saved command's outcome is unknown and on hold for reconciliation."
+                : `Saved command is ${String(savedResult.status ?? "unknown").replace(/_/g, " ")}${savedResult.boardingStatus ? `; boarding status ${STATUS_CONFIG[savedResult.boardingStatus]?.label ?? savedResult.boardingStatus}` : ""}${savedResult.outboxId ? ` (receipt ${String(savedResult.outboxId).slice(0, 8)})` : ""}.`}
+            </p>
+          )}
+        </div>
+      )}
+
+      {canOperate && readiness?.blockers.some((b) => b.code === "application_on_sales_deal") && readiness.facts.sourceApplicationId != null && (
+        <div className="text-xs rounded border p-2 space-y-1" data-testid="boarding-bridge">
+          <p>This deal's application is still on its Sales source deal.</p>
+          <Button size="sm" variant="outline" className="min-h-11 text-xs" onClick={() => setBridgeOpen(true)} data-testid="button-bridge-application">
+            Link this application to Onboarding
+          </Button>
+          <Dialog open={bridgeOpen} onOpenChange={setBridgeOpen}>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Link this application to Onboarding</DialogTitle></DialogHeader>
+              <dl className="text-sm grid grid-cols-[auto_1fr] gap-x-3 gap-y-1" data-testid="bridge-details">
+                <dt className="text-muted-foreground">Application</dt><dd>#{readiness.facts.sourceApplicationId}</dd>
+                <dt className="text-muted-foreground">From (Sales deal)</dt><dd>#{readiness.facts.sourceDealId}</dd>
+                <dt className="text-muted-foreground">To (Onboarding deal)</dt><dd>#{dealId}</dd>
+              </dl>
+              <p className="text-sm text-muted-foreground">Only the application moves. The Sales deal and its origin stay on record, and the change is audited. Nothing is sent to a processor.</p>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" className="min-h-11" onClick={() => setBridgeOpen(false)}>Cancel</Button>
+                <Button className="min-h-11" disabled={bridgeMutation.isPending} onClick={() => bridgeMutation.mutate()} data-testid="button-bridge-confirm">
+                  {bridgeMutation.isPending ? "Linking…" : "Link application"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
 
@@ -411,6 +505,22 @@ export default function BoardingPanel({ dealId, dealStage, dealPipeline, onStatu
         <div className="flex items-start gap-2 p-2 rounded bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-300">
           <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
           <span data-testid="text-decline-reason"><span className="font-medium">Declined: </span>{lastLog.declineReason}</span>
+        </div>
+      )}
+
+      {canOperate && (
+        <div>
+          <button
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors min-h-11"
+            onClick={() => setShowConditions(p => !p)}
+            aria-expanded={showConditions}
+            aria-controls={`boarding-conditions-${dealId}`}
+            data-testid="button-toggle-boarding-conditions"
+          >
+            {showConditions ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            {showConditions ? "Hide" : "Show"} conditions and merchant chase
+          </button>
+          {showConditions && <div id={`boarding-conditions-${dealId}`}><ConditionsPanel dealId={dealId} /></div>}
         </div>
       )}
 

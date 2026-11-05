@@ -473,10 +473,12 @@ export default function UnderwritingPage() {
                 <div className="space-y-6 max-w-lg">
                   <div className="flex items-center justify-between">
                     <div>
-                      <Label className="font-medium">Auto-Approve Enabled</Label>
-                      <p className="text-xs text-muted-foreground">When off, all deals go to manual review</p>
+                      <Label id="label-auto-approve" className="font-medium">Auto-Approve Enabled</Label>
+                      <p id="help-auto-approve" className="text-xs text-muted-foreground">When off, all deals go to manual review</p>
                     </div>
                     <Switch
+                      aria-labelledby="label-auto-approve"
+                      aria-describedby="help-auto-approve"
                       checked={rulesForm.autoApproveEnabled ?? rules?.autoApproveEnabled ?? true}
                       onCheckedChange={v => setRulesForm(f => ({ ...f, autoApproveEnabled: v }))}
                       data-testid="switch-auto-approve"
@@ -700,7 +702,7 @@ function QueueCard({ row, onApprove, onReject }: QueueCardProps) {
               <Button
                 size="sm"
                 variant="outline"
-                className="border-destructive/50 text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                className="border-[hsl(var(--crm-danger-text)/0.5)] text-[hsl(var(--crm-danger-text))] hover:bg-[hsl(var(--crm-danger-text))] hover:text-white"
                 onClick={onReject}
                 data-testid={`button-reject-${row.id}`}
               >

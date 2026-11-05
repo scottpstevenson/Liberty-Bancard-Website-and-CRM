@@ -85,12 +85,24 @@ async function assertDecisionInDeal(tx: any, dealId: number, decisionId: number)
  * step compares versions and re-opens itself.
  */
 async function markChaseObligationChanged(tx: any, dealId: number): Promise<void> {
-  await tx.execute(sql`
+  const updated = await tx.execute(sql`
     UPDATE underwriting_condition_chases
     SET obligation_version = obligation_version + 1,
         status = CASE WHEN status IN ('sent','not_applicable') THEN 'owed' ELSE status END,
         next_check_at = NULL, updated_at = now()
-    WHERE deal_id = ${dealId} AND channel = 'email'`);
+    WHERE deal_id = ${dealId} AND channel = 'email'
+    RETURNING id`);
+  if (((updated as any).rows ?? updated).length > 0) return;
+  // The first manual condition for a deal has no chase row to update: create the owed obligation in the same
+  // transaction, capturing the current mailbox owner (version 1). A concurrent first writer is a no-op.
+  await tx.execute(sql`
+    INSERT INTO underwriting_condition_chases (deal_id, channel, recipient_email, recipient_name, status)
+    SELECT d.id, 'email', NULLIF(trim(c.email), ''), NULLIF(trim(coalesce(c.first_name,'') || ' ' || coalesce(c.last_name,'')), ''), 'owed'
+    FROM deals d LEFT JOIN contacts c ON c.id = d.contact_id WHERE d.id = ${dealId}
+    ON CONFLICT (deal_id, channel) DO UPDATE SET
+      obligation_version = underwriting_condition_chases.obligation_version + 1,
+      status = CASE WHEN underwriting_condition_chases.status IN ('sent','not_applicable') THEN 'owed' ELSE underwriting_condition_chases.status END,
+      next_check_at = NULL, updated_at = now()`);
 }
 
 export async function listConditions(dealId: number, opts: { includeSuperseded?: boolean } = {}) {
@@ -161,6 +173,14 @@ export async function updateCondition(id: number, body: unknown, actor: Actor) {
       if (to === "approved") {
         updates.approvedAt = now;
       }
+      if (to === "approved" || to === "waived") {
+        // Effective state: a reversal is in force only until the condition is settled again. Readiness reads
+        // `reversed_at IS NULL`, so a re-approved condition must clear it; the reversal itself (actor, time, reason)
+        // stays in this condition's audit history, which this update's before/after state records.
+        updates.reversedAt = null;
+        updates.reversedBy = null;
+        updates.reversalReason = null;
+      }
       if (to === "waived") {
         const reason = (parsed.waivedReason ?? "").trim();
         if (reason.length < 3) throw new ConditionError(400, "A waiver reason is required", "waiver_reason_required");
@@ -192,9 +212,15 @@ export async function updateCondition(id: number, body: unknown, actor: Actor) {
     if (updates.status === "pending" && row.status !== "pending" && row.merchantVisible) await markChaseObligationChanged(tx, row.dealId);
     await auditChange({
       userId: actorId, action: "underwriting_condition_updated", entityType: "underwriting_condition", entityId: id,
-      before: { status: row.status, documentId: row.documentId, approvedAt: row.approvedAt, waivedAt: row.waivedAt, waivedReason: row.waivedReason },
-      after: { status: updated.status, documentId: updated.documentId, approvedAt: updated.approvedAt, waivedAt: updated.waivedAt, waivedReason: updated.waivedReason },
-      details: { dealId: row.dealId, transition: to !== undefined && to !== from ? `${from}->${to}` : null },
+      before: { status: row.status, documentId: row.documentId, approvedAt: row.approvedAt, waivedAt: row.waivedAt, waivedReason: row.waivedReason,
+        reversedAt: row.reversedAt, reversedBy: row.reversedBy, reversalReason: row.reversalReason },
+      after: { status: updated.status, documentId: updated.documentId, approvedAt: updated.approvedAt, waivedAt: updated.waivedAt, waivedReason: updated.waivedReason,
+        reversedAt: updated.reversedAt, reversedBy: updated.reversedBy, reversalReason: updated.reversalReason },
+      details: {
+        dealId: row.dealId, transition: to !== undefined && to !== from ? `${from}->${to}` : null,
+        ...(updates.status === "pending" ? { reversalReason: updates.reversalReason } : {}),
+        ...(updates.documentId !== undefined && updates.documentId !== row.documentId ? { documentId: updates.documentId } : {}),
+      },
     }, tx);
     return updated;
   });
@@ -243,12 +269,41 @@ export async function readChaseState(dealId: number) {
   };
 }
 
+/**
+ * Documents that may be attached as evidence to this deal's conditions: exactly the set `assertDocumentInContext`
+ * accepts (this deal's own files, or the deal contact's files not bound to another deal). Display fields only: no
+ * storage key, path or access token is ever returned.
+ */
+export async function listEligibleConditionDocuments(dealId: number) {
+  const [deal] = await db.select({ id: deals.id, contactId: deals.contactId }).from(deals).where(eq(deals.id, dealId)).limit(1);
+  if (!deal) throw new ConditionError(404, "Deal not found", "deal_not_found");
+  const res = (await db.execute(sql`
+    SELECT id, file_name, type, status, created_at FROM documents
+    WHERE deal_id = ${dealId} ${deal.contactId != null ? sql`OR (deal_id IS NULL AND contact_id = ${deal.contactId})` : sql``}
+    ORDER BY created_at DESC NULLS LAST, id DESC LIMIT 200`)) as any;
+  return (res.rows ?? []).map((r: any) => ({ id: r.id as number, fileName: r.file_name as string, type: r.type as string, status: r.status as string | null, uploadedAt: r.created_at as string | null }));
+}
+
 export async function readConditionHistory(conditionId: number) {
   const [row] = await db.select({ id: underwritingConditions.id }).from(underwritingConditions).where(eq(underwritingConditions.id, conditionId)).limit(1);
   if (!row) throw new ConditionError(404, "Condition not found", "condition_not_found");
   const res = (await db.execute(sql`
-    SELECT id, user_id, action, details, created_at FROM audit_logs
+    SELECT id, user_id, action, details, before_state, after_state, created_at FROM audit_logs
     WHERE entity_type = 'underwriting_condition' AND entity_id = ${conditionId}
     ORDER BY id DESC LIMIT 100`)) as any;
-  return (res.rows ?? []).map((r: any) => ({ id: r.id, actorId: r.user_id, action: r.action, details: r.details, at: r.created_at }));
+  return (res.rows ?? []).map((r: any) => {
+    const d = (r.details ?? {}) as Record<string, unknown>;
+    const after = (r.after_state ?? {}) as Record<string, unknown>;
+    const before = (r.before_state ?? {}) as Record<string, unknown>;
+    const str = (v: unknown) => (typeof v === "string" && v.trim() ? v : null);
+    // Who, when, which transition and why: the reason is whichever one the command carried.
+    const reason = str(d.reversalReason) ?? str(d.reason) ?? (d.transition && String(d.transition).endsWith("->waived") ? str(after.waivedReason) : null);
+    const evidenceChanged = (before.documentId ?? null) !== (after.documentId ?? null) && r.action === "underwriting_condition_updated";
+    return {
+      id: r.id, actorId: r.user_id, action: r.action, details: r.details, at: r.created_at,
+      transition: str(d.transition), reason,
+      documentId: evidenceChanged ? ((after.documentId as number | null) ?? null) : null,
+      evidenceChanged,
+    };
+  });
 }
