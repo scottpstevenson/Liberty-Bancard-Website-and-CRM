@@ -240,7 +240,7 @@ const tick = () => T.tick();
   process.env.GHL_WORKFLOW_MERCHANT_APP = "wf-s5e";
   process.env.GHL_REQUEST_TIMEOUT_MS = "2000";
   const realFetch = globalThis.fetch;
-  type Plan = "timeout" | "http500" | "http400" | "ok" | "ok_no_id" | "ok_bad_json" | "wf_ok" | "wf_unconfirmed";
+  type Plan = "timeout" | "http500" | "http400" | "http429" | "ok" | "ok_no_id" | "ok_bad_json" | "wf_ok" | "wf_unconfirmed";
   let plan: Plan = "ok";
   const calls: string[] = [];
   globalThis.fetch = (async (input: any) => {
@@ -250,6 +250,7 @@ const tick = () => T.tick();
     if (plan === "timeout") { const e: any = new Error("The operation was aborted"); e.name = "AbortError"; throw e; }
     if (plan === "http500") return json(502, { error: "bad gateway" });
     if (plan === "http400") return json(400, { error: "invalid template" });
+    if (plan === "http429") return new Response(JSON.stringify({ error: "rate limited" }), { status: 429, headers: { "content-type": "application/json", "retry-after": "0" } });
     if (plan === "ok_no_id") return json(200, { ok: true });
     if (plan === "ok_bad_json") return new Response("<html>gateway</html>", { status: 200, headers: { "content-type": "application/json" } });
     if (plan === "wf_ok") return json(200, { succeded: true });
@@ -343,6 +344,59 @@ const tick = () => T.tick();
   await tick();
   check((await row(wo)).status === "delivered" && wfDispatches() === 1, "a confirmed trigger is delivered with one dispatch");
   T.testOverrides.enroll = undefined;
+
+  // F02 — one retry owner. The REAL compliant wrapper + lower helper + application handler over the fake fetch.
+  // A definite transient refusal (429) must be retried by the application outbox only; the lower helper must not
+  // also persist a deferred-enrollment obligation for the same requested enrollment.
+  {
+    const deferredFor = async (ghl: string) => Number((await pool.query(`SELECT count(*) c FROM deferred_ghl_enrollments WHERE ghl_contact_id=$1`, [ghl])).rows[0].c);
+    const makeSendable = async (label: string) => { const m = await makeApp(label); await pool.query(`UPDATE contacts SET email_status='valid' WHERE id=$1`, [m.contactId]); return m; };
+    const ghlOf = async (contactId: number) => (await pool.query(`SELECT ghl_contact_id g FROM contacts WHERE id=$1`, [contactId])).rows[0].g as string;
+    // The live-verification gate is preserved: an unverified workflow is held with no trigger and no deferred row.
+    plan = "wf_ok"; calls.length = 0;
+    const gateApp = await makeApp("wf-unverified");
+    const gateRow = await enqueue(gateApp.appId, "workflow_enroll");
+    await tick();
+    check((await row(gateRow)).last_error === "held:workflow_enroll_not_delivered" && wfDispatches() === 0 && (await deferredFor(await ghlOf(gateApp.contactId))) === 0, "the workflow live-verification gate still refuses before any trigger (held, no deferred row)");
+    process.env.GHL_WORKFLOW_VERIFIED_CHANNELS_MERCHANT_APP = "email";
+    plan = "http429"; calls.length = 0;
+    const o = await makeSendable("wf-429");
+    const og = await ghlOf(o.contactId);
+    const r429 = await enqueue(o.appId, "workflow_enroll");
+    await tick();
+    const s429 = await row(r429);
+    const triggersFor = (g: string) => calls.filter((u) => u.includes(`/contacts/${g}/workflow/`)).length;
+    const rateLimitedTriggers = triggersFor(og);
+    check(s429.status === "pending" && Number(s429.attempts) === 1 && rateLimitedTriggers >= 1, "real compliant wrapper + worker: a definite 429 leaves one ordinary outbox retry (the client's own bounded 429 retries are inside one attempt)");
+    check((await deferredFor(og)) === 0, "the lower helper writes NO competing deferred-enrollment row for the same enrollment (one retry owner)");
+    // Negative control: the same lower-helper chain without the ownership flag does defer (the pre-repair behavior).
+    const ctl = await makeSendable("wf-429-control");
+    const cg = await ghlOf(ctl.contactId);
+    const ctlResult = await wf.enrollInGhlWorkflowCompliant({ workflowKey: "merchant_app", ghlContactId: cg, contactId: ctl.contactId, metadata: { applicationId: ctl.appId } });
+    check(ctlResult.success === false && (await deferredFor(cg)) === 1, "negative control: without _callerOwnsDeferral the helper chain does create its own deferred row", true);
+    // Recovery: after the retry becomes eligible exactly one more trigger is made and it settles delivered.
+    plan = "wf_ok";
+    await pool.query(`UPDATE merchant_application_protected_outbox SET available_at=now() WHERE id=$1`, [r429]);
+    await tick();
+    check((await row(r429)).status === "delivered" && triggersFor(og) === rateLimitedTriggers + 1 && (await deferredFor(og)) === 0, "recovery makes exactly one further trigger (429 + accepted) and leaves no deferred row");
+    await tick();
+    check(triggersFor(og) === rateLimitedTriggers + 1 && (await row(r429)).status === "delivered", "a later worker pass (restart) triggers nothing more for the delivered row", true);
+    // Unknown stays held; a pause stays a durable wait; both with the real wrapper and no deferred row.
+    plan = "timeout"; calls.length = 0;
+    const u = await makeSendable("wf-429-unknown");
+    const ru = await enqueue(u.appId, "workflow_enroll");
+    await tick();
+    check((await row(ru)).last_error === "held:possible_send_unconfirmed" && wfDispatches() === 1 && (await deferredFor(await ghlOf(u.contactId))) === 0, "an unknown outcome through the real wrapper is held, never retried and never deferred");
+    plan = "wf_ok"; calls.length = 0;
+    await setPause("paused");
+    const pz = await makeSendable("wf-429-pause");
+    const rp = await enqueue(pz.appId, "workflow_enroll");
+    await tick();
+    const sp = await row(rp);
+    check(sp.status === "pending" && sp.last_error === "waiting:outbound_paused" && Number(sp.attempts) === 0 && wfDispatches() === 0, "a pause remains an owed durable wait with no trigger");
+    await setPause("unpaused");
+    delete process.env.GHL_WORKFLOW_VERIFIED_CHANNELS_MERCHANT_APP;
+  }
 
   // A confirmed enrollment whose delivery settlement was lost is not triggered a second time.
   plan = "wf_ok"; calls.length = 0;

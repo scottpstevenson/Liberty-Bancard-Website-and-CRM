@@ -128,6 +128,8 @@ async function defaultEnrollAffiliateWelcome(input: { ghlContactId: string; cont
   return enrollInGhlWorkflowCompliant({
     workflowKey: "affiliate_welcome", ghlContactId: input.ghlContactId, contactId: input.contactId,
     metadata: { affiliateCode: input.partner.affiliateCode, partnerId: input.partner.id },
+    // The delivery row owns retry/backoff; the lower helper must not also persist a deferred-enrollment obligation.
+    _callerOwnsDeferral: true,
   });
 }
 

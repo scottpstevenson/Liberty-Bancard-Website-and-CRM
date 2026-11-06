@@ -7,7 +7,7 @@
  * or replace any existing domain authority.
  */
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "../db";
 import { storage } from "../storage";
 import {
@@ -19,6 +19,7 @@ import {
   equipmentOrders,
   notifications,
   tasks,
+  taskAuthorityEvents,
   tickets,
   users,
   contacts,
@@ -31,6 +32,7 @@ import { z } from "zod";
 type InboundTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export const INBOUND_MANIFEST_VERSION = "cro05a-v2";
+const INBOUND_CONTEXT_UNAVAILABLE_PREFIX = "Inbound context is unavailable or changed.";
 const BUSINESS_DAY_START_HOUR_UTC = 9;
 const BUSINESS_DAY_END_HOUR_UTC = 17;
 const SALES_SLA_BUSINESS_HOURS = 24;
@@ -455,8 +457,11 @@ export async function evaluateInboundAssignment(input: {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${input.requestId}))`);
     const [request] = await tx.select().from(inboundRequests).where(eq(inboundRequests.id,input.requestId));
     if (!request) throw new Error("INBOUND_REQUEST_NOT_FOUND");
+    // Only an actual assignment is immutable. A review-required decision (class review, unavailable context, missing
+    // policy) is a pending obligation that a later, genuinely different evaluation may supersede with a new ordinal.
     const [accepted] = await tx.select().from(inboundAssignmentDecisions)
-      .where(eq(inboundAssignmentDecisions.requestId,input.requestId)).orderBy(asc(inboundAssignmentDecisions.decisionOrdinal)).limit(1);
+      .where(and(eq(inboundAssignmentDecisions.requestId,input.requestId),isNotNull(inboundAssignmentDecisions.assignedTo)))
+      .orderBy(asc(inboundAssignmentDecisions.decisionOrdinal)).limit(1);
     if ((request.contactId && input.contactId && request.contactId!==input.contactId) ||
       (request.dealId && input.dealId && request.dealId!==input.dealId)) throw new Error("INBOUND_REQUEST_LINK_CHANGED");
     const contactId = input.contactId ?? request.contactId;
@@ -496,10 +501,14 @@ export async function evaluateInboundAssignment(input: {
         eq(contactSourceEvents.sourceType,request.sourceType),
         eq(contactSourceEvents.eventKey,occurrenceKey),
       )).for("share") : [];
-    const classReview=occurrenceEvidence.length===1 && !dealId;
+    // A deal created for the same fresh occurrence is itself unclassified (its class derives from the contact). It stays
+    // inside the generic review path only while it is nonarchived, unclassified (never an explicit nonproduction class)
+    // and belongs to this exact contact. A foreign-linked, archived or explicitly classified deal is still refused.
+    const dealWithinClassReview=!dealId || (!!deal && !!contact && !deal.archivedAt && deal.recordClass==="unknown" && deal.contactId===contact.id);
+    const classReview=occurrenceEvidence.length===1 && dealWithinClassReview;
     if (!contact || contact.archivedAt || (contact.recordClass!=="production" && !classReview) ||
-      (dealId && (!deal || deal.archivedAt || deal.recordClass!=="production" || deal.contactId!==contact.id))) {
-      throw new WorkCommandError("Inbound context is unavailable or changed. Review the retained request; no linked work was created.",409);
+      (dealId && (!deal || deal.archivedAt || (deal.recordClass!=="production" && !classReview) || deal.contactId!==contact.id))) {
+      throw new WorkCommandError(`${INBOUND_CONTEXT_UNAVAILABLE_PREFIX} Review the retained request; no linked work was created.`,409);
     }
     const owns = (email:string) => !!contact && !contact.archivedAt && contact.recordClass==="production" &&
       contact.assignedTo===email && (!dealId || (!!deal && !deal.archivedAt && deal.recordClass==="production" &&
@@ -527,6 +536,14 @@ export async function evaluateInboundAssignment(input: {
       reasonCode:owner===selected?"OWNER_PRESERVED":"POLICY_DETERMINISTIC_MATCH",policyVersion:policy?.version ?? "existing-owner"}
       : {status:"review_required",assignedTo:null,reasonCode:!policy?"UNASSIGNED_POLICY_MISSING":
         !eligible.length?"NO_CURRENT_ELIGIBLE_REP":"OWNERSHIP_HANDOFF_REQUIRED",policyVersion:policy?.version ?? "missing"};
+    // An unchanged pending decision is not re-recorded: replays and re-evaluations leave exactly one row per distinct state.
+    const [latest] = await tx.select().from(inboundAssignmentDecisions).where(eq(inboundAssignmentDecisions.requestId, input.requestId))
+      .orderBy(desc(inboundAssignmentDecisions.decisionOrdinal)).limit(1);
+    if (latest && latest.status===result.status && latest.assignedTo===result.assignedTo && latest.reasonCode===result.reasonCode
+      && latest.policyHash===hash) {
+      await tx.update(inboundRequests).set({assignmentStatus:result.status,assignedTo:result.assignedTo,updatedAt:new Date()}).where(eq(inboundRequests.id,request.id));
+      return result;
+    }
     const [ordinal] = await tx.select({ next: sql<number>`coalesce(max(${inboundAssignmentDecisions.decisionOrdinal}), -1) + 1` }).from(inboundAssignmentDecisions).where(eq(inboundAssignmentDecisions.requestId, input.requestId));
     await tx.insert(inboundAssignmentDecisions).values({
       requestId: input.requestId,
@@ -654,6 +671,52 @@ async function holdInternalEffects(
 }
 
 /**
+ * Durable, truthful evidence that a sales occurrence's retained contact/deal are not an authorized production context.
+ * Records one review-required assignment decision (not repeated on replay), holds the internal sales effects with the
+ * reason, and creates no task and no assignment. The request keeps its exact contact/deal links.
+ */
+async function retainInboundContextRefusal(requestId: string, territory?: string | null): Promise<{ review: boolean }> {
+  const { hash } = readAssignmentPolicy();
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${requestId}))`);
+    const [latest] = await tx.select().from(inboundAssignmentDecisions).where(eq(inboundAssignmentDecisions.requestId, requestId))
+      .orderBy(desc(inboundAssignmentDecisions.decisionOrdinal)).limit(1);
+    if (!(latest && latest.status === "review_required" && latest.assignedTo === null && latest.reasonCode === "INBOUND_CONTEXT_UNAVAILABLE")) {
+      const [ordinal] = await tx.select({ next: sql<number>`coalesce(max(${inboundAssignmentDecisions.decisionOrdinal}), -1) + 1` })
+        .from(inboundAssignmentDecisions).where(eq(inboundAssignmentDecisions.requestId, requestId));
+      await tx.insert(inboundAssignmentDecisions).values({
+        requestId, decisionOrdinal: Number(ordinal?.next || 0), status: "review_required", assignedTo: null,
+        reasonCode: "INBOUND_CONTEXT_UNAVAILABLE", policyVersion: "context-refused", policyHash: hash, territory: territory || null,
+        capacitySnapshot: { mode: "not_evaluated_context_refused", reps: [] },
+        serviceHoursSnapshot: { mode: "not_enforced", configured: false, reason: "Context refused before assignment" },
+        actorType: "system", actorId: null, priorAssignee: null, fence: Number(ordinal?.next || 0),
+      }).onConflictDoNothing({ target: [inboundAssignmentDecisions.requestId, inboundAssignmentDecisions.decisionOrdinal] });
+      await auditChange({ actorType: "system", action: "inbound_assignment_decided", entityType: "inbound_request", entityKey: requestId,
+        details: { status: "review_required", reasonCode: "INBOUND_CONTEXT_UNAVAILABLE", assignedTo: null } }, tx);
+    }
+    await tx.update(inboundRequests).set({ assignedTo: null, assignmentStatus: "review_required", updatedAt: new Date() }).where(eq(inboundRequests.id, requestId));
+    await tx.update(inboundRequestEffects).set({ state: "held", terminalReason: "INBOUND_CONTEXT_UNAVAILABLE", updatedAt: new Date() }).where(and(
+      eq(inboundRequestEffects.requestId, requestId),
+      inArray(inboundRequestEffects.effectKey, ["assignment", "sales_work", "sales_sla"]),
+      inArray(inboundRequestEffects.state, ["held", "ready", "attempting"]),
+    ));
+  });
+  return { review: true };
+}
+
+/**
+ * Continue a retained review-required sales occurrence once its contact/deal became production through the separate
+ * classification authority. It re-enters the same orchestration with the request's retained links: the same request,
+ * contact, deal and task are reused, so no row is duplicated.
+ */
+export async function resumeInboundSalesRequestAfterReview(requestId: string): Promise<InboundRequest> {
+  const request = await getInboundRequestById(requestId);
+  if (!request) throw new Error("INBOUND_REQUEST_NOT_FOUND");
+  if (!request.contactId) throw new Error("INBOUND_RESUME_REQUIRES_RETAINED_CONTACT");
+  return orchestrateInboundRequest({ requestId, contactId: request.contactId, dealId: request.dealId });
+}
+
+/**
  * Complete the internal portion of a claimed public occurrence.  This is the
  * only public-adapter handoff that is allowed to create CR-05 work: its command
  * key is request-derived, so two occurrences for one contact remain distinct
@@ -691,7 +754,9 @@ export async function orchestrateInboundRequest(input: {
     if (!initialLink) throw new Error("INBOUND_REQUEST_LINK_FAILED");
     let reviewRequired = false;
     if (policy.sourceClass === "sales_request") {
-      const sales = await db.transaction(async tx => {
+      let sales: { review: boolean };
+      try {
+      sales = await db.transaction(async tx => {
       const assignment = await evaluateInboundAssignment({
         requestId: request.id,
         currentOwner: request.assignedTo,
@@ -716,8 +781,30 @@ export async function orchestrateInboundRequest(input: {
         producer: "inbound_request",
         commandKey: `inbound:${request.id}:task`,
         issueKey: `inbound-sales:${request.id}`,
-        context:{requestId:request.id,slaDueAt:slaDueAt?.toISOString() ?? null,assignmentReason:assignment.reasonCode},
+        context:{requestId:request.id,slaDueAt:slaDueAt?.toISOString() ?? null,assignmentReason:assignment.reasonCode,
+          // Exact retained evidence for a generic review task that deliberately carries no contact/deal link.
+          ...(assignment.reasonCode==="CONTACT_CLASS_REVIEW_REQUIRED" ? {retainedContactId:input.contactId,retainedDealId:input.dealId ?? null} : {})},
       },tx);
+      if (assignment.reasonCode!=="CONTACT_CLASS_REVIEW_REQUIRED" && task.contactId==null) {
+        // Continuation of a retained class-review obligation after the separate classification authority made the
+        // contact/deal production: the SAME task (same command key, no second row) gains its links and, if one is
+        // elected, its owner. Nothing here reclassifies a record.
+        const owner = assignment.status==="review_required" ? null : assignment.assignedTo;
+        const resumed = await tx.update(tasks).set({
+          contactId: input.contactId, dealId: input.dealId ?? null,
+          title: "Follow up inbound sales request",
+          description: `Inbound ${request.sourceType} request${!assignment.assignedTo ? ` — Management assignment review: ${assignment.reasonCode}` : ""}`,
+          assignedTo: owner, canonicalAssignee: owner,
+          authorityFence: sql`${tasks.authorityFence} + 1`,
+        }).where(and(eq(tasks.id,task.id),sql`${tasks.contactId} IS NULL`)).returning({id:tasks.id,fence:tasks.authorityFence});
+        if (resumed[0]) {
+          await tx.insert(taskAuthorityEvents).values({
+            taskId: task.id, eventKey: `inbound-class-review-resolved:${request.id}`, eventType: "inbound_class_review_resolved",
+            producer: "inbound_request", commandKey: `inbound:${request.id}:task`, fence: resumed[0].fence,
+            payload: { requestId: request.id, contactId: input.contactId, dealId: input.dealId ?? null, assignedTo: owner },
+          }).onConflictDoNothing({ target: [taskAuthorityEvents.taskId, taskAuthorityEvents.eventKey] });
+        }
+      }
       const link = await linkInboundWork({ requestId: request.id, workType: "task", taskId: task.id },tx);
       if (!link?.taskId || link.taskId !== task.id) throw new Error("INBOUND_SALES_WORK_LINK_FAILED");
       // Occurrence replay must not overwrite a later human deadline.
@@ -746,6 +833,13 @@ export async function orchestrateInboundRequest(input: {
       }
       return {review};
       });
+      } catch (error) {
+        // The occurrence's retained contact/deal are not an authorized production context (explicit nonproduction class,
+        // archived, or linked to another contact). Nothing is assigned or linked; the refusal is retained as durable
+        // review evidence on the request instead of surfacing as a failure that hides the partial result.
+        if (!(error instanceof WorkCommandError) || error.status !== 409 || !error.message.startsWith(INBOUND_CONTEXT_UNAVAILABLE_PREFIX)) throw error;
+        sales = await retainInboundContextRefusal(request.id, input.territory);
+      }
       reviewRequired ||= sales.review;
     } else if (policy.sourceClass === "support_request") {
       if (!input.ticketId) throw new Error("INBOUND_SUPPORT_REQUEST_TICKET_REQUIRED");

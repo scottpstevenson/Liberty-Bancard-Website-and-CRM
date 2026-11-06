@@ -466,6 +466,9 @@ async function handleWorkflowEnroll(row: OutboxRow): Promise<void> {
       ghlContactId,
       contactId: appRow.contactId,
       metadata: { applicationId: appId },
+      // This outbox row is the single retry owner for a definite transient refusal. Without the flag the lower helper
+      // also writes an unscoped deferred-enrollment obligation, and both would re-trigger the same enrollment.
+      _callerOwnsDeferral: true,
     });
   } catch {
     // A throw after the marker cannot prove the trigger was not accepted.

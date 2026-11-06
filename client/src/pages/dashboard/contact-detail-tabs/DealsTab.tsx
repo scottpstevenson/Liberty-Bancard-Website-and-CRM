@@ -40,6 +40,8 @@ interface DealsTabProps {
   isManagerOrAdmin: boolean;
   agentsList: Agent[] | undefined;
   setLocation: (path: string) => void;
+  /** Deal requested by the entering link (e.g. the MID Registry). Honoured only if it is one of this contact's visible deals. */
+  requestedDealId?: number | null;
 }
 
 interface AnalysisProposal {
@@ -339,8 +341,15 @@ function CoBrandedProposalsSection({ dealId }: { dealId: number }) {
   );
 }
 
-export function DealsTab({ deals, contactId, isManagerOrAdmin, agentsList, setLocation }: DealsTabProps) {
+export function DealsTab({ deals, contactId, isManagerOrAdmin, agentsList, setLocation, requestedDealId = null }: DealsTabProps) {
   const queryClient = useQueryClient();
+  // A requested deal that is not one of this contact's authorized, loaded deals is ignored (never fetched or revealed).
+  const selectedDealId = requestedDealId != null && deals.some((d) => d.id === requestedDealId) ? requestedDealId : null;
+  const selectedRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    if (selectedDealId == null) return;
+    selectedRef.current?.scrollIntoView({ block: "center" });
+  }, [selectedDealId]);
   const { toast } = useToast();
 
   const shareLinkMutation = useMutation({
@@ -464,10 +473,19 @@ export function DealsTab({ deals, contactId, isManagerOrAdmin, agentsList, setLo
           </DropdownMenu>
         </div>
       )}
+      {requestedDealId != null && selectedDealId == null && (
+        <p role="status" className="text-sm text-muted-foreground" data-testid="text-requested-deal-unavailable">
+          The deal you opened is not available on this contact's record, so no deal is selected.
+        </p>
+      )}
       {deals.map(deal => (
         <Card
           key={deal.id}
-          className="hover-elevate"
+          id={`deal-${deal.id}`}
+          ref={deal.id === selectedDealId ? selectedRef : undefined}
+          className={`hover-elevate${deal.id === selectedDealId ? " ring-2 ring-primary scroll-mt-24" : ""}`}
+          aria-current={deal.id === selectedDealId ? "true" : undefined}
+          data-selected={deal.id === selectedDealId ? "true" : undefined}
           data-testid={`card-deal-${deal.id}`}
         >
           <CardContent className="py-4 space-y-3">
@@ -480,6 +498,9 @@ export function DealsTab({ deals, contactId, isManagerOrAdmin, agentsList, setLo
                   <span className="font-medium" data-testid={`text-deal-pipeline-${deal.id}`}>
                     {deal.pipeline}
                   </span>
+                  {deal.id === selectedDealId && (
+                    <Badge data-testid={`badge-deal-selected-${deal.id}`}>Selected from MID Registry</Badge>
+                  )}
                   <Badge variant="outline" data-testid={`badge-deal-stage-${deal.id}`}>
                     {deal.stage}
                   </Badge>

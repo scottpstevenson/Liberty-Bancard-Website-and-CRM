@@ -233,13 +233,28 @@ export function parseLocalEntityId(kind: LocalEntityId["kind"], value: string): 
   return valid ? { kind, value } : null;
 }
 /** Preserve only registered context, never resolve IDs by display name. */
+/** The MID Registry list state (view/status/page/expanded deal) a record page may return to. Only the registry's own
+ * path with a bounded plain query is accepted, so a `from` value can never name another origin or path. */
+const REGISTRY_RETURN = /^\/dashboard\/boarding(?:\?[A-Za-z0-9_%=&.,:+~-]{0,1500})?$/;
+export function isRegistryReturnUrl(value: string): boolean { return REGISTRY_RETURN.test(value); }
+/** Validated registry return destination carried by a record URL, or null (invalid, repeated or absent). */
+export function registryReturnFromSearch(search: string): string | null {
+  const values = [...new Set(new URLSearchParams(search).getAll("from"))];
+  return values.length === 1 && isRegistryReturnUrl(values[0]) ? values[0] : null;
+}
+/** A requested local deal id from `dealId`; anything but one positive integer is ignored. */
+export function requestedDealIdFromSearch(search: string): number | null {
+  const values = [...new Set(new URLSearchParams(search).getAll("dealId"))];
+  if (values.length !== 1 || !/^[1-9][0-9]{0,9}$/.test(values[0])) return null;
+  return Number(values[0]);
+}
 export function safeParams(search: string, keys: readonly string[]): URLSearchParams {
   const input = new URLSearchParams(search), out = new URLSearchParams();
   for (const key of keys) {
     const values = [...new Set(input.getAll(key))];
     if (values.length !== 1) continue;
     if (key in contextIdKinds && !parseLocalEntityId(key as LocalEntityId["kind"], values[0])) continue;
-    if (key === "from" && !/^\/dashboard(?:\/[a-z0-9/-]*)?$/.test(values[0])) continue;
+    if (key === "from" && !/^\/dashboard(?:\/[a-z0-9/-]*)?$/.test(values[0]) && !isRegistryReturnUrl(values[0])) continue;
     out.set(key, values[0]);
   }
   return out;

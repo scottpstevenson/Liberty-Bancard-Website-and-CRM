@@ -582,6 +582,14 @@ async function testEstimateForm(): Promise<void> {
     `status=${res.status} body=${(await res.clone().text().catch(() => "")).slice(0, 300)}`
   );
   if (res.status === 429) return;
+  // A fresh public submission creates an unclassified contact and deal. It must be accepted as 201 with a receipt and a
+  // truthful accepted/review_required state; a 400 (or a recoverable 202) is a failure, not a pass.
+  const estimateBody: any = await res.clone().json().catch(() => ({}));
+  assert(
+    "Estimate form is accepted as 201 with a receipt and truthful state (400/202 are failures)",
+    res.status === 201 && !!estimateBody.requestReceipt && ["accepted", "review_required"].includes(estimateBody.status),
+    `status=${res.status} body=${JSON.stringify(estimateBody).slice(0, 300)}`
+  );
 
   await new Promise(r => setTimeout(r, 400));
   const [contact] = await db.select().from(contacts).where(eq(contacts.email, email)).limit(1);
@@ -663,6 +671,14 @@ async function testGetStartedForm(): Promise<void> {
     `status=${res.status} body=${(await res.clone().text().catch(() => "")).slice(0, 300)}`
   );
   if (res.status === 429) return;
+  // A fresh public submission creates an unclassified contact and deal. It must be accepted as 201 with a receipt and a
+  // truthful accepted/review_required state; a 400 (or a recoverable 202) is a failure, not a pass.
+  const getstartedBody: any = await res.clone().json().catch(() => ({}));
+  assert(
+    "Get Started form is accepted as 201 with a receipt and truthful state (400/202 are failures)",
+    res.status === 201 && !!getstartedBody.requestReceipt && ["accepted", "review_required"].includes(getstartedBody.status),
+    `status=${res.status} body=${JSON.stringify(getstartedBody).slice(0, 300)}`
+  );
 
   await new Promise(r => setTimeout(r, 400));
   const [contact] = await db.select().from(contacts).where(eq(contacts.email, email)).limit(1);

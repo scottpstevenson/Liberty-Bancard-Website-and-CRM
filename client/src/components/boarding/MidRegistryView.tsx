@@ -159,7 +159,7 @@ export default function MidRegistryView({
     ) : null;
   const openLink = (r: RegistryRow, full = false) =>
     r.contact_id ? (
-      <Link href={`/dashboard/contacts/${r.contact_id}?area=sales-work&section=deals&dealId=${r.deal_id}&from=/dashboard/boarding`}>
+      <Link href={`/dashboard/contacts/${r.contact_id}?area=sales-work&section=deals&dealId=${r.deal_id}&from=${encodeURIComponent(registryUrl(search, {}))}`}>
         <Button variant={full ? "outline" : "ghost"} size="sm" aria-label={`Open ${merchantName(r)}`} data-testid={`button-open-reg-${r.deal_id}`}>
           <ExternalLink className="w-4 h-4 mr-1" />Open
         </Button>

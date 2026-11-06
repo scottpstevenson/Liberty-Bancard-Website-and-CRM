@@ -56,7 +56,7 @@ import Comments from "@/components/Comments";
 import { EmailComposer } from "@/components/EmailComposer";
 import { ReadinessCard } from "@/components/ReadinessCard";
 import { CrmDataState, CrmPage, RecordHeader, CrmPageHeader, CrmAreaNav, CrmDetailDrawer } from "@/components/crm/CrmPresentation";
-import { contactAreaSections, contactAreas, contactSectionArea, contactSections, contactWorkspaceState, buildContactWorkspaceHref, parseLocalEntityId, type ContactArea, type ContactSection } from "@/lib/crm-destination-state";
+import { contactAreaSections, contactAreas, contactSectionArea, contactSections, contactWorkspaceState, buildContactWorkspaceHref, parseLocalEntityId, registryReturnFromSearch, requestedDealIdFromSearch, type ContactArea, type ContactSection } from "@/lib/crm-destination-state";
 import { useEmployeeCrm } from "@/components/crm/employee-crm-context";
 
 // #240 — One-click copy button for phone/email
@@ -1319,6 +1319,12 @@ function ContactDetailRecord() {
   const queryClient = useQueryClient();
   const updateContact = useUpdateContact();
   const { user } = useAuth();
+  // Validated MID Registry return (path + list state) and requested deal, both carried in the record URL so they survive reload.
+  const registryReturn = registryReturnFromSearch(search);
+  const requestedDealId = requestedDealIdFromSearch(search);
+  const backTarget = registryReturn ?? readReturnUrl("people", user?.id) ?? "/dashboard/contacts";
+  const backLabel = registryReturn ? "Back to MID Registry" : "Back to Contacts";
+  const recordsLabel = registryReturn ? "MID Registry" : "Records";
   const noteIntents=useRetainedLocalIntent();
   const isManagerOrAdmin = user?.role === "admin" || user?.role === "manager";
   const [isEditing, setIsEditing] = useState(false);
@@ -1685,11 +1691,11 @@ function ContactDetailRecord() {
       <div className={`${employeeCrm ? "crm-page" : ""} space-y-4 pb-6`} data-testid="contact-detail-page" aria-busy="true">
         <RecordHeader className="flex flex-col gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-            <Button variant="ghost" className="self-start" onClick={() => setLocation(readReturnUrl("people", user?.id) ?? "/dashboard/contacts")} data-testid="button-back">
-            <ArrowLeft className="h-4 w-4 mr-2" /> Back to Contacts
+            <Button variant="ghost" className="self-start" onClick={() => setLocation(backTarget)} data-testid="button-back">
+            <ArrowLeft className="h-4 w-4 mr-2" /> {backLabel}
             </Button>
             <nav aria-label="Breadcrumb" className="text-xs text-muted-foreground" data-testid="contact-breadcrumb">
-            <Link href={readReturnUrl("people", user?.id) ?? "/dashboard/contacts"} className="underline-offset-2 hover:underline">Records</Link>
+            <Link href={backTarget} className="underline-offset-2 hover:underline">{recordsLabel}</Link>
             <span aria-hidden="true"> / </span><span aria-current="page">Contact</span>
             </nav>
           </div>
@@ -2058,11 +2064,11 @@ function ContactDetailRecord() {
       {/* Header */}
       <RecordHeader className="flex flex-col gap-3">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-          <Button variant="ghost" className="self-start" onClick={() => setLocation(readReturnUrl("people", user?.id) ?? "/dashboard/contacts")} data-testid="button-back">
-          <ArrowLeft className="h-4 w-4 mr-2" /> Back to Contacts
+          <Button variant="ghost" className="self-start" onClick={() => setLocation(backTarget)} data-testid="button-back">
+          <ArrowLeft className="h-4 w-4 mr-2" /> {backLabel}
           </Button>
           <nav aria-label="Breadcrumb" className="text-xs text-muted-foreground" data-testid="contact-breadcrumb">
-          <Link href={readReturnUrl("people", user?.id) ?? "/dashboard/contacts"} className="underline-offset-2 hover:underline">Records</Link>
+          <Link href={backTarget} className="underline-offset-2 hover:underline">{recordsLabel}</Link>
           <span aria-hidden="true"> / </span><span aria-current="page">Contact</span>
           </nav>
         </div>
@@ -2970,6 +2976,7 @@ function ContactDetailRecord() {
             isManagerOrAdmin={isManagerOrAdmin}
             agentsList={agentsList}
             setLocation={setLocation}
+            requestedDealId={requestedDealId}
           /> : <CrmDataState state="unavailable" message="Deal details were not included in this section response." />}
         </TabsContent>
 

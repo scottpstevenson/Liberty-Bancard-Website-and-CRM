@@ -203,6 +203,100 @@ try {
   assert.ok(closedRow.status === "closed" && closedRow.closed_at && !aliasRow.mid, "the closed MID is history and the deal alias is cleared");
   checks.push("MID registry: Close MID dialog closes the MID, clears the alias and the row shows no MID");
 
+  // F03: Open/Back round trip between the MID registry and the Contact deals section.
+  {
+    // 55 pending onboarding deals so the pending cohort has a real second page (page size 50).
+    await h.pool.query(`WITH c AS (INSERT INTO contacts (first_name,last_name,email,phone,company_name)
+        SELECT 'Pg','R'||g, 's5br-pg-'||$1||'-'||g||'@example.test', '+1305557'||lpad(g::text,4,'0'), 'S5BR '||$2||' Pg'||g FROM generate_series(1,55) g RETURNING id)
+      INSERT INTO deals (pipeline,stage,name,contact_id) SELECT 'onboarding','Underwriting','S5BR '||$2||' pg-'||id, id FROM c`, [regTag, tag]);
+    const tid = (id: string) => `[data-testid="${id}"]`;
+    const clickTid = async (id: string) => {
+      await b!.evaluate(`document.querySelector('${tid(id)}').scrollIntoView({block:'center'})`);
+      await new Promise(r => setTimeout(r, 300));
+      await b!.click(tid(id));
+    };
+    const loc = () => b!.evaluate("location.pathname+location.search") as Promise<string>;
+    const backLabel = () => b!.evaluate(`document.querySelector('${tid("button-back")}')?.textContent?.trim()||''`) as Promise<string>;
+    const contactReady = async (label: string) => {
+      try { await until(`!!document.querySelector('${tid("contact-detail-page")}') && !!document.querySelector('${tid("button-back")}')`, label); }
+      catch (e) {
+        await b!.evaluate(`[...document.querySelectorAll('summary,button')].find(x=>/error details/i.test(x.textContent||''))?.click()`);
+        throw new Error(`${String(e)}; page text: ${JSON.stringify(((await b!.evaluate("document.body.innerText")) as string).slice(-900))}; url ${await loc()}`);
+      }
+    };
+    const selectedDeal = () => b!.evaluate(`document.querySelector('[data-selected="true"][data-testid^="card-deal-"]')?.getAttribute('data-testid')||''`) as Promise<string>;
+    const contactOf = async (deal: number) => (await h.pool.query(`SELECT contact_id FROM deals WHERE id=$1`, [deal])).rows[0].contact_id as number;
+    for (const [w, theme] of [[1280, "light"], [768, "dark"], [390, "light"]] as const) {
+      await b.evaluate(`localStorage.setItem('liberty-theme','${theme}')`);
+      await b.call("Emulation.setDeviceMetricsOverride", { width: w, height: 900, deviceScaleFactor: 1, mobile: false });
+      await b.navigate("/dashboard/boarding?view=mid-registry&midStatus=pending&midPage=2");
+      await until(`!!document.querySelector('[data-testid^="button-open-reg-"]')`, "registry page 2 rows");
+      const target = Number(await b.evaluate(`document.querySelector('[data-testid^="button-open-reg-"]').getAttribute('data-testid').replace('button-open-reg-','')`));
+      const cid = await contactOf(target);
+      await clickTid(`button-mid-history-${target}`);
+      await until(`/midDeal=${target}/.test(location.search)`, "expanded deal in the URL");
+      const registryLoc = await loc();
+      assert.ok(/midStatus=pending/.test(registryLoc) && /midPage=2/.test(registryLoc) && /view=mid-registry/.test(registryLoc), "registry state is in the URL before Open");
+      await clickTid(`button-open-reg-${target}`);
+      await contactReady("contact record from Open");
+      await until(`!!document.querySelector('[data-testid="card-deal-${target}"]')`, "deal card");
+      assert.equal(await selectedDeal(), `card-deal-${target}`, `${w}px: Open selects the authorized deal`);
+      assert.equal(await backLabel(), "Back to MID Registry", "Back names the registry");
+      await noOverflow(`contact from registry ${w}/${theme}`);
+      await b.screenshot(`mid-registry-open-contact-${w}`);
+      const contactLoc = await loc();
+      // Reload keeps the selection and the return target.
+      await b.navigate(contactLoc);
+      await contactReady("contact after reload");
+      await until(`!!document.querySelector('${tid("card-deal-" + target)}[data-selected="true"]')`, "selection after reload");
+      assert.equal(await backLabel(), "Back to MID Registry", "reload keeps the return target");
+      // Back returns to the exact registry state.
+      await clickTid("button-back");
+      await until(`location.pathname==='/dashboard/boarding' && !!document.querySelector('${tid("view-mid-registry")}')`, "registry after Back");
+      assert.equal(await loc(), registryLoc, `${w}px: Back restores status, page and expanded deal exactly`);
+      await until(`!!document.querySelector('[data-testid="rail-mid-history-${target}"]') && !!document.querySelector('${tid("button-open-reg-" + target)}')`, "page 2 row and history rail after Back");
+      // Browser Back/Forward through the same entries.
+      await clickTid(`button-open-reg-${target}`);
+      await contactReady("contact again");
+      await b.evaluate("history.back()");
+      await until(`location.pathname==='/dashboard/boarding' && !!document.querySelector('${tid("view-mid-registry")}')`, "registry after browser Back");
+      assert.equal(await loc(), registryLoc, "browser Back returns to the same registry state");
+      await b.evaluate("history.forward()");
+      await contactReady("contact after browser Forward");
+      assert.equal(await selectedDeal(), `card-deal-${target}`, "browser Forward restores the selected deal");
+      // Direct entry (no from): normal Contacts Back, nothing selected.
+      await b.navigate(`/dashboard/contacts/${cid}?area=sales-work&section=deals`);
+      await contactReady("direct entrance");
+      assert.equal(await backLabel(), "Back to Contacts", "direct entry keeps the People Back");
+      assert.equal(await selectedDeal(), "", "direct entry selects no deal");
+      // Unsafe return URLs fall back to the safe default; no navigation leaves the app.
+      for (const bad of ["https://evil.example/x", "//evil.example/x", "/dashboard/boarding?x=<script>", "/dashboard/contacts/1", "javascript:alert(1)"]) {
+        await b.navigate(`/dashboard/contacts/${cid}?area=sales-work&section=deals&dealId=${target}&from=${encodeURIComponent(bad)}`);
+        await contactReady(`unsafe from ${bad}`);
+        assert.equal(await backLabel(), "Back to Contacts", `unsafe from "${bad}" is ignored`);
+        await clickTid("button-back");
+        await until(`location.pathname.startsWith('/dashboard/contacts')`, "safe fallback navigation");
+        assert.ok((await loc()).startsWith("/dashboard/contacts"), `unsafe from "${bad}" never leaves the app`);
+      }
+      // Foreign deal id (another contact's) and malformed ids select nothing and say so (or stay silent when malformed).
+      const foreign = await contactOf(dLive) === cid ? dPending : dLive;
+      await b.navigate(`/dashboard/contacts/${cid}?area=sales-work&section=deals&dealId=${foreign}&from=${encodeURIComponent(registryLoc)}`);
+      await contactReady("foreign deal id");
+      await until(`!!document.querySelector('${tid("text-requested-deal-unavailable")}')`, "unavailable-deal notice");
+      assert.equal(await selectedDeal(), "", "a foreign deal is never selected or revealed");
+      assert.ok(!(await b.evaluate(`!!document.querySelector('${tid("card-deal-" + foreign)}')`)), "a foreign deal card is not rendered");
+      assert.equal(await backLabel(), "Back to MID Registry", "a valid return survives an unusable deal id");
+      for (const badDeal of ["abc", "0", "-3", "1e3", `${target}&dealId=${foreign}`]) {
+        await b.navigate(`/dashboard/contacts/${cid}?area=sales-work&section=deals&dealId=${badDeal}`);
+        await contactReady(`malformed dealId ${badDeal}`);
+        assert.equal(await selectedDeal(), "", `dealId "${badDeal}" selects nothing`);
+      }
+      checks.push(`MID registry Open/Back ${w}px ${theme}: page-2 pending state + expanded history survive Open, reload, Back, browser Back/Forward; direct entry, unsafe return URLs, foreign and malformed deal ids fall back safely`);
+    }
+    await b.call("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+    await b.evaluate("localStorage.setItem('liberty-theme','light')");
+  }
+
   // Role denials (admin/manager only), separate real sessions.
   const roleSession = async (role: string) => {
     const rb = await privateStage3Browser(h.base, "", h.originalFetch, dir, { realInput: true, startupTimeoutMs: 30000 });

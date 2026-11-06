@@ -36,6 +36,7 @@ import { recordAnalyticsEvent } from "../services/analytics-events";
 import { FORM_SUBMITTED, DEAL_CREATED } from "@shared/analytics-events";
 import {
   claimInboundRequest,
+  getInboundRequestById,
   getPublicInboundRequestStatus,
   inboundSlaDueAt,
   orchestrateInboundRequest,
@@ -139,6 +140,25 @@ export function registerPublicRoutes(app: Express) {
   async function failInbound(req: any, status: number) {
     const requestId = req.inboundRequestId as string | undefined;
     if (requestId) await setInboundRequestLifecycle(requestId, "failed", `HTTP_${status}`);
+  }
+
+  /**
+   * Sales-form failure after local rows may already exist. When the claimed request retains a contact, the rows are real:
+   * answer with a truthful recoverable receipt (202, review_required) instead of a generic 400 that hides them. The
+   * retained contact/deal links stay on the request so a later review resumes without creating duplicates.
+   */
+  async function respondInboundFailure(req: any, res: any, err: unknown) {
+    const requestId = req.inboundRequestId as string | undefined;
+    if (requestId) {
+      const retained = await getInboundRequestById(requestId).catch(() => null);
+      if (retained?.contactId) {
+        await setInboundRequestLifecycle(requestId, "review_required", "INBOUND_HANDOFF_RECOVERABLE").catch(() => {});
+        console.error("[PublicInbound] retained recoverable handoff:", requestId, err instanceof Error ? err.message : err);
+        return res.status(202).json({ success: false, recoverable: true, requestReceipt: requestId, status: "review_required", error: "INBOUND_HANDOFF_RECOVERABLE" });
+      }
+    }
+    await failInbound(req, 400);
+    return res.status(400).json({ error: "INVALID_SUBMISSION" });
   }
 
   async function legacyAutoProposalEmail(dealId: number, contactId: number, meta: { vertical?: string; businessName?: string; contactName?: string; email?: string; consentEmail?: boolean }) {
@@ -768,7 +788,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }
 
       const deal = await storage.createDeal({
-        contactId: contact.id, pipeline: "sales", stage: "New Lead",
+        contactId: contact.id, pipeline: "sales", stage: "New Lead", inboundRequestId: submissionId,
         totalVolume: monthlyVolume, totalFees,
         notes: `Estimate request. Volume: ${monthlyVolume}, Fees: ${totalFees}`,
         leadSource: utmSource ? `utm:${utmSource}` : "website",
@@ -832,8 +852,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       ingestBusinessFromContact(contact.id, "manual_upload", "website_estimate").catch(err => console.warn("[Estimate] Business ingest failed:", err));
       res.status(201).json(await acceptInbound(req, { contactId: contact.id, dealId: deal.id }));
     } catch (err: any) {
-      await failInbound(req, 400);
-      res.status(400).json({ error: "INVALID_SUBMISSION" });
+      await respondInboundFailure(req, res, err);
     }
   });
 
@@ -1073,7 +1092,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }
 
       const deal = await storage.createDeal({
-        contactId: contact.id, pipeline: "sales", stage: "New Lead",
+        contactId: contact.id, pipeline: "sales", stage: "New Lead", inboundRequestId: submissionId,
         offerPath,
         leadSource: utmSource ? `utm:${utmSource}` : "website",
         campaignName: utmCampaign || undefined,
@@ -1177,8 +1196,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }).catch((err: any) => console.error("[ReviewQueue] Get-started enqueue failed:", err.message));
       res.status(201).json(await acceptInbound(req, { contactId: contact.id, dealId: deal.id }));
     } catch (err: any) {
-      await failInbound(req, 400);
-      res.status(400).json({ error: "INVALID_SUBMISSION" });
+      await respondInboundFailure(req, res, err);
     }
   });
 
@@ -1360,7 +1378,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }
 
       const deal = await storage.createDeal({
-        contactId: contact.id, pipeline: "sales", stage: "New Lead",
+        contactId: contact.id, pipeline: "sales", stage: "New Lead", inboundRequestId: submissionId,
         notes: `Callback request. Best time: ${bestTime || "Anytime"}. Notes: ${notes || "None"}`,
       });
 
@@ -1399,8 +1417,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }).catch(() => {});
       res.status(201).json(await acceptInbound(req, { contactId: contact.id, dealId: deal.id }));
     } catch (err: any) {
-      await failInbound(req, 400);
-      res.status(400).json({ error: "INVALID_SUBMISSION" });
+      await respondInboundFailure(req, res, err);
     }
   });
 
