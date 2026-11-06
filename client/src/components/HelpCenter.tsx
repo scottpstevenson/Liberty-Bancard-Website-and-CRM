@@ -6,6 +6,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
+import { usePublicIntake } from "@/hooks/use-public-intake";
+import { PublicIntakeNotice, IntakeReceipt } from "@/components/PublicIntakeNotice";
 import { useToast } from "@/hooks/use-toast";
 import {
   MessageCircle, Calendar, Phone, Send, Loader2, Bot, User,
@@ -166,27 +168,16 @@ function CallbackPanel() {
   const { toast } = useToast();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const submissionIdempotencyKey = useRef<string | null>(null);
+  const intake = usePublicIntake("callback_help", "/api/public/callback");
+  const submitting = intake.submitting;
+  const submitted = intake.state.phase === "saved";
 
   const handleSubmit = async () => {
     if (!name.trim() || !phone.trim()) return;
-    submissionIdempotencyKey.current ??= crypto.randomUUID();
-    setSubmitting(true);
-    try {
-      await apiRequest(
-        "POST",
-        "/api/public/callback",
-        { name, phone, bestTime: "ASAP" },
-        { "Idempotency-Key": submissionIdempotencyKey.current },
-      );
-      setSubmitted(true);
-      submissionIdempotencyKey.current = null;
-    } catch {
+    // Only a confirmed save shows success; a recoverable (202), unreadable or failed response keeps the same intent/key.
+    const outcome = await intake.submit({ name, phone, bestTime: "ASAP" });
+    if (outcome.kind === "rejected") {
       toast({ title: "Something went wrong", description: "Please try calling us at 954-266-8214.", variant: "destructive" });
-    } finally {
-      setSubmitting(false);
     }
   };
 
@@ -194,8 +185,13 @@ function CallbackPanel() {
     return (
       <div className="text-center py-8" data-testid="callback-success">
         <CheckCircle className="w-10 h-10 text-emerald-500 mx-auto mb-3" />
-        <p className="text-sm font-medium">We'll call you back shortly!</p>
-        <p className="text-xs text-muted-foreground mt-1">Usually within 30 minutes during business hours.</p>
+        <p className="text-sm font-medium" data-testid="text-help-callback-success">Request saved.</p>
+        <p className="text-xs text-muted-foreground mt-1 mb-2">
+          {intake.state.phase === "saved" && intake.state.pendingReview
+            ? "Follow-up is pending review; we can't promise a time yet."
+            : "A team member will follow up using the number you gave."}
+        </p>
+        {intake.state.phase === "saved" && intake.state.receipt && <IntakeReceipt receipt={intake.state.receipt} testIdPrefix="callback-help" />}
       </div>
     );
   }
@@ -209,6 +205,16 @@ function CallbackPanel() {
       </div>
       <Input placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} data-testid="help-callback-name" />
       <Input type="tel" placeholder="Phone number" value={phone} onChange={(e) => setPhone(e.target.value)} data-testid="help-callback-phone" />
+      <PublicIntakeNotice
+        compact
+        state={intake.state}
+        testIdPrefix="callback-help-intake"
+        checking={intake.checking}
+        checkNote={intake.checkNote}
+        onCheck={intake.check}
+        onRetry={"restored" in intake.state && intake.state.restored ? undefined : handleSubmit}
+        onDismiss={intake.dismiss}
+      />
       <Button className="w-full gap-2" onClick={handleSubmit} disabled={submitting || !name.trim() || !phone.trim()} data-testid="help-callback-submit">
         {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
         Request Callback

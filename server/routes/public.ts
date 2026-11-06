@@ -43,6 +43,17 @@ import {
   queueAmbiguousCallbackReview,
   setInboundRequestLifecycle,
 } from "../services/inbound-request-authority";
+import {
+  INBOUND_HANDOFF_RECOVERABLE,
+  RECOVERABLE_SALES_SOURCE_TYPES,
+  bindOccurrenceProgress,
+  claimInboundRecovery,
+  contactHasOccurrenceEvidence,
+  ensureOccurrenceNotification,
+  findOccurrenceDeal,
+  pewcDecisionRecorded,
+  resolveCommittedOccurrenceProgress,
+} from "../services/public-sales-occurrence";
 
 const PUBLIC_INBOUND_SOURCES: Record<string, [string, string]> = {
   "/api/public/estimate": ["website_form", "estimate_form"],
@@ -85,11 +96,23 @@ export function registerPublicRoutes(app: Express) {
       if (claim.outcome === "conflict") return res.status(409).json({ error: "Idempotency key conflicts with another request" });
       if (claim.outcome === "scope_mismatch") return res.status(404).json({ error: "Request not found" });
       if (claim.outcome === "replay") {
+        // An unfinished sales occurrence (explicit recoverable hold, or a first execution silent past its lease) is
+        // re-entered through the SAME handler, intent and key. Exactly one concurrent replay wins the atomic claim.
+        if ((RECOVERABLE_SALES_SOURCE_TYPES as readonly string[]).includes(claim.request.sourceType)) {
+          const recovering = await claimInboundRecovery(claim.request.id);
+          if (recovering) {
+            (req as any).inboundRequestId = recovering.id;
+            (req as any).inboundRequest = recovering;
+            (req as any).inboundRecovery = true;
+            return next();
+          }
+        }
         return res.status(200).json({
           success: true,
           replayed: true,
           requestReceipt: claim.request.id,
           status: claim.request.lifecycleState,
+          recoverable: claim.request.lifecycleState === "review_required" && claim.request.terminalReason === INBOUND_HANDOFF_RECOVERABLE,
         });
       }
       (req as any).inboundRequestId = claim.request.id;
@@ -142,22 +165,56 @@ export function registerPublicRoutes(app: Express) {
     if (requestId) await setInboundRequestLifecycle(requestId, "failed", `HTTP_${status}`);
   }
 
+  const PEWC_EVENT_PREFIX: Record<string, string> = { estimate_form: "estimate", get_started_form: "get_started", callback_form: "callback" };
+
+  /** Retained rows of THIS occurrence for a recovery re-entry (null when nothing committed). */
+  async function recoveredContext(req: any, sourceType: string) {
+    if (!req.inboundRecovery) return null;
+    const requestId = req.inboundRequestId as string;
+    const progress = await resolveCommittedOccurrenceProgress(requestId);
+    if (!progress?.contactId) return null;
+    const contact = await storage.getContact(progress.contactId);
+    if (!contact) return null;
+    return {
+      contact,
+      deal: await findOccurrenceDeal(requestId),
+      hasEvidence: await contactHasOccurrenceEvidence(requestId, sourceType, contact.id),
+    };
+  }
+
   /**
-   * Sales-form failure after local rows may already exist. When the claimed request retains a contact, the rows are real:
-   * answer with a truthful recoverable receipt (202, review_required) instead of a generic 400 that hides them. The
-   * retained contact/deal links stay on the request so a later review resumes without creating duplicates.
+   * Sales-form failure after local rows may already exist. Committed progress is read from the occurrence's own links
+   * and immutable evidence (source event keyed by this request id, deal.inbound_request_id, this occurrence's consent
+   * fact) and bound to the request. With real committed rows the answer is a truthful recoverable 202 and a replay of
+   * the same key resumes the missing work. Without them it remains a real failure.
    */
   async function respondInboundFailure(req: any, res: any, err: unknown) {
     const requestId = req.inboundRequestId as string | undefined;
+    let committed = false;
     if (requestId) {
-      const retained = await getInboundRequestById(requestId).catch(() => null);
-      if (retained?.contactId) {
-        await setInboundRequestLifecycle(requestId, "review_required", "INBOUND_HANDOFF_RECOVERABLE").catch(() => {});
-        console.error("[PublicInbound] retained recoverable handoff:", requestId, err instanceof Error ? err.message : err);
-        return res.status(202).json({ success: false, recoverable: true, requestReceipt: requestId, status: "review_required", error: "INBOUND_HANDOFF_RECOVERABLE" });
+      try {
+        const request = await getInboundRequestById(requestId);
+        const progress = request ? await resolveCommittedOccurrenceProgress(requestId) : null;
+        if (request && progress?.contactId) {
+          const prefix = PEWC_EVENT_PREFIX[request.sourceType];
+          committed = !!progress.dealId
+            || await contactHasOccurrenceEvidence(requestId, request.sourceType, progress.contactId)
+            || (!!prefix && await pewcDecisionRecorded(`${prefix}:${requestId}`));
+          if (committed) {
+            // A bind that did not land is not fatal: the same progress remains provable from immutable evidence.
+            await bindOccurrenceProgress(requestId, progress).catch((bindError) =>
+              console.error("[PublicInbound] progress bind deferred to evidence:", requestId, bindError instanceof Error ? bindError.message : bindError));
+            await setInboundRequestLifecycle(requestId, "review_required", INBOUND_HANDOFF_RECOVERABLE);
+            console.error("[PublicInbound] retained recoverable handoff:", requestId, err instanceof Error ? err.message : err);
+            return res.status(202).json({ success: false, recoverable: true, requestReceipt: requestId, status: "review_required", error: INBOUND_HANDOFF_RECOVERABLE });
+          }
+        }
+      } catch (recoveryError) {
+        console.error("[PublicInbound] recovery classification failed:", requestId, recoveryError instanceof Error ? recoveryError.message : recoveryError);
+        if (committed) return res.status(503).json({ error: "INBOUND_HANDOFF_UNCONFIRMED" });
       }
     }
-    await failInbound(req, 400);
+    await failInbound(req, 400).catch(() => {});
     return res.status(400).json({ error: "INVALID_SUBMISSION" });
   }
 
@@ -727,9 +784,15 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       if (utmSource) tags.push(`utm_src_${utmSource}`);
 
       const normalizedEstimateEmail = email?.trim().toLowerCase() || null;
-      const existingEstimateContact = normalizedEstimateEmail ? await storage.getContactByEmail(normalizedEstimateEmail) : null;
+      const recovered = await recoveredContext(req, "estimate_form");
+      const existingEstimateContact = recovered?.contact ?? (normalizedEstimateEmail ? await storage.getContactByEmail(normalizedEstimateEmail) : null);
       let contact: Contact;
-      if (existingEstimateContact) {
+      if (recovered?.hasEvidence) {
+        // Recovery: this occurrence's contact step already committed; reuse it, write nothing again.
+        contact = recovered.contact;
+      } else if (existingEstimateContact) {
+        // Bind the retained contact to the occurrence BEFORE mutating it.
+        await bindOccurrenceProgress(submissionId, { contactId: existingEstimateContact.id });
         contact = await processExistingPublicFormSubmission({
           existingContact: existingEstimateContact,
           permittedProfileUpdates: buildPublicContactPayload("estimate_form", {
@@ -773,9 +836,10 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           },
           actor: { actorType: "public" },
         });
+        await bindOccurrenceProgress(submissionId, { contactId: contact.id });
       }
 
-      if (estimatePewcRaw === true) {
+      if (estimatePewcRaw === true && !(recovered && await pewcDecisionRecorded(`estimate:${submissionId}`))) {
         await recordPewcDecision({
           contactId: contact.id,
           checked: true,
@@ -787,7 +851,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         });
       }
 
-      const deal = await storage.createDeal({
+      const deal = recovered?.deal ?? await storage.createDeal({
         contactId: contact.id, pipeline: "sales", stage: "New Lead", inboundRequestId: submissionId,
         totalVolume: monthlyVolume, totalFees,
         notes: `Estimate request. Volume: ${monthlyVolume}, Fees: ${totalFees}`,
@@ -795,12 +859,16 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         campaignName: utmCampaign || undefined,
         ...(contact.partnerOrgId ? { partnerOrgId: contact.partnerOrgId } : {}),
       });
+      await bindOccurrenceProgress(submissionId, { contactId: contact.id, dealId: deal.id });
 
-      await storage.createNotification({
+      await ensureOccurrenceNotification(submissionId, {
         channel: "#sales", title: "New Estimate Request",
         message: `${firstName} ${lastName} - Volume: ${monthlyVolume}, Fees: ${totalFees}`,
         type: "info",
       });
+
+      // Post-accept effects run only after the authority accepted the occurrence, so a recovered request runs them once.
+      const runPostAcceptEffects = () => {
 
       recordAnalyticsEvent({
         eventName: FORM_SUBMITTED,
@@ -850,7 +918,10 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         }
       }).catch(err => console.error("[Attribution] estimate error:", err));
       ingestBusinessFromContact(contact.id, "manual_upload", "website_estimate").catch(err => console.warn("[Estimate] Business ingest failed:", err));
-      res.status(201).json(await acceptInbound(req, { contactId: contact.id, dealId: deal.id }));
+      };
+      const accepted = await acceptInbound(req, { contactId: contact.id, dealId: deal.id });
+      runPostAcceptEffects();
+      res.status(201).json(accepted);
     } catch (err: any) {
       await respondInboundFailure(req, res, err);
     }
@@ -1029,9 +1100,13 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       if (utmCampaign) tags.push(`utm_camp_${utmCampaign}`);
 
       const normalizedGsEmail = email?.trim().toLowerCase() || null;
-      const existingGsContact = normalizedGsEmail ? await storage.getContactByEmail(normalizedGsEmail) : null;
+      const recovered = await recoveredContext(req, "get_started_form");
+      const existingGsContact = recovered?.contact ?? (normalizedGsEmail ? await storage.getContactByEmail(normalizedGsEmail) : null);
       let contact: Contact;
-      if (existingGsContact) {
+      if (recovered?.hasEvidence) {
+        contact = recovered.contact;
+      } else if (existingGsContact) {
+        await bindOccurrenceProgress(submissionId, { contactId: existingGsContact.id });
         contact = await processExistingPublicFormSubmission({
           existingContact: existingGsContact,
           permittedProfileUpdates: buildPublicContactPayload("get_started_form", {
@@ -1077,9 +1152,10 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           },
           actor: { actorType: "public" },
         });
+        await bindOccurrenceProgress(submissionId, { contactId: contact.id });
       }
 
-      if (pewcConsent === true) {
+      if (pewcConsent === true && !(recovered && await pewcDecisionRecorded(`get_started:${submissionId}`))) {
         await recordPewcDecision({
           contactId: contact.id,
           checked: true,
@@ -1091,20 +1167,23 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         });
       }
 
-      const deal = await storage.createDeal({
+      const deal = recovered?.deal ?? await storage.createDeal({
         contactId: contact.id, pipeline: "sales", stage: "New Lead", inboundRequestId: submissionId,
         offerPath,
         leadSource: utmSource ? `utm:${utmSource}` : "website",
         campaignName: utmCampaign || undefined,
         ...(contact.partnerOrgId ? { partnerOrgId: contact.partnerOrgId } : {}),
       });
+      await bindOccurrenceProgress(submissionId, { contactId: contact.id, dealId: deal.id });
 
-      await storage.createNotification({
+      await ensureOccurrenceNotification(submissionId, {
         channel: "#sales", title: "New Quiz Lead",
         message: `${firstName} ${lastName} - ${vertical}, ${monthlyVolume}, Goal: ${goal}${utmSource ? ` (via ${utmSource})` : ""}`,
         type: "info",
       });
 
+      // Post-accept effects run only after the authority accepted the occurrence, so a recovered request runs them once.
+      const runPostAcceptEffects = () => {
       recordAnalyticsEvent({
         eventName: FORM_SUBMITTED,
         contactId: contact.id,
@@ -1194,7 +1273,10 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           dealId: deal.id,
         },
       }).catch((err: any) => console.error("[ReviewQueue] Get-started enqueue failed:", err.message));
-      res.status(201).json(await acceptInbound(req, { contactId: contact.id, dealId: deal.id }));
+      };
+      const accepted = await acceptInbound(req, { contactId: contact.id, dealId: deal.id });
+      runPostAcceptEffects();
+      res.status(201).json(accepted);
     } catch (err: any) {
       await respondInboundFailure(req, res, err);
     }
@@ -1314,13 +1396,15 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const lastName = nameParts.slice(1).join(" ") || "";
       const normalizedPhone = normalizePhoneE164(typeof phone === "string" ? phone : "");
       const phoneSuffix = normalizedPhone?.replace(/\D/g, "").slice(-10);
-      const possibleMatches = phoneSuffix
+      const recovered = await recoveredContext(req, "callback_form");
+      const possibleMatches = recovered ? [] : phoneSuffix
         ? await db.select().from(contacts).where(and(
           isNull(contacts.archivedAt),
           sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') LIKE ${`%${phoneSuffix}`}`,
         ))
         : [];
-      const matchingContacts = possibleMatches.filter(
+      // A recovery reuses the occurrence's own retained contact; it never re-matches by phone.
+      const matchingContacts = recovered ? [recovered.contact] : possibleMatches.filter(
         (candidate) => normalizePhoneE164(candidate.phone) === normalizedPhone,
       );
 
@@ -1336,8 +1420,11 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }
 
       let contact: Contact;
-      if (matchingContacts.length === 1) {
+      if (recovered?.hasEvidence) {
+        contact = recovered.contact;
+      } else if (matchingContacts.length === 1) {
         const existingContact = matchingContacts[0];
+        await bindOccurrenceProgress(submissionId, { contactId: existingContact.id });
         const existingName = `${existingContact.firstName || ""} ${existingContact.lastName || ""}`.trim();
         const incomingName = `${firstName} ${lastName}`.trim();
         contact = await processExistingPublicFormSubmission({
@@ -1375,20 +1462,23 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           },
           actor: { actorType: "public" },
         });
+        await bindOccurrenceProgress(submissionId, { contactId: contact.id });
       }
 
-      const deal = await storage.createDeal({
+      const deal = recovered?.deal ?? await storage.createDeal({
         contactId: contact.id, pipeline: "sales", stage: "New Lead", inboundRequestId: submissionId,
         notes: `Callback request. Best time: ${bestTime || "Anytime"}. Notes: ${notes || "None"}`,
       });
 
-      await storage.createNotification({
+      await bindOccurrenceProgress(submissionId, { contactId: contact.id, dealId: deal.id });
+
+      await ensureOccurrenceNotification(submissionId, {
         channel: "#sales", title: "Callback Requested",
         message: `${firstName} ${lastName} - ${phone} - Best time: ${bestTime || "Anytime"}`,
         type: "alert",
       });
 
-      if (pewcConsent) {
+      if (pewcConsent && !(recovered && await pewcDecisionRecorded(`callback:${submissionId}`))) {
         await recordPewcDecision({
           contactId: contact.id,
           checked: true,
@@ -1399,6 +1489,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           details: { formType: "callback", submissionId },
         });
       }
+      const runPostAcceptEffects = () => {
       recordAnalyticsEvent({
         eventName: FORM_SUBMITTED,
         contactId: contact.id,
@@ -1415,7 +1506,10 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         formId: "callback_form",
         metadata: { formType: "callback", stage: "New Lead" },
       }).catch(() => {});
-      res.status(201).json(await acceptInbound(req, { contactId: contact.id, dealId: deal.id }));
+      };
+      const accepted = await acceptInbound(req, { contactId: contact.id, dealId: deal.id });
+      runPostAcceptEffects();
+      res.status(201).json(accepted);
     } catch (err: any) {
       await respondInboundFailure(req, res, err);
     }

@@ -35,6 +35,7 @@ import {
   ArrowRightLeft, Loader2, ExternalLink,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { InboundResumeAction } from "@/components/lead-ops/InboundResumeAction";
 import { useAuth } from "@/hooks/use-auth";
 import { rememberReturnUrl } from "@/lib/crm-return-context";
 import { SouthFloridaQualificationPanel } from "@/components/lead-ops/SouthFloridaQualificationPanel";
@@ -699,6 +700,7 @@ interface InboundRequest {
   ticketId: number | null;
   createdAt: string;
   terminalReason: string | null;
+  reviewRevision?: number | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -2864,6 +2866,9 @@ export default function LeadOpsCenter() {
                             {request.dealId && <a className="text-blue-600 hover:underline" href="/dashboard/pipeline">Deal #{request.dealId}</a>}
                             {request.ticketId && <a className="text-blue-600 hover:underline" href="/dashboard/tickets">Ticket #{request.ticketId}</a>}
                             {!request.contactId && !request.dealId && !request.ticketId && <span className="text-muted-foreground">—</span>}
+                            {request.sourceClass === "sales_request" && request.lifecycleState === "review_required" && request.contactId && (
+                              <InboundResumeAction requestReceipt={request.requestReceipt} reviewRevision={request.reviewRevision ?? null} />
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

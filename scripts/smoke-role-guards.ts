@@ -283,6 +283,7 @@ const CASES: GuardCase[] = [
   // POST routes: CSRF fires before role gate for authenticated sessions → 403 without token.
   // Anon gets 401 (not authenticated). Agent and merchant are blocked by role gate (would get 403
   // even with a valid CSRF token). Manager/admin are role-allowed but still 403 without token.
+  { method: "POST", path: "/api/lead-ops/inbound-requests/00000000-0000-4000-8000-000000000000/resume", anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "inbound review resume (requireRole admin/manager; CSRF required — agent/merchant blocked by role gate)" },
   { method: "POST", path: "/api/contacts/mass-score",        anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "mass-score (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
   { method: "POST", path: "/api/contacts/mass-create-deals", anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "mass-create-deals (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
   { method: "POST", path: "/api/deals/bulk-stage",           anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "deal bulk-stage (requireRole admin/manager; CSRF required — agent blocked by role gate)" },

@@ -219,6 +219,8 @@ export type InboundClaimResult =
 export type PublicInboundRequestStatus = Readonly<{
   requestReceipt: string;
   status: string;
+  /** True only while a saved request still awaits its same-key recovery (never discloses the stored reason). */
+  recoverable: boolean;
 }>;
 
 export async function claimInboundRequest(input: {
@@ -716,6 +718,88 @@ export async function resumeInboundSalesRequestAfterReview(requestId: string): P
   return orchestrateInboundRequest({ requestId, contactId: request.contactId, dealId: request.dealId });
 }
 
+export type InboundResumeOutcome =
+  | { outcome: "continued"; requestReceipt: string; lifecycleState: string; assignmentStatus: string | null; assignedTo: string | null;
+      taskId: number | null; reviewRevision: number | null }
+  | { outcome: "already_continued"; requestReceipt: string; lifecycleState: string; assignmentStatus: string | null; assignedTo: string | null;
+      taskId: number | null; reviewRevision: number | null }
+  | { outcome: "blocked"; reason: string; message: string; status: 404 | 409 | 422; reviewRevision: number | null };
+
+/** Latest assignment-decision ordinal: the revision an operator must have seen to act on a retained review. */
+export async function currentInboundReviewRevision(requestId: string): Promise<number | null> {
+  const [row] = await db.select({ max: sql<number | null>`max(${inboundAssignmentDecisions.decisionOrdinal})` })
+    .from(inboundAssignmentDecisions).where(eq(inboundAssignmentDecisions.requestId, requestId));
+  return row?.max === null || row?.max === undefined ? null : Number(row.max);
+}
+
+/**
+ * Scoped, authorized continuation of one retained sales review (admin/manager entrance). Every identity, classification,
+ * archive, ownership, revision and task precondition is re-read now; a failed precondition returns its real reason and
+ * changes nothing. It never classifies a record, never elects an owner on its own (the existing assignment authority
+ * decides from current ownership), never reopens completed human work or a terminal request, and leaves every external
+ * effect held. Repeating it after success is a read-only "already continued".
+ */
+export async function resumeInboundSalesRequestForActor(input: {
+  requestId: string;
+  actorId: string;
+  expectedReviewRevision: number | null;
+}): Promise<InboundResumeOutcome> {
+  const blocked = async (reason: string, message: string, status: 404 | 409 | 422 = 409): Promise<InboundResumeOutcome> =>
+    ({ outcome: "blocked", reason, message, status, reviewRevision: await currentInboundReviewRevision(input.requestId).catch(() => null) });
+  const request = await getInboundRequestById(input.requestId);
+  if (!request) return blocked("REQUEST_NOT_FOUND", "The retained request no longer exists.", 404);
+  if (request.sourceClass !== "sales_request") return blocked("NOT_A_SALES_REQUEST", "Only retained sales requests can be continued here.");
+  const summarize = async (kind: "continued" | "already_continued", row: InboundRequest): Promise<InboundResumeOutcome> => {
+    const [link] = await db.select({ taskId: inboundRequestWorkLinks.taskId }).from(inboundRequestWorkLinks).where(and(
+      eq(inboundRequestWorkLinks.requestId, row.id), eq(inboundRequestWorkLinks.workType, "task"))).limit(1);
+    return { outcome: kind, requestReceipt: row.id, lifecycleState: row.lifecycleState, assignmentStatus: row.assignmentStatus,
+      assignedTo: row.assignedTo, taskId: link?.taskId ?? null, reviewRevision: await currentInboundReviewRevision(row.id) };
+  };
+  if (["accepted", "completed"].includes(request.lifecycleState)) return summarize("already_continued", request);
+  if (request.lifecycleState !== "review_required") {
+    return blocked("REQUEST_NOT_IN_REVIEW", `The request is ${request.lifecycleState}; only a request waiting for review can be continued.`);
+  }
+  if (!request.contactId) return blocked("RETAINED_CONTACT_MISSING", "The request has no retained contact link to continue from.");
+  const revision = await currentInboundReviewRevision(request.id);
+  if (revision === null) return blocked("NO_REVIEW_DECISION", "No review decision was recorded for this request yet.");
+  if (input.expectedReviewRevision !== revision) {
+    return blocked("STALE_REVIEW", "The review changed since this page loaded. Reload and review the current state.");
+  }
+  const [contact] = await db.select().from(contacts).where(eq(contacts.id, request.contactId));
+  if (!contact) return blocked("RETAINED_CONTACT_MISSING", "The retained contact no longer exists.");
+  if (contact.archivedAt) return blocked("CONTACT_ARCHIVED", "The retained contact is archived.");
+  if (request.submittedEmail && contact.email?.trim().toLowerCase() !== request.submittedEmail) {
+    return blocked("CONTACT_IDENTITY_CHANGED", "The retained contact no longer matches the email captured with this request.");
+  }
+  if (contact.recordClass !== "production") {
+    return blocked("CONTACT_NOT_CLASSIFIED_PRODUCTION", `The retained contact is classified ${contact.recordClass}; the classification review must make it production first.`, 422);
+  }
+  if (request.dealId) {
+    const [deal] = await db.select().from(deals).where(eq(deals.id, request.dealId));
+    if (!deal) return blocked("RETAINED_DEAL_MISSING", "The retained deal no longer exists.");
+    if (deal.inboundRequestId !== request.id || deal.contactId !== contact.id) {
+      return blocked("DEAL_LINKED_TO_ANOTHER_OCCURRENCE", "The retained deal belongs to a different request or contact.");
+    }
+    if (deal.archivedAt) return blocked("DEAL_ARCHIVED", "The retained deal is archived.");
+    if (deal.recordClass !== "production") {
+      return blocked("DEAL_NOT_CLASSIFIED_PRODUCTION", `The retained deal is classified ${deal.recordClass}; it must be production first.`, 422);
+    }
+  }
+  const [workLink] = await db.select({ taskId: inboundRequestWorkLinks.taskId }).from(inboundRequestWorkLinks).where(and(
+    eq(inboundRequestWorkLinks.requestId, request.id), eq(inboundRequestWorkLinks.workType, "task"))).limit(1);
+  if (workLink?.taskId) {
+    const [task] = await db.select({ status: tasks.status, completedAt: tasks.completedAt }).from(tasks).where(eq(tasks.id, workLink.taskId));
+    if (task && (task.completedAt || ["completed", "cancelled", "canceled"].includes(task.status ?? ""))) {
+      return blocked("HUMAN_WORK_ALREADY_TERMINAL", "The review task was already completed or cancelled; it is not reopened.");
+    }
+  }
+  const resumed = await orchestrateInboundRequest({ requestId: request.id, contactId: request.contactId, dealId: request.dealId });
+  await auditChange({ actorType: "user", userId: input.actorId, action: "inbound_review_resumed", entityType: "inbound_request",
+    entityKey: request.id, details: { fromRevision: revision, lifecycleState: resumed.lifecycleState, assignmentStatus: resumed.assignmentStatus,
+      assignedTo: resumed.assignedTo, externalEffects: "held" } });
+  return summarize("continued", resumed);
+}
+
 /**
  * Complete the internal portion of a claimed public occurrence.  This is the
  * only public-adapter handoff that is allowed to create CR-05 work: its command
@@ -796,7 +880,9 @@ export async function orchestrateInboundRequest(input: {
           description: `Inbound ${request.sourceType} request${!assignment.assignedTo ? ` — Management assignment review: ${assignment.reasonCode}` : ""}`,
           assignedTo: owner, canonicalAssignee: owner,
           authorityFence: sql`${tasks.authorityFence} + 1`,
-        }).where(and(eq(tasks.id,task.id),sql`${tasks.contactId} IS NULL`)).returning({id:tasks.id,fence:tasks.authorityFence});
+        }).where(and(eq(tasks.id,task.id),sql`${tasks.contactId} IS NULL`,
+          // Completed or cancelled human work is never reopened or relinked by a continuation.
+          sql`${tasks.completedAt} IS NULL AND coalesce(${tasks.status},'pending') NOT IN ('completed','cancelled','canceled')`)).returning({id:tasks.id,fence:tasks.authorityFence});
         if (resumed[0]) {
           await tx.insert(taskAuthorityEvents).values({
             taskId: task.id, eventKey: `inbound-class-review-resolved:${request.id}`, eventType: "inbound_class_review_resolved",
@@ -1016,6 +1102,7 @@ export async function getPublicInboundRequestStatus(input: {
   const [row] = await db.select({
     requestReceipt: inboundRequests.id,
     status: inboundRequests.lifecycleState,
+    recoverable: sql<boolean>`coalesce(${inboundRequests.lifecycleState} = 'review_required' AND ${inboundRequests.terminalReason} = 'INBOUND_HANDOFF_RECOVERABLE', false)`,
   }).from(inboundRequests).where(and(
     eq(inboundRequests.id, input.requestReceipt),
     eq(inboundRequests.idempotencyKey, input.idempotencyKey),

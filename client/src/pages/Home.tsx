@@ -11,7 +11,8 @@ import { FSR_HOME_LINK_TEXT } from "@shared/free-statement-review-content";
 import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
 import { trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
-import { apiRequest } from "@/lib/queryClient";
+import { usePublicIntake } from "@/hooks/use-public-intake";
+import { PublicIntakeNotice, IntakeReceipt } from "@/components/PublicIntakeNotice";
 import { SITE_STATS } from "@/lib/site-content";
 import { useToast } from "@/hooks/use-toast";
 import { PewcCheckbox } from "@/components/PewcCheckbox";
@@ -125,8 +126,6 @@ export default function Home() {
   const [cbName, setCbName] = useState("");
   const [cbPhone, setCbPhone] = useState("");
   const [cbBestTime, setCbBestTime] = useState("Morning");
-  const [cbSubmitting, setCbSubmitting] = useState(false);
-  const [cbSubmitted, setCbSubmitted] = useState(false);
   const [cbPewcConsent, setCbPewcConsent] = useState(false);
   const { toast } = useToast();
 
@@ -138,26 +137,19 @@ export default function Home() {
   const stat2 = useCountUp(merchantsStat.countUpEnd, 2000, "+");
   const stat3 = useCountUp(volumeStat.countUpEnd, 2000, "B+", 1000, 1);
 
-  const cbIdempotencyKeyRef = useRef<string | null>(null);
+  const callbackIntake = usePublicIntake("callback_home", "/api/public/callback");
+  const cbSubmitting = callbackIntake.submitting;
+  const cbSubmitted = callbackIntake.state.phase === "saved";
 
   const handleCallbackSubmit = async () => {
     if (!cbName.trim() || !cbPhone.trim()) return;
-    setCbSubmitting(true);
-    try {
-      cbIdempotencyKeyRef.current ??= crypto.randomUUID();
-      await apiRequest("POST", "/api/public/callback", {
-        name: cbName, phone: cbPhone, bestTime: cbBestTime, pewcConsent: cbPewcConsent,
-      }, { "Idempotency-Key": cbIdempotencyKeyRef.current });
-      setCbSubmitted(true);
-      cbIdempotencyKeyRef.current = null;
-    } catch (error: any) {
-      toast({
-        title: "Something went wrong",
-        description: error.message || `Please try again or call us at ${PHONE_NUMBER}.`,
-        variant: "destructive",
-      });
-    } finally {
-      setCbSubmitting(false);
+    // Only a confirmed save shows success. A recoverable (202), unreadable or failed response keeps the same
+    // intent/key and shows the truthful pending notice in the form.
+    const outcome = await callbackIntake.submit({
+      name: cbName, phone: cbPhone, bestTime: cbBestTime, pewcConsent: cbPewcConsent,
+    });
+    if (outcome.kind === "rejected") {
+      toast({ title: "Something went wrong", description: outcome.message || `Please try again or call us at ${PHONE_NUMBER}.`, variant: "destructive" });
     }
   };
 
@@ -1469,8 +1461,15 @@ export default function Home() {
                   <Card className="border-2 border-emerald-200 dark:border-emerald-800">
                     <CardContent className="p-8 text-center">
                       <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto mb-4" />
-                      <h3 className="text-xl font-display font-bold text-foreground mb-2" data-testid="text-callback-success">We'll Call You Back</h3>
-                      <p className="text-muted-foreground text-sm">A Liberty advisor will reach out during your preferred window. No pressure, just answers.</p>
+                      <h3 className="text-xl font-display font-bold text-foreground mb-2" data-testid="text-callback-success">Request Saved</h3>
+                      <p className="text-muted-foreground text-sm mb-3" data-testid="text-callback-success-detail">
+                        {callbackIntake.state.phase === "saved" && callbackIntake.state.pendingReview
+                          ? "Your callback request is saved and follow-up is pending review. We can't promise a time yet. No pressure, just answers."
+                          : "We have your number and a Liberty advisor will follow up. No pressure, just answers."}
+                      </p>
+                      {callbackIntake.state.phase === "saved" && callbackIntake.state.receipt && (
+                        <IntakeReceipt receipt={callbackIntake.state.receipt} testIdPrefix="callback-home" />
+                      )}
                     </CardContent>
                   </Card>
                 ) : (
@@ -1505,6 +1504,15 @@ export default function Home() {
                         checked={cbPewcConsent}
                         onCheckedChange={setCbPewcConsent}
                         id="cb-pewc-consent"
+                      />
+                      <PublicIntakeNotice
+                        state={callbackIntake.state}
+                        testIdPrefix="callback-home-intake"
+                        checking={callbackIntake.checking}
+                        checkNote={callbackIntake.checkNote}
+                        onCheck={callbackIntake.check}
+                        onRetry={"restored" in callbackIntake.state && callbackIntake.state.restored ? undefined : handleCallbackSubmit}
+                        onDismiss={callbackIntake.dismiss}
                       />
                       <Button className="w-full gap-2" onClick={handleCallbackSubmit} disabled={cbSubmitting || !cbName.trim() || !cbPhone.trim()} data-testid="button-callback-submit">
                         {cbSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}

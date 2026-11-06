@@ -8,12 +8,12 @@ import { storage } from "../storage";
 import { requireRole } from "../replit_integrations/auth";
 import OpenAI from "openai";
 import { featureFlags } from "../services/feature-flags";
-import { listInboundRequests } from "../services/inbound-request-authority";
+import { listInboundRequests, resumeInboundSalesRequestForActor } from "../services/inbound-request-authority";
 import { businessLacksDbprLineageSql } from "../services/dbpr";
 import { deriveCanonicalBusinessSafeNextAction } from "../services/canonical-business-safe-next-action";
 import { buildCanonicalBusinessEmailDisplay } from "../services/canonical-business-email-display";
 import { sanitizeAuditPayload } from "../services/audit-sanitizer";
-import { backgroundJobs, inboundRequestEffects, sdrMerchants } from "@shared/schema";
+import { backgroundJobs, inboundAssignmentDecisions, inboundRequestEffects, sdrMerchants } from "@shared/schema";
 import { retiredPilotEntrance } from "../services/pilot-entrance-retirement";
 import { safeSfpFailureDiagnostics } from "../services/cro03/sfp-failure-diagnostics";
 import { registerSfpReadyHeldOperatorRoutes } from "./sfp-ready-held-operator";
@@ -137,6 +137,14 @@ export function registerLeadOpsRoutes(app: Express) {
           requestId: inboundRequestEffects.requestId,
         }).from(inboundRequestEffects).where(inArray(inboundRequestEffects.requestId, requestIds))
         : [];
+      const revisions = requestIds.length
+        ? await db.select({
+          requestId: inboundAssignmentDecisions.requestId,
+          revision: sql<number>`max(${inboundAssignmentDecisions.decisionOrdinal})`,
+        }).from(inboundAssignmentDecisions).where(inArray(inboundAssignmentDecisions.requestId, requestIds))
+          .groupBy(inboundAssignmentDecisions.requestId)
+        : [];
+      const revisionByRequest = new Map(revisions.map((row) => [row.requestId, Number(row.revision)]));
       const effectsByRequest = new Map<string, typeof effects>();
       for (const effect of effects) {
         const requestEffects = effectsByRequest.get(effect.requestId) || [];
@@ -157,11 +165,38 @@ export function registerLeadOpsRoutes(app: Express) {
         ticketId: row.ticketId,
         createdAt: row.createdAt,
         terminalReason: row.terminalReason,
+        // The decision revision an operator must have seen to continue a retained review.
+        reviewRevision: revisionByRequest.get(row.id) ?? null,
         effects: effectsByRequest.get(row.id) || [],
       })));
     } catch (error) {
       console.error("[LeadOps] inbound request list failed:", error instanceof Error ? error.message : "unknown");
       res.status(500).json({ error: "Failed to load inbound requests" });
+    }
+  });
+
+  // Continue ONE retained sales review in context. Re-reads actor, request/contact/deal identity, classification,
+  // archive state, decision revision and task state; returns the real blocked reason; keeps external effects held.
+  app.post("/api/lead-ops/inbound-requests/:receipt/resume", requireRole("admin", "manager"), async (req, res) => {
+    const receipt = String(req.params.receipt);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(receipt)) {
+      return res.status(404).json({ error: "REQUEST_NOT_FOUND" });
+    }
+    const revision = (req.body as { reviewRevision?: unknown } | undefined)?.reviewRevision;
+    if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0) {
+      return res.status(400).json({ error: "REVIEW_REVISION_REQUIRED" });
+    }
+    const actorId = (req.user as { id?: unknown } | undefined)?.id;
+    if (typeof actorId !== "string" || !actorId) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const result = await resumeInboundSalesRequestForActor({ requestId: receipt, actorId, expectedReviewRevision: revision });
+      if (result.outcome === "blocked") {
+        return res.status(result.status).json({ outcome: "blocked", reason: result.reason, message: result.message, reviewRevision: result.reviewRevision });
+      }
+      return res.status(200).json(result);
+    } catch (error) {
+      console.error("[LeadOps] inbound resume failed:", error instanceof Error ? error.message : "unknown");
+      return res.status(500).json({ outcome: "failed", reason: "RESUME_FAILED", message: "The request could not be continued. Nothing was changed that is not already recorded; retry or review the request." });
     }
   });
 

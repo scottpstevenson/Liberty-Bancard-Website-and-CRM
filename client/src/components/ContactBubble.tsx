@@ -1,9 +1,10 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Phone, X, MessageCircle, Loader2, CheckCircle } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { usePublicIntake } from "@/hooks/use-public-intake";
+import { PublicIntakeNotice, IntakeReceipt } from "@/components/PublicIntakeNotice";
 import { useToast } from "@/hooks/use-toast";
 import { trackPhoneCallClick } from "@/lib/analytics";
 
@@ -11,35 +12,22 @@ export function ContactBubble() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const submissionIdempotencyKey = useRef<string | null>(null);
+  const intake = usePublicIntake("callback_bubble", "/api/public/callback");
+  const submitting = intake.submitting;
+  const submitted = intake.state.phase === "saved";
   const { toast } = useToast();
 
   const closeBubble = () => {
     setOpen(false);
-    setSubmitted(false);
-    submissionIdempotencyKey.current = null;
+    intake.acknowledgeSaved();
   };
 
   const handleSubmit = async () => {
     if (!name.trim() || !phone.trim()) return;
-    submissionIdempotencyKey.current ??= crypto.randomUUID();
-    setSubmitting(true);
-    try {
-      await apiRequest("POST", "/api/public/callback", {
-        name, phone, bestTime: "ASAP",
-      }, { "Idempotency-Key": submissionIdempotencyKey.current });
-      setSubmitted(true);
-      submissionIdempotencyKey.current = null;
-    } catch (error: any) {
-      toast({
-        title: "Something went wrong",
-        description: "Please try calling us at 954-266-8214.",
-        variant: "destructive",
-      });
-    } finally {
-      setSubmitting(false);
+    // Only a confirmed save shows success; a recoverable (202), unreadable or failed response keeps the same intent/key.
+    const outcome = await intake.submit({ name, phone, bestTime: "ASAP" });
+    if (outcome.kind === "rejected") {
+      toast({ title: "Something went wrong", description: "Please try calling us at 954-266-8214.", variant: "destructive" });
     }
   };
 
@@ -57,14 +45,29 @@ export function ContactBubble() {
             {submitted ? (
               <div className="text-center py-4">
                 <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-                <p className="text-sm font-medium text-foreground">We'll call you back shortly.</p>
-                <p className="text-xs text-muted-foreground mt-1">Usually within 30 minutes during business hours.</p>
+                <p className="text-sm font-medium text-foreground" data-testid="text-bubble-success">Request saved.</p>
+                <p className="text-xs text-muted-foreground mt-1 mb-2">
+                  {intake.state.phase === "saved" && intake.state.pendingReview
+                    ? "Follow-up is pending review; we can't promise a time yet."
+                    : "A team member will follow up using the number you gave."}
+                </p>
+                {intake.state.phase === "saved" && intake.state.receipt && <IntakeReceipt receipt={intake.state.receipt} testIdPrefix="callback-bubble" />}
               </div>
             ) : (
               <div className="space-y-3">
                 <p className="text-xs text-muted-foreground">Leave your number and we'll call you back. No pressure.</p>
                 <Input placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} data-testid="input-bubble-name" />
                 <Input type="tel" placeholder="Phone number" value={phone} onChange={(e) => setPhone(e.target.value)} data-testid="input-bubble-phone" />
+                <PublicIntakeNotice
+                  compact
+                  state={intake.state}
+                  testIdPrefix="callback-bubble-intake"
+                  checking={intake.checking}
+                  checkNote={intake.checkNote}
+                  onCheck={intake.check}
+                  onRetry={"restored" in intake.state && intake.state.restored ? undefined : handleSubmit}
+                  onDismiss={intake.dismiss}
+                />
                 <Button className="w-full gap-2" onClick={handleSubmit} disabled={submitting || !name.trim() || !phone.trim()} data-testid="button-bubble-submit">
                   {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
                   Request Callback

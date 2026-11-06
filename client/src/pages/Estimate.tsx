@@ -3,7 +3,6 @@ import { useLocation, Link } from "wouter";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation } from "@tanstack/react-query";
 import { getStoredUTMParams } from "@/lib/utm";
 import { trackEstimateRequest, trackFormSubmission } from "@/lib/tracking";
 import { trackConversion as trackConversionV2 } from "@/lib/analytics";
@@ -30,8 +29,9 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
-import { useState, useRef } from "react";
+import { usePublicIntake } from "@/hooks/use-public-intake";
+import { PublicIntakeNotice } from "@/components/PublicIntakeNotice";
+import { useState } from "react";
 import { Loader2, Upload, ArrowRight, Calculator, TrendingDown, AlertCircle } from "lucide-react";
 import heroAnalytics from "@assets/images/hero-analytics.jpg";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
@@ -83,58 +83,39 @@ export default function Estimate() {
   });
 
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const idempotencyKeyRef = useRef<string | null>(null);
+  const intake = usePublicIntake("estimate", "/api/public/estimate");
 
-  function getFormErrorMessage(error: Error): string {
-    const msg = error?.message || "";
-    if (msg.startsWith("429:")) return "Too many submissions — please wait a few minutes and try again.";
-    if (/^5\d{2}:/.test(msg)) return "Something went wrong on our end — please try again shortly.";
-    return msg || "Please try again or call us at 954-266-8214.";
-  }
+  const buildPayload = (data: EstimateFormData) => {
+    const refCode = localStorage.getItem("lb_ref_code") || undefined;
+    return {
+      contactName: data.contactName,
+      businessName: data.businessName,
+      email: data.email,
+      phone: data.phone,
+      vertical: data.vertical,
+      monthlyVolume: data.monthlyVolume,
+      totalFees: data.totalFees,
+      currentProvider: data.currentProvider || undefined,
+      notes: data.notes || undefined,
+      pewcConsent: data.pewcConsent ?? false,
+      referralCode: refCode,
+      ...getStoredUTMParams(),
+    };
+  };
 
-  const submitMutation = useMutation({
-    mutationFn: async (data: EstimateFormData) => {
-      idempotencyKeyRef.current ??= crypto.randomUUID();
-      const refCode = localStorage.getItem("lb_ref_code") || undefined;
-      const utmParams = getStoredUTMParams();
-      const res = await apiRequest("POST", "/api/public/estimate", {
-        contactName: data.contactName,
-        businessName: data.businessName,
-        email: data.email,
-        phone: data.phone,
-        vertical: data.vertical,
-        monthlyVolume: data.monthlyVolume,
-        totalFees: data.totalFees,
-        currentProvider: data.currentProvider || undefined,
-        notes: data.notes || undefined,
-        pewcConsent: data.pewcConsent ?? false,
-        referralCode: refCode,
-        ...utmParams,
-      }, { "Idempotency-Key": idempotencyKeyRef.current });
-      return res.json();
-    },
-    onSuccess: () => {
+  const onSubmit = async (data: EstimateFormData) => {
+    setSubmitError(null);
+    // Conversions and the thank-you page follow ONLY a confirmed save. A recoverable (202), unreadable or failed
+    // response keeps the same intent/key and shows the truthful pending notice instead.
+    const outcome = await intake.submit(buildPayload(data));
+    if (outcome.kind === "saved") {
       trackEstimateRequest();
       trackFormSubmission("estimate_request");
       trackConversionV2("estimate_request");
       setLocation("/thanks-estimate");
-    },
-    onError: (error: Error) => {
-      // A 400 (INVALID_SUBMISSION) means the request never reached mutation
-      // on the server — no lead/record was ever claimed under this key, so
-      // rotate it before the user edits and resubmits. Any other error
-      // (429, 5xx, network) may have reached the server, so the key is kept
-      // to make a resubmission a safe retry rather than a duplicate.
-      if (/^400:/.test(error?.message || "")) {
-        idempotencyKeyRef.current = null;
-      }
-      setSubmitError(getFormErrorMessage(error));
-    },
-  });
-
-  const onSubmit = (data: EstimateFormData) => {
-    setSubmitError(null);
-    submitMutation.mutate(data);
+    } else if (outcome.kind === "rejected") {
+      setSubmitError(outcome.message);
+    }
   };
 
   return (
@@ -381,13 +362,23 @@ export default function Estimate() {
                       </div>
                     )}
 
+                    <PublicIntakeNotice
+                      state={intake.state}
+                      testIdPrefix="estimate-intake"
+                      checking={intake.checking}
+                      checkNote={intake.checkNote}
+                      onCheck={intake.check}
+                      onRetry={intake.state.phase !== "idle" && "restored" in intake.state && intake.state.restored ? undefined : form.handleSubmit(onSubmit)}
+                      onDismiss={intake.dismiss}
+                    />
+
                     <Button
                       type="submit"
                       className="w-full cta-pulse"
-                      disabled={submitMutation.isPending}
+                      disabled={intake.submitting}
                       data-testid="button-estimate-submit"
                     >
-                      {submitMutation.isPending ? (
+                      {intake.submitting ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin mr-2" />
                           Submitting...

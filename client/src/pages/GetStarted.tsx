@@ -8,7 +8,8 @@ import { Link } from "wouter";
 import { PublicHero } from "@/components/public/PublicHero";
 import { Input } from "@/components/ui/input";
 import { PewcCheckbox } from "@/components/PewcCheckbox";
-import { apiRequest } from "@/lib/queryClient";
+import { usePublicIntake } from "@/hooks/use-public-intake";
+import { PublicIntakeNotice } from "@/components/PublicIntakeNotice";
 import { getStoredUTMParams } from "@/lib/utm";
 import { useToast } from "@/hooks/use-toast";
 import { trackConversion, trackQuizStart, trackQuizComplete, trackFormSubmission } from "@/lib/tracking";
@@ -164,7 +165,6 @@ export default function GetStarted() {
   const [phone, setPhone] = useState("");
   const [pewcConsent, setPewcConsent] = useState(false);
   const [promoCode, setPromoCode] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const { toast } = useToast();
@@ -200,54 +200,39 @@ export default function GetStarted() {
     }
   };
 
-  function getFormErrorMessage(error: any): string {
-    const msg = typeof error?.message === "string" ? error.message : "";
-    if (msg.startsWith("429:")) return "Too many submissions — please wait a few minutes and try again.";
-    if (/^5\d{2}:/.test(msg)) return "Something went wrong on our end — please try again shortly.";
-    return msg || "Please try again or call us at 954-266-8214.";
-  }
+  const intake = usePublicIntake("get_started", "/api/public/get-started");
+  const submitting = intake.submitting;
 
-  const idempotencyKeyRef = useRef<string | null>(null);
+  const buildPayload = () => ({
+    goal,
+    vertical,
+    monthlyVolume,
+    needTerminal: needTerminal === true,
+    interestedIn0Percent: interestedIn0 === true,
+    firstName,
+    lastName,
+    email,
+    phone,
+    pewcConsent: pewcConsent,
+    referralCode: localStorage.getItem("lb_ref_code") || undefined,
+    promoCode: promoCode || undefined,
+    ...getStoredUTMParams(),
+  });
 
   const handleSubmit = async () => {
     if (!canProceed()) return;
-    setSubmitting(true);
     setSubmitError(null);
-    try {
-      idempotencyKeyRef.current ??= crypto.randomUUID();
-      const refCode = localStorage.getItem("lb_ref_code") || undefined;
-      const utmParams = getStoredUTMParams();
-      await apiRequest("POST", "/api/public/get-started", {
-        goal,
-        vertical,
-        monthlyVolume,
-        needTerminal: needTerminal === true,
-        interestedIn0Percent: interestedIn0 === true,
-        firstName,
-        lastName,
-        email,
-        phone,
-        pewcConsent: pewcConsent,
-        referralCode: refCode,
-        promoCode: promoCode || undefined,
-        ...utmParams,
-      }, { "Idempotency-Key": idempotencyKeyRef.current });
+    // The recommendation and conversions follow ONLY a confirmed save. A recoverable (202), unreadable or failed
+    // response keeps the same intent/key and shows the truthful pending notice instead.
+    const outcome = await intake.submit(buildPayload());
+    if (outcome.kind === "saved") {
       trackQuizComplete();
       trackFormSubmission("get_started_submission");
       trackConversion("get_started_submission");
       trackConversionV2("get_started_submission");
       setSubmitted(true);
-    } catch (error: any) {
-      // A 400 (INVALID_SUBMISSION) never reached mutation on the server, so
-      // no record was claimed under this key — rotate it before the user
-      // edits and resubmits. Any other error keeps the key so a resubmission
-      // is a safe retry rather than a duplicate.
-      if (/^400:/.test(error?.message || "")) {
-        idempotencyKeyRef.current = null;
-      }
-      setSubmitError(getFormErrorMessage(error));
-    } finally {
-      setSubmitting(false);
+    } else if (outcome.kind === "rejected") {
+      setSubmitError(outcome.message);
     }
   };
 
@@ -691,6 +676,18 @@ export default function GetStarted() {
                     If we can't beat your current rate, we'll tell you upfront — no obligation, no pressure. The breakdown is yours to keep.
                   </div>
                 )}
+
+                <div className="mt-4">
+                  <PublicIntakeNotice
+                    state={intake.state}
+                    testIdPrefix="get-started-intake"
+                    checking={intake.checking}
+                    checkNote={intake.checkNote}
+                    onCheck={intake.check}
+                    onRetry={"restored" in intake.state && intake.state.restored ? undefined : handleSubmit}
+                    onDismiss={intake.dismiss}
+                  />
+                </div>
 
                 {submitError && (
                   <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 mt-4" data-testid="alert-submit-error" role="alert">
