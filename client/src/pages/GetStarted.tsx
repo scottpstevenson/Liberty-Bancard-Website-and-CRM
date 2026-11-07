@@ -8,6 +8,7 @@ import { Link } from "wouter";
 import { PublicHero } from "@/components/public/PublicHero";
 import { Input } from "@/components/ui/input";
 import { PewcCheckbox } from "@/components/PewcCheckbox";
+import { EmailMarketingCheckbox, emailConsentNotice, emailConsentPayload } from "@/components/EmailMarketingCheckbox";
 import { usePublicIntake } from "@/hooks/use-public-intake";
 import { PublicIntakeNotice } from "@/components/PublicIntakeNotice";
 import { getStoredUTMParams } from "@/lib/utm";
@@ -164,6 +165,7 @@ export default function GetStarted() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [pewcConsent, setPewcConsent] = useState(false);
+  const [emailMarketing, setEmailMarketing] = useState(false);
   const [promoCode, setPromoCode] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -214,6 +216,7 @@ export default function GetStarted() {
     email,
     phone,
     pewcConsent: pewcConsent,
+    ...emailConsentPayload("get_started_form", emailMarketing),
     referralCode: localStorage.getItem("lb_ref_code") || undefined,
     promoCode: promoCode || undefined,
     ...getStoredUTMParams(),
@@ -226,6 +229,8 @@ export default function GetStarted() {
     // response keeps the same intent/key and shows the truthful pending notice instead.
     const outcome = await intake.submit(buildPayload());
     if (outcome.kind === "saved") {
+      const consentNotice = emailConsentNotice(outcome.emailConsent, emailMarketing);
+      if (consentNotice) toast({ title: "Request saved", description: consentNotice });
       trackQuizComplete();
       trackFormSubmission("get_started_submission");
       trackConversion("get_started_submission");
@@ -664,6 +669,11 @@ export default function GetStarted() {
                       <PewcCheckbox
                         checked={pewcConsent}
                         onCheckedChange={setPewcConsent}
+                      />
+                      <EmailMarketingCheckbox
+                        surface="get_started_form"
+                        checked={emailMarketing}
+                        onCheckedChange={setEmailMarketing}
                       />
                     </div>
                   </div>

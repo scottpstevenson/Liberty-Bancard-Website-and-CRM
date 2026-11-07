@@ -21,6 +21,8 @@ import { storage } from "../storage";
 import { resolvePolicy, assertNotProhibitedSync } from "./sender-policy";
 import type { MessageCategory } from "./sender-policy";
 import { renderEmailHtmlForPurpose } from "./can-spam-footer";
+import { buildGmailMime, parseMailbox, MimeError } from "./gmail-mime";
+import { classifyGmailFailure, type TransportOutcome } from "./website-email-contracts";
 import { redactToken } from "./audit-sanitizer";
 import {
   encryptCredential,
@@ -284,67 +286,79 @@ export async function verifyGmailConnection(): Promise<{
   }
 }
 
-// ── MIME builder ──────────────────────────────────────────────────────────────
+// ── Sender evidence (settings only; no network call) ───────────────────────────
 
-function buildRawEmail(params: {
-  from: string;
-  to: string;
-  subject: string;
-  html: string;
-  replyTo?: string;
-  unsubscribeUrl?: string;
-  unsubscribeMailto?: string;
-}): string {
-  const boundary = `====lb_${Date.now()}====`;
-  const date     = new Date().toUTCString();
-  const plainText = params.html
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+/** Connected account and the send-as aliases Google already accepted, read from stored settings only. */
+export async function readGmailSenderEvidence(): Promise<{ account: string | null; aliases: string[] }> {
+  const [email, aliasesRaw] = await Promise.all([
+    storage.getSystemSetting(SK_EMAIL) as Promise<string | null | undefined>,
+    storage.getSystemSetting(SK_ALIASES) as Promise<string[] | null | undefined>,
+  ]);
+  const aliases = Array.isArray(aliasesRaw) ? (aliasesRaw as unknown as string[]).map((a) => String(a).toLowerCase()) : [];
+  return { account: email ? String(email).toLowerCase() : null, aliases };
+}
 
-  const headers: string[] = [
-    `From: ${params.from}`,
-    `To: ${params.to}`,
-    `Subject: =?UTF-8?B?${Buffer.from(params.subject).toString("base64")}?=`,
-    `Date: ${date}`,
-    `MIME-Version: 1.0`,
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
-    `X-Mailer: Liberty-Bancard-OS/1.0`,
-  ];
-  if (params.replyTo) headers.push(`Reply-To: ${params.replyTo}`);
-  const listUnsub: string[] = [];
-  if (params.unsubscribeMailto) listUnsub.push(`<mailto:${params.unsubscribeMailto}>`);
-  if (params.unsubscribeUrl)    listUnsub.push(`<${params.unsubscribeUrl}>`);
-  if (listUnsub.length) {
-    headers.push(`List-Unsubscribe: ${listUnsub.join(", ")}`);
-    if (params.unsubscribeUrl) headers.push(`List-Unsubscribe-Post: List-Unsubscribe=One-Click`);
-  }
+// ── Mailbox reader client (read-only) ─────────────────────────────────────────
 
-  const htmlB64 = Buffer.from(params.html).toString("base64").match(/.{1,76}/g)?.join("\r\n") ?? "";
+export type GmailReaderClientResult =
+  | { ok: true; gmail: ReturnType<typeof google.gmail>; account: string }
+  | { ok: false; code: "GMAIL_OAUTH_NOT_CONFIGURED" | "ENCRYPTION_UNAVAILABLE" | "GMAIL_NOT_CONNECTED" | "OAUTH_CLIENT_INIT_FAILED" };
 
-  const bodyParts = [
-    "",
-    `--${boundary}`,
-    `Content-Type: text/plain; charset=UTF-8`,
-    `Content-Transfer-Encoding: quoted-printable`,
-    "",
-    plainText,
-    "",
-    `--${boundary}`,
-    `Content-Type: text/html; charset=UTF-8`,
-    `Content-Transfer-Encoding: base64`,
-    "",
-    htmlB64,
-    "",
-    `--${boundary}--`,
-  ].join("\r\n");
-
-  return Buffer.from(headers.join("\r\n") + bodyParts).toString("base64url");
+/**
+ * Gmail API client for the mailbox reader only. It makes no network call by itself and sends nothing; the caller
+ * decides which read-only endpoints to use. Returns a typed refusal instead of throwing when the connection is absent.
+ */
+export async function getGmailReaderClient(): Promise<GmailReaderClientResult> {
+  if (!isGmailOAuthSecretsPresent()) return { ok: false, code: "GMAIL_OAUTH_NOT_CONFIGURED" };
+  if (!isEncryptionAvailable()) return { ok: false, code: "ENCRYPTION_UNAVAILABLE" };
+  const refreshToken = await readRefreshToken();
+  const evidence = await readGmailSenderEvidence();
+  if (!refreshToken || !evidence.account) return { ok: false, code: "GMAIL_NOT_CONNECTED" };
+  const client = getOAuth2Client();
+  if (!client) return { ok: false, code: "OAUTH_CLIENT_INIT_FAILED" };
+  client.setCredentials({ refresh_token: refreshToken });
+  return { ok: true, gmail: google.gmail({ version: "v1", auth: client }), account: evidence.account };
 }
 
 // ── Send function ─────────────────────────────────────────────────────────────
+
+export type GmailSendFailureCode =
+  | "COMPLIANCE_CONFIGURATION_UNAVAILABLE"
+  | "GMAIL_OAUTH_NOT_CONFIGURED"
+  | "ENCRYPTION_UNAVAILABLE"
+  | "GMAIL_NOT_CONNECTED"
+  | "OAUTH_CLIENT_INIT_FAILED"
+  | "NO_FROM_ADDRESS"
+  | "SENDER_POLICY_UNAVAILABLE"
+  | "SENDER_ALIAS_NOT_ACCEPTED"
+  | "PROHIBITED_SENDER"
+  | "OUTBOUND_PAUSED"
+  | "PAUSE_GATE_ERROR"
+  | "MIME_INVALID"
+  | "GMAIL_REJECTED"
+  | "GMAIL_TRANSPORT_UNCERTAIN";
+
+export interface GmailSendResult {
+  success: boolean;
+  messageId?: string;
+  threadId?: string;
+  error?: string;
+  /**
+   * accepted: Gmail accepted the message (delivery is NOT confirmed).
+   * unsent: proved not accepted (refused before any request left this process, or a definite 4xx rejection).
+   * uncertain: a request may have been dispatched (network error, timeout, 5xx, no status): never resend blindly.
+   */
+  outcome: TransportOutcome;
+  failureCode?: GmailSendFailureCode;
+  rfcMessageId?: string;
+  fromAddress?: string;
+  replyTo?: string;
+  account?: string | null;
+}
+
+function refused(code: GmailSendFailureCode, error: string, extra: Partial<GmailSendResult> = {}): GmailSendResult {
+  return { success: false, error, outcome: "unsent", failureCode: code, ...extra };
+}
 
 export async function sendGmailEmail(params: {
   to: string;
@@ -365,7 +379,11 @@ export async function sendGmailEmail(params: {
   contactId?: number;
   /** Defaults to marketing for legacy Gmail outreach callers. */
   commercialPurpose?: "marketing_outreach" | "transactional_response";
-}): Promise<{ success: boolean; messageId?: string; threadId?: string; error?: string }> {
+  /** Application-created RFC 5322 Message-ID (with angle brackets), bound before provider I/O. A random one is made when absent. */
+  rfcMessageId?: string;
+  /** Require the resolved From to be the connected account or an alias Google already accepted. */
+  requireAcceptedAlias?: boolean;
+}): Promise<GmailSendResult> {
   const purpose = params.commercialPurpose ?? "marketing_outreach";
   let renderedHtml: string;
   try {
@@ -375,34 +393,52 @@ export async function sendGmailEmail(params: {
       contactId: params.contactId,
     });
   } catch (error: any) {
-    return { success: false, error: error.message ?? "COMPLIANCE_CONFIGURATION_UNAVAILABLE" };
+    return refused("COMPLIANCE_CONFIGURATION_UNAVAILABLE", error.message ?? "COMPLIANCE_CONFIGURATION_UNAVAILABLE");
   }
   if (!isGmailOAuthSecretsPresent()) {
-    return { success: false, error: "Gmail OAuth not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET missing)" };
+    return refused("GMAIL_OAUTH_NOT_CONFIGURED", "Gmail OAuth not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET missing)");
   }
   if (!isEncryptionAvailable()) {
-    return { success: false, error: "CREDENTIAL_ENCRYPTION_KEY not set — Gmail refresh token cannot be decrypted. Set the key in Replit Secrets and restart." };
+    return refused("ENCRYPTION_UNAVAILABLE", "CREDENTIAL_ENCRYPTION_KEY not set — Gmail refresh token cannot be decrypted. Set the key in Replit Secrets and restart.");
   }
   const refreshToken = await readRefreshToken();
   if (!refreshToken) {
-    return { success: false, error: "Gmail not connected — complete OAuth flow at /dashboard/outbound-readiness" };
+    return refused("GMAIL_NOT_CONNECTED", "Gmail not connected — complete OAuth flow at /dashboard/outbound-readiness");
   }
   const client = getOAuth2Client();
-  if (!client) return { success: false, error: "OAuth client init failed" };
+  if (!client) return refused("OAUTH_CLIENT_INIT_FAILED", "OAuth client init failed");
   client.setCredentials({ refresh_token: refreshToken });
 
+  const evidence = await readGmailSenderEvidence();
   let fromAddress:  string;
+  let fromName:     string | undefined;
   let replyToAddr:  string | undefined = params.replyTo;
 
   if (params.category) {
-    const policy  = resolvePolicy(params.category);
-    fromAddress   = policy.from;
-    replyToAddr   = policy.replyTo ?? replyToAddr;
+    try {
+      const policy = resolvePolicy(params.category);
+      fromAddress  = policy.from;
+      fromName     = policy.displayName;
+      replyToAddr  = policy.replyTo ?? replyToAddr;
+    } catch (policyErr: any) {
+      return refused("SENDER_POLICY_UNAVAILABLE", policyErr?.message ?? "Sender policy unavailable", { account: evidence.account });
+    }
   } else {
-    const stored = await storage.getSystemSetting(SK_EMAIL) as string | null | undefined;
-    fromAddress  = params.from || (stored as unknown as string) || "";
+    fromAddress = params.from || evidence.account || "";
     if (!fromAddress) {
-      return { success: false, error: "No from address — supply category or from param" };
+      return refused("NO_FROM_ADDRESS", "No from address — supply category or from param");
+    }
+  }
+  const parsedFrom = parseMailbox(fromAddress);
+  if (parsedFrom) {
+    fromAddress = parsedFrom.address;
+    fromName = parsedFrom.name ?? fromName;
+  }
+
+  if (params.requireAcceptedAlias) {
+    const accepted = evidence.account !== null && (fromAddress.toLowerCase() === evidence.account || evidence.aliases.includes(fromAddress.toLowerCase()));
+    if (!accepted) {
+      return refused("SENDER_ALIAS_NOT_ACCEPTED", "From address is neither the connected Gmail account nor an accepted send-as alias", { fromAddress, account: evidence.account });
     }
   }
 
@@ -410,7 +446,28 @@ export async function sendGmailEmail(params: {
     assertNotProhibitedSync(fromAddress, `Gmail sendGmailEmail From (subject="${params.subject}")`);
     if (replyToAddr) assertNotProhibitedSync(replyToAddr, `Gmail sendGmailEmail Reply-To`);
   } catch (prohibitErr: any) {
-    return { success: false, error: prohibitErr.message };
+    return refused("PROHIBITED_SENDER", prohibitErr.message, { fromAddress, account: evidence.account });
+  }
+
+  const rfcMessageId = params.rfcMessageId ?? `<lb.${crypto.randomUUID().replace(/-/g, "")}@libertybancard.com>`;
+  const identity = { rfcMessageId, fromAddress, replyTo: replyToAddr, account: evidence.account };
+
+  let raw: string;
+  try {
+    raw = buildGmailMime({
+      from: fromAddress,
+      fromName,
+      to: params.to,
+      subject: params.subject,
+      html: renderedHtml,
+      replyTo: replyToAddr,
+      messageId: rfcMessageId,
+      unsubscribeUrl: params.unsubscribeUrl,
+      unsubscribeMailto: params.unsubscribeMailto,
+    }).raw;
+  } catch (mimeErr: any) {
+    const code = mimeErr instanceof MimeError ? mimeErr.code : "MIME_INVALID";
+    return refused("MIME_INVALID", `MIME rejected before send: ${code}`, identity);
   }
 
   // ── Unavoidable pause authority gate (transport boundary) ──────────────────
@@ -424,7 +481,7 @@ export async function sendGmailEmail(params: {
     if (!decision.allowed) {
       // C-16 (#1626): redact recipient in operational logs
       console.warn(`[Gmail OAuth] Blocked by pause authority: ${decision.reasonCode} (to=${redactToken(params.to)})`);
-      return { success: false, error: `Outbound paused: ${decision.reasonCode}` };
+      return refused("OUTBOUND_PAUSED", `Outbound paused: ${decision.reasonCode}`, identity);
     }
     const tokenId = crypto.randomUUID();
     await registerInflight(tokenId, decision.epoch);
@@ -434,7 +491,7 @@ export async function sendGmailEmail(params: {
     if (!epochOk) {
       deregisterInflight(tokenId);
       _pauseInflightToken = undefined;
-      return { success: false, error: "Outbound paused: epoch changed before Gmail send" };
+      return refused("OUTBOUND_PAUSED", "Outbound paused: epoch changed before Gmail send", identity);
     }
     // Token held through the gmail.users.messages.send call below
   } catch (gateErr: any) {
@@ -443,26 +500,17 @@ export async function sendGmailEmail(params: {
       deregisterInflight(_pauseInflightToken);
     }
     console.error(`[Gmail OAuth] Pause authority gate error — fail closed: ${gateErr.message}`);
-    return { success: false, error: `Pause gate error: ${gateErr.message}` };
+    return refused("PAUSE_GATE_ERROR", `Pause gate error: ${gateErr.message}`, identity);
   }
 
   try {
     const gmail = google.gmail({ version: "v1", auth: client });
-    const raw   = buildRawEmail({
-      from: fromAddress,
-      to:   params.to,
-      subject: params.subject,
-      html:    renderedHtml,
-      replyTo: replyToAddr,
-      unsubscribeUrl:    params.unsubscribeUrl,
-      unsubscribeMailto: params.unsubscribeMailto,
-    });
 
     // Final epoch recheck immediately before network I/O (post-registration)
     const { recheckEpochFromDB } = await import("./outbound-pause-authority");
     const stillOk = await recheckEpochFromDB(_pauseEpoch!);
     if (!stillOk) {
-      return { success: false, error: "Outbound paused: epoch invalidated immediately before Gmail send" };
+      return refused("OUTBOUND_PAUSED", "Outbound paused: epoch invalidated immediately before Gmail send", identity);
     }
 
     const resp = await gmail.users.messages.send({
@@ -472,12 +520,19 @@ export async function sendGmailEmail(params: {
 
     const messageId = resp.data.id    || undefined;
     const threadId  = resp.data.threadId || undefined;
-    console.log(`[Gmail OAuth] Email sent to ${redactToken(params.to)} from ${fromAddress} — messageId: ${messageId}`);
-    return { success: true, messageId, threadId };
+    console.log(`[Gmail OAuth] Email accepted for ${redactToken(params.to)} from ${fromAddress} — messageId: ${messageId}`);
+    return { success: true, messageId, threadId, outcome: "accepted", ...identity };
   } catch (err: any) {
     const msg = err?.response?.data?.error?.message || err.message || String(err);
     console.error(`[Gmail OAuth] Failed to send to ${redactToken(params.to)}:`, msg);
-    return { success: false, error: msg };
+    const outcome = classifyGmailFailure(err);
+    return {
+      success: false,
+      error: msg,
+      outcome,
+      failureCode: outcome === "unsent" ? "GMAIL_REJECTED" : "GMAIL_TRANSPORT_UNCERTAIN",
+      ...identity,
+    };
   } finally {
     if (_pauseInflightToken) {
       const { deregisterInflight } = await import("./outbound-control-service");

@@ -181,6 +181,17 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     jobName: "tick",
   },
   {
+    // Website email lifecycle lane. concurrency=1 plus per-enrollment leases and the mailbox reader lease mean an
+    // overlapping tick safely no-ops. Closed by default: no admission, no provider call and no send without an active
+    // lane configuration revision, an opened reader and an active admission.
+    name: QUEUE_NAMES.WEBSITE_EMAIL,
+    concurrency: 1,
+    attempts: 1,
+    backoffDelay: 30000,
+    repeatEveryMs: 60 * 1000,
+    jobName: "tick",
+  },
+  {
     name: QUEUE_NAMES.SLA_CHECKS,
     // concurrency=1: correctness-sensitive; concurrent SLA passes could double-fire alerts.
     concurrency: 1,
@@ -2056,6 +2067,11 @@ export class QueueManager {
         }
         case QUEUE_NAMES.SLA_CHECKS: {
           await runSlaCheckTick();
+          break;
+        }
+        case QUEUE_NAMES.WEBSITE_EMAIL: {
+          const { runWebsiteEmailTick } = await import("./website-email-tick");
+          await runWebsiteEmailTick();
           break;
         }
         case QUEUE_NAMES.SUNBIZ_FULL_BACKFILL: {

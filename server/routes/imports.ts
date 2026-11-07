@@ -49,6 +49,7 @@ import { canonicalRecoverableImportAccountingSql } from "../services/canonical-i
 import { recordContactBusinessLinkCandidate } from "../services/commercial-link-authority";
 import { importDispositionCompatibility } from "@shared/import-disposition-summary";
 import { claimInboundRequest, orchestrateInboundRequest, setInboundRequestLifecycle } from "../services/inbound-request-authority";
+import { recordWebsiteEmailConsent, validateWebsiteEmailConsent } from "../services/website-email-consent";
 
 export function registerImportsRoutes(app: Express) {
   app.get("/api/import-executions/:executionId/ledger", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
@@ -809,6 +810,10 @@ Guidelines:
       if (!firstName || !email) {
         return res.status(400).json({ message: "First name and email are required." });
       }
+      const freeAnalysisEmailConsent = validateWebsiteEmailConsent("free_analysis", req.body ?? {});
+      if (freeAnalysisEmailConsent.kind === "invalid") {
+        return res.status(400).json({ code: "INVALID_EMAIL_CONSENT", message: freeAnalysisEmailConsent.reason });
+      }
       const idempotencyKey = req.header("Idempotency-Key");
       if (!idempotencyKey) {
         return res.status(400).json({ code: "IDEMPOTENCY_KEY_REQUIRED", message: "Idempotency-Key is required" });
@@ -950,6 +955,10 @@ Guidelines:
           evidence: { submissionId, formType: "free_analysis" },
         });
       }
+      const freeAnalysisEmailConsentState = await recordWebsiteEmailConsent({
+        surface: "free_analysis", requestId: submissionId, contactId: contact.id, submission: freeAnalysisEmailConsent,
+        ipAddress: req.ip || req.socket.remoteAddress || "unknown", userAgent: req.headers["user-agent"] || "unknown",
+      });
       if (pewcConsent) {
         await recordPewcDecision({
           contactId: contact.id,
@@ -1053,7 +1062,7 @@ Guidelines:
         contactId: contact.id,
         dealId: deal.id,
       });
-      res.status(201).json({ requestReceipt: request.id, status: request.lifecycleState });
+      res.status(201).json({ requestReceipt: request.id, status: request.lifecycleState, ...(freeAnalysisEmailConsentState ? { emailConsent: freeAnalysisEmailConsentState } : {}) });
     } catch (err: any) {
       console.error("Free analysis submission error:", err);
       if (claimedRequestId) {

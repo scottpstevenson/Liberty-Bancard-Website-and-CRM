@@ -545,26 +545,14 @@ export async function runStatementUploadChain(
   }
 
   // ────────────────────────────────────────────────────────────────────────────
-  // STEP 9 — Merchant inbound confirmation (canonical enrollInInboundConfirmation)
+  // STEP 9 — Acknowledgement state (read-only report)
   //
-  // enrollInInboundConfirmation is the SOLE owner of merchant confirmation delivery.
-  // It handles GHL workflow enrollment → direct email (GHL → SMTP) internally and
-  // writes its own audit log entries for each outcome.  This step records whether
-  // the canonical service was invoked and captures evidence of the outcome.
-  //
-  // The canonical service returns a typed, explicit outcome that is the SOLE
-  // source of truth for delivery. This step consumes that outcome directly and
-  // NEVER infers "sent"/"enrolled" from config/contact state or from the mere
-  // fact that the Promise resolved.
-  //
-  // Outcome → step success mapping:
-  //   "enrolled"        → success  (native GHL workflow trigger succeeded)
-  //   "sent"            → success  (direct provider delivered the email)
-  //   "skipped"         → FAILURE  (prerequisite missing; recoverable)
-  //   "not_configured"  → FAILURE  (no delivery channel usable; recoverable)
-  //   "failed"          → FAILURE  (explicit provider delivery failure)
-  //   "unknown"         → FAILURE  (no definitive outcome; recoverable)
-  //   thrown error      → FAILURE  (unexpected exception)
+  // The statement chain is NOT a confirmation sender. The single acknowledgement owner
+  // (inbound-acknowledgement.ts) prepares, dispatches and settles the request's `transactional_ack`
+  // effect under its own capability, window and submitted-email binding. The retired legacy
+  // enrollInInboundConfirmation path has no caller here; this step only reads the owner's current
+  // state and reports it, so a merchant can never receive a second confirmation from this chain.
+  // A missing acknowledgement effect is reported as such, never inferred as "sent".
   // ────────────────────────────────────────────────────────────────────────────
   // The chain never sends and never enrolls. The single acknowledgement owner (inbound-acknowledgement.ts) prepares,
   // dispatches and settles the request's `transactional_ack` effect; this step only reports its current state.

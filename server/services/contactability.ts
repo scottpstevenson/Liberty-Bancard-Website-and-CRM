@@ -79,7 +79,14 @@ export interface ContactabilityInput {
    */
   inboundRequestId?: string;
   intendedRecipientContactId?: number;
+  /**
+   * Website warm lane only. A label is never authority: the requested-follow-up campaign type is honored solely when
+   * this id names a LIVE admission for this contact and this exact inbound request (verified against the lane store).
+   */
+  websiteWarmAdmissionId?: number;
 }
+
+export const WEBSITE_WARM_REQUESTED_FOLLOWUP_CAMPAIGN = "website_warm:requested_followup";
 
 export interface ContactabilityResult {
   allowed: boolean;
@@ -334,6 +341,24 @@ export async function evaluateContactability(
     intendedRecipientContactId,
   } = input;
   const currentTime = input.currentTime ?? new Date();
+  let warmFollowupVerified = false;
+  if (
+    channel === "email"
+    && commercialPurpose === "transactional_response"
+    && campaignType === WEBSITE_WARM_REQUESTED_FOLLOWUP_CAMPAIGN
+    && typeof inboundRequestId === "string"
+    && intendedRecipientContactId === contactId
+    && typeof input.websiteWarmAdmissionId === "number"
+  ) {
+    try {
+      const { verifyLiveRequestedFollowupAdmission } = await import("./website-email-lane-store");
+      warmFollowupVerified = await verifyLiveRequestedFollowupAdmission({
+        admissionId: input.websiteWarmAdmissionId, contactId, inboundRequestId,
+      });
+    } catch {
+      warmFollowupVerified = false; // fail closed: unverifiable means the label is just a string
+    }
+  }
 
   const allChannels: ContactabilityChannel[] = [
     "email",
@@ -539,7 +564,7 @@ export async function evaluateContactability(
       commercialPurpose !== "marketing_outreach" &&
       (
         commercialPurpose !== "transactional_response" ||
-        (campaignType !== "confirmation" && !campaignType?.startsWith("ghl_workflow:"))
+        (campaignType !== "confirmation" && !campaignType?.startsWith("ghl_workflow:") && !warmFollowupVerified)
       )
     ) {
       return blocked("COMMERCIAL_CLASS_UNKNOWN", {
@@ -770,6 +795,9 @@ export async function evaluateContactability(
       "spam_trap",
       "abuse",
     ]);
+    // A verified requested follow-up replies to the address the person typed into their own request, so "never
+    // validated" is not a block for it. Every deliverability and safety status above remains a block.
+    if (warmFollowupVerified) EMAIL_STATUS_BLOCK.delete("unvalidated");
     if (contact.emailStatus && EMAIL_STATUS_BLOCK.has(contact.emailStatus)) {
       return blocked(
         `Email channel blocked — email status: ${contact.emailStatus}`,

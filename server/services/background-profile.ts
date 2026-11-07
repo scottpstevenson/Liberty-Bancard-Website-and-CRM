@@ -37,6 +37,8 @@
  *                         side effects beyond writing/uploading a backup artifact)
  *   system-audit        — system-audit (split out from `heavy-maintenance`: sends a
  *                         Slack narrative on every run — a real external side effect)
+ *   website-email       — website-email only: warm Gmail lifecycle lane (default closed by lane
+ *                         configuration; never implies sequences/SFP/campaign/GHL jobs).
  *   sunbiz-backfill      — sunbiz-full-backfill only (Task #2002 corrective patch).
  *                         The full Sunbiz corpus backfill worker is not owned by
  *                         `enrichment` or any other group; without this group no
@@ -214,6 +216,14 @@ export const WORKER_CAPABILITY_GROUPS = {
    */
   "sunbiz-backfill": [
     "sunbiz-full-backfill",
+  ],
+  /**
+   * Website email lifecycle lane ONLY (warm journeys for website requesters). Its own group: enabling it never
+   * implies the legacy `sequences` worker, SFP cold outreach, campaigns, GHL or any provider job. The tick is
+   * closed by default (lane configuration revision, mailbox reader state and per-send fences all start closed).
+   */
+  "website-email": [
+    "website-email",
   ],
   /**
    * Continuous SFP outreach-readiness pipeline: rolling cohort rotation +

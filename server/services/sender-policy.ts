@@ -114,6 +114,12 @@ const POLICY_REGISTRY: Record<MessageCategory, SenderPolicy> = {
   },
 };
 
+/**
+ * The registered category used by the non-cold Gmail sequence branch. It must be a key of POLICY_REGISTRY
+ * (typed as MessageCategory, never cast): an unregistered string makes resolvePolicy() throw before any send.
+ */
+export const NON_COLD_GMAIL_SENDER_CATEGORY: MessageCategory = "accounts";
+
 /** Set of all approved From addresses (lowercase) for O(1) lookup. */
 export const APPROVED_SENDER_SET = new Set(
   Object.values(POLICY_REGISTRY).map((p) => p.from.toLowerCase())

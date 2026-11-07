@@ -3741,10 +3741,17 @@ export const sequenceEnrollments = pgTable("sequence_enrollments", {
   completedAt: timestamp("completed_at"),
   pausedAt: timestamp("paused_at"),
   metadata: jsonb("metadata"),
+  /**
+   * Durable website-lane marker. Only the warm-admission writer sets it; it is the sole way a row can reach the
+   * website warm lane. The shared sequence processor's legacy lane skips every marked row, and the warm lane
+   * processes only marked rows. A raw or storage writer that omits it cannot reach the warm branch.
+   */
+  websiteAdmissionId: integer("website_admission_id").references((): AnyPgColumn => websiteLifecycleAdmissions.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("sequence_enrollments_contact_id_status_idx").on(table.contactId, table.status),
+  index("sequence_enrollments_website_admission_idx").on(table.websiteAdmissionId).where(sql`website_admission_id IS NOT NULL`),
   uniqueIndex("idx_sequence_enrollments_active_unique").on(table.contactId, table.sequenceId).where(sql`status IN ('active', 'paused')`),
   index("seq_enrollments_status_next_action_idx").on(table.status, table.nextActionAt).where(sql`status = 'active'`),
 ]);
@@ -3767,7 +3774,7 @@ export const communicationEvents = pgTable("communication_events", {
   dealId: integer("deal_id").references(() => deals.id, { onDelete: "set null" }),
   direction: text("direction").notNull(), // 'inbound' | 'outbound'
   channel: text("channel").notNull(),     // 'email'|'sms'|'call'|'voicemail'|'chat'|'form'|'portal'|'rvm'
-  provider: text("provider"),             // 'ghl'|'smtp'|'twilio'|'internal'|'manual'
+  provider: text("provider"),             // 'ghl'|'smtp'|'gmail'|'twilio'|'internal'|'manual' (CHECK widened in 0382)
   subject: text("subject"),
   body: text("body"),
   status: text("status").notNull().default("sent"),
@@ -11130,3 +11137,184 @@ export const sfpCampaignStagingCommands = pgTable("sfp_campaign_staging_commands
 ]);
 
 export type SfpCampaignPackageVersion = typeof sfpCampaignPackageVersions.$inferSelect;
+
+
+// ── Website email lifecycle (default-closed warm lane) ────────────────────────
+// Append-only configuration revisions. The newest revision is current; revoking writes a new "revoked" revision.
+export const websiteLifecycleConfigRevisions = pgTable("website_lifecycle_config_revisions", {
+  id: serial("id").primaryKey(),
+  revision: integer("revision").notNull(),
+  status: text("status").notNull().default("closed"),
+  /** { "<sourceCategory>|<sourceType>": { "<program>": <warm revision id> } } */
+  sourceProgramMap: jsonb("source_program_map").notNull().default(sql`'{}'::jsonb`),
+  senderCategory: text("sender_category").notNull().default("accounts"),
+  senderAccount: text("sender_account"),
+  eligibilityStartsAt: timestamp("eligibility_starts_at", { withTimezone: true }),
+  /** Warm Gmail daily capacity for the selected mailbox (all aliases share it). 0 means no capacity. */
+  dailyLimit: integer("daily_limit").notNull().default(0),
+  configHash: text("config_hash").notNull(),
+  createdBy: text("created_by").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("website_lifecycle_config_revisions_revision_uidx").on(table.revision),
+  check("website_lifecycle_config_revisions_status_chk", sql`status IN ('closed', 'open', 'revoked')`),
+  check("website_lifecycle_config_revisions_hash_chk", sql`config_hash ~ '^[0-9a-f]{64}$'`),
+]);
+export type WebsiteLifecycleConfigRevision = typeof websiteLifecycleConfigRevisions.$inferSelect;
+
+// Immutable reviewed snapshot of one email-only warm journey. A generic mutable sequence is never the approved artifact.
+export const websiteWarmRevisions = pgTable("website_warm_revisions", {
+  id: serial("id").primaryKey(),
+  program: text("program").notNull(),
+  sourceSequenceId: integer("source_sequence_id").references(() => followUpSequences.id),
+  communicationPurpose: text("communication_purpose").notNull(),
+  snapshot: jsonb("snapshot").notNull(),
+  snapshotHash: text("snapshot_hash").notNull(),
+  unsupportedSteps: jsonb("unsupported_steps").notNull().default(sql`'[]'::jsonb`),
+  state: text("state").notNull().default("inactive"),
+  createdBy: text("created_by").notNull(),
+  approvedBy: text("approved_by"),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("website_warm_revisions_program_hash_uidx").on(table.program, table.snapshotHash),
+  check("website_warm_revisions_program_chk", sql`program IN ('requested_followup', 'nurture')`),
+  check("website_warm_revisions_state_chk", sql`state IN ('inactive', 'approved', 'retired')`),
+  check("website_warm_revisions_purpose_chk", sql`communication_purpose IN ('human_response', 'transactional', 'promotional')`),
+  check("website_warm_revisions_hash_chk", sql`snapshot_hash ~ '^[0-9a-f]{64}$'`),
+  check("website_warm_revisions_approved_chk", sql`state <> 'approved' OR (approved_by IS NOT NULL AND approved_at IS NOT NULL)`),
+]);
+export type WebsiteWarmRevision = typeof websiteWarmRevisions.$inferSelect;
+
+// One durable intent per logical occurrence and program, independent of retries, merges and content versions.
+export const websiteLifecycleIntents = pgTable("website_lifecycle_intents", {
+  id: serial("id").primaryKey(),
+  occurrenceKey: text("occurrence_key").notNull(),
+  program: text("program").notNull(),
+  sourceCategory: text("source_category").notNull(),
+  sourceType: text("source_type").notNull(),
+  contactId: integer("contact_id").references(() => contacts.id),
+  state: text("state").notNull().default("held"),
+  reason: text("reason"),
+  consentBasis: text("consent_basis"),
+  consentEventKey: text("consent_event_key"),
+  emailTokenHash: text("email_token_hash"),
+  emailGeneration: integer("email_generation"),
+  manifestVersion: text("manifest_version").notNull(),
+  manifestHash: text("manifest_hash").notNull(),
+  configRevisionId: integer("config_revision_id").references(() => websiteLifecycleConfigRevisions.id),
+  warmRevisionId: integer("warm_revision_id").references(() => websiteWarmRevisions.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("website_lifecycle_intents_occurrence_program_uidx").on(table.occurrenceKey, table.program),
+  index("website_lifecycle_intents_state_idx").on(table.state, table.id),
+  check("website_lifecycle_intents_program_chk", sql`program IN ('requested_followup', 'nurture')`),
+  check("website_lifecycle_intents_state_chk", sql`state IN ('held', 'admitted', 'refused', 'cancelled', 'completed')`),
+]);
+export type WebsiteLifecycleIntent = typeof websiteLifecycleIntents.$inferSelect;
+
+// Enrollment-bound durable admission. Re-read at creation, at worker claim and immediately before provider I/O.
+export const websiteLifecycleAdmissions = pgTable("website_lifecycle_admissions", {
+  id: serial("id").primaryKey(),
+  intentId: integer("intent_id").notNull().references(() => websiteLifecycleIntents.id),
+  enrollmentId: integer("enrollment_id"),
+  contactId: integer("contact_id").notNull().references(() => contacts.id),
+  program: text("program").notNull(),
+  requestId: text("request_id").notNull(),
+  channel: text("channel").notNull().default("email"),
+  warmRevisionId: integer("warm_revision_id").notNull().references(() => websiteWarmRevisions.id),
+  warmRevisionHash: text("warm_revision_hash").notNull(),
+  configRevisionId: integer("config_revision_id").notNull().references(() => websiteLifecycleConfigRevisions.id),
+  emailTokenHash: text("email_token_hash").notNull(),
+  emailGeneration: integer("email_generation").notNull(),
+  consentBasis: text("consent_basis").notNull(),
+  consentEventKey: text("consent_event_key"),
+  /** Highest communication_events id at admission: the warm stop predicate is bound to this entry order. */
+  entryEventId: integer("entry_event_id").notNull().default(0),
+  state: text("state").notNull().default("active"),
+  revokedReason: text("revoked_reason"),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("website_lifecycle_admissions_intent_uidx").on(table.intentId),
+  uniqueIndex("website_lifecycle_admissions_enrollment_uidx").on(table.enrollmentId).where(sql`enrollment_id IS NOT NULL`),
+  uniqueIndex("website_lifecycle_admissions_journey_uidx").on(table.contactId, table.program).where(sql`state IN ('active', 'completed')`),
+  index("website_lifecycle_admissions_state_idx").on(table.state, table.contactId),
+  check("website_lifecycle_admissions_channel_chk", sql`channel = 'email'`),
+  check("website_lifecycle_admissions_state_chk", sql`state IN ('active', 'revoked', 'completed')`),
+  check("website_lifecycle_admissions_hash_chk", sql`warm_revision_hash ~ '^[0-9a-f]{64}$'`),
+]);
+export type WebsiteLifecycleAdmission = typeof websiteLifecycleAdmissions.$inferSelect;
+
+// Application-owned Gmail send identity, bound BEFORE provider I/O and completed by the real provider result.
+export const websiteEmailSendReceipts = pgTable("website_email_send_receipts", {
+  id: serial("id").primaryKey(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  admissionId: integer("admission_id").references(() => websiteLifecycleAdmissions.id),
+  stepOrder: integer("step_order").notNull().default(0),
+  contactId: integer("contact_id").references(() => contacts.id),
+  rfcMessageId: text("rfc_message_id").notNull(),
+  providerAccount: text("provider_account"),
+  providerMessageId: text("provider_message_id"),
+  providerThreadId: text("provider_thread_id"),
+  fromAddress: text("from_address").notNull(),
+  replyTo: text("reply_to"),
+  purpose: text("purpose").notNull(),
+  recipientTokenHash: text("recipient_token_hash").notNull(),
+  recipientGeneration: integer("recipient_generation"),
+  outcome: text("outcome").notNull().default("pending"),
+  /** Definite-unsent retries of this same step; bounded by the runtime. */
+  unsentAttempts: integer("unsent_attempts").notNull().default(0),
+  /** The capacity unit reserved with this attempt; released exactly once, only on a proved-unsent settlement. */
+  capacityDay: text("capacity_day"),
+  capacityScope: text("capacity_scope"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("website_email_send_receipts_key_uidx").on(table.idempotencyKey),
+  uniqueIndex("website_email_send_receipts_rfc_uidx").on(table.rfcMessageId),
+  index("website_email_send_receipts_thread_idx").on(table.providerAccount, table.providerThreadId),
+  check("website_email_send_receipts_outcome_chk", sql`outcome IN ('pending', 'accepted', 'unsent', 'uncertain')`),
+]);
+export type WebsiteEmailSendReceipt = typeof websiteEmailSendReceipts.$inferSelect;
+
+// One leased Gmail history reader per connected mailbox. Closed by default; no cursor is invented.
+export const gmailMailboxReaderState = pgTable("gmail_mailbox_reader_state", {
+  accountEmail: text("account_email").primaryKey(),
+  state: text("state").notNull().default("closed"),
+  historyCursor: text("history_cursor"),
+  accountFingerprint: text("account_fingerprint"),
+  leaseToken: text("lease_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("gmail_mailbox_reader_state_state_chk", sql`state IN ('closed', 'active', 'needs_resync', 'revoked')`),
+]);
+export type GmailMailboxReaderState = typeof gmailMailboxReaderState.$inferSelect;
+
+// Correlated or unapplied mailbox evidence. Unique by mailbox and provider message so duplicates never double-apply.
+export const websiteInboundEvidence = pgTable("website_inbound_evidence", {
+  id: serial("id").primaryKey(),
+  accountEmail: text("account_email").notNull(),
+  providerMessageId: text("provider_message_id").notNull(),
+  threadId: text("thread_id"),
+  rfcMessageId: text("rfc_message_id"),
+  kind: text("kind").notNull(),
+  state: text("state").notNull(),
+  reason: text("reason"),
+  sendReceiptId: integer("send_receipt_id").references(() => websiteEmailSendReceipts.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  evidenceHash: text("evidence_hash").notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("website_inbound_evidence_message_uidx").on(table.accountEmail, table.providerMessageId),
+  index("website_inbound_evidence_state_idx").on(table.state, table.id),
+  check("website_inbound_evidence_kind_chk", sql`kind IN ('reply', 'bounce', 'auto_reply', 'other')`),
+  check("website_inbound_evidence_state_chk", sql`state IN ('applied', 'unapplied')`),
+]);
+export type WebsiteInboundEvidence = typeof websiteInboundEvidence.$inferSelect;

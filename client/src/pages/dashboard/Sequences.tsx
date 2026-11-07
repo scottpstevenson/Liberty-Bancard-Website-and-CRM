@@ -16,6 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { WebsiteWarmRevisionsPanel } from "@/components/dashboard/WebsiteWarmRevisionsPanel";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataState } from "@/components/ui/data-state";
@@ -748,6 +749,8 @@ export default function Sequences() {
           </CardContent>
         </Card>
       </div>
+
+      {canAccessOutreachHub && <WebsiteWarmRevisionsPanel canControl={user?.role === "admin"} sequences={sequences} />}
 
       {(!sequences || sequences.length === 0) ? (
         <Card>

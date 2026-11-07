@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { BookOpen, Mail, CheckCircle, ArrowRight, Loader2 } from "lucide-react";
+import { BookOpen, Mail, CheckCircle, AlertCircle, ArrowRight, Loader2 } from "lucide-react";
+import { EmailMarketingCheckbox, emailConsentPayload, type EmailConsentOutcome } from "@/components/EmailMarketingCheckbox";
 import { Link } from "wouter";
 
 interface NewsletterSignupInlineProps {
@@ -16,31 +17,33 @@ interface NewsletterSignupInlineProps {
 export function NewsletterSignupInline({ variant = "inline", sourceArticle }: NewsletterSignupInlineProps) {
   const [firstName, setFirstName] = useState("");
   const [email, setEmail] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+  const [subscribeToNewsletter, setSubscribeToNewsletter] = useState(false);
+  const [consentOutcome, setConsentOutcome] = useState<EmailConsentOutcome | null>(null);
   const idempotencyKeyRef = useRef<string | null>(null);
 
   const subscribe = useMutation({
     mutationFn: async () => {
       idempotencyKeyRef.current ??= crypto.randomUUID();
-      const payload: Record<string, string> = { firstName, email };
+      const payload: Record<string, unknown> = { firstName, email, ...emailConsentPayload("newsletter_signup", subscribeToNewsletter) };
       if (sourceArticle) payload.sourceArticle = sourceArticle;
       const res = await apiRequest("POST", "/api/newsletter/subscribe", payload, {
         "Idempotency-Key": idempotencyKeyRef.current,
       });
-      return res.json();
+      return res.json() as Promise<{ emailConsent?: EmailConsentOutcome }>;
     },
-    onSuccess: () => {
-      setSubmitted(true);
+    onSuccess: (body) => {
+      // Subscription is reported only from the server's recorded consent fact, never from the request having been saved.
+      setConsentOutcome(body?.emailConsent === "recorded" || body?.emailConsent === "unavailable" ? body.emailConsent : "not_recorded");
     },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!firstName.trim() || !email.trim()) return;
+    if (!firstName.trim() || !email.trim() || !subscribeToNewsletter) return;
     subscribe.mutate();
   };
 
-  if (submitted) {
+  if (consentOutcome === "recorded") {
     return (
       <Card
         className="my-8 border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20"
@@ -54,15 +57,15 @@ export function NewsletterSignupInline({ variant = "inline", sourceArticle }: Ne
             <div className="flex-1 space-y-3">
               <div>
                 <p className="font-semibold text-emerald-800 dark:text-emerald-200">
-                  Check your email for the PDF!
+                  You're subscribed to the newsletter.
                 </p>
                 <p className="text-sm text-emerald-700 dark:text-emerald-300 mt-0.5">
-                  The Merchant Statement Decoder is on its way to your inbox.
+                  Your choice is saved. You can unsubscribe from any email at any time.
                 </p>
               </div>
               <div className="border-t border-emerald-200 dark:border-emerald-800 pt-3">
                 <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200 mb-2">
-                  Bonus: Want us to decode YOUR statement?
+                  Want us to decode YOUR statement?
                 </p>
                 <Button size="sm" className="gap-2" asChild>
                   <Link href="/upload-statement" data-testid="link-newsletter-bonus-cta">
@@ -71,6 +74,35 @@ export function NewsletterSignupInline({ variant = "inline", sourceArticle }: Ne
                   </Link>
                 </Button>
               </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (consentOutcome) {
+    return (
+      <Card
+        className="my-8 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/20"
+        data-testid="newsletter-signup-not-recorded"
+        role="status"
+      >
+        <CardContent className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900 flex items-center justify-center shrink-0">
+              <AlertCircle className="w-5 h-5 text-amber-700 dark:text-amber-400" />
+            </div>
+            <div className="flex-1 space-y-2">
+              <p className="font-semibold text-amber-900 dark:text-amber-100">
+                {consentOutcome === "unavailable" ? "We couldn't record your subscription right now." : "Your subscription was not recorded."}
+              </p>
+              <p className="text-sm text-amber-900/90 dark:text-amber-100/90">
+                We will not send newsletter email until a subscription is recorded. Please try again later.
+              </p>
+              <Button size="sm" variant="outline" onClick={() => setConsentOutcome(null)} data-testid="button-newsletter-try-again">
+                Try again
+              </Button>
             </div>
           </div>
         </CardContent>
@@ -91,10 +123,13 @@ export function NewsletterSignupInline({ variant = "inline", sourceArticle }: Ne
           <div className="flex-1 space-y-4">
             <div>
               <p className="font-semibold text-foreground">
-                Download The Merchant Statement Decoder — Free PDF
+                Liberty Bancard newsletter
               </p>
               <p className="text-sm text-muted-foreground mt-0.5">
-                A plain-English guide to understanding every line of your merchant statement. Free, instant, no strings attached.
+                Plain-English card-processing tips and savings guides by email.
+              </p>
+              <p className="text-xs text-muted-foreground mt-1" data-testid="text-newsletter-pdf-unavailable">
+                The Merchant Statement Decoder PDF is not available for download yet.
               </p>
             </div>
             <form onSubmit={handleSubmit} className="space-y-3" data-testid="form-newsletter-signup">
@@ -123,9 +158,16 @@ export function NewsletterSignupInline({ variant = "inline", sourceArticle }: Ne
                   />
                 </div>
               </div>
+              <EmailMarketingCheckbox
+                surface="newsletter_signup"
+                id={`newsletter-consent-${variant}`}
+                checked={subscribeToNewsletter}
+                onCheckedChange={setSubscribeToNewsletter}
+                required
+              />
               <Button
                 type="submit"
-                disabled={subscribe.isPending || !firstName.trim() || !email.trim()}
+                disabled={subscribe.isPending || !firstName.trim() || !email.trim() || !subscribeToNewsletter}
                 className="gap-2"
                 data-testid="button-newsletter-subscribe"
               >
@@ -134,7 +176,7 @@ export function NewsletterSignupInline({ variant = "inline", sourceArticle }: Ne
                 ) : (
                   <Mail className="w-4 h-4" />
                 )}
-                {subscribe.isPending ? "Sending..." : "Send Me the Free PDF"}
+                {subscribe.isPending ? "Subscribing..." : "Subscribe"}
               </Button>
               {subscribe.isError && (
                 <p className="text-xs text-destructive" data-testid="text-newsletter-error">

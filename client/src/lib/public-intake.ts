@@ -4,7 +4,8 @@ import { apiRequest } from "@/lib/queryClient";
  * Shared, typed handling of the public sales-form responses (estimate, get-started, callback).
  *
  * The server answers with one of:
- *  - 201 / 200 { success:true, requestReceipt, status }       saved (status review_required = saved, not yet assigned)
+ *  - 201 / 200 { success:true, requestReceipt, status }       saved (status review_required = saved, not yet assigned);
+ *    `emailConsent` (recorded | not_recorded | unavailable) appears only when the visitor checked the email-updates box
  *  - 202 { success:false, recoverable:true, requestReceipt }  saved in part; the SAME request completes on a same-key retry
  *  - 400                                                      real validation failure, nothing saved
  * `apiRequest` only throws for non-2xx, so a 202 and an unreadable 2xx body must be classified here. An unreadable or
@@ -13,7 +14,7 @@ import { apiRequest } from "@/lib/queryClient";
 export type IntakeForm = "estimate" | "get_started" | "callback_home" | "callback_bubble" | "callback_help";
 
 export type IntakeOutcome =
-  | { kind: "saved"; receipt: string; pendingReview: boolean }
+  | { kind: "saved"; receipt: string; pendingReview: boolean; emailConsent?: "recorded" | "not_recorded" | "unavailable" }
   | { kind: "recoverable"; receipt: string }
   | { kind: "unresolved"; receipt: string | null; reason: "unreadable" | "network" | "server" | "in_progress" | "rate_limited" }
   | { kind: "rejected"; message: string };
@@ -83,7 +84,8 @@ export async function readIntakeOutcome(res: Response): Promise<IntakeOutcome> {
   if (body.success !== true) return { kind: "unresolved", receipt, reason: "unreadable" };
   if (body.status === "failed" || body.status === "cancelled") return { kind: "rejected", message: "We could not save that request. Please try again." };
   if (body.status === "claimed" || body.status === "processing") return { kind: "unresolved", receipt, reason: "in_progress" };
-  return { kind: "saved", receipt, pendingReview: body.status === "review_required" };
+  const emailConsent = ["recorded", "not_recorded", "unavailable"].includes(body.emailConsent) ? body.emailConsent : undefined;
+  return { kind: "saved", receipt, pendingReview: body.status === "review_required", emailConsent };
 }
 
 /** Submit one intent. Never throws: every outcome is typed so the caller cannot show a false success. */

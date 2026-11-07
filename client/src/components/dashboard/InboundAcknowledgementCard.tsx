@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -67,6 +68,10 @@ export function InboundAcknowledgementCard({ canControl }: { canControl: boolean
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
           Each new request records its local work first. A receipt email is sent only for requests received after delivery is enabled, only to the address submitted on that request, and never replays older requests. Enabling receipts does not unpause outbound email, publish message content or activate any campaign.
+        </p>
+        <p className="text-sm text-muted-foreground" data-testid="text-ack-not-marketing">
+          A request receipt is not a marketing subscription. Follow-up and nurture email to website leads is a separate lane, configured on the{" "}
+          <Link href="/dashboard/outbound-readiness" className="underline">Outbound readiness page</Link>.
         </p>
         {isLoading ? (
           <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />

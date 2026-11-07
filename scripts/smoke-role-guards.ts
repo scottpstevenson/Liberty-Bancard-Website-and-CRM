@@ -80,6 +80,8 @@ const CASES: GuardCase[] = [
   { method: "GET", path: "/api/merchants",                   anon: [401], merchant: [403], admin: [200], description: "admin/manager merchants" },
   { method: "GET", path: "/api/dashboard/stats",             anon: [401], merchant: [403], admin: [200], description: "dashboard KPIs" },
   { method: "GET", path: "/api/admin/route-permissions",     anon: [401], merchant: [403], admin: [200], description: "permissions audit" },
+  { method: "GET", path: "/api/admin/website-email/status",  anon: [401], merchant: [403], admin: [200], agent: [403], manager: [200], description: "website email lane status (admin and manager read; mounted in the real app)" },
+  { method: "GET", path: "/api/admin/website-email/revisions/99999/preview", anon: [401], merchant: [403], admin: [404], agent: [403], manager: [404], description: "warm revision preview (admin and manager only; unknown revision is 404)" },
   { method: "GET", path: "/api/admin/users",                 anon: [401], merchant: [403], admin: [200],      description: "admin users" },
   { method: "GET", path: "/api/admin/mfa-settings",          anon: [401], merchant: [403], admin: [200],      description: "admin mfa settings" },
   { method: "GET", path: "/api/agents",                      anon: [401], merchant: [403], admin: [200],      description: "admin/manager agents" },

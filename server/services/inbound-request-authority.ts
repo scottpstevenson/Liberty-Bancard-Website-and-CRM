@@ -28,10 +28,17 @@ import {
 } from "@shared/schema";
 import { resolveWorkAssignee, workPrincipalFields, WorkCommandError } from "./work-item-command";
 import { auditChange } from "./audit-change";
+import { WEBSITE_LANE_SOURCE_PROGRAMS, laneSourceKey } from "./website-email-contracts";
 import { z } from "zod";
 type InboundTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-export const INBOUND_MANIFEST_VERSION = "cro05a-v2";
+/**
+ * Source-policy contract versions. A request stores the version and hash it was claimed under; replay and
+ * orchestration resolve THAT contract (see resolveStoredInboundPolicy), never the current one. v2 is frozen below and
+ * must never be edited: a retried v2 occurrence keeps exactly its original effect set and never gains a warm effect.
+ */
+export const INBOUND_MANIFEST_VERSION = "cro05a-v3";
+export const INBOUND_MANIFEST_VERSION_V2 = "cro05a-v2";
 const INBOUND_CONTEXT_UNAVAILABLE_PREFIX = "Inbound context is unavailable or changed.";
 const BUSINESS_DAY_START_HOUR_UTC = 9;
 const BUSINESS_DAY_END_HOUR_UTC = 17;
@@ -102,7 +109,8 @@ const REVIEW_QUEUE_EFFECTS: readonly EffectDefinition[] = [
 ];
 const REVIEW_QUEUE_FORBIDDEN = ["sales_assignment", "cr05_task", "deal_create", "promotional_enrollment", "proposal_send"] as const;
 
-export const INBOUND_SOURCE_POLICIES: readonly SourcePolicy[] = [
+/** FROZEN cro05a-v2 contract. Do not edit: its hash pins historical occurrences. */
+const INBOUND_SOURCE_POLICIES_V2: readonly SourcePolicy[] = [
   { sourceCategory: "website_form", sourceType: "estimate_form", sourceClass: "sales_request", effects: SALES_EFFECTS, forbiddenEffects: ["promotional_enrollment", "proposal_send"] },
   { sourceCategory: "website_form", sourceType: "get_started_form", sourceClass: "sales_request", effects: SALES_EFFECTS, forbiddenEffects: ["promotional_enrollment", "proposal_send"] },
   { sourceCategory: "website_form", sourceType: "callback_form", sourceClass: "sales_request", effects: SALES_EFFECTS, forbiddenEffects: ["promotional_enrollment", "proposal_send"] },
@@ -137,11 +145,54 @@ export const INBOUND_SOURCE_POLICIES: readonly SourcePolicy[] = [
   { sourceCategory: "ghl_webhook", sourceType: "chat_booking", sourceClass: "lifecycle_event", effects: [{ key: "projection", type: "provider_event_projection", required: true, external: false }], forbiddenEffects: ["sales_assignment", "cr05_task", "deal_create", "consent_evidence", "promotional_enrollment"] },
 ];
 
-const POLICY_MAP = new Map(INBOUND_SOURCE_POLICIES.map((policy) => [`${policy.sourceCategory}|${policy.sourceType}`, policy]));
+/**
+ * cro05a-v3 adds ONLY non-required, external warm-lifecycle intents to the website sources that can request them.
+ * They never block the internal request (reconciliation counts required internal effects only), and the forbidden
+ * list is unchanged: the legacy promotional_enrollment effect is still forbidden for these sources.
+ */
+function withWarmEffects(policy: SourcePolicy): SourcePolicy {
+  const programs = WEBSITE_LANE_SOURCE_PROGRAMS[laneSourceKey(policy.sourceCategory, policy.sourceType)];
+  if (!programs) return policy;
+  return {
+    ...policy,
+    effects: [
+      ...policy.effects,
+      ...programs.map((program): EffectDefinition => ({ key: `warm_${program}`, type: "website_warm_intent", required: false, external: true })),
+    ],
+  };
+}
+
+export const INBOUND_SOURCE_POLICIES: readonly SourcePolicy[] = INBOUND_SOURCE_POLICIES_V2.map(withWarmEffects);
+
+const policyKey = (policy: Pick<SourcePolicy, "sourceCategory" | "sourceType">) => `${policy.sourceCategory}|${policy.sourceType}`;
+const POLICY_MAP = new Map(INBOUND_SOURCE_POLICIES.map((policy) => [policyKey(policy), policy]));
+const POLICY_MAP_V2 = new Map(INBOUND_SOURCE_POLICIES_V2.map((policy) => [policyKey(policy), policy]));
 
 export function getInboundSourcePolicy(sourceCategory: string, sourceType: string): SourcePolicy {
   const policy = POLICY_MAP.get(`${sourceCategory}|${sourceType}`);
   if (!policy) throw new Error(`INVALID_INBOUND_SOURCE_COMBINATION:${sourceCategory}|${sourceType}`);
+  return policy;
+}
+
+/**
+ * Resolve the contract a stored occurrence was claimed under. An unknown version or a hash that no longer matches the
+ * retained contract refuses visibly; it never falls back to the current (more permissive) contract.
+ */
+export function resolveStoredInboundPolicy(row: {
+  sourceCategory: string;
+  sourceType: string;
+  manifestVersion: string;
+  manifestHash: string;
+}): SourcePolicy {
+  const table = row.manifestVersion === INBOUND_MANIFEST_VERSION ? POLICY_MAP
+    : row.manifestVersion === INBOUND_MANIFEST_VERSION_V2 ? POLICY_MAP_V2
+    : null;
+  if (!table) throw new Error(`INBOUND_POLICY_VERSION_UNSUPPORTED:${row.manifestVersion}`);
+  const policy = table.get(`${row.sourceCategory}|${row.sourceType}`);
+  if (!policy) throw new Error(`INVALID_INBOUND_SOURCE_COMBINATION:${row.sourceCategory}|${row.sourceType}`);
+  if (manifestHash(policy, row.manifestVersion) !== row.manifestHash) {
+    throw new Error(`INBOUND_POLICY_DRIFT:${row.manifestVersion}:${row.sourceCategory}|${row.sourceType}`);
+  }
   return policy;
 }
 
@@ -155,8 +206,8 @@ function hashPayload(payload: unknown): string {
   })).digest("hex");
 }
 
-function manifestHash(policy: SourcePolicy): string {
-  return hashPayload({ version: INBOUND_MANIFEST_VERSION, policy });
+function manifestHash(policy: SourcePolicy, version: string = INBOUND_MANIFEST_VERSION): string {
+  return hashPayload({ version, policy });
 }
 
 /**
@@ -279,7 +330,8 @@ export async function claimInboundRequest(input: {
   if (!existing) return claimInboundRequest(input);
   if (existing.requestFingerprint !== requestFingerprint || existing.sourceType !== input.sourceType || existing.sourceCategory !== input.sourceCategory) return { outcome: "conflict" };
   if (existing.callerScope !== input.callerScope) return { outcome: "scope_mismatch" };
-  return { outcome: "replay", request: existing, policy };
+  // Replay keeps the contract the occurrence was claimed under (frozen v2 never gains v3 effects).
+  return { outcome: "replay", request: existing, policy: resolveStoredInboundPolicy(existing) };
 }
 
 /** Convert a verified provider event identity into the UUID command shape used
@@ -823,7 +875,7 @@ export async function orchestrateInboundRequest(input: {
   for (const key of ["contactId","dealId","ticketId"] as const) {
     if (request[key] && input[key] && request[key]!==input[key]) throw new Error("INBOUND_REQUEST_LINK_CHANGED");
   }
-  const policy = getInboundSourcePolicy(request.sourceCategory, request.sourceType);
+  const policy = resolveStoredInboundPolicy(request);
   const slaDueAt = inboundSlaDueAt(policy.sourceClass, request.sourceReceivedAt);
 
   try {

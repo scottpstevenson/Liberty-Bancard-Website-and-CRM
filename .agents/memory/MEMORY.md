@@ -1,4 +1,4 @@
-- [Mailbox lock before row lock](mailbox-lock-before-row-lock.md) — all email-changing paths lock mailbox first; shared amount pattern uses [.] and reports partial, not zero.
+- [Mailbox lock before row lock](mailbox-lock-before-row-lock.md) — email paths lock mailbox first; amounts report partial, not zero. See [partner DTO allowlist](partner-response-allowlist.md).
 - [Canonical consolidation completion](canonical-consolidation-scope.md) — Finish independent work; owner-approved intake closure defers production acceptance rather than claiming it passed.
 - [Provider place ownership](provider-place-ownership.md) — Namespace-local source uniqueness is not global ownership; share resolver locks and audit each mirrored identity.
 - [Retained registry recovery](retained-registry-recovery.md) — Append partial-promotion completions without resetting holds; organization canonicality is not commercial production.
@@ -176,7 +176,6 @@
 - [Domain/location tick resumability](domain-location-tick-resume.md) — budget-stopped windowed ticks must persist cursor to the last handled id; else progress stalls.
 - [Heading ownership claims](heading-ownership-claims.md) — one h1 per page via runtime claim; hubs embed children at h2; verify by settled-h1 crawl.
 - [D-V review repair patterns](dv-review-repair-patterns.md) — cohort URL selectors, in-page fetch hold tests, bounded CSV streaming, rebuild-after-scripts rule.
-- [Partner response allowlist and mailbox lock order](partner-response-allowlist.md) — explicit DTO for partner responses; mailbox lock before row/graph locks on every email mutation.
 - [Drizzle begin failure leaks client](drizzle-begin-leak.md) — failed BEGIN never released in drizzle 0.45; override in server/db.ts; db:long_checkout floods mean a leak.
 - [Actor-change browser trigger](actor-change-browser-trigger.md) — auth revalidation via Date.now skew + offline/online; hold strips abort signal; release old before fresh.
 - [Inbound acknowledgement owner](inbound-ack-owner.md) — default-closed per-message lease; no unpause or historical catch-up. See [liveness](ack-worker-liveness.md): override refused, heartbeat.
@@ -198,3 +197,4 @@
 - [Stage 5 application-to-MID patterns](stage5-application-to-mid-patterns.md) — dispatch markers, atomic underwriting override, held-send markers, strict-DTO tracking-key 400, MID rules, journey text-append rule.
 - [Public-site verification lessons](public-site-verification-lessons.md) — Chromium blocks port 6000; WebKit cannot run here; clean-clone baselines need attached_assets; known baseline failures.
 - [SFP pool count authority](sfp-pool-count-authority.md) — real SFP validated count = cr04 ready_held + launch gates (~1,200 businesses); staging/eligibility tables are stale; no live 30-day expiry; `active` tag does not block.
+- [Website email lifecycle lane](website-email-lifecycle-lane.md) — warm Gmail lane is default closed; marked-enrollment readers must filter; provider CHECK, migration-proof and fixture-egress traps.

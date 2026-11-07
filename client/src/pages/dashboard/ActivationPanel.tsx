@@ -14,6 +14,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useState, useEffect, lazy, Suspense } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { EnrichmentActivationPanel } from "./EnrichmentActivationPanel";
+import { WebsiteEmailLaneSummary } from "@/components/dashboard/WebsiteEmailLaneCard";
 
 // Lazy-loaded to avoid bundling the enrichment panel into the main ActivationPanel chunk
 function EnrichmentActivationPanelLazy() {
@@ -2029,6 +2030,7 @@ export default function ActivationPanel() {
 
         <TabsContent value="kill-switch" className="space-y-4">
           <OutboundKillSwitchPanel />
+          <WebsiteEmailLaneSummary />
         </TabsContent>
 
         <TabsContent value="enrichment-activation" className="space-y-4">

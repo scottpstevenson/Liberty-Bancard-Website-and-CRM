@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { EmailMarketingCheckbox, emailConsentNotice, emailConsentPayload, readEmailConsentState } from "@/components/EmailMarketingCheckbox";
 import { apiRequest } from "@/lib/queryClient";
 import { getStoredUTMParams } from "@/lib/utm";
 import { useToast } from "@/hooks/use-toast";
@@ -272,6 +273,7 @@ export default function FreeAnalysis() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [consent, setConsent] = useState(false);
+  const [emailMarketing, setEmailMarketing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -385,7 +387,7 @@ export default function FreeAnalysis() {
       const storedRef = refCode || localStorage.getItem("lb_ref_code") || (cookieRef ? decodeURIComponent(cookieRef) : undefined) || undefined;
       const storedPromo = promoCode || localStorage.getItem("lb_promo_code") || undefined;
       const utmParams = getStoredUTMParams();
-      await apiRequest(
+      const consentState = await readEmailConsentState(await apiRequest(
         "POST",
         "/api/public/free-analysis",
         {
@@ -398,6 +400,7 @@ export default function FreeAnalysis() {
           email,
           phone,
           consentSms: consent,
+          ...emailConsentPayload("free_analysis", emailMarketing),
           referralCode: storedRef,
           promoCode: storedPromo,
           utmSource: utmParams.utmSource,
@@ -408,7 +411,10 @@ export default function FreeAnalysis() {
           gclid: utmParams.gclid,
         },
         { "Idempotency-Key": submissionIdempotencyKey.current },
-      );
+      ));
+      // The request is saved at this point. The email-updates choice is reported from the server's recorded fact only.
+      const consentNotice = emailConsentNotice(consentState, emailMarketing);
+      if (consentNotice) toast({ title: "Request saved", description: consentNotice });
       setSubmitted(true);
       trackQuizComplete();
       trackFormSubmission("free_analysis_quiz", results?.estimatedAnnualSavings);
@@ -964,11 +970,16 @@ export default function FreeAnalysis() {
                       data-testid="checkbox-consent"
                     />
                     <label htmlFor="consent" className="text-xs text-muted-foreground leading-relaxed cursor-pointer">
-                      By submitting, I agree to receive calls, texts, and email marketing communications from Liberty Bancard regarding payment processing services. Reply STOP to opt out. Message &amp; data rates may apply. See our{" "}
+                      By submitting, I agree to receive calls and texts from Liberty Bancard regarding payment processing services. Reply STOP to opt out. Message &amp; data rates may apply. See our{" "}
                       <Link href="/privacy-policy" className="underline">Privacy Policy</Link> and{" "}
                       <Link href="/sms-terms" className="underline">SMS Terms</Link>.
                     </label>
                   </div>
+                  <EmailMarketingCheckbox
+                    surface="free_analysis"
+                    checked={emailMarketing}
+                    onCheckedChange={setEmailMarketing}
+                  />
                 </div>
               )}
 

@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
+import { WebsiteEmailLaneCard } from "@/components/dashboard/WebsiteEmailLaneCard";
 import {
   CheckCircle2, XCircle, AlertCircle, RefreshCw, ExternalLink,
   Mail, MessageSquare, Globe, Shield, Zap, Activity,
@@ -126,6 +128,7 @@ function ChannelToggle({
 
 export default function OutboundReadiness() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const qc = useQueryClient();
 
   // ── Queries ─────────────────────────────────────────────────────────────────
@@ -290,6 +293,9 @@ export default function OutboundReadiness() {
             note={`${settings?.outboundDailyEmailCap ?? "?"}/day`} />
         </CardContent>
       </Card>
+
+      {/* ── Website email follow-up lane (narrow, default closed) ── */}
+      <WebsiteEmailLaneCard canControl={user?.role === "admin"} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 

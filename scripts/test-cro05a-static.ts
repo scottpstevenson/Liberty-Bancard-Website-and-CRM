@@ -115,7 +115,10 @@ check("all CRO-05A source classes are frozen in the source policy", () => {
   for (const sourceClass of classes) {
     assert.match(authority, new RegExp(`"${sourceClass}"`), `missing source class ${sourceClass}`);
   }
-  assert.match(authority, /INBOUND_MANIFEST_VERSION\s*=\s*"cro05a-v2"/);
+  assert.match(authority, /INBOUND_MANIFEST_VERSION\s*=\s*"cro05a-v3"/);
+  assert.match(authority, /INBOUND_MANIFEST_VERSION_V2\s*=\s*"cro05a-v2"/);
+  assert.match(authority, /FROZEN cro05a-v2 contract/);
+  assert.match(authority, /resolveStoredInboundPolicy[\s\S]*INBOUND_POLICY_DRIFT/);
   assert.match(authority, /getInboundSourcePolicy[\s\S]*INVALID_INBOUND_SOURCE_COMBINATION/);
   assert.match(authority, /state:\s*"held"/);
 });
@@ -159,7 +162,8 @@ check("free analysis owns authority before mutation and returns opaque persisted
   );
   assert.match(route, /const submissionId = inboundClaim\.request\.id/);
   assert.match(route, /const request = await orchestrateInboundRequest\(\{/);
-  assert.match(route, /res\.status\(201\)\.json\(\{ requestReceipt: request\.id, status: request\.lifecycleState \}\)/);
+  // The saved response may also carry the truthful email-consent state (recorded / not_recorded / unavailable) and nothing else.
+  assert.match(route, /res\.status\(201\)\.json\(\{ requestReceipt: request\.id, status: request\.lifecycleState(?:, \.\.\.\(freeAnalysisEmailConsentState \? \{ emailConsent: freeAnalysisEmailConsentState \} : \{\}\))? \}\)/);
   assert.match(route, /requestReceipt: inboundClaim\.request\.id,\s*status: inboundClaim\.request\.lifecycleState/);
   assert.doesNotMatch(route, /status:\s*"(?:accepted|processing|review_required)"/);
   assert.doesNotMatch(route, /res\.status\(201\)\.json\(\{[\s\S]{0,250}\b(?:contactId|dealId|submissionId|estimatedSavings|recommendedProgram|recommendedTerminal)\b/);
@@ -184,11 +188,17 @@ check("free analysis browser retries reuse one key and treat receipts as opaque"
     1,
     "free analysis must generate a key once per mounted submission, not per request attempt",
   );
+  // The page never reads the body itself. The only consumer is readEmailConsentState, which returns one of three
+  // consent states and never the receipt or any other field.
   assert.doesNotMatch(
     submit,
     /(?:const|let|var)\s+\w+\s*=\s*await apiRequest|\.json\(\)|\.text\(\)/,
     "free analysis must not consume or expose the opaque receipt response",
   );
+  assert.match(submit, /await readEmailConsentState\(await apiRequest\(/, "the response is consumed only through the consent-state reader");
+  const reader = source("client/src/components/EmailMarketingCheckbox.tsx");
+  assert.match(reader, /export async function readEmailConsentState[\s\S]*?return value === "recorded" \|\| value === "not_recorded" \|\| value === "unavailable" \? value : undefined/);
+  assert.doesNotMatch(reader, /requestReceipt/, "the consent-state reader never touches the receipt");
 });
 
 check("partner referral returns orchestration lifecycle and replay equality", () => {

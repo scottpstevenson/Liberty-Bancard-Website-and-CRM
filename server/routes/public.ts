@@ -28,6 +28,7 @@ import fs from "fs";
 import { upload, trackReferral } from "./helpers";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { recordPewcDecision } from "../services/consent-evidence";
+import { recordWebsiteEmailConsent, validateWebsiteEmailConsent } from "../services/website-email-consent";
 import { applyConsentCommand } from "../services/consent-authority";
 // StatementChainTracker removed — not exported from statement-upload-chain
 import { resolveReferralAttribution } from "../services/attribution";
@@ -751,6 +752,8 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         currentProvider: z.string().max(120).optional(),
         notes: z.string().max(2000).optional(),
         pewcConsent: z.boolean().optional(),
+        emailMarketingOptIn: z.boolean().optional(),
+        emailDisclosureId: z.string().max(80).optional(),
         referralCode: z.string().max(120).optional(),
         utmSource: z.string().max(200).optional(),
         utmMedium: z.string().max(200).optional(),
@@ -771,6 +774,11 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           error: "INVALID_SUBMISSION",
           details: parsed.error.issues.map(({ path, message }) => ({ path: path.join("."), message })),
         });
+      }
+      const estimateEmailConsent = validateWebsiteEmailConsent("estimate_form", parsed.data);
+      if (estimateEmailConsent.kind === "invalid") {
+        await failInbound(req, 400);
+        return res.status(400).json({ error: "INVALID_SUBMISSION", details: [{ path: "emailMarketingOptIn", message: estimateEmailConsent.reason }] });
       }
       const { contactName, email, phone, monthlyVolume, totalFees, currentProvider, notes, pewcConsent: estimatePewcRaw, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid, referrerUrl: estimateReferrerUrlBody } = parsed.data;
       const estimateReferrerUrl = estimateReferrerUrlBody
@@ -851,6 +859,11 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         });
       }
 
+      const estimateEmailConsentState = await recordWebsiteEmailConsent({
+        surface: "estimate_form", requestId: submissionId, contactId: contact.id, submission: estimateEmailConsent,
+        ipAddress: req.ip || req.socket.remoteAddress || "unknown", userAgent: req.headers["user-agent"] || "unknown",
+      });
+
       const deal = recovered?.deal ?? await storage.createDeal({
         contactId: contact.id, pipeline: "sales", stage: "New Lead", inboundRequestId: submissionId,
         totalVolume: monthlyVolume, totalFees,
@@ -921,7 +934,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       };
       const accepted = await acceptInbound(req, { contactId: contact.id, dealId: deal.id });
       runPostAcceptEffects();
-      res.status(201).json(accepted);
+      res.status(201).json(estimateEmailConsentState ? { ...accepted, emailConsent: estimateEmailConsentState } : accepted);
     } catch (err: any) {
       await respondInboundFailure(req, res, err);
     }
@@ -1065,6 +1078,8 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         email: z.string().trim().email().max(160),
         phone: z.string().trim().min(10).max(40),
         pewcConsent: z.boolean().optional(),
+        emailMarketingOptIn: z.boolean().optional(),
+        emailDisclosureId: z.string().max(80).optional(),
         referralCode: z.string().max(120).optional(),
         promoCode: z.string().max(120).optional(),
         utmSource: z.string().max(200).optional(),
@@ -1085,6 +1100,11 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           error: "INVALID_SUBMISSION",
           details: parsed.error.issues.map(({ path, message }) => ({ path: path.join("."), message })),
         });
+      }
+      const getStartedEmailConsent = validateWebsiteEmailConsent("get_started_form", parsed.data);
+      if (getStartedEmailConsent.kind === "invalid") {
+        await failInbound(req, 400);
+        return res.status(400).json({ error: "INVALID_SUBMISSION", details: [{ path: "emailMarketingOptIn", message: getStartedEmailConsent.reason }] });
       }
       const { goal, vertical, monthlyVolume, needTerminal, interestedIn0Percent, firstName, lastName, email, phone, pewcConsent, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid } = parsed.data;
 
@@ -1166,6 +1186,11 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           details: { formType: "get_started", submissionId },
         });
       }
+
+      const getStartedEmailConsentState = await recordWebsiteEmailConsent({
+        surface: "get_started_form", requestId: submissionId, contactId: contact.id, submission: getStartedEmailConsent,
+        ipAddress: req.ip || req.socket.remoteAddress || "unknown", userAgent: req.headers["user-agent"] || "unknown",
+      });
 
       const deal = recovered?.deal ?? await storage.createDeal({
         contactId: contact.id, pipeline: "sales", stage: "New Lead", inboundRequestId: submissionId,
@@ -1276,7 +1301,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       };
       const accepted = await acceptInbound(req, { contactId: contact.id, dealId: deal.id });
       runPostAcceptEffects();
-      res.status(201).json(accepted);
+      res.status(201).json(getStartedEmailConsentState ? { ...accepted, emailConsent: getStartedEmailConsentState } : accepted);
     } catch (err: any) {
       await respondInboundFailure(req, res, err);
     }
@@ -1781,8 +1806,13 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         firstName: z.string().min(1).max(100),
         email: z.string().email(),
         sourceArticle: z.string().max(200).optional(),
+        emailMarketingOptIn: z.boolean().optional(),
+        emailDisclosureId: z.string().max(80).optional(),
       });
-      const { firstName, email, sourceArticle } = schema.parse(req.body);
+      const parsedNl = schema.parse(req.body);
+      const { firstName, email, sourceArticle } = parsedNl;
+      const newsletterEmailConsent = validateWebsiteEmailConsent("newsletter_signup", parsedNl);
+      if (newsletterEmailConsent.kind === "invalid") throw new Error(newsletterEmailConsent.reason);
 
       const provenanceMetadata: Record<string, unknown> = { source: "blog_inline" };
       if (sourceArticle) provenanceMetadata.source_article = sourceArticle;
@@ -1844,7 +1874,14 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         });
       }
 
-      res.status(201).json(await acceptInbound(req, { contactId: contact.id }));
+      // The address is saved either way. Subscription is reported only from the recorded consent fact: a form that
+      // submitted no opt-in (or one the authority declined to apply) is told it is NOT subscribed.
+      const newsletterConsentState = await recordWebsiteEmailConsent({
+        surface: "newsletter_signup", requestId: submissionId, contactId: contact.id, submission: newsletterEmailConsent,
+        ipAddress: req.ip || req.socket.remoteAddress || "unknown", userAgent: req.headers["user-agent"] || "unknown",
+      });
+      const nlAccepted = await acceptInbound(req, { contactId: contact.id });
+      res.status(201).json({ ...nlAccepted, emailConsent: newsletterConsentState ?? "not_recorded" });
     } catch (err: any) {
       await failInbound(req, 400);
       return res.status(400).json({ error: "INVALID_SUBSCRIPTION" });

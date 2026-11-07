@@ -55,13 +55,14 @@ async function testQueueConfigsBaseline() {
     "partner-monthly-digest", "pipeline-silence-check", "post-enrichment",
     "proposal-followup", "sequences", "sfp-campaign-staging", "sfp-continuous-discovery",
     "sfp-continuous-validation", "sfp-free-classification", "sla-checks", "source-registry-import",
-    "statement-upload", "sunbiz-full-backfill", "system-audit", "voicemail-sync", "winback-outreach",
+    "statement-upload", "sunbiz-full-backfill", "system-audit", "voicemail-sync", "website-email", "winback-outreach",
     "zerobounce-batch-validate",
   ] as const;
-  // Literal ownership snapshot includes independent local import recovery.
+  // Literal ownership snapshot includes independent local import recovery and the default-closed website email
+  // lifecycle lane (its own capability group; no sequences/SFP/campaign/GHL implication).
   // The SFP lanes and Sunbiz full-backfill driver retain their ownership. The retired
   // attestation-refresh queue is intentionally not part of this topology.
-  const CERTIFIED_ROSTER_DIGEST = "256e4aede6c46f104b6c9c97cb3cc625c279dfde90291a0e24bfae13ee27a10b";
+  const CERTIFIED_ROSTER_DIGEST = "f89ad91050a0ff73aa3cf92425456a30a1e8fa1073f2e91c5e8632a42d4d94b1";
   const actualRoster = QUEUE_CONFIGS.map(({ name }) => name).sort();
   const actualDigest = createHash("sha256").update(actualRoster.join("\n")).digest("hex");
 

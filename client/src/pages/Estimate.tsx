@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PewcCheckbox } from "@/components/PewcCheckbox";
+import { EmailMarketingCheckbox, emailConsentNotice, emailConsentPayload } from "@/components/EmailMarketingCheckbox";
 import {
   Select,
   SelectContent,
@@ -48,6 +49,7 @@ const estimateSchema = z.object({
   currentProvider: z.string().optional(),
   notes: z.string().optional(),
   pewcConsent: z.boolean().optional().default(false),
+  emailMarketing: z.boolean().optional().default(false),
 });
 
 type EstimateFormData = z.infer<typeof estimateSchema>;
@@ -79,6 +81,7 @@ export default function Estimate() {
       currentProvider: "",
       notes: "",
       pewcConsent: false,
+      emailMarketing: false,
     },
   });
 
@@ -98,6 +101,7 @@ export default function Estimate() {
       currentProvider: data.currentProvider || undefined,
       notes: data.notes || undefined,
       pewcConsent: data.pewcConsent ?? false,
+      ...emailConsentPayload("estimate_form", data.emailMarketing === true),
       referralCode: refCode,
       ...getStoredUTMParams(),
     };
@@ -109,6 +113,8 @@ export default function Estimate() {
     // response keeps the same intent/key and shows the truthful pending notice instead.
     const outcome = await intake.submit(buildPayload(data));
     if (outcome.kind === "saved") {
+      const consentNotice = emailConsentNotice(outcome.emailConsent, data.emailMarketing === true);
+      if (consentNotice) toast({ title: "Request saved", description: consentNotice });
       trackEstimateRequest();
       trackFormSubmission("estimate_request");
       trackConversionV2("estimate_request");
@@ -353,6 +359,12 @@ export default function Estimate() {
                     <PewcCheckbox
                       checked={form.watch("pewcConsent") ?? false}
                       onCheckedChange={(val) => form.setValue("pewcConsent", val)}
+                    />
+
+                    <EmailMarketingCheckbox
+                      surface="estimate_form"
+                      checked={form.watch("emailMarketing") ?? false}
+                      onCheckedChange={(val) => form.setValue("emailMarketing", val)}
                     />
 
                     {submitError && (

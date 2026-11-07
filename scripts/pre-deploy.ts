@@ -124,6 +124,8 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
     timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Inbound acknowledgement owner",script:"scripts/certification/test-inbound-acknowledgement.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
+  {name:"Website email lifecycle lane",script:"scripts/certification/test-website-email-lifecycle-disposable.ts",
+    timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Message template versions and reviewed copy",script:"scripts/certification/test-message-template-versions.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Merchant outbox handoff and durable waits",script:"scripts/certification/test-merchant-outbox-handoff.ts",
@@ -260,6 +262,8 @@ export const MANDATORY_SUITES: Suite[] = [
   {name:"Stage 3 C5 Matched Client Performance",script:"scripts/test-stage3-c5-performance.ts",timeoutSecs:600,requiresDisposableTestDatabase:true,explicitDisposableOptIn:true},
   {name:"Stage 4D Matched Calendar Performance",script:"scripts/test-stage4d-calendar-performance.ts",timeoutSecs:600,requiresDisposableTestDatabase:true,explicitDisposableOptIn:true},
   {name:"Stage 3 C5 Cutover Browser Smoke",script:"scripts/test-stage3-c5-browser.ts",timeoutSecs:480,requiresDisposableTestDatabase:true},
+  {name:"Website email lifecycle browser (warm content, lane card, role matrix, public consent)",script:"scripts/test-website-email-browser.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
+  {name:"Website email lifecycle migration (fresh, parity, upgrade, partial, replay)",script:"scripts/test-website-email-migration.ts",timeoutSecs:420,requiresDisposableTestDatabase:true},
   {name:"Stage 3 C4 Source and Codec Contracts",script:"scripts/test-stage3-c4-contracts.ts",timeoutSecs:60},
   {name:"Stage 3 C4 Real Handler Actions",script:"scripts/test-stage3-c4-actions.ts",timeoutSecs:240,requiresDisposableTestDatabase:true},
   {name:"Stage 3 C4 Bounded Mounted Browser",script:"scripts/test-stage3-c4-browser.ts",timeoutSecs:480,requiresDisposableTestDatabase:true},
@@ -781,6 +785,11 @@ export const MANDATORY_SUITES: Suite[] = [
   {
     name: "CRO-05A Inbound Revenue Operations Static Certification",
     script: "scripts/test-cro05a-static.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "Website email lifecycle pure contract (consent, frozen policy, scoped authority, sender, MIME, outcomes, mailbox, stop)",
+    script: "scripts/test-website-email-contracts.ts",
     timeoutSecs: 60,
   },
   {

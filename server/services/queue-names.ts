@@ -52,6 +52,9 @@ export const QUEUE_NAMES = {
   // handler is a no-op unless an admin has set the run status to 'running'
   // (see server/services/sunbiz-full-backfill.ts) -- disabled by default.
   SUNBIZ_FULL_BACKFILL: "sunbiz-full-backfill",
+  // Website email lifecycle lane: warm (non-cold) Gmail journeys for people who asked to hear from us. Registered
+  // only under its own capability group; closed by default through the lane configuration revision.
+  WEBSITE_EMAIL: "website-email",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

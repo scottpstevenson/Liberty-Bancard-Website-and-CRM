@@ -423,7 +423,8 @@ export function registerActivationRoutes(app: Express, dependencies: {
   // === SEQUENCES NOT FIRING WIDGET ===
   app.get("/api/operator/silent-sequences", isDashboardUser, async (_req, res) => {
     try {
-      const all = await storage.getActiveEnrollments();
+      // Website-lane journeys wait whole days between steps by design and have their own status on Outbound readiness.
+      const all = (await storage.getActiveEnrollments()).filter((e) => e.websiteAdmissionId == null);
       const cutoff = Date.now() - 24 * 60 * 60 * 1000;
 
       const silent = all.filter((e: any) => {

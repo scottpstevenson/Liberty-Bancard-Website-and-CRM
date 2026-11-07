@@ -59,6 +59,7 @@ export type BacklogSource =
   | "sfp_cohort_runs"
   | "sfp_outreach_eligibility"
   | "sunbiz_bootstrap_runs"
+  | "website_lifecycle_admissions"
   | "none";
 
 // ---------------------------------------------------------------------------
@@ -771,6 +772,17 @@ export const LOGICAL_JOB_MANIFEST: readonly ManifestEntry[] = [
     canRunWhileGlobalOutboundPaused: true,
     backlogSource: "sunbiz_bootstrap_runs",
     releaseController: "sunbiz_full_backfill_admin_run_state",
+  },
+  {
+    logicalKey: "website-email-tick",
+    physicalQueue: QUEUE_NAMES.WEBSITE_EMAIL,
+    jobNamePattern: "tick",
+    handler: "Website email lifecycle tick — intent admission, mailbox evidence poll, warm Gmail journey sends",
+    owner: "website-email-tick.runWebsiteEmailTick",
+    effect: "lifecycle_send",
+    canRunWhileGlobalOutboundPaused: false,
+    backlogSource: "website_lifecycle_admissions",
+    releaseController: "website_lifecycle_config_revision",
   },
 
   // ── Legacy / non-BullMQ schedulers ───────────────────────────────────────

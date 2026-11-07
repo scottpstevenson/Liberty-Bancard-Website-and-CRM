@@ -128,7 +128,7 @@ export async function recordOutboundSend(opts: {
   contactId: number;
   dealId?: number | null;
   channel: "email" | "sms" | "rvm" | "voicemail";
-  provider?: "ghl" | "smtp" | "twilio";
+  provider?: "ghl" | "smtp" | "gmail" | "twilio";
   subject?: string | null;
   body?: string | null;
   status?: "sent" | "failed" | "skipped" | "blocked";
@@ -164,7 +164,7 @@ export interface InboundEventOptions {
   contactId: number;
   dealId?: number | null;
   channel: "email" | "sms" | "call" | "voicemail" | "chat" | "form" | "portal";
-  provider?: "ghl" | "smtp" | "internal" | "manual";
+  provider?: "ghl" | "smtp" | "gmail" | "internal" | "manual";
   subject?: string | null;
   body?: string | null;
   status?: "received" | "replied" | "bounced" | "failed";
@@ -258,4 +258,37 @@ export async function recordInboundEventInTx(
   } catch (err) {
     throw new Error("Canonical inbound communication event persistence failed", { cause: err });
   }
+}
+
+/**
+ * Canonical OUTBOUND event written inside the caller's transaction. Used where the event must commit atomically with
+ * the send receipt and the enrollment advance (website warm lane), so a crash cannot leave an accepted send without its
+ * event or an event without its receipt. Same table and columns as recordOutboundSend; errors propagate.
+ */
+export async function recordOutboundSendInTx(
+  tx: { execute: typeof db.execute },
+  opts: {
+    contactId: number;
+    channel: "email" | "sms" | "rvm" | "voicemail";
+    provider: "ghl" | "smtp" | "gmail" | "twilio";
+    subject?: string | null;
+    body?: string | null;
+    sequenceId?: number | null;
+    externalMessageId?: string | null;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<number> {
+  const { sql } = await import("drizzle-orm");
+  const metadata = opts.metadata == null ? null : JSON.stringify(opts.metadata);
+  const result = await tx.execute(sql`
+    INSERT INTO communication_events
+      (contact_id, direction, channel, provider, subject, body, status, sent_by, sequence_id, external_message_id, metadata, created_at, updated_at)
+    VALUES
+      (${opts.contactId}, 'outbound', ${opts.channel}, ${opts.provider}, ${opts.subject ?? null}, ${opts.body ?? null}, 'sent', 'automation',
+       ${opts.sequenceId ?? null}, ${opts.externalMessageId ?? null}, ${metadata}::jsonb, NOW(), NOW())
+    RETURNING id
+  `);
+  const row = (result.rows as Array<{ id: number }>)[0];
+  if (!row) throw new Error("Canonical outbound communication event persistence returned no row");
+  return Number(row.id);
 }

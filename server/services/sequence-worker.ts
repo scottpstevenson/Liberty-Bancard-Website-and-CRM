@@ -13,7 +13,7 @@ import { isGhlConfigured } from "./ghl";
 import { getEmailSignatureHtml, isColdOutreachSequence } from "./email-signatures";
 import type { SignatureType } from "./sender-policy";
 import { sanitizeFirstName } from "./contact-name-utils";
-import { resolvePolicy } from "./sender-policy";
+import { resolvePolicy, NON_COLD_GMAIL_SENDER_CATEGORY } from "./sender-policy";
 import { sfpLaunchRenderContext, renderSfpLaunchSubject, renderSfpLaunchBodyHtml } from "./sfp-launch-render";
 import { SFP_LAUNCH_SEQUENCE_FAMILY_PREFIX } from "./cro03/sfp-launch-content";
 import { hashEmailToken } from "./provider-readiness-control";
@@ -380,7 +380,10 @@ export async function processSequenceEnrollments(
     await reconcileCanonicalReleases().catch((error) => {
       console.error("[SFP_CANONICAL_RELEASE_EXPIRY_RECONCILE_FAILED]", error instanceof Error ? error.name : "UnknownError");
     });
-    const dueEnrollments = await storage.getActiveEnrollments();
+    // Lane selection: a row carrying the durable website-admission marker belongs ONLY to the website warm lane
+    // (processed by the website-email tick under its own admission, stop, capacity and receipt rules). The legacy lane
+    // never sees it: no commercial observation, no sequence gates, no send. Unmarked rows are untouched by the warm lane.
+    const dueEnrollments = (await storage.getActiveEnrollments()).filter((enrollment) => enrollment.websiteAdmissionId == null);
     await authorizeCommercialUseBatch({
       subjects: dueEnrollments
         .filter((enrollment) => Number.isInteger(enrollment.contactId))
@@ -1743,13 +1746,13 @@ export async function processSequenceEnrollments(
                     to: deliveryEmailTo,
                     subject: deliverySubject,
                     html: emailBody,
-                    category: "department_accounts" as any,
+                    category: NON_COLD_GMAIL_SENDER_CATEGORY,
                     contactId: enrollment.contactId,
                     commercialPurpose: "marketing_outreach",
                     unsubscribeUrl,
                   });
                   if (!result.success) throw new Error(result.error || "Gmail send failed");
-                  await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: result.messageId, fromAddress: "gmail_oauth" });
+                  await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: result.messageId, fromAddress: result.fromAddress ?? resolvePolicy(NON_COLD_GMAIL_SENDER_CATEGORY).from });
                 } else if (useSmtpForThisStep && contact?.email) {
                   // Global pause check — upgraded to OutboundPauseAuthority (#1532, was #1399)
                   {
@@ -1846,7 +1849,8 @@ export async function processSequenceEnrollments(
                   recordOutboundSend({
                     contactId: enrollment.contactId!,
                     channel: "email",
-                    provider: testRedirectTo ? "smtp" : "ghl",
+                    // Label the transport that actually carried the message; historical rows are not relabeled.
+                    provider: useGmailForThisStep ? "gmail" : (useSmtpForThisStep || testRedirectTo) ? "smtp" : "ghl",
                     subject: deliverySubject,
                     sequenceId: sequence.id,
                     sequenceStepId: step.id,

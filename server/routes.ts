@@ -42,6 +42,7 @@ import { registerTrainingRoutes } from "./routes/training";
 import { registerMyDayRoutes } from "./routes/my-day";
 import { registerLiveChatRoutes } from "./routes/live-chat";
 import { registerInboundAcknowledgementRoutes } from "./routes/inbound-acknowledgements";
+import { registerWebsiteEmailRoutes } from "./routes/website-email";
 import { registerChargebacksRoutes } from "./routes/chargebacks";
 import { registerToolkitRoutes } from "./routes/toolkit";
 import { registerLifecycleRoutes } from "./routes/lifecycle";
@@ -225,6 +226,7 @@ export async function registerRoutes(
   registerMyDayRoutes(app);
   registerLiveChatRoutes(app);
   registerInboundAcknowledgementRoutes(app);
+  registerWebsiteEmailRoutes(app);
   registerChargebacksRoutes(app);
   registerToolkitRoutes(app);
   registerLifecycleRoutes(app);

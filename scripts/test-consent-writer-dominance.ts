@@ -85,10 +85,41 @@ if (!markDncSection.includes("applyConsentCommand") || /UPDATE\s+contacts\s+SET/
   failures++;
 }
 const contactWriterSource = fs.readFileSync("server/services/contact-writer.ts", "utf8");
-if (!contactWriterSource.includes("stripContactAuthorityFields(args.mutation)") ||
-    !/consentSms:\s*false/.test(contactWriterSource) ||
-    !/consentEmail:\s*false/.test(contactWriterSource)) {
+const schemaSource = fs.readFileSync("shared/schema.ts", "utf8");
+// Current contract: the generic writer strips every authority-owned consent field from the
+// caller's mutation before any provider or database write; the insert payload is built only from
+// the stripped copy, and the schema defaults for the legacy projections are false. A literal
+// `consentSms: false` in the writer is no longer required (and would itself be an authority write).
+function contactWriterStripsAuthority(source: string, schema: string): boolean {
+  const stripAt = source.indexOf("stripContactAuthorityFields(args.mutation)");
+  const insertAt = source.indexOf("tx.insert(contacts).values(contactPayload)");
+  const payloadSpreadsStripped = /const contactPayload[^=]*=\s*\{\s*\.\.\.\(mutation as any\)/.test(source);
+  const spreadsRaw = /\.\.\.\(?\s*args\.mutation/.test(source);
+  const contactsTable = schema.slice(schema.indexOf('export const contacts = pgTable'), schema.indexOf('export const contacts = pgTable') + 6000);
+  const defaultsFalse = /consentSms:\s*boolean\("consent_sms"\)\.default\(false\)/.test(contactsTable) &&
+    /consentEmail:\s*boolean\("consent_email"\)\.default\(false\)/.test(contactsTable);
+  return stripAt >= 0 && insertAt > stripAt && payloadSpreadsStripped && !spreadsRaw && defaultsFalse;
+}
+const authorityFieldSource = fs.readFileSync("server/services/contact-field-authority.ts", "utf8");
+if (!contactWriterStripsAuthority(contactWriterSource, schemaSource) ||
+    !/"consentEmail",\s*"consentSms",\s*"consentTier"/.test(authorityFieldSource) ||
+    /consentSms:\s*true|consentEmail:\s*true/.test(contactWriterSource)) {
   console.error("FAIL server/services/contact-writer.ts: generic contact creation must strip authority fields before provider and database writes");
+  failures++;
+}
+// Negative controls: each mutation of the current contract must be detected.
+for (const [label, mutated] of [
+  ["strip call removed", contactWriterSource.replace("stripContactAuthorityFields(args.mutation)", "args.mutation")],
+  ["payload built from raw mutation", contactWriterSource.replace("...(mutation as any),\n      sourceCategory: provenance.sourceCategory", "...(args.mutation as any),\n      sourceCategory: provenance.sourceCategory")],
+  ["strip placed after insert", contactWriterSource.replace("const mutation = stripContactAuthorityFields(args.mutation);", "const mutation = { ...args.mutation };").replace("tx.insert(contacts).values(contactPayload)", "tx.insert(contacts).values(contactPayload); stripContactAuthorityFields(args.mutation)")],
+] as const) {
+  if (contactWriterStripsAuthority(mutated, schemaSource)) {
+    console.error(`FAIL negative control (contact writer: ${label}) was not detected`);
+    failures++;
+  }
+}
+if (contactWriterStripsAuthority(contactWriterSource, schemaSource.replace('consentSms: boolean("consent_sms").default(false)', 'consentSms: boolean("consent_sms").default(true)'))) {
+  console.error("FAIL negative control (schema default true) was not detected");
   failures++;
 }
 const sdrOrchestratorSource = fs.readFileSync("server/services/sdr/orchestrator.ts", "utf8");
@@ -117,10 +148,29 @@ if (/email_status = 'opted_out', do_not_auto_contact/.test(authoritySource) ||
   failures++;
 }
 const contactabilitySource = fs.readFileSync("server/services/contactability.ts", "utf8");
-if (!contactabilitySource.includes("consentSubjectChannelStates") ||
-    !contactabilitySource.includes("Canonical ${canonicalChannel} permission is withdrawn or suppressed")) {
+// Current contract: live contactability reads the canonical channel state and blocks on EACH of
+// the two restrictive states separately ("withdrawn" and "suppressed"), with distinct reasons.
+function contactabilityEnforcesCanonicalStates(source: string): boolean {
+  return source.includes("consentSubjectChannelStates") &&
+    /\.from\(consentSubjectChannelStates\)/.test(source) &&
+    /\["withdrawn",\s*"suppressed"\]\.includes\(canonicalState\.permissionState\)/.test(source) &&
+    source.includes("Canonical ${canonicalChannel} permission has been opted out or withdrawn") &&
+    source.includes("Canonical ${canonicalChannel} permission is suppressed") &&
+    /canonicalState\.permissionState === "withdrawn"/.test(source);
+}
+if (!contactabilityEnforcesCanonicalStates(contactabilitySource)) {
   console.error("FAIL server/services/contactability.ts: live contactability must enforce canonical channel projections");
   failures++;
+}
+for (const [label, mutated] of [
+  ["suppressed state dropped", contactabilitySource.replace('["withdrawn", "suppressed"].includes(canonicalState.permissionState)', '["withdrawn"].includes(canonicalState.permissionState)')],
+  ["canonical table read removed", contactabilitySource.replace(".from(consentSubjectChannelStates)", ".from(contacts)")],
+  ["withdrawn reason removed", contactabilitySource.replace("Canonical ${canonicalChannel} permission has been opted out or withdrawn", "ok")],
+] as const) {
+  if (contactabilityEnforcesCanonicalStates(mutated)) {
+    console.error(`FAIL negative control (contactability: ${label}) was not detected`);
+    failures++;
+  }
 }
 const sdrGhlRulesSource = fs.readFileSync("server/services/sdr/ghl-sync-rules.ts", "utf8");
 const importSource = fs.readFileSync("server/routes/imports.ts", "utf8");
@@ -139,12 +189,32 @@ if (!unsubscribeRouteSource.includes("occurrence:${occurrenceId}") ||
 }
 const ghlSource = fs.readFileSync("server/services/ghl.ts", "utf8");
 const workflowSource = fs.readFileSync("server/services/workflow-executor.ts", "utf8");
-if (!ghlSource.includes("unsubscribe:${webhookOccurrenceId}") ||
-    !ghlSource.includes("dnc:${occurrenceId}") ||
-    !workflowSource.includes("unsubscribe:${occurrenceId}") ||
-    !ghlSource.includes("activity:${inboundActivity.id}")) {
+// Current contract: restrictive GHL/workflow events use occurrence-specific keys, and the GHL inbound
+// message path derives its effect identity from the canonical inbound message identity (provider
+// message id, or a documented fallback basis) inside transactional once-only effects, not from a
+// legacy activity-row id.
+function restrictiveEventsUseOccurrenceKeys(ghl: string, workflow: string): boolean {
+  return ghl.includes("unsubscribe:${webhookOccurrenceId}") &&
+    ghl.includes("dnc:${occurrenceId}") &&
+    workflow.includes("unsubscribe:${occurrenceId}") &&
+    ghl.includes("canonicalInboundMessageIdentity(payload)") &&
+    ghl.includes("effectKey: `ghl_inbound:${contact.id}:${messageIdentity.key}:${effect}`") &&
+    ghl.includes("recordCanonicalInboundMessageEventOnce");
+}
+if (!restrictiveEventsUseOccurrenceKeys(ghlSource, workflowSource)) {
   console.error("FAIL GHL and workflow restrictive events must use occurrence-specific keys");
   failures++;
+}
+for (const [label, g, w] of [
+  ["ghl unsubscribe key made permanent", ghlSource.replace("unsubscribe:${webhookOccurrenceId}", "unsubscribe"), workflowSource],
+  ["workflow unsubscribe key made permanent", ghlSource, workflowSource.replaceAll("unsubscribe:${occurrenceId}", "unsubscribe")],
+  ["inbound identity dropped", ghlSource.replaceAll("canonicalInboundMessageIdentity(payload)", "payload.id"), workflowSource],
+  ["strict inbound writer dropped", ghlSource.replaceAll("recordCanonicalInboundMessageEventOnce", "recordInboundEventBestEffort"), workflowSource],
+] as const) {
+  if (restrictiveEventsUseOccurrenceKeys(g, w)) {
+    console.error(`FAIL negative control (restrictive keys: ${label}) was not detected`);
+    failures++;
+  }
 }
 if (!ghlSource.includes('["sms", "automated_phone"] as const') ||
     !workflowSource.includes('["sms", "automated_phone"] as const') ||
