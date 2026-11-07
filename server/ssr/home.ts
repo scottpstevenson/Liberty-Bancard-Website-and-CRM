@@ -216,6 +216,8 @@ export function getHomeHtml(): string {
     title: "Merchant Payment Processing | Liberty Bancard",
     description: "Liberty Bancard offers transparent interchange-plus payment processing. Free statement review, 0% processing programs, and dedicated merchant support.",
     canonical: "/",
+    // Logo card sized for iOS/social square crops; the generated card is the fallback for other pages.
+    ogImage: "https://libertybancard.com/og-home-logo-card.jpg",
     keywords: "merchant payment processing, interchange plus pricing, credit card processing, payment processor, merchant services, 0 percent processing, free statement review",
     schemaJsons: [orgSchema, localBusinessSchema, webSiteSchema],
     body,
