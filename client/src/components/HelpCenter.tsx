@@ -315,24 +315,24 @@ export function HelpCenter({ context, department, className }: HelpCenterProps) 
                   </p>
                 </div>
                 <div className="space-y-2">
-                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking(`help_center_${context || "default"}`)}>
-                    <Button className="w-full max-w-xs gap-2" data-testid="help-book-calendar-btn">
+                  <Button className="w-full max-w-xs gap-2" data-testid="help-book-calendar-btn" asChild>
+                    <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking(`help_center_${context || "default"}`)}>
                       <Calendar className="w-4 h-4" />
                       Book a Meeting
-                    </Button>
-                  </a>
-                  <a href="tel:9542668214" onClick={() => trackPhoneCallClick({ sourcePage: "/help-center" })}>
-                    <Button variant="outline" className="w-full max-w-xs gap-2 mt-2" data-testid="help-book-call-btn">
+                    </a>
+                  </Button>
+                  <Button variant="outline" className="w-full max-w-xs gap-2 mt-2" data-testid="help-book-call-btn" asChild>
+                    <a href="tel:9542668214" onClick={() => trackPhoneCallClick({ sourcePage: "/help-center" })}>
                       <Phone className="w-4 h-4" />
                       Call to Schedule: 954-266-8214
-                    </Button>
-                  </a>
-                  <a href="mailto:support@libertybancard.com?subject=Meeting Request">
-                    <Button variant="outline" className="w-full max-w-xs gap-2 mt-2" data-testid="help-book-email-btn">
+                    </a>
+                  </Button>
+                  <Button variant="outline" className="w-full max-w-xs gap-2 mt-2" data-testid="help-book-email-btn" asChild>
+                    <a href="mailto:support@libertybancard.com?subject=Meeting Request">
                       <MessageCircle className="w-4 h-4" />
                       Email: support@libertybancard.com
-                    </Button>
-                  </a>
+                    </a>
+                  </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">Available Mon–Fri 9am–6pm ET</p>
               </div>

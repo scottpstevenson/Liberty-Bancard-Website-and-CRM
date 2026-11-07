@@ -139,17 +139,17 @@ export default function TestimonialsSubmit() {
                   We've received your submission. Our team will review it and reach out within 2 business days to talk through the details and get your story featured.
                 </p>
                 <div className="flex flex-wrap gap-3 justify-center">
-                  <Link href="/testimonials" data-testid="link-success-back">
-                    <Button variant="outline" className="gap-2">
+                  <Button variant="outline" className="gap-2" asChild>
+                    <Link href="/testimonials" data-testid="link-success-back">
                       <ArrowLeft className="w-4 h-4" />
                       View Testimonials
-                    </Button>
-                  </Link>
-                  <Link href="/case-studies" data-testid="link-success-case-studies">
-                    <Button className="gap-2">
+                    </Link>
+                  </Button>
+                  <Button className="gap-2" asChild>
+                    <Link href="/case-studies" data-testid="link-success-case-studies">
                       Read Case Studies
-                    </Button>
-                  </Link>
+                    </Link>
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -351,12 +351,12 @@ export default function TestimonialsSubmit() {
                   )}
                   Submit My Story
                 </Button>
-                <Link href="/testimonials" data-testid="link-cancel-submit">
-                  <Button size="lg" variant="outline" className="w-full sm:w-auto gap-2">
+                <Button size="lg" variant="outline" className="w-full sm:w-auto gap-2" asChild>
+                  <Link href="/testimonials" data-testid="link-cancel-submit">
                     <ArrowLeft className="w-4 h-4" />
                     Cancel
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
 
               <p className="text-xs text-muted-foreground text-center">

@@ -198,3 +198,4 @@
 - [Pre-deploy gate quirks](appointment-statement-polling-fix.md) — GHL fix: pollUntil(12s); see [predeploy-port-5000-conflict.md](predeploy-port-5000-conflict.md): dev owns port 5000.
 - [Application-to-MID lifecycle patterns](stage5-application-to-mid-patterns.md) — dispatch markers, atomic underwriting override, shared cohort for counts/queue, pure e-sign read, journal text-append rule.
 - [Stage 5 application-to-MID patterns](stage5-application-to-mid-patterns.md) — held-send markers, strict-DTO tracking-key 400, MID rules, allowlist moves, test-forms limits.
+- [Public-site verification lessons](public-site-verification-lessons.md) — Chromium blocks port 6000; WebKit cannot run here; clean-clone baselines need attached_assets; known baseline failures.

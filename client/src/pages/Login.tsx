@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Shield, Mail, Lock, Smartphone, KeyRound } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
-import logoBlue from "@assets/logo-blue.png";
+import logoBlue from "@/assets/logo-blue.png";
 import { SEO } from "@/components/SEO";
 
 export default function Login() {

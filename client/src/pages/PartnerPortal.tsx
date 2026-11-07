@@ -78,11 +78,11 @@ function QuickStartTab({ partner, kpis, referralLink, copyLink }: QuickStartTabP
       description: "Use the templated emails in your Collateral tab to reach out to 5 business owner contacts. Personalize the subject line with their business name.",
       done: kpis.totalClicks > 0,
       action: (
-        <a href="/partner-portal#collateral">
-          <Button size="sm" variant="outline" className="gap-1.5 mt-2" data-testid="button-qs-collateral">
+        <Button size="sm" variant="outline" className="gap-1.5 mt-2" data-testid="button-qs-collateral" asChild>
+          <a href="/partner-portal#collateral">
             <FileText className="w-3.5 h-3.5" /> View Collateral
-          </Button>
-        </a>
+          </a>
+        </Button>
       ),
     },
     {
@@ -91,11 +91,11 @@ function QuickStartTab({ partner, kpis, referralLink, copyLink }: QuickStartTabP
       description: "Send at least one merchant to your pre-tagged application link. The merchant fills out the form — Liberty Bancard does the rest. You earn residual from day one of processing.",
       done: kpis.totalReferrals > 0,
       action: (
-        <a href={`/merchant-application?ref=${partner.code}`} target="_blank" rel="noopener noreferrer">
-          <Button size="sm" variant="outline" className="gap-1.5 mt-2" data-testid="button-qs-application">
+        <Button size="sm" variant="outline" className="gap-1.5 mt-2" data-testid="button-qs-application" asChild>
+          <a href={`/merchant-application?ref=${partner.code}`} target="_blank" rel="noopener noreferrer">
             <ArrowRight className="w-3.5 h-3.5" /> Open Application Link
-          </Button>
-        </a>
+          </a>
+        </Button>
       ),
     },
     {
@@ -170,11 +170,11 @@ function QuickStartTab({ partner, kpis, referralLink, copyLink }: QuickStartTabP
           </div>
           <div className="mt-4 pt-4 border-t border-border text-center">
             <p className="text-sm text-muted-foreground mb-2">Questions? Your partner rep is here to help.</p>
-            <a href="mailto:partners@libertybancard.com">
-              <Button variant="outline" size="sm" className="gap-2" data-testid="button-qs-contact-rep">
+            <Button variant="outline" size="sm" className="gap-2" data-testid="button-qs-contact-rep" asChild>
+              <a href="mailto:partners@libertybancard.com">
                 <Handshake className="w-3.5 h-3.5" /> Contact Partner Team
-              </Button>
-            </a>
+              </a>
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -698,7 +698,7 @@ export default function PartnerPortal() {
       <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <SEO title="Partner Dashboard | Liberty Bancard" description="Your Liberty Bancard partner dashboard" path="/partner-portal" noindex={true} />
         <Navbar />
-        <main className="flex-grow pt-28 pb-16">
+        <main className="flex-grow public-main-offset pb-16">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
 
             {/* Header */}
@@ -1032,11 +1032,11 @@ export default function PartnerPortal() {
                     </div>
                     <div className="pt-4 border-t border-border">
                       <p className="text-sm text-muted-foreground mb-3">Questions about your commissions or account? Reach out to your partner rep directly.</p>
-                      <a href="mailto:partners@libertybancard.com">
-                        <Button variant="outline" size="sm" className="gap-2" data-testid="button-contact-rep">
+                      <Button variant="outline" size="sm" className="gap-2" data-testid="button-contact-rep" asChild>
+                        <a href="mailto:partners@libertybancard.com">
                           Contact Partner Team
-                        </Button>
-                      </a>
+                        </a>
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -1055,7 +1055,7 @@ export default function PartnerPortal() {
       <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <SEO title="Forgot Password | Partner Portal" description="Reset your Liberty Bancard partner password" path="/partner-portal" noindex={true} />
         <Navbar />
-        <main className="flex-grow pt-28 pb-16">
+        <main className="flex-grow public-main-offset pb-16">
           <div className="max-w-md mx-auto px-4">
             <div className="text-center mb-8">
               <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
@@ -1128,7 +1128,7 @@ export default function PartnerPortal() {
       <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <SEO title="Reset Password | Partner Portal" description="Set a new password for your Liberty Bancard partner account" path="/partner-portal" noindex={true} />
         <Navbar />
-        <main className="flex-grow pt-28 pb-16">
+        <main className="flex-grow public-main-offset pb-16">
           <div className="max-w-md mx-auto px-4">
             <div className="text-center mb-8">
               <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
@@ -1210,7 +1210,7 @@ export default function PartnerPortal() {
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Partner Portal Login | Liberty Bancard" description="Log in to your Liberty Bancard partner dashboard" path="/partner-portal" noindex={true} />
       <Navbar />
-      <main className="flex-grow pt-28 pb-16">
+      <main className="flex-grow public-main-offset pb-16">
         <div className="max-w-md mx-auto px-4">
           <div className="text-center mb-8">
             <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">

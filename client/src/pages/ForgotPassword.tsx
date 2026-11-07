@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Mail, ArrowLeft, CheckCircle } from "lucide-react";
-import logoBlue from "@assets/logo-blue.png";
+import logoBlue from "@/assets/logo-blue.png";
 import { apiRequest } from "@/lib/queryClient";
 import { SEO } from "@/components/SEO";
 
@@ -53,12 +53,12 @@ export default function ForgotPassword() {
                   <CheckCircle className="w-4 h-4 flex-shrink-0" />
                   <span>If an account with that email exists, a reset link has been sent.</span>
                 </div>
-                <Link href="/login">
-                  <Button variant="outline" className="w-full" data-testid="link-back-to-login">
+                <Button variant="outline" className="w-full" data-testid="link-back-to-login" asChild>
+                  <Link href="/login">
                     <ArrowLeft className="w-4 h-4 mr-2" />
                     Back to Sign In
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">

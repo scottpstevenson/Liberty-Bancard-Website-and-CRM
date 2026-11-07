@@ -187,19 +187,19 @@ export default function FreeAnalysisGuaranteed() {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center items-center mb-10">
-              <Link href={uploadHref} data-testid="button-hero-cta">
-                <Button size="lg" className="font-semibold">
+              <Button size="lg" className="font-semibold" asChild>
+                <Link href={uploadHref} data-testid="button-hero-cta">
                   <Upload className="w-5 h-5 mr-2" />
                   Get My Free Analysis
                   <ArrowRight className="w-4 h-4 ml-2" />
-                </Button>
-              </Link>
-              <a href="tel:9542668214" data-testid="link-hero-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/free-analysis-guaranteed" })}>
-                <Button variant="outline" size="lg">
+                </Link>
+              </Button>
+              <Button variant="outline" size="lg" asChild>
+                <a href="tel:9542668214" data-testid="link-hero-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/free-analysis-guaranteed" })}>
                   <Phone className="w-4 h-4 mr-2" />
                   Call 954-266-8214
-                </Button>
-              </a>
+                </a>
+              </Button>
             </div>
 
             <div className="flex flex-wrap justify-center gap-x-8 gap-y-2 text-sm text-muted-foreground">
@@ -374,15 +374,12 @@ export default function FreeAnalysisGuaranteed() {
             </div>
 
             <div className="text-center mt-10">
-              <Link href={uploadHref} data-testid="button-what-cta">
-                <Button
-                  size="lg"
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-8"
-                >
+              <Button size="lg" className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-8" asChild>
+                <Link href={uploadHref} data-testid="button-what-cta">
                   <Upload className="w-4 h-4 mr-2" />
                   Get My Free Analysis Now
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </section>
@@ -524,17 +521,14 @@ export default function FreeAnalysisGuaranteed() {
               Either we find you savings — which most merchants use to reduce costs or reinvest in
               their business — or we pay you $50 for your time. There's no scenario where you lose.
             </p>
-            <Link href={uploadHref} data-testid="button-final-cta">
-              <Button
-                size="lg"
-                className="bg-emerald-500 border-emerald-500 text-white font-semibold"
-              >
+            <Button size="lg" className="bg-emerald-500 border-emerald-500 text-white font-semibold" asChild>
+              <Link href={uploadHref} data-testid="button-final-cta">
                 <Upload className="w-5 h-5 mr-2" />
                 Upload My Statement — It's Free
                 <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </Link>
-            <p className="text-white/50 text-xs mt-4">
+              </Link>
+            </Button>
+            <p className="text-white/70 text-xs mt-4">
               Secure upload · 24-hour turnaround · No sales pressure · $50 guarantee if no savings found
             </p>
           </div>

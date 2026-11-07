@@ -838,11 +838,11 @@ export default function PartnerOrgDashboard() {
                                 >
                                   <Copy className="w-3 h-3" /> Copy Link
                                 </Button>
-                                <a href={proposal.viewerUrl} target="_blank" rel="noopener noreferrer">
-                                  <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8" data-testid={`button-view-proposal-${proposal.id}`}>
+                                <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8" data-testid={`button-view-proposal-${proposal.id}`} asChild>
+                                  <a href={proposal.viewerUrl} target="_blank" rel="noopener noreferrer">
                                     <ExternalLink className="w-3 h-3" /> Preview
-                                  </Button>
-                                </a>
+                                  </a>
+                                </Button>
                                 {proposal.merchantEmail && (
                                   <Button
                                     size="sm"

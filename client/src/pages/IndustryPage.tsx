@@ -43,12 +43,9 @@ import {
 import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
 import { trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
+import { PublicImage } from "@/components/public/PublicImage";
+import type { PublicImageId } from "@/lib/public-imagery";
 
-import verticalRestaurant from "@assets/images/vertical-restaurant.jpg";
-import verticalRetail from "@assets/images/vertical-retail.jpg";
-import verticalMedical from "@assets/images/vertical-medical.jpg";
-import verticalAuto from "@assets/images/vertical-auto.jpg";
-import verticalHomeServices from "@assets/images/vertical-home-services.jpg";
 
 interface IndustryData {
   slug: string;
@@ -59,7 +56,8 @@ interface IndustryData {
   metaDescription: string;
   keywords: string;
   icon: typeof UtensilsCrossed;
-  image: string | null;
+  /** Public imagery registry id (client/src/lib/public-imagery.ts); null = no photo, text-only hero. */
+  image: PublicImageId | null;
   painPoints: { icon: typeof AlertTriangle; title: string; description: string }[];
   solutions: { title: string; description: string }[];
   stats: { value: string; label: string }[];
@@ -76,7 +74,7 @@ const industries: Record<string, IndustryData> = {
     metaDescription: "Transparent payment processing for restaurants. Reduce credit card processing fees with statement-based pricing. Free statement review for restaurant owners.",
     keywords: "restaurant payment processing, restaurant credit card processing, restaurant POS, restaurant merchant services, food service payment processing",
     icon: UtensilsCrossed,
-    image: verticalRestaurant,
+    image: "industry-restaurant",
     painPoints: [
       { icon: DollarSign, title: "Tip adjustments inflating your rate", description: "Every tip adjustment triggers a separate authorization, increasing your interchange costs without you realizing it." },
       { icon: AlertTriangle, title: "POS system lock-in with hidden markups", description: "Many POS companies bundle processing at inflated rates, making it hard to see what you're actually paying per transaction." },
@@ -112,7 +110,7 @@ const industries: Record<string, IndustryData> = {
     metaDescription: "Transparent payment processing for retail stores. Lower credit card fees with interchange-plus pricing. Free statement review for retail business owners.",
     keywords: "retail payment processing, retail credit card processing, store payment processing, retail merchant services, point of sale processing",
     icon: Store,
-    image: verticalRetail,
+    image: "industry-retail",
     painPoints: [
       { icon: DollarSign, title: "Flat-rate pricing eating your margins", description: "Flat-rate processors charge the same percentage whether a customer uses a debit card or a rewards credit card — you overpay on every debit transaction." },
       { icon: AlertTriangle, title: "Equipment leases costing thousands", description: "Terminal leases can cost 3-5x the purchase price over the lease term, and you don't even own the equipment at the end." },
@@ -148,7 +146,7 @@ const industries: Record<string, IndustryData> = {
     metaDescription: "HIPAA-aware payment processing for medical and dental practices. Transparent pricing, secure terminals, and compliance support. Free statement review.",
     keywords: "healthcare payment processing, medical payment processing, dental payment processing, HIPAA compliant payment processing, medical merchant services",
     icon: Stethoscope,
-    image: verticalMedical,
+    image: "industry-healthcare",
     painPoints: [
       { icon: DollarSign, title: "High per-transaction costs on large balances", description: "Patient payments are often larger amounts. Your processor's per-transaction fees may be costing you more than you realize on these higher-dollar charges." },
       { icon: AlertTriangle, title: "Compliance concerns with payment data", description: "Healthcare providers must protect patient information. Your payment solution should support — not complicate — your compliance obligations." },
@@ -220,7 +218,7 @@ const industries: Record<string, IndustryData> = {
     metaDescription: "Transparent payment processing for auto repair shops. Reduce credit card fees on high-ticket transactions. Free statement review for auto shop owners.",
     keywords: "auto repair payment processing, auto shop credit card processing, automotive merchant services, mechanic payment processing, auto body shop payments",
     icon: Car,
-    image: verticalAuto,
+    image: "industry-automotive",
     painPoints: [
       { icon: DollarSign, title: "High fees on large invoices", description: "A 3% fee on a $2,000 repair is $60. On interchange-plus pricing, that same transaction might cost $40-45. The difference adds up fast." },
       { icon: AlertTriangle, title: "Keyed-in transactions at higher rates", description: "Phone orders and manually keyed transactions trigger higher interchange rates. If you key in transactions regularly, you're paying a premium." },
@@ -328,7 +326,7 @@ const industries: Record<string, IndustryData> = {
     metaDescription: "Payment processing for contractors and construction companies. Reduce fees on high-value invoices and commercial card payments. Free statement review.",
     keywords: "construction payment processing, contractor credit card processing, builder payment processing, construction merchant services, contractor merchant account",
     icon: HardHat,
-    image: verticalHomeServices,
+    image: "industry-home-services",
     painPoints: [
       { icon: DollarSign, title: "Massive fees on progress payments", description: "A 3% fee on a $25,000 progress payment is $750. On a $100,000 project with multiple card payments, processing costs can exceed $3,000." },
       { icon: AlertTriangle, title: "Commercial card surcharges", description: "General contractors and property managers often pay with commercial cards that carry higher interchange rates — and most processors don't optimize for these." },
@@ -581,12 +579,12 @@ export default function IndustryPage() {
     return (
       <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <Navbar />
-        <main className="flex-grow pt-28 flex items-center justify-center">
+        <main className="flex-grow public-main-offset flex items-center justify-center">
           <div className="text-center">
             <h1 className="text-2xl font-bold text-foreground mb-4" data-testid="text-industry-not-found">Industry Not Found</h1>
-            <Link href="/" data-testid="link-back-home">
-              <Button>Back to Home</Button>
-            </Link>
+            <Button asChild>
+              <Link href="/" data-testid="link-back-home">Back to Home</Link>
+            </Button>
           </div>
         </main>
         <Footer />
@@ -644,8 +642,8 @@ export default function IndustryPage() {
       />
       <Navbar />
 
-      <main className="marketing-surface flex-grow pt-28">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+      <main className="marketing-surface flex-grow public-main-offset">
+        <div className="public-container pt-4">
           <Breadcrumbs
             items={[
               { name: "Industries", path: "/industries" },
@@ -654,38 +652,48 @@ export default function IndustryPage() {
           />
         </div>
         <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-industry-hero">
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
-            <div className="accent-rule pt-5 max-w-3xl">
-              <div className="inline-flex items-center gap-2 border border-border bg-card text-muted-foreground shadow-sm text-sm font-medium px-3 py-1.5 rounded-md mb-6" data-testid="text-industry-badge">
-                <Icon className="w-4 h-4" />
-                {industry.name} Payment Processing
+          <div className="public-container relative py-10 lg:py-20">
+            <div className={industry.image ? "grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-center lg:gap-14" : undefined}>
+              <div className="accent-rule pt-5 max-w-3xl">
+                <div className="inline-flex items-center gap-2 border border-border bg-card text-muted-foreground shadow-sm text-sm font-medium px-3 py-1.5 rounded-md mb-6" data-testid="text-industry-badge">
+                  <Icon className="w-4 h-4" />
+                  {industry.name} Payment Processing
+                </div>
+                <h1 className="public-h1 font-display font-bold text-foreground mb-6" data-testid="text-industry-heading">
+                  {industry.heroTitle}
+                </h1>
+                <p className="text-lg text-muted-foreground mb-8 leading-relaxed max-w-2xl" data-testid="text-industry-subtitle">
+                  {industry.heroSubtitle}
+                </p>
+                <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
+                  <Button size="lg" className="public-cta gap-2" asChild>
+                    <Link href="/upload-statement" data-testid="link-industry-hero-upload" onClick={() => trackStatementUploadCtaClick({ page: `/industries/${industry.slug}`, ctaLabel: "Upload Your Statement — Free Review", industry: industry.slug })}>
+                      <Upload className="w-4 h-4" />
+                      Upload Your Statement — Free Review
+                    </Link>
+                  </Button>
+                  <Button size="lg" variant="outline" className="public-cta gap-2" asChild>
+                    <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-industry-hero-book" onClick={() => trackBookingCtaClick({ page: `/industries/${industry.slug}`, ctaLabel: "Book a review call", ctaLocation: "hero", industry: industry.slug })}>
+                      <Calendar className="w-4 h-4" />
+                      Book a review call
+                    </a>
+                  </Button>
+                  <Button size="lg" variant="ghost" className="public-cta gap-2" asChild>
+                    <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-industry-hero-phone" onClick={() => trackPhoneCallClick({})}>
+                      <Phone className="w-4 h-4" />
+                      {PHONE_NUMBER}
+                    </a>
+                  </Button>
+                </div>
               </div>
-              <h1 className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-foreground leading-tight mb-6" data-testid="text-industry-heading">
-                {industry.heroTitle}
-              </h1>
-              <p className="text-lg text-muted-foreground mb-8 leading-relaxed max-w-2xl" data-testid="text-industry-subtitle">
-                {industry.heroSubtitle}
-              </p>
-              <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
-                <Link href="/upload-statement" data-testid="link-industry-hero-upload" onClick={() => trackStatementUploadCtaClick({ page: `/industries/${industry.slug}`, ctaLabel: "Upload Your Statement — Free Review", industry: industry.slug })}>
-                  <Button size="lg" className="gap-2">
-                    <Upload className="w-4 h-4" />
-                    Upload Your Statement — Free Review
-                  </Button>
-                </Link>
-                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-industry-hero-book" onClick={() => trackBookingCtaClick({ page: `/industries/${industry.slug}`, ctaLabel: "Book a 10-Min Call", ctaLocation: "hero", industry: industry.slug })}>
-                  <Button size="lg" variant="outline" className="gap-2">
-                    <Calendar className="w-4 h-4" />
-                    Book a 10-Min Call
-                  </Button>
-                </a>
-                <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-industry-hero-phone" onClick={() => trackPhoneCallClick({})}>
-                  <Button size="lg" variant="ghost" className="gap-2">
-                    <Phone className="w-4 h-4" />
-                    {PHONE_NUMBER}
-                  </Button>
-                </a>
-              </div>
+              {industry.image && (
+                <div data-testid="industry-hero-visual">
+                  <div className="public-frame public-frame--fill aspect-[16/10] lg:aspect-[4/3]">
+                    <PublicImage id={industry.image} variant="card" sizes="(min-width: 1024px) 380px, 100vw" priority data-testid="img-industry-hero" />
+                  </div>
+                  <p className="public-caption public-secondary mt-2">Illustrative photo. It does not show a Liberty customer.</p>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -702,8 +710,8 @@ export default function IndustryPage() {
           </div>
         </div>
 
-        <section className="bg-muted/30 py-12" data-testid="section-industry-stats">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-muted/30 py-10" data-testid="section-industry-stats">
+          <div className="public-container">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
               {industry.stats.map((stat, i) => (
                 <div key={i} data-testid={`industry-stat-${i}`}>
@@ -715,9 +723,9 @@ export default function IndustryPage() {
           </div>
         </section>
 
-        <section className="bg-background py-16" data-testid="section-industry-pain-points">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground text-center mb-4" data-testid="text-pain-heading">
+        <section className="bg-background py-10" data-testid="section-industry-pain-points">
+          <div className="public-container">
+            <h2 className="public-h2 font-display font-bold text-foreground text-center mb-4" data-testid="text-pain-heading">
               Common {industry.name} Processing Challenges
             </h2>
             <p className="text-center text-muted-foreground mb-10 max-w-2xl mx-auto">
@@ -741,9 +749,9 @@ export default function IndustryPage() {
           </div>
         </section>
 
-        <section className="bg-muted/30 py-16" data-testid="section-industry-solutions">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground text-center mb-4" data-testid="text-solutions-heading">
+        <section className="bg-muted/30 py-10" data-testid="section-industry-solutions">
+          <div className="public-container">
+            <h2 className="public-h2 font-display font-bold text-foreground text-center mb-4" data-testid="text-solutions-heading">
               How Liberty Bancard Helps {industry.name} Businesses
             </h2>
             <p className="text-center text-muted-foreground mb-10 max-w-2xl mx-auto">
@@ -767,10 +775,10 @@ export default function IndustryPage() {
           </div>
         </section>
 
-        <section className="bg-background py-16" data-testid="section-industry-faq">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-background py-10" data-testid="section-industry-faq">
+          <div className="public-container">
             <div className="max-w-3xl mx-auto">
-              <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground text-center mb-4" data-testid="text-faq-heading">
+              <h2 className="public-h2 font-display font-bold text-foreground text-center mb-4" data-testid="text-faq-heading">
                 {industry.name} Payment Processing FAQ
               </h2>
               <p className="text-center text-muted-foreground mb-10">
@@ -792,36 +800,36 @@ export default function IndustryPage() {
           </div>
         </section>
 
-        <section className="relative overflow-hidden bg-primary text-primary-foreground py-20" data-testid="section-industry-cta">
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <h2 className="text-4xl md:text-5xl font-display font-bold text-white mb-4" data-testid="text-cta-heading">
+        <section className="relative overflow-hidden bg-primary text-primary-foreground py-10" data-testid="section-industry-cta">
+          <div className="public-container relative text-center">
+            <h2 className="public-h2 font-display font-bold text-white mb-4" data-testid="text-cta-heading">
               See What You're Really Paying
             </h2>
             <p className="text-white/70 mb-8 max-w-xl mx-auto" data-testid="text-cta-body">
               Upload your most recent processing statement. We'll break it down line-by-line and show you exactly where your money goes. Keep the analysis even if you don't switch.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <Link href="/upload-statement" data-testid="link-cta-upload">
-                <Button size="lg" className="gap-2 bg-accent hover:bg-accent border-accent text-white">
+              <Button size="lg" className="public-cta gap-2 bg-accent hover:bg-accent border-accent text-white" asChild>
+                <Link href="/upload-statement" data-testid="link-cta-upload">
                   <Upload className="w-4 h-4" />
                   Upload Statement — Free Review
-                </Button>
-              </Link>
-              <Link href="/compare-rates" data-testid="link-cta-compare">
-                <Button size="lg" variant="outline" className="gap-2 bg-transparent border-white/30 text-white hover:bg-white/10">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="public-cta gap-2 bg-transparent border-white/30 text-white hover:bg-white/10" asChild>
+                <Link href="/compare-rates" data-testid="link-cta-compare">
                   <FileText className="w-4 h-4" />
                   Compare Processors
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
-            <p className="text-xs text-white/40 mt-6 max-w-lg mx-auto" data-testid="text-cta-disclaimer">
+            <p className="text-xs text-white/70 mt-6 max-w-lg mx-auto" data-testid="text-cta-disclaimer">
               *Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
             </p>
           </div>
         </section>
 
-        <section className="bg-background py-12" data-testid="section-industry-crosslinks">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-background py-10" data-testid="section-industry-crosslinks">
+          <div className="public-container">
             <h3 className="text-lg font-display font-bold text-foreground text-center mb-6" data-testid="text-crosslinks-heading">
               Payment Processing for Other Industries
             </h3>
@@ -829,16 +837,12 @@ export default function IndustryPage() {
               {Object.values(industries)
                 .filter((ind) => ind.slug !== industry.slug)
                 .map((ind) => (
-                  <Link
-                    key={ind.slug}
-                    href={`/industries/${ind.slug}`}
-                    data-testid={`link-crosslink-${ind.slug}`}
-                  >
-                    <Button variant="outline" className="gap-2">
+                  <Button key={ind.slug} variant="outline" className="gap-2" asChild>
+                    <Link href={`/industries/${ind.slug}`} data-testid={`link-crosslink-${ind.slug}`}>
                       <ind.icon className="w-4 h-4" />
                       {ind.name}
-                    </Button>
-                  </Link>
+                    </Link>
+                  </Button>
                 ))}
             </div>
           </div>

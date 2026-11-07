@@ -77,15 +77,15 @@ export function PromoBanner({
             <CountdownTimer targetDate={target} compact className="text-primary" />
           )}
           {promo.ctaHref && promo.ctaLabel && (
-            <Link href={promo.ctaHref} data-testid="promo-banner-cta">
-              <Button size="sm">{promo.ctaLabel}</Button>
-            </Link>
+            <Button size="sm" asChild>
+              <Link href={promo.ctaHref} data-testid="promo-banner-cta">{promo.ctaLabel}</Link>
+            </Button>
           )}
           {dismissible && (
             <Button
               variant="ghost"
               size="icon"
-              className="absolute right-2 top-1/2 -translate-y-1/2"
+              className="absolute right-2 top-1/2 h-11 w-11 -translate-y-1/2"
               onClick={() => setDismissed(true)}
               aria-label="Dismiss"
               data-testid="promo-banner-dismiss"
@@ -154,9 +154,9 @@ export function PromoBanner({
         {showCountdown && <CountdownTimer targetDate={target} compact className="text-primary" />}
       </div>
       {promo.ctaHref && promo.ctaLabel && (
-        <Link href={promo.ctaHref} data-testid="promo-card-cta">
-          <Button size="sm" className="mt-3 w-full">{promo.ctaLabel}</Button>
-        </Link>
+        <Button size="sm" className="mt-3 w-full" asChild>
+          <Link href={promo.ctaHref} data-testid="promo-card-cta">{promo.ctaLabel}</Link>
+        </Button>
       )}
     </div>
   );

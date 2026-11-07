@@ -29,12 +29,12 @@ export default function ThanksCall() {
             <p className="text-lg text-primary-foreground/80 mb-8 leading-relaxed" data-testid="text-thanks-call-subheadline">
               We'll review your goals on the call. If you upload your most recent processing statement before the call, we can give you exact answers instead of estimates.
             </p>
-            <Link href="/upload-statement" data-testid="link-thanks-call-upload">
-              <Button size="lg" variant="secondary" className="gap-2">
+            <Button size="lg" variant="secondary" className="gap-2" asChild>
+              <Link href="/upload-statement" data-testid="link-thanks-call-upload">
                 <Upload className="w-4 h-4" />
                 Upload Statement (30 seconds)
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </div>
         </section>
 
@@ -172,18 +172,18 @@ export default function ThanksCall() {
               No problem. Reschedule online or call us.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("thanks_call_reschedule")} data-testid="link-thanks-call-reschedule">
-                <Button variant="outline" className="gap-2">
+              <Button variant="outline" className="gap-2" asChild>
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("thanks_call_reschedule")} data-testid="link-thanks-call-reschedule">
                   <Calendar className="w-4 h-4" />
                   Reschedule Online
-                </Button>
-              </a>
-              <a href="tel:9542668214" data-testid="link-thanks-call-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-call" })}>
-                <Button variant="outline" className="gap-2">
+                </a>
+              </Button>
+              <Button variant="outline" className="gap-2" asChild>
+                <a href="tel:9542668214" data-testid="link-thanks-call-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-call" })}>
                   <Phone className="w-4 h-4" />
                   Call/Text 954-266-8214
-                </Button>
-              </a>
+                </a>
+              </Button>
             </div>
           </div>
         </section>

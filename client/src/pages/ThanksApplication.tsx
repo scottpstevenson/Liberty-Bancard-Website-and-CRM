@@ -71,7 +71,7 @@ export default function ThanksApplication() {
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Application Received" description="Confirmation page for a Liberty Bancard merchant application." path="/thanks/application" noindex />
       <Navbar />
-      <main className="flex-grow pt-28">
+      <main className="flex-grow public-main-offset">
         <section
           className="relative overflow-hidden"
           data-testid="section-thanks-application-hero"
@@ -157,9 +157,9 @@ export default function ThanksApplication() {
                   <p className="text-sm text-muted-foreground">
                     If you began an application earlier, you can continue it. If you already submitted one, contact us with the business name and we will look it up.
                   </p>
-                  <Link href="/merchant-application">
-                    <Button size="sm" data-testid="link-thanks-application-start">Go to the application</Button>
-                  </Link>
+                  <Button size="sm" data-testid="link-thanks-application-start" asChild>
+                    <Link href="/merchant-application">Go to the application</Link>
+                  </Button>
                 </CardContent>
               </Card>
             )}
@@ -230,24 +230,18 @@ export default function ThanksApplication() {
                   </a>
                 </div>
                 <div className="mt-4 pt-4 border-t flex flex-col sm:flex-row gap-3">
-                  <a
-                    href={CALENDAR_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => trackCalendarBooking("thanks_application")}
-                    data-testid="link-thanks-application-book-call"
-                  >
-                    <Button size="sm" className="gap-2 w-full sm:w-auto">
+                  <Button size="sm" className="gap-2 w-full sm:w-auto" asChild>
+                    <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("thanks_application")} data-testid="link-thanks-application-book-call">
                       <Calendar className="w-4 h-4" />
-                      Book a call
-                    </Button>
-                  </a>
-                  <Link href="/dashboard/merchant-portal">
-                    <Button size="sm" variant="outline" className="gap-2 w-full sm:w-auto" data-testid="link-thanks-application-portal">
+                      Book a review call
+                    </a>
+                  </Button>
+                  <Button size="sm" variant="outline" className="gap-2 w-full sm:w-auto" data-testid="link-thanks-application-portal" asChild>
+                    <Link href="/dashboard/merchant-portal">
                       <User className="w-4 h-4" />
                       Go to Merchant Portal
-                    </Button>
-                  </Link>
+                    </Link>
+                  </Button>
                 </div>
               </CardContent>
             </Card>

@@ -56,12 +56,15 @@ const sheetVariants = cva(
 
 interface SheetContentProps
   extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>,
-    VariantProps<typeof sheetVariants> {}
+    VariantProps<typeof sheetVariants> {
+  /** Extra classes for the built-in close (X) button, e.g. a larger public hit area. */
+  closeClassName?: string
+}
 
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Content>,
   SheetContentProps
->(({ side = "right", className, children, ...props }, ref) => {
+>(({ side = "right", className, closeClassName, children, ...props }, ref) => {
   const employeeCrm = useEmployeeCrm()
   const focus = useCrmModalFocus(employeeCrm,props.onOpenAutoFocus,props.onCloseAutoFocus)
   return (
@@ -74,7 +77,7 @@ const SheetContent = React.forwardRef<
       {...focus}
     >
       {children}
-      <SheetPrimitive.Close className={cn("absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary", employeeCrm && "grid h-11 w-11 place-items-center")}>
+      <SheetPrimitive.Close className={cn("absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary", employeeCrm && "grid h-11 w-11 place-items-center", closeClassName)}>
         <X className="h-4 w-4" />
         <span className="sr-only">Close</span>
       </SheetPrimitive.Close>

@@ -31,12 +31,12 @@ import {
   Printer,
 } from "lucide-react";
 import { PromoBanner, PromoList } from "@/components/PromoBanner";
-import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
-import imgCloverMini3 from "@assets/images/terminal-clover-mini-3.png";
-import imgCloverStationDuo from "@assets/images/terminal-clover-station-duo.png";
-import imgDejavooQD4 from "@assets/images/terminal-dejavoo-qd4.png";
-import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
-import imgSwipeSimpleB250 from "@assets/images/terminal-swipesimple-b250.png";
+import imgCloverFlex3 from "@/assets/images/terminal-clover-flex-3.png";
+import imgCloverMini3 from "@/assets/images/terminal-clover-mini-3.png";
+import imgCloverStationDuo from "@/assets/images/terminal-clover-station-duo.png";
+import imgDejavooQD4 from "@/assets/images/terminal-dejavoo-qd4.png";
+import imgPaxA920 from "@/assets/images/terminal-pax-a920.png";
+import imgSwipeSimpleB250 from "@/assets/images/terminal-swipesimple-b250.png";
 
 interface ShopTerminal {
   id: string;
@@ -342,11 +342,11 @@ export default function TerminalShop() {
       <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <SEO title="Order Received" description="Your equipment order has been submitted." path="/shop" noindex={true} />
         <div className="print:hidden"><Navbar /></div>
-        <main className="flex-grow pt-28">
-          <section className="py-20">
+        <main className="flex-grow public-main-offset">
+          <section className="py-10">
             <div className="max-w-lg mx-auto px-4 text-center">
               <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
-                <CheckCircle className="w-8 h-8 text-green-600" />
+                <CheckCircle className="w-8 h-8 text-green-700" />
               </div>
               <h1 className="text-3xl font-display font-bold text-foreground mb-4" data-testid="text-order-success">
                 Order Request Received
@@ -391,12 +391,12 @@ export default function TerminalShop() {
                 </ol>
               </div>
               <div className="flex gap-4 justify-center flex-wrap">
-                <Link href="/" data-testid="link-back-home">
-                  <Button variant="outline">Back to Home</Button>
-                </Link>
-                <Link href="/upload-statement" data-testid="link-upload-statement">
-                  <Button className="gap-2">Upload Statement <ArrowRight className="w-4 h-4" /></Button>
-                </Link>
+                <Button variant="outline" asChild>
+                  <Link href="/" data-testid="link-back-home">Back to Home</Link>
+                </Button>
+                <Button className="gap-2" asChild>
+                  <Link href="/upload-statement" data-testid="link-upload-statement">Upload Statement <ArrowRight className="w-4 h-4" /></Link>
+                </Button>
               </div>
             </div>
           </section>
@@ -423,16 +423,16 @@ export default function TerminalShop() {
       />
       <div className="print:hidden"><Navbar /></div>
 
-      <main className="flex-grow pt-28">
+      <main className="flex-grow public-main-offset">
         <PromoBanner variant="bar" promoId="free-processing" />
 
         {step === "browse" && !detail && (
           <>
-            <section className="bg-gradient-to-br from-primary/5 via-background to-primary/10 py-16">
-              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <section className="bg-gradient-to-br from-primary/5 via-background to-primary/10 py-10">
+              <div className="public-container">
                 <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-2">
                   <div>
-                    <h1 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-2" data-testid="text-shop-heading">
+                    <h1 className="public-h1 public-h1--page font-display font-bold text-foreground mb-2" data-testid="text-shop-heading">
                       Payment Terminals & Equipment
                     </h1>
                     <p className="text-muted-foreground max-w-2xl" data-testid="text-shop-subheading">
@@ -465,14 +465,14 @@ export default function TerminalShop() {
               </div>
             </section>
 
-            <section className="py-12">
-              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <section className="py-10">
+              <div className="public-container">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {shopTerminals.map((terminal) => (
                     <Card key={terminal.id} className="flex flex-col overflow-hidden" data-testid={`card-shop-${terminal.id}`}>
                       <div className="bg-muted/30 p-6 flex items-center justify-center h-48 relative">
                         {terminal.popular && (
-                          <Badge className="absolute top-3 right-3 bg-amber-500/10 text-amber-600 border-amber-500/20">
+                          <Badge className="absolute top-3 right-3 bg-amber-500/10 text-amber-800 border-amber-500/30">
                             <Star className="w-3 h-3 mr-1" /> Popular
                           </Badge>
                         )}
@@ -531,8 +531,8 @@ export default function TerminalShop() {
               </div>
             </section>
 
-            <section className="bg-muted/30 py-12">
-              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <section className="bg-muted/30 py-10">
+              <div className="public-container">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="flex items-start gap-4">
                     <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
@@ -565,7 +565,7 @@ export default function TerminalShop() {
               </div>
             </section>
 
-            <section className="py-12 border-t" data-testid="section-terminal-roi">
+            <section className="py-10 border-t" data-testid="section-terminal-roi">
               <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
                 <h2 className="text-xl font-display font-bold text-foreground mb-2 text-center">
                   Free Terminal — The Economics
@@ -619,7 +619,7 @@ export default function TerminalShop() {
               </div>
             </section>
 
-            <section className="py-16 bg-gradient-to-br from-primary/5 to-background" data-testid="section-roi-calculator">
+            <section className="py-10 bg-gradient-to-br from-primary/5 to-background" data-testid="section-roi-calculator">
               <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="text-center mb-10">
                   <h2 className="text-2xl font-display font-bold text-foreground mb-3" data-testid="text-roi-heading">
@@ -663,7 +663,7 @@ export default function TerminalShop() {
                         <div className="pt-2 border-t">
                           <div className="flex justify-between text-sm font-bold">
                             <span>Break-even</span>
-                            <span className="text-green-600">{ex.payback}</span>
+                            <span className="text-green-700">{ex.payback}</span>
                           </div>
                         </div>
                       </div>
@@ -676,7 +676,7 @@ export default function TerminalShop() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div className="space-y-3">
                       <div className="flex items-center gap-2 text-sm font-medium text-red-600">
-                        <span className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center text-xs">✕</span>
+                        <span className="w-5 h-5 rounded-full bg-red-100 text-red-800 flex items-center justify-center text-xs" aria-hidden="true">✕</span>
                         Typical Lease (36 months)
                       </div>
                       <ul className="text-sm text-muted-foreground space-y-1.5">
@@ -687,15 +687,15 @@ export default function TerminalShop() {
                       </ul>
                     </div>
                     <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-sm font-medium text-green-600">
-                        <span className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center text-xs">✓</span>
+                      <div className="flex items-center gap-2 text-sm font-medium text-green-700">
+                        <span className="w-5 h-5 rounded-full bg-green-100 text-green-800 flex items-center justify-center text-xs" aria-hidden="true">✓</span>
                         Liberty Bancard (buy or free placement)
                       </div>
                       <ul className="text-sm text-muted-foreground space-y-1.5">
                         <li>• Buy outright from $49 — you own it forever</li>
                         <li>• Or qualify for <strong className="text-foreground">free terminal placement</strong> with processing</li>
                         <li>• No lock-in. No monthly terminal fees.</li>
-                        <li>• Average break-even: <strong className="text-green-600">3–6 months</strong></li>
+                        <li>• Average break-even: <strong className="text-green-700">3–6 months</strong></li>
                       </ul>
                     </div>
                   </div>
@@ -703,7 +703,7 @@ export default function TerminalShop() {
               </div>
             </section>
 
-            <section className="py-12">
+            <section className="py-10">
               <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
                 <h2 className="text-xl font-display font-bold text-foreground mb-4 text-center" data-testid="text-active-promos-heading">
                   Current Promotions
@@ -715,7 +715,7 @@ export default function TerminalShop() {
         )}
 
         {step === "browse" && detail && (
-          <section className="py-12">
+          <section className="py-10">
             <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
               <Button
                 variant="ghost"
@@ -734,11 +734,11 @@ export default function TerminalShop() {
                 <div>
                   <Badge variant="outline" className="mb-2">{detail.brand}</Badge>
                   {detail.popular && (
-                    <Badge className="ml-2 bg-amber-500/10 text-amber-600 border-amber-500/20">
+                    <Badge className="ml-2 bg-amber-500/10 text-amber-800 border-amber-500/30">
                       <Star className="w-3 h-3 mr-1" /> Popular
                     </Badge>
                   )}
-                  <h1 className="text-3xl font-display font-bold text-foreground mb-1" data-testid="text-detail-name">
+                  <h1 className="public-h1 public-h1--page font-display font-bold text-foreground mb-1" data-testid="text-detail-name">
                     {detail.name}
                   </h1>
                   <p className="text-primary font-medium mb-4">{detail.tagline}</p>
@@ -813,7 +813,7 @@ export default function TerminalShop() {
         )}
 
         {step === "cart" && (
-          <section className="py-12">
+          <section className="py-10">
             <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
               <Button
                 variant="ghost"
@@ -927,7 +927,7 @@ export default function TerminalShop() {
         )}
 
         {step === "info" && (
-          <section className="py-12">
+          <section className="py-10">
             <div className="max-w-xl mx-auto px-4 sm:px-6 lg:px-8">
               <Button
                 variant="ghost"

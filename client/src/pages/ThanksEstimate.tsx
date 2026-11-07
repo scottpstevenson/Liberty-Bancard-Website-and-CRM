@@ -17,7 +17,7 @@ export default function ThanksEstimate() {
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Estimate Received" description="We received your processing estimate request. Liberty Bancard will follow up shortly with your custom rate breakdown." path="/thanks-estimate" noindex />
       <Navbar />
-      <main className="flex-grow pt-28">
+      <main className="flex-grow public-main-offset">
         <section className="bg-background py-16" data-testid="section-thanks-estimate-hero">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mx-auto mb-6">
@@ -97,18 +97,18 @@ export default function ThanksEstimate() {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap mb-6">
-              <Link href="/upload-statement" data-testid="link-thanks-estimate-upload">
-                <Button size="lg" className="gap-2">
+              <Button size="lg" className="gap-2" asChild>
+                <Link href="/upload-statement" data-testid="link-thanks-estimate-upload">
                   <Upload className="w-4 h-4" />
                   Upload Statement for Full Breakdown
-                </Button>
-              </Link>
-              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("thanks_estimate")} data-testid="link-thanks-estimate-book-call">
-                <Button size="lg" variant="outline" className="gap-2">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="gap-2" asChild>
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("thanks_estimate")} data-testid="link-thanks-estimate-book-call">
                   <Calendar className="w-4 h-4" />
                   Get My Free Analysis
-                </Button>
-              </a>
+                </a>
+              </Button>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-lg mx-auto">

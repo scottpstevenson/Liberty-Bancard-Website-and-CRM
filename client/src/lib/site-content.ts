@@ -14,7 +14,7 @@ export const SITE_SUBHEADLINE =
 
 export const SITE_PRIMARY_CTA_LABEL = "Upload My Statement — Free";
 export const SITE_PRIMARY_CTA_HREF = "/upload-statement";
-export const SITE_SECONDARY_CTA_LABEL = "Book a 15-Minute Review";
+export const SITE_SECONDARY_CTA_LABEL = "Book a review call";
 
 export const SITE_HERO_BADGE = "South Florida Merchant Services";
 

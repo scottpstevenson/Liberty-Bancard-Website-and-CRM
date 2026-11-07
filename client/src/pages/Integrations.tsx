@@ -383,12 +383,12 @@ export default function Integrations() {
             </div>
 
             <div className="flex flex-wrap gap-4 justify-center">
-              <Link href="/upload-statement" data-testid="link-integrations-cta">
-                <Button size="lg" className="gap-2">
+              <Button size="lg" className="gap-2" asChild>
+                <Link href="/upload-statement" data-testid="link-integrations-cta">
                   <Upload className="w-4 h-4" />
                   Get My Free Analysis
-                </Button>
-              </Link>
+                </Link>
+              </Button>
               <a
                 href="#category-list"
                 className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium text-muted-foreground hover:text-foreground border border-border rounded-md transition-colors"
@@ -683,13 +683,13 @@ export default function Integrations() {
             </Card>
 
             <div className="text-center mt-6">
-              <Link href="/upload-statement" data-testid="link-not-listed-cta">
-                <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
+              <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground" asChild>
+                <Link href="/upload-statement" data-testid="link-not-listed-cta">
                   <Upload className="w-4 h-4" />
                   Or get a free statement analysis instead
                   <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </section>
@@ -743,13 +743,13 @@ export default function Integrations() {
           </div>
 
           <div className="text-center mt-10">
-            <Link href="/upload-statement" data-testid="link-vs-cta">
-              <Button size="lg" className="gap-2">
+            <Button size="lg" className="gap-2" asChild>
+              <Link href="/upload-statement" data-testid="link-vs-cta">
                 <Upload className="w-4 h-4" />
                 Get My Free Analysis
                 <ArrowRight className="w-4 h-4" />
-              </Button>
-            </Link>
+              </Link>
+            </Button>
             <p className="text-xs text-muted-foreground mt-3">
               Eligibility, underwriting, card brand rules, and applicable laws apply.
             </p>

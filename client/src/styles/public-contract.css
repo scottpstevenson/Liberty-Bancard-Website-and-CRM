@@ -1,0 +1,294 @@
+/* ── Public presentation contract ───────────────────────────────────────────────
+   Token, type, spacing, corner, CTA and motion contract for the public marketing
+   shell. Everything is scoped under `.marketing-theme` (mounted by PublicThemeShell
+   on public routes only), so CRM, portals and the CRM light/dark themes never see
+   these rules. Non-layered on purpose: it must win over the Tailwind utility layer
+   that individual pages still use for one-off layout.
+
+   Source: Liberty-Public-Site-Mobile-Audit-and-Visual-Repair-Plan (token/type
+   contract). Departures from the audit's proposed values are deliberate and noted:
+   - Secondary ink stays at the stronger existing `--muted-foreground`
+     (hsl 215 19% 36%, about 7.3:1 on the cream canvas) instead of the audit's
+     #526177 (about 6:1). Public text must never get lighter than the verified pair.
+   - All body/secondary text pairs are the ones verified by the public-site
+     contrast scan (scripts/check-public-site-mobile.ts). */
+
+.marketing-theme {
+  /* palette (HSL channels, same values the theme isolation block asserts) */
+  --public-ink: 222 47% 11%;
+  --public-ink-secondary: 215 19% 36%;
+  --public-canvas: 40 33% 98%;
+  --public-warm: 36 38% 95.5%;
+  --public-surface: 0 0% 100%;
+  --public-line: 214 32% 88%;
+  --public-blue: 221 78% 48%;
+  --public-blue-ink: 221 78% 40%; /* blue text on cream/white, >= 7:1 */
+  --public-green-ink: 152 55% 26%;
+  --public-red-ink: 0 72% 40%;
+
+  /* type scale: size / leading, mobile first */
+  --public-h1-size: 2rem; /* 32 */
+  --public-h1-leading: 2.25rem; /* 36 */
+  --public-h1-page-size: 1.75rem; /* 28, content/legal page titles */
+  --public-h1-page-leading: 2.125rem; /* 34 */
+  --public-h2-size: 1.75rem; /* 28 */
+  --public-h2-leading: 2.125rem; /* 34 */
+  --public-h3-size: 1.25rem; /* 20 */
+  --public-h3-leading: 1.75rem; /* 28 */
+  --public-card-title-size: 1.125rem; /* 18 */
+  --public-card-title-leading: 1.5rem; /* 24 */
+  --public-body-size: 1rem; /* 16 */
+  --public-body-leading: 1.625rem; /* 26 */
+  --public-small-size: 0.875rem; /* 14 */
+  --public-small-leading: 1.25rem; /* 20 */
+  --public-caption-size: 0.75rem; /* 12 */
+  --public-caption-leading: 1.125rem; /* 18 */
+
+  /* layout */
+  --public-gutter: 1rem;
+  --public-content-width: 75rem; /* 1200 */
+  --public-prose-width: 45rem; /* 720 */
+  --public-section-y: 2.5rem; /* 40 */
+  --public-section-gap: 1.5rem;
+
+  /* corners: controls 8, cards 12, image frames 16 */
+  --public-radius-control: 0.5rem;
+  --public-radius-card: 0.75rem;
+  --public-radius-frame: 1rem;
+
+  /* CTA height: 48 below the tablet breakpoint, 44 above */
+  --public-cta-height: 3rem;
+}
+
+@media (min-width: 640px) {
+  .marketing-theme {
+    --public-gutter: 1.5rem;
+  }
+}
+@media (min-width: 768px) {
+  .marketing-theme {
+    --public-h2-size: 2.25rem; /* 36 */
+    --public-h2-leading: 2.625rem; /* 42 */
+    --public-h1-page-size: 2.5rem; /* 40 */
+    --public-h1-page-leading: 2.75rem; /* 44 */
+    --public-section-y: 4rem; /* 64 */
+    --public-section-gap: 2rem;
+    --public-cta-height: 2.75rem;
+  }
+}
+@media (min-width: 1024px) {
+  .marketing-theme {
+    --public-gutter: 2rem;
+    --public-h1-size: 3.5rem; /* 56 */
+    --public-h1-leading: 3.75rem; /* 60 */
+    --public-section-y: 5rem; /* 80 */
+  }
+}
+
+/* ── Type ── */
+.marketing-theme .public-h1 {
+  font-size: var(--public-h1-size);
+  line-height: var(--public-h1-leading);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.marketing-theme .public-h1--page {
+  font-size: var(--public-h1-page-size);
+  line-height: var(--public-h1-page-leading);
+}
+.marketing-theme .public-h2 {
+  font-size: var(--public-h2-size);
+  line-height: var(--public-h2-leading);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.marketing-theme .public-h3 {
+  font-size: var(--public-h3-size);
+  line-height: var(--public-h3-leading);
+  font-weight: 600;
+}
+.marketing-theme .public-card-title {
+  font-size: var(--public-card-title-size);
+  line-height: var(--public-card-title-leading);
+  font-weight: 600;
+}
+.marketing-theme .public-body {
+  font-size: var(--public-body-size);
+  line-height: var(--public-body-leading);
+}
+.marketing-theme .public-small {
+  font-size: var(--public-small-size);
+  line-height: var(--public-small-leading);
+}
+.marketing-theme .public-caption {
+  font-size: var(--public-caption-size);
+  line-height: var(--public-caption-leading);
+}
+.marketing-theme .public-secondary {
+  color: hsl(var(--public-ink-secondary));
+}
+.marketing-theme .public-eyebrow {
+  font-size: var(--public-caption-size);
+  line-height: var(--public-caption-leading);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: hsl(var(--public-blue-ink));
+}
+.marketing-theme .public-measure {
+  max-width: var(--public-prose-width);
+}
+
+/* ── Layout ── */
+.marketing-theme .public-container {
+  width: 100%;
+  max-width: var(--public-content-width);
+  margin-inline: auto;
+  padding-inline: var(--public-gutter);
+}
+.marketing-theme .public-section {
+  padding-block: var(--public-section-y);
+}
+.marketing-theme .public-section--canvas {
+  background-color: hsl(var(--public-canvas));
+}
+.marketing-theme .public-section--warm {
+  background-color: hsl(var(--public-warm));
+  border-block: 1px solid hsl(var(--public-line));
+}
+.marketing-theme .public-section--ink {
+  background-color: hsl(var(--public-ink));
+  color: hsl(210 40% 98%);
+}
+.marketing-theme .public-section--ink .public-secondary {
+  color: hsl(214 32% 82%);
+}
+.marketing-theme .public-section--ink .public-eyebrow {
+  color: hsl(199 89% 78%);
+}
+/* A card is a light surface even inside an ink section: restore the on-light text pairs. */
+.marketing-theme .public-section--ink .public-card .public-secondary {
+  color: hsl(var(--public-ink-secondary));
+}
+.marketing-theme .public-section--ink .public-card .public-eyebrow {
+  color: hsl(var(--public-blue-ink));
+}
+.marketing-theme .public-stack {
+  display: grid;
+  gap: var(--public-section-gap);
+}
+
+/* ── Surfaces ── */
+.marketing-theme .public-card {
+  background-color: hsl(var(--public-surface));
+  border: 1px solid hsl(var(--public-line));
+  border-radius: var(--public-radius-card);
+  box-shadow: var(--shadow-card);
+}
+.marketing-theme .public-frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--public-radius-frame);
+  background-color: hsl(var(--public-warm));
+}
+.marketing-theme .public-frame picture,
+.marketing-theme .public-frame img {
+  display: block;
+}
+/* Fixed-ratio frame: the frame owns the aspect ratio (set per breakpoint with
+   aspect-ratio utilities) and the picture fills it, so art-directed sources with
+   different intrinsic ratios cannot move the layout. */
+.marketing-theme .public-frame--fill picture {
+  position: absolute;
+  inset: 0;
+}
+.marketing-theme .public-frame--fill img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ── CTAs: 48px tall on phones, 44px from the tablet breakpoint ── */
+.marketing-theme .public-cta {
+  min-height: var(--public-cta-height);
+  padding-inline: 1.25rem;
+  border-radius: var(--public-radius-control);
+  font-size: var(--public-body-size);
+  font-weight: 600;
+}
+.marketing-theme .public-cta:focus-visible,
+.marketing-theme a:focus-visible,
+.marketing-theme button:focus-visible,
+.marketing-theme summary:focus-visible {
+  outline: 3px solid hsl(var(--public-blue));
+  outline-offset: 2px;
+}
+.marketing-theme .public-section--ink a:focus-visible,
+.marketing-theme .public-section--ink button:focus-visible {
+  outline-color: hsl(199 89% 78%);
+}
+.marketing-theme .public-cta--inverse {
+  background-color: hsl(0 0% 100%);
+  color: hsl(var(--public-ink));
+  border-color: hsl(0 0% 100%);
+}
+.marketing-theme .public-cta--inverse:hover {
+  background-color: hsl(210 40% 96%);
+}
+.marketing-theme .public-cta--inverse-outline {
+  background-color: transparent;
+  color: hsl(0 0% 100%);
+  border: 1px solid hsl(0 0% 100% / 0.55);
+}
+@media (max-width: 639px) {
+  .marketing-theme .public-cta {
+    width: 100%;
+  }
+}
+
+/* ── Accordion (FAQ / program options): 48px triggers, readable answers ── */
+.marketing-theme .public-accordion-trigger {
+  min-height: 3rem;
+  padding-block: 0.75rem;
+  text-align: left;
+  font-size: var(--public-body-size);
+  line-height: 1.5rem;
+  font-weight: 600;
+}
+.marketing-theme .public-accordion-body {
+  font-size: var(--public-body-size);
+  line-height: var(--public-body-leading);
+  color: hsl(var(--public-ink-secondary));
+}
+
+/* ── Motion ──
+   Essential content is visible by default. Entrance movement is progressive: the
+   `.public-rise` class animates from a small offset but never from opacity 0, so
+   a late or failed script cannot leave content invisible, and reduced motion
+   removes movement entirely. The older `.reveal` helper (opacity 0 until an
+   observer fires) is neutralised for reduced-motion visitors here. */
+.marketing-theme .public-rise {
+  animation: public-rise 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes public-rise {
+  from {
+    transform: translateY(8px);
+  }
+  to {
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .marketing-theme .public-rise {
+    animation: none;
+  }
+  .marketing-theme .reveal {
+    opacity: 1;
+    transform: none;
+  }
+  .marketing-theme .cta-pulse {
+    animation: none;
+  }
+}

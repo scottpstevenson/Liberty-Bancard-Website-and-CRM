@@ -11,8 +11,8 @@ export default function PrivacyPolicy() {
       <SEO title="Privacy Policy | Liberty Bancard" description="Liberty Bancard privacy policy. How we collect, use, and protect your information under GDPR, CCPA, and international data protection laws." path="/privacy-policy" />
       <Navbar />
       <main className="flex-grow pt-16">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-          <h1 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-2" data-testid="text-privacy-heading">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+          <h1 className="public-h1 public-h1--page font-display font-bold text-foreground mb-2" data-testid="text-privacy-heading">
             Privacy Policy
           </h1>
           <p className="text-sm text-muted-foreground mb-10" data-testid="text-privacy-updated">
@@ -196,11 +196,11 @@ export default function PrivacyPolicy() {
                 For questions about this Privacy Policy, to exercise your data protection rights, or for any privacy-related concerns, please contact us:
               </p>
               <div className="space-y-2">
-                <a href="mailto:privacy@libertybancard.com" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-privacy-email">
+                <a href="mailto:privacy@libertybancard.com" className="public-tap flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-privacy-email">
                   <Mail className="w-4 h-4 shrink-0" />
                   <span>privacy@libertybancard.com</span>
                 </a>
-                <a href="tel:9542668214" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-privacy-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/privacy-policy" })}>
+                <a href="tel:9542668214" className="public-tap flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-privacy-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/privacy-policy" })}>
                   <Phone className="w-4 h-4 shrink-0" />
                   <span>954-266-8214</span>
                 </a>

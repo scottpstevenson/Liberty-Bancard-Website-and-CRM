@@ -249,12 +249,12 @@ export default function LocationIndustryPage() {
     return (
       <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <Navbar />
-        <main className="flex-grow pt-28 flex items-center justify-center">
+        <main className="flex-grow public-main-offset flex items-center justify-center">
           <div className="text-center">
             <h1 className="text-2xl font-bold text-foreground mb-4" data-testid="text-location-not-found">Page Not Found</h1>
-            <Link href="/" data-testid="link-back-home">
-              <Button>Back to Home</Button>
-            </Link>
+            <Button asChild>
+              <Link href="/" data-testid="link-back-home">Back to Home</Link>
+            </Button>
           </div>
         </main>
         <Footer />
@@ -311,7 +311,7 @@ export default function LocationIndustryPage() {
       />
       <Navbar />
 
-      <main className="marketing-surface flex-grow pt-28">
+      <main className="marketing-surface flex-grow public-main-offset">
         <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-location-hero">
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28">
             <div className="accent-rule pt-5">
@@ -333,24 +333,24 @@ export default function LocationIndustryPage() {
                 {data.heroSubtitle}
               </p>
               <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
-                <Link href={`/upload-statement?offer=${data.industrySlug}`} data-testid="link-location-upload" onClick={() => trackStatementUploadCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Get My Free Analysis", city: data.citySlug, industry: data.industrySlug })}>
-                  <Button size="lg" className="gap-2">
+                <Button size="lg" className="gap-2" asChild>
+                  <Link href={`/upload-statement?offer=${data.industrySlug}`} data-testid="link-location-upload" onClick={() => trackStatementUploadCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Get My Free Analysis", city: data.citySlug, industry: data.industrySlug })}>
                     <Upload className="w-4 h-4" />
                     Get My Free Analysis
-                  </Button>
-                </Link>
-                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-location-book" onClick={() => trackBookingCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Book a 10-Min Call", ctaLocation: "hero", city: data.citySlug, industry: data.industrySlug })}>
-                  <Button size="lg" variant="outline" className="gap-2">
+                  </Link>
+                </Button>
+                <Button size="lg" variant="outline" className="gap-2" asChild>
+                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-location-book" onClick={() => trackBookingCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Book a review call", ctaLocation: "hero", city: data.citySlug, industry: data.industrySlug })}>
                     <Calendar className="w-4 h-4" />
-                    Book a 10-Min Call
-                  </Button>
-                </a>
-                <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-location-hero-phone" onClick={() => trackPhoneCallClick({})}>
-                  <Button size="lg" variant="ghost" className="gap-2">
+                    Book a review call
+                  </a>
+                </Button>
+                <Button size="lg" variant="ghost" className="gap-2" asChild>
+                  <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-location-hero-phone" onClick={() => trackPhoneCallClick({})}>
                     <Phone className="w-4 h-4" />
                     {PHONE_NUMBER}
-                  </Button>
-                </a>
+                  </a>
+                </Button>
               </div>
             </div>
           </div>
@@ -428,24 +428,24 @@ export default function LocationIndustryPage() {
               Upload your most recent processing statement. We'll break it down line-by-line and show you exactly where your money goes. Keep the analysis even if you don't switch.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <Link href="/upload-statement" data-testid="link-cta-upload" onClick={() => trackStatementUploadCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Upload Statement — Free Review", city: data.cityName, industry: data.industryName })}>
-                <Button size="lg" className="gap-2 bg-accent hover:bg-accent border-accent text-white">
+              <Button size="lg" className="gap-2 bg-accent hover:bg-accent border-accent text-white" asChild>
+                <Link href="/upload-statement" data-testid="link-cta-upload" onClick={() => trackStatementUploadCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Upload Statement — Free Review", city: data.cityName, industry: data.industryName })}>
                   <Upload className="w-4 h-4" />
                   Upload Statement — Free Review
-                </Button>
-              </Link>
-              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-cta-book" onClick={() => trackBookingCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Book a 10-Min Call", ctaLocation: "final_cta", city: data.cityName, industry: data.industryName })}>
-                <Button size="lg" variant="outline" className="gap-2 bg-transparent border-white/30 text-white hover:bg-white/10">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="gap-2 bg-transparent border-white/30 text-white hover:bg-white/10" asChild>
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-cta-book" onClick={() => trackBookingCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Book a review call", ctaLocation: "final_cta", city: data.cityName, industry: data.industryName })}>
                   <Calendar className="w-4 h-4" />
-                  Book a 10-Min Call
-                </Button>
-              </a>
-              <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-cta-call" onClick={() => trackPhoneCallClick({})}>
-                <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20">
+                  Book a review call
+                </a>
+              </Button>
+              <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20" asChild>
+                <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-cta-call" onClick={() => trackPhoneCallClick({})}>
                   <Phone className="w-4 h-4" />
                   {PHONE_NUMBER}
-                </Button>
-              </a>
+                </a>
+              </Button>
             </div>
           </div>
         </section>
@@ -459,12 +459,12 @@ export default function LocationIndustryPage() {
               {cities
                 .filter((c) => c.slug !== data.citySlug)
                 .map((c) => (
-                  <Link key={c.slug} href={`/locations/${c.slug}/${data.industrySlug}`} data-testid={`link-city-${c.slug}`}>
-                    <Button variant="outline" className="gap-2">
+                  <Button key={c.slug} variant="outline" className="gap-2" asChild>
+                    <Link href={`/locations/${c.slug}/${data.industrySlug}`} data-testid={`link-city-${c.slug}`}>
                       <MapPin className="w-4 h-4" />
                       {c.name}
-                    </Button>
-                  </Link>
+                    </Link>
+                  </Button>
                 ))}
             </div>
             <h3 className="text-lg font-display font-bold text-foreground text-center mb-4" data-testid="text-industries-heading">
@@ -474,9 +474,9 @@ export default function LocationIndustryPage() {
               {topVerticals
                 .filter((v) => v.slug !== data.industrySlug)
                 .map((v) => (
-                  <Link key={v.slug} href={`/locations/${data.citySlug}/${v.slug}`} data-testid={`link-industry-${v.slug}`}>
-                    <Button variant="outline">{v.name}</Button>
-                  </Link>
+                  <Button key={v.slug} variant="outline" asChild>
+                    <Link href={`/locations/${data.citySlug}/${v.slug}`} data-testid={`link-industry-${v.slug}`}>{v.name}</Link>
+                  </Button>
                 ))}
             </div>
           </div>

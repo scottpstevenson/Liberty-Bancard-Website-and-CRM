@@ -86,12 +86,12 @@ export function ExitIntentPopup() {
             </div>
           </div>
 
-          <Link href="/upload-statement" data-testid="link-exit-upload">
-            <Button className="w-full gap-2" size="lg" onClick={handleDismiss}>
+          <Button className="w-full gap-2" size="lg" onClick={handleDismiss} asChild>
+            <Link href="/upload-statement" data-testid="link-exit-upload">
               <Upload className="w-4 h-4" />
               Get My Free Breakdown
-            </Button>
-          </Link>
+            </Link>
+          </Button>
           <Button
             variant="ghost"
             size="sm"

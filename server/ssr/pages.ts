@@ -1364,7 +1364,7 @@ export function getFreeAnalysisGuaranteedHtml(): string {
         <div style="display:flex;align-items:flex-start;gap:1.25rem;">
           <div style="width:3.5rem;height:3.5rem;border-radius:50%;background:#10b981;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1.5rem;">🎁</div>
           <div>
-            <h2 style="font-family:'Outfit',system-ui,sans-serif;font-size:1.25rem;font-weight:700;color:#0f172a;margin-bottom:0.5rem;">Our Savings Guarantee</h2>
+            <h2 style="font-family:'Source Serif 4',Georgia,'Times New Roman',serif;font-size:1.25rem;font-weight:700;color:#0f172a;margin-bottom:0.5rem;">Our Savings Guarantee</h2>
             <p style="font-size:0.875rem;color:#475569;line-height:1.7;margin-bottom:1rem;">We've reviewed over 3,200 merchant statements. Every single one had at least one identifiable savings opportunity. But if we review yours and genuinely cannot find a way to save you money, we'll send you a <strong>$50 Amazon gift card</strong> — just for your time.</p>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
               <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;color:#0f172a;">✅ Find savings in 24 hours or $50 gift card</div>

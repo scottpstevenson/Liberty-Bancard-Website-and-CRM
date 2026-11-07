@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
-import logoBlue from "@assets/logo-blue.png";
+import logoBlue from "@/assets/logo-blue.png";
 import { CALENDAR_URL } from "@/lib/constants";
 import { trackCalendarBooking, trackBookingCtaClick } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
@@ -141,8 +141,8 @@ function DropdownItem({
         className={cn(
           "flex items-start gap-2.5 px-4 py-3 text-sm transition-colors border-b border-border",
           active
-            ? "text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30"
-            : "text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 bg-emerald-50/50 dark:bg-emerald-950/10"
+            ? "text-emerald-700 bg-emerald-50 dark:bg-emerald-950/30"
+            : "text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 bg-emerald-50/50 dark:bg-emerald-950/10"
         )}
         onClick={onClose}
         data-testid={testId}
@@ -150,7 +150,7 @@ function DropdownItem({
         <Zap className="w-3.5 h-3.5 shrink-0 mt-0.5" />
         <div className="min-w-0">
           <span className="font-semibold block">{name}</span>
-          {desc && <span className="text-xs text-emerald-600/70 dark:text-emerald-500/70">{desc}</span>}
+          {desc && <span className="text-xs text-emerald-700 dark:text-emerald-500/70">{desc}</span>}
         </div>
       </Link>
     );
@@ -195,7 +195,7 @@ export function Navbar() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-[72px] md:h-16 gap-4">
             {/* Logo */}
-            <Link href="/" className="flex items-center shrink-0" data-testid="link-logo">
+            <Link href="/" className="flex min-h-11 items-center shrink-0" data-testid="link-logo">
               <img
                 src={logoBlue}
                 alt="Liberty Bancard"
@@ -303,39 +303,33 @@ export function Navbar() {
 
             {/* Desktop CTAs */}
             <div className="hidden lg:flex items-center gap-3">
-              <a
-                href={buildAttributedBookingUrl(CALENDAR_URL, { ctaLocation: "navbar_desktop" })}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => {
+              <Button variant="outline" className="gap-2" asChild>
+                <a href={buildAttributedBookingUrl(CALENDAR_URL, { ctaLocation: "navbar_desktop" })} target="_blank" rel="noopener noreferrer" onClick={() => {
                   trackCalendarBooking("navbar_desktop");
                   trackBookingCtaClick({ ctaLocation: "navbar_desktop" });
-                }}
-                data-testid="link-book-call"
-              >
-                <Button variant="outline" className="gap-2">
+                }} data-testid="link-book-call">
                   <Calendar className="w-4 h-4" />
-                  Book 10-Min Call
-                </Button>
-              </a>
-              <Link href="/upload-statement" data-testid="link-upload-statement">
-                <Button className="gap-2">
+                  Book a review call
+                </a>
+              </Button>
+              <Button className="gap-2" asChild>
+                <Link href="/upload-statement" data-testid="link-upload-statement">
                   <Upload className="w-4 h-4" />
                   Upload Statement
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
 
             {/* Mobile hamburger */}
             <div className="lg:hidden">
               <Button
                 variant="ghost"
-                className="h-11 w-11 p-0"
+                className="h-12 w-12 p-0 text-primary [&_svg]:size-6"
                 onClick={() => setMobileOpen(true)}
                 data-testid="button-mobile-menu"
                 aria-label="Open menu"
               >
-                <Menu className="w-5 h-5" />
+                <Menu className="w-6 h-6" />
               </Button>
             </div>
           </div>
@@ -346,13 +340,14 @@ export function Navbar() {
           <SheetContent
             side="right"
             className="w-[85vw] max-w-sm p-0 flex flex-col"
+            closeClassName="right-2 top-2 grid h-11 w-11 place-items-center opacity-100 [&_svg]:h-5 [&_svg]:w-5"
             data-testid="mobile-nav-drawer"
           >
             {/* SheetContent already renders an absolute close (X) button top-right;
                 no custom SheetClose needed here — adding one creates duplicates. */}
-            <SheetHeader className="px-4 pt-4 pb-3 border-b border-border shrink-0 pr-12">
+            <SheetHeader className="px-4 pt-2 pb-2 border-b border-border shrink-0 pr-14">
               <SheetTitle asChild>
-                <Link href="/" onClick={() => setMobileOpen(false)} data-testid="link-mobile-logo">
+                <Link href="/" className="flex min-h-11 items-center" onClick={() => setMobileOpen(false)} data-testid="link-mobile-logo">
                   <img src={logoBlue} alt="Liberty Bancard" className="h-7 w-auto" />
                 </Link>
               </SheetTitle>
@@ -363,7 +358,7 @@ export function Navbar() {
               <Link
                 href="/"
                 className={cn(
-                  "block px-3 py-2.5 rounded-md text-sm font-medium transition-colors mb-1",
+                  "flex min-h-11 items-center px-3 py-2.5 rounded-md text-sm font-medium transition-colors mb-1",
                   location === "/" ? "text-primary bg-primary/5" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                 )}
                 onClick={() => setMobileOpen(false)}
@@ -377,7 +372,7 @@ export function Navbar() {
                 {/* Solutions */}
                 <AccordionItem value="solutions" className="border-none">
                   <AccordionTrigger
-                    className="px-3 py-2.5 text-sm font-semibold text-muted-foreground hover:text-foreground hover:no-underline rounded-md hover:bg-muted/50"
+                    className="min-h-11 px-3 py-2.5 text-sm font-semibold text-muted-foreground hover:text-foreground hover:no-underline rounded-md hover:bg-muted/50"
                     data-testid="accordion-trigger-solutions"
                   >
                     Solutions
@@ -388,12 +383,12 @@ export function Navbar() {
                         key={link.name}
                         href={link.href}
                         className={cn(
-                          "block px-4 py-2.5 rounded-md text-sm transition-colors",
-                          link.featured ? "font-semibold text-emerald-600" : "font-medium",
+                          "flex min-h-11 flex-col justify-center px-4 py-2.5 rounded-md text-sm transition-colors",
+                          link.featured ? "font-semibold text-emerald-700" : "font-medium",
                           location === link.href
                             ? "text-primary bg-primary/5"
                             : link.featured
-                              ? "text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
+                              ? "text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
                               : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                         )}
                         onClick={() => setMobileOpen(false)}
@@ -413,7 +408,7 @@ export function Navbar() {
                 {/* Industries */}
                 <AccordionItem value="industries" className="border-none">
                   <AccordionTrigger
-                    className="px-3 py-2.5 text-sm font-semibold text-muted-foreground hover:text-foreground hover:no-underline rounded-md hover:bg-muted/50"
+                    className="min-h-11 px-3 py-2.5 text-sm font-semibold text-muted-foreground hover:text-foreground hover:no-underline rounded-md hover:bg-muted/50"
                     data-testid="accordion-trigger-industries"
                   >
                     Industries
@@ -424,7 +419,7 @@ export function Navbar() {
                         key={link.name}
                         href={link.href}
                         className={cn(
-                          "block px-4 py-2.5 rounded-md text-sm font-medium transition-colors",
+                          "flex min-h-11 flex-col justify-center px-4 py-2.5 rounded-md text-sm font-medium transition-colors",
                           location === link.href
                             ? "text-primary bg-primary/5"
                             : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -441,7 +436,7 @@ export function Navbar() {
                 {/* Resources */}
                 <AccordionItem value="resources" className="border-none">
                   <AccordionTrigger
-                    className="px-3 py-2.5 text-sm font-semibold text-muted-foreground hover:text-foreground hover:no-underline rounded-md hover:bg-muted/50"
+                    className="min-h-11 px-3 py-2.5 text-sm font-semibold text-muted-foreground hover:text-foreground hover:no-underline rounded-md hover:bg-muted/50"
                     data-testid="accordion-trigger-resources"
                   >
                     Resources
@@ -452,7 +447,7 @@ export function Navbar() {
                         key={link.name}
                         href={link.href}
                         className={cn(
-                          "block px-4 py-2.5 rounded-md text-sm font-medium transition-colors",
+                          "flex min-h-11 flex-col justify-center px-4 py-2.5 rounded-md text-sm font-medium transition-colors",
                           location === link.href
                             ? "text-primary bg-primary/5"
                             : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -477,7 +472,7 @@ export function Navbar() {
               <Link
                 href="/partners"
                 className={cn(
-                  "flex items-center gap-2 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
+                  "flex min-h-11 items-center gap-2 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
                   location === "/partners" || location === "/partner-portal"
                     ? "text-primary bg-primary/5"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -495,7 +490,7 @@ export function Navbar() {
               <div className="flex flex-col gap-2 px-3 py-2">
                 <a
                   href="tel:9542668214"
-                  className="text-sm text-muted-foreground flex items-center gap-2"
+                  className="flex min-h-11 items-center gap-2 text-sm text-muted-foreground"
                   data-testid="link-mobile-phone"
                   onClick={() => trackPhoneCallClick({})}
                 >
@@ -504,7 +499,7 @@ export function Navbar() {
                 </a>
                 <a
                   href="mailto:support@libertybancard.com"
-                  className="text-sm text-muted-foreground flex items-center gap-2"
+                  className="flex min-h-11 items-center gap-2 text-sm text-muted-foreground"
                   data-testid="link-mobile-email"
                 >
                   <Mail className="w-4 h-4" />
@@ -515,32 +510,22 @@ export function Navbar() {
 
             {/* Pinned CTA buttons at the bottom of the drawer */}
             <div className="shrink-0 border-t border-border p-4 flex flex-col gap-2 bg-background">
-              <a
-                href={buildAttributedBookingUrl(CALENDAR_URL, { ctaLocation: "navbar_mobile" })}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => {
+              <Button variant="outline" className="w-full gap-2" asChild>
+                <a href={buildAttributedBookingUrl(CALENDAR_URL, { ctaLocation: "navbar_mobile" })} target="_blank" rel="noopener noreferrer" onClick={() => {
                   trackCalendarBooking("navbar_mobile");
                   trackBookingCtaClick({ ctaLocation: "navbar_mobile" });
                   setMobileOpen(false);
-                }}
-                data-testid="link-mobile-book-call"
-              >
-                <Button variant="outline" className="w-full gap-2">
+                }} data-testid="link-mobile-book-call">
                   <Calendar className="w-4 h-4" />
-                  Book a Free Call
-                </Button>
-              </a>
-              <Link
-                href="/upload-statement"
-                onClick={() => setMobileOpen(false)}
-                data-testid="link-mobile-upload-statement"
-              >
-                <Button className="w-full gap-2">
+                  Book a review call
+                </a>
+              </Button>
+              <Button className="w-full gap-2" asChild>
+                <Link href="/upload-statement" onClick={() => setMobileOpen(false)} data-testid="link-mobile-upload-statement">
                   <Upload className="w-4 h-4" />
                   Upload My Statement
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </SheetContent>
         </Sheet>

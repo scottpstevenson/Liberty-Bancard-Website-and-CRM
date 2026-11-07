@@ -65,12 +65,12 @@ function renderSection(section: BlogSection, index: number) {
           <CardContent className="p-6 text-center">
             <Upload className="w-8 h-8 text-primary mx-auto mb-3" />
             <p className="text-foreground font-medium mb-4">{section.text}</p>
-            <Link href={section.ctaHref || "/upload-statement"} data-testid={`link-cta-${index}`}>
-              <Button className="gap-2">
+            <Button className="gap-2" asChild>
+              <Link href={section.ctaHref || "/upload-statement"} data-testid={`link-cta-${index}`}>
                 {section.ctaText}
                 <ArrowRight className="w-4 h-4" />
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </CardContent>
         </Card>
       );
@@ -130,7 +130,7 @@ export default function BlogPost() {
     return (
       <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <Navbar />
-        <main className="flex-grow pt-28 flex items-center justify-center">
+        <main className="flex-grow public-main-offset flex items-center justify-center">
           <div className="text-center p-8">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
           </div>
@@ -144,18 +144,18 @@ export default function BlogPost() {
     return (
       <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <Navbar />
-        <main className="flex-grow pt-28 flex items-center justify-center">
+        <main className="flex-grow public-main-offset flex items-center justify-center">
           <div className="text-center p-8">
             <h1 className="text-2xl font-display font-bold text-foreground mb-4" data-testid="text-not-found">
               Article Not Found
             </h1>
             <p className="text-muted-foreground mb-6">The article you're looking for doesn't exist.</p>
-            <Link href="/blog" data-testid="link-back-to-blog">
-              <Button variant="outline" className="gap-2">
+            <Button variant="outline" className="gap-2" asChild>
+              <Link href="/blog" data-testid="link-back-to-blog">
                 <ArrowLeft className="w-4 h-4" />
                 Back to Blog
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </div>
         </main>
         <Footer />
@@ -206,7 +206,7 @@ export default function BlogPost() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28">
+      <main className="flex-grow public-main-offset">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-4">
           <Breadcrumbs
             items={[
@@ -216,12 +216,12 @@ export default function BlogPost() {
           />
         </div>
         <article className="max-w-3xl mx-auto px-4 sm:px-6 py-12">
-          <Link href="/blog" data-testid="link-breadcrumb-blog">
-            <Button variant="ghost" className="gap-2 mb-6 -ml-2">
+          <Button variant="ghost" className="gap-2 mb-6 -ml-2" asChild>
+            <Link href="/blog" data-testid="link-breadcrumb-blog">
               <ArrowLeft className="w-4 h-4" />
               Back to Blog
-            </Button>
-          </Link>
+            </Link>
+          </Button>
 
           <Badge variant="outline" className="mb-4" data-testid="badge-category">
             {post.category}
@@ -283,22 +283,22 @@ export default function BlogPost() {
           <div className="border-t border-border mt-12 pt-8">
             <div className="flex flex-col sm:flex-row justify-between gap-4">
               {prevPost ? (
-                <Link href={`/blog/${prevPost.slug}`} data-testid="link-prev-post">
-                  <Button variant="outline" className="gap-2">
+                <Button variant="outline" className="gap-2" asChild>
+                  <Link href={`/blog/${prevPost.slug}`} data-testid="link-prev-post">
                     <ArrowLeft className="w-4 h-4" />
                     Previous Article
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               ) : (
                 <div />
               )}
               {nextPost && (
-                <Link href={`/blog/${nextPost.slug}`} data-testid="link-next-post">
-                  <Button variant="outline" className="gap-2">
+                <Button variant="outline" className="gap-2" asChild>
+                  <Link href={`/blog/${nextPost.slug}`} data-testid="link-next-post">
                     Next Article
                     <ArrowRight className="w-4 h-4" />
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               )}
             </div>
           </div>
@@ -338,18 +338,18 @@ export default function BlogPost() {
               Upload your processing statement for a free, line-by-line breakdown. Keep the analysis even if you don't switch.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <Link href="/upload-statement" data-testid="link-blogpost-cta-upload">
-                <Button size="lg" variant="secondary" className="gap-2">
+              <Button size="lg" variant="secondary" className="gap-2" asChild>
+                <Link href="/upload-statement" data-testid="link-blogpost-cta-upload">
                   <Upload className="w-4 h-4" />
                   Upload Statement
-                </Button>
-              </Link>
-              <Link href="/free-analysis" data-testid="link-blogpost-cta-analysis">
-                <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white" asChild>
+                <Link href="/free-analysis" data-testid="link-blogpost-cta-analysis">
                   Get My Free Analysis
                   <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </section>

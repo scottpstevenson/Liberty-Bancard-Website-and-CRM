@@ -461,31 +461,20 @@ export default function CoBrandedProposalViewer() {
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center flex-wrap">
               {partner.phone && (
-                <a href={`tel:${partner.phone.replace(/[^0-9+]/g, "")}`} data-testid="link-call-partner"
-                  onClick={() => trackPhoneCallClick({ sourcePage: "/proposal" })}>
-                  <Button
-                    size="lg"
-                    className="gap-2 w-full sm:w-auto"
-                    style={{ background: "rgba(255,255,255,0.2)", borderColor: "rgba(255,255,255,0.4)", color: contrastColor }}
-                    variant="outline"
-                  >
+                <Button size="lg" className="gap-2 w-full sm:w-auto" style={{ background: "rgba(255,255,255,0.2)", borderColor: "rgba(255,255,255,0.4)", color: contrastColor }} variant="outline" asChild>
+                  <a href={`tel:${partner.phone.replace(/[^0-9+]/g, "")}`} data-testid="link-call-partner" onClick={() => trackPhoneCallClick({ sourcePage: "/proposal" })}>
                     <Phone className="w-4 h-4" />
                     Call {partner.phone}
-                  </Button>
-                </a>
+                  </a>
+                </Button>
               )}
               {partner.email && (
-                <a href={`mailto:${partner.email}`} data-testid="link-email-partner">
-                  <Button
-                    size="lg"
-                    variant="outline"
-                    className="gap-2 w-full sm:w-auto"
-                    style={{ background: "rgba(255,255,255,0.2)", borderColor: "rgba(255,255,255,0.4)", color: contrastColor }}
-                  >
+                <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto" style={{ background: "rgba(255,255,255,0.2)", borderColor: "rgba(255,255,255,0.4)", color: contrastColor }} asChild>
+                  <a href={`mailto:${partner.email}`} data-testid="link-email-partner">
                     <Mail className="w-4 h-4" />
                     Email Us
-                  </Button>
-                </a>
+                  </a>
+                </Button>
               )}
               {!accepted ? (
                 <Button

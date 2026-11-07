@@ -206,7 +206,7 @@ export default function PartnerBookkeeper() {
         structuredData={[bookkeeperFaqJsonLd]}
       />
       <Navbar />
-      <main className="flex-grow pt-28">
+      <main className="flex-grow public-main-offset">
 
         {/* Hero */}
         <section className="bg-gradient-to-br from-primary/5 via-background to-background py-16 md:py-24 border-b border-border/30">
@@ -222,16 +222,16 @@ export default function PartnerBookkeeper() {
                 Bookkeepers see processing fees every month — and most clients don't know what to do about them. Liberty Bancard's free statement review turns that observation into action, saves your clients real money, and pays you a 30% monthly residual for every referral that activates.
               </p>
               <div className="flex flex-col sm:flex-row gap-3">
-                <Link href="/partners#apply">
-                  <Button size="lg" className="gap-2 w-full sm:w-auto" data-testid="button-bk-hero-apply">
+                <Button size="lg" className="gap-2 w-full sm:w-auto" data-testid="button-bk-hero-apply" asChild>
+                  <Link href="/partners#apply">
                     Apply as a Bookkeeper Partner <ArrowRight className="w-4 h-4" />
-                  </Button>
-                </Link>
-                <a href="#calculator">
-                  <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto" data-testid="button-bk-hero-calculator">
+                  </Link>
+                </Button>
+                <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto" data-testid="button-bk-hero-calculator" asChild>
+                  <a href="#calculator">
                     <Calculator className="w-4 h-4" /> Estimate My Income
-                  </Button>
-                </a>
+                  </a>
+                </Button>
               </div>
             </div>
           </div>
@@ -399,16 +399,16 @@ export default function PartnerBookkeeper() {
               Apply as a Bookkeeper Partner today. We'll approve your application within 1 business day and set you up with a referral link and client email template.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <Link href="/partners#apply">
-                <Button size="lg" variant="secondary" className="gap-2 w-full sm:w-auto" data-testid="button-bk-cta-apply">
+              <Button size="lg" variant="secondary" className="gap-2 w-full sm:w-auto" data-testid="button-bk-cta-apply" asChild>
+                <Link href="/partners#apply">
                   Apply as a Bookkeeper Partner <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
-              <Link href="/partners">
-                <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto border-primary-foreground/30 text-primary-foreground hover:bg-primary-foreground/10" data-testid="button-bk-cta-full-program">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto border-primary-foreground/30 text-primary-foreground hover:bg-primary-foreground/10" data-testid="button-bk-cta-full-program" asChild>
+                <Link href="/partners">
                   View Full Partner Program
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </section>

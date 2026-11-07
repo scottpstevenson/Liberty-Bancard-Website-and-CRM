@@ -32,11 +32,11 @@ export default function NotFound() {
           </p>
 
           <div className="flex flex-col sm:flex-row gap-3 justify-center mb-8">
-            <Link href="/" data-testid="link-404-home">
-              <Button className="gap-2 w-full sm:w-auto">
+            <Button className="gap-2 w-full sm:w-auto" asChild>
+              <Link href="/" data-testid="link-404-home">
                 <Home className="w-4 h-4" /> Go to Homepage
-              </Button>
-            </Link>
+              </Link>
+            </Button>
             <Button
               variant="outline"
               className="gap-2 w-full sm:w-auto"

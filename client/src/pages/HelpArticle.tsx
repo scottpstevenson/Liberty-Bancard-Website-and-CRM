@@ -29,7 +29,7 @@ export default function HelpArticle() {
       <div className="min-h-screen flex flex-col bg-background">
         <SEO title="Category Not Found" description="The help category you're looking for doesn't exist." />
         <Navbar />
-        <main className="flex-grow pt-28 flex items-center justify-center">
+        <main className="flex-grow public-main-offset flex items-center justify-center">
           <div className="text-center">
             <h1 className="text-2xl font-bold text-foreground mb-4" data-testid="text-not-found">Category Not Found</h1>
             <Link href="/help" className="text-primary font-medium" data-testid="link-back-help">
@@ -60,7 +60,7 @@ export default function HelpArticle() {
           ])}
         />
         <Navbar />
-        <main className="flex-grow pt-28" ref={containerRef}>
+        <main className="flex-grow public-main-offset" ref={containerRef}>
           <section className="py-8 bg-muted/30 border-b border-border/30">
             <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
               <nav className="flex items-center gap-1.5 text-sm text-muted-foreground mb-4 flex-wrap" data-testid="nav-breadcrumbs">
@@ -127,7 +127,7 @@ export default function HelpArticle() {
       <div className="min-h-screen flex flex-col bg-background">
         <SEO title="Article Not Found" description="The help article you're looking for doesn't exist." />
         <Navbar />
-        <main className="flex-grow pt-28 flex items-center justify-center">
+        <main className="flex-grow public-main-offset flex items-center justify-center">
           <div className="text-center">
             <h1 className="text-2xl font-bold text-foreground mb-4" data-testid="text-article-not-found">Article Not Found</h1>
             <Link href={`/help/${category}`} className="text-primary font-medium" data-testid="link-back-category">
@@ -164,7 +164,7 @@ export default function HelpArticle() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="flex-grow public-main-offset" ref={containerRef}>
         <section className="py-8 bg-muted/30 border-b border-border/30">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
             <nav className="flex items-center gap-1.5 text-sm text-muted-foreground mb-4 flex-wrap" data-testid="nav-article-breadcrumbs">

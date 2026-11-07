@@ -17,7 +17,7 @@ export type PublicCTAScheme = "default" | "inverse";
 export interface PublicCTAProps {
   /**
    * "primary"   → Upload My Statement
-   * "secondary" → Book a Free Call
+   * "secondary" → Book a review call
    * "both"      → render both side-by-side
    */
   variant?: PublicCTAVariant;
@@ -45,7 +45,7 @@ export interface PublicCTAProps {
  *
  * Two canonical actions:
  *   Primary   → Upload My Statement  →  /upload-statement  (filled, navy)
- *   Secondary → Book a Free Call     →  calendar booking link (outline, navy)
+ *   Secondary → Book a review call     →  calendar booking link (outline, navy)
  *
  * Use `variant="both"` to show both side-by-side.
  */
@@ -53,7 +53,7 @@ export function PublicCTA({
   variant = "both",
   scheme = "default",
   primaryLabel = "Upload My Statement",
-  secondaryLabel = "Book a Free Call",
+  secondaryLabel = "Book a review call",
   uploadHref = "/upload-statement",
   ctaLocation = "page",
   className,
@@ -68,8 +68,8 @@ export function PublicCTA({
   const primaryVariant = scheme === "inverse" ? "secondary" : "default";
   const secondaryBtnClass =
     scheme === "inverse"
-      ? "gap-2 w-full sm:w-auto border-white/40 text-white hover:bg-white/10 hover:text-white"
-      : "gap-2 w-full sm:w-auto border-border";
+      ? "public-cta public-cta--inverse-outline gap-2 w-full sm:w-auto hover:bg-white/10 hover:text-white"
+      : "public-cta gap-2 w-full sm:w-auto border-border";
 
   return (
     <div
@@ -81,7 +81,7 @@ export function PublicCTA({
           asChild
           size={size}
           variant={primaryVariant}
-          className="gap-2 w-full sm:w-auto"
+          className={cn("public-cta gap-2 w-full sm:w-auto", scheme === "inverse" && "public-cta--inverse")}
           data-testid="public-cta-primary"
           onClick={() =>
             trackStatementUploadCtaClick({
@@ -98,22 +98,12 @@ export function PublicCTA({
       )}
 
       {showSecondary && (
-        <a
-          href={buildAttributedBookingUrl(CALENDAR_URL, { ctaLocation })}
-          target="_blank"
-          rel="noopener noreferrer"
-          data-testid="public-cta-secondary"
-          onClick={() => trackBookingCtaClick({ ctaLabel: secondaryLabel, ctaLocation })}
-        >
-          <Button
-            size={size}
-            variant="outline"
-            className={secondaryBtnClass}
-          >
+        <Button size={size} variant="outline" className={secondaryBtnClass} asChild>
+          <a href={buildAttributedBookingUrl(CALENDAR_URL, { ctaLocation })} target="_blank" rel="noopener noreferrer" data-testid="public-cta-secondary" onClick={() => trackBookingCtaClick({ ctaLabel: secondaryLabel, ctaLocation })}>
             <Calendar className="w-4 h-4 shrink-0" />
             {secondaryLabel}
-          </Button>
-        </a>
+          </a>
+        </Button>
       )}
     </div>
   );

@@ -992,6 +992,34 @@ export const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
     requiresServer: true,
   },
+  // Public-site mobile visibility and presentation (Chromium evidence only; not a WebKit/iPhone pass).
+  {
+    name: "Public Site Derivative Images (committed derivatives match originals, within weight budget)",
+    script: "scripts/build-public-images.ts",
+    env: { PUBLIC_IMAGES_CHECK: "1" },
+    timeoutSecs: 180,
+  },
+  {
+    name: "Public Site Mobile Visibility (contrast, targets, landmarks, overflow; 390 and 1440, light and dark)",
+    script: "scripts/check-public-site-mobile.ts",
+    env: { PUBLIC_SITE_STRICT: "1", PUBLIC_SITE_WIDTHS: "390,1440" },
+    timeoutSecs: 1200,
+    requiresServer: true,
+  },
+  {
+    name: "Public Site Font Delivery (painted faces, serif scope, font-swap CLS)",
+    script: "scripts/check-public-fonts.ts",
+    env: { PUBLIC_SITE_STRICT: "1" },
+    timeoutSecs: 900,
+    requiresServer: true,
+  },
+  {
+    name: "Public Site Overlay Coordination (chat launcher, dock, consent, dialogs)",
+    script: "scripts/check-public-overlay.ts",
+    env: { PUBLIC_SITE_STRICT: "1" },
+    timeoutSecs: 900,
+    requiresServer: true,
+  },
   {
     name: "Chat Business Hours (AI 24/7, human-handoff hours-gated)",
     script: "scripts/test-chat-business-hours.ts",

@@ -29,7 +29,7 @@ export function Breadcrumbs({ items, className, variant = "default" }: Breadcrum
         <li className="flex items-center">
           <Link
             href="/"
-            className={`inline-flex items-center gap-1 transition-colors ${linkHover}`}
+            className={`public-tap min-w-11 justify-center sm:min-w-0 inline-flex items-center gap-1 transition-colors ${linkHover}`}
             data-testid="link-breadcrumb-home"
           >
             <Home className="w-3.5 h-3.5" />
@@ -52,7 +52,7 @@ export function Breadcrumbs({ items, className, variant = "default" }: Breadcrum
               ) : (
                 <Link
                   href={item.path}
-                  className={`transition-colors ${linkHover}`}
+                  className={`public-tap inline-flex items-center transition-colors ${linkHover}`}
                   data-testid={`link-breadcrumb-${idx}`}
                 >
                   {item.name}

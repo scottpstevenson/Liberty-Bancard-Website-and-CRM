@@ -29,11 +29,11 @@ import {
   CreditCard,
 } from "lucide-react";
 
-import caseRestaurant from "@assets/images/case-restaurant.jpg";
-import caseRetail from "@assets/images/case-retail.jpg";
-import caseMedical from "@assets/images/case-medical.jpg";
-import caseAuto from "@assets/images/case-auto.jpg";
-import caseHomeServices from "@assets/images/case-home-services.jpg";
+import caseRestaurant from "@/assets/images/case-restaurant.jpg";
+import caseRetail from "@/assets/images/case-retail.jpg";
+import caseMedical from "@/assets/images/case-medical.jpg";
+import caseAuto from "@/assets/images/case-auto.jpg";
+import caseHomeServices from "@/assets/images/case-home-services.jpg";
 
 interface CaseStudy {
   id: string;
@@ -317,13 +317,13 @@ export default function CaseStudies() {
       <Navbar />
 
       <main className="pt-32 pb-20">
-        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-20">
+        <section className="public-container mb-20">
           <div className="text-center max-w-3xl mx-auto mb-16">
             <Badge variant="secondary" className="mb-4" data-testid="badge-case-studies">
               Real Results
             </Badge>
             <h1
-              className="text-4xl sm:text-5xl font-bold tracking-tight mb-6"
+              className="public-h1 public-h1--page font-bold tracking-tight mb-6"
               data-testid="text-case-studies-title"
             >
               Payment Processing Savings —{" "}
@@ -381,14 +381,14 @@ export default function CaseStudies() {
                             width="800"
                             height="600"
                           />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent rounded-t-md lg:rounded-l-md lg:rounded-tr-none" />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/75 to-transparent rounded-t-md lg:rounded-l-md lg:rounded-tr-none" />
                           <div className="absolute bottom-4 left-4 right-4">
                             <Badge variant="default" className="mb-2">
                               {cs.program}
                             </Badge>
                             <p className="text-white text-2xl font-bold">
                               {cs.annualSavings}
-                              <span className="text-white/80 text-base font-normal">
+                              <span className="text-white text-base font-normal">
                                 /year saved
                               </span>
                             </p>
@@ -444,7 +444,7 @@ export default function CaseStudies() {
                             <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
                               New Rate
                             </p>
-                            <p className="text-sm font-semibold text-green-600 dark:text-green-400">
+                            <p className="text-sm font-semibold text-green-700 dark:text-green-400">
                               {cs.newRate}
                             </p>
                           </div>
@@ -459,7 +459,7 @@ export default function CaseStudies() {
                         <Accordion type="single" collapsible className="mb-6">
                           <AccordionItem value="challenge" className="border-b-0">
                             <AccordionTrigger
-                              className="text-sm font-medium py-2"
+                              className="min-h-11 text-sm font-medium py-2"
                               data-testid={`button-challenge-${cs.id}`}
                             >
                               The Challenge
@@ -472,7 +472,7 @@ export default function CaseStudies() {
                           </AccordionItem>
                           <AccordionItem value="solution" className="border-b-0">
                             <AccordionTrigger
-                              className="text-sm font-medium py-2"
+                              className="min-h-11 text-sm font-medium py-2"
                               data-testid={`button-solution-${cs.id}`}
                             >
                               Our Solution
@@ -485,7 +485,7 @@ export default function CaseStudies() {
                           </AccordionItem>
                           <AccordionItem value="results" className="border-b-0">
                             <AccordionTrigger
-                              className="text-sm font-medium py-2"
+                              className="min-h-11 text-sm font-medium py-2"
                               data-testid={`button-results-${cs.id}`}
                             >
                               Results
@@ -497,7 +497,7 @@ export default function CaseStudies() {
                                     key={i}
                                     className="flex items-start gap-2 text-sm text-muted-foreground"
                                   >
-                                    <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
+                                    <CheckCircle2 className="w-4 h-4 text-green-700 dark:text-green-400 shrink-0 mt-0.5" />
                                     <span>{result}</span>
                                   </li>
                                 ))}
@@ -534,10 +534,10 @@ export default function CaseStudies() {
           </div>
         </section>
 
-        <section className="bg-muted/30 py-16 mb-20">
+        <section className="bg-muted/30 py-10 mb-20">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h2
-              className="text-3xl font-bold mb-4"
+              className="public-h2 font-bold mb-4"
               data-testid="text-cta-title"
             >
               What Are You Overpaying?
@@ -548,18 +548,18 @@ export default function CaseStudies() {
               money is going — and how much you could save.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
-              <Link href="/upload-statement" data-testid="link-cta-upload">
-                <Button size="lg" className="gap-2">
+              <Button size="lg" className="public-cta gap-2" asChild>
+                <Link href="/upload-statement" data-testid="link-cta-upload">
                   <Upload className="w-4 h-4" />
                   Upload Your Statement
-                </Button>
-              </Link>
-              <Link href="/savings-calculator" data-testid="link-cta-calculator">
-                <Button size="lg" variant="outline" className="gap-2">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="public-cta gap-2" asChild>
+                <Link href="/savings-calculator" data-testid="link-cta-calculator">
                   <BarChart3 className="w-4 h-4" />
                   Estimate Your Savings
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
             <p className="text-xs text-muted-foreground mt-4">
               Free analysis. No obligation. Results within 24 hours.
@@ -569,7 +569,7 @@ export default function CaseStudies() {
 
         <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 mb-20">
           <h2
-            className="text-3xl font-bold text-center mb-2"
+            className="public-h2 font-bold text-center mb-2"
             data-testid="text-faq-title"
           >
             Frequently Asked Questions
@@ -615,18 +615,18 @@ export default function CaseStudies() {
                 start.
               </p>
               <div className="flex flex-wrap justify-center gap-4">
-                <Link href="/upload-statement" data-testid="link-bottom-upload">
-                  <Button className="gap-2">
+                <Button className="gap-2" asChild>
+                  <Link href="/upload-statement" data-testid="link-bottom-upload">
                     <Upload className="w-4 h-4" />
                     Upload Statement Now
-                  </Button>
-                </Link>
-                <Link href="/free-analysis" data-testid="link-bottom-get-started">
-                  <Button variant="outline" className="gap-2">
+                  </Link>
+                </Button>
+                <Button variant="outline" className="gap-2" asChild>
+                  <Link href="/free-analysis" data-testid="link-bottom-get-started">
                     <ArrowRight className="w-4 h-4" />
                     Get My Free Analysis
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
             </CardContent>
           </Card>

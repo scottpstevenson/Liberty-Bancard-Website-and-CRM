@@ -390,7 +390,7 @@ export default function CostQuiz() {
         />
         <Navbar />
 
-        <main className="flex-grow pt-28">
+        <main className="flex-grow public-main-offset">
           <section className="relative overflow-hidden" data-testid="section-quiz-results-hero">
             <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
             <div className="glow-blob w-64 h-64 bg-emerald-500 top-10 right-1/4" />
@@ -508,18 +508,18 @@ export default function CostQuiz() {
                     Upload your most recent processing statement for a free, line-by-line analysis. No obligation, no contract required.
                   </p>
                   <div className="flex flex-col sm:flex-row gap-3">
-                    <Link href="/upload-statement" data-testid="link-quiz-upload">
-                      <Button size="lg" className="gap-2 w-full">
+                    <Button size="lg" className="gap-2 w-full" asChild>
+                      <Link href="/upload-statement" data-testid="link-quiz-upload">
                         <Upload className="w-4 h-4" />
                         Upload Statement for Free Review
-                      </Button>
-                    </Link>
-                    <a href="tel:9542668214" data-testid="link-quiz-call" onClick={() => trackPhoneCallClick({ sourcePage: "/sales/cost-quiz" })}>
-                      <Button size="lg" variant="outline" className="gap-2 w-full">
+                      </Link>
+                    </Button>
+                    <Button size="lg" variant="outline" className="gap-2 w-full" asChild>
+                      <a href="tel:9542668214" data-testid="link-quiz-call" onClick={() => trackPhoneCallClick({ sourcePage: "/sales/cost-quiz" })}>
                         <Phone className="w-4 h-4" />
                         Call 954-266-8214
-                      </Button>
-                    </a>
+                      </a>
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -571,7 +571,7 @@ export default function CostQuiz() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28">
+      <main className="flex-grow public-main-offset">
         <section className="relative overflow-hidden" data-testid="section-quiz-hero">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
           <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />

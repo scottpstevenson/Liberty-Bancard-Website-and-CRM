@@ -41,7 +41,7 @@ import {
   BadgeCheck,
   Users,
 } from "lucide-react";
-import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
+import imgCloverFlex3 from "@/assets/images/terminal-clover-flex-3.png";
 
 const TOTAL_STEPS = 6;
 
@@ -243,12 +243,12 @@ export default function GetStarted() {
     return (
       <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <Navbar />
-        <main className="marketing-surface flex-grow pt-28" ref={resultsRef}>
+        <main className="marketing-surface flex-grow public-main-offset" ref={resultsRef}>
           <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-get-started-results-hero">
-            <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20 text-center">
+            <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-20 text-center">
               <div className="accent-rule pt-5">
                 <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4">
-                  <CheckCircle className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
+                  <CheckCircle className="w-8 h-8 text-emerald-700 dark:text-emerald-400" />
                 </div>
                 <h1 className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-foreground mb-2" data-testid="text-results-heading">
                   Your Personalized Recommendation
@@ -258,7 +258,7 @@ export default function GetStarted() {
             </div>
           </section>
 
-          <section className="bg-muted/30 py-12" data-testid="section-get-started-results">
+          <section className="bg-muted/30 py-10" data-testid="section-get-started-results">
             <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
               <div className="reveal">
                 <Card className="border-2 border-primary/20 mb-8" data-testid="card-recommendation">
@@ -290,20 +290,19 @@ export default function GetStarted() {
                     <div className="flex flex-col sm:flex-row gap-3">
                       {recommendation.nextSteps.map((ns, i) => (
                         ns.href.startsWith("tel:") ? (
-                          <a key={i} href={ns.href} data-testid={`link-results-action-${i}`}
-                            onClick={() => trackPhoneCallClick({ sourcePage: "/get-started" })}>
-                            <Button size="lg" variant={ns.primary ? "default" : "outline"} className="gap-2 w-full">
+                          <Button key={i} size="lg" variant={ns.primary ? "default" : "outline"} className="public-cta gap-2 w-full" asChild>
+                            <a href={ns.href} data-testid={`link-results-action-${i}`} onClick={() => trackPhoneCallClick({ sourcePage: "/get-started" })}>
                               <Phone className="w-4 h-4" />
                               {ns.label}
-                            </Button>
-                          </a>
+                            </a>
+                          </Button>
                         ) : (
-                          <Link key={i} href={ns.href} data-testid={`link-results-action-${i}`}>
-                            <Button size="lg" variant={ns.primary ? "default" : "outline"} className="gap-2 w-full">
+                          <Button key={i} size="lg" variant={ns.primary ? "default" : "outline"} className="public-cta gap-2 w-full" asChild>
+                            <Link href={ns.href} data-testid={`link-results-action-${i}`}>
                               {ns.primary ? <Upload className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
                               {ns.label}
-                            </Button>
-                          </Link>
+                            </Link>
+                          </Button>
                         )
                       ))}
                     </div>
@@ -343,7 +342,7 @@ export default function GetStarted() {
 
               <div className="flex flex-col items-center gap-2 py-6 border-t border-border" data-testid="section-no-lockin">
                 <div className="inline-flex items-center gap-2 text-sm text-foreground font-semibold">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <ShieldCheck className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
                   Flexible Terms. Most Programs Have No Long-Term Contract.
                 </div>
                 <p className="text-xs text-muted-foreground text-center max-w-sm">
@@ -375,7 +374,7 @@ export default function GetStarted() {
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Get Started - Free Statement Analysis" description="Answer a few questions and get a personalized processing recommendation. Free statement review, no obligation." path="/get-started" breadcrumbs={[{ name: "Get Started", path: "/get-started" }]} />
       <Navbar />
-      <main className="marketing-surface flex-grow pt-28">
+      <main className="marketing-surface flex-grow public-main-offset">
         <PublicHero
           data-testid="section-get-started-hero"
           headline={<>Find Your <span className="text-accent">Best Path</span> Forward</>}
@@ -398,7 +397,7 @@ export default function GetStarted() {
         </div>
 
         {/* scroll-mt-20 offsets the fixed navbar height so the quiz isn't obscured on fragment scroll */}
-        <section className="bg-muted/30 py-12 scroll-mt-20" id="quiz-section" data-testid="section-get-started">
+        <section className="bg-muted/30 py-10 scroll-mt-20" id="quiz-section" data-testid="section-get-started">
           <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center gap-1 mb-2" data-testid="progress-indicator">
               {Array.from({ length: TOTAL_STEPS }, (_, i) => (
@@ -672,7 +671,7 @@ export default function GetStarted() {
 
                 {step === TOTAL_STEPS && (
                   <div className="mt-4 mb-2 flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2" data-testid="text-guarantee-oneliner">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
                     If we can't beat your current rate, we'll tell you upfront — no obligation, no pressure. The breakdown is yours to keep.
                   </div>
                 )}

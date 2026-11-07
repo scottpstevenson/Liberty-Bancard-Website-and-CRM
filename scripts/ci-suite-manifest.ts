@@ -1278,6 +1278,30 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "none (HTML crawl only)",
   },
   {
+    name: "Public Site Derivative Images (committed derivatives match originals, within weight budget)",
+    script: "scripts/build-public-images.ts",
+    capability: "deterministic-static",
+    providerDenial: "local image files only in check mode; no DB, server, browser or provider",
+  },
+  {
+    name: "Public Site Mobile Visibility (contrast, targets, landmarks, overflow; 390 and 1440, light and dark)",
+    script: "scripts/check-public-site-mobile.ts",
+    capability: "server-required",
+    providerDenial: "read-only Chromium navigation of public pages; vendor chat hosts blocked, no form submit, booking, upload or message",
+  },
+  {
+    name: "Public Site Font Delivery (painted faces, serif scope, font-swap CLS)",
+    script: "scripts/check-public-fonts.ts",
+    capability: "server-required",
+    providerDenial: "read-only Chromium navigation of public pages; vendor hosts blocked, no submit or provider call",
+  },
+  {
+    name: "Public Site Overlay Coordination (chat launcher, dock, consent, dialogs)",
+    script: "scripts/check-public-overlay.ts",
+    capability: "server-required",
+    providerDenial: "read-only Chromium probes; vendor chat hosts blocked and never opened, no session created, no submit or provider call",
+  },
+  {
     name: "Statement Acquisition",
     script: "scripts/test-statement-acquisition.ts",
     capability: "server-required",

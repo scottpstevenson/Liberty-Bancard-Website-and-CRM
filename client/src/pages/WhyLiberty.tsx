@@ -20,8 +20,8 @@ import {
   Zap,
   Globe,
 } from "lucide-react";
-import heroTeam from "@assets/images/hero-team.jpg";
-import teamCollab from "@assets/images/team-collab.png";
+import heroTeam from "@/assets/images/hero-team.jpg";
+import teamCollab from "@/assets/images/team-collab.png";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { CALENDAR_URL } from "@/lib/constants";
 import { trackCalendarBooking } from "@/lib/tracking";
@@ -194,18 +194,18 @@ export default function WhyLiberty() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="flex-grow public-main-offset" ref={containerRef}>
         <section className="relative overflow-hidden" data-testid="section-why-hero">
           <div className="absolute inset-0">
             <img src={heroTeam} alt="Liberty Bancard professional payment processing team" className="w-full h-full object-cover" width="1408" height="792" />
-            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222_47%_6%/0.97)] via-[hsl(222_47%_6%/0.93)] to-[hsl(222_47%_6%/0.85)]" />
           </div>
           <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
           <div className="glow-blob glow-blob-2 w-48 h-48 bg-blue-600 bottom-10 left-1/4" />
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32">
+          <div className="public-container relative py-10 lg:py-20">
             <div className="max-w-3xl reveal">
               <h1
-                className="text-4xl md:text-5xl font-display font-bold text-white leading-tight mb-6"
+                className="public-h1 public-h1--page font-display font-bold text-white mb-6"
                 data-testid="text-why-heading"
               >
                 Why <span className="text-sky-400">Liberty Bancard</span>?
@@ -220,30 +220,30 @@ export default function WhyLiberty() {
                 PCI Level 1 certified. Registered ISO. Serving restaurants, retail, healthcare, auto repair, and more across all 50 states with transparent, wholesale pricing and real human support.
               </p>
               <div className="flex flex-wrap items-center gap-4">
-                <Link href="/upload-statement" data-testid="link-why-upload">
-                  <Button className="gap-2 cta-pulse">
+                <Button className="gap-2 cta-pulse" asChild>
+                  <Link href="/upload-statement" data-testid="link-why-upload">
                     <Upload className="w-4 h-4" />
                     Get My Free Analysis
-                  </Button>
-                </Link>
-                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("why_liberty_hero")} data-testid="link-why-book-call">
-                  <Button variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+                  </Link>
+                </Button>
+                <Button variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white" asChild>
+                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("why_liberty_hero")} data-testid="link-why-book-call">
                     <Calendar className="w-4 h-4" />
                     Get My Free Analysis
-                  </Button>
-                </a>
+                  </a>
+                </Button>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="bg-muted py-20" data-testid="section-stats">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-muted py-10" data-testid="section-stats">
+          <div className="public-container">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
               {stats.map((stat, i) => (
                 <Card key={i} className={`reveal reveal-delay-${i + 1}`} data-testid={`card-stat-${i}`}>
                   <CardContent className="pt-6 pb-6 px-6 text-center">
-                    <stat.icon className="w-8 h-8 text-sky-400 mx-auto mb-3" />
+                    <stat.icon className="w-8 h-8 text-accent mx-auto mb-3" />
                     <p className="text-3xl md:text-4xl font-display font-bold text-foreground mb-1" data-testid={`text-stat-value-${i}`}>
                       {stat.value}
                     </p>
@@ -257,15 +257,15 @@ export default function WhyLiberty() {
           </div>
         </section>
 
-        <section className="bg-background py-20" data-testid="section-story">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-background py-10" data-testid="section-story">
+          <div className="public-container">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div className="reveal">
                 <h2
-                  className="text-3xl md:text-4xl font-display font-bold text-foreground mb-6"
+                  className="public-h2 font-display font-bold text-foreground mb-6"
                   data-testid="text-story-heading"
                 >
-                  Our <span className="text-sky-400">Story</span>
+                  Our <span className="text-accent">Story</span>
                 </h2>
                 <p className="text-muted-foreground leading-relaxed mb-4">
                   Liberty Bancard was founded in 2014 in Fort Lauderdale, Florida, by payment industry veterans who were frustrated by the lack of transparency in merchant services. Too many business owners were paying inflated rates, buried in hidden fees, and locked into contracts they didn't understand.
@@ -276,12 +276,12 @@ export default function WhyLiberty() {
                 <p className="text-muted-foreground leading-relaxed mb-6">
                   Today, Liberty Bancard serves over 5,000 merchants nationwide, processes more than $2 billion in annual card volume, and maintains a team of certified payment professionals dedicated to keeping your costs low and your business running smoothly.
                 </p>
-                <Link href="/upload-statement" data-testid="link-story-upload">
-                  <Button className="gap-2">
+                <Button className="gap-2" asChild>
+                  <Link href="/upload-statement" data-testid="link-story-upload">
                     <Upload className="w-4 h-4" />
                     Get My Free Analysis
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
               <div className="reveal reveal-delay-2">
                 <img
@@ -297,14 +297,14 @@ export default function WhyLiberty() {
           </div>
         </section>
 
-        <section className="bg-muted py-20" data-testid="section-timeline">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-muted py-10" data-testid="section-timeline">
+          <div className="public-container">
             <div className="reveal">
               <h2
-                className="text-3xl md:text-4xl font-display font-bold text-foreground mb-12 text-center"
+                className="public-h2 font-display font-bold text-foreground mb-12 text-center"
                 data-testid="text-timeline-heading"
               >
-                Our <span className="text-sky-400">Journey</span>
+                Our <span className="text-accent">Journey</span>
               </h2>
             </div>
             <div className="max-w-3xl mx-auto space-y-8">
@@ -332,14 +332,14 @@ export default function WhyLiberty() {
           </div>
         </section>
 
-        <section className="bg-background py-20" data-testid="section-values">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-background py-10" data-testid="section-values">
+          <div className="public-container">
             <div className="reveal">
               <h2
-                className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4 text-center"
+                className="public-h2 font-display font-bold text-foreground mb-4 text-center"
                 data-testid="text-values-heading"
               >
-                Our <span className="text-sky-400">Values</span>
+                Our <span className="text-accent">Values</span>
               </h2>
               <p className="text-muted-foreground text-center max-w-2xl mx-auto mb-12">
                 Every decision we make is guided by three core principles that put your business first.
@@ -350,7 +350,7 @@ export default function WhyLiberty() {
                 <Card key={i} className={`reveal reveal-delay-${i + 1}`} data-testid={`card-value-${i}`}>
                   <CardContent className="pt-8 pb-6 px-6">
                     <div className="w-14 h-14 rounded-md bg-primary/10 flex items-center justify-center mb-5">
-                      <item.icon className="w-7 h-7 text-sky-400" />
+                      <item.icon className="w-7 h-7 text-accent" />
                     </div>
                     <h3 className="font-display font-bold text-foreground text-lg mb-3" data-testid={`text-value-title-${i}`}>
                       {item.title}
@@ -365,14 +365,14 @@ export default function WhyLiberty() {
           </div>
         </section>
 
-        <section className="bg-muted py-20" data-testid="section-certifications">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-muted py-10" data-testid="section-certifications">
+          <div className="public-container">
             <div className="reveal">
               <h2
-                className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4 text-center"
+                className="public-h2 font-display font-bold text-foreground mb-4 text-center"
                 data-testid="text-certifications-heading"
               >
-                Certifications & <span className="text-sky-400">Compliance</span>
+                Certifications & <span className="text-accent">Compliance</span>
               </h2>
               <p className="text-muted-foreground text-center max-w-2xl mx-auto mb-12">
                 We hold the industry's highest security certifications so your business and your customers' data stay protected.
@@ -400,15 +400,15 @@ export default function WhyLiberty() {
           </div>
         </section>
 
-        <section className="bg-background py-20" data-testid="section-team">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-background py-10" data-testid="section-team">
+          <div className="public-container">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
               <div className="reveal">
                 <h2
-                  className="text-3xl md:text-4xl font-display font-bold text-foreground mb-6"
+                  className="public-h2 font-display font-bold text-foreground mb-6"
                   data-testid="text-team-heading"
                 >
-                  Team <span className="text-sky-400">Expertise</span>
+                  Team <span className="text-accent">Expertise</span>
                 </h2>
                 <p className="text-muted-foreground leading-relaxed mb-6">
                   Our team brings decades of combined experience from both sides of the payments industry — processing, underwriting, compliance, and technology. When you work with Liberty Bancard, you're backed by professionals who understand your business.
@@ -416,7 +416,7 @@ export default function WhyLiberty() {
                 <ul className="space-y-3">
                   {teamExpertise.map((item, i) => (
                     <li key={i} className="flex items-start gap-3" data-testid={`team-expertise-${i}`}>
-                      <CheckCircle2 className="w-5 h-5 text-sky-400 mt-0.5 shrink-0" />
+                      <CheckCircle2 className="w-5 h-5 text-accent mt-0.5 shrink-0" />
                       <span className="text-muted-foreground text-sm">{item}</span>
                     </li>
                   ))}
@@ -424,10 +424,10 @@ export default function WhyLiberty() {
               </div>
               <div className="reveal reveal-delay-2">
                 <h2
-                  className="text-3xl md:text-4xl font-display font-bold text-foreground mb-6"
+                  className="public-h2 font-display font-bold text-foreground mb-6"
                   data-testid="text-community-heading"
                 >
-                  Community <span className="text-sky-400">Involvement</span>
+                  Community <span className="text-accent">Involvement</span>
                 </h2>
                 <p className="text-muted-foreground leading-relaxed mb-6">
                   We believe in giving back to the business communities that trust us. From educational workshops to local sponsorships, Liberty Bancard is invested in helping entrepreneurs succeed beyond just payment processing.
@@ -435,7 +435,7 @@ export default function WhyLiberty() {
                 <ul className="space-y-3">
                   {communityItems.map((item, i) => (
                     <li key={i} className="flex items-start gap-3" data-testid={`community-item-${i}`}>
-                      <CheckCircle2 className="w-5 h-5 text-sky-400 mt-0.5 shrink-0" />
+                      <CheckCircle2 className="w-5 h-5 text-accent mt-0.5 shrink-0" />
                       <span className="text-muted-foreground text-sm">{item}</span>
                     </li>
                   ))}
@@ -445,14 +445,14 @@ export default function WhyLiberty() {
           </div>
         </section>
 
-        <section className="bg-muted py-20" data-testid="section-pricing-philosophy">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-muted py-10" data-testid="section-pricing-philosophy">
+          <div className="public-container">
             <div className="max-w-3xl mx-auto reveal">
               <h2
-                className="text-3xl md:text-4xl font-display font-bold text-foreground mb-6 text-center"
+                className="public-h2 font-display font-bold text-foreground mb-6 text-center"
                 data-testid="text-pricing-heading"
               >
-                Our Pricing <span className="text-sky-400">Philosophy</span>
+                Our Pricing <span className="text-accent">Philosophy</span>
               </h2>
               <p className="text-muted-foreground leading-relaxed mb-4 text-center">
                 Most processors quote a rate and hope you never look at the fine print. We do the opposite.
@@ -467,31 +467,31 @@ export default function WhyLiberty() {
                   "If we can't save you money, we'll tell you — and explain why your current setup is already competitive",
                 ].map((item, i) => (
                   <div key={i} className="flex items-start gap-3" data-testid={`pricing-point-${i}`}>
-                    <CheckCircle2 className="w-5 h-5 text-sky-400 mt-0.5 shrink-0" />
+                    <CheckCircle2 className="w-5 h-5 text-accent mt-0.5 shrink-0" />
                     <span className="text-muted-foreground">{item}</span>
                   </div>
                 ))}
               </div>
               <div className="text-center mt-10">
-                <Link href="/compare-rates" data-testid="link-compare-rates">
-                  <Button variant="outline" className="gap-2">
+                <Button variant="outline" className="gap-2" asChild>
+                  <Link href="/compare-rates" data-testid="link-compare-rates">
                     Compare Our Rates
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="relative overflow-hidden py-20" data-testid="section-cta">
+        <section className="relative overflow-hidden py-10" data-testid="section-cta">
           <div className="absolute inset-0">
             <img src={heroTeam} alt="Liberty Bancard team behind transparent payment processing" className="w-full h-full object-cover" loading="lazy" width="1408" height="792" />
-            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.95] to-[hsl(222,47%,6%)/0.90]" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222_47%_6%/0.97)] via-[hsl(222_47%_6%/0.95)] to-[hsl(222_47%_6%/0.90)]" />
           </div>
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <div className="public-container relative text-center">
             <div className="max-w-2xl mx-auto reveal">
               <h2
-                className="text-3xl md:text-4xl font-display font-bold text-white mb-4"
+                className="public-h2 font-display font-bold text-white mb-4"
                 data-testid="text-cta-heading"
               >
                 Ready to See What You're <span className="text-sky-400">Really Paying</span>?
@@ -500,18 +500,18 @@ export default function WhyLiberty() {
                 Upload your most recent processing statement and get a free, line-by-line cost analysis from our team. No obligation, no pressure — just the truth about your rates.
               </p>
               <div className="flex flex-wrap justify-center items-center gap-4">
-                <Link href="/upload-statement" data-testid="link-cta-upload">
-                  <Button className="gap-2 cta-pulse">
+                <Button className="gap-2 cta-pulse" asChild>
+                  <Link href="/upload-statement" data-testid="link-cta-upload">
                     <Upload className="w-4 h-4" />
                     Upload Statement Now
-                  </Button>
-                </Link>
-                <Link href="/savings-calculator" data-testid="link-cta-calculator">
-                  <Button variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+                  </Link>
+                </Button>
+                <Button variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white" asChild>
+                  <Link href="/savings-calculator" data-testid="link-cta-calculator">
                     <TrendingUp className="w-4 h-4" />
                     Savings Calculator
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
             </div>
           </div>

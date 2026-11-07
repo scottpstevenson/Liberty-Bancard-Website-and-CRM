@@ -62,9 +62,9 @@ export default function VerifyEmail() {
               <CheckCircle className="w-12 h-12 text-green-600" data-testid="icon-success" />
               <p className="text-lg font-semibold" data-testid="text-success">Email verified!</p>
               <p className="text-muted-foreground text-center" data-testid="text-success-message">{message}</p>
-              <Link href="/login">
-                <Button data-testid="link-login">Go to Login</Button>
-              </Link>
+              <Button data-testid="link-login" asChild>
+                <Link href="/login">Go to Login</Link>
+              </Button>
             </div>
           )}
 
@@ -76,9 +76,9 @@ export default function VerifyEmail() {
               <p className="text-sm text-muted-foreground text-center" data-testid="text-resend-hint">
                 Need a new verification link? Please sign up again or contact support.
               </p>
-              <Link href="/login">
-                <Button variant="outline" data-testid="link-login-error">Back to Login</Button>
-              </Link>
+              <Button variant="outline" data-testid="link-login-error" asChild>
+                <Link href="/login">Back to Login</Link>
+              </Button>
             </div>
           )}
         </CardContent>

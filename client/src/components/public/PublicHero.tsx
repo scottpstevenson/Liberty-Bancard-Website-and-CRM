@@ -44,7 +44,8 @@ export interface PublicHeroProps {
  * Layout:
  *   - Single-column on mobile/tablet
  *   - Two-column (1.05fr / 0.95fr) on lg when rightColumn is provided
- *   - Headline scales text-3xl → text-5xl
+ *   - Headline follows the public type contract (32/36 on phones, 56/60 from lg)
+ *   - Principal content is never animated from opacity 0 (it is the LCP candidate)
  *   - CTAs in flex row, wrapping to column at sm
  *   - Trust badges as a small grey row beneath CTAs
  */
@@ -71,7 +72,7 @@ export function PublicHero({
       )}
       data-testid={testId}
     >
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-12 lg:py-24">
+      <div className="public-container relative pt-8 pb-10 lg:py-20">
         <div
           className={cn(
             "grid grid-cols-1 gap-10 items-center",
@@ -81,20 +82,20 @@ export function PublicHero({
           {/* Left column — message + CTAs */}
           <div className="pt-2 md:pt-5">
             {badge && (
-              <div className="si-load si-load-1 mb-4" data-testid="hero-badge">
+              <div className="mb-4" data-testid="hero-badge">
                 {badge}
               </div>
             )}
 
             <h1
-              className="si-load si-load-2 text-3xl sm:text-4xl md:text-5xl leading-tight font-bold text-foreground mb-4"
+              className="public-h1 text-foreground mb-4 max-w-[22ch]"
               data-testid="text-hero-heading"
             >
               {headline}
             </h1>
 
             <p
-              className="si-load si-load-3 text-base sm:text-lg text-muted-foreground leading-relaxed mb-6 max-w-xl"
+              className="public-body public-secondary mb-6 max-w-xl lg:text-lg"
               data-testid="text-hero-subheadline"
             >
               {subheadline}
@@ -102,7 +103,7 @@ export function PublicHero({
 
             {/* CTA buttons */}
             <div
-              className="si-load si-load-4 flex flex-col sm:flex-row gap-3 flex-wrap"
+              className="flex flex-col sm:flex-row gap-3 flex-wrap"
               data-testid="hero-cta-block"
             >
               <CTAButton def={primaryCta} variant="primary" />
@@ -113,7 +114,7 @@ export function PublicHero({
             </div>
 
             {microcopy && (
-              <div className="si-load si-load-4 mt-2" data-testid="hero-microcopy">
+              <div className="mt-3 public-small public-secondary" data-testid="hero-microcopy">
                 {microcopy}
               </div>
             )}
@@ -121,13 +122,13 @@ export function PublicHero({
             {/* Trust badges */}
             {trustBadges && trustBadges.length > 0 && (
               <div
-                className="si-load si-load-5 flex flex-wrap items-center gap-x-4 gap-y-2 mt-6 pt-5 border-t border-border"
+                className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-6 pt-5 border-t border-border"
                 data-testid="hero-trust-badges"
               >
                 {trustBadges.map((badge, i) => (
                   <span
                     key={i}
-                    className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+                    className="public-caption flex items-center gap-1.5 font-medium public-secondary"
                   >
                     <BadgeCheck className="w-3.5 h-3.5 text-accent shrink-0" />
                     {badge}
@@ -153,7 +154,7 @@ export function PublicHero({
 }
 
 function CTAButton({ def, variant }: { def: PublicCTADef; variant: "primary" | "secondary" | "tertiary" }) {
-  const cls = "gap-2 w-full sm:w-auto h-12 sm:h-auto text-base sm:text-sm font-bold";
+  const cls = "public-cta gap-2 w-full sm:w-auto";
 
   let buttonVariant: "default" | "outline" | "ghost";
   if (variant === "primary") buttonVariant = "default";
@@ -162,41 +163,39 @@ function CTAButton({ def, variant }: { def: PublicCTADef; variant: "primary" | "
 
   // Fragment anchors (#section-id) and external links MUST use a native <a> element.
   // Wouter's <Link> intercepts all clicks via history.pushState, preventing native
-  // browser scroll-to-anchor behaviour. onClick must live on the wrapper only to
-  // avoid firing twice (once on the anchor, once bubbling up from the Button).
+  // browser scroll-to-anchor behaviour. The Button renders as the link itself
+  // (asChild) so each CTA is one interactive element with one tracking handler.
   const isFragment = def.href.startsWith("#");
   const useNativeAnchor = isFragment || def.external;
-
-  const inner = (
-    <Button
-      size="lg"
-      variant={buttonVariant}
-      className={cn(cls, variant === "secondary" && "border-border")}
-      // onClick goes on the outer wrapper for native-anchor CTAs to prevent double-fire.
-      onClick={useNativeAnchor ? undefined : def.onClick}
-    >
+  const buttonClass = cn(cls, variant === "secondary" && "border-border");
+  const content = (
+    <>
       {def.icon}
       {def.label}
-    </Button>
+    </>
   );
 
   if (useNativeAnchor) {
     return (
-      <a
-        href={def.href}
-        target={def.external ? "_blank" : undefined}
-        rel={def.external ? "noopener noreferrer" : undefined}
-        data-testid={`link-hero-${variant}`}
-        onClick={def.onClick}
-      >
-        {inner}
-      </a>
+      <Button asChild size="lg" variant={buttonVariant} className={buttonClass}>
+        <a
+          href={def.href}
+          target={def.external ? "_blank" : undefined}
+          rel={def.external ? "noopener noreferrer" : undefined}
+          data-testid={`link-hero-${variant}`}
+          onClick={def.onClick}
+        >
+          {content}
+        </a>
+      </Button>
     );
   }
 
   return (
-    <Link href={def.href} data-testid={`link-hero-${variant}`} onClick={def.onClick}>
-      {inner}
-    </Link>
+    <Button asChild size="lg" variant={buttonVariant} className={buttonClass}>
+      <Link href={def.href} data-testid={`link-hero-${variant}`} onClick={def.onClick}>
+        {content}
+      </Link>
+    </Button>
   );
 }

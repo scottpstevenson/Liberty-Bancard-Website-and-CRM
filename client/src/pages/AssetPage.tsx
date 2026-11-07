@@ -30,29 +30,29 @@ import {
   Search,
 } from "lucide-react";
 import { CALENDAR_URL } from "@/lib/constants";
-import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
-import imgCloverMini3 from "@assets/images/terminal-clover-mini-3.png";
-import imgCloverStationDuo from "@assets/images/terminal-clover-station-duo.png";
-import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
-import verticalMedical from "@assets/images/vertical-medical.jpg";
-import verticalAuto from "@assets/images/vertical-auto.jpg";
-import verticalRestaurant from "@assets/images/vertical-restaurant.jpg";
-import verticalHomeServices from "@assets/images/vertical-home-services.jpg";
-import verticalRetail from "@assets/images/vertical-retail.jpg";
-import statementReview from "@assets/images/statement-review.jpg";
-import securityUpload from "@assets/images/security-upload.jpg";
-import merchantOwner from "@assets/images/merchant-owner.jpg";
-import fundingDeposits from "@assets/images/funding-deposits.jpg";
-import hiddenFees from "@assets/images/hidden-fees.jpg";
-import zeroPercent from "@assets/images/zero-percent.jpg";
-import complianceChecklist from "@assets/images/compliance-checklist.jpg";
-import compareRates from "@assets/images/compare-rates.jpg";
-import goLiveChecklist from "@assets/images/go-live-checklist.jpg";
-import caseMedical from "@assets/images/case-medical.jpg";
-import caseAuto from "@assets/images/case-auto.jpg";
-import caseRestaurant from "@assets/images/case-restaurant.jpg";
-import caseHomeServices from "@assets/images/case-home-services.jpg";
-import caseRetail from "@assets/images/case-retail.jpg";
+import imgCloverFlex3 from "@/assets/images/terminal-clover-flex-3.png";
+import imgCloverMini3 from "@/assets/images/terminal-clover-mini-3.png";
+import imgCloverStationDuo from "@/assets/images/terminal-clover-station-duo.png";
+import imgPaxA920 from "@/assets/images/terminal-pax-a920.png";
+import verticalMedical from "@/assets/images/vertical-medical.jpg";
+import verticalAuto from "@/assets/images/vertical-auto.jpg";
+import verticalRestaurant from "@/assets/images/vertical-restaurant.jpg";
+import verticalHomeServices from "@/assets/images/vertical-home-services.jpg";
+import verticalRetail from "@/assets/images/vertical-retail.jpg";
+import statementReview from "@/assets/images/statement-review.jpg";
+import securityUpload from "@/assets/images/security-upload.jpg";
+import merchantOwner from "@/assets/images/merchant-owner.jpg";
+import fundingDeposits from "@/assets/images/funding-deposits.jpg";
+import hiddenFees from "@/assets/images/hidden-fees.jpg";
+import zeroPercent from "@/assets/images/zero-percent.jpg";
+import complianceChecklist from "@/assets/images/compliance-checklist.jpg";
+import compareRates from "@/assets/images/compare-rates.jpg";
+import goLiveChecklist from "@/assets/images/go-live-checklist.jpg";
+import caseMedical from "@/assets/images/case-medical.jpg";
+import caseAuto from "@/assets/images/case-auto.jpg";
+import caseRestaurant from "@/assets/images/case-restaurant.jpg";
+import caseHomeServices from "@/assets/images/case-home-services.jpg";
+import caseRetail from "@/assets/images/case-retail.jpg";
 
 interface ContentPage {
   title: string;
@@ -837,18 +837,18 @@ function CtaSection() {
   return (
     <section className="mt-12 border-t border-border pt-10">
       <div className="flex flex-col sm:flex-row items-center gap-4">
-        <Link href="/upload-statement" data-testid="link-cta-upload">
-          <Button className="gap-2">
+        <Button className="gap-2" asChild>
+          <Link href="/upload-statement" data-testid="link-cta-upload">
             <Upload className="w-4 h-4" />
             Upload Statement
-          </Button>
-        </Link>
-        <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-cta-book-call">
-          <Button variant="outline" className="gap-2">
+          </Link>
+        </Button>
+        <Button variant="outline" className="gap-2" asChild>
+          <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-cta-book-call">
             <Calendar className="w-4 h-4" />
-            Book 10-Min Call
-          </Button>
-        </a>
+            Book a review call
+          </a>
+        </Button>
       </div>
     </section>
   );
@@ -1131,17 +1131,17 @@ function NotFoundAsset() {
       <h1 className="text-2xl font-bold text-foreground mb-2" data-testid="text-asset-not-found">Asset Not Found</h1>
       <p className="text-muted-foreground mb-6">The page you are looking for does not exist in the asset library.</p>
       <div className="flex items-center justify-center gap-4">
-        <Link href="/assets" data-testid="link-back-to-assets">
-          <Button variant="outline" className="gap-2">
+        <Button variant="outline" className="gap-2" asChild>
+          <Link href="/assets" data-testid="link-back-to-assets">
             <FolderOpen className="w-4 h-4" />
             Browse Asset Library
-          </Button>
-        </Link>
-        <Link href="/" data-testid="link-back-to-home">
-          <Button className="gap-2">
+          </Link>
+        </Button>
+        <Button className="gap-2" asChild>
+          <Link href="/" data-testid="link-back-to-home">
             Go Home
-          </Button>
-        </Link>
+          </Link>
+        </Button>
       </div>
     </div>
   );
@@ -1159,7 +1159,7 @@ export default function AssetPage() {
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Sales Asset" description="Liberty Bancard sales enablement asset for prospect education and proposal walkthroughs." path="/assets" noindex />
       <Navbar />
-      <main className="flex-grow pt-28 pb-16">
+      <main className="flex-grow public-main-offset pb-16">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           {isEmployee && (
             <p className="mb-4 text-sm text-muted-foreground" data-testid="link-assets-return-to-crm">

@@ -37,7 +37,7 @@ import {
   UserCheck,
   AlertCircle,
 } from "lucide-react";
-import heroSupport from "@assets/images/hero-support.jpg";
+import heroSupport from "@/assets/images/hero-support.jpg";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 
 const supportSchema = z.object({
@@ -159,18 +159,18 @@ export default function Support() {
       <SEO title="Contact Support" description="Submit a support request to Liberty Bancard. We respond within 4 hours during business hours. Emergency support available 24/7." path="/support" breadcrumbs={[{ name: "Support", path: "/support" }]} />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="flex-grow public-main-offset" ref={containerRef}>
         <section className="relative overflow-hidden" data-testid="section-support-hero">
           <div className="absolute inset-0">
             <img src={heroSupport} alt="Liberty Bancard customer support team ready to help" className="w-full h-full object-cover" width="1408" height="792" />
-            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222_47%_6%/0.97)] via-[hsl(222_47%_6%/0.93)] to-[hsl(222_47%_6%/0.85)]" />
           </div>
           <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
           <div className="glow-blob glow-blob-2 w-48 h-48 bg-blue-600 bottom-10 left-1/6" />
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
+          <div className="public-container relative py-10 lg:py-20">
             <div className="max-w-3xl mx-auto text-center reveal">
               <h1
-                className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-4"
+                className="public-h1 public-h1--page font-bold text-white mb-4"
                 data-testid="text-support-heading"
               >
                 Get Help From a <span className="text-sky-400">Real Person</span>
@@ -185,7 +185,7 @@ export default function Support() {
           </div>
         </section>
 
-        <section className="bg-muted/30 py-12 pb-16">
+        <section className="bg-muted/30 py-10 pb-16">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal">
               <Card data-testid="card-support-form">
@@ -439,7 +439,7 @@ export default function Support() {
           </div>
         </section>
 
-        <section className="bg-background py-16" data-testid="section-what-happens-after">
+        <section className="bg-background py-10" data-testid="section-what-happens-after">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal">
               <h2

@@ -258,18 +258,18 @@ export default function Testimonials() {
               These are business owners who uploaded a statement and found out exactly what they were paying. Watch their stories — and see the before and after.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-4">
-              <Link href="/upload-statement" data-testid="link-testimonials-cta">
-                <Button size="lg" className="gap-2">
+              <Button size="lg" className="gap-2" asChild>
+                <Link href="/upload-statement" data-testid="link-testimonials-cta">
                   <Upload className="w-4 h-4" />
                   Get My Free Analysis
-                </Button>
-              </Link>
-              <Link href="/testimonials/submit" data-testid="link-testimonials-submit">
-                <Button size="lg" variant="outline" className="gap-2">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="gap-2" asChild>
+                <Link href="/testimonials/submit" data-testid="link-testimonials-submit">
                   <Video className="w-4 h-4" />
                   Share Your Story
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
 
@@ -456,18 +456,18 @@ export default function Testimonials() {
               If you're a Liberty Bancard merchant with a success story to tell, we'd love to feature you. Submit your video or write a few lines — we handle the rest.
             </p>
             <div className="flex flex-wrap gap-4 justify-center">
-              <Link href="/testimonials/submit" data-testid="link-cta-submit-story">
-                <Button size="lg" className="gap-2">
+              <Button size="lg" className="gap-2" asChild>
+                <Link href="/testimonials/submit" data-testid="link-cta-submit-story">
                   <Video className="w-4 h-4" />
                   Submit Your Story
-                </Button>
-              </Link>
-              <Link href="/case-studies" data-testid="link-cta-case-studies">
-                <Button size="lg" variant="outline" className="gap-2">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="gap-2" asChild>
+                <Link href="/case-studies" data-testid="link-cta-case-studies">
                   Read Full Case Studies
                   <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </section>
@@ -484,17 +484,13 @@ export default function Testimonials() {
             <p className="text-primary-foreground/80 mb-6 max-w-xl mx-auto">
               Every merchant on this page started with a free statement review. Upload yours and we'll show you your real numbers — same day.
             </p>
-            <Link href="/upload-statement" data-testid="link-bottom-cta">
-              <Button
-                size="lg"
-                variant="secondary"
-                className="gap-2"
-              >
+            <Button size="lg" variant="secondary" className="gap-2" asChild>
+              <Link href="/upload-statement" data-testid="link-bottom-cta">
                 <Upload className="w-4 h-4" />
                 Get My Free Analysis
-              </Button>
-            </Link>
-            <p className="text-xs text-primary-foreground/50 mt-4">
+              </Link>
+            </Button>
+            <p className="text-xs text-primary-foreground/70 mt-4">
               Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without review.
             </p>
           </div>

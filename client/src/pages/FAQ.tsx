@@ -288,18 +288,18 @@ export default function FAQ() {
       />
       <Navbar />
 
-      <main className="marketing-surface flex-grow pt-28" ref={containerRef}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+      <main className="marketing-surface flex-grow public-main-offset" ref={containerRef}>
+        <div className="public-container pt-4">
           <Breadcrumbs items={[{ name: "FAQ", path: "/faq" }]} />
         </div>
         <section
-          className="relative overflow-hidden bg-background border-b border-border py-16"
+          className="relative overflow-hidden bg-background border-b border-border py-10"
           data-testid="section-faq-hero"
         >
           <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
             <HelpCircle className="w-12 h-12 mx-auto mb-4 text-accent" />
             <h1
-              className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 text-foreground"
+              className="public-h1 public-h1--page font-bold mb-4 text-foreground"
               data-testid="text-faq-heading"
             >
               Frequently Asked Questions
@@ -431,12 +431,12 @@ export default function FAQ() {
         </section>
 
         <section
-          className="bg-muted/30 py-16"
+          className="bg-muted/30 py-10"
           data-testid="section-faq-resources"
         >
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
             <h2
-              className="text-4xl md:text-5xl font-bold text-foreground mb-3"
+              className="public-h2 font-bold text-foreground mb-3"
               data-testid="text-faq-resources-heading"
             >
               Explore More Resources
@@ -502,12 +502,12 @@ export default function FAQ() {
         </section>
 
         <section
-          className="relative overflow-hidden bg-primary text-primary-foreground py-12"
+          className="relative overflow-hidden bg-primary text-primary-foreground py-10"
           data-testid="section-faq-cta"
         >
           <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
             <h2
-              className="text-4xl md:text-5xl font-bold mb-3"
+              className="public-h2 font-bold mb-3"
               data-testid="text-faq-cta-heading"
             >
               Still have questions?

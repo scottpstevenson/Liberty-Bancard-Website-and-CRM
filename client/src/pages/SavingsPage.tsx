@@ -342,7 +342,7 @@ export default function SavingsPage() {
 
             <div className="flex items-center gap-3">
               <div className="flex-1 h-px bg-white/10" />
-              <span className="text-white/50 text-xs uppercase tracking-wider">or</span>
+              <span className="text-white/70 text-xs uppercase tracking-wider">or</span>
               <div className="flex-1 h-px bg-white/10" />
             </div>
 
@@ -354,10 +354,10 @@ export default function SavingsPage() {
               data-testid="link-book-call"
             >
               <Phone className="w-4 h-4" />
-              Book a 15-Minute Call First
+              Book a review call
             </a>
 
-            <p className="text-xs text-white/50">No credit card required. Cancel anytime.</p>
+            <p className="text-xs text-white/70">No credit card required. Cancel anytime.</p>
             </div>
           </section>
         </main>

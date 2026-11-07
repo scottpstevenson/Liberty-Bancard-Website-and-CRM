@@ -312,7 +312,7 @@ export function registerSsrRoutes(app: Express) {
   });
 
   // /blog and /blog/:slug are handled by the React SPA so they render the
-  // full site Navbar (with dropdowns, phone, Book 10-Min Call, Upload
+  // full site Navbar (with dropdowns, phone, Book a review call, Upload
   // Statement) and Footer that match other public pages. SEO metadata and
   // structured data for these pages are provided client-side by the
   // <SEO /> component in Blog.tsx and BlogPost.tsx via react-helmet-async.

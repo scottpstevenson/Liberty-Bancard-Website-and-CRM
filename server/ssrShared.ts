@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { serializeJsonLd } from "../shared/json-ld";
+import { PUBLIC_FOOTER_GROUPS } from "../shared/public-footer-links";
 
 const BASE_URL = "https://libertybancard.com";
 
@@ -46,7 +47,7 @@ try {
 }
 
 try {
-  const logoWhitePath = path.resolve("./attached_assets/logo-white.png");
+  const logoWhitePath = path.resolve("./client/src/assets/logo-white.png");
   if (fs.existsSync(logoWhitePath)) {
     LOGO_WHITE_B64 = fs.readFileSync(logoWhitePath).toString("base64");
   }
@@ -55,7 +56,7 @@ try {
 }
 
 try {
-  const logoBluePath = path.resolve("./attached_assets/logo-blue.png");
+  const logoBluePath = path.resolve("./client/src/assets/logo-blue.png");
   if (fs.existsSync(logoBluePath)) {
     LOGO_BLUE_B64 = fs.readFileSync(logoBluePath).toString("base64");
   }
@@ -143,9 +144,10 @@ export function ssrHtmlShell({
   <meta name="twitter:description" content="${safeDescription}" />
   <meta name="twitter:image" content="${ogImageUrl}" />
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&display=swap" rel="stylesheet" />
+  <!-- Public font recipe (shared with the hydrated app): IBM Plex Sans body faces and the Source Serif 4
+       display face are self-hosted; their @font-face rules ship in the app stylesheet. Only the display
+       face is preloaded because it is the above-the-fold heading face. -->
+  <link rel="preload" href="/fonts/source-serif-4-latin-wght.woff2" as="font" type="font/woff2" crossorigin="" />
   <!-- GHL Chat Widget (Trust Center / SMS opt-in compliance) -->
   <script src="https://widgets.leadconnectorhq.com/loader.js" data-resources-url="https://widgets.leadconnectorhq.com/chat-widget/loader.js" data-widget-id="6a652f1fc4dda61f3fbae5f8" data-source="WEB_USER"></script>
 
@@ -158,10 +160,10 @@ export function ssrHtmlShell({
      @layer ssr-fallback {
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { font-size: 16px; }
-    body { font-family: 'DM Sans', system-ui, sans-serif; background: #ffffff; color: #0f172a; line-height: 1.6; }
+    body { font-family: 'IBM Plex Sans', system-ui, sans-serif; background: #ffffff; color: #0f172a; line-height: 1.6; }
     a { color: inherit; text-decoration: none; }
     img { max-width: 100%; height: auto; }
-    .font-display { font-family: 'Outfit', system-ui, sans-serif; }
+    .font-display { font-family: 'IBM Plex Sans', system-ui, sans-serif; }
 
     /* Layout */
     .container { max-width: 1280px; margin: 0 auto; padding: 0 1rem; }
@@ -184,32 +186,48 @@ export function ssrHtmlShell({
     .ssr-cta-btn { display: inline-flex; align-items: center; gap: 0.5rem; background: #1e3a5f; color: #fff; padding: 0.5rem 1.25rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; white-space: nowrap; }
     .ssr-cta-btn:hover { background: #1a3254; }
 
-    /* Footer */
-    .ssr-footer { background: #1e3a5f; color: #fff; padding-top: 4rem; padding-bottom: 2rem; }
-    .ssr-footer-grid { max-width: 1280px; margin: 0 auto; padding: 0 1rem; display: grid; grid-template-columns: 1fr; gap: 3rem; margin-bottom: 3rem; }
+    /* Footer: brand + four link groups. Groups are <details open> (everything visible and crawlable without
+       JavaScript); a tiny inline script after the footer collapses them below 1024px. */
+    .ssr-footer { background: #1e3a5f; color: #fff; padding-top: 2.5rem; padding-bottom: 2rem; }
+    .ssr-footer-grid { max-width: 1280px; margin: 0 auto; padding: 0 1rem; display: grid; grid-template-columns: 1fr; gap: 0; margin-bottom: 2rem; }
     @media (min-width: 640px) { .ssr-footer-grid { padding: 0 1.5rem; } }
-    @media (min-width: 768px) { .ssr-footer-grid { grid-template-columns: 1fr 1fr; } }
-    @media (min-width: 1024px) { .ssr-footer-grid { grid-template-columns: 1fr 1fr 1fr 1fr; padding: 0 2rem; } }
+    @media (min-width: 1024px) { .ssr-footer-grid { grid-template-columns: 1.1fr repeat(4, minmax(0, 1fr)); padding: 0 2rem; gap: 2.5rem; margin-bottom: 3rem; } .ssr-footer { padding-top: 4rem; } }
+    .ssr-footer-brand { padding-bottom: 1.5rem; }
+    @media (min-width: 1024px) { .ssr-footer-brand { padding-bottom: 0; } }
     .ssr-footer-logo { height: 2.5rem; width: auto; margin-bottom: 1rem; }
-    .ssr-footer h4 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.75rem; color: #fff; }
+    .ssr-footer-tagline { font-size: 0.875rem; color: rgba(255,255,255,0.8); margin-bottom: 1.25rem; line-height: 1.6; }
+    .ssr-footer h4 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; color: #fff; }
     .ssr-footer ul { list-style: none; }
-    .ssr-footer li { margin-bottom: 0.5rem; }
-    .ssr-footer a { font-size: 0.875rem; color: rgba(255,255,255,0.6); }
+    .ssr-footer li { margin-bottom: 0; }
+    .ssr-footer a { display: inline-flex; align-items: center; min-height: 2.75rem; font-size: 0.875rem; color: rgba(255,255,255,0.8); }
     .ssr-footer a:hover { color: #fff; }
+    .ssr-footer-group { border-top: 1px solid rgba(255,255,255,0.12); }
+    .ssr-footer-group summary { display: flex; align-items: center; justify-content: space-between; min-height: 3rem; font-size: 1rem; font-weight: 600; color: #fff; cursor: pointer; list-style: none; }
+    .ssr-footer-group summary::-webkit-details-marker { display: none; }
+    .ssr-footer-group summary::after { content: "+"; font-size: 1.25rem; line-height: 1; }
+    .ssr-footer-group[open] summary::after { content: "\\2212"; }
+    .ssr-footer-group ul { padding-bottom: 0.75rem; }
+    @media (min-width: 1024px) {
+      .ssr-footer-group { border-top: 0; }
+      .ssr-footer-group summary { min-height: 0; margin-bottom: 1rem; font-size: 1.125rem; pointer-events: none; cursor: default; }
+      .ssr-footer-group summary::after { content: none; }
+      .ssr-footer-group ul { padding-bottom: 0; }
+      .ssr-footer a { min-height: 0; padding: 0.25rem 0; }
+    }
     .ssr-footer-bottom { max-width: 1280px; margin: 0 auto; padding: 1.5rem 1rem 0; border-top: 1px solid rgba(255,255,255,0.1); }
     @media (min-width: 640px) { .ssr-footer-bottom { padding: 1.5rem 1.5rem 0; } }
     @media (min-width: 1024px) { .ssr-footer-bottom { padding: 1.5rem 2rem 0; } }
-    .ssr-footer-disclaimer { font-size: 0.6875rem; color: rgba(255,255,255,0.35); line-height: 1.5; margin-bottom: 0.75rem; }
-    .ssr-footer-copy { font-size: 0.875rem; color: rgba(255,255,255,0.5); }
+    .ssr-footer-disclaimer { font-size: 0.75rem; color: rgba(255,255,255,0.72); line-height: 1.5; margin-bottom: 0.75rem; }
+    .ssr-footer-copy { font-size: 0.875rem; color: rgba(255,255,255,0.72); }
     .ssr-footer-trust { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: center; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1.5rem; padding-bottom: 1.5rem; }
-    .ssr-footer-trust-badge { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: rgba(255,255,255,0.5); }
+    .ssr-footer-trust-badge { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: rgba(255,255,255,0.72); }
 
     /* Hero */
     .ssr-hero { position: relative; overflow: hidden; background: linear-gradient(135deg, #0f1f3d 0%, #1a2f5a 40%, #1e3a8a 100%); color: #fff; padding: 5rem 0; }
     .ssr-hero-inner { position: relative; z-index: 1; max-width: 1280px; margin: 0 auto; padding: 0 1rem; }
     @media (min-width: 640px) { .ssr-hero-inner { padding: 0 1.5rem; } }
     @media (min-width: 1024px) { .ssr-hero-inner { padding: 0 2rem; } }
-    .ssr-hero h1 { font-family: 'Outfit', system-ui, sans-serif; font-size: 2rem; font-weight: 800; line-height: 1.2; margin-bottom: 1.25rem; max-width: 48rem; }
+    .ssr-hero h1 { font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif; font-size: 2rem; font-weight: 700; line-height: 1.2; margin-bottom: 1.25rem; max-width: 48rem; }
     @media (min-width: 768px) { .ssr-hero h1 { font-size: 2.75rem; } }
     @media (min-width: 1024px) { .ssr-hero h1 { font-size: 3.25rem; } }
     .ssr-hero-subtitle { font-size: 1.125rem; color: rgba(255,255,255,0.75); max-width: 40rem; margin-bottom: 2rem; line-height: 1.7; }
@@ -229,7 +247,7 @@ export function ssrHtmlShell({
     .ssr-section-inner { max-width: 1280px; margin: 0 auto; padding: 0 1rem; }
     @media (min-width: 640px) { .ssr-section-inner { padding: 0 1.5rem; } }
     @media (min-width: 1024px) { .ssr-section-inner { padding: 0 2rem; } }
-    .ssr-section-heading { font-family: 'Outfit', system-ui, sans-serif; font-size: 1.75rem; font-weight: 700; margin-bottom: 0.75rem; text-align: center; }
+    .ssr-section-heading { font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif; font-size: 1.75rem; font-weight: 700; margin-bottom: 0.75rem; text-align: center; }
     @media (min-width: 768px) { .ssr-section-heading { font-size: 2rem; } }
     .ssr-section-subheading { color: #64748b; text-align: center; max-width: 40rem; margin: 0 auto 2.5rem; }
     .ssr-section-dark .ssr-section-subheading { color: rgba(255,255,255,0.7); }
@@ -240,9 +258,9 @@ export function ssrHtmlShell({
     .ssr-grid-2 { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
     @media (min-width: 768px) { .ssr-grid-2 { grid-template-columns: repeat(2, 1fr); } }
     .ssr-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.05); }
-    .ssr-stat-value { font-family: 'Outfit', system-ui, sans-serif; font-size: 2rem; font-weight: 700; color: #1e3a5f; margin-bottom: 0.25rem; }
+    .ssr-stat-value { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 2rem; font-weight: 700; color: #1e3a5f; margin-bottom: 0.25rem; }
     .ssr-stat-label { font-size: 0.875rem; color: #64748b; }
-    .ssr-card-title { font-family: 'Outfit', system-ui, sans-serif; font-size: 1.125rem; font-weight: 600; margin-bottom: 0.5rem; color: #0f172a; }
+    .ssr-card-title { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 1.125rem; font-weight: 600; margin-bottom: 0.5rem; color: #0f172a; }
     .ssr-card-text { font-size: 0.875rem; color: #64748b; line-height: 1.6; }
 
     /* Pain/Solution items */
@@ -282,7 +300,7 @@ export function ssrHtmlShell({
 
     /* CTA section */
     .ssr-cta-section { text-align: center; }
-    .ssr-cta-section h2 { font-family: 'Outfit', system-ui, sans-serif; font-size: 1.75rem; font-weight: 700; color: #fff; margin-bottom: 1rem; }
+    .ssr-cta-section h2 { font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif; font-size: 1.75rem; font-weight: 700; color: #fff; margin-bottom: 1rem; }
     .ssr-cta-section p { color: rgba(255,255,255,0.7); max-width: 36rem; margin: 0 auto 2rem; }
     .ssr-cta-buttons { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center; }
 
@@ -300,7 +318,7 @@ export function ssrHtmlShell({
     .ssr-savings-label { font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; margin-bottom: 0.5rem; }
     .ssr-savings-label.liberty { color: #1e3a5f; }
     .ssr-savings-label.winner { color: #059669; }
-    .ssr-savings-value { font-family: 'Outfit', system-ui, sans-serif; font-size: 1.625rem; font-weight: 700; color: #0f172a; }
+    .ssr-savings-value { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 1.625rem; font-weight: 700; color: #0f172a; }
     .ssr-savings-value.liberty { color: #1e3a5f; }
     .ssr-savings-value.winner { font-size: 2rem; color: #059669; }
      .ssr-savings-sub { font-size: 0.75rem; color: #94a3b8; margin-top: 0.375rem; }
@@ -354,66 +372,27 @@ export function ssrFooter(): string {
     ? `data:image/png;base64,${LOGO_WHITE_B64}`
     : "/favicon.png";
   const year = new Date().getFullYear();
+  // Same four groups as the React footer (shared/public-footer-links.ts). Groups are <details open>, so every
+  // link is visible and crawlable without JavaScript; the inline script below only collapses them below 1024px.
+  const groups = PUBLIC_FOOTER_GROUPS.map((group) => `    <details class="ssr-footer-group" open>
+      <summary>${escapeHtml(group.label)}</summary>
+      <ul>
+${group.links.map((link) => `        <li><a href="${escapeHtml(link.href)}">${escapeHtml(link.label)}</a></li>`).join("\n")}
+      </ul>
+    </details>`).join("\n");
   return `<footer class="ssr-footer">
   <div class="ssr-footer-grid">
-    <div>
+    <div class="ssr-footer-brand">
       <a href="/"><img src="${logoSrc}" alt="Liberty Bancard" class="ssr-footer-logo" /></a>
-      <p style="font-size:0.875rem;color:rgba(255,255,255,0.6);margin-bottom:1.25rem;line-height:1.6;">We don't sell a rate. We prove your real cost and fix it.</p>
+      <p class="ssr-footer-tagline">We don't sell a rate. We prove your real cost and fix it.</p>
       <h4>Contact</h4>
       <ul>
         <li><a href="tel:9542668214">📞 Call/Text 954-266-8214</a></li>
         <li><a href="mailto:support@libertybancard.com">✉ support@libertybancard.com</a></li>
-        <li><a href="/get-started">📅 Book 10-Minute Call</a></li>
+        <li><a href="/get-started">📅 Book a review call</a></li>
       </ul>
     </div>
-    <div>
-      <h4>Quick Links</h4>
-      <ul>
-        <li><a href="/">Home</a></li>
-        <li><a href="/get-started">Get Started</a></li>
-        <li><a href="/upload-statement">Upload Statement</a></li>
-        <li><a href="/about-contact">About &amp; Contact</a></li>
-        <li><a href="/support">Support</a></li>
-        <li><a href="/help">Help Center</a></li>
-        <li><a href="/merchant-application">Merchant Application</a></li>
-        <li><a href="/affiliate">Affiliate Program</a></li>
-      </ul>
-    </div>
-    <div>
-      <h4>Industries</h4>
-      <ul>
-        <li><a href="/industries/restaurant-payment-processing">Restaurant</a></li>
-        <li><a href="/industries/retail-payment-processing">Retail</a></li>
-        <li><a href="/industries/healthcare-payment-processing">Healthcare</a></li>
-        <li><a href="/industries/salon-spa-payment-processing">Salon &amp; Spa</a></li>
-        <li><a href="/industries/auto-repair-payment-processing">Auto Repair</a></li>
-        <li><a href="/industries/professional-services-payment-processing">Professional Services</a></li>
-        <li><a href="/industries/ecommerce-payment-processing">E-Commerce</a></li>
-        <li><a href="/industries/construction-payment-processing">Construction</a></li>
-      </ul>
-    </div>
-    <div>
-      <h4>Compare &amp; Solutions</h4>
-      <ul>
-        <li><a href="/0-percent-processing">0% Processing Programs</a></li>
-        <li><a href="/beat-square-stripe">Beat Square &amp; Stripe</a></li>
-        <li><a href="/compare-rates">Compare Rates</a></li>
-        <li><a href="/compare/square">vs Square</a></li>
-        <li><a href="/compare/stripe">vs Stripe</a></li>
-        <li><a href="/compare/clover">vs Clover</a></li>
-        <li><a href="/compare/toast">vs Toast</a></li>
-        <li><a href="/compare/paypal">vs PayPal</a></li>
-        <li><a href="/savings-calculator">Savings Calculator</a></li>
-        <li><a href="/free-analysis">Free Analysis</a></li>
-      </ul>
-      <h4 style="margin-top:1.5rem;">Legal</h4>
-      <ul>
-        <li><a href="/privacy-policy">Privacy Policy</a></li>
-        <li><a href="/terms">Terms of Service</a></li>
-        <li><a href="/advertising-disclosure">Advertising Disclosure</a></li>
-        <li><a href="/do-not-sell">Do Not Sell My Info</a></li>
-      </ul>
-    </div>
+${groups}
   </div>
   <div class="ssr-footer-bottom">
     <div class="ssr-footer-trust">
@@ -424,7 +403,8 @@ export function ssrFooter(): string {
     <p class="ssr-footer-disclaimer">Liberty Bancard is a registered Independent Sales Organization (ISO) and merchant services provider. Liberty Bancard is not a bank. All merchant accounts are subject to application, credit approval, and underwriting by the acquiring bank and payment processor.</p>
     <p class="ssr-footer-disclaimer">Disclosures: Pricing, program eligibility, funding speed, and equipment offers vary by merchant profile and are subject to underwriting approval. "Next-day funding" options may be available for qualified merchants and depend on cutoff times, bank schedules, and risk review. "0% processing" refers to compliant cash discount or surcharging programs where permitted; applicability depends on state law, card brand rules, and your business model. "Free terminal" placement requires an approved and active processing account, is subject to minimum processing requirements and contract term, and equipment remains the property of Liberty Bancard. Early termination fees may apply.</p>
     <p class="ssr-footer-disclaimer">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review. Contract terms, early termination fees, and equipment return requirements are specified in the Merchant Processing Agreement.</p>
-    <p class="ssr-footer-copy">&copy; ${year} Liberty Bancard. All rights reserved. &nbsp;<a href="/do-not-sell" style="color:rgba(255,255,255,0.5);text-decoration:underline;">Do Not Sell or Share My Personal Information</a></p>
+    <p class="ssr-footer-copy">&copy; ${year} Liberty Bancard. All rights reserved. &nbsp;<a href="/do-not-sell" style="color:rgba(255,255,255,0.72);text-decoration:underline;">Do Not Sell or Share My Personal Information</a></p>
   </div>
-</footer>`;
+</footer>
+<script>(function(){var q=window.matchMedia("(min-width:1024px)");function f(){var g=document.querySelectorAll(".ssr-footer-group");for(var i=0;i<g.length;i++)g[i].open=q.matches;}f();if(q.addEventListener)q.addEventListener("change",f);})();</script>`;
 }

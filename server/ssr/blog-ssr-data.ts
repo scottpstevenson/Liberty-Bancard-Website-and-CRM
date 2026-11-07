@@ -58,7 +58,7 @@ function renderSection(section: BlogSection): string {
 function blogConversionCta(): string {
   return `<section class="ssr-section" style="background:#1e3a5f;color:#fff;">
     <div class="ssr-section-inner" style="text-align:center;max-width:48rem;">
-      <h2 style="font-family:'Outfit',system-ui,sans-serif;font-size:1.75rem;font-weight:700;margin-bottom:1rem;">Ready to See What You're Really Paying?</h2>
+      <h2 style="font-family:'Source Serif 4',Georgia,'Times New Roman',serif;font-size:1.75rem;font-weight:700;margin-bottom:1rem;">Ready to See What You're Really Paying?</h2>
       <p style="color:rgba(255,255,255,0.8);margin-bottom:2rem;">Upload your processing statement for a free, line-by-line breakdown. Keep the analysis even if you don't switch.</p>
       <div style="display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;">
         <a href="/upload-statement" class="ssr-btn-primary">Upload Statement →</a>

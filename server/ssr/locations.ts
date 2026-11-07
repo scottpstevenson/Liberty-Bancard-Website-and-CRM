@@ -175,12 +175,12 @@ function renderLocationHtml(citySlug: string, verticalSlug: string): string | nu
 
     <section class="ssr-section">
       <div class="ssr-section-inner">
-        <h3 style="font-family:'Outfit',sans-serif;font-weight:700;text-align:center;margin-bottom:1rem;font-size:1.125rem;">
+        <h3 style="font-family:'IBM Plex Sans',system-ui,sans-serif;font-weight:700;text-align:center;margin-bottom:1rem;font-size:1.125rem;">
           More ${esc(vertical.name)} Processing Locations
         </h3>
         <div class="ssr-crosslinks">${otherCities}</div>
 
-        <h3 style="font-family:'Outfit',sans-serif;font-weight:700;text-align:center;margin:2rem 0 1rem;font-size:1.125rem;">
+        <h3 style="font-family:'IBM Plex Sans',system-ui,sans-serif;font-weight:700;text-align:center;margin:2rem 0 1rem;font-size:1.125rem;">
           Other Industries in ${esc(city.name)}
         </h3>
         <div class="ssr-crosslinks">${otherVerticals}</div>

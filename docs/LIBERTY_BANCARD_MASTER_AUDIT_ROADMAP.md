@@ -528,6 +528,24 @@
 
 ---
 
+### P7-4 — Public site mobile visibility and presentation
+
+**Priority:** P2 | **Subsystem:** Public site (marketing pages, footer, imagery)
+
+**Status (2026-11-07):** Implemented and locally verified in source from base `6d2dafad`; **not published**. Detail, measurements and limits are in the go-live ledger change log entry of the same date.
+
+**Evidence:** Chromium-only lab evidence on a production build in an isolated preview: 156-state mobile visibility matrix clean, 22 overlay probes passing, fonts and image-derivative checks passing, and LCP/CLS within the lab targets (≤ 2.5 s / ≤ 0.1) on six measured routes. New checks are registered in the pre-deploy roster and CI manifest.
+
+**Open items that remain owner/follow-on decisions, not closed by this work:**
+- A real iPhone/WebKit pass (safe area, dynamic bars, large text, keyboard) is NOT EXERCISED; it cannot run in this environment.
+- All imagery is marked provenance `unverified`, usage `illustrative`; a licensed or verified merchant photograph is still needed to replace it.
+- After publication, bind the read-only public smoke (`scripts/check-public-site-mobile.ts` with `BASE_URL`) to the serving SHA.
+- Terminal product PNGs on `/0-percent-processing` (about 2.1 MB) were not routed through the new image pipeline.
+
+**Deliverable:** Public pages readable and usable at phone widths with no change to CRM design, outbound pause, provider writers, consent or intake handlers.
+
+---
+
 ## Phase 8 — Cleanup & Hardening
 
 **Objective:** Remove technical debt, dead code, and test data. Improve performance and developer velocity.

@@ -6,7 +6,8 @@ import { Footer } from "@/components/Footer";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { ArrowRight, Clock, User, Search } from "lucide-react";
 import { PublicCTA } from "@/components/public/PublicCTA";
 import { allBlogPosts, type GeneratedBlogPostResponse, dbPostToBlogPost } from "@/lib/all-blog-data";
@@ -81,14 +82,14 @@ export default function Blog() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28">
-        <section className="bg-muted/30 py-16">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <main className="flex-grow public-main-offset">
+        <section className="bg-muted/30 py-10">
+          <div className="public-container">
             <Breadcrumbs
               items={[{ name: "Blog", path: "/blog" }]}
               className="mb-4"
             />
-            <h1 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-3" data-testid="text-blog-heading">
+            <h1 className="public-h1 public-h1--page font-display font-bold text-foreground mb-3" data-testid="text-blog-heading">
               Payment Processing Insights
             </h1>
             <p className="text-muted-foreground max-w-2xl mb-8" data-testid="text-blog-subheading">
@@ -117,7 +118,7 @@ export default function Blog() {
             <div className="flex overflow-x-auto gap-2 pb-1 mb-10 scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap">
               <button
                 onClick={() => { setActiveCategory("All"); setVisibleCount(POSTS_PER_PAGE); }}
-                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${activeCategory === "All" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+                className={`flex-shrink-0 min-h-11 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${activeCategory === "All" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
                 data-testid="button-category-all"
               >
                 All ({combinedPosts.length})
@@ -126,7 +127,7 @@ export default function Blog() {
                 <button
                   key={cat}
                   onClick={() => { setActiveCategory(cat); setVisibleCount(POSTS_PER_PAGE); }}
-                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${activeCategory === cat ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+                  className={`flex-shrink-0 min-h-11 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${activeCategory === cat ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
                   data-testid={`button-category-${cat.toLowerCase().replace(/\s+/g, "-")}`}
                 >
                   {cat} ({combinedPosts.filter((p) => p.category === cat).length})
@@ -141,7 +142,7 @@ export default function Blog() {
                     <div className="flex flex-col md:flex-row gap-6 md:gap-8">
                       <div className="flex-1">
                         <Badge variant="secondary" className="mb-3" data-testid="badge-featured">Featured</Badge>
-                        <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-3" data-testid="text-featured-title">
+                        <h2 className="public-h2 font-display font-bold text-foreground mb-3" data-testid="text-featured-title">
                           {featured.title}
                         </h2>
                         <p className="text-muted-foreground mb-4 leading-relaxed" data-testid="text-featured-excerpt">
@@ -160,9 +161,10 @@ export default function Blog() {
                         </div>
                       </div>
                       <div className="flex items-center">
-                        <Button variant="outline" className="gap-2">
+                        {/* Visual affordance only: the enclosing link is the single interactive element. */}
+                        <span className={cn(buttonVariants({ variant: "outline" }), "gap-2")} aria-hidden="true">
                           Read Article <ArrowRight className="w-4 h-4" />
-                        </Button>
+                        </span>
                       </div>
                     </div>
                   </CardContent>
@@ -218,9 +220,9 @@ export default function Blog() {
           </div>
         </section>
 
-        <section className="bg-primary text-primary-foreground py-16">
+        <section className="bg-primary text-primary-foreground py-10">
           <div className="max-w-3xl mx-auto px-4 text-center">
-            <h2 className="text-2xl md:text-3xl font-display font-bold mb-4" data-testid="text-blog-cta-heading">
+            <h2 className="public-h2 font-display font-bold mb-4" data-testid="text-blog-cta-heading">
               Ready to See What You're Really Paying?
             </h2>
             <p className="text-primary-foreground/80 mb-6">
@@ -231,7 +233,7 @@ export default function Blog() {
               variant="both"
               scheme="inverse"
               primaryLabel="Upload My Statement"
-              secondaryLabel="Book a Free Call"
+              secondaryLabel="Book a review call"
               ctaLocation="blog_bottom"
               className="justify-center"
             />

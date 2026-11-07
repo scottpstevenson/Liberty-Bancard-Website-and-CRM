@@ -23,7 +23,7 @@ export function ConversionCTAGroup({
   trackingMeta,
   uploadLabel = "Upload My Statement — Free",
   phoneLabel = PHONE_NUMBER,
-  bookLabel = "Book a 10-Min Call",
+  bookLabel = "Book a review call",
   variant = "hero",
 }: ConversionCTAGroupProps) {
   const uploadHref = offer ? `/upload-statement?offer=${offer}` : "/upload-statement";
@@ -32,77 +32,48 @@ export function ConversionCTAGroup({
   if (variant === "inline") {
     return (
       <div className="flex flex-col sm:flex-row gap-3 flex-wrap" data-testid="conversion-cta-group">
-        <Link href={uploadHref} data-testid="cta-upload">
-          <Button
-            className="gap-2 bg-sky-500 border-sky-500 text-white"
-            onClick={() => trackStatementUploadCtaClick({ ...meta, offer, ctaLabel: uploadLabel })}
-          >
+        <Button className="gap-2 bg-sky-400 border-sky-400 text-slate-950 hover:bg-sky-300" onClick={() => trackStatementUploadCtaClick({ ...meta, offer, ctaLabel: uploadLabel })} asChild>
+          <Link href={uploadHref} data-testid="cta-upload">
             <Upload className="w-4 h-4" />
             {uploadLabel}
-          </Button>
-        </Link>
-        <a
-          href={CALENDAR_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          data-testid="cta-book"
-          onClick={() => trackBookingCtaClick({ ...meta, ctaLabel: bookLabel })}
-        >
-          <Button variant="outline" className="gap-2">
+          </Link>
+        </Button>
+        <Button variant="outline" className="gap-2" asChild>
+          <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="cta-book" onClick={() => trackBookingCtaClick({ ...meta, ctaLabel: bookLabel })}>
             <Calendar className="w-4 h-4" />
             {bookLabel}
-          </Button>
-        </a>
-        <a
-          href={PHONE_TEL}
-          aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
-          data-testid="cta-call"
-          onClick={() => trackPhoneCallClick({})}
-        >
-          <Button variant="ghost" className="gap-2">
+          </a>
+        </Button>
+        <Button variant="ghost" className="gap-2" asChild>
+          <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="cta-call" onClick={() => trackPhoneCallClick({})}>
             <Phone className="w-4 h-4" />
             {phoneLabel}
-          </Button>
-        </a>
+          </a>
+        </Button>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col sm:flex-row gap-4 flex-wrap" data-testid="conversion-cta-group">
-      <Link href={uploadHref} data-testid="cta-upload">
-        <Button
-          size="lg"
-          className="gap-2 bg-sky-500 border-sky-500 text-white"
-          onClick={() => trackStatementUploadCtaClick({ ...meta, offer, ctaLabel: uploadLabel })}
-        >
+      <Button size="lg" className="gap-2 bg-sky-400 border-sky-400 text-slate-950 hover:bg-sky-300" onClick={() => trackStatementUploadCtaClick({ ...meta, offer, ctaLabel: uploadLabel })} asChild>
+        <Link href={uploadHref} data-testid="cta-upload">
           <Upload className="w-4 h-4" />
           {uploadLabel}
-        </Button>
-      </Link>
-      <a
-        href={CALENDAR_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        data-testid="cta-book"
-        onClick={() => trackBookingCtaClick({ ...meta, ctaLabel: bookLabel })}
-      >
-        <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+        </Link>
+      </Button>
+      <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white" asChild>
+        <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="cta-book" onClick={() => trackBookingCtaClick({ ...meta, ctaLabel: bookLabel })}>
           <Calendar className="w-4 h-4" />
           {bookLabel}
-        </Button>
-      </a>
-      <a
-        href={PHONE_TEL}
-        aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
-        data-testid="cta-call"
-        onClick={() => trackPhoneCallClick({})}
-      >
-        <Button size="lg" variant="ghost" className="gap-2 text-white/80 hover:text-white hover:bg-white/10 border border-white/20">
+        </a>
+      </Button>
+      <Button size="lg" variant="ghost" className="gap-2 text-white/80 hover:text-white hover:bg-white/10 border border-white/20" asChild>
+        <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="cta-call" onClick={() => trackPhoneCallClick({})}>
           <Phone className="w-4 h-4" />
           {phoneLabel}
-        </Button>
-      </a>
+        </a>
+      </Button>
     </div>
   );
 }

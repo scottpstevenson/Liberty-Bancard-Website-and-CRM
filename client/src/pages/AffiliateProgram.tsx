@@ -340,7 +340,7 @@ export default function AffiliateProgram() {
       <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <SEO title="Affiliate Dashboard" description="Track your referrals and earnings" path="/affiliate" noindex={true} />
         <Navbar />
-        <main className="flex-grow pt-28 pb-16">
+        <main className="flex-grow public-main-offset pb-16">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
               <div>
@@ -816,15 +816,15 @@ export default function AffiliateProgram() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28">
-        <section className="bg-gradient-to-br from-primary/5 via-background to-primary/10 py-16 md:py-20">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <main className="flex-grow public-main-offset">
+        <section className="bg-gradient-to-br from-primary/5 via-background to-primary/10 py-10 md:py-16">
+          <div className="public-container">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
               <div>
                 <Badge className="mb-4 bg-primary/10 text-primary border-primary/20" data-testid="badge-affiliate">
                   <Gift className="w-3 h-3 mr-1" /> Affiliate Program
                 </Badge>
-                <h1 className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-foreground mb-4" data-testid="text-affiliate-heading">
+                <h1 className="public-h1 font-display font-bold text-foreground mb-4" data-testid="text-affiliate-heading">
                   Earn Money Referring <span className="text-primary">Businesses</span>
                 </h1>
                 <p className="text-lg text-muted-foreground mb-6">
@@ -860,7 +860,7 @@ export default function AffiliateProgram() {
         </section>
 
         {view === "login" && (
-          <section className="py-12 bg-muted/20">
+          <section className="py-10 bg-muted/20">
             <div className="max-w-md mx-auto px-4 sm:px-6 lg:px-8">
               <Card>
                 <CardHeader className="text-center">
@@ -909,7 +909,7 @@ export default function AffiliateProgram() {
         )}
 
         {view === "signup" && (
-          <section className="py-12 bg-muted/20">
+          <section className="py-10 bg-muted/20">
             <div className="max-w-md mx-auto px-4 sm:px-6 lg:px-8">
               <Card>
                 <CardHeader className="text-center">
@@ -974,10 +974,10 @@ export default function AffiliateProgram() {
           </section>
         )}
 
-        <section className="bg-muted/30 py-16" data-testid="section-two-paths">
+        <section className="bg-muted/30 py-10" data-testid="section-two-paths">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-10">
-              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-3" data-testid="text-two-paths-heading">
+              <h2 className="public-h2 font-display font-bold text-foreground mb-3" data-testid="text-two-paths-heading">
                 Two Ways to Partner With Liberty Bancard
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
@@ -1029,21 +1029,21 @@ export default function AffiliateProgram() {
                     <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" /> No territory restrictions</li>
                     <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" /> Full back-office ops handled by Liberty</li>
                   </ul>
-                  <Link href="/get-started" data-testid="link-path-agent">
-                    <Button variant="outline" className="w-full gap-2">
+                  <Button variant="outline" className="w-full gap-2" asChild>
+                    <Link href="/get-started" data-testid="link-path-agent">
                       <ArrowRight className="w-4 h-4" /> Apply to Become an Agent
-                    </Button>
-                  </Link>
+                    </Link>
+                  </Button>
                 </CardContent>
               </Card>
             </div>
           </div>
         </section>
 
-        <section className="py-16">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="py-10">
+          <div className="public-container">
             <div className="text-center mb-12">
-              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-3" data-testid="text-how-it-works">
+              <h2 className="public-h2 font-display font-bold text-foreground mb-3" data-testid="text-how-it-works">
                 How It Works
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
@@ -1067,10 +1067,10 @@ export default function AffiliateProgram() {
           </div>
         </section>
 
-        <section className="bg-muted/30 py-16">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-muted/30 py-10">
+          <div className="public-container">
             <div className="text-center mb-12">
-              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-3" data-testid="text-why-join">
+              <h2 className="public-h2 font-display font-bold text-foreground mb-3" data-testid="text-why-join">
                 Why Join Our Program?
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
@@ -1093,10 +1093,10 @@ export default function AffiliateProgram() {
           </div>
         </section>
 
-        <section className="py-16">
+        <section className="py-10">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-10">
-              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-3">
+              <h2 className="public-h2 font-display font-bold text-foreground mb-3">
                 Frequently Asked Questions
               </h2>
             </div>
@@ -1121,10 +1121,10 @@ export default function AffiliateProgram() {
           </div>
         </section>
 
-        <section className="bg-primary/5 py-16">
+        <section className="bg-primary/5 py-10">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <Handshake className="w-12 h-12 text-primary mx-auto mb-4" />
-            <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-3">
+            <h2 className="public-h2 font-display font-bold text-foreground mb-3">
               Ready to Start Earning?
             </h2>
             <p className="text-muted-foreground mb-6 max-w-xl mx-auto">
@@ -1137,11 +1137,11 @@ export default function AffiliateProgram() {
               <Button size="lg" variant="outline" className="gap-2" onClick={() => { setView("login"); window.scrollTo({ top: 0, behavior: "smooth" }); }} data-testid="button-cta-login">
                 <LogIn className="w-5 h-5" /> Affiliate Login
               </Button>
-              <Link href="/partner-login" data-testid="link-partner-portal-login">
-                <Button size="lg" variant="ghost" className="gap-2">
+              <Button size="lg" variant="ghost" className="public-cta gap-2" asChild>
+                <Link href="/partner-login" data-testid="link-partner-portal-login">
                   <Handshake className="w-5 h-5" /> Partner Portal Login
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </section>

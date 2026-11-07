@@ -210,29 +210,29 @@ export default function SavingsCalculator() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="flex-grow public-main-offset" ref={containerRef}>
         <script type="application/ld+json">{serializeJsonLd(structuredData)}</script>
 
         <section className="relative overflow-hidden" data-testid="section-calc-hero">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20">
+          <div className="public-container relative py-10 lg:py-20">
             <div className="text-center max-w-3xl mx-auto">
               <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm text-white/90 text-sm font-medium px-3 py-1.5 rounded-md mb-6 border border-white/10" data-testid="text-calc-badge">
                 <Calculator className="w-4 h-4" />
                 Free Savings Estimate
               </div>
-              <h1 className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-white mb-4" data-testid="text-calc-heading">
+              <h1 className="public-h1 font-display font-bold text-white mb-4" data-testid="text-calc-heading">
                 Credit Card Processing Savings Calculator
               </h1>
               <p className="text-lg text-white/80 mb-2" data-testid="text-calc-subheading">
                 See how much you could save with transparent, interchange-plus pricing. Enter your numbers below for an instant estimate.
               </p>
-              <p className="text-xs text-white/50 mb-5" data-testid="text-calc-disclaimer">
+              <p className="text-xs text-white/70 mb-5" data-testid="text-calc-disclaimer">
                 *Estimates are illustrative. Actual savings depend on card mix, transaction types, and statement review. No savings claims without review.
               </p>
               <button
                 onClick={handleHeroCopy}
-                className="inline-flex items-center gap-2 text-white/80 hover:text-white text-sm border border-white/20 hover:border-white/40 rounded-md px-4 py-2.5 transition-colors"
+                className="inline-flex items-center gap-2 text-white/80 hover:text-white text-sm border border-white/20 hover:border-white/40 rounded-md px-4 py-2.5 min-h-11 transition-colors"
                 data-testid="button-share-calculator"
               >
                 {heroCopied ? (
@@ -263,7 +263,7 @@ export default function SavingsCalculator() {
           </div>
         </div>
 
-        <section className="bg-background py-16" data-testid="section-calculator">
+        <section className="bg-background py-10" data-testid="section-calculator">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <Card data-testid="card-calculator-input">
@@ -347,12 +347,12 @@ export default function SavingsCalculator() {
                       <p className="text-xs text-muted-foreground">
                         Don't know your effective rate? Upload your statement and we'll calculate it for you.
                       </p>
-                      <Link href="/upload-statement">
-                        <Button variant="outline" size="sm" className="mt-2 gap-1.5">
+                      <Button variant="outline" size="sm" className="mt-2 gap-1.5" asChild>
+                        <Link href="/upload-statement">
                           <Upload className="w-3.5 h-3.5" />
                           Upload Statement
-                        </Button>
-                      </Link>
+                        </Link>
+                      </Button>
                     </div>
                   )}
                 </CardContent>
@@ -375,17 +375,17 @@ export default function SavingsCalculator() {
                           </div>
                           <div className="bg-muted/50 rounded-md p-4" data-testid="result-liberty-fees">
                             <p className="text-xs text-muted-foreground mb-1">With Liberty Bancard*</p>
-                            <p className="text-2xl font-display font-bold text-emerald-600 dark:text-emerald-400">${savings.libertyMonthlyFees.toLocaleString()}</p>
+                            <p className="text-2xl font-display font-bold text-emerald-700 dark:text-emerald-400">${savings.libertyMonthlyFees.toLocaleString()}</p>
                             <p className="text-xs text-muted-foreground">at ~{LIBERTY_TARGET_RATE}%</p>
                           </div>
                         </div>
 
                         <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-md p-4 text-center" data-testid="result-savings-summary">
                           <p className="text-sm text-emerald-700 dark:text-emerald-300 font-medium mb-1">Estimated Monthly Savings</p>
-                          <p className="text-3xl font-display font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-monthly-savings">
+                          <p className="text-3xl font-display font-bold text-emerald-700 dark:text-emerald-400" data-testid="text-monthly-savings">
                             ${savings.monthlySavings.toLocaleString()}
                           </p>
-                          <p className="text-lg font-display font-semibold text-emerald-600/80 dark:text-emerald-400/80 mt-1" data-testid="text-annual-savings">
+                          <p className="text-lg font-display font-semibold text-emerald-700/80 dark:text-emerald-400/80 mt-1" data-testid="text-annual-savings">
                             ${savings.annualSavings.toLocaleString()} per year
                           </p>
                           {savings.transactionsPerMonth && (
@@ -402,12 +402,12 @@ export default function SavingsCalculator() {
                     </Card>
 
                     <div className="flex flex-col sm:flex-row gap-3">
-                      <Link href="/upload-statement" className="flex-1" data-testid="link-calc-upload">
-                        <Button className="w-full gap-2">
+                      <Button className="w-full gap-2" asChild>
+                        <Link href="/upload-statement" className="flex-1" data-testid="link-calc-upload">
                           <Upload className="w-4 h-4" />
                           Get Exact Analysis
-                        </Button>
-                      </Link>
+                        </Link>
+                      </Button>
                       <Button variant="outline" className="gap-2" onClick={handleCopyLink} data-testid="button-share-results">
                         {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                         {copied ? "Copied" : "Share Results"}
@@ -435,9 +435,9 @@ export default function SavingsCalculator() {
           </div>
         </section>
 
-        <section className="bg-muted/30 py-16" data-testid="section-why-rates-vary">
+        <section className="bg-muted/30 py-10" data-testid="section-why-rates-vary">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-4" data-testid="text-why-heading">
+            <h2 className="public-h2 reveal font-display font-bold text-foreground text-center mb-4" data-testid="text-why-heading">
               Why Your Rate Might Be Higher Than You Think
             </h2>
             <p className="text-center text-muted-foreground mb-10 max-w-2xl mx-auto">
@@ -463,9 +463,9 @@ export default function SavingsCalculator() {
           </div>
         </section>
 
-        <section className="bg-background py-16" data-testid="section-how-liberty-saves">
+        <section className="bg-background py-10" data-testid="section-how-liberty-saves">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-10" data-testid="text-how-saves-heading">
+            <h2 className="public-h2 reveal font-display font-bold text-foreground text-center mb-10" data-testid="text-how-saves-heading">
               How Liberty Bancard Reduces Your Costs
             </h2>
             <div className="reveal grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
@@ -495,12 +495,12 @@ export default function SavingsCalculator() {
                   <p className="text-muted-foreground text-sm mb-6">
                     This calculator gives you an estimate. Upload your statement for a line-by-line breakdown of exactly what you're paying and exactly what you'd pay with us.
                   </p>
-                  <Link href="/upload-statement" data-testid="link-exact-upload">
-                    <Button className="w-full gap-2">
+                  <Button className="w-full gap-2" asChild>
+                    <Link href="/upload-statement" data-testid="link-exact-upload">
                       <Upload className="w-4 h-4" />
                       Upload Statement for Exact Analysis
-                    </Button>
-                  </Link>
+                    </Link>
+                  </Button>
                   <p className="text-xs text-muted-foreground mt-3">
                     *Eligibility, underwriting, card brand rules, and applicable laws apply.
                   </p>
@@ -510,9 +510,9 @@ export default function SavingsCalculator() {
           </div>
         </section>
 
-        <section className="bg-muted/30 py-16" data-testid="section-calc-faq">
+        <section className="bg-muted/30 py-10" data-testid="section-calc-faq">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-8" data-testid="text-faq-heading">
+            <h2 className="public-h2 reveal font-display font-bold text-foreground text-center mb-8" data-testid="text-faq-heading">
               Frequently Asked Questions
             </h2>
             <Accordion type="single" collapsible className="reveal space-y-2" data-testid="accordion-faq">
@@ -530,27 +530,27 @@ export default function SavingsCalculator() {
           </div>
         </section>
 
-        <section className="bg-primary text-primary-foreground py-16" data-testid="section-calc-final-cta">
+        <section className="bg-primary text-primary-foreground py-10" data-testid="section-calc-final-cta">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <h2 className="text-2xl md:text-3xl font-display font-bold mb-4" data-testid="text-final-cta-heading">
+            <h2 className="public-h2 font-display font-bold mb-4" data-testid="text-final-cta-heading">
               Stop Overpaying for Payment Processing
             </h2>
             <p className="text-primary-foreground/80 mb-8 max-w-xl mx-auto">
               Upload your statement for a free, no-obligation analysis. Keep the breakdown even if you don't switch.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <Link href="/upload-statement" data-testid="link-final-upload">
-                <Button size="lg" className="gap-2 bg-white text-primary border-white">
+              <Button size="lg" className="public-cta gap-2 bg-white text-primary border-white" asChild>
+                <Link href="/upload-statement" data-testid="link-final-upload">
                   <Upload className="w-4 h-4" />
                   Upload Statement - Free Review
-                </Button>
-              </Link>
-              <Link href="/compare-rates" data-testid="link-final-compare">
-                <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="public-cta gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white" asChild>
+                <Link href="/compare-rates" data-testid="link-final-compare">
                   Compare Processors
                   <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </section>

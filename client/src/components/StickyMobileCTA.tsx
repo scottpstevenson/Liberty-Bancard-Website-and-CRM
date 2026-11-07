@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { Link } from "wouter";
-import { Upload } from "lucide-react";
+import { MessageCircle, Phone, Upload } from "lucide-react";
 import { trackStatementUploadCtaClick } from "@/lib/tracking";
+import { openPublicChat, setPublicOverlayFlag, usePublicOverlay } from "@/lib/public-overlay";
+import { PHONE_TEL } from "@/lib/constants";
 
 interface StickyMobileCTAProps {
   hidden?: boolean;
@@ -15,6 +17,21 @@ export function StickyMobileCTA({ hidden, onVisibilityChange }: StickyMobileCTAP
   const callbackRef = useRef(onVisibilityChange);
   callbackRef.current = onVisibilityChange;
   const dockRef = useRef<HTMLDivElement>(null);
+  const { chatReady } = usePublicOverlay();
+
+  // Tell the overlay coordinator when the dock is actually on screen (phones only;
+  // the dock is md:hidden) so the vendor chat launcher steps aside instead of
+  // sitting on top of it. The dock carries its own chat/call entry meanwhile.
+  useEffect(() => {
+    const phone = window.matchMedia("(max-width: 767px)");
+    const sync = () => setPublicOverlayFlag("dock", !hidden && visible && phone.matches);
+    sync();
+    phone.addEventListener("change", sync);
+    return () => {
+      phone.removeEventListener("change", sync);
+      setPublicOverlayFlag("dock", false);
+    };
+  }, [visible, hidden]);
 
   // Measure dock height and publish as CSS var for main-tag bottom clearance
   useEffect(() => {
@@ -83,17 +100,40 @@ export function StickyMobileCTA({ hidden, onVisibilityChange }: StickyMobileCTAP
       aria-hidden={!visible}
       data-testid="sticky-mobile-cta"
     >
-      <div className="px-4 py-2">
+      <div className="flex items-center gap-2 px-4 py-2">
         <Link
           href="/upload-statement"
           aria-label="Upload your statement for a free savings analysis"
-          className="flex items-center justify-center gap-2 w-full bg-primary hover:bg-primary/90 text-white font-semibold text-sm rounded-lg py-2.5 transition-colors active:opacity-80"
+          className="flex min-h-12 min-w-0 flex-1 items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-sm rounded-lg px-3 transition-colors active:opacity-80"
           data-testid="link-sticky-upload"
           onClick={() => trackStatementUploadCtaClick({ ctaLocation: "sticky_bar", ctaLabel: "Upload Statement — Free" })}
         >
           <Upload className="w-4 h-4 shrink-0" />
-          Upload Statement — Free
+          <span className="truncate">Upload Statement — Free</span>
         </Link>
+        {/* Help entry: the vendor chat launcher is hidden while this dock is
+            visible, so offer chat here when the vendor script is loaded and a
+            call link otherwise (SPA-fallback entries do not load the vendor). */}
+        {chatReady ? (
+          <button
+            type="button"
+            onClick={() => { openPublicChat(); }}
+            aria-label="Chat with us"
+            className="grid h-12 w-12 shrink-0 place-items-center rounded-lg border border-border bg-background text-foreground"
+            data-testid="button-sticky-chat"
+          >
+            <MessageCircle className="h-5 w-5" aria-hidden="true" />
+          </button>
+        ) : (
+          <a
+            href={PHONE_TEL}
+            aria-label="Call Liberty Bancard"
+            className="grid h-12 w-12 shrink-0 place-items-center rounded-lg border border-border bg-background text-foreground"
+            data-testid="link-sticky-call"
+          >
+            <Phone className="h-5 w-5" aria-hidden="true" />
+          </a>
+        )}
       </div>
     </div>
   );

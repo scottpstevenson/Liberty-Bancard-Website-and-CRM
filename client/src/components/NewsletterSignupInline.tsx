@@ -64,12 +64,12 @@ export function NewsletterSignupInline({ variant = "inline", sourceArticle }: Ne
                 <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200 mb-2">
                   Bonus: Want us to decode YOUR statement?
                 </p>
-                <Link href="/upload-statement" data-testid="link-newsletter-bonus-cta">
-                  <Button size="sm" className="gap-2">
+                <Button size="sm" className="gap-2" asChild>
+                  <Link href="/upload-statement" data-testid="link-newsletter-bonus-cta">
                     Upload Your Statement Now
                     <ArrowRight className="w-3.5 h-3.5" />
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
             </div>
           </div>

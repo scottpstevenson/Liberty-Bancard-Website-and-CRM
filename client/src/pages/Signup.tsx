@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, UserPlus, Mail, Lock, User } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
-import logoBlue from "@assets/logo-blue.png";
+import logoBlue from "@/assets/logo-blue.png";
 import { SEO } from "@/components/SEO";
 
 export default function Signup() {

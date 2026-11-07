@@ -29,8 +29,8 @@ import {
 import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
 import { trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
-import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
-import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
+import imgCloverFlex3 from "@/assets/images/terminal-clover-flex-3.png";
+import imgPaxA920 from "@/assets/images/terminal-pax-a920.png";
 
 const BASE_URL = "https://libertybancard.com";
 
@@ -119,7 +119,7 @@ export default function BeatSquareStripe() {
       <SEO title="Beat Square & Stripe Pricing" description="Compare Liberty Bancard statement-based pricing against Square and Stripe flat-rate processing. Real numbers, no guesswork." path="/beat-square-stripe" keywords="beat square pricing, beat stripe pricing, interchange plus vs flat rate, payment processing comparison" breadcrumbs={[{ name: "Beat Square & Stripe", path: "/beat-square-stripe" }]} structuredData={[getServiceSchema("Interchange-Plus Payment Processing", "Transparent interchange-plus pricing that beats Square and Stripe flat-rate processing for most businesses.", "/beat-square-stripe")]} />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="flex-grow public-main-offset" ref={containerRef}>
         {/* Hero - 2 column */}
         <section className="relative overflow-hidden" data-testid="section-beat-hero">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
@@ -142,38 +142,30 @@ export default function BeatSquareStripe() {
                   Flat-rate pricing hides interchange downgrades, monthly fees, and card-mix costs. We run an apples-to-apples comparison on your actual statement — so you see the all-in number, not just the rate you were quoted.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 flex-wrap mb-3">
-                  <Link
-                    href="/upload-statement?offer=beat-square"
-                    data-testid="link-beat-square-cta"
-                    onClick={() => trackStatementUploadCtaClick({ ctaLabel: "See If We Can Beat Square", offer: "beat-square", page: "/beat-square-stripe" })}
-                  >
-                    <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
+                  <Button size="lg" className="gap-2 bg-sky-400 border-sky-400 text-slate-950 hover:bg-sky-300" asChild>
+                    <Link href="/upload-statement?offer=beat-square" data-testid="link-beat-square-cta" onClick={() => trackStatementUploadCtaClick({ ctaLabel: "See If We Can Beat Square", offer: "beat-square", page: "/beat-square-stripe" })}>
                       <Upload className="w-4 h-4" />
                       See If We Can Beat Square
-                    </Button>
-                  </Link>
-                  <Link
-                    href="/upload-statement?offer=beat-stripe"
-                    data-testid="link-beat-stripe-cta"
-                    onClick={() => trackStatementUploadCtaClick({ ctaLabel: "See If We Can Beat Stripe", offer: "beat-stripe", page: "/beat-square-stripe" })}
-                  >
-                    <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+                    </Link>
+                  </Button>
+                  <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white" asChild>
+                    <Link href="/upload-statement?offer=beat-stripe" data-testid="link-beat-stripe-cta" onClick={() => trackStatementUploadCtaClick({ ctaLabel: "See If We Can Beat Stripe", offer: "beat-stripe", page: "/beat-square-stripe" })}>
                       <Upload className="w-4 h-4" />
                       See If We Can Beat Stripe
-                    </Button>
-                  </Link>
+                    </Link>
+                  </Button>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-3 flex-wrap mb-4">
-                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackBookingCtaClick({ page: "/beat-square-stripe", ctaLabel: "Book a 10-Min Call", ctaLocation: "hero" })} data-testid="link-beat-book-cta">
-                    <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20">
-                      Book a 10-Min Call
-                    </Button>
-                  </a>
-                  <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} onClick={() => trackPhoneCallClick({ sourcePage: "/beat-square-stripe" })} data-testid="link-beat-phone-cta">
-                    <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20">
+                  <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20" asChild>
+                    <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackBookingCtaClick({ page: "/beat-square-stripe", ctaLabel: "Book a review call", ctaLocation: "hero" })} data-testid="link-beat-book-cta">
+                      Book a review call
+                    </a>
+                  </Button>
+                  <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20" asChild>
+                    <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} onClick={() => trackPhoneCallClick({ sourcePage: "/beat-square-stripe" })} data-testid="link-beat-phone-cta">
                       {PHONE_NUMBER}
-                    </Button>
-                  </a>
+                    </a>
+                  </Button>
                   <Button
                     size="lg"
                     variant="ghost"
@@ -185,7 +177,7 @@ export default function BeatSquareStripe() {
                   </Button>
                 </div>
                 <p
-                  className="text-xs text-white/40 mt-2 max-w-lg"
+                  className="text-xs text-white/70 mt-2 max-w-lg"
                   data-testid="text-beat-subtext"
                 >
                   No pressure. You keep the breakdown. Actual savings depend on your card mix, volume, and underwriting — confirmed via statement review.
@@ -422,13 +414,13 @@ export default function BeatSquareStripe() {
               >
                 Eligibility, underwriting, card brand rules, and applicable laws apply.
               </p>
-              <Link href="/upload-statement" data-testid="link-beat-get-upload">
-                <Button className="gap-2">
+              <Button className="gap-2" asChild>
+                <Link href="/upload-statement" data-testid="link-beat-get-upload">
                   <Upload className="w-4 h-4" />
                   Upload My Statement — Free
                   <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </section>
@@ -474,13 +466,13 @@ export default function BeatSquareStripe() {
                       >
                         Free equipment may be available for qualifying merchants.*
                       </p>
-                      <Link href="/upload-statement" data-testid="link-terminal-cta">
-                        <Button className="gap-2">
+                      <Button className="gap-2" asChild>
+                        <Link href="/upload-statement" data-testid="link-terminal-cta">
                           <Upload className="w-4 h-4" />
                           Upload My Statement — Free
                           <ArrowRight className="w-4 h-4" />
-                        </Button>
-                      </Link>
+                        </Link>
+                      </Button>
                       <p
                         className="text-xs text-muted-foreground mt-4"
                         data-testid="text-terminal-footnote"
@@ -525,19 +517,19 @@ export default function BeatSquareStripe() {
                 ))}
               </Accordion>
               <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
-                <Link href="/upload-statement" data-testid="link-faq-compare">
-                  <Button className="gap-2">
+                <Button className="gap-2" asChild>
+                  <Link href="/upload-statement" data-testid="link-faq-compare">
                     <Upload className="w-4 h-4" />
                     Upload My Statement — Free
                     <ArrowRight className="w-4 h-4" />
-                  </Button>
-                </Link>
-                <Link href="/get-started" data-testid="link-faq-get-started">
-                  <Button variant="outline" className="gap-2">
+                  </Link>
+                </Button>
+                <Button variant="outline" className="gap-2" asChild>
+                  <Link href="/get-started" data-testid="link-faq-get-started">
                     Not Sure Where to Start?
                     <ArrowRight className="w-4 h-4" />
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
             </div>
           </div>
@@ -560,18 +552,18 @@ export default function BeatSquareStripe() {
               Upload your statement. We'll show your real cost and your clearest options.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <Link href="/upload-statement" data-testid="link-beat-final-compare">
-                <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
+              <Button size="lg" className="gap-2 bg-sky-400 border-sky-400 text-slate-950 hover:bg-sky-300" asChild>
+                <Link href="/upload-statement" data-testid="link-beat-final-compare">
                   <Upload className="w-4 h-4" />
                   Upload My Statement — Free
                   <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
-              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackBookingCtaClick({ page: "/beat-square-stripe", ctaLabel: "Get My Free Analysis", ctaLocation: "final_cta" })} data-testid="link-beat-final-call">
-                <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white" asChild>
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackBookingCtaClick({ page: "/beat-square-stripe", ctaLabel: "Get My Free Analysis", ctaLocation: "final_cta" })} data-testid="link-beat-final-call">
                   Get My Free Analysis
-                </Button>
-              </a>
+                </a>
+              </Button>
             </div>
           </div>
         </section>

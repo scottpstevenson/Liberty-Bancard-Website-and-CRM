@@ -168,19 +168,12 @@ export function WelcomePopup() {
             ))}
           </div>
 
-          <Link
-            href={config.ctaHref}
-            data-testid="link-welcome-quiz"
-          >
-            <Button
-              className="w-full gap-2"
-              size="lg"
-              onClick={handleCtaClick}
-            >
+          <Button className="w-full gap-2" size="lg" onClick={handleCtaClick} asChild>
+            <Link href={config.ctaHref} data-testid="link-welcome-quiz">
               {config.ctaText}
               <ArrowRight className="w-4 h-4" />
-            </Button>
-          </Link>
+            </Link>
+          </Button>
 
           <div className="flex items-center justify-center mt-3 gap-2">
             <CountdownTimer

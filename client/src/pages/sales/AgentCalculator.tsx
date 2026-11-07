@@ -74,12 +74,12 @@ export default function AgentCalculator() {
 
       <div className="max-w-4xl mx-auto px-4 py-10 print:py-4">
         <div className="flex items-center justify-between mb-8 print:hidden">
-          <Link href="/dashboard">
-            <Button variant="ghost" size="sm" className="gap-2" data-testid="link-back-dashboard">
+          <Button variant="ghost" size="sm" className="gap-2" data-testid="link-back-dashboard" asChild>
+            <Link href="/dashboard">
               <ArrowLeft className="w-4 h-4" />
               Back to Dashboard
-            </Button>
-          </Link>
+            </Link>
+          </Button>
           <Button
             variant="outline"
             size="sm"

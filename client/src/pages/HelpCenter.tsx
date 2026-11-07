@@ -78,17 +78,17 @@ export default function HelpCenter() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="flex-grow public-main-offset" ref={containerRef}>
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
           <Breadcrumbs
             items={[{ name: "Help Center", path: "/help" }]}
           />
         </div>
-        <section className="bg-primary text-primary-foreground py-16 mt-4" data-testid="section-help-hero">
+        <section className="bg-primary text-primary-foreground py-10 mt-4" data-testid="section-help-hero">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
             <BookOpen className="w-12 h-12 mx-auto mb-4 opacity-80" />
             <h1
-              className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4"
+              className="public-h1 public-h1--page font-bold mb-4"
               data-testid="text-help-heading"
             >
               How can we help?
@@ -138,7 +138,7 @@ export default function HelpCenter() {
           </div>
         </section>
 
-        <section className="py-16" data-testid="section-help-categories">
+        <section className="py-10" data-testid="section-help-categories">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2
               className="text-2xl font-bold text-foreground text-center mb-10 reveal"
@@ -177,7 +177,7 @@ export default function HelpCenter() {
           </div>
         </section>
 
-        <section className="bg-muted/30 py-16" data-testid="section-popular-articles">
+        <section className="bg-muted/30 py-10" data-testid="section-popular-articles">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2
               className="text-2xl font-bold text-foreground text-center mb-10 reveal"
@@ -208,7 +208,7 @@ export default function HelpCenter() {
           </div>
         </section>
 
-        <section className="py-16" data-testid="section-help-faq">
+        <section className="py-10" data-testid="section-help-faq">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2
               className="text-2xl font-bold text-foreground text-center mb-10 reveal"
@@ -238,9 +238,9 @@ export default function HelpCenter() {
         </section>
 
         {/* Audit item: increase CTA prominence at bottom of Help Center */}
-        <section className="bg-primary text-primary-foreground py-16" data-testid="section-help-cta">
+        <section className="bg-primary text-primary-foreground py-10" data-testid="section-help-cta">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
-            <h2 className="text-2xl md:text-3xl font-bold mb-3" data-testid="text-help-cta-heading">
+            <h2 className="public-h2 font-bold mb-3" data-testid="text-help-cta-heading">
               Still need help?
             </h2>
             <p className="text-primary-foreground/70 mb-8 text-lg" data-testid="text-help-cta-body">
@@ -257,7 +257,7 @@ export default function HelpCenter() {
                 variant="both"
                 scheme="inverse"
                 primaryLabel="Upload My Statement"
-                secondaryLabel="Book a Free Call"
+                secondaryLabel="Book a review call"
                 ctaLocation="helpcenter_bottom"
                 className="justify-center"
               />

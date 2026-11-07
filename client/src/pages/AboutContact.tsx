@@ -16,7 +16,7 @@ import {
   Phone,
   Mail,
 } from "lucide-react";
-import heroTeam from "@assets/images/hero-team.jpg";
+import heroTeam from "@/assets/images/hero-team.jpg";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { CALENDAR_URL } from "@/lib/constants";
 import { trackCalendarBooking } from "@/lib/tracking";
@@ -55,18 +55,18 @@ export default function AboutContact() {
       <SEO title="About Us & Contact" description="Learn about Liberty Bancard approach to merchant payment processing. Direct support, transparent pricing, no long-term contracts." path="/about-contact" breadcrumbs={[{ name: "About & Contact", path: "/about-contact" }]} />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="flex-grow public-main-offset" ref={containerRef}>
         <section className="relative overflow-hidden" data-testid="section-about-hero">
           <div className="absolute inset-0">
             <img src={heroTeam} alt="Liberty Bancard team of payment processing professionals" className="w-full h-full object-cover" width="1408" height="792" />
-            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222_47%_6%/0.97)] via-[hsl(222_47%_6%/0.93)] to-[hsl(222_47%_6%/0.85)]" />
           </div>
           <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
           <div className="glow-blob glow-blob-2 w-48 h-48 bg-blue-600 bottom-10 left-1/4" />
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32">
+          <div className="public-container relative py-10 lg:py-20">
             <div className="max-w-3xl reveal">
               <h1
-                className="text-4xl md:text-5xl font-display font-bold text-white leading-tight mb-6"
+                className="public-h1 public-h1--page font-display font-bold text-white mb-6"
                 data-testid="text-about-heading"
               >
                 <span className="text-sky-400">Merchant-First</span> Support. Statement-First Pricing.
@@ -78,31 +78,31 @@ export default function AboutContact() {
                 Liberty Bancard helps operators stop overpaying and stop guessing with line-item statement diagnostics, clear options, and support that sticks around.
               </p>
               <div className="flex flex-wrap items-center gap-4">
-                <Link href="/upload-statement" data-testid="link-hero-upload-statement">
-                  <Button className="gap-2 cta-pulse">
+                <Button className="gap-2 cta-pulse" asChild>
+                  <Link href="/upload-statement" data-testid="link-hero-upload-statement">
                     <Upload className="w-4 h-4" />
                     Upload Statement
-                  </Button>
-                </Link>
-                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("about_contact_hero")} data-testid="link-hero-book-call">
-                  <Button variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+                  </Link>
+                </Button>
+                <Button variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white" asChild>
+                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("about_contact_hero")} data-testid="link-hero-book-call">
                     <Calendar className="w-4 h-4" />
                     Get My Free Analysis
-                  </Button>
-                </a>
+                  </a>
+                </Button>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="bg-muted py-20" data-testid="section-how-we-work">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-muted py-10" data-testid="section-how-we-work">
+          <div className="public-container">
             <div className="reveal">
               <h2
-                className="text-3xl md:text-4xl font-display font-bold text-foreground mb-12 text-center"
+                className="public-h2 font-display font-bold text-foreground mb-12 text-center"
                 data-testid="text-how-we-work-heading"
               >
-                How We <span className="text-sky-400">Work</span>
+                How We <span className="text-accent">Work</span>
               </h2>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -115,7 +115,7 @@ export default function AboutContact() {
                       </span>
                     </div>
                     <div className="flex items-start gap-3 mb-2">
-                      <item.icon className="w-6 h-6 text-sky-400 shrink-0 mt-0.5" />
+                      <item.icon className="w-6 h-6 text-accent shrink-0 mt-0.5" />
                       <h3
                         className="font-display font-bold text-foreground text-base leading-snug"
                         data-testid={`text-step-title-${i}`}
@@ -130,14 +130,14 @@ export default function AboutContact() {
           </div>
         </section>
 
-        <section className="bg-background py-20" data-testid="section-different">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-background py-10" data-testid="section-different">
+          <div className="public-container">
             <div className="max-w-3xl mx-auto reveal">
               <h2
-                className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8"
+                className="public-h2 font-display font-bold text-foreground mb-8"
                 data-testid="text-different-heading"
               >
-                What Makes Liberty <span className="text-sky-400">Different</span>
+                What Makes Liberty <span className="text-accent">Different</span>
               </h2>
               <ul className="space-y-4 mb-8">
                 {beliefs.map((item, i) => (
@@ -146,37 +146,37 @@ export default function AboutContact() {
                     className="flex items-start gap-3"
                     data-testid={`different-bullet-${i}`}
                   >
-                    <CheckCircle2 className="w-5 h-5 text-sky-400 mt-0.5 shrink-0" />
+                    <CheckCircle2 className="w-5 h-5 text-accent mt-0.5 shrink-0" />
                     <span className="text-muted-foreground">{item}</span>
                   </li>
                 ))}
               </ul>
-              <Link href="/upload-statement" data-testid="link-different-upload-statement">
-                <Button className="gap-2">
+              <Button className="gap-2" asChild>
+                <Link href="/upload-statement" data-testid="link-different-upload-statement">
                   <Upload className="w-4 h-4" />
                   Upload Statement
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </section>
 
-        <section className="bg-muted py-20" data-testid="section-contact">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-muted py-10" data-testid="section-contact">
+          <div className="public-container">
             <div className="max-w-3xl mx-auto">
               <div className="reveal">
                 <h2
-                  className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8 text-center"
+                  className="public-h2 font-display font-bold text-foreground mb-8 text-center"
                   data-testid="text-contact-heading"
                 >
-                  Contact <span className="text-sky-400">Liberty Bancard</span>
+                  Contact <span className="text-accent">Liberty Bancard</span>
                 </h2>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-10">
                 <Card className="reveal reveal-delay-1" data-testid="card-contact-phone">
                   <CardContent className="pt-6 text-center">
                     <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                      <Phone className="w-6 h-6 text-sky-400" />
+                      <Phone className="w-6 h-6 text-accent" />
                     </div>
                     <h3 className="font-display font-bold text-foreground mb-2">Call/Text</h3>
                     <a
@@ -193,7 +193,7 @@ export default function AboutContact() {
                 <Card className="reveal reveal-delay-2" data-testid="card-contact-email">
                   <CardContent className="pt-6 text-center">
                     <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                      <Mail className="w-6 h-6 text-sky-400" />
+                      <Mail className="w-6 h-6 text-accent" />
                     </div>
                     <h3 className="font-display font-bold text-foreground mb-2">Email</h3>
                     <a
@@ -209,7 +209,7 @@ export default function AboutContact() {
                 <Card className="reveal reveal-delay-3" data-testid="card-contact-book">
                   <CardContent className="pt-6 text-center">
                     <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                      <Calendar className="w-6 h-6 text-sky-400" />
+                      <Calendar className="w-6 h-6 text-accent" />
                     </div>
                     <h3 className="font-display font-bold text-foreground mb-2">Book</h3>
                     <a
@@ -220,19 +220,19 @@ export default function AboutContact() {
                       className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                       data-testid="link-contact-book"
                     >
-                      Schedule a 10-minute call →
+                      Book a review call →
                     </a>
                   </CardContent>
                 </Card>
               </div>
 
               <div className="text-center reveal reveal-delay-4">
-                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("about_contact_footer_cta")} data-testid="link-contact-book-call">
-                  <Button className="gap-2">
+                <Button className="gap-2" asChild>
+                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("about_contact_footer_cta")} data-testid="link-contact-book-call">
                     <Calendar className="w-4 h-4" />
                     Get My Free Analysis
-                  </Button>
-                </a>
+                  </a>
+                </Button>
               </div>
             </div>
           </div>

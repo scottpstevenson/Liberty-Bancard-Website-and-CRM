@@ -16,7 +16,7 @@ export default function ThanksSupport() {
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Support Request Received" description="We received your Liberty Bancard support request. A real human will respond shortly during business hours." path="/thanks-support" noindex />
       <Navbar />
-      <main className="flex-grow pt-28">
+      <main className="flex-grow public-main-offset">
         <section className="bg-primary text-primary-foreground py-16" data-testid="section-thanks-support-hero">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-6">
@@ -33,12 +33,12 @@ export default function ThanksSupport() {
               <span>Average response time: under 2 hours during business hours</span>
             </div>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <a href="tel:9542668214" data-testid="link-thanks-support-call" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-support" })}>
-                <Button size="lg" variant="secondary" className="gap-2">
+              <Button size="lg" variant="secondary" className="gap-2" asChild>
+                <a href="tel:9542668214" data-testid="link-thanks-support-call" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-support" })}>
                   <Phone className="w-4 h-4" />
                   Need It Faster? Call 954-266-8214
-                </Button>
-              </a>
+                </a>
+              </Button>
             </div>
           </div>
         </section>

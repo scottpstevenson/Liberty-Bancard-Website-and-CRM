@@ -57,7 +57,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { PromoBanner } from "@/components/PromoBanner";
-import logoBlue from "@assets/logo-blue.png";
+import logoBlue from "@/assets/logo-blue.png";
 
 function encodeResults(data: { industry: string; volume: string; processor: string; painPoints: string[] }): string {
   return btoa(JSON.stringify(data));
@@ -468,8 +468,9 @@ export default function FreeAnalysis() {
           noindex={true}
         />
 
+        <main className="flex flex-1 flex-col">
         <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-results-hero">
-          <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16 text-center">
+          <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-16 text-center">
             <Link href="/" data-testid="link-results-logo">
               <img src={logoBlue} alt="Liberty Bancard" className="h-8 mx-auto mb-8" />
             </Link>
@@ -496,7 +497,7 @@ export default function FreeAnalysis() {
           </div>
         </section>
 
-        <section className="bg-muted/30 py-12 flex-grow" data-testid="section-results">
+        <section className="bg-muted/30 py-10 flex-grow" data-testid="section-results">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
               <Card data-testid="card-savings-monthly">
@@ -598,18 +599,18 @@ export default function FreeAnalysis() {
                   Upload your most recent processing statement for a free, line-by-line analysis. We'll confirm your exact savings.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-3">
-                  <Link href="/upload-statement" data-testid="link-results-upload">
-                    <Button size="lg" className="gap-2 w-full">
+                  <Button size="lg" className="public-cta gap-2 w-full" asChild>
+                    <Link href="/upload-statement" data-testid="link-results-upload">
                       <Upload className="w-4 h-4" />
                       Check My Savings
-                    </Button>
-                  </Link>
-                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-results-book">
-                    <Button size="lg" variant="outline" className="gap-2 w-full">
+                    </Link>
+                  </Button>
+                  <Button size="lg" variant="outline" className="public-cta gap-2 w-full" asChild>
+                    <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-results-book">
                       <Calendar className="w-4 h-4" />
-                      Book a 10-Min Call
-                    </Button>
-                  </a>
+                      Book a review call
+                    </a>
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -679,6 +680,7 @@ export default function FreeAnalysis() {
             </p>
           </div>
         </section>
+        </main>
 
         <Footer />
       </div>
@@ -718,6 +720,7 @@ export default function FreeAnalysis() {
 
       <PromoBanner variant="bar" promoId="free-processing" />
 
+      <main className="flex flex-1 flex-col">
       <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-quiz-hero">
         <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-14 text-center">
           <Link href="/" data-testid="link-quiz-logo">
@@ -728,7 +731,7 @@ export default function FreeAnalysis() {
             60-Second Free Analysis
           </Badge>
           <h1
-            className="text-3xl md:text-4xl font-display font-bold text-foreground mb-2"
+            className="public-h1 public-h1--page font-display font-bold text-foreground mb-2"
             data-testid="text-quiz-heading"
           >
             See How Much You Could <span className="text-accent">Save</span> on Processing
@@ -746,13 +749,13 @@ export default function FreeAnalysis() {
           )}
           {promoCode && (
             <div className="flex items-center justify-center gap-2 mb-3" data-testid="badge-quiz-promo-applied">
-              <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+              <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30">
                 <Zap className="w-3 h-3 mr-1" />
                 Promo {promoCode} applied — check your eligibility below
               </Badge>
             </div>
           )}
-          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground/80">
+          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span className="flex items-center gap-1" data-testid="text-social-proof-1">
               <Users className="w-3 h-3" />
               5,000+ merchants served
@@ -784,7 +787,7 @@ export default function FreeAnalysis() {
           </div>
           <div className="flex items-center justify-between mb-6">
             {stepEncouragement[step] ? (
-              <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium" data-testid="text-step-encouragement">
+              <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium" data-testid="text-step-encouragement">
                 {stepEncouragement[step]}
               </p>
             ) : <span />}
@@ -971,7 +974,7 @@ export default function FreeAnalysis() {
 
               {step === TOTAL_STEPS && (
                 <div className="mt-4 mb-2 flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2" data-testid="text-guarantee-oneliner">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
                   If we can't beat your rate, we'll tell you upfront. No pressure, no obligation — you keep the breakdown either way.
                 </div>
               )}
@@ -1051,7 +1054,7 @@ export default function FreeAnalysis() {
               <p className="text-xs text-muted-foreground">Merchants Served Nationwide</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-display font-bold text-emerald-600" data-testid="text-stat-avg-savings">$4,200</p>
+              <p className="text-2xl font-display font-bold text-emerald-700" data-testid="text-stat-avg-savings">$4,200</p>
               <p className="text-xs text-muted-foreground">Avg. Annual Savings</p>
             </div>
             <div className="text-center">
@@ -1225,11 +1228,12 @@ export default function FreeAnalysis() {
           <div className="mt-8 text-center">
             <p className="text-sm text-muted-foreground mb-3" data-testid="text-bottom-cta">
               Still have questions? Call us at <a href={PHONE_TEL} className="text-primary font-semibold underline" onClick={() => trackPhoneCallClick({ sourcePage: "/free-analysis" })}>{PHONE_NUMBER}</a> or{" "}
-              <Link href="/get-started" className="text-primary font-semibold underline">book a free 10-minute call</Link>.
+              <Link href="/get-started" className="text-primary font-semibold underline">book a review call</Link>.
             </p>
           </div>
         </div>
       </section>
+      </main>
 
       <footer className="bg-muted/50 border-t border-border py-6">
         <div className="max-w-2xl mx-auto px-4 text-center">

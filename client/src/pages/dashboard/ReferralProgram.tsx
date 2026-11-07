@@ -21,7 +21,7 @@ import type { Referral } from "@shared/schema";
 import type { PartnerOperatorRecord as Partner } from "@shared/partner-response";
 import { PARTNER_TYPES, REFERRAL_STATUSES } from "@shared/schema";
 import { HelpCenter } from "@/components/HelpCenter";
-import referralVideo from "@assets/videos/referral-explainer.mp4";
+import referralVideo from "@/assets/videos/referral-explainer.mp4";
 
 const partnerFormSchema = z.object({
   companyName: z.string().min(1, "Required"),

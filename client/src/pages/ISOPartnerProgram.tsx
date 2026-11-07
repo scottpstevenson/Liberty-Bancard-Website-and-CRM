@@ -220,7 +220,7 @@ function ResidualCalculator() {
         </div>
         <div className="bg-background rounded-xl border border-border p-5 text-center">
           <p className="text-sm text-muted-foreground mb-1">Estimated Annual Residual</p>
-          <p className="text-3xl font-bold text-green-600" data-testid="text-calc-annual">
+          <p className="text-3xl font-bold text-green-700" data-testid="text-calc-annual">
             ${annualResidual.toLocaleString("en-US", { maximumFractionDigits: 0 })}
           </p>
           <p className="text-xs text-muted-foreground mt-1">per year</p>
@@ -310,7 +310,7 @@ export default function ISOPartnerProgram() {
         structuredData={[isoFaqJsonLd, isoServiceJsonLd]}
       />
       <Navbar />
-      <main className="marketing-surface flex-grow pt-28">
+      <main className="marketing-surface flex-grow public-main-offset">
 
         {/* Hero */}
         <PublicHero
@@ -329,10 +329,10 @@ export default function ISOPartnerProgram() {
         />
 
         {/* Who Is This For */}
-        <section className="py-16 md:py-20">
+        <section className="py-10 md:py-16">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-12">
-              <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4">
+              <h2 className="public-h2 font-display font-bold text-foreground mb-4">
                 Who This Program Is For
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
@@ -359,10 +359,10 @@ export default function ISOPartnerProgram() {
         </section>
 
         {/* How It Works */}
-        <section className="py-16 md:py-20 bg-muted/30 border-y border-border/30">
+        <section className="py-10 md:py-16 bg-muted/30 border-y border-border/30">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-12">
-              <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4">
+              <h2 className="public-h2 font-display font-bold text-foreground mb-4">
                 How the Partner Program Works
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">
@@ -384,10 +384,10 @@ export default function ISOPartnerProgram() {
         </section>
 
         {/* Commission Structure */}
-        <section className="py-16 md:py-20">
+        <section className="py-10 md:py-16">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-12">
-              <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4">
+              <h2 className="public-h2 font-display font-bold text-foreground mb-4">
                 Commission & Residual Structure
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
@@ -418,15 +418,11 @@ export default function ISOPartnerProgram() {
                       <p className="text-sm font-semibold text-primary">{tier.example}</p>
                     </div>
                     <div className="pt-2">
-                      <a href="#apply">
-                        <Button
-                          size="sm"
-                          variant={tier.type === "iso" ? "default" : "outline"}
-                          className="w-full gap-2"
-                        >
+                      <Button size="sm" variant={tier.type === "iso" ? "default" : "outline"} className="w-full gap-2" asChild>
+                        <a href="#apply">
                           Apply as this partner type <ChevronRight className="w-3.5 h-3.5" />
-                        </Button>
-                      </a>
+                        </a>
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -447,10 +443,10 @@ export default function ISOPartnerProgram() {
         </section>
 
         {/* What Partners Get */}
-        <section className="py-16 md:py-20 bg-muted/30 border-y border-border/30">
+        <section className="py-10 md:py-16 bg-muted/30 border-y border-border/30">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-12">
-              <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4">
+              <h2 className="public-h2 font-display font-bold text-foreground mb-4">
                 What Partners Receive
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">
@@ -478,10 +474,10 @@ export default function ISOPartnerProgram() {
 
         {/* Calculator */}
         {/* scroll-mt-20 offsets the fixed navbar height so the section heading isn't obscured */}
-        <section className="py-16 md:py-20 scroll-mt-20" id="calculator">
+        <section className="py-10 md:py-16 scroll-mt-20" id="calculator">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-10">
-              <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4">
+              <h2 className="public-h2 font-display font-bold text-foreground mb-4">
                 Estimate Your Monthly Residual Income
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">
@@ -494,12 +490,12 @@ export default function ISOPartnerProgram() {
 
         {/* Partner Application Form */}
         {/* scroll-mt-20 offsets the fixed navbar height so the section heading isn't obscured */}
-        <section className="py-16 md:py-20 bg-muted/30 border-t border-border/30 scroll-mt-20" id="apply">
+        <section className="py-10 md:py-16 bg-muted/30 border-t border-border/30 scroll-mt-20" id="apply">
           <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
             {view === "success" ? (
               <div className="text-center py-8">
                 <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mx-auto mb-6">
-                  <CheckCircle className="w-8 h-8 text-green-600" />
+                  <CheckCircle className="w-8 h-8 text-green-700" />
                 </div>
                 <h2 className="text-2xl font-display font-bold text-foreground mb-3">Application received</h2>
                 <p className="text-muted-foreground mb-6">
@@ -518,17 +514,17 @@ export default function ISOPartnerProgram() {
                   </div>
                 )}
                 <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                  <Link href="/partner-portal">
-                    <Button size="lg" className="gap-2 w-full sm:w-auto" data-testid="button-go-to-portal">
+                  <Button size="lg" className="public-cta gap-2 w-full sm:w-auto" data-testid="button-go-to-portal" asChild>
+                    <Link href="/partner-portal">
                       Go to Partner Portal <ArrowRight className="w-4 h-4" />
-                    </Button>
-                  </Link>
+                    </Link>
+                  </Button>
                 </div>
               </div>
             ) : (
               <>
                 <div className="text-center mb-8">
-                  <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-3">
+                  <h2 className="public-h2 font-display font-bold text-foreground mb-3">
                     Become a Partner
                   </h2>
                   <p className="text-muted-foreground">
@@ -540,7 +536,7 @@ export default function ISOPartnerProgram() {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label htmlFor="partner-input-first-name" className="block text-sm font-medium text-foreground mb-1.5">
-                          First Name <span className="text-red-500">*</span>
+                          First Name <span className="text-red-600">*</span>
                         </label>
                         <Input className="min-h-11" id="partner-input-first-name"
                           value={form.firstName}
@@ -573,7 +569,7 @@ export default function ISOPartnerProgram() {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label htmlFor="partner-input-email" className="block text-sm font-medium text-foreground mb-1.5">
-                          Email <span className="text-red-500">*</span>
+                          Email <span className="text-red-600">*</span>
                         </label>
                         <Input className="min-h-11" id="partner-input-email"
                           type="email"
@@ -585,7 +581,7 @@ export default function ISOPartnerProgram() {
                       </div>
                       <div>
                         <label htmlFor="partner-input-phone" className="block text-sm font-medium text-foreground mb-1.5">
-                          Phone <span className="text-red-500">*</span>
+                          Phone <span className="text-red-600">*</span>
                         </label>
                         <Input className="min-h-11" id="partner-input-phone"
                           type="tel"
@@ -616,7 +612,7 @@ export default function ISOPartnerProgram() {
                       </div>
                       <div>
                         <label htmlFor="partner-select-partner-type" className="block text-sm font-medium text-foreground mb-1.5">
-                          Partner Type <span className="text-red-500">*</span>
+                          Partner Type <span className="text-red-600">*</span>
                         </label>
                         <Select value={form.referralType} onValueChange={v => setForm(f => ({ ...f, referralType: v }))}>
                           <SelectTrigger className="min-h-11" id="partner-select-partner-type" data-testid="select-partner-type">
@@ -635,7 +631,7 @@ export default function ISOPartnerProgram() {
                     </div>
                     <div>
                       <label htmlFor="partner-input-password" className="block text-sm font-medium text-foreground mb-1.5">
-                        Create Password <span className="text-red-500">*</span>
+                        Create Password <span className="text-red-600">*</span>
                       </label>
                       <Input className="min-h-11" id="partner-input-password"
                         type="password"
@@ -670,10 +666,10 @@ export default function ISOPartnerProgram() {
         </section>
 
         {/* Partner by Profession */}
-        <section className="py-16 md:py-20 border-t border-border/30">
+        <section className="py-10 md:py-16 border-t border-border/30">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-10">
-              <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4">
+              <h2 className="public-h2 font-display font-bold text-foreground mb-4">
                 Partner by Profession
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
@@ -730,25 +726,20 @@ export default function ISOPartnerProgram() {
         </section>
 
         {/* CTA Banner */}
-        <section className="py-12 bg-primary text-primary-foreground">
+        <section className="py-10 bg-primary text-primary-foreground">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <Award className="w-10 h-10 mx-auto mb-4 opacity-80" />
-            <h2 className="text-4xl md:text-5xl font-display font-bold mb-3">
+            <h2 className="public-h2 font-display font-bold mb-3">
               Ready to Start Earning Residuals?
             </h2>
             <p className="text-primary-foreground/80 mb-6 max-w-xl mx-auto">
               Join Liberty Bancard's ISO and partner network. Apply today. Our team reviews every application and contacts you at the email you provide.
             </p>
-            <a href="#apply">
-              <Button
-                size="lg"
-                variant="secondary"
-                className="gap-2"
-                data-testid="button-cta-apply"
-              >
+            <Button size="lg" variant="secondary" className="public-cta gap-2" data-testid="button-cta-apply" asChild>
+              <a href="#apply">
                 Apply to become a partner <ArrowRight className="w-4 h-4" />
-              </Button>
-            </a>
+              </a>
+            </Button>
           </div>
         </section>
 

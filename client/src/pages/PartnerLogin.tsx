@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Mail, Lock, Shield, Handshake, CheckCircle } from "lucide-react";
-import logoBlue from "@assets/logo-blue.png";
+import logoBlue from "@/assets/logo-blue.png";
 import { SEO } from "@/components/SEO";
 import { captureAuthActionToken } from "@/lib/auth-action-fragment";
 

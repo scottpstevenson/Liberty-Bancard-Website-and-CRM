@@ -101,7 +101,7 @@ export async function certifyStage3Browser(ctx: {
         return { fontSize: style.fontSize, color: style.color, width: hero.getBoundingClientRect().width,
           overflow: document.documentElement.scrollWidth > innerWidth + 1 };
       })()` })).result.value;
-      assert.equal(publicLayout.fontSize, viewport.width === 1440 ? "68px" : "28px");
+      assert.equal(publicLayout.fontSize, viewport.width === 1440 ? "56px" : "32px");
       assert.equal(publicLayout.color, "rgb(15, 23, 41)");
       assert.ok(publicLayout.width > 200);
       assert.equal(publicLayout.overflow, false, "public page has no horizontal overflow");

@@ -72,23 +72,23 @@ export default function ResetPassword() {
                   <CheckCircle className="w-4 h-4 flex-shrink-0" />
                   <span>Your password has been reset successfully.</span>
                 </div>
-                <Link href="/login">
-                  <Button className="w-full" data-testid="link-login-after-reset">
+                <Button className="w-full" data-testid="link-login-after-reset" asChild>
+                  <Link href="/login">
                     Sign In
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
             ) : !token ? (
               <div className="space-y-4">
                 <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md" data-testid="text-reset-password-invalid">
                   Invalid or missing reset token. Please request a new password reset link.
                 </div>
-                <Link href="/forgot-password">
-                  <Button variant="outline" className="w-full" data-testid="link-forgot-password">
+                <Button variant="outline" className="w-full" data-testid="link-forgot-password" asChild>
+                  <Link href="/forgot-password">
                     <ArrowLeft className="w-4 h-4 mr-2" />
                     Request New Link
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">

@@ -1,9 +1,9 @@
 {
   "status": "passed",
   "identity": {
-    "sourceHead": "96c036f313ca0280cc466d95d804b9b12d4614b3"
+    "sourceHead": "6d2dafad027daffb420272d0d3c2b8b5918870c9"
   },
-  "fixture": "stage3b-e56097bd-0eb9-45b8-bd94-559c61a19bfb",
+  "fixture": "stage3b-3f203b33-6a7b-4edb-8ec9-cb43eb7c0bf5",
   "checks": [
     "Operator exposes 46 distinct selectable views (46)",
     "Operator view command-center stays on the Operator route (/dashboard/system-health)",
@@ -101,7 +101,7 @@
     "Operator view send-monitoring has no horizontal page overflow",
     "Operator view send-monitoring has no unnamed controls (0: )",
     "Operator view send-monitoring throws no uncaught exception ()",
-    "Operator view send-monitoring shows a useful state, not a blank page (1618 chars)",
+    "Operator view send-monitoring shows a useful state, not a blank page (1619 chars)",
     "Operator view silent-sequences stays on the Operator route (/dashboard/system-health)",
     "Operator view silent-sequences renders without the application error boundary",
     "Operator view silent-sequences keeps its view key in the URL (?tab=monitor&view=silent-sequences)",
@@ -309,7 +309,7 @@
     "Operator view worker-heartbeats has no horizontal page overflow",
     "Operator view worker-heartbeats has no unnamed controls (0: )",
     "Operator view worker-heartbeats throws no uncaught exception ()",
-    "Operator view worker-heartbeats shows a useful state, not a blank page (3339 chars)",
+    "Operator view worker-heartbeats shows a useful state, not a blank page (3182 chars)",
     "Operator view deleted-records stays on the Operator route (/dashboard/system-health)",
     "Operator view deleted-records renders without the application error boundary",
     "Operator view deleted-records keeps its view key in the URL (?tab=monitor&view=deleted-records)",
@@ -357,7 +357,7 @@
     "Operator view launch-readiness has no horizontal page overflow",
     "Operator view launch-readiness has no unnamed controls (0: )",
     "Operator view launch-readiness throws no uncaught exception ()",
-    "Operator view launch-readiness shows a useful state, not a blank page (5941 chars)",
+    "Operator view launch-readiness shows a useful state, not a blank page (5939 chars)",
     "Operator view data-quality stays on the Operator route (/dashboard/system-health)",
     "Operator view data-quality renders without the application error boundary",
     "Operator view data-quality keeps its view key in the URL (?tab=monitor&view=data-quality)",
@@ -420,7 +420,7 @@
     "Content blaze renders without the error boundary",
     "Content ?tab=blaze selects that child (tab-content-blaze)",
     "Content blaze has no overflow or unnamed controls (0: )",
-    "Blaze with an unregistered source says unavailable/not configured, not an empty list (Today Records Pipeline Inbox Work Merchant Operations Prospecting Campaigns Reports Administration Resources U stage3b-e56097bd-0eb9-45b8-bd94-559c61a19bfb-admi)",
+    "Blaze with an unregistered source says unavailable/not configured, not an empty list (Today Records Pipeline Inbox Work Merchant Operations Prospecting Campaigns Reports Administration Resources U stage3b-3f203b33-6a7b-4edb-8ec9-cb43eb7c0bf5-admi)",
     "Playbooks marketing renders without the error boundary",
     "Playbooks marketing exposes exactly one h1 (1)",
     "Playbooks growth renders without the error boundary",
@@ -592,7 +592,7 @@
     "light: /dashboard/admin-hub?tab=users headings, tabs and area navigation meet WCAG AA contrast ()",
     "light theme is applied on /dashboard/admin-hub?tab=permissions",
     "light: /dashboard/admin-hub?tab=permissions has no horizontal overflow",
-    "light: /dashboard/admin-hub?tab=permissions contrast measured on 2680 text elements",
+    "light: /dashboard/admin-hub?tab=permissions contrast measured on 2739 text elements",
     "light: /dashboard/admin-hub?tab=permissions headings, tabs and area navigation meet WCAG AA contrast ()",
     "light theme is applied on /dashboard/queue-holds",
     "light: /dashboard/queue-holds has no horizontal overflow",
@@ -628,7 +628,7 @@
     "dark: /dashboard/admin-hub?tab=users headings, tabs and area navigation meet WCAG AA contrast ()",
     "dark theme is applied on /dashboard/admin-hub?tab=permissions",
     "dark: /dashboard/admin-hub?tab=permissions has no horizontal overflow",
-    "dark: /dashboard/admin-hub?tab=permissions contrast measured on 2680 text elements",
+    "dark: /dashboard/admin-hub?tab=permissions contrast measured on 2739 text elements",
     "dark: /dashboard/admin-hub?tab=permissions headings, tabs and area navigation meet WCAG AA contrast ()",
     "dark theme is applied on /dashboard/queue-holds",
     "dark: /dashboard/queue-holds has no horizontal overflow",
@@ -847,7 +847,7 @@
         "overflow": false,
         "crashed": false,
         "exceptions": 0,
-        "textLength": 1618
+        "textLength": 1619
       },
       {
         "view": "silent-sequences",
@@ -1133,7 +1133,7 @@
         "overflow": false,
         "crashed": false,
         "exceptions": 0,
-        "textLength": 3339
+        "textLength": 3182
       },
       {
         "view": "deleted-records",
@@ -1199,7 +1199,7 @@
         "overflow": false,
         "crashed": false,
         "exceptions": 0,
-        "textLength": 5941
+        "textLength": 5939
       },
       {
         "view": "data-quality",
@@ -1297,7 +1297,7 @@
         "h1s": 1,
         "unnamed": 0,
         "overflow": false,
-        "sample": "Today Records Pipeline Inbox Work Merchant Operations Prospecting Campaigns Reports Administration Resources U stage3b-e56097bd-0eb9-45b8-bd94-559c61a19bfb-admin@example.test Dev Mode AI Advisor Accou"
+        "sample": "Today Records Pipeline Inbox Work Merchant Operations Prospecting Campaigns Reports Administration Resources U stage3b-3f203b33-6a7b-4edb-8ec9-cb43eb7c0bf5-admin@example.test Dev Mode AI Advisor Accou"
       },
       {
         "role": "admin",
@@ -1309,7 +1309,7 @@
         "h1s": 1,
         "unnamed": 0,
         "overflow": false,
-        "sample": "Today Records Pipeline Inbox Work Merchant Operations Prospecting Campaigns Reports Administration Resources U stage3b-e56097bd-0eb9-45b8-bd94-559c61a19bfb-admin@example.test Dev Mode AI Advisor Accou"
+        "sample": "Today Records Pipeline Inbox Work Merchant Operations Prospecting Campaigns Reports Administration Resources U stage3b-3f203b33-6a7b-4edb-8ec9-cb43eb7c0bf5-admin@example.test Dev Mode AI Advisor Accou"
       },
       {
         "role": "admin",
@@ -1318,10 +1318,10 @@
         "path": "/dashboard/content-hub",
         "search": "?tab=linkedin",
         "crashed": false,
-        "h1s": 2,
+        "h1s": 1,
         "unnamed": 0,
         "overflow": false,
-        "sample": "Today Records Pipeline Inbox Work Merchant Operations Prospecting Campaigns Reports Administration Resources U stage3b-e56097bd-0eb9-45b8-bd94-559c61a19bfb-admin@example.test Dev Mode AI Advisor Accou"
+        "sample": "Today Records Pipeline Inbox Work Merchant Operations Prospecting Campaigns Reports Administration Resources U stage3b-3f203b33-6a7b-4edb-8ec9-cb43eb7c0bf5-admin@example.test Dev Mode AI Advisor Accou"
       },
       {
         "role": "admin",
@@ -1330,10 +1330,10 @@
         "path": "/dashboard/content-hub",
         "search": "?tab=blaze",
         "crashed": false,
-        "h1s": 2,
+        "h1s": 1,
         "unnamed": 0,
         "overflow": false,
-        "sample": "Today Records Pipeline Inbox Work Merchant Operations Prospecting Campaigns Reports Administration Resources U stage3b-e56097bd-0eb9-45b8-bd94-559c61a19bfb-admin@example.test Dev Mode AI Advisor Accou"
+        "sample": "Today Records Pipeline Inbox Work Merchant Operations Prospecting Campaigns Reports Administration Resources U stage3b-3f203b33-6a7b-4edb-8ec9-cb43eb7c0bf5-admin@example.test Dev Mode AI Advisor Accou"
       },
       {
         "role": "admin",
@@ -1589,7 +1589,7 @@
           "worst": []
         },
         "/dashboard/admin-hub?tab=permissions": {
-          "measured": 2680,
+          "measured": 2739,
           "failures": 0,
           "skippedImageBackground": 0,
           "worst": []
@@ -1645,7 +1645,7 @@
           "worst": []
         },
         "/dashboard/admin-hub?tab=permissions": {
-          "measured": 2680,
+          "measured": 2739,
           "failures": 0,
           "skippedImageBackground": 0,
           "worst": []

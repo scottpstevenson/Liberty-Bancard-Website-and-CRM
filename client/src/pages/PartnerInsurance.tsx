@@ -225,7 +225,7 @@ export default function PartnerInsurance() {
         structuredData={[insuranceFaqJsonLd]}
       />
       <Navbar />
-      <main className="flex-grow pt-28">
+      <main className="flex-grow public-main-offset">
 
         {/* Hero */}
         <section className="bg-gradient-to-br from-primary/5 via-background to-background py-16 md:py-24 border-b border-border/30">
@@ -241,16 +241,16 @@ export default function PartnerInsurance() {
                 Insurance agents who serve small businesses are perfectly positioned to refer Liberty Bancard's cash discount and processing programs. Your clients want to reduce overhead — and eliminating processing fees is one of the fastest ways to do it. You earn 30% lifetime residuals for making the introduction.
               </p>
               <div className="flex flex-col sm:flex-row gap-3">
-                <Link href="/partners#apply">
-                  <Button size="lg" className="gap-2 w-full sm:w-auto" data-testid="button-ins-hero-apply">
+                <Button size="lg" className="gap-2 w-full sm:w-auto" data-testid="button-ins-hero-apply" asChild>
+                  <Link href="/partners#apply">
                     Apply as an Insurance Partner <ArrowRight className="w-4 h-4" />
-                  </Button>
-                </Link>
-                <a href="#calculator">
-                  <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto" data-testid="button-ins-hero-calculator">
+                  </Link>
+                </Button>
+                <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto" data-testid="button-ins-hero-calculator" asChild>
+                  <a href="#calculator">
                     <Calculator className="w-4 h-4" /> Estimate My Income
-                  </Button>
-                </a>
+                  </a>
+                </Button>
               </div>
             </div>
           </div>
@@ -434,16 +434,16 @@ export default function PartnerInsurance() {
               Apply as an Insurance Agent Partner today. We'll approve your application within 1 business day and send you a referral link and client conversation guide.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <Link href="/partners#apply">
-                <Button size="lg" variant="secondary" className="gap-2 w-full sm:w-auto" data-testid="button-ins-cta-apply">
+              <Button size="lg" variant="secondary" className="gap-2 w-full sm:w-auto" data-testid="button-ins-cta-apply" asChild>
+                <Link href="/partners#apply">
                   Apply as an Insurance Partner <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
-              <Link href="/partners">
-                <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto border-primary-foreground/30 text-primary-foreground hover:bg-primary-foreground/10" data-testid="button-ins-cta-full-program">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto border-primary-foreground/30 text-primary-foreground hover:bg-primary-foreground/10" data-testid="button-ins-cta-full-program" asChild>
+                <Link href="/partners">
                   View Full Partner Program
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </section>

@@ -207,7 +207,7 @@ export default function PartnerCPA() {
         structuredData={[cpaFaqJsonLd]}
       />
       <Navbar />
-      <main className="flex-grow pt-28">
+      <main className="flex-grow public-main-offset">
 
         {/* Hero */}
         <section className="bg-gradient-to-br from-primary/5 via-background to-background py-16 md:py-24 border-b border-border/30">
@@ -223,16 +223,16 @@ export default function PartnerCPA() {
                 Processing fees are often the largest overlooked cost on your clients' P&Ls. You already review their financials — now you can do something about it, at no effort to you, and earn 30% lifetime residual income on every client you refer.
               </p>
               <div className="flex flex-col sm:flex-row gap-3">
-                <Link href="/partners#apply">
-                  <Button size="lg" className="gap-2 w-full sm:w-auto" data-testid="button-cpa-hero-apply">
+                <Button size="lg" className="gap-2 w-full sm:w-auto" data-testid="button-cpa-hero-apply" asChild>
+                  <Link href="/partners#apply">
                     Apply as a CPA Partner <ArrowRight className="w-4 h-4" />
-                  </Button>
-                </Link>
-                <a href="#calculator">
-                  <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto" data-testid="button-cpa-hero-calculator">
+                  </Link>
+                </Button>
+                <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto" data-testid="button-cpa-hero-calculator" asChild>
+                  <a href="#calculator">
                     <Calculator className="w-4 h-4" /> Estimate My Income
-                  </Button>
-                </a>
+                  </a>
+                </Button>
               </div>
             </div>
           </div>
@@ -401,16 +401,16 @@ export default function PartnerCPA() {
               Apply as a CPA Partner today. We'll review your application within 1 business day and get you set up with a referral link and client disclosure template.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <Link href="/partners#apply">
-                <Button size="lg" variant="secondary" className="gap-2 w-full sm:w-auto" data-testid="button-cpa-cta-apply">
+              <Button size="lg" variant="secondary" className="gap-2 w-full sm:w-auto" data-testid="button-cpa-cta-apply" asChild>
+                <Link href="/partners#apply">
                   Apply as a CPA Partner <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
-              <Link href="/partners">
-                <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto border-primary-foreground/30 text-primary-foreground hover:bg-primary-foreground/10" data-testid="button-cpa-cta-full-program">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto border-primary-foreground/30 text-primary-foreground hover:bg-primary-foreground/10" data-testid="button-cpa-cta-full-program" asChild>
+                <Link href="/partners">
                   View Full Partner Program
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </section>

@@ -15,12 +15,13 @@ interface PewcCheckboxProps {
  */
 export function PewcCheckbox({ checked, onCheckedChange, id = "pewc-consent" }: PewcCheckboxProps) {
   return (
-    <div className="flex items-start gap-3 pt-2" data-testid="container-pewc-consent">
+    <div className="flex min-h-11 items-start gap-3 pt-2" data-testid="container-pewc-consent">
       <Checkbox
         id={id}
         checked={checked}
         onCheckedChange={(v) => onCheckedChange(v === true)}
         data-testid="checkbox-pewc-consent"
+        // The shared checkbox stays 16px (CRM uses it); the public shell extends only its hit area (index.css).
         className="mt-0.5 shrink-0"
       />
       <label htmlFor={id} className="text-xs text-muted-foreground leading-relaxed cursor-pointer select-none">

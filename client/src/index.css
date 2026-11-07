@@ -3,8 +3,27 @@
 @import "./styles/tailwind-legacy-preflight.css" layer(base);
 @import "tailwindcss/utilities.css" layer(utilities);
 @import "./styles/crm-theme.css";
+@import "./styles/public-contract.css";
 @config "../../tailwind.config.ts";
 @custom-variant hover (&:hover);
+/* Public display face: self-hosted latin subset of Source Serif 4 (variable weight, SIL OFL 1.1 —
+   see /fonts/SourceSerif4-OFL.txt). Body faces (IBM Plex Sans) are declared in styles/crm-theme.css. */
+@font-face {
+  font-family: 'Source Serif 4';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/source-serif-4-latin-wght.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* `dark:` utilities follow the `.dark` class on <html> everywhere EXCEPT inside
+   the public marketing shell (`.marketing-theme`), which is deliberately a light
+   surface. Without this guard an OS/stored dark preference leaks emerald/navy
+   dark pairs into the forced-light public pages. Portalled public content
+   (menu sheet, dialogs, selects) is covered because PublicThemeShell also marks
+   <body> while a public route is mounted. CRM routes never carry the marker. */
+@custom-variant dark (&:is(.dark *):not(:is(.marketing-theme, .marketing-theme *)));
 
 @theme {
   --default-ring-width: 3px;
@@ -13,7 +32,9 @@
 
 :root {
   /* Mobile layout tokens — consumed by scroll offsets and safe-area clearance */
-  --mobile-header-height: 76px;
+  /* Measured public Navbar height (inner 72px / 64px + 1px border). Page offsets and anchor
+     margins derive from it; keep in step with Navbar.tsx. */
+  --public-header-height: 73px;
   --mobile-dock-height: 72px;
 
   /* Corporate Navy & Trustworthy Blue Palette */
@@ -143,16 +164,16 @@
   --secondary: 210 40% 96.1%;
   --secondary-foreground: 222 47% 11%;
   --muted: 210 40% 96.1%;
-  --muted-foreground: 215 16% 47%;
+  --muted-foreground: 215 19% 36%;
   --accent: 221 78% 48%;
   --accent-foreground: 210 40% 98%;
-  --destructive: 0 84.2% 60.2%;
+  --destructive: 0 72% 45%;
   --destructive-foreground: 210 40% 98%;
   --border: 214.3 31.8% 91.4%;
   --input: 214.3 31.8% 91.4%;
   --ring: 222 47% 11%;
   --brand-red: 0 72% 47%;
-  --stat-positive: 152 52% 36%;
+  --stat-positive: 152 55% 26%;
   --stat-negative: 0 66% 48%;
   --shadow-card: 0 1px 2px -1px hsl(222 47% 11% / 0.08), 0 2px 6px -1px hsl(222 47% 11% / 0.06);
   --shadow-elevated: 0 12px 32px -12px hsl(222 47% 11% / 0.28), 0 4px 10px -4px hsl(222 47% 11% / 0.12);
@@ -180,16 +201,16 @@
   --secondary: 210 40% 96.1%;
   --secondary-foreground: 222 47% 11%;
   --muted: 210 40% 96.1%;
-  --muted-foreground: 215 16% 47%;
+  --muted-foreground: 215 19% 36%;
   --accent: 221 78% 48%;
   --accent-foreground: 210 40% 98%;
-  --destructive: 0 84.2% 60.2%;
+  --destructive: 0 72% 45%;
   --destructive-foreground: 210 40% 98%;
   --border: 214.3 31.8% 91.4%;
   --input: 214.3 31.8% 91.4%;
   --ring: 222 47% 11%;
   --brand-red: 0 72% 47%;
-  --stat-positive: 152 52% 36%;
+  --stat-positive: 152 55% 26%;
   --stat-negative: 0 66% 48%;
   --shadow-card: 0 1px 2px -1px hsl(222 47% 11% / 0.08), 0 2px 6px -1px hsl(222 47% 11% / 0.06);
   --shadow-elevated: 0 12px 32px -12px hsl(222 47% 11% / 0.28), 0 4px 10px -4px hsl(222 47% 11% / 0.12);
@@ -204,6 +225,70 @@
   color-scheme: light;
 }
 
+/* Variables alone do not repaint inherited properties. Under a dark OS or
+   stored preference <body> computes near-white text on navy; a wrapper that only
+   resets custom properties would keep that inherited colour and a transparent
+   canvas (white-on-cream FAQ, navy-on-navy comparison strip). Assert the
+   foreground AND canvas explicitly, on the wrapper and on <body> while a public
+   route is mounted (PublicThemeShell toggles the body marker and the html
+   `public-surface` canvas class, so portalled sheets/dialogs/selects render in
+   the same light context). Public pages only; CRM never mounts the shell. */
+.marketing-theme,
+.dark .marketing-theme {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+/* Stamps and neutral chips sit on light cards: full-strength ink, not 65% alpha. */
+.marketing-theme .audit-stamp {
+  color: hsl(var(--brand-red));
+}
+html.public-surface,
+html.dark.public-surface {
+  color-scheme: light;
+  background-color: hsl(40 33% 98%);
+}
+
+/* Public touch targets: the product target is 44x44 CSS px below the desktop
+   breakpoint. Scoped to the public shell (CRM never mounts .marketing-theme) and
+   applied as a minimum hit area, not a restyle: shared Button sizes (min-h-8/9/10)
+   stretch to 44px, and standalone text links (.public-tap, footer lists, the
+   list/breadcrumb link rows) get a 44px row. Inline links inside running text stay
+   inline and are exempt. */
+@media (max-width: 1023px) {
+  .marketing-theme :is(.min-h-8, .min-h-9, .min-h-10):is(button, a, [role="button"], [role="tab"]) {
+    min-height: 2.75rem;
+  }
+  .marketing-theme .public-tap {
+    min-height: 2.75rem;
+  }
+  .marketing-theme footer li > a {
+    display: flex;
+    align-items: center;
+    min-height: 2.75rem;
+  }
+  /* Hit-area extension for isolated one-off links and the shared checkbox/radio. A hit area that
+     overlaps a later positioned sibling loses the overlap, so rows of links use .public-tap. */
+  .marketing-theme .public-hit,
+  .marketing-theme button[role="checkbox"],
+  .marketing-theme button[role="radio"] {
+    position: relative;
+  }
+  .marketing-theme .public-hit::after {
+    content: "";
+    position: absolute;
+    inset: -16px -8px;
+  }
+  .marketing-theme button[role="checkbox"]::after,
+  .marketing-theme button[role="radio"]::after {
+    content: "";
+    position: absolute;
+    inset: -14px;
+  }
+  .marketing-theme button[role="combobox"] {
+    min-height: 2.75rem;
+  }
+}
+
 @layer base {
   * {
     @apply border-border;
@@ -214,9 +299,12 @@
   h1, h2, h3, h4, h5, h6 {
     @apply font-display tracking-tight font-bold;
   }
-  /* Marketing surfaces opt into the Source Serif display face. Operational
-     UI (dashboards, portals) is unaffected and stays on IBM Plex Sans. */
-  .marketing-surface :is(h1, h2, h3) {
+  /* Public display moments: the page-title h1 on marketing surfaces (when it does not set its own
+     font utility) and anything explicitly marked .display-serif (pull quotes). h2/h3, labels,
+     accordion triggers and form controls stay on IBM Plex Sans. Operational UI (dashboards,
+     portals) is unaffected. */
+  .marketing-surface h1,
+  .display-serif {
     font-family: var(--font-marketing-display);
     letter-spacing: -0.01em;
   }
@@ -633,16 +721,37 @@
   }
 }
 
-/* ── Anchor / programmatic scroll clearance for sticky header ──────── */
-/* Mobile (<768px): compact nav only ~72px. md+: phone bar + nav ~96px. */
-@media (max-width: 767px) {
-  section[data-testid] {
-    scroll-margin-top: 84px;
+/* ── Anchor / programmatic scroll clearance for the fixed public Navbar ─────── */
+/* Navbar is 72px + border below 768px and 64px + border from 768px up (no phone bar). */
+@media (min-width: 768px) {
+  :root {
+    --public-header-height: 65px;
   }
 }
 
-@media (min-width: 768px) {
-  section[data-testid] {
-    scroll-margin-top: 96px;
-  }
+section[data-testid] {
+  scroll-margin-top: calc(var(--public-header-height) + 12px);
+}
+
+/* Offset for a public page's <main> under the fixed Navbar: header height plus 2rem. */
+.public-main-offset {
+  padding-top: calc(var(--public-header-height) + 2rem);
+}
+
+/* ── Public overlay coordination (chat launcher vs. consent/dialogs/dock) ───────
+   client/src/lib/public-overlay.ts publishes active public surfaces on <html> as
+   data-public-overlay. The vendor chat widget cannot be repositioned (its offset
+   is inline inside the vendor shadow root), so while a higher-priority surface is
+   active we hide the vendor host element. visibility/opacity/pointer-events all
+   inherit into the vendor's shadow tree, so the launcher AND its greeting stop
+   painting and stop intercepting taps without touching vendor internals. An open
+   chat panel (data-public-chat-active) is never hidden. The widget is only hidden,
+   never removed; the sticky dock carries a "Chat with us" entry while it is hidden. */
+html[data-public-overlay]:not([data-public-chat-active])[data-public-overlay~="consent"] chat-widget,
+html[data-public-overlay]:not([data-public-chat-active])[data-public-overlay~="dialog"] chat-widget,
+html[data-public-overlay]:not([data-public-chat-active])[data-public-overlay~="field"] chat-widget,
+html[data-public-overlay]:not([data-public-chat-active])[data-public-overlay~="dock"] chat-widget {
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }

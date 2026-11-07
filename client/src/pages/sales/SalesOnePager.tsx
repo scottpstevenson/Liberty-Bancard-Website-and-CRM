@@ -37,13 +37,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import verticalRestaurant from "@assets/images/vertical-restaurant.jpg";
-import verticalRetail from "@assets/images/vertical-retail.jpg";
-import verticalMedical from "@assets/images/vertical-medical.jpg";
-import verticalHomeServices from "@assets/images/vertical-home-services.jpg";
-import heroAnalytics from "@assets/images/hero-analytics.jpg";
-import zeroPercent from "@assets/images/zero-percent.jpg";
-import compareRates from "@assets/images/compare-rates.jpg";
+import verticalRestaurant from "@/assets/images/vertical-restaurant.jpg";
+import verticalRetail from "@/assets/images/vertical-retail.jpg";
+import verticalMedical from "@/assets/images/vertical-medical.jpg";
+import verticalHomeServices from "@/assets/images/vertical-home-services.jpg";
+import heroAnalytics from "@/assets/images/hero-analytics.jpg";
+import zeroPercent from "@/assets/images/zero-percent.jpg";
+import compareRates from "@/assets/images/compare-rates.jpg";
 
 interface PainPoint {
   icon: LucideIcon;
@@ -639,7 +639,7 @@ export default function SalesOnePager() {
           noindex={true}
         />
         <Navbar />
-        <main className="flex-grow pt-28">
+        <main className="flex-grow public-main-offset">
           <section className="relative overflow-hidden" data-testid="section-onepager-index-hero">
             <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
             <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-14 lg:py-18">
@@ -686,7 +686,7 @@ export default function SalesOnePager() {
           noindex={true}
         />
         <Navbar />
-        <main className="flex-grow pt-28 flex items-center justify-center">
+        <main className="flex-grow public-main-offset flex items-center justify-center">
           <div className="text-center px-4">
             <h1 className="text-3xl font-display font-bold text-foreground mb-4" data-testid="text-not-found-heading">
               Page Not Found
@@ -694,9 +694,9 @@ export default function SalesOnePager() {
             <p className="text-muted-foreground mb-6" data-testid="text-not-found-message">
               The industry one-pager you're looking for doesn't exist.
             </p>
-            <Link href="/sales/one-pager">
-              <Button data-testid="button-go-home">View All One-Pagers</Button>
-            </Link>
+            <Button data-testid="button-go-home" asChild>
+              <Link href="/sales/one-pager">View All One-Pagers</Link>
+            </Button>
           </div>
         </main>
         <Footer />
@@ -716,7 +716,7 @@ export default function SalesOnePager() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28">
+      <main className="flex-grow public-main-offset">
         <section className="relative overflow-hidden">
           <div className="absolute inset-0">
             <img
@@ -924,20 +924,20 @@ export default function SalesOnePager() {
               {data.ctaSubline}
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link href="/upload-statement">
-                <Button variant="secondary" className="gap-2" data-testid="button-cta-upload">
+              <Button variant="secondary" className="gap-2" data-testid="button-cta-upload" asChild>
+                <Link href="/upload-statement">
                   <Upload className="w-4 h-4" />
                   Upload Statement
-                </Button>
-              </Link>
-              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="button-cta-call">
-                <Button variant="outline" className="gap-2 bg-white/10 border-white/20 text-white backdrop-blur-sm">
+                </Link>
+              </Button>
+              <Button variant="outline" className="gap-2 bg-white/10 border-white/20 text-white backdrop-blur-sm" asChild>
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="button-cta-call">
                   <Phone className="w-4 h-4" />
                   Get My Free Analysis
-                </Button>
-              </a>
+                </a>
+              </Button>
             </div>
-            <p className="text-primary-foreground/50 text-xs mt-6" data-testid="text-cta-disclaimer">
+            <p className="text-primary-foreground/70 text-xs mt-6" data-testid="text-cta-disclaimer">
               All savings estimates require a statement review. Eligibility, underwriting, and card brand rules apply.
             </p>
           </div>

@@ -122,13 +122,13 @@ try {
         overflow:document.documentElement.scrollWidth>innerWidth+1}:null})()`);
     assert.ok(home,"React mounted the actual public Home");
     assert.equal(home.fallback,true,"real SSR head stylesheet survives React mounting");
-    assert.equal(home.font,width===1440?"68px":"28px");assert.equal(home.overflow,false);
+    assert.equal(home.font,width===1440?"56px":"32px");assert.equal(home.overflow,false);
     for(let attempt=0;attempt<100;attempt++){
       if(await browser.evaluate("Number(getComputedStyle(document.querySelector('[data-testid=\"text-hero-heading\"]')).opacity)>.99"))break;
       await new Promise(resolve=>setTimeout(resolve,100));
     }
     assert.equal(await browser.evaluate("Number(getComputedStyle(document.querySelector('[data-testid=\"text-hero-heading\"]')).opacity)>.99"),true,
-      "hydrated public hero becomes visible after its real entrance animation");
+      "hydrated public hero is visible with no opacity-gated entrance");
     await browser.call("Input.dispatchKeyEvent",{type:"keyDown",key:"Tab",code:"Tab",windowsVirtualKeyCode:9});
     await browser.call("Input.dispatchKeyEvent",{type:"keyUp",key:"Tab",code:"Tab",windowsVirtualKeyCode:9});
     assert.ok(await browser.evaluate("document.activeElement.tagName!=='BODY'"),"public keyboard focus is usable");

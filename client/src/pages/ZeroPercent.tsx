@@ -35,8 +35,8 @@ import {
 import { PHONE_TEL, PHONE_NUMBER, CALENDAR_URL } from "@/lib/constants";
 import { trackCashDiscountReviewClick, trackSurchargeReviewClick } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
-import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
-import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
+import imgCloverFlex3 from "@/assets/images/terminal-clover-flex-3.png";
+import imgPaxA920 from "@/assets/images/terminal-pax-a920.png";
 
 const faqItems = [
   {
@@ -101,14 +101,14 @@ export default function ZeroPercent() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="flex-grow public-main-offset" ref={containerRef}>
 
         {/* SECTION 1: Hero — The Promise */}
         <section className="relative overflow-hidden" data-testid="section-zero-hero">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
           <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
           <div className="glow-blob glow-blob-2 w-48 h-48 bg-blue-600 bottom-10 left-1/4" />
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
+          <div className="public-container relative py-10 lg:py-20">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
                 <div className="inline-flex items-center gap-2 bg-emerald-500/20 text-emerald-300 text-sm font-semibold px-3 py-1.5 rounded-md mb-6 border border-emerald-500/30" data-testid="badge-liberty-zero-hero">
@@ -116,7 +116,7 @@ export default function ZeroPercent() {
                   Cash Discount &amp; Surcharging
                 </div>
                 <h1
-                  className="text-4xl md:text-5xl font-display font-bold text-white leading-tight mb-6"
+                  className="public-h1 font-display font-bold text-white mb-6"
                   data-testid="text-zero-heading"
                 >
                   Stop Paying to Process Cards.<br /><span className="text-sky-400">We'll find your legal path to zero fees — and keep you compliant.</span>
@@ -131,22 +131,18 @@ export default function ZeroPercent() {
                   For a merchant processing $10,000/month, that's $250–$350 back in your pocket. Every month.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
-                  <Link
-                    href="/upload-statement"
-                    data-testid="link-zero-primary-cta"
-                    onClick={() => trackCashDiscountReviewClick({ page: "/0-percent-processing", ctaLabel: "Check Eligibility" })}
-                  >
-                    <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
+                  <Button size="lg" className="public-cta gap-2 bg-sky-400 border-sky-400 text-slate-950 hover:bg-sky-300" asChild>
+                    <Link href="/upload-statement" data-testid="link-zero-primary-cta" onClick={() => trackCashDiscountReviewClick({ page: "/0-percent-processing", ctaLabel: "Check Eligibility" })}>
                       <Upload className="w-4 h-4" />
                       Check Eligibility — Free Review
-                    </Button>
-                  </Link>
-                  <a href={PHONE_TEL} data-testid="link-zero-secondary-cta" onClick={() => trackPhoneCallClick({ sourcePage: "/0-percent-processing" })}>
-                    <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+                    </Link>
+                  </Button>
+                  <Button size="lg" variant="outline" className="public-cta gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white" asChild>
+                    <a href={PHONE_TEL} data-testid="link-zero-secondary-cta" onClick={() => trackPhoneCallClick({ sourcePage: "/0-percent-processing" })}>
                       <Phone className="w-4 h-4" />
                       Talk to a Specialist
-                    </Button>
-                  </a>
+                    </a>
+                  </Button>
                 </div>
                 <p
                   className="text-sm text-white/60 mt-4 max-w-lg"
@@ -155,7 +151,7 @@ export default function ZeroPercent() {
                   Program availability depends on business type, state rules, card-network rules, disclosure requirements, and underwriting.
                 </p>
                 <p
-                  className="text-xs text-white/40 mt-2"
+                  className="text-xs text-white/70 mt-2"
                   data-testid="text-zero-microcopy"
                 >
                   Eligibility confirmed via statement review.
@@ -179,7 +175,7 @@ export default function ZeroPercent() {
                         </div>
                       ))}
                     </div>
-                    <p className="text-[10px] text-white/30">*Illustrative example. Actual results depend on statement review and eligibility.</p>
+                    <p className="text-[10px] text-white/70">*Illustrative example. Actual results depend on statement review and eligibility.</p>
                   </CardContent>
                 </Card>
               </div>
@@ -200,10 +196,10 @@ export default function ZeroPercent() {
         </div>
 
         {/* SECTION 2: How It Works */}
-        <section className="bg-muted py-20" data-testid="section-how-it-works">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-muted py-10" data-testid="section-how-it-works">
+          <div className="public-container">
             <div className="reveal text-center mb-12">
-              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-how-heading">
+              <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-how-heading">
                 Two Ways to Eliminate Your Card Processing Cost
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
@@ -214,7 +210,7 @@ export default function ZeroPercent() {
               <Card data-testid="card-approach-cash-discount">
                 <CardContent className="p-8">
                   <div className="w-12 h-12 rounded-md bg-emerald-500/10 flex items-center justify-center mb-4">
-                    <Scale className="w-6 h-6 text-emerald-600" />
+                    <Scale className="w-6 h-6 text-emerald-700" />
                   </div>
                   <div className="flex items-center gap-2 mb-3">
                     <h3 className="text-xl font-display font-bold text-foreground">Cash Discount</h3>
@@ -274,10 +270,10 @@ export default function ZeroPercent() {
         </section>
 
         {/* SECTION 3: Who Qualifies */}
-        <section className="bg-background py-20" data-testid="section-who-qualifies">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-background py-10" data-testid="section-who-qualifies">
+          <div className="public-container">
             <div className="reveal max-w-3xl mx-auto">
-              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-qualify-heading">
+              <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-qualify-heading">
                 Is This a Good Fit for Your Business?
               </h2>
               <p className="text-muted-foreground mb-8 leading-relaxed">
@@ -309,22 +305,22 @@ export default function ZeroPercent() {
                   </li>
                 ))}
               </ul>
-              <Link href="/upload-statement" data-testid="link-qualify-cta">
-                <Button className="gap-2">
+              <Button className="gap-2" asChild>
+                <Link href="/upload-statement" data-testid="link-qualify-cta">
                   <Upload className="w-4 h-4" />
                   Check My Eligibility
                   <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </section>
 
         {/* SECTION 4: Compliance — Liberty Handles It All */}
-        <section className="bg-muted py-20" data-testid="section-compliance">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-muted py-10" data-testid="section-compliance">
+          <div className="public-container">
             <div className="reveal text-center mb-12">
-              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-compliance-heading">
+              <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-compliance-heading">
                 Compliance Is Our Job, Not Yours
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
@@ -369,12 +365,12 @@ export default function ZeroPercent() {
         </section>
 
         {/* SECTION 5: The Math — Real Example */}
-        <section className="relative overflow-hidden py-20" data-testid="section-math-example">
+        <section className="relative overflow-hidden py-10" data-testid="section-math-example">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-sky-500" />
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="public-container relative">
             <div className="text-center mb-12">
-              <h2 className="text-3xl md:text-4xl font-display font-bold text-white mb-4" data-testid="text-math-heading">
+              <h2 className="public-h2 font-display font-bold text-white mb-4" data-testid="text-math-heading">
                 The Math, Plainly
               </h2>
               <p className="text-white/70 max-w-xl mx-auto">
@@ -387,7 +383,7 @@ export default function ZeroPercent() {
                 <CardContent className="p-8">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div>
-                      <div className="text-sm font-semibold text-white/50 uppercase tracking-wider mb-4">WITHOUT OUR PROGRAM</div>
+                      <div className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-4">WITHOUT OUR PROGRAM</div>
                       <div className="space-y-3">
                         <div className="flex justify-between text-sm border-b border-white/10 pb-2">
                           <span className="text-white/70">Monthly card volume</span>
@@ -431,7 +427,7 @@ export default function ZeroPercent() {
                   </div>
                   <div className="mt-6 pt-6 border-t border-white/10 text-center">
                     <div className="text-3xl font-display font-bold text-emerald-400 mb-1">$3,240/year saved</div>
-                    <p className="text-sm text-white/50">Based on $10,000/month at 2.7% effective rate. Your actual savings depend on your statement.</p>
+                    <p className="text-sm text-white/70">Based on $10,000/month at 2.7% effective rate. Your actual savings depend on your statement.</p>
                   </div>
                 </CardContent>
               </Card>
@@ -445,11 +441,11 @@ export default function ZeroPercent() {
                   <div key={i} className="bg-white/5 border border-white/10 rounded-lg p-4 text-center" data-testid={`math-example-${i}`}>
                     <div className="text-sm text-white/60 mb-1">{row.volume} volume</div>
                     <div className="text-xl font-display font-bold text-emerald-400">{row.savings}</div>
-                    <div className="text-xs text-white/40 mt-1">potential annual savings</div>
+                    <div className="text-xs text-white/70 mt-1">potential annual savings</div>
                   </div>
                 ))}
               </div>
-              <p className="text-center text-xs text-white/30">
+              <p className="text-center text-xs text-white/70">
                 *Illustrative estimates based on ~2.7% effective rate. Actual results depend on your statement, card mix, and underwriting. No savings claims without review.
               </p>
             </div>
@@ -457,8 +453,8 @@ export default function ZeroPercent() {
         </section>
 
         {/* SECTION 6: Implementation & Terminal */}
-        <section className="bg-background py-20" data-testid="section-terminal-equipment">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-background py-10" data-testid="section-terminal-equipment">
+          <div className="public-container">
             <div className="reveal max-w-5xl mx-auto">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
                 <div className="flex flex-col gap-4 items-center order-2 md:order-1">
@@ -466,7 +462,7 @@ export default function ZeroPercent() {
                   <img src={imgPaxA920} alt="PAX A920 smart payment terminal with compliant surcharging" className="w-full max-w-xs rounded-md object-cover" data-testid="img-zero-terminal-tap" />
                 </div>
                 <div className="order-1 md:order-2">
-                  <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-terminal-heading">
+                  <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-terminal-heading">
                     Ready to Go in 48 Hours
                   </h2>
                   <p className="text-muted-foreground mb-6 leading-relaxed" data-testid="text-terminal-description">
@@ -488,19 +484,19 @@ export default function ZeroPercent() {
                     ))}
                   </ul>
                   <div className="flex flex-col sm:flex-row gap-3">
-                    <Link href="/upload-statement" data-testid="link-zero-terminal-cta">
-                      <Button className="gap-2">
+                    <Button className="gap-2" asChild>
+                      <Link href="/upload-statement" data-testid="link-zero-terminal-cta">
                         <Upload className="w-4 h-4" />
                         Upload Statement
                         <ArrowRight className="w-4 h-4" />
-                      </Button>
-                    </Link>
-                    <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-zero-call-cta" onClick={() => trackPhoneCallClick({ sourcePage: "/0-percent-processing" })}>
-                      <Button variant="outline" className="gap-2">
+                      </Link>
+                    </Button>
+                    <Button variant="outline" className="gap-2" asChild>
+                      <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-zero-call-cta" onClick={() => trackPhoneCallClick({ sourcePage: "/0-percent-processing" })}>
                         <Phone className="w-4 h-4" />
                         Call {PHONE_NUMBER}
-                      </Button>
-                    </a>
+                      </a>
+                    </Button>
                   </div>
                   <p className="text-xs text-muted-foreground mt-4">*Free terminal placement requires approved account and meets minimum processing requirements.</p>
                 </div>
@@ -510,11 +506,11 @@ export default function ZeroPercent() {
         </section>
 
         {/* FAQ */}
-        <section className="bg-muted py-20" data-testid="section-zero-faq">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-muted py-10" data-testid="section-zero-faq">
+          <div className="public-container">
             <div className="reveal max-w-3xl mx-auto">
               <h2
-                className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8"
+                className="public-h2 font-display font-bold text-foreground mb-8"
                 data-testid="text-zero-faq-heading"
               >
                 Cash Discount &amp; Surcharging — Common Questions
@@ -539,23 +535,23 @@ export default function ZeroPercent() {
                 ))}
               </Accordion>
               <div className="mt-8">
-                <Link href="/upload-statement" data-testid="link-faq-cta">
-                  <Button className="gap-2">
+                <Button className="gap-2" asChild>
+                  <Link href="/upload-statement" data-testid="link-faq-cta">
                     <Upload className="w-4 h-4" />
                     Check Eligibility — Free Review
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
             </div>
           </div>
         </section>
 
         {/* Final CTA */}
-        <section className="relative overflow-hidden py-20" data-testid="section-zero-final-cta">
+        <section className="relative overflow-hidden py-10" data-testid="section-zero-final-cta">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(221,83%,20%)] to-[hsl(222,47%,8%)]" />
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <div className="public-container relative text-center">
             <h2
-              className="text-3xl md:text-4xl font-display font-bold text-white mb-4"
+              className="public-h2 font-display font-bold text-white mb-4"
               data-testid="text-zero-final-cta-heading"
             >
               Ready to Reduce Your Processing Cost to $0?
@@ -567,20 +563,20 @@ export default function ZeroPercent() {
               Upload your statement and we'll confirm eligibility, show you the math, and set everything up — signage, receipts, and staff scripts included.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <Link href="/upload-statement" data-testid="link-zero-final-upload">
-                <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
+              <Button size="lg" className="public-cta gap-2 bg-sky-400 border-sky-400 text-slate-950 hover:bg-sky-300" asChild>
+                <Link href="/upload-statement" data-testid="link-zero-final-upload">
                   <Upload className="w-4 h-4" />
                   Upload Statement — Check Eligibility
-                </Button>
-              </Link>
-              <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-zero-final-call" onClick={() => trackPhoneCallClick({ sourcePage: "/0-percent-processing" })}>
-                <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="public-cta gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white" asChild>
+                <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-zero-final-call" onClick={() => trackPhoneCallClick({ sourcePage: "/0-percent-processing" })}>
                   <Phone className="w-4 h-4" />
                   Call {PHONE_NUMBER}
-                </Button>
-              </a>
+                </a>
+              </Button>
             </div>
-            <p className="text-xs text-white/30 mt-6 max-w-xl mx-auto">
+            <p className="text-xs text-white/70 mt-6 max-w-xl mx-auto">
               Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
             </p>
           </div>

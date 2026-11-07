@@ -424,13 +424,13 @@ export default function CompareVs() {
     return (
       <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <Navbar />
-        <main className="flex-grow pt-28 flex items-center justify-center">
+        <main className="flex-grow public-main-offset flex items-center justify-center">
           <div className="text-center px-4">
             <h1 className="text-3xl font-display font-bold text-foreground mb-4" data-testid="text-not-found">Comparison Not Found</h1>
             <p className="text-muted-foreground mb-6">We don't have a comparison page for that processor yet.</p>
-            <Link href="/compare-rates" data-testid="link-back-compare">
-              <Button>View All Comparisons</Button>
-            </Link>
+            <Button asChild>
+              <Link href="/compare-rates" data-testid="link-back-compare">View All Comparisons</Link>
+            </Button>
           </div>
         </main>
         <Footer />
@@ -498,8 +498,8 @@ export default function CompareVs() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+      <main className="flex-grow public-main-offset" ref={containerRef}>
+        <div className="public-container pt-4">
           <Breadcrumbs
             items={[
               { name: "Compare", path: "/compare-rates" },
@@ -509,13 +509,13 @@ export default function CompareVs() {
         </div>
         <section className="relative overflow-hidden" data-testid="section-vs-hero">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20">
+          <div className="public-container relative py-10 lg:py-20">
             <div className="text-center max-w-3xl mx-auto">
               <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm text-white/90 text-sm font-medium px-3 py-1.5 rounded-md mb-6 border border-white/10" data-testid="text-vs-badge">
                 <BarChart3 className="w-4 h-4" />
                 Head-to-Head Comparison
               </div>
-              <h1 className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-white mb-4" data-testid="text-vs-heading">
+              <h1 className="public-h1 font-display font-bold text-white mb-4" data-testid="text-vs-heading">
                 Liberty Bancard vs {data.name}
               </h1>
               <p className="text-base text-white/70 mb-2" data-testid="text-vs-tagline">
@@ -525,24 +525,24 @@ export default function CompareVs() {
                 {data.heroDescription}
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-                <Link href={`/upload-statement?offer=beat-${data.slug}`} data-testid="link-vs-hero-upload" onClick={() => trackStatementUploadCtaClick({ page: `/compare/${data.slug}`, ctaLabel: "Upload Statement - Free Review", competitor: data.slug })}>
-                  <Button size="lg" className="gap-2 bg-white text-primary border-white">
+                <Button size="lg" className="public-cta gap-2 bg-white text-primary border-white" asChild>
+                  <Link href={`/upload-statement?offer=beat-${data.slug}`} data-testid="link-vs-hero-upload" onClick={() => trackStatementUploadCtaClick({ page: `/compare/${data.slug}`, ctaLabel: "Upload Statement - Free Review", competitor: data.slug })}>
                     <Upload className="w-4 h-4" />
                     Upload Statement - Free Review
-                  </Button>
-                </Link>
-                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-vs-hero-book" onClick={() => trackBookingCtaClick({ page: `/compare/${data.slug}`, ctaLabel: "Book a 10-Min Call", ctaLocation: "hero", competitor: data.slug })}>
-                  <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+                  </Link>
+                </Button>
+                <Button size="lg" variant="outline" className="public-cta gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white" asChild>
+                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-vs-hero-book" onClick={() => trackBookingCtaClick({ page: `/compare/${data.slug}`, ctaLabel: "Book a review call", ctaLocation: "hero", competitor: data.slug })}>
                     <Calendar className="w-4 h-4" />
-                    Book a 10-Min Call
-                  </Button>
-                </a>
-                <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-vs-hero-phone" onClick={() => trackPhoneCallClick({})}>
-                  <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20">
+                    Book a review call
+                  </a>
+                </Button>
+                <Button size="lg" variant="ghost" className="public-cta gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20" asChild>
+                  <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-vs-hero-phone" onClick={() => trackPhoneCallClick({})}>
                     <Phone className="w-4 h-4" />
                     {PHONE_NUMBER}
-                  </Button>
-                </a>
+                  </a>
+                </Button>
                 <Button
                   size="lg"
                   variant="ghost"
@@ -553,7 +553,7 @@ export default function CompareVs() {
                   {copied ? <><Check className="w-4 h-4 text-green-400" /> Copied!</> : <><Link2 className="w-4 h-4" /> Share This Page</>}
                 </Button>
               </div>
-              <p className="text-xs text-white/30 mt-4 max-w-xl mx-auto">
+              <p className="text-xs text-white/70 mt-4 max-w-xl mx-auto">
                 Actual savings depend on your statement, card mix, volume, and eligibility. No savings claims without a statement review.
               </p>
             </div>
@@ -572,9 +572,9 @@ export default function CompareVs() {
           </div>
         </div>
 
-        <section className="bg-background py-16" data-testid="section-vs-comparison-table">
+        <section className="bg-background py-10" data-testid="section-vs-comparison-table">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-4" data-testid="text-vs-table-heading">
+            <h2 className="public-h2 reveal font-display font-bold text-foreground text-center mb-4" data-testid="text-vs-table-heading">
               Feature-by-Feature Comparison
             </h2>
             <p className="text-center text-muted-foreground mb-8 text-sm">
@@ -615,9 +615,9 @@ export default function CompareVs() {
           </div>
         </section>
 
-        <section className="bg-muted/30 py-16" data-testid="section-vs-savings">
+        <section className="bg-muted/30 py-10" data-testid="section-vs-savings">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-8" data-testid="text-vs-savings-heading">
+            <h2 className="public-h2 reveal font-display font-bold text-foreground text-center mb-8" data-testid="text-vs-savings-heading">
               Estimated Savings: {data.name} vs Liberty Bancard
             </h2>
             <Card className="reveal" data-testid="card-savings-example">
@@ -633,11 +633,11 @@ export default function CompareVs() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Liberty Bancard Cost</p>
-                    <p className="text-xl font-display font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-savings-liberty">{data.savingsExample.libertyCost}</p>
+                    <p className="text-xl font-display font-bold text-emerald-700 dark:text-emerald-400" data-testid="text-savings-liberty">{data.savingsExample.libertyCost}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Est. Annual Savings</p>
-                    <p className="text-xl font-display font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-savings-annual">{data.savingsExample.annualSavings}</p>
+                    <p className="text-xl font-display font-bold text-emerald-700 dark:text-emerald-400" data-testid="text-savings-annual">{data.savingsExample.annualSavings}</p>
                   </div>
                 </div>
                 <div className="border-t border-border pt-4">
@@ -652,9 +652,9 @@ export default function CompareVs() {
           </div>
         </section>
 
-        <section className="bg-background py-16" data-testid="section-vs-pros-cons">
+        <section className="bg-background py-10" data-testid="section-vs-pros-cons">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-8" data-testid="text-vs-pros-cons-heading">
+            <h2 className="public-h2 reveal font-display font-bold text-foreground text-center mb-8" data-testid="text-vs-pros-cons-heading">
               Pros & Cons
             </h2>
             <div className="reveal grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -662,7 +662,7 @@ export default function CompareVs() {
                 <CardContent className="p-6">
                   <h3 className="font-display font-bold text-foreground text-lg mb-4">{data.name}</h3>
                   <div className="mb-4">
-                    <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 mb-2">Pros</p>
+                    <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400 mb-2">Pros</p>
                     <ul className="space-y-2">
                       {data.competitorPros.map((pro, i) => (
                         <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground" data-testid={`text-competitor-pro-${i}`}>
@@ -673,7 +673,7 @@ export default function CompareVs() {
                     </ul>
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-red-500 dark:text-red-400 mb-2">Cons</p>
+                    <p className="text-sm font-semibold text-red-700 mb-2">Cons</p>
                     <ul className="space-y-2">
                       {data.competitorCons.map((con, i) => (
                         <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground" data-testid={`text-competitor-con-${i}`}>
@@ -690,7 +690,7 @@ export default function CompareVs() {
                 <CardContent className="p-6">
                   <h3 className="font-display font-bold text-foreground text-lg mb-4">Liberty Bancard</h3>
                   <div>
-                    <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 mb-2">Advantages</p>
+                    <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400 mb-2">Advantages</p>
                     <ul className="space-y-2">
                       {data.libertyPros.map((pro, i) => (
                         <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground" data-testid={`text-liberty-pro-${i}`}>
@@ -706,9 +706,9 @@ export default function CompareVs() {
           </div>
         </section>
 
-        <section className="bg-muted/30 py-16" data-testid="section-vs-who-should-use">
+        <section className="bg-muted/30 py-10" data-testid="section-vs-who-should-use">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-8" data-testid="text-vs-who-heading">
+            <h2 className="public-h2 reveal font-display font-bold text-foreground text-center mb-8" data-testid="text-vs-who-heading">
               Who Should Use Which?
             </h2>
             <div className="reveal grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -738,9 +738,9 @@ export default function CompareVs() {
           </div>
         </section>
 
-        <section className="bg-background py-16" data-testid="section-vs-faq">
+        <section className="bg-background py-10" data-testid="section-vs-faq">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-8" data-testid="text-vs-faq-heading">
+            <h2 className="public-h2 reveal font-display font-bold text-foreground text-center mb-8" data-testid="text-vs-faq-heading">
               {data.name} vs Liberty Bancard FAQ
             </h2>
             <Accordion type="single" collapsible className="reveal space-y-2" data-testid="accordion-vs-faq">
@@ -758,27 +758,27 @@ export default function CompareVs() {
           </div>
         </section>
 
-        <section className="bg-primary text-primary-foreground py-16" data-testid="section-vs-final-cta">
+        <section className="bg-primary text-primary-foreground py-10" data-testid="section-vs-final-cta">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <h2 className="text-2xl md:text-3xl font-display font-bold mb-4" data-testid="text-vs-cta-heading">
+            <h2 className="public-h2 font-display font-bold mb-4" data-testid="text-vs-cta-heading">
               Ready to See How Much You'd Save vs {data.name}?
             </h2>
             <p className="text-primary-foreground/80 mb-8 max-w-xl mx-auto">
               Upload your {data.name} processing statement for a free, line-by-line comparison. Keep the analysis even if you don't switch.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <Link href="/upload-statement" data-testid="link-vs-cta-upload">
-                <Button size="lg" className="gap-2 bg-white text-primary border-white">
+              <Button size="lg" className="public-cta gap-2 bg-white text-primary border-white" asChild>
+                <Link href="/upload-statement" data-testid="link-vs-cta-upload">
                   <Upload className="w-4 h-4" />
                   Upload Statement - Free Review
-                </Button>
-              </Link>
-              <Link href="/compare-rates" data-testid="link-vs-cta-all">
-                <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="public-cta gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white" asChild>
+                <Link href="/compare-rates" data-testid="link-vs-cta-all">
                   <BarChart3 className="w-4 h-4" />
                   View All Comparisons
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </section>

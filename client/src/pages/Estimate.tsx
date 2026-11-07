@@ -33,7 +33,7 @@ import { usePublicIntake } from "@/hooks/use-public-intake";
 import { PublicIntakeNotice } from "@/components/PublicIntakeNotice";
 import { useState } from "react";
 import { Loader2, Upload, ArrowRight, Calculator, TrendingDown, AlertCircle } from "lucide-react";
-import heroAnalytics from "@assets/images/hero-analytics.jpg";
+import heroAnalytics from "@/assets/images/hero-analytics.jpg";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 
 
@@ -123,16 +123,16 @@ export default function Estimate() {
       <SEO title="Free Effective Rate Estimate" description="Get a quick processing cost estimate. Provide your monthly volume and current fees for a preliminary analysis and next steps." path="/estimate" breadcrumbs={[{ name: "Quick Estimate", path: "/estimate" }]} />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="flex-grow public-main-offset" ref={containerRef}>
         <section className="relative overflow-hidden" data-testid="section-estimate-hero">
           <div className="absolute inset-0">
             <img src={heroAnalytics} alt="Business analytics and payment processing rate comparison dashboard" className="w-full h-full object-cover" width="1408" height="792" />
-            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222_47%_6%/0.97)] via-[hsl(222_47%_6%/0.93)] to-[hsl(222_47%_6%/0.85)]" />
           </div>
           <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
-          <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28 text-center">
+          <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-20 text-center">
             <h1
-              className="reveal text-4xl md:text-5xl font-display font-bold text-white leading-tight mb-6"
+              className="public-h1 public-h1--page reveal font-display font-bold text-white mb-6"
               data-testid="text-estimate-heading"
             >
               Get a Fast <span className="text-sky-400">Effective Rate</span> Estimate
@@ -145,7 +145,7 @@ export default function Estimate() {
             </p>
             <Link
               href="/upload-statement"
-              className="reveal reveal-delay-2 inline-block text-sm font-medium text-sky-400 hover:underline"
+              className="public-hit reveal reveal-delay-2 inline-block text-sm font-medium text-sky-400 hover:underline"
               data-testid="link-upload-instead"
             >
               Upload a Statement Instead
@@ -153,7 +153,7 @@ export default function Estimate() {
           </div>
         </section>
 
-        <section className="bg-muted py-20" data-testid="section-estimate-form">
+        <section className="bg-muted py-10" data-testid="section-estimate-form">
           <div className="reveal max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
             <Card data-testid="card-estimate-form">
               <CardHeader>
@@ -394,11 +394,11 @@ export default function Estimate() {
           </div>
         </section>
 
-        <section className="bg-background py-20" data-testid="section-effective-rate-education">
+        <section className="bg-background py-10" data-testid="section-effective-rate-education">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal">
               <h2
-                className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8"
+                className="public-h2 font-display font-bold text-foreground mb-8"
                 data-testid="text-effective-rate-heading"
               >
                 What Is an Effective Rate?
@@ -438,13 +438,13 @@ export default function Estimate() {
               >
                 For the exact line-item breakdown (and to identify the cost drivers), upload a statement.
               </p>
-              <Link href="/upload-statement" data-testid="link-education-upload-statement">
-                <Button className="gap-2">
+              <Button className="gap-2" asChild>
+                <Link href="/upload-statement" data-testid="link-education-upload-statement">
                   <Upload className="w-4 h-4" />
                   Upload Statement (Exact Breakdown)
                   <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </section>

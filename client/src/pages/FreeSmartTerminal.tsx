@@ -30,8 +30,8 @@ import {
 import { PHONE_TEL, PHONE_NUMBER, CALENDAR_URL } from "@/lib/constants";
 import { trackFreeTerminalEligibilityClick, trackStatementUploadCtaClick, trackBookingCtaClick } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
-import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
-import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
+import imgCloverFlex3 from "@/assets/images/terminal-clover-flex-3.png";
+import imgPaxA920 from "@/assets/images/terminal-pax-a920.png";
 import {
   FST_TITLE,
   FST_DESCRIPTION,
@@ -75,47 +75,37 @@ export default function FreeSmartTerminal() {
       />
       <Navbar />
 
-      <main className="marketing-surface flex-grow pt-28" ref={containerRef}>
+      <main className="marketing-surface flex-grow public-main-offset" ref={containerRef}>
         {/* Hero */}
         <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-terminal-hero">
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
+          <div className="public-container relative py-10 lg:py-20">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div className="accent-rule pt-5">
                 <div className="inline-flex items-center gap-2 border border-border bg-card text-muted-foreground text-sm font-semibold px-3 py-1.5 rounded-md mb-6 shadow-sm" data-testid="badge-terminal-hero">
                   <Monitor className="w-4 h-4 text-accent" />
                   Smart Terminal Program
                 </div>
-                <h1 className="text-4xl md:text-5xl font-display font-bold text-foreground leading-tight mb-6" data-testid="text-terminal-hero-heading">
+                <h1 className="public-h1 font-display font-bold text-foreground mb-6" data-testid="text-terminal-hero-heading">
                   See If Your Business Qualifies for a Smart Terminal at No Upfront Cost.
                 </h1>
                 <p className="text-lg text-muted-foreground mb-4 leading-relaxed" data-testid="text-terminal-hero-sub">
                   Qualifying merchants who open a Liberty Bancard processing account may receive terminal placement with no purchase cost. We review your statement to confirm eligibility — no guesswork, no pressure.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 flex-wrap mb-3">
-                  <Link
-                    href="/get-started?offer=free-terminal"
-                    data-testid="link-terminal-primary-cta"
-                    onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: "Check My Eligibility", offer: "free-terminal" })}
-                  >
-                    <Button size="lg" className="gap-2">
+                  <Button size="lg" className="public-cta gap-2" asChild>
+                    <Link href="/get-started?offer=free-terminal" data-testid="link-terminal-primary-cta" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: "Check My Eligibility", offer: "free-terminal" })}>
                       <Upload className="w-4 h-4" />
                       Check My Eligibility — Free
-                    </Button>
-                  </Link>
-                  <a
-                    href={CALENDAR_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    data-testid="link-terminal-book-cta"
-                    onClick={() => trackBookingCtaClick({ page: "/free-smart-terminal", ctaLabel: "Book a 10-Min Call" })}
-                  >
-                    <Button size="lg" variant="outline" className="gap-2">
+                    </Link>
+                  </Button>
+                  <Button size="lg" variant="outline" className="public-cta gap-2" asChild>
+                    <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-terminal-book-cta" onClick={() => trackBookingCtaClick({ page: "/free-smart-terminal", ctaLabel: "Book a review call" })}>
                       <Calendar className="w-4 h-4" />
-                      Book a 10-Min Call
-                    </Button>
-                  </a>
+                      Book a review call
+                    </a>
+                  </Button>
                 </div>
-                <p className="text-xs text-muted-foreground/80 mt-2 max-w-lg" data-testid="text-terminal-hero-disclaimer">
+                <p className="text-xs text-muted-foreground mt-2 max-w-lg" data-testid="text-terminal-hero-disclaimer">
                   Terminal placement subject to account approval, underwriting, minimum volume requirements, and eligibility review. Not a guaranteed offer.
                 </p>
               </div>
@@ -150,10 +140,10 @@ export default function FreeSmartTerminal() {
         </div>
 
         {/* Terminal features */}
-        <section className="bg-muted/30 py-20" data-testid="section-terminal-features">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-muted/30 py-10" data-testid="section-terminal-features">
+          <div className="public-container">
             <div className="reveal text-center mb-12">
-              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-features-heading">
+              <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-features-heading">
                 What's Included with Terminal Placement
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
@@ -180,11 +170,11 @@ export default function FreeSmartTerminal() {
         </section>
 
         {/* Eligibility */}
-        <section className="bg-background py-20" data-testid="section-eligibility">
+        <section className="bg-background py-10" data-testid="section-eligibility">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal grid grid-cols-1 md:grid-cols-2 gap-12 items-start">
               <div>
-                <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-eligibility-heading">
+                <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-eligibility-heading">
                   Who Typically Qualifies
                 </h2>
                 <p className="text-muted-foreground mb-6 leading-relaxed">
@@ -204,17 +194,13 @@ export default function FreeSmartTerminal() {
                     Terminal placement is not a guaranteed offer for all merchants. Eligibility depends on account approval, underwriting, card volume, and business type. We confirm details during your free statement review.
                   </p>
                 </div>
-                <Link
-                  href="/upload-statement?offer=free-terminal"
-                  data-testid="link-eligibility-upload"
-                  onClick={() => trackStatementUploadCtaClick({ page: "/free-smart-terminal", ctaLabel: "Upload Statement to Check Eligibility", offer: "free-terminal" })}
-                >
-                  <Button className="gap-2">
+                <Button className="gap-2" asChild>
+                  <Link href="/upload-statement?offer=free-terminal" data-testid="link-eligibility-upload" onClick={() => trackStatementUploadCtaClick({ page: "/free-smart-terminal", ctaLabel: "Upload Statement to Check Eligibility", offer: "free-terminal" })}>
                     <Upload className="w-4 h-4" />
                     Upload Statement to Check Eligibility
                     <ArrowRight className="w-4 h-4" />
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
               <div>
                 <Card className="border-primary/20 bg-primary/5" data-testid="card-terminal-cta">
@@ -227,27 +213,18 @@ export default function FreeSmartTerminal() {
                       Upload your most recent processing statement. We'll review your card volume, current setup, and equipment situation — then confirm eligibility and show your savings potential.
                     </p>
                     <div className="flex flex-col gap-3">
-                      <Link
-                        href="/upload-statement?offer=free-terminal"
-                        data-testid="link-cta-card-upload"
-                        onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: "Check My Eligibility", ctaLocation: "card" })}
-                      >
-                        <Button className="w-full gap-2">
+                      <Button className="w-full gap-2" asChild>
+                        <Link href="/upload-statement?offer=free-terminal" data-testid="link-cta-card-upload" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: "Check My Eligibility", ctaLocation: "card" })}>
                           <Upload className="w-4 h-4" />
                           Check My Eligibility
-                        </Button>
-                      </Link>
-                      <a
-                        href={PHONE_TEL}
-                        aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
-                        data-testid="link-cta-card-phone"
-                        onClick={() => trackPhoneCallClick({ sourcePage: "/free-smart-terminal" })}
-                      >
-                        <Button variant="outline" className="w-full gap-2">
+                        </Link>
+                      </Button>
+                      <Button variant="outline" className="w-full gap-2" asChild>
+                        <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-cta-card-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/free-smart-terminal" })}>
                           <Phone className="w-4 h-4" />
                           {PHONE_NUMBER}
-                        </Button>
-                      </a>
+                        </a>
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -257,10 +234,10 @@ export default function FreeSmartTerminal() {
         </section>
 
         {/* How it works */}
-        <section className="bg-muted/30 py-20" data-testid="section-how-it-works">
+        <section className="bg-muted/30 py-10" data-testid="section-how-it-works">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-12">
-              <h2 className="text-3xl font-display font-bold text-foreground mb-4" data-testid="text-howitworks-heading">
+              <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-howitworks-heading">
                 How Terminal Placement Works
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">
@@ -287,10 +264,10 @@ export default function FreeSmartTerminal() {
         </section>
 
         {/* FAQ */}
-        <section className="bg-background py-20" data-testid="section-faq">
+        <section className="bg-background py-10" data-testid="section-faq">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-10">
-              <h2 className="text-3xl font-display font-bold text-foreground mb-4" data-testid="text-faq-heading">
+              <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-faq-heading">
                 Frequently Asked Questions
               </h2>
             </div>
@@ -312,73 +289,58 @@ export default function FreeSmartTerminal() {
         </section>
 
         {/* Final CTA */}
-        <section className="relative overflow-hidden bg-primary py-20" data-testid="section-final-cta">
+        <section className="relative overflow-hidden bg-primary py-10" data-testid="section-final-cta">
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <h2 className="text-3xl md:text-4xl font-display font-bold text-primary-foreground mb-4" data-testid="text-final-cta-heading">
+            <h2 className="public-h2 font-display font-bold text-primary-foreground mb-4" data-testid="text-final-cta-heading">
               Find Out If You Qualify
             </h2>
             <p className="text-primary-foreground/80 mb-8 leading-relaxed">
               Upload your statement and we'll review your eligibility — same business day. Free. No obligation. You keep the breakdown either way.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <Link
-                href="/upload-statement?offer=free-terminal"
-                data-testid="link-final-upload"
-                onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: "Upload My Statement", ctaLocation: "final_cta" })}
-              >
-                <Button size="lg" className="gap-2 bg-accent hover:bg-accent border-accent text-white">
+              <Button size="lg" className="public-cta gap-2 bg-accent hover:bg-accent border-accent text-white" asChild>
+                <Link href="/upload-statement?offer=free-terminal" data-testid="link-final-upload" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: "Upload My Statement", ctaLocation: "final_cta" })}>
                   <Upload className="w-4 h-4" />
                   Upload My Statement
-                </Button>
-              </Link>
-              <a
-                href={CALENDAR_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                data-testid="link-final-book"
-                onClick={() => trackBookingCtaClick({ page: "/free-smart-terminal", ctaLabel: "Book a 10-Min Call", ctaLocation: "final_cta" })}
-              >
-                <Button size="lg" variant="outline" className="gap-2 bg-transparent border-white/30 text-white hover:bg-white/10">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="public-cta gap-2 bg-transparent border-white/30 text-white hover:bg-white/10" asChild>
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-final-book" onClick={() => trackBookingCtaClick({ page: "/free-smart-terminal", ctaLabel: "Book a review call", ctaLocation: "final_cta" })}>
                   <Calendar className="w-4 h-4" />
-                  Book a 10-Min Call
-                </Button>
-              </a>
-              <a
-                href={PHONE_TEL}
-                aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
-                data-testid="link-final-phone"
-                onClick={() => trackPhoneCallClick({ sourcePage: "/free-smart-terminal" })}
-              >
-                <Button size="lg" variant="ghost" className="gap-2 text-white hover:bg-white/10">
+                  Book a review call
+                </a>
+              </Button>
+              <Button size="lg" variant="ghost" className="public-cta gap-2 text-white hover:bg-white/10" asChild>
+                <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-final-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/free-smart-terminal" })}>
                   <Phone className="w-4 h-4" />
                   {PHONE_NUMBER}
-                </Button>
-              </a>
+                </a>
+              </Button>
             </div>
-            <p className="text-primary-foreground/50 text-xs mt-6">
+            <p className="text-primary-foreground/70 text-xs mt-6">
               Terminal placement available for qualifying merchants. Subject to account approval, underwriting, and minimum volume requirements.
             </p>
           </div>
         </section>
 
         {/* Internal navigation links — crawlable */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 border-t border-border" data-testid="section-internal-links">
+        <div className="public-container py-8 border-t border-border" data-testid="section-internal-links">
           <p className="text-sm text-muted-foreground mb-3 font-medium">Also useful:</p>
           <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
-            <Link href="/upload-statement" className="text-primary hover:underline" data-testid="link-internal-upload-statement">
+            <Link href="/upload-statement" className="public-tap inline-flex items-center text-primary hover:underline" data-testid="link-internal-upload-statement">
               Upload Your Statement for a Free Review
             </Link>
-            <Link href="/free-analysis" className="text-primary hover:underline" data-testid="link-internal-free-analysis">
+            <Link href="/free-analysis" className="public-tap inline-flex items-center text-primary hover:underline" data-testid="link-internal-free-analysis">
               Get a Free Processing Analysis
             </Link>
-            <Link href="/industries/restaurant-payment-processing" className="text-primary hover:underline" data-testid="link-internal-industry-restaurant">
+            <Link href="/industries/restaurant-payment-processing" className="public-tap inline-flex items-center text-primary hover:underline" data-testid="link-internal-industry-restaurant">
               Restaurant Payment Processing
             </Link>
-            <Link href="/industries/retail-payment-processing" className="text-primary hover:underline" data-testid="link-internal-industry-retail">
+            <Link href="/industries/retail-payment-processing" className="public-tap inline-flex items-center text-primary hover:underline" data-testid="link-internal-industry-retail">
               Retail Payment Processing
             </Link>
-            <Link href="/industries/healthcare-payment-processing" className="text-primary hover:underline" data-testid="link-internal-industry-healthcare">
+            <Link href="/industries/healthcare-payment-processing" className="public-tap inline-flex items-center text-primary hover:underline" data-testid="link-internal-industry-healthcare">
               Healthcare Payment Processing
             </Link>
           </div>

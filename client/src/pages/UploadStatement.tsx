@@ -379,10 +379,10 @@ export default function UploadStatement() {
         {/* ═══════════════════════════════════════════════════
             PROMO STRIP — amber offer bar
         ═══════════════════════════════════════════════════ */}
-        <div className="bg-amber-500 px-4 py-2.5 text-center" data-testid="promo-strip">
+        <div className="bg-amber-700 px-4 py-2.5 text-center" data-testid="promo-strip">
           <p className="text-xs font-bold text-white tracking-wide">
             🎁 Free payment terminal this month — with approved account.{" "}
-            <span className="opacity-75 font-normal">Subject to eligibility &amp; equipment terms.</span>
+            <span className="font-normal">Subject to eligibility &amp; equipment terms.</span>
           </p>
         </div>
 
@@ -426,7 +426,7 @@ export default function UploadStatement() {
 
             {/* Headline */}
             <h1
-              className="text-[34px] sm:text-4xl font-extrabold text-white leading-[1.08] mb-4 tracking-tight"
+              className="public-h1 public-h1--page text-[34px] font-extrabold text-white mb-4 tracking-tight"
               data-testid="text-upload-heading"
             >
               Stop overpaying<br />for card processing.
@@ -449,46 +449,34 @@ export default function UploadStatement() {
                 <p className="text-sm font-bold text-emerald-300 leading-snug">
                   Most merchants we review save $600–$3,200/year
                 </p>
-                <p className="text-[11px] text-white/40 leading-snug mt-1">
+                <p className="text-[11px] text-white/70 leading-snug mt-1">
                   Based on statement reviews completed. Actual savings depend on your volume, mix, and current rates.
                 </p>
               </div>
             </div>
 
             {/* Primary CTA — white button on navy */}
-            <a href="#upload-form" className="block mb-3" data-testid="link-hero-scroll-cta">
-              <button
-                className="w-full h-14 bg-white text-[#0d1b2e] font-extrabold text-base rounded-2xl shadow-xl flex items-center justify-center gap-2.5 hover:bg-white/95 active:scale-[0.98] transition-all"
-                type="button"
-              >
+            <a href="#upload-form" data-testid="link-hero-scroll-cta" className="w-full h-14 bg-white text-[#0d1b2e] font-extrabold text-base rounded-2xl shadow-xl flex items-center justify-center gap-2.5 hover:bg-white/95 active:scale-[0.98] transition-all mb-3">
                 <Upload className="w-5 h-5 shrink-0" />
                 Get My Free Statement Review
-              </button>
-            </a>
+              </a>
 
             {/* Secondary CTA — book a call */}
-            <a
-              href={CALENDAR_URL}
+            <a href={CALENDAR_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="block mb-6"
+              
               data-testid="link-upload-hero-book"
               onClick={() =>
                 trackBookingCtaClick({
                   page: "/upload-statement",
-                  ctaLabel: "Book a Review Call",
+                  ctaLabel: "Book a review call",
                   ctaLocation: "hero",
                 })
-              }
-            >
-              <button
-                className="w-full h-12 border border-white/20 bg-white/5 text-white font-semibold text-sm rounded-2xl flex items-center justify-center gap-2 hover:bg-white/10 transition-all"
-                type="button"
-              >
+              } className="w-full h-12 border border-white/20 bg-white/5 text-white font-semibold text-sm rounded-2xl flex items-center justify-center gap-2 hover:bg-white/10 transition-all mb-6">
                 <Calendar className="w-4 h-4 shrink-0" />
-                Book a Review Call
-              </button>
-            </a>
+                Book a review call
+              </a>
 
             {/* Trust chips */}
             <div className="flex flex-wrap gap-2 mb-8" data-testid="trust-chips">
@@ -513,7 +501,7 @@ export default function UploadStatement() {
             <div className="flex justify-center">
               <a
                 href="#upload-form"
-                className="flex flex-col items-center gap-1 opacity-35 hover:opacity-60 transition-opacity"
+                className="public-tap flex flex-col items-center justify-center gap-1 opacity-80 hover:opacity-100 transition-opacity"
                 aria-label="Scroll to form"
               >
                 <span className="text-[9px] text-white uppercase tracking-widest font-semibold">
@@ -544,7 +532,7 @@ export default function UploadStatement() {
                     <CheckCircle2 className="w-4 h-4 text-sky-500 shrink-0 mt-0.5" />
                     <div>
                       <p className="text-sm font-semibold text-gray-800">{label}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">{note}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{note}</p>
                     </div>
                   </li>
                 ))}
@@ -559,7 +547,7 @@ export default function UploadStatement() {
             {/* Quick fee-comparison card */}
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-100">
-                <p className="text-[10px] font-bold tracking-widest text-gray-400 uppercase">
+                <p className="text-[10px] font-bold tracking-widest text-gray-500 uppercase">
                   Where merchants overpay (by industry avg.)
                 </p>
               </div>
@@ -573,14 +561,14 @@ export default function UploadStatement() {
                   <div key={label} className="flex items-center justify-between px-4 py-2.5 gap-3">
                     <span className="text-sm text-gray-700 font-medium">{label}</span>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-xs font-bold text-red-500">{rate}</span>
+                      <span className="text-xs font-bold text-red-600">{rate}</span>
                       <span className="text-[10px] bg-orange-100 text-orange-700 rounded px-1.5 py-0.5 font-medium whitespace-nowrap">{flag}</span>
                     </div>
                   </div>
                 ))}
               </div>
               <div className="bg-gray-50 border-t border-gray-100 px-4 py-2.5">
-                <p className="text-[10px] text-gray-400 leading-snug">
+                <p className="text-[10px] text-gray-500 leading-snug">
                   Rates shown are illustrative industry averages, not a guarantee of savings. Upload your statement for an actual analysis.
                 </p>
               </div>
@@ -598,7 +586,7 @@ export default function UploadStatement() {
               <p className="text-[12px] text-amber-700 leading-snug mb-2">
                 Approved new merchant accounts may qualify for a free payment terminal — no upfront equipment cost on eligible models.
               </p>
-              <p className="text-[10px] text-amber-500 leading-snug">
+              <p className="text-[10px] text-amber-700 leading-snug">
                 Subject to eligibility, credit approval, underwriting, equipment availability, and applicable card-brand and equipment terms. Ask your rep for details.
               </p>
             </div>
@@ -633,7 +621,7 @@ export default function UploadStatement() {
                     Our AI is analyzing it now. A team member will follow up with your personalized savings report — typically within 1 business day.
                   </p>
                 </div>
-                <div className="flex items-center justify-center gap-2 text-sm text-gray-400">
+                <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
                   <Loader2 className="h-4 w-4 animate-spin text-sky-500" />
                   <span data-testid="text-analyzing">Analyzing your statement…</span>
                 </div>
@@ -780,7 +768,7 @@ export default function UploadStatement() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel className="text-xs font-medium text-gray-600">
-                          Statement <span className="text-gray-400 font-normal">(PDF or photo)</span>
+                          Statement <span className="text-gray-500 font-normal">(PDF or photo)</span>
                         </FormLabel>
                         <FormControl>
                           <label
@@ -818,14 +806,14 @@ export default function UploadStatement() {
                                 <span className="text-sm font-semibold text-gray-700">
                                   Tap to upload statement
                                 </span>
-                                <span className="text-xs text-gray-400">PDF, JPG, PNG — up to 10 MB</span>
+                                <span className="text-xs text-gray-500">PDF, JPG, PNG — up to 10 MB</span>
                               </>
                             )}
                           </label>
                         </FormControl>
                         <div className="flex items-center gap-1.5 mt-1.5">
-                          <Lock className="w-3 h-3 text-gray-400 shrink-0" />
-                          <span className="text-[11px] text-gray-400" data-testid="text-secure-upload">
+                          <Lock className="w-3 h-3 text-gray-500 shrink-0" />
+                          <span className="text-[11px] text-gray-500" data-testid="text-secure-upload">
                             Encrypted upload — your statement is never sold or shared
                           </span>
                         </div>
@@ -841,7 +829,7 @@ export default function UploadStatement() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel className="text-xs font-medium text-gray-600">
-                          Current provider <span className="text-gray-400 font-normal">(optional)</span>
+                          Current provider <span className="text-gray-500 font-normal">(optional)</span>
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -870,7 +858,7 @@ export default function UploadStatement() {
                               data-testid="checkbox-interested-0-percent"
                             />
                           </FormControl>
-                          <FormLabel className="text-sm font-normal text-gray-600 leading-snug cursor-pointer">
+                          <FormLabel className="flex min-h-11 flex-1 items-center text-sm font-normal text-gray-600 leading-snug cursor-pointer">
                             Interested in a compliant 0% processing program?
                           </FormLabel>
                         </FormItem>
@@ -888,7 +876,7 @@ export default function UploadStatement() {
                               data-testid="checkbox-need-terminal"
                             />
                           </FormControl>
-                          <FormLabel className="text-sm font-normal text-gray-600 leading-snug cursor-pointer">
+                          <FormLabel className="flex min-h-11 flex-1 items-center text-sm font-normal text-gray-600 leading-snug cursor-pointer">
                             Do you need a terminal?
                           </FormLabel>
                         </FormItem>
@@ -904,7 +892,7 @@ export default function UploadStatement() {
                       <FormItem>
                         <FormLabel className="text-xs font-medium text-gray-600">
                           Anything you want us to focus on?{" "}
-                          <span className="text-gray-400 font-normal">(optional)</span>
+                          <span className="text-gray-500 font-normal">(optional)</span>
                         </FormLabel>
                         <FormControl>
                           <Textarea
@@ -933,7 +921,7 @@ export default function UploadStatement() {
                       data-testid="alert-submit-error"
                       role="alert"
                     >
-                      <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                      <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
                       <p className="text-sm text-red-700">{submitError}</p>
                     </div>
                   )}
@@ -978,7 +966,7 @@ export default function UploadStatement() {
                             return (
                               <div
                                 key={label}
-                                className={`flex items-center gap-2 text-xs transition-all duration-300 ${done ? "text-green-600" : active ? "text-sky-600 font-medium" : "text-gray-400 opacity-50"}`}
+                                className={`flex items-center gap-2 text-xs transition-all duration-300 ${done ? "text-green-700" : active ? "text-sky-600 font-medium" : "text-gray-500 opacity-50"}`}
                                 data-testid={`step-processing-${stepNum}`}
                               >
                                 {done ? (
@@ -1018,28 +1006,28 @@ export default function UploadStatement() {
                   </Button>
 
                   {/* ── Secondary: book ── */}
-                  <a
-                    href={CALENDAR_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    data-testid="link-upload-form-book"
-                    onClick={() =>
-                      trackBookingCtaClick({
-                        page: "/upload-statement",
-                        ctaLabel: "Book a Review Call",
-                        ctaLocation: "form",
-                      })
-                    }
+                  <Button
+                    variant="outline"
+                    className="w-full h-12 rounded-2xl border-gray-200 text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-300"
+                    asChild
                   >
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full h-12 rounded-2xl border-gray-200 text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-300"
+                    <a
+                      href={CALENDAR_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid="link-upload-form-book"
+                      onClick={() =>
+                        trackBookingCtaClick({
+                          page: "/upload-statement",
+                          ctaLabel: "Book a review call",
+                          ctaLocation: "form",
+                        })
+                      }
                     >
                       <Calendar className="w-4 h-4 mr-2 text-gray-500" />
-                      Book a Review Call
-                    </Button>
-                  </a>
+                      Book a review call
+                    </a>
+                  </Button>
 
                   {/* ── Tertiary: phone ── */}
                   <a
@@ -1047,7 +1035,7 @@ export default function UploadStatement() {
                     aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
                     data-testid="link-upload-hero-phone"
                     onClick={() => trackPhoneCallClick({ sourcePage: "/upload-statement" })}
-                    className="flex items-center justify-center gap-2 text-sm text-gray-400 hover:text-gray-600 transition-colors py-1"
+                    className="public-tap flex items-center justify-center gap-2 text-sm text-gray-500 hover:text-gray-700 transition-colors py-1"
                   >
                     <Phone className="w-4 h-4" />
                     Or call {PHONE_NUMBER}
@@ -1055,7 +1043,7 @@ export default function UploadStatement() {
 
                   {/* Compliance microcopy */}
                   <p
-                    className="text-[10px] text-gray-400 text-center leading-snug"
+                    className="text-[10px] text-gray-500 text-center leading-snug"
                     data-testid="text-compliance-microcopy"
                   >
                     Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
@@ -1079,7 +1067,7 @@ export default function UploadStatement() {
             >
               What happens next
             </h2>
-            <p className="text-sm text-gray-400 mb-6">Usually within 1 business day.</p>
+            <p className="text-sm text-gray-500 mb-6">Usually within 1 business day.</p>
             <div className="space-y-3">
               {[
                 {
@@ -1118,17 +1106,12 @@ export default function UploadStatement() {
             </div>
 
             <div className="text-center mt-6 reveal reveal-delay-4">
-              <a
-                href={CALENDAR_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                data-testid="button-book-call-next"
-              >
-                <Button variant="outline" className="rounded-xl gap-2 border-gray-200 text-gray-700">
+              <Button variant="outline" className="rounded-xl gap-2 border-gray-200 text-gray-700" asChild>
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="button-book-call-next">
                   <Calendar className="w-4 h-4" />
-                  Prefer to talk? Book a Call
-                </Button>
-              </a>
+                  Prefer to talk? Book a review call
+                </a>
+              </Button>
             </div>
           </div>
         </section>
@@ -1174,7 +1157,7 @@ export default function UploadStatement() {
                 <div className="space-y-1.5">
                   <Label className="text-xs text-gray-600">
                     Industry{" "}
-                    <span className="text-gray-400 font-normal">(optional — unlocks tailored output)</span>
+                    <span className="text-gray-500 font-normal">(optional — unlocks tailored output)</span>
                   </Label>
                   <Select
                     value={analysisVertical || "_none"}
@@ -1222,7 +1205,7 @@ export default function UploadStatement() {
                   <div className="space-y-3 border-t pt-4" data-testid="analysis-results">
                     {(analysisResult._vertical as string | null | undefined) && (
                       <div className="flex items-center gap-2" data-testid="text-analysis-vertical">
-                        <span className="text-xs text-gray-400">Vertical context applied:</span>
+                        <span className="text-xs text-gray-500">Vertical context applied:</span>
                         <span className="inline-flex items-center rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-700">
                           {ANALYSIS_VERTICALS.find(
                             (v) => v.slug === (analysisResult._vertical as string)
@@ -1232,7 +1215,7 @@ export default function UploadStatement() {
                     )}
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <div className="text-xs text-gray-400">Effective Rate</div>
+                        <div className="text-xs text-gray-500">Effective Rate</div>
                         <div
                           className="text-lg font-bold text-gray-900"
                           data-testid="text-effective-rate"
@@ -1241,7 +1224,7 @@ export default function UploadStatement() {
                         </div>
                       </div>
                       <div>
-                        <div className="text-xs text-gray-400">Recommended Program</div>
+                        <div className="text-xs text-gray-500">Recommended Program</div>
                         <div
                           className="text-lg font-bold text-gray-900"
                           data-testid="text-recommended-path"
@@ -1271,16 +1254,16 @@ export default function UploadStatement() {
                         <p className="text-sm text-sky-800">{analysisResult.overallAssessment as string}</p>
                       </div>
                     )}
-                    <p className="text-[11px] text-gray-400 leading-snug">
+                    <p className="text-[11px] text-gray-500 leading-snug">
                       This is an AI estimate, not a formal quote. Upload your actual statement for a
                       precise, line-item analysis.
                     </p>
-                    <a href="#upload-form" className="block">
-                      <Button size="sm" className="gap-2 rounded-xl w-full">
+                    <Button size="sm" className="gap-2 rounded-xl w-full" asChild>
+                      <a href="#upload-form" className="block">
                         <Upload className="w-3.5 h-3.5" />
                         Upload My Actual Statement
-                      </Button>
-                    </a>
+                      </a>
+                    </Button>
                   </div>
                 )}
               </CardContent>
@@ -1293,7 +1276,7 @@ export default function UploadStatement() {
         ═══════════════════════════════════════════════════ */}
         <section className="bg-[#0d1b2e] px-5 py-10">
           <div className="max-w-lg mx-auto text-center space-y-4">
-            <p className="text-xs font-bold tracking-widest text-white/40 uppercase">
+            <p className="text-xs font-bold tracking-widest text-white/70 uppercase">
               Ready to see your numbers?
             </p>
             <h2 className="text-2xl font-extrabold text-white leading-tight">
@@ -1302,25 +1285,20 @@ export default function UploadStatement() {
             <p className="text-sm text-white/55 leading-relaxed max-w-xs mx-auto">
               Upload takes 30 seconds. No processor login, no pressure, no obligation.
             </p>
-            <a href="#upload-form" className="block max-w-xs mx-auto">
-              <button
-                className="w-full h-13 bg-white text-[#0d1b2e] font-extrabold text-base rounded-2xl py-3.5 flex items-center justify-center gap-2.5 hover:bg-white/95 active:scale-[0.98] transition-all shadow-xl"
-                type="button"
-              >
+            <a href="#upload-form" className="w-full h-13 bg-white text-[#0d1b2e] font-extrabold text-base rounded-2xl py-3.5 flex items-center justify-center gap-2.5 hover:bg-white/95 active:scale-[0.98] transition-all shadow-xl max-w-xs mx-auto">
                 <Upload className="w-5 h-5 shrink-0" />
                 Upload My Statement
-              </button>
-            </a>
+              </a>
             <a
               href={PHONE_TEL}
               aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
-              className="inline-flex items-center gap-2 text-sm text-white/45 hover:text-white/70 transition-colors"
+              className="public-tap inline-flex items-center gap-2 text-sm text-white/70 hover:text-white/70 transition-colors"
               onClick={() => trackPhoneCallClick({ sourcePage: "/upload-statement" })}
             >
               <Phone className="w-4 h-4" />
               Or call {PHONE_NUMBER}
             </a>
-            <p className="text-[10px] text-white/25 leading-snug max-w-sm mx-auto"
+            <p className="text-[10px] text-white/70 leading-snug max-w-sm mx-auto"
               style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
               Eligibility, underwriting, card brand rules, and applicable laws apply.
             </p>

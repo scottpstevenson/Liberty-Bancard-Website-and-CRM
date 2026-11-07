@@ -184,15 +184,11 @@ export function TourModal({ open, role, onClose }: TourModalProps) {
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                   {/* Optional CTA on final step */}
                   {isLast && step.cta && (
-                    <Link href={step.cta.href} onClick={() => onClose(true)}>
-                      <Button
-                        variant="outline"
-                        className="w-full sm:w-auto"
-                        data-testid="button-tour-cta"
-                      >
+                    <Button variant="outline" className="w-full sm:w-auto" data-testid="button-tour-cta" asChild>
+                      <Link href={step.cta.href} onClick={() => onClose(true)}>
                         {step.cta.label}
-                      </Button>
-                    </Link>
+                      </Link>
+                    </Button>
                   )}
 
                   <Button

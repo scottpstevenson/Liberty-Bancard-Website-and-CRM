@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Link } from "wouter";
 import { Shield, X, Settings, Check } from "lucide-react";
 import { applyConsentPreferences, getStoredCookieConsent, saveCookieConsent } from "@/lib/tracking";
+import { setPublicOverlayFlag } from "@/lib/public-overlay";
 
 type ConsentPreferences = {
   necessary: boolean;
@@ -26,6 +27,13 @@ export function CookieConsent() {
       setVisible(true);
     }
   }, []);
+
+  // Consent takes precedence over the third-party chat launcher so its greeting
+  // can never sit on top of Reject / Accept / Manage.
+  useEffect(() => {
+    setPublicOverlayFlag("consent", visible);
+    return () => setPublicOverlayFlag("consent", false);
+  }, [visible]);
 
   if (!visible) return null;
 
@@ -92,7 +100,7 @@ export function CookieConsent() {
                   ]).map((item) => (
                     <label
                       key={item.key}
-                      className="flex items-center gap-3 p-2 rounded-md hover-elevate cursor-pointer"
+                      className="flex min-h-11 items-center gap-3 p-2 rounded-md hover-elevate cursor-pointer"
                     >
                       <div
                         className={`w-8 h-5 rounded-full relative transition-colors ${prefs[item.key] ? "bg-primary" : "bg-muted"} ${item.locked ? "opacity-60" : ""}`}
@@ -119,7 +127,7 @@ export function CookieConsent() {
               </>
             )}
           </div>
-          <button onClick={rejectNonEssential} className="text-muted-foreground hover:text-foreground p-1" data-testid="button-cookie-close">
+          <button onClick={rejectNonEssential} className="text-muted-foreground hover:text-foreground -m-2 flex min-h-11 min-w-11 items-center justify-center" aria-label="Close and reject non-essential cookies" data-testid="button-cookie-close">
             <X className="w-4 h-4" />
           </button>
         </div>

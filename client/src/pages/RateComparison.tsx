@@ -247,26 +247,26 @@ export default function RateComparison() {
       />
       <Navbar />
 
-      <main className="marketing-surface flex-grow pt-28" ref={containerRef}>
+      <main className="marketing-surface flex-grow public-main-offset" ref={containerRef}>
         <script type="application/ld+json">{serializeJsonLd(structuredData)}</script>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2 pb-1">
+        <div className="public-container pt-2 pb-1">
           <Breadcrumbs items={[{ name: "Compare Rates", path: "/compare-rates" }]} />
         </div>
 
         <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-compare-hero">
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20">
+          <div className="public-container relative py-10 lg:py-20">
             <div className="accent-rule pt-5 text-center max-w-3xl mx-auto">
               <div className="inline-flex items-center gap-2 border border-border bg-card text-muted-foreground shadow-sm text-sm font-medium px-3 py-1.5 rounded-md mb-6" data-testid="text-compare-badge">
                 <BarChart3 className="w-4 h-4" />
                 Side-by-Side Comparison
               </div>
-              <h1 className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-foreground mb-4" data-testid="text-compare-heading">
+              <h1 className="public-h1 font-display font-bold text-foreground mb-4" data-testid="text-compare-heading">
                 Payment Processor Comparison
               </h1>
               <p className="text-lg text-muted-foreground mb-2" data-testid="text-compare-subheading">
                 Compare Liberty Bancard vs Square vs Stripe vs Clover vs Toast. See fees, features, and contract terms side by side.
               </p>
-              <p className="text-xs text-muted-foreground/80 mb-6" data-testid="text-compare-disclaimer">
+              <p className="text-xs text-muted-foreground mb-6" data-testid="text-compare-disclaimer">
                 *Rate estimates based on publicly available pricing and common merchant scenarios. Actual rates vary. No savings claims without statement review.
               </p>
               <Button
@@ -276,7 +276,7 @@ export default function RateComparison() {
                 onClick={handleShareCopy}
                 data-testid="button-share-compare-rates"
               >
-                {copied ? <><Check className="w-4 h-4 text-emerald-600" /> Copied!</> : <><Link2 className="w-4 h-4" /> Share This Comparison</>}
+                {copied ? <><Check className="w-4 h-4 text-emerald-700" /> Copied!</> : <><Link2 className="w-4 h-4" /> Share This Comparison</>}
               </Button>
             </div>
           </div>
@@ -294,9 +294,9 @@ export default function RateComparison() {
           </div>
         </div>
 
-        <section className="bg-background py-16" data-testid="section-comparison-table">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-8" data-testid="text-features-heading">
+        <section className="bg-background py-10" data-testid="section-comparison-table">
+          <div className="public-container">
+            <h2 className="public-h2 reveal font-display font-bold text-foreground text-center mb-8" data-testid="text-features-heading">
               Features & Pricing Comparison
             </h2>
             <div className="reveal hidden sm:block overflow-x-auto -mx-4 px-4">
@@ -377,9 +377,9 @@ export default function RateComparison() {
           </div>
         </section>
 
-        <section className="bg-muted/30 py-16" data-testid="section-cost-examples">
+        <section className="bg-muted/30 py-10" data-testid="section-cost-examples">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-4" data-testid="text-cost-heading">
+            <h2 className="public-h2 reveal font-display font-bold text-foreground text-center mb-4" data-testid="text-cost-heading">
               Monthly Cost Comparison by Volume
             </h2>
             <p className="text-center text-muted-foreground mb-8 max-w-2xl mx-auto text-sm">
@@ -405,7 +405,7 @@ export default function RateComparison() {
                       <td className="text-center text-sm text-foreground p-3 border-b border-border/50">{row.stripe}</td>
                       <td className="text-center text-sm text-foreground p-3 border-b border-border/50">{row.clover}</td>
                       <td className="text-center text-sm text-foreground p-3 border-b border-border/50">{row.toast}</td>
-                      <td className="text-center text-sm font-semibold text-emerald-600 dark:text-emerald-400 p-3 border-b border-border/50 bg-primary/5">{row.liberty}</td>
+                      <td className="text-center text-sm font-semibold text-emerald-700 dark:text-emerald-400 p-3 border-b border-border/50 bg-primary/5">{row.liberty}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -431,7 +431,7 @@ export default function RateComparison() {
                       ))}
                       <div className="flex justify-between items-center pt-2 border-t border-border/50">
                         <span className="text-xs font-semibold text-primary">Liberty Bancard</span>
-                        <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{row.liberty}</span>
+                        <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400">{row.liberty}</span>
                       </div>
                     </div>
                   </CardContent>
@@ -445,9 +445,9 @@ export default function RateComparison() {
         </section>
 
         {/* Merchant Profile Rate Card */}
-        <section className="bg-background py-16" data-testid="section-merchant-profiles">
+        <section className="bg-background py-10" data-testid="section-merchant-profiles">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-4" data-testid="text-profiles-heading">
+            <h2 className="public-h2 reveal font-display font-bold text-foreground text-center mb-4" data-testid="text-profiles-heading">
               Typical Rate by Merchant Profile
             </h2>
             <p className="text-center text-muted-foreground mb-8 max-w-2xl mx-auto text-sm">
@@ -504,7 +504,7 @@ export default function RateComparison() {
                     <div className="space-y-2">
                       <div className="flex items-center justify-between bg-muted/50 rounded px-3 py-2">
                         <span className="text-xs text-muted-foreground">Interchange-plus effective rate</span>
-                        <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400" data-testid={`text-profile-rate-${i}`}>{profile.effectiveRate}</span>
+                        <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400" data-testid={`text-profile-rate-${i}`}>{profile.effectiveRate}</span>
                       </div>
                       <div className="flex items-center justify-between bg-muted/30 rounded px-3 py-2">
                         <span className="text-xs text-muted-foreground">Flat-rate comparison</span>
@@ -512,7 +512,7 @@ export default function RateComparison() {
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground mt-3 leading-relaxed">{profile.profile}</p>
-                    <div className="mt-3 text-xs font-medium text-emerald-600 dark:text-emerald-400" data-testid={`text-profile-savings-${i}`}>
+                    <div className="mt-3 text-xs font-medium text-emerald-700 dark:text-emerald-400" data-testid={`text-profile-savings-${i}`}>
                       Typical savings: {profile.savings}*
                     </div>
                   </CardContent>
@@ -525,9 +525,9 @@ export default function RateComparison() {
           </div>
         </section>
 
-        <section className="bg-background py-16" data-testid="section-why-liberty">
+        <section className="bg-background py-10" data-testid="section-why-liberty">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-10" data-testid="text-why-liberty-heading">
+            <h2 className="public-h2 reveal font-display font-bold text-foreground text-center mb-10" data-testid="text-why-liberty-heading">
               Why Merchants Switch to Liberty Bancard
             </h2>
             <div className="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -551,9 +551,9 @@ export default function RateComparison() {
           </div>
         </section>
 
-        <section className="bg-muted/30 py-16" data-testid="section-compare-faq">
+        <section className="bg-muted/30 py-10" data-testid="section-compare-faq">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-8" data-testid="text-compare-faq-heading">
+            <h2 className="public-h2 reveal font-display font-bold text-foreground text-center mb-8" data-testid="text-compare-faq-heading">
               Frequently Asked Questions
             </h2>
             <Accordion type="single" collapsible className="reveal space-y-2" data-testid="accordion-compare-faq">
@@ -571,27 +571,27 @@ export default function RateComparison() {
           </div>
         </section>
 
-        <section className="relative overflow-hidden bg-primary text-primary-foreground py-16" data-testid="section-compare-final-cta">
+        <section className="relative overflow-hidden bg-primary text-primary-foreground py-10" data-testid="section-compare-final-cta">
           <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <h2 className="text-2xl md:text-3xl font-display font-bold mb-4" data-testid="text-compare-cta-heading">
+            <h2 className="public-h2 font-display font-bold mb-4" data-testid="text-compare-cta-heading">
               Ready to See Your Actual Savings?
             </h2>
             <p className="text-primary-foreground/80 mb-8 max-w-xl mx-auto">
               Upload your processing statement for a free, line-by-line comparison. Keep the analysis even if you don't switch.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <Link href="/upload-statement" data-testid="link-compare-cta-upload">
-                <Button size="lg" className="gap-2 bg-accent hover:bg-accent border-accent text-white">
+              <Button size="lg" className="public-cta gap-2 bg-accent hover:bg-accent border-accent text-white" asChild>
+                <Link href="/upload-statement" data-testid="link-compare-cta-upload">
                   <Upload className="w-4 h-4" />
                   Upload Statement - Free Review
-                </Button>
-              </Link>
-              <Link href="/savings-calculator" data-testid="link-compare-cta-calc">
-                <Button size="lg" variant="outline" className="gap-2 bg-transparent border-white/30 text-white hover:bg-white/10">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="public-cta gap-2 bg-transparent border-white/30 text-white hover:bg-white/10" asChild>
+                <Link href="/savings-calculator" data-testid="link-compare-cta-calc">
                   <Calculator className="w-4 h-4" />
                   Try Savings Calculator
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </section>

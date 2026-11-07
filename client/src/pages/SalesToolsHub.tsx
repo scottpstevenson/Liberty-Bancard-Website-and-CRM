@@ -216,7 +216,7 @@ export default function SalesToolsHub() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28 pb-20 md:pb-0">
+      <main className="flex-grow public-main-offset pb-20 md:pb-0">
         <section className="relative overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14 lg:py-20">
@@ -292,12 +292,12 @@ export default function SalesToolsHub() {
 
                       <div className="flex flex-col gap-2 pt-1">
                         <CopyShareButton tool={tool} />
-                        <Link href={tool.href} data-testid={`link-open-tool-${tool.id}`} onClick={() => trackToolClick(tool)}>
-                          <Button size="sm" className="w-full gap-1.5 text-xs">
+                        <Button size="sm" className="w-full gap-1.5 text-xs" asChild>
+                          <Link href={tool.href} data-testid={`link-open-tool-${tool.id}`} onClick={() => trackToolClick(tool)}>
                             <ExternalLink className="w-3.5 h-3.5" />
                             Open Tool
-                          </Button>
-                        </Link>
+                          </Link>
+                        </Button>
                       </div>
                     </CardContent>
                   </Card>

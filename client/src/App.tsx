@@ -13,7 +13,8 @@ import { Loader2 } from "lucide-react";
 import { StickyMobileCTA } from "@/components/StickyMobileCTA";
 import { PublicThemeShell } from "@/components/PublicThemeShell";
 import { CookieConsent } from "@/components/CookieConsent";
-// ChatWidget replaced by GHL chat widget (index.html)
+import { PublicOverlayCoordinator } from "@/components/PublicOverlayCoordinator";
+// Chat: vendor widget injected by the server-rendered HTML shell (server/ssrShared.ts); see PublicOverlayCoordinator.
 import { trackPageView } from "@/lib/tracking";
 import { captureUTMParams } from "@/lib/utm";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -1112,7 +1113,10 @@ function PublicLayout() {
       </ErrorBoundary>
       {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && !isUploadStatement && <StickyMobileCTA />}
       {!isDashboard && !isAuthPage && !isMobile && <CookieConsent />}
-      {/* GHL chat widget loaded via index.html script tag */}
+      {/* The GHL chat widget is injected by the server-rendered HTML shell (server/ssrShared.ts),
+          not by client/index.html, so SPA-fallback entries do not load it. The coordinator keeps
+          it from covering consent, dialogs, focused fields and the sticky dock. */}
+      {!isDashboard && !isMobile && <PublicOverlayCoordinator />}
     </>
   );
 

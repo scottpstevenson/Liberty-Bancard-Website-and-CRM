@@ -94,7 +94,7 @@ export default function PartnerEmbedWidget() {
         path="/partners/embed-widget"
       />
       <Navbar />
-      <main className="flex-grow pt-28">
+      <main className="flex-grow public-main-offset">
 
         {/* Hero */}
         <section className="bg-gradient-to-br from-primary/5 via-background to-background py-16 md:py-20 border-b border-border/30">
@@ -109,16 +109,16 @@ export default function PartnerEmbedWidget() {
               Give your website visitors an instant estimate of how much they could save on payment processing. Every click sends a warm lead to Liberty Bancard — with your referral code attached.
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
-              <Link href="/partner-portal">
-                <Button size="lg" className="gap-2 w-full sm:w-auto" data-testid="button-hero-portal">
+              <Button size="lg" className="gap-2 w-full sm:w-auto" data-testid="button-hero-portal" asChild>
+                <Link href="/partner-portal">
                   Get My Widget Code <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
-              <Link href="/partners">
-                <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto" data-testid="button-hero-apply">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto" data-testid="button-hero-apply" asChild>
+                <Link href="/partners">
                   Apply as a Partner
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </section>
@@ -254,16 +254,16 @@ export default function PartnerEmbedWidget() {
               Log in to the partner portal to get your personalized embed code from the Widget Generator, or apply now to become a partner.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <Link href="/partner-portal">
-                <Button size="lg" className="gap-2 w-full sm:w-auto" data-testid="button-cta-portal">
+              <Button size="lg" className="gap-2 w-full sm:w-auto" data-testid="button-cta-portal" asChild>
+                <Link href="/partner-portal">
                   Go to Widget Generator <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
-              <Link href="/partners">
-                <Button size="lg" variant="outline" className="w-full sm:w-auto" data-testid="button-cta-apply">
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" className="w-full sm:w-auto" data-testid="button-cta-apply" asChild>
+                <Link href="/partners">
                   Apply as a Partner
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </section>

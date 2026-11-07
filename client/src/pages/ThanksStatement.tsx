@@ -143,12 +143,12 @@ function ReferralShareSection() {
                     <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
                       Create a free referral account and get paid when the merchants you refer activate.
                     </p>
-                    <Link href="/affiliate" data-testid="link-create-affiliate-account">
-                      <Button size="sm" variant="outline" className="mt-3 gap-1.5 border-amber-400 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/30">
+                    <Button size="sm" variant="outline" className="mt-3 gap-1.5 border-amber-400 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/30" asChild>
+                      <Link href="/affiliate" data-testid="link-create-affiliate-account">
                         Create Your Free Referral Account
                         <ArrowRight className="w-3.5 h-3.5" />
-                      </Button>
-                    </Link>
+                      </Link>
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -176,7 +176,7 @@ export default function ThanksStatement() {
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Statement Received" description="We received your processing statement. Liberty Bancard will deliver your free line-by-line analysis during business hours." path="/thanks-statement" noindex />
       <Navbar />
-      <main className="flex-grow pt-28">
+      <main className="flex-grow public-main-offset">
         <section className="bg-primary text-primary-foreground py-16" data-testid="section-thanks-statement-hero">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-6">
@@ -189,18 +189,18 @@ export default function ThanksStatement() {
               We're reviewing your statement line-by-line right now. You'll get your breakdown during business hours - usually the same day.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("thanks_statement")} data-testid="link-thanks-statement-book-call">
-                <Button size="lg" variant="secondary" className="gap-2">
+              <Button size="lg" variant="secondary" className="gap-2" asChild>
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("thanks_statement")} data-testid="link-thanks-statement-book-call">
                   <Calendar className="w-4 h-4" />
-                  Book a Walkthrough
-                </Button>
-              </a>
-              <a href="tel:9542668214" data-testid="link-thanks-statement-call" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-statement" })}>
-                <Button size="lg" variant="outline" className="gap-2 bg-transparent border-primary-foreground/30 text-primary-foreground">
+                  Book a review call
+                </a>
+              </Button>
+              <Button size="lg" variant="outline" className="gap-2 bg-transparent border-primary-foreground/30 text-primary-foreground" asChild>
+                <a href="tel:9542668214" data-testid="link-thanks-statement-call" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-statement" })}>
                   <Phone className="w-4 h-4" />
                   Call/Text 954-266-8214
-                </Button>
-              </a>
+                </a>
+              </Button>
             </div>
           </div>
         </section>

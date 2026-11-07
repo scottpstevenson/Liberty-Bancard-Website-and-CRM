@@ -65,12 +65,12 @@ export function PublicIntakeNotice({ state, testIdPrefix, checking, checkNote, o
             {recoverable ? "Try to finish now" : "Try again"}
           </Button>
         )}
-        <a href={PHONE_TEL} data-testid={`${testIdPrefix}-call`}>
-          <Button type="button" size="sm" variant="outline" className="gap-1"><Phone className="h-3 w-3" />Call {PHONE_NUMBER}</Button>
-        </a>
-        <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid={`${testIdPrefix}-book`}>
-          <Button type="button" size="sm" variant="outline">Book a time</Button>
-        </a>
+        <Button size="sm" variant="outline" className="gap-1" asChild>
+          <a href={PHONE_TEL} data-testid={`${testIdPrefix}-call`}><Phone className="h-3 w-3" />Call {PHONE_NUMBER}</a>
+        </Button>
+        <Button size="sm" variant="outline" asChild>
+          <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid={`${testIdPrefix}-book`}>Book a review call</a>
+        </Button>
         {state.restored && (
           <Button type="button" size="sm" variant="ghost" onClick={onDismiss} data-testid={`${testIdPrefix}-dismiss`}>Start a new request</Button>
         )}
