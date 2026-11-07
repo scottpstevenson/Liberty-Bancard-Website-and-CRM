@@ -71,7 +71,7 @@
 - [GitHub workflow push scope](github-workflow-push-scope.md) — workflow-file pushes need GitHub's explicit workflow permission; repo access alone may be insufficient.
 - [Durable command lease cleanup](durable-command-lease-cleanup.md) — every claimed-command exit must release only its own token-fenced lease.
 - [Provider-readiness deferral audits](provider-readiness-deferral-audits.md) — when readiness defers pre-legacy-gate, persist the actual deferral reason.
-- [Disposable certification](local-predeploy-database.md) — Isolate DB/Redis/processes; [pause fixtures](pause-cycle-test-db.md); [names ≤63 bytes](disposable-database-names.md).
+- [Disposable certification](local-predeploy-database.md) — Isolate DB/Redis/processes; [pause fixtures](pause-cycle-test-db.md); [names ≤63 bytes](disposable-database-names.md); [runner roster](disposable-runner-roster.md): register certs in CERTIFICATION_FIXTURE_SUITES.
 - [Sequence dispatch linearization](sequence-dispatch-linearization.md) — serialize inbound writes and final dispatch; only expired pre-dispatch leases are retryable.
 - [Commercial/channel authority axes](commercial-resolution-authority.md) — Keep resolution, channel evidence, and identity/provenance separate; shadow never replaces legacy pre-cutover.
 - [Multi-source cursor buffering](multi-source-cursor-buffering.md) — merged pagination must retain fetched-but-not-emitted items or cursors silently drop them.
@@ -162,7 +162,6 @@
 - [Release-only runner & launch content](release-only-runner-and-launch-content.md) — SMTP-only deferral, empty-sequence guard, fake-SMTP disposable cert fixture requirements.
 - [SFP canonical release authority](sfp-canonical-release-authority.md) — capped admin release of held recipients; sender identity has no status column; county_fips empty in prod.
 - [Stale-package refresh & seed boundary](sfp-stale-package-refresh-and-seed-boundary.md) — cursors miss stale packages; lazy policy bounds preview; real-path seed send needs a design decision.
-- [Disposable runner roster](disposable-runner-roster.md) — register certs in CERTIFICATION_FIXTURE_SUITES to run them on a disposable DB; restarts kill background runs.
 - [Private browser suite pitfalls](private-browser-suite-pitfalls.md) — rebuild before browser suites (identity covers scripts/); narrow viewports need prefer_desktop; wait on test IDs. Stale dist/blank app: see stale-dist-and-import-gaps.md, dev-app-blank-and-cold-load.md.
 - [Full roster run pitfalls](full-roster-run-pitfalls.md) — roster dirties docs/ evidence; rerun failures clean and diff against a baseline worktree.
 - [Recipient-selection lane starvation](recipient-selection-lane-starvation.md) — priority runs do not reach new uploads; staged-email businesses gated by geography; projection tick timing out.
@@ -196,6 +195,6 @@
 - [Browser suite query-cache and overlays](browser-suite-query-cache-and-overlays.md) — reload after fixture env changes (stale cache hides state); floating assistant covers bottom-right controls.
 - [Stage 4D reliability patterns](stage4d-reliability-patterns.md) — atomic inbound evidence, atomic reply-stop pause, non-sending hold expiry, full-number SMS identity, local-contact-only booking create.
 - [Pre-deploy gate quirks](appointment-statement-polling-fix.md) — GHL fix: pollUntil(12s); see [predeploy-port-5000-conflict.md](predeploy-port-5000-conflict.md): dev owns port 5000.
-- [Application-to-MID lifecycle patterns](stage5-application-to-mid-patterns.md) — dispatch markers, atomic underwriting override, shared cohort for counts/queue, pure e-sign read, journal text-append rule.
-- [Stage 5 application-to-MID patterns](stage5-application-to-mid-patterns.md) — held-send markers, strict-DTO tracking-key 400, MID rules, allowlist moves, test-forms limits.
+- [Stage 5 application-to-MID patterns](stage5-application-to-mid-patterns.md) — dispatch markers, atomic underwriting override, held-send markers, strict-DTO tracking-key 400, MID rules, journey text-append rule.
 - [Public-site verification lessons](public-site-verification-lessons.md) — Chromium blocks port 6000; WebKit cannot run here; clean-clone baselines need attached_assets; known baseline failures.
+- [SFP pool count authority](sfp-pool-count-authority.md) — real SFP validated count = cr04 ready_held + launch gates (~1,200 businesses); staging/eligibility tables are stale; no live 30-day expiry; `active` tag does not block.

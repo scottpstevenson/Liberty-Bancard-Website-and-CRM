@@ -1,0 +1,12 @@
+---
+name: SFP pool count authority
+description: Which tables/queries give the real number of SFP-validated businesses and recipients, and what does and does not block legacy 'active' contacts.
+---
+- The SFP validated pool is `cr04_enrollment_intents` (`preparation_state` ready_held / pending_validation / rejected) judged by the launch gates in `buildRecordedLaunchQuery(180)` (server/services/sfp-launch-inventory.ts). Production on 2026-11-07: 1,667 ready_held recipients on 1,221 businesses; 1,566 recipients on 1,203 businesses pass every recorded gate (before the live contact-policy check).
+- Wrong sources that made it look like ~72: `sfp_campaign_staging_intents` (old cohort-staging path, 72 rows/28 businesses) and `sfp_outreach_eligibility` (frozen per-cohort-run projection from Sep 29–Oct 3, policy v1/v2, 30-day expiry stored on each row). Neither is the release input. `contacts.email_status` counts are a compatibility projection, not eligibility.
+- No live 30-day validation expiry exists: active policy v3 = 180 days, `provider_observations.expires_at` is NULL for every ZeroBounce row, and v1/v2 policy documents are immutable history. The `30` in production-seed-convergence.ts is the pinned v1 bootstrap document.
+- Legacy `active` status does not block SFP: preparation excludes only invalid/bounced/unsafe/opted_out, and `active` is treated exactly like `unvalidated`. The ~150k unlinked legacy contacts are unusable because they have no verified contact→business link (`LEGACY_CONTACT_FIELDS_ONLY` dispositions), not because of the tag.
+- Linked contacts stop short of validation when the business vertical is unresolved/excluded/outside the five program verticals or geography is unresolved/outside the three counties (`NO_CURRENT_PROGRAM_BINDING_OR_AVAILABLE_EMAIL`). Validation volume collapsed after ~Oct 24 because in-program, resolved-geography contacts were exhausted, not because of provider budget.
+
+**Why:** the user challenged "no way there are fewer than 200 SFP validated businesses/leads"; I had quoted the stale tables, the user was right, and I had to retract it.
+**How to apply:** report recipients and distinct businesses from the cr04 intents + launch gates; state which table each number came from. To run the launch SQL on production, render it with `PgDialect().sqlToQuery(buildRecordedLaunchQuery(180))` from a temporary script inside the repo (tsconfig paths), inline the params, run it through `executeSql({environment:"production"})` wrapped in an aggregate, then delete the script.
