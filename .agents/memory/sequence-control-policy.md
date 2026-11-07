@@ -20,3 +20,11 @@ No sequence may enroll contacts unless its `status = 'active'`. This is enforced
 ## State as of enforcement
 - 52 sequences in DB, all `paused` (49 pre-existing + 3 Construction sequences from Task #390 merge).
 - SDR sequences 45/46/47 (Auto, Med Spa, Dental cold outbound) require GHL voice workflow IDs before enabling.
+
+## Old enrollments are dormant only because their sequences are paused (measured 2026-11-07)
+- About 420 old active enrollments (mostly two manual "Referral Flywheel" sequences) sit in paused sequences; the 31 live active sequences hold none. Any new warm-lifecycle gate needs a durable per-enrollment admission marker, not just sequence status, or un-pausing a sequence wakes them.
+- Seeded vertical inbound-nurture sequences use trigger name `form_submission`; the trigger matcher only matches names like `form_submitted`, so they cannot match as written. No public form route enqueues enrollment.
+- The enrollment fence's email branch delegates to the SFP canonical-recipient path; do not reuse it for warm website enrollment.
+
+**Why:** found while validating the email-activation plan; wrong assumptions here could silently wake historical sends.
+**How to apply:** re-measure production read-only before relying on these numbers.
