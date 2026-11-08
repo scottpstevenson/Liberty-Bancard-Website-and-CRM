@@ -7,3 +7,14 @@ Receipt previews inline the brand logo for display only because the iframe sandb
 **Why:** a parallel task, notification or receipt authority would fork ownership; stale deal links produced blank screens.
 **How to apply:** add new request kinds to the same list and notification authority; never inline anything but the logo into previews.
 Messaging Inbox "Site" is chat only and says so, linking to Inbound Operations; a failed source is shown as not-an-all-clear with Retry.
+
+## Post-Publish verification (website statement recovery)
+
+Production serving identity: unauthenticated `GET /api/health` returns the compiled `sha`/`builtAt`. The platform's
+"Published your App" commit is an empty-diff child of the built commit, so compare `sha` to its parent, not to HEAD.
+Recovery of a retained occurrence was done through the admin route with login + `/api/csrf-token`; the live
+statement-upload worker then consumed the command on its own (no receipt, GHL or send rows were created).
+
+**Why:** HEAD after Publish never equals the serving sha; reading it as a mismatch would wrongly report a stale build.
+**How to apply:** verify serving sha first, recover one occurrence at a time, then read request/effects/work-links/
+notification and `communication_events` back read-only.

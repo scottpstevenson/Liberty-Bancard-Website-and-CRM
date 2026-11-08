@@ -5,21 +5,17 @@
 - [Workflow port restoration](workflow-port-restoration.md) — An inactive workflow's waitForPort can restore a removed external mapping; verify removal persists.
 - [C2 Contact header scope](c2-contact-header-scope.md) — Header/action hierarchy remains C2; final eleven-entry sidebar stays C5; qualify rendered/action evidence separately.
 - [Multi-mailbox restart proof](multi-mailbox-restart-proof.md) — Certify ordinary upload restart separately from deferred-item recovery; immutable row accounting is not fulfillment.
-- [Original-row claim planning](original-row-claim-planning.md) — Verify the full payload-extraction plan; limit scalar work before opening workbook JSON.
-- [Bounded recovery qualification](bounded-recovery-qualification.md) — Old dates cannot permanently exclude current eligibility; distinguish narrow US-phone equivalence from real identity conflicts.
+- [Original-row claim planning](original-row-claim-planning.md) / [Bounded recovery](bounded-recovery-qualification.md) — verify full extraction plan; old dates never exclude current eligibility.
 - [Legacy role-conditional redirects](legacy-role-conditional-redirects.md) — Non-admin/manager roles may still see retired pages; inspect every redirect branch before deletion.
 - [Canonical Lifecycle State Machine](lifecycle-state-machine.md) — lifecycle_state on contacts (27 states); LifecycleService side-effect wiring; backfill not yet run on prod.
 - [NBA Engine & ChannelOrchestrator](wave1-nba-channel-orchestrator.md) — ChannelOrchestrator compliance fence, transport adapters, NBA tables/routes/UI at /dashboard/nba.
 - [Automation Registry & Collision Fixes](automation-registry.md) — automation_registry table; kill-switch pattern; global-pause gaps fixed in 2 workers.
 - [Hardening audit patterns](hardening-audit-patterns.md) — recurring bug classes found in this codebase; check these first on any new route/service.
-- [HealthMonitor email spam fixes](health-monitor-email-spam.md) — alert cooldowns, statement_timeout, dump-URL encoding bugs; startup grace period + recovery email pattern.
-- [WizardFlags pool saturation](wizard-flag-pool-saturation.md) — bulk hydration query pattern to avoid per-key query storms under load.
+- [HealthMonitor spam](health-monitor-email-spam.md) / [WizardFlags pool](wizard-flag-pool-saturation.md) — alert cooldowns + startup grace; bulk-hydrate flags, no per-key queries.
 - [Sender Policy Architecture](sender-policy-architecture.md) — central sender-policy.ts registry; every send site passes category; prohibition guard blocks noreply@ on LB domains.
-- [SDR merchant-contacts PII routes](sdr-merchant-contacts-security.md) — Require isDashboardUser + requireRole; these routes expose merchant email and phone.
-- [Scheduler idempotency gaps](scheduler-idempotency-gaps.md) — in-memory lastSentWeek/workerRunning flags lose state on restart; need acquireJobLock with durable keys.
+- [SDR PII routes](sdr-merchant-contacts-security.md) / [Scheduler idempotency](scheduler-idempotency-gaps.md) — requireRole on PII routes; durable job-lock keys, not in-memory flags.
 - [ZeroBounce email_status default](zerobounce-email-status-default.md) — Treat active as legacy-unvalidated; lazy validation covers null/active/unvalidated; winback allows only valid.
-- [Login rate limiter behavior](login-rate-limiter.md) — 401 "Invalid email or password" returned for BOTH wrong password AND rate-limit hits — indistinguishable from logs.
-- [Admin password sync](admin-password-sync.md) — seedAdminUser re-hashes and updates DB password on every startup; use env vars to control it.
+- [Login rate limiter](login-rate-limiter.md) / [Admin password sync](admin-password-sync.md) — 401 hides rate-limit hits; seedAdminUser re-hashes admin password at startup.
 - [Sequence control policy](sequence-control-policy.md) — all sequences default to `paused`; storage layer blocks enrollment into non-active sequences.
 - [Queue runtime decisions](queue-runtime-index.md) — BullMQ infrastructure, retained-job deduplication, partial initialization and hashed repeat identity.
 - [GHL token & circuit breaker](ghl-token-ops.md) — 401 on expired PIT token, regenerate in GHL settings; breaker persists closed/open/half-open via classifyGhlSyncError().
@@ -200,6 +196,5 @@
 - [Website email lifecycle lane](website-email-lifecycle-lane.md) — warm Gmail lane is default closed; marked-enrollment readers must filter; provider CHECK, migration-proof and fixture-egress traps.
 - [Statement-upload queue capability](statement-upload-queue-capability.md) — 503 root cause was a missing producer queue in the published profile; narrow group + truthful deferred handoff; owner Publish required.
 - [Receipt milestone gating](ack-milestone-gating-cutoffs.md) — receipts wait for the internal handoff; per-class cutoffs are monotonic and a re-save must not move them.
-- [Website intake review surfaces](website-intake-review-surfaces.md) — existing Tasks/Notifications/Inbound Operations only, one management notification, canonical deal link, display-only preview logo.
-- [Website intake cert harness lessons](website-intake-cert-harness-lessons.md) — phone NOT NULL, per-key caller IP, build identity covers scripts/, hidden duplicate DOM nodes, soft-fail sections.
+- [Website intake](website-intake-review-surfaces.md) / [cert harness](website-intake-cert-harness-lessons.md) — existing surfaces only; /api/health sha check; dialog autofocus.
 
