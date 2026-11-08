@@ -20,8 +20,6 @@ import {
   CheckCircle2,
   Smartphone,
   Check,
-  X,
-  Minus,
   ShieldCheck,
   Link2,
 } from "lucide-react";
@@ -31,27 +29,19 @@ import { trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracki
 import { trackPhoneCallClick } from "@/lib/analytics";
 import imgCloverFlex3 from "@/assets/images/terminal-clover-flex-3.png";
 import imgPaxA920 from "@/assets/images/terminal-pax-a920.png";
+import { claimText } from "@shared/public-claims";
+import { BEAT_SQUARE_STRIPE, COMPARE_METHOD_NOTE, COMPARE_NEEDS, COMPARE_TABLE_FOOTNOTE, beatSquareStripeRecords } from "@shared/compare-content";
+import { formatCheckedDate, formatMonthly, formatRate } from "@shared/competitor-pricing";
 
 const BASE_URL = "https://libertybancard.com";
 
-const comparisonTable = [
-  { feature: "Interchange passthrough pricing", square: false, stripe: false, liberty: true },
-  { feature: "Line-item cost breakdown", square: false, stripe: false, liberty: true },
-  { feature: "Statement-based pricing", square: false, stripe: false, liberty: true },
-  { feature: "Next-day funding*", square: false, stripe: false, liberty: true },
-  { feature: "Dedicated human support", square: false, stripe: false, liberty: true },
-  { feature: "No long-term contract", square: true, stripe: true, liberty: true },
-  { feature: "Free terminal for qualifying merchants*", square: false, stripe: false, liberty: true },
-  { feature: "Liberty Zero™ — 0% Program*", square: false, stripe: false, liberty: true },
-  { feature: "Easy online signup", square: true, stripe: true, liberty: true },
-  { feature: "Guided onboarding + go-live support", square: false, stripe: false, liberty: true },
-];
+const publishedRecords = beatSquareStripeRecords();
 
 const comparisonPoints = [
   "Effective rate including monthly add-ons",
   "Card mix and downgrade impact",
   "Keyed vs swiped differences",
-  "Funding timing expectations and available options*",
+  "Recurring charges such as monthly, gateway and PCI fees",
 ];
 
 const whatYouGetBullets = [
@@ -62,7 +52,7 @@ const whatYouGetBullets = [
 
 const terminalFeatures = [
   "Tap, chip, swipe",
-  "Fast setup with a real person",
+  "Guided setup with our team",
   "Reliable checkout and clear receipts",
 ];
 
@@ -116,7 +106,7 @@ export default function BeatSquareStripe() {
 
   return (
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
-      <SEO title="Beat Square & Stripe Pricing" description="Compare Liberty Bancard statement-based pricing against Square and Stripe flat-rate processing. Real numbers, no guesswork." path="/beat-square-stripe" keywords="beat square pricing, beat stripe pricing, interchange plus vs flat rate, payment processing comparison" breadcrumbs={[{ name: "Beat Square & Stripe", path: "/beat-square-stripe" }]} structuredData={[getServiceSchema("Interchange-Plus Payment Processing", "Transparent interchange-plus pricing that beats Square and Stripe flat-rate processing for most businesses.", "/beat-square-stripe")]} />
+      <SEO title={BEAT_SQUARE_STRIPE.title} description={BEAT_SQUARE_STRIPE.description} path={BEAT_SQUARE_STRIPE.path} keywords={BEAT_SQUARE_STRIPE.keywords} breadcrumbs={[{ name: "Switching from Square or Stripe", path: BEAT_SQUARE_STRIPE.path }]} structuredData={[getServiceSchema("Interchange-Plus Payment Processing", BEAT_SQUARE_STRIPE.serviceDescription, BEAT_SQUARE_STRIPE.path)]} />
       <Navbar />
 
       <main className="flex-grow public-main-offset" ref={containerRef}>
@@ -139,7 +129,7 @@ export default function BeatSquareStripe() {
                   className="text-lg text-white/70 mb-8 leading-relaxed"
                   data-testid="text-beat-subheadline"
                 >
-                  Flat-rate pricing hides interchange downgrades, monthly fees, and card-mix costs. We run an apples-to-apples comparison on your actual statement — so you see the all-in number, not just the rate you were quoted.
+                  One flat rate can mean very different all-in costs depending on your card mix, monthly fees and volume. We run an apples-to-apples comparison on your actual statement — so you see the all-in number, not just the rate you were quoted.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 flex-wrap mb-3">
                   <Button size="lg" className="gap-2 bg-sky-400 border-sky-400 text-slate-950 hover:bg-sky-300" asChild>
@@ -180,7 +170,7 @@ export default function BeatSquareStripe() {
                   className="text-xs text-white/70 mt-2 max-w-lg"
                   data-testid="text-beat-subtext"
                 >
-                  No pressure. You keep the breakdown. Actual savings depend on your card mix, volume, and underwriting — confirmed via statement review.
+                  No pressure. You keep the breakdown. Your cost depends on your card mix, volume, and underwriting — confirmed via statement review.
                 </p>
               </div>
               <div className="flex items-center justify-center">
@@ -199,142 +189,53 @@ export default function BeatSquareStripe() {
           </div>
         </section>
 
-        {/* Real Dollar Math: $50K/Month Example */}
+        {/* Published rates (dated, sourced) and the comparison method */}
         <section className="bg-background py-20" data-testid="section-dollar-math">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-10">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-dollar-math-heading">
-                Real Numbers. $50,000/Month Example.
+                What Square and Stripe Publish
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto text-sm">
-                Same volume, same card mix — what each processor actually costs. Based on $50K/month, ~1,000 transactions (avg $50 each), typical Visa credit card mix.
+                Rates copied from each provider's official pricing page, with the date checked. They are list rates, not a quote for your business.
               </p>
             </div>
 
-            <div className="reveal grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-              {[
-                {
-                  processor: "Square",
-                  rate: "2.6% + $0.10/txn",
-                  monthly: "$1,400",
-                  annual: "$16,800",
-                  breakdown: "2.6% × $50,000 = $1,300\n+ $0.10 × 1,000 txn = $100",
-                  highlight: false,
-                  color: "text-foreground",
-                },
-                {
-                  processor: "Stripe",
-                  rate: "2.9% + $0.30/txn",
-                  monthly: "$1,750",
-                  annual: "$21,000",
-                  breakdown: "2.9% × $50,000 = $1,450\n+ $0.30 × 1,000 txn = $300",
-                  highlight: false,
-                  color: "text-foreground",
-                },
-                {
-                  processor: "Liberty Bancard",
-                  rate: "Interchange + ~0.20%",
-                  monthly: "~$1,070",
-                  annual: "~$12,840",
-                  breakdown: "Avg interchange ~1.80% × $50K = $900\n+ 0.20% markup = $100\n+ $0.07 × 1,000 txn = $70",
-                  highlight: true,
-                  color: "text-emerald-600 dark:text-emerald-400",
-                },
-              ].map((item, i) => (
-                <Card
-                  key={i}
-                  className={item.highlight ? "border-2 border-primary/30 bg-primary/5" : ""}
-                  data-testid={`card-dollar-math-${i}`}
-                >
+            <div className="reveal grid grid-cols-1 md:grid-cols-2 gap-6 mb-8" data-testid="table-comparison">
+              {publishedRecords.map((record) => (
+                <Card key={record.id} data-testid={`card-published-rate-${record.id}`}>
                   <CardContent className="p-6">
-                    {item.highlight && (
-                      <div className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Best Value</div>
+                    <h3 className="text-lg font-display font-bold text-foreground mb-1">{record.product}</h3>
+                    <p className="text-xs text-muted-foreground mb-4">{record.plan} ({record.channel})</p>
+                    <div className="text-2xl font-display font-bold text-foreground mb-1" data-testid={`text-published-rate-${record.id}`}>{formatRate(record)}</div>
+                    {record.monthlyFeeCents !== null && (
+                      <p className="text-xs text-muted-foreground mb-1">{formatMonthly(record.monthlyFeeCents)}</p>
                     )}
-                    <h3 className="text-lg font-display font-bold text-foreground mb-1">{item.processor}</h3>
-                    <p className="text-xs text-muted-foreground mb-4">{item.rate}</p>
-                    <div className="space-y-1 text-xs text-muted-foreground bg-muted/50 rounded-md p-3 mb-4 font-mono whitespace-pre-line" data-testid={`text-math-breakdown-${i}`}>
-                      {item.breakdown}
-                    </div>
-                    <div className="flex justify-between items-end">
-                      <div>
-                        <div className="text-xs text-muted-foreground">Monthly cost</div>
-                        <div className={`text-2xl font-display font-bold ${item.color}`} data-testid={`text-monthly-cost-${i}`}>{item.monthly}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs text-muted-foreground">Annual cost</div>
-                        <div className={`text-lg font-semibold ${item.color}`} data-testid={`text-annual-cost-${i}`}>{item.annual}</div>
-                      </div>
-                    </div>
+                    {record.qualifier && <p className="text-xs text-muted-foreground mb-2">{record.qualifier}</p>}
+                    <p className="text-xs text-muted-foreground">
+                      <a href={record.sourceUrl} className="underline" target="_blank" rel="noopener noreferrer">Official pricing page</a>
+                      , checked {formatCheckedDate(record.checkedOn)}
+                    </p>
                   </CardContent>
                 </Card>
               ))}
             </div>
 
-            <div className="reveal bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-5 text-center" data-testid="card-math-savings-summary">
-              <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400 mb-1">
-                At $50K/month: Liberty saves ~$3,960/year vs Square and ~$8,160/year vs Stripe*
-              </p>
-              <p className="text-[11px] text-muted-foreground">
-                *Illustrative estimate. Interchange rate varies by card type (debit, credit, rewards, corporate). Liberty's markup of 0.10–0.40% depends on your profile. Per-transaction fee of $0.05–$0.10 also applies. Actual rate depends on card mix and volume — upload a statement for your exact number. No savings claims without review.
+            <div className="reveal bg-muted/40 border border-border rounded-lg p-5" data-testid="card-math-savings-summary">
+              <p className="text-sm font-semibold text-foreground mb-2">{COMPARE_NEEDS.heading}</p>
+              <p className="text-sm text-muted-foreground mb-3">{COMPARE_NEEDS.intro}</p>
+              <ul className="space-y-2 mb-3">
+                {COMPARE_NEEDS.items.map((item) => (
+                  <li key={item} className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-muted-foreground" data-testid="text-comparison-footnote">
+                {COMPARE_METHOD_NOTE} {COMPARE_TABLE_FOOTNOTE}
               </p>
             </div>
-          </div>
-        </section>
-
-        {/* Head-to-Head Comparison Table */}
-        <section className="bg-muted py-20" data-testid="section-comparison-table">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="reveal text-center mb-10">
-              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-comparison-heading">
-                Head-to-Head Comparison
-              </h2>
-              <p className="text-muted-foreground max-w-xl mx-auto">See what you get with each provider. The math doesn't lie.</p>
-            </div>
-            <Card>
-              <CardContent className="p-0 overflow-x-auto">
-                <table className="w-full text-sm" data-testid="table-comparison">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left p-4 font-medium text-foreground">Feature</th>
-                      <th className="text-center p-4 font-medium text-muted-foreground min-w-[100px]">Square</th>
-                      <th className="text-center p-4 font-medium text-muted-foreground min-w-[100px]">Stripe</th>
-                      <th className="text-center p-4 font-semibold text-primary min-w-[100px]">Liberty</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comparisonTable.map((row, i) => (
-                      <tr key={i} className="border-b border-border last:border-0" data-testid={`comparison-row-${i}`}>
-                        <td className="p-4 text-foreground">{row.feature}</td>
-                        <td className="p-4 text-center">
-                          {row.square ? (
-                            <Check className="w-5 h-5 text-emerald-500 mx-auto" />
-                          ) : (
-                            <X className="w-5 h-5 text-red-400 mx-auto" />
-                          )}
-                        </td>
-                        <td className="p-4 text-center">
-                          {row.stripe ? (
-                            <Check className="w-5 h-5 text-emerald-500 mx-auto" />
-                          ) : (
-                            <X className="w-5 h-5 text-red-400 mx-auto" />
-                          )}
-                        </td>
-                        <td className="p-4 text-center bg-primary/5">
-                          {row.liberty ? (
-                            <Check className="w-5 h-5 text-emerald-500 mx-auto" />
-                          ) : (
-                            <X className="w-5 h-5 text-red-400 mx-auto" />
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
-            <p className="text-xs text-muted-foreground text-center mt-4" data-testid="text-comparison-footnote">
-              *Eligibility, underwriting, card brand rules, and applicable laws apply. Feature availability may vary by account type and volume.
-            </p>
           </div>
         </section>
 
@@ -346,13 +247,13 @@ export default function BeatSquareStripe() {
                 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-6"
                 data-testid="text-cost-more-heading"
               >
-                The Catch With Flat Rates
+                How Flat Rates Compare
               </h2>
               <p
                 className="text-muted-foreground mb-4 leading-relaxed"
                 data-testid="text-cost-more-p1"
               >
-                Flat-rate pricing is simple - but it can bake in extra margin that becomes costly at higher volume or better card mix.
+                Flat-rate pricing is simple. Whether it costs more or less than interchange-plus depends on your volume, card mix and ticket size.
               </p>
               <p
                 className="text-muted-foreground mb-8 leading-relaxed"
@@ -406,7 +307,7 @@ export default function BeatSquareStripe() {
               </ul>
               <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2 mb-4" data-testid="text-guarantee-oneliner">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                If we can't beat your current processor, we'll tell you upfront. No pressure — you keep the breakdown either way.
+                If the review shows no better option, we'll tell you. No pressure — you keep the breakdown either way.
               </div>
               <p
                 className="text-xs text-muted-foreground mb-6"
@@ -464,7 +365,7 @@ export default function BeatSquareStripe() {
                         className="text-sm text-muted-foreground mb-6"
                         data-testid="text-terminal-note"
                       >
-                        Free equipment may be available for qualifying merchants.*
+                        {claimText("equipment.options.summary")}
                       </p>
                       <Button className="gap-2" asChild>
                         <Link href="/upload-statement" data-testid="link-terminal-cta">
@@ -477,7 +378,7 @@ export default function BeatSquareStripe() {
                         className="text-xs text-muted-foreground mt-4"
                         data-testid="text-terminal-footnote"
                       >
-                        *Eligibility and underwriting apply.
+                        Eligibility and underwriting apply.
                       </p>
                     </div>
                     <div className="flex flex-col gap-4 items-center">

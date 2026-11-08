@@ -17,6 +17,17 @@ import {
   FreeStatementReviewSubmitGuidance,
   FreeStatementReviewDetails,
 } from "@/components/FreeStatementReviewExplainer";
+import {
+  FSR_EQUIPMENT_CARD,
+  FSR_EQUIPMENT_STRIP,
+  FSR_HERO,
+  FSR_META,
+  FSR_NEXT_HEADING,
+  FSR_NEXT_NOTE,
+  FSR_NEXT_STEPS,
+  FSR_REVIEW_CARD_FOOTNOTE,
+  FSR_REVIEW_ITEMS,
+} from "@shared/free-statement-review-content";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -49,7 +60,6 @@ import { getStoredUTMParams } from "@/lib/utm";
 import {
   FileSearch,
   ShieldCheck,
-  Clock,
   Lock,
   Calendar,
   Loader2,
@@ -81,12 +91,7 @@ const uploadSchema = z.object({
 
 type UploadFormData = z.infer<typeof uploadSchema>;
 
-const WHAT_WE_REVIEW = [
-  { label: "Your actual effective rate", note: "vs. what you were quoted" },
-  { label: "Every fixed monthly fee", note: "PCI, batch, statement & service fees" },
-  { label: "Interchange downgrades", note: "where certain cards cost you extra" },
-  { label: "Your processor's markup", note: "what they earn above interchange" },
-];
+const WHAT_WE_REVIEW = FSR_REVIEW_ITEMS;
 
 export default function UploadStatement() {
   const [, setLocation] = useLocation();
@@ -308,11 +313,11 @@ export default function UploadStatement() {
     <div className="min-h-screen flex flex-col bg-white">
       <SEO
         title="Upload Your Processing Statement"
-        description="Upload your merchant processing statement for a free, no-obligation rate analysis. See exactly where your fees are going."
+        description={FSR_META.description}
         path="/upload-statement"
-        keywords="upload processing statement, free statement review, merchant fee analysis"
+        keywords={FSR_META.keywords}
         breadcrumbs={[{ name: "Upload Statement", path: "/upload-statement" }]}
-        structuredData={[getServiceSchema("Free Statement Review", "Upload your merchant processing statement for a free, no-obligation rate analysis.", "/upload-statement")]}
+        structuredData={[getServiceSchema("Free Statement Review", FSR_META.serviceDescription, "/upload-statement")]}
       />
       <Navbar />
 
@@ -322,9 +327,8 @@ export default function UploadStatement() {
             PROMO STRIP — amber offer bar
         ═══════════════════════════════════════════════════ */}
         <div className="bg-amber-700 px-4 py-2.5 text-center" data-testid="promo-strip">
-          <p className="text-xs font-bold text-white tracking-wide">
-            🎁 Free payment terminal this month — with approved account.{" "}
-            <span className="font-normal">Subject to eligibility &amp; equipment terms.</span>
+          <p className="text-xs font-bold text-white tracking-wide" data-testid="text-promo-strip">
+            {FSR_EQUIPMENT_STRIP}
           </p>
         </div>
 
@@ -362,7 +366,7 @@ export default function UploadStatement() {
             <div className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/15 px-3.5 py-1.5 mb-5">
               <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <span className="text-[11px] font-bold text-white/90 tracking-wider uppercase">
-                Free Statement Review
+                {FSR_HERO.badge}
               </span>
             </div>
 
@@ -371,7 +375,7 @@ export default function UploadStatement() {
               className="public-h1 public-h1--page text-[34px] font-extrabold text-white mb-4 tracking-tight"
               data-testid="text-upload-heading"
             >
-              Stop overpaying<br />for card processing.
+              {FSR_HERO.heading}
             </h1>
 
             {/* Subheadline */}
@@ -379,7 +383,7 @@ export default function UploadStatement() {
               className="text-[15px] text-white/65 leading-relaxed mb-5"
               data-testid="text-upload-subheadline"
             >
-              Upload your statement in 30 seconds — no processor login needed. We'll show your exact rate, every hidden fee, and where your money is going.
+              {FSR_HERO.sub}
             </p>
 
             {/* Savings hook */}
@@ -389,10 +393,10 @@ export default function UploadStatement() {
               </div>
               <div>
                 <p className="text-sm font-bold text-emerald-300 leading-snug">
-                  Most merchants we review save $600–$3,200/year
+                  {FSR_HERO.effectiveCostTitle}
                 </p>
-                <p className="text-[11px] text-white/70 leading-snug mt-1">
-                  Based on statement reviews completed. Actual savings depend on your volume, mix, and current rates.
+                <p className="text-[11px] text-white/70 leading-snug mt-1" data-testid="text-effective-cost-definition">
+                  {FSR_HERO.effectiveCostNote}
                 </p>
               </div>
             </div>
@@ -423,10 +427,10 @@ export default function UploadStatement() {
             {/* Trust chips */}
             <div className="flex flex-wrap gap-2 mb-8" data-testid="trust-chips">
               {[
-                { icon: ShieldCheck, label: "Free" },
-                { icon: Clock, label: "~30 seconds" },
-                { icon: Lock, label: "Secure upload" },
-                { icon: CheckCircle2, label: "No processor login" },
+                { icon: ShieldCheck, label: FSR_HERO.chips[0] },
+                { icon: CheckCircle2, label: FSR_HERO.chips[1] },
+                { icon: Lock, label: FSR_HERO.chips[2] },
+                { icon: CheckCircle2, label: FSR_HERO.chips[3] },
               ].map(({ icon: Icon, label }) => (
                 <span
                   key={label}
@@ -481,37 +485,7 @@ export default function UploadStatement() {
               </ul>
               <div className="bg-sky-50 border-t border-sky-100 px-4 py-2.5">
                 <p className="text-[11px] text-sky-700 font-medium leading-snug">
-                  You can redact account numbers — totals and fee lines are all we need. Your statement is never sold or shared.
-                </p>
-              </div>
-            </div>
-
-            {/* Quick fee-comparison card */}
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-100">
-                <p className="text-[10px] font-bold tracking-widest text-gray-500 uppercase">
-                  Where merchants overpay (by industry avg.)
-                </p>
-              </div>
-              <div className="divide-y divide-gray-100">
-                {[
-                  { label: "Restaurants", rate: "2.8–3.5%", flag: "Surcharge opp." },
-                  { label: "Medical / Dental", rate: "2.5–3.2%", flag: "High fixed fees" },
-                  { label: "Retail / Salon", rate: "2.2–3.0%", flag: "Downgrade risk" },
-                  { label: "Auto / Services", rate: "2.8–4.0%", flag: "Keyed-in markup" },
-                ].map(({ label, rate, flag }) => (
-                  <div key={label} className="flex items-center justify-between px-4 py-2.5 gap-3">
-                    <span className="text-sm text-gray-700 font-medium">{label}</span>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-xs font-bold text-red-600">{rate}</span>
-                      <span className="text-[10px] bg-orange-100 text-orange-700 rounded px-1.5 py-0.5 font-medium whitespace-nowrap">{flag}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="bg-gray-50 border-t border-gray-100 px-4 py-2.5">
-                <p className="text-[10px] text-gray-500 leading-snug">
-                  Rates shown are illustrative industry averages, not a guarantee of savings. Upload your statement for an actual analysis.
+                  {FSR_REVIEW_CARD_FOOTNOTE}
                 </p>
               </div>
             </div>
@@ -520,16 +494,13 @@ export default function UploadStatement() {
             <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl px-4 py-4">
               <div className="flex items-center gap-2 mb-2">
                 <Monitor className="w-4 h-4 text-amber-600 shrink-0" />
-                <p className="text-sm font-bold text-amber-800">Free Terminal This Month</p>
-                <span className="ml-auto text-[9px] font-bold bg-amber-200 text-amber-800 rounded px-1.5 py-0.5 uppercase tracking-wide whitespace-nowrap">
-                  Limited Offer
-                </span>
+                <p className="text-sm font-bold text-amber-800">{FSR_EQUIPMENT_CARD.title}</p>
               </div>
               <p className="text-[12px] text-amber-700 leading-snug mb-2">
-                Approved new merchant accounts may qualify for a free payment terminal — no upfront equipment cost on eligible models.
+                {FSR_EQUIPMENT_CARD.body}
               </p>
               <p className="text-[10px] text-amber-700 leading-snug">
-                Subject to eligibility, credit approval, underwriting, equipment availability, and applicable card-brand and equipment terms. Ask your rep for details.
+                {FSR_EQUIPMENT_CARD.fine}
               </p>
             </div>
 
@@ -771,7 +742,7 @@ export default function UploadStatement() {
                         <div className="flex items-center gap-1.5 mt-1.5">
                           <Lock className="w-3 h-3 text-gray-500 shrink-0" />
                           <span className="text-[11px] text-gray-500" data-testid="text-secure-upload">
-                            Encrypted upload — your statement is never sold or shared
+                            {FSR_HERO.uploadNote}
                           </span>
                         </div>
                         <FormMessage />
@@ -1020,30 +991,11 @@ export default function UploadStatement() {
               className="text-xl font-bold text-gray-900 mb-1"
               data-testid="text-what-happens-next"
             >
-              What happens next
+              {FSR_NEXT_HEADING}
             </h2>
-            <p className="text-sm text-gray-500 mb-6">Usually within 1 business day.</p>
+            <p className="text-sm text-gray-500 mb-6" data-testid="text-what-happens-next-note">{FSR_NEXT_NOTE}</p>
             <div className="space-y-3">
-              {[
-                {
-                  n: "1",
-                  title: "Instant confirmation",
-                  body: "We confirm receipt right away and queue AI analysis on your file.",
-                  delay: "reveal-delay-1",
-                },
-                {
-                  n: "2",
-                  title: "Line-by-line fee audit",
-                  body: "We calculate your effective rate and surface every cost driver — hidden fees included.",
-                  delay: "reveal-delay-2",
-                },
-                {
-                  n: "3",
-                  title: "Your options, in plain math",
-                  body: "We present 2–3 specific options with apples-to-apples savings estimates and no pressure.",
-                  delay: "reveal-delay-3",
-                },
-              ].map(({ n, title, body, delay }) => (
+              {FSR_NEXT_STEPS.map((step, i) => ({ ...step, delay: `reveal-delay-${i + 1}` })).map(({ n, title, body, delay }) => (
                 <div
                   key={n}
                   className={`flex items-start gap-4 bg-white rounded-2xl border border-gray-100 px-4 py-4 shadow-sm reveal ${delay}`}

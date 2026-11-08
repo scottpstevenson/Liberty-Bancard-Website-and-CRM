@@ -107,7 +107,7 @@ export function getOrganizationSchema(): StructuredData {
     name: "Liberty Bancard",
     url: BASE_URL,
     logo: `${BASE_URL}/favicon.png`,
-    description: "Liberty Bancard provides transparent, statement-based payment processing for businesses. Wholesale pricing, next-day funding, and real human support.",
+    description: "Liberty Bancard provides statement-based payment processing for businesses, with a free review that explains your current charges and your options.",
     contactPoint: {
       "@type": "ContactPoint",
       telephone: "+1-954-266-8214",
@@ -168,7 +168,7 @@ export function getLocalBusinessSchema(): StructuredData {
         { "@type": "Offer", itemOffered: { "@type": "Service", name: "Statement Review & Analysis" } },
         { "@type": "Offer", itemOffered: { "@type": "Service", name: "Wholesale Interchange-Plus Pricing" } },
         { "@type": "Offer", itemOffered: { "@type": "Service", name: "Cash Discount / 0% Processing Programs" } },
-        { "@type": "Offer", itemOffered: { "@type": "Service", name: "Next-Day Funding" } },
+        { "@type": "Offer", itemOffered: { "@type": "Service", name: "Funding Options" } },
         { "@type": "Offer", itemOffered: { "@type": "Service", name: "POS Terminal Equipment" } },
       ],
     },

@@ -31,6 +31,7 @@ import {
   Printer,
 } from "lucide-react";
 import { PromoBanner, PromoList } from "@/components/PromoBanner";
+import { claimText } from "@shared/public-claims";
 import imgCloverFlex3 from "@/assets/images/terminal-clover-flex-3.png";
 import imgCloverMini3 from "@/assets/images/terminal-clover-mini-3.png";
 import imgCloverStationDuo from "@/assets/images/terminal-clover-station-duo.png";
@@ -215,7 +216,6 @@ const shopTerminals: ShopTerminal[] = [
       "Bluetooth chip/tap reader",
       "Digital receipts",
       "Invoicing built in",
-      "No contract",
       "QuickBooks integration",
     ],
     specs: [
@@ -355,11 +355,11 @@ export default function TerminalShop() {
                 Thank you, {form.firstName}! We've received your equipment request.
               </p>
               <p className="text-muted-foreground mb-2">
-                A team member will reach out within 1 business day to finalize your order, review pricing, and coordinate setup.
+                Our team will review your request and contact you about next steps, including pricing and setup.
               </p>
               <div className="inline-flex items-center gap-2 bg-primary/10 text-primary rounded-full px-4 py-2 text-sm font-medium mb-8" data-testid="text-processing-time">
                 <Truck className="w-4 h-4" />
-                24-hour setup & testing before shipment
+                Setup & testing before shipment
               </div>
               <div className="bg-muted/50 rounded-lg p-4 mb-4 text-left">
                 <h3 className="font-semibold text-sm mb-3">Order Summary</h3>
@@ -378,15 +378,15 @@ export default function TerminalShop() {
                 <ol className="space-y-2 text-sm text-muted-foreground">
                   <li className="flex items-start gap-2">
                     <span className="bg-primary/10 text-primary rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">1</span>
-                    <span>We confirm your order and processing program within 1 business day</span>
+                    <span>We review your request and confirm your order and processing program</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="bg-primary/10 text-primary rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">2</span>
-                    <span>Your terminal is programmed with your merchant account and tested for 24 hours</span>
+                    <span>Your terminal is programmed with your merchant account and tested</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="bg-primary/10 text-primary rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">3</span>
-                    <span>Terminal ships pre-configured — plug in and start accepting payments</span>
+                    <span>Terminal ships once equipment is available and setup is complete</span>
                   </li>
                 </ol>
               </div>
@@ -409,8 +409,8 @@ export default function TerminalShop() {
   return (
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
-        title="Payment Terminals — Buy or Lease-Free Equipment"
-        description="Shop payment terminals from Clover, Dejavoo, PAX, and SwipeSimple. No leases, no hidden fees. Buy outright or get free placement with a processing agreement."
+        title="Payment Terminals and Equipment"
+        description="Clover, Dejavoo, PAX, and SwipeSimple terminals. Equipment terms are set by your written agreement and confirmed before you decide."
         path="/shop"
         keywords="buy payment terminal, clover terminal, dejavoo qd4, pax a920, swipesimple, credit card machine, pos terminal"
         structuredData={{
@@ -436,7 +436,7 @@ export default function TerminalShop() {
                       Payment Terminals & Equipment
                     </h1>
                     <p className="text-muted-foreground max-w-2xl" data-testid="text-shop-subheading">
-                      No leases. No markup. Buy outright or get free placement with a processing agreement. Every terminal ships pre-configured and ready to accept payments.
+                      Choose a terminal for your business. Availability, price and equipment terms are confirmed before your order is final.
                     </p>
                   </div>
                   <div className="flex items-center gap-3 shrink-0 print:hidden">
@@ -548,8 +548,8 @@ export default function TerminalShop() {
                       <Truck className="w-5 h-5 text-primary" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-foreground mb-1">24-Hour Setup & Testing</h3>
-                      <p className="text-sm text-muted-foreground">Every terminal goes through 24 hours of hands-on setup and testing before shipping. We program your merchant account, test all payment types, and verify connectivity so it works on arrival.</p>
+                      <h3 className="font-semibold text-foreground mb-1">Setup & Testing</h3>
+                      <p className="text-sm text-muted-foreground">Terminals go through hands-on setup and testing before shipping. We program your merchant account, test payment types, and verify connectivity. Equipment availability, shipping and activation are separate steps.</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-4">
@@ -558,148 +558,24 @@ export default function TerminalShop() {
                     </div>
                     <div>
                       <h3 className="font-semibold text-foreground mb-1">Expert Setup Support</h3>
-                      <p className="text-sm text-muted-foreground">Our team walks you through setup over the phone. Most merchants are processing within 24 hours of delivery.</p>
+                      <p className="text-sm text-muted-foreground">Our team walks you through setup over the phone.</p>
                     </div>
                   </div>
                 </div>
               </div>
             </section>
 
-            <section className="py-10 border-t" data-testid="section-terminal-roi">
-              <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-                <h2 className="text-xl font-display font-bold text-foreground mb-2 text-center">
-                  Free Terminal — The Economics
+            <section className="py-10 border-t" data-testid="section-equipment-terms">
+              <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+                <h2 className="text-xl font-display font-bold text-foreground mb-2">
+                  Equipment Options and Terms
                 </h2>
-                <p className="text-sm text-muted-foreground text-center mb-8">
-                  How the Liberty Bancard free terminal offer works for merchants at every volume level.
+                <p className="text-sm text-muted-foreground mb-3" data-testid="text-equipment-options">
+                  {claimText("equipment.options.summary")}
                 </p>
-                <div className="overflow-x-auto rounded-lg border">
-                  <table className="w-full text-sm" data-testid="table-terminal-roi">
-                    <thead className="bg-muted/60">
-                      <tr>
-                        <th className="text-left p-3 font-medium text-foreground">Monthly Volume</th>
-                        <th className="text-right p-3 font-medium text-foreground">Est. Monthly GP</th>
-                        <th className="text-right p-3 font-medium text-foreground">Terminal Cost</th>
-                        <th className="text-right p-3 font-medium text-foreground">Payback</th>
-                        <th className="text-right p-3 font-medium text-foreground">Tier</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[
-                        { vol: "$10,000", gp: "$20", cost: "$199", payback: "9.9 mo", tier: "yellow" },
-                        { vol: "$20,000", gp: "$40", cost: "$199", payback: "5.0 mo", tier: "green" },
-                        { vol: "$30,000", gp: "$60", cost: "$199", payback: "3.3 mo", tier: "green" },
-                        { vol: "$50,000", gp: "$100", cost: "$199", payback: "2.0 mo", tier: "green" },
-                        { vol: "$5,000",  gp: "$10", cost: "$199", payback: "19.9 mo", tier: "red" },
-                      ].map((row, i) => (
-                        <tr key={i} className={`border-t ${i % 2 === 0 ? "bg-background" : "bg-muted/20"}`}>
-                          <td className="p-3 font-medium">{row.vol}</td>
-                          <td className="p-3 text-right text-muted-foreground">{row.gp}</td>
-                          <td className="p-3 text-right text-muted-foreground">{row.cost}</td>
-                          <td className="p-3 text-right font-semibold">{row.payback}</td>
-                          <td className="p-3 text-right">
-                            {row.tier === "green" && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-300">Auto-approve</span>
-                            )}
-                            {row.tier === "yellow" && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-300">Rep discretion</span>
-                            )}
-                            {row.tier === "red" && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-300">Mgr approval</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <p className="text-xs text-muted-foreground mt-4 text-center">
-                  Based on 20 bps Liberty margin estimate. PAX A920 example ($199 Liberty cost). Actual payback depends on program and volume.
+                <p className="text-sm text-muted-foreground" data-testid="text-equipment-agreement">
+                  {claimText("equipment.agreement.summary")}
                 </p>
-              </div>
-            </section>
-
-            <section className="py-10 bg-gradient-to-br from-primary/5 to-background" data-testid="section-roi-calculator">
-              <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="text-center mb-10">
-                  <h2 className="text-2xl font-display font-bold text-foreground mb-3" data-testid="text-roi-heading">
-                    How Fast Does Your Terminal Pay For Itself?
-                  </h2>
-                  <p className="text-muted-foreground max-w-2xl mx-auto">
-                    Unlike competitor leases that drain your margins for years, our terminal pricing is designed to recover in months — not a lifetime. See what your volume means for ROI.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-                  {[
-                    { volume: "$15,000/mo", gp: "$75", terminal: "Dejavoo QD4", cost: "$199", payback: "3 months", tier: "green" },
-                    { volume: "$30,000/mo", gp: "$150", terminal: "Clover Flex 3", cost: "$349", payback: "3 months", tier: "green" },
-                    { volume: "$60,000/mo", gp: "$300", terminal: "Clover Station Duo", cost: "$999", payback: "4 months", tier: "green" },
-                  ].map((ex, i) => (
-                    <div key={i} className="bg-background border rounded-xl p-6 shadow-sm" data-testid={`card-roi-example-${i}`}>
-                      <div className="flex items-center justify-between mb-4">
-                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Example {i + 1}</span>
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
-                          ✓ {ex.payback} payback
-                        </span>
-                      </div>
-                      <div className="space-y-2.5 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Monthly Processing</span>
-                          <span className="font-semibold">{ex.volume}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Terminal</span>
-                          <span className="font-semibold">{ex.terminal}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Your Cost</span>
-                          <span className="font-semibold">{ex.cost}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Est. Monthly GP</span>
-                          <span className="font-semibold text-primary">{ex.gp}</span>
-                        </div>
-                        <div className="pt-2 border-t">
-                          <div className="flex justify-between text-sm font-bold">
-                            <span>Break-even</span>
-                            <span className="text-green-700">{ex.payback}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="bg-background border rounded-xl p-6 shadow-sm">
-                  <h3 className="text-base font-semibold mb-4">vs. Competitor Leasing</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-sm font-medium text-red-600">
-                        <span className="w-5 h-5 rounded-full bg-red-100 text-red-800 flex items-center justify-center text-xs" aria-hidden="true">✕</span>
-                        Typical Lease (36 months)
-                      </div>
-                      <ul className="text-sm text-muted-foreground space-y-1.5">
-                        <li>• ~$45–$95/month for a $500 terminal</li>
-                        <li>• Total paid: <strong className="text-foreground">$1,620–$3,420</strong> for a terminal worth $500</li>
-                        <li>• Locked in — can't leave without penalty</li>
-                        <li>• You never own the equipment</li>
-                      </ul>
-                    </div>
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-sm font-medium text-green-700">
-                        <span className="w-5 h-5 rounded-full bg-green-100 text-green-800 flex items-center justify-center text-xs" aria-hidden="true">✓</span>
-                        Liberty Bancard (buy or free placement)
-                      </div>
-                      <ul className="text-sm text-muted-foreground space-y-1.5">
-                        <li>• Buy outright from $49 — you own it forever</li>
-                        <li>• Or qualify for <strong className="text-foreground">free terminal placement</strong> with processing</li>
-                        <li>• No lock-in. No monthly terminal fees.</li>
-                        <li>• Average break-even: <strong className="text-green-700">3–6 months</strong></li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
               </div>
             </section>
 
@@ -899,7 +775,7 @@ export default function TerminalShop() {
                     <CardContent className="p-4">
                       <div className="flex items-start gap-2 text-sm text-muted-foreground">
                         <Truck className="w-4 h-4 mt-0.5 shrink-0 text-primary" />
-                        <span><strong className="text-foreground">24-Hour Setup & Testing:</strong> Every terminal goes through hands-on configuration, payment testing, and connectivity verification before shipping. Expect shipment within 1-2 business days.</span>
+                        <span><strong className="text-foreground">Setup & Testing:</strong> Terminals go through hands-on configuration, payment testing, and connectivity verification before shipping. Shipping timing is confirmed after your request is reviewed.</span>
                       </div>
                     </CardContent>
                   </Card>

@@ -482,7 +482,7 @@ export default function Testimonials() {
               See What Your Statement Reveals
             </h2>
             <p className="text-primary-foreground/80 mb-6 max-w-xl mx-auto">
-              Every merchant on this page started with a free statement review. Upload yours and we'll show you your real numbers — same day.
+              Every merchant on this page started with a free statement review. Upload yours and we'll show you your real numbers.
             </p>
             <Button size="lg" variant="secondary" className="gap-2" asChild>
               <Link href="/upload-statement" data-testid="link-bottom-cta">

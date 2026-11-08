@@ -1,4 +1,6 @@
 import { FSR_HOME_LINK_TEXT } from "@shared/free-statement-review-content";
+import { claimText } from "@shared/public-claims";
+import { ZP_HOME_SSR } from "@shared/zero-percent-content";
 import { ssrHtmlShell } from "../ssrShared";
 
 export function getHomeHtml(): string {
@@ -9,7 +11,7 @@ export function getHomeHtml(): string {
     url: "https://libertybancard.com",
     telephone: "+1-954-266-8214",
     email: "support@libertybancard.com",
-    description: "Transparent merchant payment processing with interchange-plus pricing, 0% processing programs, and dedicated support for small businesses.",
+    description: "Transparent merchant payment processing with interchange-plus pricing, cash discount and surcharging program reviews, and dedicated support for small businesses.",
     address: {
       "@type": "PostalAddress",
       addressLocality: "Fort Lauderdale",
@@ -102,14 +104,14 @@ export function getHomeHtml(): string {
             <div class="ssr-solution-icon">📊</div>
             <div>
               <div class="ssr-item-title">Free Statement Review</div>
-              <div class="ssr-item-text">Upload your current statement and we'll analyze every line item. We'll show you exactly what you're paying, why, and how much you'd save. No commitment required.</div>
+              <div class="ssr-item-text">Upload your current statement and we'll review every line item. We'll explain what you're paying and who charges it. No commitment required.</div>
             </div>
           </div>
           <div class="ssr-card ssr-pain-item">
             <div class="ssr-solution-icon">⚡</div>
             <div>
-              <div class="ssr-item-title">Liberty Zero™ — 0% Processing</div>
-              <div class="ssr-item-text">Our Liberty Zero™ program lets qualifying merchants eliminate credit card fees through compliant cash discount and surcharging. Available where permitted by state law and card brand rules.*</div>
+              <div class="ssr-item-title">${ZP_HOME_SSR.title}</div>
+              <div class="ssr-item-text">${ZP_HOME_SSR.text}</div>
             </div>
           </div>
           <div class="ssr-card ssr-pain-item">
@@ -122,15 +124,15 @@ export function getHomeHtml(): string {
           <div class="ssr-card ssr-pain-item">
             <div class="ssr-solution-icon">🏦</div>
             <div>
-              <div class="ssr-item-title">Next-Day Funding</div>
-              <div class="ssr-item-text">Qualified merchants receive deposits by the next business day. Keep your cash flow moving without waiting 3-5 days for your own money.*</div>
+              <div class="ssr-item-title">Funding Availability</div>
+              <div class="ssr-item-text">${claimText("funding.availability", "home")}*</div>
             </div>
           </div>
           <div class="ssr-card ssr-pain-item">
             <div class="ssr-solution-icon">🖥</div>
             <div>
-              <div class="ssr-item-title">Free Terminal for Qualifying Merchants</div>
-              <div class="ssr-item-text">Modern EMV, NFC, and contactless-ready terminals at no cost for qualifying accounts. Own your equipment without lease payments or end-of-term surprises.*</div>
+              <div class="ssr-item-title">Equipment Options</div>
+              <div class="ssr-item-text">${claimText("equipment.options.summary", "home")}*</div>
             </div>
           </div>
         </div>
@@ -150,12 +152,12 @@ export function getHomeHtml(): string {
           <div class="ssr-card" style="text-align:center;">
             <div style="font-size:2rem;margin-bottom:0.75rem;">2️⃣</div>
             <div class="ssr-card-title">We Analyze It</div>
-            <div class="ssr-card-text">Our team reviews every line item and identifies your effective rate, hidden fees, and where you're overpaying.</div>
+            <div class="ssr-card-text">Our team reviews every line item, explains each fee and who charges it, and calculates your effective cost.</div>
           </div>
           <div class="ssr-card" style="text-align:center;">
             <div style="font-size:2rem;margin-bottom:0.75rem;">3️⃣</div>
-            <div class="ssr-card-title">See Your Savings</div>
-            <div class="ssr-card-text">You get a clear comparison showing exactly how much you'd save with interchange-plus pricing. Keep the analysis either way.</div>
+            <div class="ssr-card-title">See Your Options</div>
+            <div class="ssr-card-text">We explain your options with the calculation inputs shown. Keep the analysis either way.</div>
           </div>
         </div>
         <div style="text-align:center;margin-top:2rem;">
@@ -172,11 +174,11 @@ export function getHomeHtml(): string {
         <div class="ssr-grid-3">
           <a href="/industries/restaurant-payment-processing" class="ssr-card" style="display:block;text-decoration:none;">
             <div class="ssr-card-title">🍽 Restaurant</div>
-            <div class="ssr-card-text">Tip optimization, POS integration, next-day funding. Built for high-volume restaurant operations.</div>
+            <div class="ssr-card-text">Tip handling, POS compatibility questions, and statement review for high-volume restaurant operations.</div>
           </a>
           <a href="/industries/retail-payment-processing" class="ssr-card" style="display:block;text-decoration:none;">
             <div class="ssr-card-title">🛍 Retail</div>
-            <div class="ssr-card-text">Interchange-plus saves retailers on debit cards. Multi-location management, chargeback support.</div>
+            <div class="ssr-card-text">Interchange-plus pricing shows the card-network cost by card type. Multi-location management, chargeback support.</div>
           </a>
           <a href="/industries/healthcare-payment-processing" class="ssr-card" style="display:block;text-decoration:none;">
             <div class="ssr-card-title">🏥 Healthcare</div>
@@ -214,7 +216,7 @@ export function getHomeHtml(): string {
 
   return ssrHtmlShell({
     title: "Merchant Payment Processing | Liberty Bancard",
-    description: "Liberty Bancard offers transparent interchange-plus payment processing. Free statement review, 0% processing programs, and dedicated merchant support.",
+    description: "Liberty Bancard offers transparent interchange-plus payment processing. Free statement review, cash discount and surcharging program reviews, and dedicated merchant support.",
     canonical: "/",
     // Logo card sized for iOS/social square crops; the generated card is the fallback for other pages.
     ogImage: "https://libertybancard.com/og-home-logo-card.jpg",

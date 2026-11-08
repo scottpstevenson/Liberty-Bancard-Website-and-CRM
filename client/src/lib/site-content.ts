@@ -1,10 +1,11 @@
 /**
- * Canonical public-site content contract.
+ * Public-site content module (headline, calls to action, navigation links).
  *
- * Every public claim on this site — in React pages, SSR renderers — MUST
- * source its text and statistics from this file. Before rendering any claim,
- * the `source` and `measuredAs` fields must be populated. Claims without a
- * documented source must be removed before merge.
+ * Claim wording and claim approval live in shared/public-claims.ts, which
+ * requires an evidence key before any claim can render. Statistics and the
+ * savings range below carry an explicit evidence state. Nothing marked
+ * "unverified" or "withheld" may be rendered publicly until an owner
+ * evidence record exists (see docs/LIBERTY_W_A_PUBLIC_CLAIMS_RECORD.md).
  */
 
 export const SITE_H1 = "Credit Card Processing Without the Rate Games";
@@ -19,20 +20,11 @@ export const SITE_SECONDARY_CTA_LABEL = "Book a review call";
 export const SITE_HERO_BADGE = "South Florida Merchant Services";
 
 /**
- * Public statistics rendered in the "By the Numbers" section and SSR pages.
- *
- * CLAIM SOURCES (required before shipping):
- *   years_in_business:
- *     source: "Internal — company founding year, verified Aug 2026"
- *     measuredAs: "Calendar years of operation from founding"
- *
- *   merchants_served:
- *     source: "Internal — CRM cumulative merchant count, last verified Aug 2026"
- *     measuredAs: "Cumulative approved merchant accounts, all-time"
- *
- *   processing_volume_annual_m:
- *     source: "Internal — annual processing volume report, last verified Aug 2026"
- *     measuredAs: "Annual card processing volume in US dollars, billions"
+ * Company statistics. Evidence state for every record is "unverified": no
+ * founding, merchant-count or processing-volume record is on file in this
+ * repository, so none may be rendered as a public claim until the owner
+ * supplies one. Hardcoded copies elsewhere are listed in the public claims
+ * record for the site-wide statistics workstream.
  */
 export const SITE_STATS = [
   {
@@ -41,7 +33,8 @@ export const SITE_STATS = [
     countUpEnd: 10,
     label: "Years in Business",
     sublabel: "South Florida roots, nationwide reach",
-    source: "Internal — company founding year, verified Aug 2026",
+    evidenceState: "unverified",
+    source: "No verification record on file; owner evidence required before public use",
     measuredAs: "Calendar years of operation from founding",
   },
   {
@@ -50,7 +43,8 @@ export const SITE_STATS = [
     countUpEnd: 5000,
     label: "Merchants Served",
     sublabel: "Across every major vertical",
-    source: "Internal — CRM cumulative merchant count, last verified Aug 2026",
+    evidenceState: "unverified",
+    source: "No verification record on file; owner evidence required before public use",
     measuredAs: "Cumulative approved merchant accounts, all-time",
   },
   {
@@ -59,30 +53,23 @@ export const SITE_STATS = [
     countUpEnd: 2400,
     label: "Annual Processing Volume",
     sublabel: "Across merchant processing programs",
-    source: "Internal — annual processing volume report, last verified Aug 2026",
+    evidenceState: "unverified",
+    source: "No verification record on file; owner evidence required before public use",
     measuredAs: "Annual card processing volume in US dollars, billions",
   },
 ] as const;
 
 /**
- * Savings range claim displayed in hero and marketing copy.
- *
- * SOURCE REQUIRED: This range is sourced from documented case studies on file.
- * Median outcome documented at $4,200/yr (restaurant, 0% program).
- * Floor is from interchange-plus reduction on ~$30K/mo volume.
- * A disclaimer must appear adjacent to any savings claim.
- *
- * source: "Documented case studies — see /case-studies; 3 verified outcomes"
- * measuredAs: "Annual fee savings relative to prior processor, per statement review"
- * disclaimer: "Actual savings depend on your volume and current rates."
+ * General savings range: withheld. The earlier range was derived from case
+ * figures that are historical customer facts, not a benchmark, and the case
+ * records disagree between the React page and the server-rendered page.
+ * A savings claim needs a documented source and population; until then no
+ * page may state a range.
  */
 export const SAVINGS_RANGE = {
-  low: 600,
-  high: 3200,
-  label: "Most merchants save $600–$3,200/year after a review",
-  disclaimer: "Actual savings depend on your volume and current rates.",
-  source: "Documented case studies — see /case-studies; 3 verified outcomes",
-  measuredAs: "Annual fee savings relative to prior processor, per statement review",
+  state: "withheld",
+  reason: "No documented benchmark or realized-savings population on file.",
+  disclaimer: "Actual cost depends on your statement, card mix, volume and eligibility.",
 } as const;
 
 /** Navigation link definitions — single source of truth for React and SSR. */

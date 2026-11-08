@@ -284,7 +284,7 @@ export default function PartnerBrandedPage() {
               {[
                 { icon: Calculator, title: "Instant Savings Estimate", desc: "Enter your volume and current rate — see your savings in seconds.", action: () => setView("calculator"), cta: "Try Calculator" },
                 { icon: FileText, title: "Statement Review", desc: "Upload your current processor statement and we'll find every hidden fee.", action: () => setView("upload"), cta: "Upload Statement" },
-                { icon: CheckCircle, title: "Zero Risk to Switch", desc: "No early termination risk. We handle the transition so your business never skips a beat.", action: () => setView("get-started"), cta: "Get Started" },
+                { icon: CheckCircle, title: "Guided Switch", desc: "We walk you through the transition step by step and review your agreement terms with you.", action: () => setView("get-started"), cta: "Get Started" },
               ].map(({ icon: Icon, title, desc, action, cta }) => (
                 <Card key={title} className="border-0 shadow-sm">
                   <CardContent className="p-6">

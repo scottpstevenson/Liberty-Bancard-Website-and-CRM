@@ -2,6 +2,7 @@ import { Link } from "wouter";
 import { PublicSection, PublicSectionHeader } from "@/components/public/PublicSection";
 import { PublicAccordion, type PublicAccordionItem } from "@/components/public/PublicAccordion";
 import { CALENDAR_URL } from "@/lib/constants";
+import { claimText } from "@shared/public-claims";
 
 const inlineLink = "font-medium text-primary underline underline-offset-2";
 
@@ -9,12 +10,12 @@ const inlineLink = "font-medium text-primary underline underline-offset-2";
 export function HomeFaq() {
   const items: PublicAccordionItem[] = [
     { question: "Do I have to switch processors to get the breakdown?", answer: "No. The statement review is how we prove your real cost. You keep the breakdown either way - no strings attached. Many merchants use it to have a more informed conversation with their current processor." },
-    { question: "Is my statement secure?", answer: "Yes. Upload a PDF or photo. Redact account numbers if you want - totals and fee lines are all we need. We never store full card numbers, SSNs, or bank account numbers." },
+    { question: "Is my statement secure?", answer: claimText("review.handling.summary", "faq") },
     {
-      question: "How fast do I get results?",
+      question: "How long does a review take?",
       answer: (
         <>
-          Most reviews are completed during business hours the same day. If you need priority turnaround,{" "}
+          Our team reviews your statement and follows up with what we found and your options. If you have a deadline,{" "}
           <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" className={inlineLink}>book a review call</a>{" "}
           and let us know your timeline.
         </>

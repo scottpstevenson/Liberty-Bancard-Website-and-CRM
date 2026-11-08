@@ -4,61 +4,23 @@ import { Button } from "@/components/ui/button";
 import { PublicSection, PublicSectionHeader } from "@/components/public/PublicSection";
 import { PublicAccordion, type PublicAccordionItem } from "@/components/public/PublicAccordion";
 import { COMPARE_LINKS } from "./home-content";
+import { ZP_HOME_DESCRIPTION, ZP_HOME_FOOTNOTE, ZP_HOME_HEADING, ZP_HOME_PROGRAMS } from "@shared/zero-percent-content";
+
+/** Per-program test ids and emphasis; wording comes from the shared program record. */
+const PROGRAM_UI = {
+  "cash-discount": { ctaTestId: "link-cash-discount-cta", itemTestId: "card-cash-discount", primary: true },
+  surcharging: { ctaTestId: "link-surcharging-cta", itemTestId: "card-surcharging", primary: false },
+  "interchange-plus": { ctaTestId: "link-interchange-cta", itemTestId: "card-interchange-plus", primary: false },
+} as const;
 
 /** Program options. The same record drives the accordion (< lg) and the three comparable cards (lg+). */
-const PROGRAMS = [
-  {
-    value: "cash-discount",
-    title: "Cash Discount",
-    badge: "All 50 states",
-    summary: "Stop absorbing card fees — your revenue stays the same no matter how customers pay",
-    body: "Your cash price is your posted price. Processing cost is covered automatically — it never comes out of your revenue. Legal in all 50 states with proper signage and receipts.*",
-    points: ["Legal in all 50 states", "Compliant signage + receipts provided", "Staff script included"],
-    figureLabel: "Your processing cost",
-    figure: "Eliminated, when eligible*",
-    cta: "Get My Savings Analysis",
-    href: "/0-percent-processing",
-    ctaTestId: "link-cash-discount-cta",
-    itemTestId: "card-cash-discount",
-    primary: true,
-  },
-  {
-    value: "surcharging",
-    title: "Compliant Surcharging",
-    badge: "Most states",
-    summary: "A clearly disclosed fee on eligible credit card sales — we verify your state before recommending this",
-    body: "A disclosed fee appears on eligible credit card transactions at checkout. State law and card brand rules govern where this applies. We handle state eligibility checks, card-brand notices, compliant receipts, and signage.*",
-    points: ["Required card-brand notices handled for you", "State eligibility confirmed before enrollment", "Compliant receipts + checkout disclosures"],
-    figureLabel: "Your processing cost",
-    figure: "$0 out of your revenue*",
-    cta: "Get My Savings Analysis",
-    href: "/0-percent-processing",
-    ctaTestId: "link-surcharging-cta",
-    itemTestId: "card-surcharging",
-    primary: false,
-  },
-  {
-    value: "interchange-plus",
-    title: "Interchange Plus",
-    badge: "One price for all customers",
-    summary: "Pay the actual card-network rate plus a small visible markup",
-    body: "No bundled tiers. No mystery fees. You see every penny of markup on every transaction — and we'll show you how your current rate compares before you decide.*",
-    points: ["Real interchange passthrough — no tiers", "Full statement transparency on every charge", "Compare your current effective rate for free"],
-    figureLabel: "Illustrative structure",
-    figure: "Interchange + 0.25% / transaction*",
-    cta: "Get My Rate Comparison",
-    href: "/compare-rates",
-    ctaTestId: "link-interchange-cta",
-    itemTestId: "card-interchange-plus",
-    primary: false,
-  },
-] as const;
+const PROGRAMS = ZP_HOME_PROGRAMS.map((program) => ({ ...program, ...PROGRAM_UI[program.value] }));
 
-const FOOTNOTE = "*Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.";
+const FOOTNOTE = ZP_HOME_FOOTNOTE;
 
 /**
  * Section 5: program options. Interchange Plus (the wholesale-rate program) is the default-open item;
- * each program has exactly one route that matches its intent. Disclosure text is carried over unchanged.
+ * each program has exactly one route that matches its intent. Program wording is read from the shared program record.
  */
 export function HomePrograms() {
   const items: PublicAccordionItem[] = PROGRAMS.map((p) => ({
@@ -84,7 +46,7 @@ export function HomePrograms() {
 
   return (
     <PublicSection tone="canvas" labelledBy="home-programs-heading" data-testid="section-choose-path">
-      <PublicSectionHeader id="home-programs-heading" eyebrow="Program options" title="Choose your path to lower processing cost" description="Two programs can eliminate your processor fees when you qualify. If you would rather keep one price for every customer, Interchange Plus gives you the most transparency at a lower rate." titleTestId="text-choose-path-heading" />
+      <PublicSectionHeader id="home-programs-heading" eyebrow="Program options" title={ZP_HOME_HEADING} description={ZP_HOME_DESCRIPTION} titleTestId="text-choose-path-heading" />
       <div className="lg:hidden">
         <PublicAccordion items={items} defaultValue="interchange-plus" data-testid="accordion-choose-path" />
       </div>

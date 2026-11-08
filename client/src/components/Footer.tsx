@@ -7,6 +7,7 @@ import { trackBookingCtaClick } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
 import { buildAttributedBookingUrl } from "@/lib/utm";
 import { PUBLIC_FOOTER_GROUPS } from "@shared/public-footer-links";
+import { FOOTER_COMPLIANCE, FOOTER_DISCLAIMER } from "@shared/public-disclosures";
 
 const DESKTOP_QUERY = "(min-width: 1024px)";
 
@@ -134,11 +135,11 @@ export function Footer() {
           </p>
 
           <p className="text-primary-foreground/70 text-xs leading-relaxed" data-testid="text-footer-disclaimer">
-            Disclosures: Pricing, program eligibility, funding speed, and equipment offers vary by merchant profile and are subject to underwriting approval. "Next-day funding" options may be available for qualified merchants and depend on cutoff times, bank schedules, and risk review. "0% processing" refers to compliant cash discount or surcharging programs where permitted; applicability depends on state law, card brand rules, and your business model. "Free terminal" placement requires an approved and active processing account, is subject to minimum processing requirements and contract term, and equipment remains the property of Liberty Bancard. Early termination fees may apply. PCI compliance is the merchant's responsibility; we provide guidance and support. We do not provide legal, tax, or financial advice.
+            {FOOTER_DISCLAIMER}
           </p>
 
           <p className="text-primary-foreground/70 text-xs" data-testid="text-footer-compliance">
-            Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review. Contract terms, early termination fees, and equipment return requirements are specified in the Merchant Processing Agreement.
+            {FOOTER_COMPLIANCE}
           </p>
 
           <div className="flex flex-wrap items-center gap-4">

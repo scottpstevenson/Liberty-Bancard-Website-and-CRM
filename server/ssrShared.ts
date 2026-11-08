@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { serializeJsonLd } from "../shared/json-ld";
 import { PUBLIC_FOOTER_GROUPS } from "../shared/public-footer-links";
+import { FOOTER_COMPLIANCE, FOOTER_DISCLAIMER } from "../shared/public-disclosures";
 
 const BASE_URL = "https://libertybancard.com";
 
@@ -401,8 +402,8 @@ ${groups}
       <div class="ssr-footer-trust-badge">Visa | Mastercard | Discover | Amex</div>
     </div>
     <p class="ssr-footer-disclaimer">Liberty Bancard is a registered Independent Sales Organization (ISO) and merchant services provider. Liberty Bancard is not a bank. All merchant accounts are subject to application, credit approval, and underwriting by the acquiring bank and payment processor.</p>
-    <p class="ssr-footer-disclaimer">Disclosures: Pricing, program eligibility, funding speed, and equipment offers vary by merchant profile and are subject to underwriting approval. "Next-day funding" options may be available for qualified merchants and depend on cutoff times, bank schedules, and risk review. "0% processing" refers to compliant cash discount or surcharging programs where permitted; applicability depends on state law, card brand rules, and your business model. "Free terminal" placement requires an approved and active processing account, is subject to minimum processing requirements and contract term, and equipment remains the property of Liberty Bancard. Early termination fees may apply.</p>
-    <p class="ssr-footer-disclaimer">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review. Contract terms, early termination fees, and equipment return requirements are specified in the Merchant Processing Agreement.</p>
+    <p class="ssr-footer-disclaimer">${FOOTER_DISCLAIMER}</p>
+    <p class="ssr-footer-disclaimer">${FOOTER_COMPLIANCE}</p>
     <p class="ssr-footer-copy">&copy; ${year} Liberty Bancard. All rights reserved. &nbsp;<a href="/do-not-sell" style="color:rgba(255,255,255,0.72);text-decoration:underline;">Do Not Sell or Share My Personal Information</a></p>
   </div>
 </footer>

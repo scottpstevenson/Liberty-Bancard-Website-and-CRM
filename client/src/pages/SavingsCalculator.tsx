@@ -39,6 +39,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { claimText } from "@shared/public-claims";
 
 const INDUSTRIES = [
   { value: "restaurant", label: "Restaurant / Food Service", avgRate: 3.2 },
@@ -69,7 +70,7 @@ const faqItems = [
   },
   {
     question: "What if I don't know my current rate?",
-    answer: "Upload your most recent processing statement and we'll calculate your effective rate for you. It takes 30 seconds to upload and you'll get a detailed breakdown within one business day.",
+    answer: `Upload your most recent processing statement and we'll calculate your effective rate for you. ${claimText("review.process.summary")}`,
   },
   {
     question: "Is there a contract or cancellation fee?",
@@ -474,7 +475,7 @@ export default function SavingsCalculator() {
                   { title: "Interchange-Plus Pricing", desc: "You pay the actual interchange cost plus a small, transparent markup. No bundled rates hiding the real cost." },
                   { title: "Statement-Based Analysis", desc: "We review your actual statement before making any recommendations, so you see real numbers, not estimates." },
                   { title: "No Hidden Fees", desc: "Our pricing is transparent. No PCI non-compliance fees, no annual fees, no junk charges." },
-                  { title: "Free Equipment for Qualifying Merchants", desc: "No terminal lease required. Qualifying merchants receive equipment at no additional cost.*" },
+                  { title: "Equipment Options", desc: `${claimText("equipment.options.summary")}*` },
                   { title: "Dedicated Support", desc: "A real person answers when you call. No call centers, no ticket queues, no runaround." },
                 ].map((item, i) => (
                   <div key={i} className="flex items-start gap-3" data-testid={`benefit-${i}`}>

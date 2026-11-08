@@ -10,11 +10,11 @@ export interface SampleFinding {
 }
 
 export const SAMPLE_FINDINGS: SampleFinding[] = [
-  { label: "Effective rate", value: "3.47%", chip: "Above benchmark", tone: "negative", testId: "text-statement-audit-effective-rate" },
+  { label: "Effective rate", value: "3.47%", chip: "Flagged", tone: "negative", testId: "text-statement-audit-effective-rate" },
   { label: "Monthly fixed fees", value: "$127/mo", chip: "Recurring", tone: "negative", testId: "text-statement-audit-fixed-fees" },
-  { label: "Downgrades / card mix", value: "23%", chip: "Reducible", tone: "negative" },
+  { label: "Downgrades / card mix", value: "23%", chip: "Review", tone: "negative" },
   { label: "Add-on fees (PCI, batch)", value: "$38/mo", chip: "Itemized", tone: "negative" },
-  { label: "Funding timeline", value: "Next-day*", chip: "Eligibility", tone: "neutral" },
+  { label: "Funding timeline", value: "Varies*", chip: "Eligibility", tone: "neutral" },
   { label: "Savings opportunity", value: "Identified", chip: "On review", tone: "positive" },
 ];
 

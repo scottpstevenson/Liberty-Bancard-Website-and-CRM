@@ -287,7 +287,7 @@ const contentMap: Record<string, ContentPage> = {
     subtitle: "Square & Stripe vs. Interchange-Plus Pricing",
     description: "Flat-rate processors like Square and Stripe charge the same rate regardless of card type. That means you overpay on debit and standard credit cards. Our interchange-plus model passes through actual card costs with a transparent margin.",
     bullets: [
-      "Square/Stripe charge 2.6%+ on every transaction regardless of card type",
+      "Square and Stripe publish flat rates by plan and channel, regardless of card type",
       "Debit cards cost as low as 0.05% at interchange\u2014flat-rate ignores this",
       "Interchange-plus pricing shows exactly what you pay per transaction",
       "Merchants processing $10K+/month typically save significantly",

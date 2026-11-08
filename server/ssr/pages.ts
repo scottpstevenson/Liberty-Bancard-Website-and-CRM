@@ -1,4 +1,48 @@
 import { ssrHtmlShell } from "../ssrShared";
+import { claimText } from "@shared/public-claims";
+import { TIMING_NOTE } from "@shared/public-disclosures";
+import {
+  BEAT_SQUARE_STRIPE,
+  COMPARE_ENTRIES,
+  COMPARE_METHOD_NOTE,
+  COMPARE_NEEDS,
+  COMPARE_SLUGS,
+  COMPARE_TABLE_FOOTNOTE,
+  RATES_PAGE,
+  beatSquareStripeRecords,
+  ratesPageRows,
+} from "@shared/compare-content";
+import { formatCheckedDate, formatMonthly, formatRate } from "@shared/competitor-pricing";
+import {
+  COMPAT_STATE_LABEL,
+  INTEGRATIONS_CALLOUT,
+  INTEGRATIONS_CTA,
+  INTEGRATIONS_DIRECTORY,
+  INTEGRATIONS_HERO,
+  INTEGRATIONS_META,
+  INTEGRATIONS_PATH,
+  INTEGRATIONS_PROCESS,
+  INTEGRATION_CATEGORIES,
+  INTEGRATION_RECORDS,
+  integrationStats,
+  showsActiveCheck,
+} from "@shared/integrations-content";
+import {
+  ZP_CASH_DISCOUNT,
+  ZP_COSTS,
+  ZP_FAQ,
+  ZP_FAQ_HEADING,
+  ZP_FIT,
+  ZP_HERO,
+  ZP_META,
+  ZP_PATH,
+  ZP_PROGRAMS_HEADING,
+  ZP_PROGRAMS_INTRO,
+  ZP_REQUIREMENTS,
+  ZP_SSR,
+  ZP_SURCHARGE,
+  ZP_UNSURE,
+} from "@shared/zero-percent-content";
 import {
   FST_TITLE_FULL,
   FST_DESCRIPTION,
@@ -6,6 +50,18 @@ import {
   FST_PATH,
   FST_SERVICE_NAME,
   FST_SERVICE_DESCRIPTION,
+  FST_HERO,
+  FST_PLACEMENT_CLAIM,
+  FST_EQUIPMENT_TERMS_DISCLOSURE,
+  FST_FEATURES_HEADING,
+  FST_FEATURES_INTRO,
+  FST_FEATURES,
+  FST_ELIGIBILITY,
+  FST_STEPS_HEADING,
+  FST_STEPS_INTRO,
+  FST_STEPS,
+  FST_TIMING_NOTE,
+  FST_FINAL,
   fstFaqItems,
 } from "@shared/free-smart-terminal-content";
 import {
@@ -19,6 +75,13 @@ import {
   FSR_WHAT_TO_SUBMIT,
   FSR_WHAT_YOU_RECEIVE,
   FSR_WHO_QUALIFIES,
+  FSR_META,
+  FSR_HERO,
+  FSR_EQUIPMENT_STRIP,
+  FSR_NEXT_NOTE,
+  FSR_SSR_CARDS,
+  FSR_SSR_STEPS,
+  FSR_SSR_CTA,
 } from "@shared/free-statement-review-content";
 
 const BASE_URL = "https://libertybancard.com";
@@ -83,21 +146,22 @@ export function getUploadStatementHtml(): string {
   const schema = {
     "@context": "https://schema.org",
     "@type": "WebPage",
-    name: "Free Statement Review | Liberty Bancard",
-    description: "Upload your merchant statement for a free, no-obligation analysis. See exactly what you're paying in fees and how much you could save.",
+    name: FSR_META.title,
+    description: FSR_META.description,
     url: `${BASE_URL}/upload-statement`,
   };
   const body = `
   <div class="ssr-hero">
     <div class="ssr-hero-inner">
       <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Upload Statement</span></div>
-      <div class="ssr-hero-badge">🔒 Secure &amp; Confidential</div>
+      <div class="ssr-hero-badge">${FSR_HERO.badge}</div>
       <h1>Get a Free Merchant Statement Review</h1>
-      <p class="ssr-hero-subtitle">Upload your current processing statement and we'll show you exactly what you're paying — and exactly what you could save. No pressure, no obligation.</p>
+      <p class="ssr-hero-subtitle">${FSR_HERO.sub} No pressure, no obligation.</p>
       <div class="ssr-hero-buttons">
         <a href="/upload-statement#form" class="ssr-btn-primary">📤 Upload My Statement Now</a>
         <a href="/savings-calculator" class="ssr-btn-outline">🧮 Try Savings Calculator</a>
       </div>
+      <p class="ssr-hero-subtitle" style="font-size:0.85rem;">${FSR_EQUIPMENT_STRIP}</p>
     </div>
   </div>
 
@@ -106,20 +170,12 @@ export function getUploadStatementHtml(): string {
   <section class="ssr-section ssr-section-muted">
     <div class="ssr-section-inner">
       <h2 class="ssr-section-heading">What You Get With a Free Statement Review</h2>
-      <p class="ssr-section-subheading">A detailed, line-item breakdown of your current processing costs — and a clear alternative.</p>
+      <p class="ssr-section-subheading">A line-item explanation of your current processing costs.</p>
       <div class="ssr-grid-3">
-        <div class="ssr-card">
-          <div class="ssr-card-title">📊 Line-Item Fee Breakdown</div>
-          <div class="ssr-card-text">We decode every line of your current statement: interchange, assessments, markups, and junk fees. Most merchants don't know what they're really paying.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">💰 Savings Projection</div>
-          <div class="ssr-card-text">We calculate your estimated annual savings under interchange-plus pricing. Most businesses processing $20,000+/month save $2,000–$6,000/year.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">🎯 Program Recommendations</div>
-          <div class="ssr-card-text">Based on your volume and business type, we recommend the best program — including 0% processing options where they apply to your situation.</div>
-        </div>
+        ${FSR_SSR_CARDS.map((card) => `<div class="ssr-card">
+          <div class="ssr-card-title">${card.title}</div>
+          <div class="ssr-card-text">${card.text}</div>
+        </div>`).join("\n        ")}
       </div>
     </div>
   </section>
@@ -128,31 +184,22 @@ export function getUploadStatementHtml(): string {
     <div class="ssr-section-inner">
       <h2 class="ssr-section-heading">How It Works</h2>
       <div class="ssr-grid-3">
-        <div class="ssr-card" style="text-align:center;">
-          <div style="font-size:2rem;margin-bottom:0.75rem;">1️⃣</div>
-          <div class="ssr-card-title">Upload Your Statement</div>
-          <div class="ssr-card-text">Securely upload your most recent 1–3 months of processing statements. PDF, image, or any format works.</div>
-        </div>
-        <div class="ssr-card" style="text-align:center;">
-          <div style="font-size:2rem;margin-bottom:0.75rem;">2️⃣</div>
-          <div class="ssr-card-title">We Analyze It</div>
-          <div class="ssr-card-text">Our team reviews your statement within 1 business day and builds your personalized savings report.</div>
-        </div>
-        <div class="ssr-card" style="text-align:center;">
-          <div style="font-size:2rem;margin-bottom:0.75rem;">3️⃣</div>
-          <div class="ssr-card-title">Review Together</div>
-          <div class="ssr-card-text">We walk you through your report on a call. No obligation — if the numbers don't make sense, we say so.</div>
-        </div>
+        ${FSR_SSR_STEPS.map((step) => `<div class="ssr-card" style="text-align:center;">
+          <div style="font-size:2rem;margin-bottom:0.75rem;">${step.icon}</div>
+          <div class="ssr-card-title">${step.title}</div>
+          <div class="ssr-card-text">${step.text}</div>
+        </div>`).join("\n        ")}
       </div>
+      <p style="text-align:center;margin-top:1.5rem;font-size:0.9rem;color:#6b7280;">${FSR_NEXT_NOTE}</p>
     </div>
   </section>
-  ${ctaSection("Ready to See Your Savings?", "Upload your statement now. Our team will have your analysis ready within 1 business day.")}`;
+  ${ctaSection(FSR_SSR_CTA.heading, FSR_SSR_CTA.body)}`;
 
   return ssrHtmlShell({
-    title: "Free Merchant Statement Review | Liberty Bancard",
-    description: "Upload your merchant processing statement for a free, no-obligation analysis. See exactly what you are paying in fees and how much you could save.",
+    title: FSR_META.title,
+    description: FSR_META.description,
     canonical: "/upload-statement",
-    keywords: "free statement review, merchant statement analysis, processing fee review, credit card processing comparison, upload merchant statement",
+    keywords: FSR_META.keywords,
     schemaJsons: [schema],
     body,
   });
@@ -208,12 +255,12 @@ export function getFreeAnalysisHtml(): string {
         </div>
         <div class="ssr-card">
           <div class="ssr-card-title">🗓️ Implementation Timeline</div>
-          <div class="ssr-card-text">If you decide to switch, we outline exactly what happens next — typically 3–5 business days to live processing.</div>
+          <div class="ssr-card-text">If you decide to switch, we outline what happens next. Account approval, equipment availability, shipping and activation are separate steps.</div>
         </div>
       </div>
     </div>
   </section>
-  ${ctaSection("Get Your Free Analysis Today", "Takes less than 5 minutes to submit. Your dedicated rep will call you within 1 business day.")}`;
+  ${ctaSection("Get Your Free Analysis Today", "Takes a few minutes to submit. Our team will review your request and follow up about next steps.")}`;
 
   return ssrHtmlShell({
     title: "Free Payment Processing Analysis | See Your Savings | Liberty Bancard",
@@ -324,55 +371,61 @@ export function getZeroPercentHtml(): string {
   const faqSchema = {
     "@context": "https://schema.org",
     "@type": "FAQPage",
-    mainEntity: [
-      { "@type": "Question", name: "Is 0% credit card processing legal?", acceptedAnswer: { "@type": "Answer", text: "Compliant cash discount and surcharging programs are legal in most US states when implemented according to card brand rules. State laws vary — we verify compliance for your specific location before recommending a program." } },
-      { "@type": "Question", name: "What's the difference between cash discount and surcharging?", acceptedAnswer: { "@type": "Answer", text: "A cash discount program posts a slightly higher listed price and offers a discount for cash payment. A surcharge program adds a disclosed fee to credit card transactions only. Both can effectively reduce net processing costs to near zero when implemented correctly." } },
-      { "@type": "Question", name: "Will customers be upset about the fee?", acceptedAnswer: { "@type": "Answer", text: "When disclosed clearly — with proper signage, staff scripting, and receipt formatting — most customers accept the policy, especially when it's common in your industry. We provide all disclosure materials and staff training guidance." } },
-      { "@type": "Question", name: "How do debit cards work with 0% processing?", acceptedAnswer: { "@type": "Answer", text: "Card brand rules prohibit surcharging debit cards. In compliant programs, debit transactions are either exempted from the fee or handled through cash discount pricing that applies to all non-cash payments. We configure your program correctly from the start." } },
-    ],
+    mainEntity: ZP_FAQ.map((item) => ({
+      "@type": "Question",
+      name: item.question,
+      acceptedAnswer: { "@type": "Answer", text: item.answer },
+    })),
+  };
+  const serviceSchema = {
+    "@context": "https://schema.org",
+    "@type": "Service",
+    name: ZP_META.serviceName,
+    description: ZP_META.serviceDescription,
+    url: `${BASE_URL}${ZP_PATH}`,
+    provider: { "@type": "Organization", name: "Liberty Bancard", url: BASE_URL },
   };
   const body = `
   <div class="ssr-hero">
     <div class="ssr-hero-inner">
-      <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>0% Processing</span></div>
-      <div class="ssr-hero-badge">💳 Compliant &amp; Card-Brand Approved</div>
-      <h1>0% Credit Card Processing for Your Business</h1>
-      <p class="ssr-hero-subtitle">Eliminate credit card processing fees legally with compliant cash discount and surcharging programs. Keep more of every sale.</p>
+      <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Liberty Zero</span></div>
+      <div class="ssr-hero-badge">💳 ${ZP_SSR.badge}</div>
+      <h1>${ZP_SSR.h1}</h1>
+      <p class="ssr-hero-subtitle">${ZP_HERO.sub}</p>
       <div class="ssr-hero-buttons">
-        <a href="/upload-statement" class="ssr-btn-primary">📤 See If You Qualify — Free</a>
-        <a href="/free-analysis" class="ssr-btn-outline">📞 Ask About 0% Programs</a>
+        <a href="/upload-statement" class="ssr-btn-primary">${ZP_SSR.primaryCta}</a>
+        <a href="/free-analysis" class="ssr-btn-outline">${ZP_SSR.secondaryCta}</a>
       </div>
+      <p class="ssr-hero-subtitle" style="font-size:0.85rem;">${ZP_HERO.disclaimer}</p>
     </div>
   </div>
 
   <section class="ssr-section ssr-section-muted">
     <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">How 0% Processing Works</h2>
-      <p class="ssr-section-subheading">Two compliant approaches — both reviewed and configured by our team before you go live.</p>
+      <h2 class="ssr-section-heading">${ZP_PROGRAMS_HEADING}</h2>
+      <p class="ssr-section-subheading">${ZP_PROGRAMS_INTRO}</p>
       <div class="ssr-grid-2" style="max-width:48rem;margin:0 auto;">
         <div class="ssr-card">
-          <div class="ssr-card-title">⚖️ Cash Discount</div>
-          <div class="ssr-card-text">Post a slightly higher shelf price and offer a discount for cash-paying customers. Clear signage and transparent receipts are required. Simple to operate — many retail and food service businesses use this model.</div>
+          <div class="ssr-card-title">⚖️ ${ZP_CASH_DISCOUNT.title}</div>
+          <div class="ssr-card-text">${ZP_CASH_DISCOUNT.body} ${ZP_CASH_DISCOUNT.fit}</div>
         </div>
         <div class="ssr-card">
-          <div class="ssr-card-title">🛡️ Compliant Surcharging</div>
-          <div class="ssr-card-text">Add a disclosed fee to eligible credit card transactions where permitted by state law and card brand rules. Debit transactions are excluded. We handle registration and compliance requirements.</div>
+          <div class="ssr-card-title">🛡️ ${ZP_SURCHARGE.title}</div>
+          <div class="ssr-card-text">${ZP_SURCHARGE.body} ${ZP_SURCHARGE.fit}</div>
         </div>
       </div>
+      <p style="text-align:center;margin-top:1.5rem;">${ZP_UNSURE}</p>
     </div>
   </section>
 
   <section class="ssr-section">
     <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">Is 0% Processing Right for Your Business?</h2>
-      <p class="ssr-section-subheading">Good candidates typically share these characteristics:</p>
+      <h2 class="ssr-section-heading">${ZP_FIT.heading}</h2>
+      <p class="ssr-section-subheading">${ZP_FIT.intro}</p>
       <div class="ssr-faq-wrapper">
+        <h3>${ZP_FIT.checklistHeading}</h3>
         <ul class="ssr-check-list">
-          <li><span class="check-icon">✓</span>Customers are not highly price-sensitive about payment method</li>
-          <li><span class="check-icon">✓</span>Average ticket is high enough that a small disclosure fee isn't disruptive</li>
-          <li><span class="check-icon">✓</span>Business is in a state where surcharging is permitted</li>
-          <li><span class="check-icon">✓</span>Staff can consistently follow a simple script at checkout</li>
-          <li><span class="check-icon">✓</span>Signage and receipt messaging can be updated</li>
+          ${ZP_FIT.checklist.map((item) => `<li><span class="check-icon">✓</span>${item}</li>`).join("\n          ")}
         </ul>
       </div>
     </div>
@@ -380,23 +433,41 @@ export function getZeroPercentHtml(): string {
 
   <section class="ssr-section ssr-section-muted">
     <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">Frequently Asked Questions</h2>
-      <div class="ssr-faq-wrapper">
-        <div class="ssr-faq-item"><div class="ssr-faq-q">Is 0% credit card processing legal?</div><div class="ssr-faq-a">Compliant cash discount and surcharging programs are legal in most US states when implemented according to card brand rules. State laws vary — we verify compliance for your specific location before recommending a program.</div></div>
-        <div class="ssr-faq-item"><div class="ssr-faq-q">What's the difference between cash discount and surcharging?</div><div class="ssr-faq-a">A cash discount program posts a slightly higher listed price and offers a discount for cash payment. A surcharge program adds a disclosed fee to credit card transactions only. Both can effectively reduce net processing costs to near zero when implemented correctly.</div></div>
-        <div class="ssr-faq-item"><div class="ssr-faq-q">Will customers be upset about the fee?</div><div class="ssr-faq-a">When disclosed clearly — with proper signage, staff scripting, and receipt formatting — most customers accept the policy, especially when it's common in your industry. We provide all disclosure materials and staff training guidance.</div></div>
-        <div class="ssr-faq-item"><div class="ssr-faq-q">How do debit cards work with 0% processing?</div><div class="ssr-faq-a">Card brand rules prohibit surcharging debit cards. In compliant programs, debit transactions are either exempted from the fee or handled through cash discount pricing. We configure your program correctly from the start.</div></div>
+      <h2 class="ssr-section-heading">${ZP_REQUIREMENTS.heading}</h2>
+      <p class="ssr-section-subheading">${ZP_REQUIREMENTS.intro}</p>
+      <div class="ssr-grid-2" style="max-width:48rem;margin:0 auto;">
+        ${ZP_REQUIREMENTS.cards.map((card) => `<div class="ssr-card"><div class="ssr-card-title">${card.title}</div><div class="ssr-card-text">${card.desc}</div></div>`).join("\n        ")}
       </div>
     </div>
   </section>
-  ${ctaSection("Ready to Go to 0%?", "Upload your statement and we'll show you whether 0% processing is the right fit for your business — and exactly how much you'd keep.")}`;
+
+  <section class="ssr-section">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">${ZP_COSTS.heading}</h2>
+      <p class="ssr-section-subheading">${ZP_COSTS.intro}</p>
+      <div class="ssr-grid-3">
+        ${ZP_COSTS.cards.map((card) => `<div class="ssr-card"><div class="ssr-card-title">${card.title}</div><div class="ssr-card-text">${card.desc}</div></div>`).join("\n        ")}
+      </div>
+      <p style="text-align:center;margin-top:1.5rem;font-size:0.9rem;color:#6b7280;">${ZP_COSTS.footnote}</p>
+    </div>
+  </section>
+
+  <section class="ssr-section ssr-section-muted">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">${ZP_FAQ_HEADING}</h2>
+      <div class="ssr-faq-wrapper">
+        ${ZP_FAQ.map((item) => `<div class="ssr-faq-item"><div class="ssr-faq-q">${item.question}</div><div class="ssr-faq-a">${item.answer}</div></div>`).join("\n        ")}
+      </div>
+    </div>
+  </section>
+  ${ctaSection(ZP_SSR.finalHeading, ZP_SSR.finalBody)}`;
 
   return ssrHtmlShell({
-    title: "0% Credit Card Processing | Liberty Bancard",
-    description: "Eliminate credit card processing fees with compliant 0% programs. Cash discount and surcharging options reviewed and configured by Liberty Bancard experts.",
-    canonical: "/0-percent-processing",
-    keywords: "0 percent processing, zero percent credit card processing, cash discount program, surcharging program, eliminate processing fees, no fee processing",
-    schemaJsons: [faqSchema],
+    title: `${ZP_META.title} | Liberty Bancard`,
+    description: ZP_META.description,
+    canonical: ZP_PATH,
+    keywords: ZP_META.keywords,
+    schemaJsons: [faqSchema, serviceSchema],
     body,
   });
 }
@@ -611,91 +682,94 @@ export function getCompareRatesHtml(): string {
   const schema = {
     "@context": "https://schema.org",
     "@type": "CollectionPage",
-    name: "Compare Payment Processor Rates | Liberty Bancard",
-    description: "Compare Liberty Bancard vs Square, Stripe, Clover, Toast, PayPal, Helcim, and Authorize.Net. Side-by-side pricing and feature comparisons.",
+    name: RATES_PAGE.schemaName,
+    description: RATES_PAGE.description,
     url: `${BASE_URL}/compare-rates`,
   };
+  const rows = ratesPageRows();
+  const rowsHtml = rows
+    .map(
+      (row) => `<tr>
+          <td><a href="/compare/${row.slug}"><strong>${row.provider}</strong></a></td>
+          <td>${row.detail}</td>
+          <td>${row.rate}</td>
+          <td>${row.monthly}</td>
+          <td>${row.sourceUrl && row.checkedOn ? `<a href="${row.sourceUrl}" rel="noopener noreferrer">Official page</a> checked ${formatCheckedDate(row.checkedOn)}` : "No published rate to cite"}</td>
+        </tr>`,
+    )
+    .join("");
+  const linksHtml = COMPARE_SLUGS.map(
+    (slug) => `<a href="/compare/${slug}" class="ssr-card" style="display:block;text-decoration:none;">
+          <div class="ssr-card-title">Liberty Bancard vs ${COMPARE_ENTRIES[slug].name}</div>
+          <div class="ssr-card-text">${COMPARE_ENTRIES[slug].providerFit}</div>
+          <div style="color:#0ea5e9;font-size:0.875rem;font-weight:600;margin-top:0.75rem;">View Comparison →</div>
+        </a>`,
+  ).join("");
+  const needsHtml = COMPARE_NEEDS.items.map((item) => `<li><span class="check-icon">✓</span>${item}</li>`).join("");
+  const faqHtml = RATES_PAGE.faq
+    .map((f) => `<div class="ssr-faq-item"><div class="ssr-faq-q">${f.question}</div><div class="ssr-faq-a">${f.answer}</div></div>`)
+    .join("");
   const body = `
   <div class="ssr-hero">
     <div class="ssr-hero-inner">
       <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Compare Rates</span></div>
-      <div class="ssr-hero-badge">📊 Unbiased Comparison</div>
-      <h1>Compare Payment Processor Rates &amp; Features</h1>
-      <p class="ssr-hero-subtitle">See how Liberty Bancard's interchange-plus pricing stacks up against the most popular payment processors. Make an informed decision.</p>
+      <div class="ssr-hero-badge">📊 Published Rates, Dated and Sourced</div>
+      <h1>${RATES_PAGE.heading}</h1>
+      <p class="ssr-hero-subtitle">${RATES_PAGE.subheading}</p>
       <div class="ssr-hero-buttons">
         <a href="/upload-statement" class="ssr-btn-primary">📤 Compare With My Statement</a>
         <a href="/savings-calculator" class="ssr-btn-outline">🧮 Quick Calculator</a>
       </div>
+      <p class="ssr-hero-subtitle" style="font-size:0.8125rem;margin-top:1rem;">${RATES_PAGE.disclaimer}</p>
     </div>
   </div>
 
+  <section class="ssr-section">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">Published Provider Rates</h2>
+      <p class="ssr-section-subheading">Each row is copied from the provider's official page and dated. ${RATES_PAGE.libertyRowNote}</p>
+      <div class="ssr-table-wrapper">
+        <table class="ssr-table">
+          <thead><tr><th>Provider</th><th>Product and plan</th><th>Published rate</th><th>Monthly fee</th><th>Source and date</th></tr></thead>
+          <tbody>
+            ${rowsHtml}
+            <tr><td><strong>Liberty Bancard</strong></td><td>Interchange-plus; programs reviewed where they fit</td><td>Quoted after statement review</td><td>Stated in your written quote</td><td>Written quote and agreement</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:0.75rem;color:#6b7280;text-align:center;margin-top:1rem;">${COMPARE_METHOD_NOTE} ${COMPARE_TABLE_FOOTNOTE}</p>
+    </div>
+  </section>
+
   <section class="ssr-section ssr-section-muted">
     <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">Head-to-Head Comparisons</h2>
-      <p class="ssr-section-subheading">Click any comparison for a detailed feature and pricing breakdown.</p>
-      <div class="ssr-grid-3">
-        <a href="/compare/square" class="ssr-card" style="display:block;text-decoration:none;">
-          <div class="ssr-card-title">Liberty Bancard vs Square</div>
-          <div class="ssr-card-text">Interchange-plus vs. flat-rate 2.6%. Most businesses save $2,000–$6,000/year. Best for brick-and-mortar retail and restaurants.</div>
-          <div style="color:#0ea5e9;font-size:0.875rem;font-weight:600;margin-top:0.75rem;">View Comparison →</div>
-        </a>
-        <a href="/compare/stripe" class="ssr-card" style="display:block;text-decoration:none;">
-          <div class="ssr-card-title">Liberty Bancard vs Stripe</div>
-          <div class="ssr-card-text">Transparent interchange-plus vs. Stripe's 2.9% + $0.30. In-person rates and 0% programs available. Best for growing in-person businesses.</div>
-          <div style="color:#0ea5e9;font-size:0.875rem;font-weight:600;margin-top:0.75rem;">View Comparison →</div>
-        </a>
-        <a href="/compare/clover" class="ssr-card" style="display:block;text-decoration:none;">
-          <div class="ssr-card-title">Liberty Bancard vs Clover</div>
-          <div class="ssr-card-text">Avoid Clover's bundled fees while keeping the hardware you love. Use any terminal — no captive ecosystem required.</div>
-          <div style="color:#0ea5e9;font-size:0.875rem;font-weight:600;margin-top:0.75rem;">View Comparison →</div>
-        </a>
-        <a href="/compare/toast" class="ssr-card" style="display:block;text-decoration:none;">
-          <div class="ssr-card-title">Liberty Bancard vs Toast</div>
-          <div class="ssr-card-text">Restaurant-specific comparison. Toast's 2.49% vs interchange-plus. Escape proprietary hardware lock-in and save on every swipe.</div>
-          <div style="color:#0ea5e9;font-size:0.875rem;font-weight:600;margin-top:0.75rem;">View Comparison →</div>
-        </a>
-        <a href="/compare/paypal" class="ssr-card" style="display:block;text-decoration:none;">
-          <div class="ssr-card-title">Liberty Bancard vs PayPal</div>
-          <div class="ssr-card-text">PayPal's 2.99% + $0.49 in-person rate vs interchange-plus. Stop risking account holds and save on every transaction.</div>
-          <div style="color:#0ea5e9;font-size:0.875rem;font-weight:600;margin-top:0.75rem;">View Comparison →</div>
-        </a>
-        <a href="/compare/helcim" class="ssr-card" style="display:block;text-decoration:none;">
-          <div class="ssr-card-title">Liberty Bancard vs Helcim</div>
-          <div class="ssr-card-text">Both offer interchange-plus — see why Liberty Bancard's dedicated reps, 0% programs, and local support give businesses an edge.</div>
-          <div style="color:#0ea5e9;font-size:0.875rem;font-weight:600;margin-top:0.75rem;">View Comparison →</div>
-        </a>
-        <a href="/compare/authorize-net" class="ssr-card" style="display:block;text-decoration:none;">
-          <div class="ssr-card-title">Liberty Bancard vs Authorize.Net</div>
-          <div class="ssr-card-text">Eliminate the $25/month gateway fee and bundled pricing. Get interchange-plus transparency with no separate gateway charge.</div>
-          <div style="color:#0ea5e9;font-size:0.875rem;font-weight:600;margin-top:0.75rem;">View Comparison →</div>
-        </a>
-      </div>
+      <h2 class="ssr-section-heading">${COMPARE_NEEDS.heading}</h2>
+      <p class="ssr-section-subheading">${COMPARE_NEEDS.intro}</p>
+      <ul class="ssr-check-list" style="max-width:40rem;margin:0 auto;">${needsHtml}</ul>
+      <p style="font-size:0.75rem;color:#6b7280;text-align:center;margin-top:1rem;">${COMPARE_NEEDS.footnote}</p>
     </div>
   </section>
 
   <section class="ssr-section">
     <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">Pricing Model Quick Guide</h2>
-      <div class="ssr-table-wrapper">
-        <table class="ssr-table">
-          <thead><tr><th>Pricing Model</th><th>How It Works</th><th>Who Uses It</th><th>Transparency</th></tr></thead>
-          <tbody>
-            <tr><td><strong>Flat-Rate</strong></td><td>Fixed % on every transaction regardless of card type</td><td>Square, Stripe, PayPal</td><td>Simple but expensive for reward cards</td></tr>
-            <tr><td><strong>Tiered</strong></td><td>Transactions sorted into qualified/mid/non-qualified buckets</td><td>Traditional processors</td><td>Opaque — processor controls bucketing</td></tr>
-            <tr><td><strong>Interchange-Plus</strong></td><td>Actual network cost + fixed markup disclosed on statement</td><td>Liberty Bancard, Helcim</td><td>Most transparent model available</td></tr>
-            <tr><td><strong>0% / Cash Discount</strong></td><td>Customers pay a posted price; cash discount reduces the card cost</td><td>Liberty Bancard</td><td>Eliminates net cost for qualifying businesses</td></tr>
-          </tbody>
-        </table>
-      </div>
+      <h2 class="ssr-section-heading">Provider Comparisons</h2>
+      <div class="ssr-grid-3">${linksHtml}</div>
     </div>
   </section>
-  ${ctaSection("See How You Compare", "Upload your current statement and we'll show you side-by-side how your costs compare to interchange-plus pricing.")}`;
+
+  <section class="ssr-section ssr-section-muted">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">Frequently Asked Questions</h2>
+      <div class="ssr-faq-wrapper">${faqHtml}</div>
+    </div>
+  </section>
+  ${ctaSection("Ready to Compare Your Own Costs?", "Upload your current statement and we'll show you a line-by-line comparison with the inputs used. Free, no obligation.")}`;
 
   return ssrHtmlShell({
-    title: "Compare Payment Processor Rates | Liberty Bancard",
-    description: "Compare payment processing rates and features. Liberty Bancard vs Square, Stripe, Clover, Toast, PayPal, Helcim, and Authorize.Net. See who saves you more.",
-    canonical: "/compare-rates",
-    keywords: "compare payment processors, payment processing rates comparison, square vs stripe vs clover, best payment processor, interchange plus comparison",
+    title: `${RATES_PAGE.title} | Liberty Bancard`,
+    description: RATES_PAGE.description,
+    canonical: RATES_PAGE.path,
+    keywords: RATES_PAGE.keywords,
     schemaJsons: [schema],
     body,
   });
@@ -706,16 +780,16 @@ export function getGetStartedHtml(): string {
     "@context": "https://schema.org",
     "@type": "WebPage",
     name: "Get Started with Liberty Bancard | Merchant Services",
-    description: "Start accepting payments with Liberty Bancard. Simple onboarding, fast approvals, and dedicated support throughout setup.",
+    description: "Start your merchant account application with Liberty Bancard. Our team reviews your request and contacts you about next steps.",
     url: `${BASE_URL}/get-started`,
   };
   const body = `
   <div class="ssr-hero">
     <div class="ssr-hero-inner">
       <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Get Started</span></div>
-      <div class="ssr-hero-badge">🚀 Fast Approval Process</div>
+      <div class="ssr-hero-badge">🚀 Start Your Application</div>
       <h1>Start Accepting Payments with Liberty Bancard</h1>
-      <p class="ssr-hero-subtitle">Simple onboarding, dedicated support, and transparent pricing from day one. Most businesses are live in 3–5 business days.</p>
+      <p class="ssr-hero-subtitle">Simple onboarding, dedicated support, and transparent pricing. ${TIMING_NOTE}</p>
       <div class="ssr-hero-buttons">
         <a href="/get-started#form" class="ssr-btn-primary">🚀 Start Application</a>
         <a href="/upload-statement" class="ssr-btn-outline">📤 Review My Statement First</a>
@@ -735,12 +809,12 @@ export function getGetStartedHtml(): string {
         <div class="ssr-card" style="text-align:center;">
           <div style="font-size:2rem;margin-bottom:0.75rem;">2️⃣</div>
           <div class="ssr-card-title">Underwriting &amp; Approval</div>
-          <div class="ssr-card-text">Our team reviews your application and typically approves within 1–2 business days. Your dedicated rep keeps you updated throughout.</div>
+          <div class="ssr-card-text">Our team reviews your application and contacts you about next steps. Account approval is a separate step from equipment and activation.</div>
         </div>
         <div class="ssr-card" style="text-align:center;">
           <div style="font-size:2rem;margin-bottom:0.75rem;">3️⃣</div>
           <div class="ssr-card-title">Equipment &amp; Go Live</div>
-          <div class="ssr-card-text">Equipment is shipped or programmed, and your rep walks you through activation. Most businesses are processing live within 3–5 business days.</div>
+          <div class="ssr-card-text">Where equipment is part of your account, availability, shipping and activation are separate steps. Your rep walks you through each one.</div>
         </div>
       </div>
     </div>
@@ -758,11 +832,11 @@ export function getGetStartedHtml(): string {
       </ul>
     </div>
   </section>
-  ${ctaSection("Ready to Get Started?", "Start your application today. Your dedicated rep will reach out within 1 business day to guide you through the process.")}`;
+  ${ctaSection("Ready to Get Started?", "Start your application today. Our team will review your request and contact you about next steps.")}`;
 
   return ssrHtmlShell({
     title: "Get Started with Liberty Bancard | Merchant Account Application",
-    description: "Apply for a merchant account with Liberty Bancard. Fast approvals, dedicated support, and transparent interchange-plus pricing. Most businesses live in 3–5 days.",
+    description: "Apply for a merchant account with Liberty Bancard. Transparent interchange-plus pricing, dedicated support, and a review of your request before next steps.",
     canonical: "/get-started",
     keywords: "merchant account application, get started payment processing, merchant services application, apply merchant account, payment processor application",
     schemaJsons: [schema],
@@ -774,18 +848,30 @@ export function getBeatSquareStripeHtml(): string {
   const schema = {
     "@context": "https://schema.org",
     "@type": "WebPage",
-    name: "Switch from Square or Stripe | Liberty Bancard",
-    description: "Liberty Bancard saves businesses $2,000–$6,000/year vs Square and Stripe. See how interchange-plus beats flat-rate pricing.",
-    url: `${BASE_URL}/beat-square-stripe`,
+    name: `${BEAT_SQUARE_STRIPE.title} | Liberty Bancard`,
+    description: BEAT_SQUARE_STRIPE.description,
+    url: `${BASE_URL}${BEAT_SQUARE_STRIPE.path}`,
   };
+  const recordsHtml = beatSquareStripeRecords()
+    .map(
+      (record) => `<div class="ssr-card">
+          <div class="ssr-card-title">${record.product}</div>
+          <div class="ssr-card-text">${record.plan} (${record.channel})</div>
+          <div class="ssr-stat-value">${formatRate(record)}</div>
+          <div class="ssr-card-text">${record.monthlyFeeCents !== null ? `${formatMonthly(record.monthlyFeeCents)}. ` : ""}${record.qualifier ?? ""}</div>
+          <div class="ssr-card-text"><a href="${record.sourceUrl}" rel="noopener noreferrer">Official pricing page</a>, checked ${formatCheckedDate(record.checkedOn)}</div>
+        </div>`,
+    )
+    .join("");
+  const needsHtml = COMPARE_NEEDS.items.map((item) => `<li><span class="check-icon">✓</span>${item}</li>`).join("");
   const body = `
   <div class="ssr-hero">
     <div class="ssr-hero-inner">
-      <div class="ssr-hero-badge">💡 Better Than Flat-Rate</div>
-      <h1>Beat Square &amp; Stripe on Processing Fees</h1>
-      <p class="ssr-hero-subtitle">Square charges 2.6% flat. Stripe charges 2.9%. Liberty Bancard's interchange-plus pricing typically saves businesses $2,000–$6,000/year. See how.</p>
+      <div class="ssr-hero-badge">💡 Compare Before You Switch</div>
+      <h1>${BEAT_SQUARE_STRIPE.heading}</h1>
+      <p class="ssr-hero-subtitle">${BEAT_SQUARE_STRIPE.sub}</p>
       <div class="ssr-hero-buttons">
-        <a href="/upload-statement" class="ssr-btn-primary">📤 Get My Savings Analysis</a>
+        <a href="/upload-statement" class="ssr-btn-primary">📤 Get My Statement Analysis</a>
         <a href="/compare/square" class="ssr-btn-outline">📊 See Square Comparison</a>
       </div>
     </div>
@@ -793,53 +879,28 @@ export function getBeatSquareStripeHtml(): string {
 
   <section class="ssr-section ssr-section-muted">
     <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">Why Flat-Rate Costs You More</h2>
-      <p class="ssr-section-subheading">Most card transactions settle for 1.6–1.8% at the network level. Flat-rate processors pocket the difference.</p>
-      <div class="ssr-grid-2" style="max-width:48rem;margin:0 auto;">
-        <div class="ssr-card">
-          <div class="ssr-card-title">📊 Square &amp; Stripe Flat-Rate</div>
-          <ul class="ssr-x-list">
-            <li><span class="x-icon">✗</span>2.6%–2.9% on every swipe</li>
-            <li><span class="x-icon">✗</span>No visibility into actual interchange costs</li>
-            <li><span class="x-icon">✗</span>You subsidize high-reward-card users with your fees</li>
-            <li><span class="x-icon">✗</span>No option for 0% processing</li>
-          </ul>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title" style="color:#059669;">✓ Liberty Bancard Interchange-Plus</div>
-          <ul class="ssr-check-list">
-            <li><span class="check-icon">✓</span>Actual network cost + fixed markup on statement</li>
-            <li><span class="check-icon">✓</span>Full transparency — see every fee line item</li>
-            <li><span class="check-icon">✓</span>You pay less on debit and basic credit cards</li>
-            <li><span class="check-icon">✓</span>Liberty Zero™ — pay $0 to process cards (where eligible)*</li>
-          </ul>
-        </div>
-      </div>
+      <h2 class="ssr-section-heading">What Square and Stripe Publish</h2>
+      <p class="ssr-section-subheading">Rates copied from each provider's official pricing page, with the date checked. They are list rates, not a quote for your business.</p>
+      <div class="ssr-grid-2" style="max-width:56rem;margin:0 auto;">${recordsHtml}</div>
+      <p style="font-size:0.75rem;color:#94a3b8;margin-top:1rem;text-align:center;">${COMPARE_METHOD_NOTE} ${COMPARE_TABLE_FOOTNOTE}</p>
     </div>
   </section>
 
   <section class="ssr-section">
-    <div class="ssr-section-inner" style="text-align:center;">
-      <h2 class="ssr-section-heading">Annual Savings at Common Volume Levels</h2>
-      <p class="ssr-section-subheading">Switching from Square (2.6%) to interchange-plus*</p>
-      <div class="ssr-grid-3" style="max-width:56rem;margin:0 auto;">
-        <div class="ssr-card"><div class="ssr-stat-value">$1,440</div><div class="ssr-stat-label">At $10,000/month</div></div>
-        <div class="ssr-card"><div class="ssr-stat-value">$2,880</div><div class="ssr-stat-label">At $20,000/month</div></div>
-        <div class="ssr-card"><div class="ssr-stat-value">$4,320</div><div class="ssr-stat-label">At $30,000/month</div></div>
-        <div class="ssr-card"><div class="ssr-stat-value">$5,760</div><div class="ssr-stat-label">At $40,000/month</div></div>
-        <div class="ssr-card"><div class="ssr-stat-value">$7,200</div><div class="ssr-stat-label">At $50,000/month</div></div>
-        <div class="ssr-card"><div class="ssr-stat-value">Custom</div><div class="ssr-stat-label">Upload your statement</div></div>
-      </div>
-      <p style="font-size:0.75rem;color:#94a3b8;margin-top:1rem;">*Estimates assume typical consumer credit card mix and 0.5% effective interchange-plus markup. Actual savings depend on transaction mix. Upload statement for exact analysis.</p>
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">${COMPARE_NEEDS.heading}</h2>
+      <p class="ssr-section-subheading">${COMPARE_NEEDS.intro}</p>
+      <ul class="ssr-check-list" style="max-width:40rem;margin:0 auto;">${needsHtml}</ul>
+      <p style="font-size:0.75rem;color:#94a3b8;margin-top:1rem;text-align:center;">${COMPARE_NEEDS.footnote}</p>
     </div>
   </section>
-  ${ctaSection("Switch from Square or Stripe Today", "Upload your Square or Stripe statement and we'll show you your exact savings. Free, fast, no obligation.")}`;
+  ${ctaSection("Compare Before You Switch", "Upload your Square or Stripe statement and we'll show you your real cost and your options, with the inputs used. Free, no obligation.")}`;
 
   return ssrHtmlShell({
-    title: "Beat Square & Stripe on Processing Fees | Liberty Bancard",
-    description: "Save $2,000–$6,000/year by switching from Square or Stripe to Liberty Bancard interchange-plus pricing. See how flat-rate fees cost you more.",
-    canonical: "/beat-square-stripe",
-    keywords: "beat square pricing, beat stripe fees, square alternative, stripe alternative, interchange plus vs flat rate, switch from square, switch from stripe",
+    title: `${BEAT_SQUARE_STRIPE.title} | Liberty Bancard`,
+    description: BEAT_SQUARE_STRIPE.description,
+    canonical: BEAT_SQUARE_STRIPE.path,
+    keywords: BEAT_SQUARE_STRIPE.keywords,
     schemaJsons: [schema],
     body,
   });
@@ -987,7 +1048,7 @@ export function getTestimonialsHtml(): string {
     </div>
   </section>
 
-  ${ctaSection("Your Statement Tells the Truth. Let's Read It Together.", "Every merchant on this page started with a free statement review. Upload yours and see your real numbers — same day.")}`;
+  ${ctaSection("Your Statement Tells the Truth. Let's Read It Together.", "Every merchant on this page started with a free statement review. Upload yours and see your real numbers.")}`;
 
   return ssrHtmlShell({
     title: "Merchant Video Testimonials — Real Results | Liberty Bancard",
@@ -1097,97 +1158,56 @@ export function getIntegrationsHtml(): string {
   const schema = {
     "@context": "https://schema.org",
     "@type": "WebPage",
-    name: "Software Integrations & Compatibility | Liberty Bancard",
-    description: "See which POS systems, accounting software, eCommerce platforms, and business tools Liberty Bancard works with. Keep your existing software, just pay less.",
-    url: `${BASE_URL}/integrations`,
+    name: INTEGRATIONS_META.title,
+    description: INTEGRATIONS_META.schemaDescription,
+    url: `${BASE_URL}${INTEGRATIONS_PATH}`,
     about: {
       "@type": "Service",
-      name: "Payment Processing Integrations",
+      name: "Payment Processing Compatibility Review",
       provider: { "@type": "Organization", name: "Liberty Bancard" },
+      description: INTEGRATIONS_META.schemaAbout,
     },
   };
 
-  const categories = [
-    {
-      name: "POS Systems",
-      items: [
-        { name: "Clover POS", badge: "Direct Provider", desc: "Liberty Bancard is a direct Clover provider. We program and support Clover terminals, mini systems, and the full Station Duo with our own pricing, not Clover's published rates.", hardware: "Clover Flex 3, Clover Mini 3, Clover Station Duo" },
-        { name: "Dejavoo Terminals", badge: "Recommended", desc: "Dejavoo countertop and wireless terminals work natively with Liberty's programs, including cash discount and tip adjust.", hardware: "Dejavoo QD2, QD4, Z11" },
-        { name: "PAX Terminals", badge: "", desc: "PAX A920 and A35 smart terminals integrate cleanly with Liberty's interchange-plus pricing. Popular for retail and multi-lane environments.", hardware: "PAX A920, PAX A35" },
-        { name: "Toast POS", badge: "", desc: "Liberty Bancard integrates with Toast-compatible payment flows. Restaurants can route through our interchange-plus gateway while keeping the Toast interface.", hardware: "Toast hardware (via gateway)" },
-        { name: "Square (Migration)", badge: "Switching Guide", desc: "Switching from Square? We handle the transition. Most Square merchants save significantly on interchange-plus pricing.", hardware: "Your existing hardware or new terminal" },
-      ],
-    },
-    {
-      name: "Accounting",
-      items: [
-        { name: "QuickBooks", badge: "", desc: "Liberty Bancard transaction data exports cleanly into QuickBooks. Monthly statements include all the fields your bookkeeper needs for reconciliation.", hardware: "No hardware required" },
-        { name: "Xero", badge: "", desc: "Xero users can reconcile Liberty Bancard batch settlements easily. Our interchange-plus statements break down every cost line-by-line.", hardware: "No hardware required" },
-        { name: "Wave Accounting", badge: "", desc: "Wave-connected businesses can import Liberty Bancard transaction data and match settlements to deposits with clear reporting.", hardware: "No hardware required" },
-      ],
-    },
-    {
-      name: "eCommerce",
-      items: [
-        { name: "Shopify", badge: "Popular", desc: "We integrate with Shopify via Authorize.net and NMI gateways, allowing merchants to bypass Shopify Payments fees while keeping their storefront untouched.", hardware: "Authorize.net or NMI gateway" },
-        { name: "WooCommerce", badge: "", desc: "WooCommerce stores connect through standard payment gateway plugins. Authorize.net and NMI are both supported.", hardware: "Authorize.net or NMI gateway" },
-        { name: "Authorize.net", badge: "Primary Gateway", desc: "Authorize.net is Liberty Bancard's primary e-commerce gateway. It supports recurring billing, customer vaults, and advanced fraud detection.", hardware: "Software gateway (no hardware)" },
-      ],
-    },
-    {
-      name: "Practice Management",
-      items: [
-        { name: "Mindbody", badge: "", desc: "Mindbody users in fitness, yoga, and wellness can connect Liberty Bancard's payment processing to reduce per-transaction costs.", hardware: "Compatible card readers via gateway" },
-        { name: "Jane App", badge: "", desc: "Jane App is widely used by physical therapists and chiropractors. Liberty Bancard can process payments outside Jane's native billing for lower interchange costs.", hardware: "Dejavoo or PAX terminal" },
-        { name: "DrChrono", badge: "", desc: "Medical practices using DrChrono EHR can pair Liberty Bancard terminals for front-desk card collection while keeping their clinical workflow.", hardware: "Ingenico or Dejavoo countertop" },
-      ],
-    },
-    {
-      name: "Scheduling",
-      items: [
-        { name: "Acuity Scheduling", badge: "", desc: "Acuity-based businesses can use Liberty Bancard's gateway integrations to collect payments at checkout or for deposits.", hardware: "Software gateway" },
-        { name: "Calendly", badge: "", desc: "Service businesses using Calendly can combine Liberty Bancard's payment infrastructure for payment collection with their scheduling workflow.", hardware: "Software gateway" },
-        { name: "Vagaro", badge: "", desc: "Salons, spas, and fitness studios on Vagaro can explore Liberty Bancard's payment processing as a lower-cost alternative.", hardware: "Compatible card readers" },
-      ],
-    },
-    {
-      name: "CRM",
-      items: [
-        { name: "Salesforce", badge: "", desc: "Enterprise merchants can integrate Liberty Bancard transaction data into Salesforce via standard API exports.", hardware: "No hardware required" },
-        { name: "HubSpot", badge: "", desc: "Liberty Bancard's back-office data can connect to HubSpot for deal tracking, renewal management, and merchant lifecycle automation.", hardware: "No hardware required" },
-        { name: "Zoho CRM", badge: "", desc: "Zoho CRM users can sync Liberty Bancard merchant data and transaction summaries for account management and reporting.", hardware: "No hardware required" },
-      ],
-    },
-  ];
-
-  const categoryHtml = categories.map(cat => `
+  const categoryHtml = INTEGRATION_CATEGORIES.map((cat) => {
+    const items = INTEGRATION_RECORDS.filter((record) => record.category === cat.name);
+    return `
     <div style="margin-bottom:3rem;">
       <h2 style="font-size:1.5rem;font-weight:700;margin-bottom:1.25rem;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:0.5rem;">${cat.name}</h2>
       <div class="ssr-grid-3" style="gap:1.25rem;">
-        ${cat.items.map(item => `
+        ${items
+          .map((item) => {
+            const active = showsActiveCheck(item);
+            return `
           <div class="ssr-card">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin-bottom:0.75rem;">
               <div class="ssr-card-title" style="margin:0;">${item.name}</div>
-              ${item.badge ? `<span style="font-size:0.65rem;background:#eff6ff;color:#3b82f6;padding:0.15rem 0.5rem;border-radius:20px;font-weight:600;white-space:nowrap;">${item.badge}</span>` : ""}
+              <span style="font-size:0.65rem;background:#eff6ff;color:#3b82f6;padding:0.15rem 0.5rem;border-radius:20px;font-weight:600;white-space:nowrap;">${COMPAT_STATE_LABEL[item.state]}</span>
             </div>
-            <div class="ssr-card-text" style="margin-bottom:0.75rem;">${item.desc}</div>
-            <div style="font-size:0.75rem;color:#059669;display:flex;align-items:flex-start;gap:0.4rem;">
-              <span>✓</span><span><strong>Hardware:</strong> ${item.hardware}</span>
+            <div class="ssr-card-text" style="margin-bottom:0.75rem;">${item.summary}</div>
+            <div style="font-size:0.75rem;color:${active ? "#059669" : "#6b7280"};display:flex;align-items:flex-start;gap:0.4rem;">
+              <span>${active ? "✓" : "?"}</span><span><strong>${active ? "Path:" : "We'll ask about:"}</strong> ${active ? item.path : item.askAbout}</span>
             </div>
-          </div>`).join("")}
+          </div>`;
+          })
+          .join("")}
       </div>
-    </div>`).join("");
+    </div>`;
+  }).join("");
+
+  const stats = integrationStats();
 
   const body = `
   <div class="ssr-hero">
     <div class="ssr-hero-inner">
       <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Integrations</span></div>
-      <div class="ssr-hero-badge">🔌 Software Compatibility</div>
-      <h1>Works With Your Existing Software</h1>
-      <p class="ssr-hero-subtitle">Unlike Square, Clover, and Toast — which lock you into their ecosystem — Liberty Bancard connects with the platforms you already use. Keep your POS, your accounting software, your booking tool. Just pay less.</p>
+      <div class="ssr-hero-badge">🔌 ${INTEGRATIONS_HERO.badge}</div>
+      <h1>${INTEGRATIONS_HERO.headingLead} ${INTEGRATIONS_HERO.headingAccent}</h1>
+      <p class="ssr-hero-subtitle">${INTEGRATIONS_HERO.sub}</p>
+      <p class="ssr-hero-subtitle" style="font-size:0.9rem;"><strong>${INTEGRATIONS_CALLOUT.title}.</strong> ${INTEGRATIONS_CALLOUT.text}</p>
       <div class="ssr-hero-buttons">
-        <a href="/upload-statement" class="ssr-btn-primary">📤 Get My Free Analysis</a>
-        <a href="#integrations-list" class="ssr-btn-outline">Browse Integrations →</a>
+        <a href="/upload-statement" class="ssr-btn-primary">📤 ${INTEGRATIONS_HERO.primaryCta}</a>
+        <a href="#integrations-list" class="ssr-btn-outline">${INTEGRATIONS_HERO.browseCta} →</a>
       </div>
     </div>
   </div>
@@ -1195,63 +1215,45 @@ export function getIntegrationsHtml(): string {
   <section class="ssr-section ssr-section-muted">
     <div class="ssr-section-inner">
       <div class="ssr-grid-3" style="margin-bottom:2rem;">
-        <div class="ssr-card" style="text-align:center;">
-          <div style="font-size:2rem;font-weight:700;color:#1d4ed8;">20+</div>
-          <div style="font-size:0.875rem;font-weight:600;">Compatible Platforms</div>
-        </div>
-        <div class="ssr-card" style="text-align:center;">
-          <div style="font-size:2rem;font-weight:700;color:#1d4ed8;">6</div>
-          <div style="font-size:0.875rem;font-weight:600;">Integration Categories</div>
-        </div>
-        <div class="ssr-card" style="text-align:center;">
-          <div style="font-size:2rem;font-weight:700;color:#1d4ed8;">0</div>
-          <div style="font-size:0.875rem;font-weight:600;">Lock-In Contracts</div>
-        </div>
+        ${stats
+          .map(
+            (item) => `<div class="ssr-card" style="text-align:center;">
+          <div style="font-size:2rem;font-weight:700;color:#1d4ed8;">${item.stat}</div>
+          <div style="font-size:0.875rem;font-weight:600;">${item.label}</div>
+        </div>`,
+          )
+          .join("\n        ")}
       </div>
     </div>
   </section>
 
   <section class="ssr-section" id="integrations-list">
     <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">Integration Directory</h2>
-      <p class="ssr-section-subheading">Organized by category. Don't see your software? Ask us about compatibility during your free statement review.</p>
+      <h2 class="ssr-section-heading">${INTEGRATIONS_DIRECTORY.heading}</h2>
+      <p class="ssr-section-subheading">${INTEGRATIONS_DIRECTORY.subheading}</p>
       ${categoryHtml}
     </div>
   </section>
 
   <section class="ssr-section ssr-section-muted">
     <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">No Ecosystem Lock-In</h2>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:2rem;max-width:900px;margin:0 auto;">
-        <div class="ssr-card" style="border:2px solid #fca5a5;">
-          <div class="ssr-card-title" style="color:#dc2626;">Square / Clover / Toast Lock You In</div>
-          <ul style="margin:0;padding-left:1.25rem;font-size:0.875rem;color:#6b7280;line-height:2;">
-            <li>Must use their payment processor</li>
-            <li>Hardware only works on their network</li>
-            <li>Rate changes buried in terms</li>
-            <li>Switching means replacing all hardware</li>
-          </ul>
-        </div>
-        <div class="ssr-card" style="border:2px solid #86efac;">
-          <div class="ssr-card-title" style="color:#16a34a;">Liberty Bancard Connects With What You Have</div>
-          <ul style="margin:0;padding-left:1.25rem;font-size:0.875rem;color:#6b7280;line-height:2;">
-            <li>Works with Clover, Toast, PAX, and more</li>
-            <li>Keep your POS or upgrade on your terms</li>
-            <li>Transparent interchange-plus pricing</li>
-            <li>Switch without replacing existing software</li>
-          </ul>
-        </div>
+      <h2 class="ssr-section-heading">${INTEGRATIONS_PROCESS.heading}</h2>
+      <div class="ssr-grid-3">
+        ${INTEGRATIONS_PROCESS.steps
+          .map((step, i) => `<div class="ssr-card"><div class="ssr-card-title">Step ${i + 1}: ${step.title}</div><div class="ssr-card-text">${step.text}</div></div>`)
+          .join("\n        ")}
       </div>
+      <p style="text-align:center;margin-top:1.5rem;font-size:0.85rem;color:#6b7280;">${INTEGRATIONS_PROCESS.footnote}</p>
     </div>
   </section>
 
-  ${ctaSection("Check Compatibility With Your Software", "Tell us what you use during your free statement review. We'll confirm compatibility before you switch anything.")}`;
+  ${ctaSection(INTEGRATIONS_CTA.heading, INTEGRATIONS_CTA.body)}`;
 
   return ssrHtmlShell({
-    title: "Software Integrations & Compatibility | Liberty Bancard",
-    description: "Liberty Bancard works with Clover, Toast, QuickBooks, Shopify, Mindbody, Acuity, and 20+ more platforms. Keep your software, lower your processing costs.",
-    canonical: "/integrations",
-    keywords: "payment processing integrations, POS integrations, QuickBooks payment processing, Shopify payment processor, Clover payment processing, merchant software compatibility",
+    title: INTEGRATIONS_META.title,
+    description: INTEGRATIONS_META.description,
+    canonical: INTEGRATIONS_PATH,
+    keywords: INTEGRATIONS_META.keywords,
     schemaJsons: [schema],
     body,
   });
@@ -1262,11 +1264,11 @@ export function getFaqHtml(): string {
     "@context": "https://schema.org",
     "@type": "FAQPage",
     mainEntity: [
-      { "@type": "Question", name: "What is interchange-plus pricing?", acceptedAnswer: { "@type": "Answer", text: "Interchange-plus pricing passes the actual network cost (interchange) directly to you, plus a fixed markup that Liberty Bancard discloses on every statement. It's the most transparent pricing model available and typically saves businesses 0.5%–1.0% over flat-rate pricing." } },
-      { "@type": "Question", name: "How long does merchant account approval take?", acceptedAnswer: { "@type": "Answer", text: "Most applications are approved within 1–2 business days. After approval, equipment setup and go-live typically take 3–5 business days total." } },
+      { "@type": "Question", name: "What is interchange-plus pricing?", acceptedAnswer: { "@type": "Answer", text: "Interchange-plus pricing passes the actual network cost (interchange) directly to you, plus a fixed markup that Liberty Bancard discloses on every statement. Whether it costs less than a flat rate depends on your card mix, volume and ticket size, and a statement review shows the comparison for your business." } },
+      { "@type": "Question", name: "How long does merchant account approval take?", acceptedAnswer: { "@type": "Answer", text: TIMING_NOTE } },
       { "@type": "Question", name: "Is there a contract or early termination fee?", acceptedAnswer: { "@type": "Answer", text: "Contract terms and any applicable early termination fees are clearly outlined before you sign anything. We believe in transparency — you see all terms before committing." } },
-      { "@type": "Question", name: "What is 0% processing?", acceptedAnswer: { "@type": "Answer", text: "0% processing refers to compliant cash discount and surcharging programs that effectively reduce your net processing cost to near zero. Available where permitted by state law and card brand rules." } },
-      { "@type": "Question", name: "How does a free statement review work?", acceptedAnswer: { "@type": "Answer", text: "Upload your current processing statement and our team analyzes every line item within 1 business day. You receive a detailed report showing your current effective rate, hidden fees, and projected savings under interchange-plus pricing — with no obligation to switch." } },
+      { "@type": "Question", name: "What is 0% processing?", acceptedAnswer: { "@type": "Answer", text: claimText("program.overview") } },
+      { "@type": "Question", name: "How does a free statement review work?", acceptedAnswer: { "@type": "Answer", text: `Upload your current processing statement. ${claimText("review.process.summary")} ${claimText("review.cost.free")}` } },
       { "@type": "Question", name: "What payment types does Liberty Bancard support?", acceptedAnswer: { "@type": "Answer", text: "All major credit and debit cards (Visa, Mastercard, Discover, American Express), contactless payments (NFC/tap), mobile wallets (Apple Pay, Google Pay, Samsung Pay), and EMV chip transactions. ACH/bank transfer available for select programs." } },
     ],
   };
@@ -1283,14 +1285,14 @@ export function getFaqHtml(): string {
   <section class="ssr-section">
     <div class="ssr-section-inner">
       <div class="ssr-faq-wrapper">
-        <div class="ssr-faq-item"><div class="ssr-faq-q">What is interchange-plus pricing?</div><div class="ssr-faq-a">Interchange-plus pricing passes the actual network cost (interchange) directly to you, plus a fixed markup disclosed on every statement. It's the most transparent pricing model and typically saves businesses 0.5%–1.0% over flat-rate pricing.</div></div>
-        <div class="ssr-faq-item"><div class="ssr-faq-q">How long does merchant account approval take?</div><div class="ssr-faq-a">Most applications are approved within 1–2 business days. After approval, equipment setup and go-live typically take 3–5 business days total.</div></div>
+        <div class="ssr-faq-item"><div class="ssr-faq-q">What is interchange-plus pricing?</div><div class="ssr-faq-a">Interchange-plus pricing passes the actual network cost (interchange) directly to you, plus a fixed markup disclosed on every statement. Whether it costs less than a flat rate depends on your card mix, volume and ticket size, and a statement review shows the comparison for your business.</div></div>
+        <div class="ssr-faq-item"><div class="ssr-faq-q">How long does merchant account approval take?</div><div class="ssr-faq-a">${TIMING_NOTE}</div></div>
         <div class="ssr-faq-item"><div class="ssr-faq-q">Is there a contract or early termination fee?</div><div class="ssr-faq-a">Contract terms and any applicable early termination fees are clearly outlined before you sign anything. We believe in transparency — you see all terms before committing.</div></div>
-        <div class="ssr-faq-item"><div class="ssr-faq-q">What is 0% processing?</div><div class="ssr-faq-a">0% processing refers to compliant cash discount and surcharging programs that effectively reduce your net processing cost to near zero. Available where permitted by state law and card brand rules.</div></div>
-        <div class="ssr-faq-item"><div class="ssr-faq-q">How does a free statement review work?</div><div class="ssr-faq-a">Upload your current processing statement and our team analyzes every line item within 1 business day. You receive a detailed savings report with no obligation to switch.</div></div>
+        <div class="ssr-faq-item"><div class="ssr-faq-q">What is 0% processing?</div><div class="ssr-faq-a">${claimText("program.overview")}</div></div>
+        <div class="ssr-faq-item"><div class="ssr-faq-q">How does a free statement review work?</div><div class="ssr-faq-a">Upload your current processing statement. ${claimText("review.process.summary")} ${claimText("review.cost.free")}</div></div>
         <div class="ssr-faq-item"><div class="ssr-faq-q">What payment types does Liberty Bancard support?</div><div class="ssr-faq-a">All major credit and debit cards, contactless (NFC/tap), mobile wallets (Apple Pay, Google Pay, Samsung Pay), and EMV chip transactions. ACH available for select programs.</div></div>
-        <div class="ssr-faq-item"><div class="ssr-faq-q">How fast will I receive my deposits?</div><div class="ssr-faq-a">Qualified merchants receive next-day funding. Actual timing depends on cutoff times, bank schedules, and risk review. Your rep will outline your specific funding timeline during onboarding.*</div></div>
-        <div class="ssr-faq-item"><div class="ssr-faq-q">Do I need to buy new equipment?</div><div class="ssr-faq-a">Not necessarily. In many cases your existing equipment can be reprogrammed. If you need new equipment, we offer purchase, lease, and free placement options depending on your program.</div></div>
+        <div class="ssr-faq-item"><div class="ssr-faq-q">How fast will I receive my deposits?</div><div class="ssr-faq-a">${claimText("funding.availability")}</div></div>
+        <div class="ssr-faq-item"><div class="ssr-faq-q">Do I need to buy new equipment?</div><div class="ssr-faq-a">That depends on your current setup. ${claimText("compat.inquiry")} ${claimText("equipment.options.summary")}</div></div>
       </div>
     </div>
   </section>
@@ -1500,40 +1502,52 @@ export function getFreeSmartTerminalHtml(): string {
   <div class="ssr-hero">
     <div class="ssr-hero-inner">
       <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Free Smart Terminal</span></div>
-      <div class="ssr-hero-badge">📱 Smart Terminal Program</div>
-      <h1>See If Your Business Qualifies for a Smart Terminal at No Upfront Cost</h1>
-      <p class="ssr-hero-subtitle">Qualifying merchants who open a Liberty Bancard processing account may receive terminal placement with no purchase cost. We review your statement to confirm eligibility — no guesswork, no pressure.</p>
+      <div class="ssr-hero-badge">📱 ${FST_HERO.badge}</div>
+      <h1>${FST_HERO.heading}</h1>
+      <p class="ssr-hero-subtitle">${FST_HERO.sub}</p>
+      ${FST_PLACEMENT_CLAIM ? `<p class="ssr-hero-subtitle">${FST_PLACEMENT_CLAIM} ${FST_EQUIPMENT_TERMS_DISCLOSURE}</p>` : ""}
       <div class="ssr-hero-buttons">
-        <a href="/get-started?offer=free-terminal" class="ssr-btn-primary">📋 Check My Eligibility</a>
+        <a href="/get-started?offer=free-terminal" class="ssr-btn-primary">📋 ${FST_HERO.primaryCta}</a>
         <a href="/upload-statement" class="ssr-btn-outline">📤 Upload Statement First</a>
       </div>
+      <p class="ssr-hero-subtitle" style="font-size:0.85rem;">${FST_HERO.disclaimer}</p>
     </div>
   </div>
 
   <section class="ssr-section ssr-section-muted">
     <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">Terminal Eligibility Requirements</h2>
+      <h2 class="ssr-section-heading">${FST_ELIGIBILITY.heading}</h2>
+      <p style="text-align:center;max-width:48rem;margin:0 auto 1.5rem;">${FST_ELIGIBILITY.intro}</p>
       <div class="ssr-grid-2" style="max-width:48rem;margin:0 auto;">
-        <div class="ssr-card"><div class="ssr-card-title">✅ New Processing Account</div><div class="ssr-card-text">Open a new Liberty Bancard processing account to qualify for terminal placement.</div></div>
-        <div class="ssr-card"><div class="ssr-card-title">💳 Monthly Volume $5,000+</div><div class="ssr-card-text">Merchants processing at least $5,000/month in card volume typically qualify.</div></div>
-        <div class="ssr-card"><div class="ssr-card-title">🔓 No Active Equipment Lease</div><div class="ssr-card-text">Not currently under an existing equipment lease or locked-in terminal contract.</div></div>
-        <div class="ssr-card"><div class="ssr-card-title">📋 Standard Underwriting</div><div class="ssr-card-text">Approved through standard merchant underwriting — same process as any new account.</div></div>
+        ${FST_ELIGIBILITY.items.map((item) => `<div class="ssr-card"><div class="ssr-card-text">${item}</div></div>`).join("\n        ")}
       </div>
+      <p style="text-align:center;margin-top:1.5rem;font-size:0.9rem;color:#6b7280;">${FST_ELIGIBILITY.notGuaranteed}</p>
     </div>
   </section>
 
   <section class="ssr-section">
     <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">Available Smart Terminals</h2>
-      <div class="ssr-grid-2" style="max-width:40rem;margin:0 auto;">
-        <div class="ssr-card" style="text-align:center;"><div style="font-size:2rem;margin-bottom:0.5rem;">📱</div><div class="ssr-card-title">Clover Flex 3</div><div class="ssr-card-text">Portable smart terminal with built-in receipt printer. Ideal for table-side, counter, and mobile use.</div></div>
-        <div class="ssr-card" style="text-align:center;"><div style="font-size:2rem;margin-bottom:0.5rem;">📟</div><div class="ssr-card-title">PAX A920</div><div class="ssr-card-text">All-in-one Android smart terminal with touchscreen. Accepts tap, chip, and swipe payments.</div></div>
+      <h2 class="ssr-section-heading">${FST_FEATURES_HEADING}</h2>
+      <p style="text-align:center;max-width:48rem;margin:0 auto 1.5rem;">${FST_FEATURES_INTRO}</p>
+      <div class="ssr-grid-2" style="max-width:48rem;margin:0 auto;">
+        ${FST_FEATURES.map((feature) => `<div class="ssr-card"><div class="ssr-card-title">${feature.label}</div><div class="ssr-card-text">${feature.desc}</div></div>`).join("\n        ")}
       </div>
-      <p style="text-align:center;margin-top:1.5rem;font-size:0.9rem;color:#6b7280;">Terminal model confirmed after statement review based on your business type and volume.</p>
+      <p style="text-align:center;margin-top:1.5rem;font-size:0.9rem;color:#6b7280;">${claimText("equipment.models.options", "page")}</p>
     </div>
   </section>
 
   <section class="ssr-section ssr-section-muted">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">${FST_STEPS_HEADING}</h2>
+      <p style="text-align:center;max-width:48rem;margin:0 auto 1.5rem;">${FST_STEPS_INTRO}</p>
+      <div class="ssr-grid-2" style="max-width:48rem;margin:0 auto;">
+        ${FST_STEPS.map((item) => `<div class="ssr-card"><div class="ssr-card-title">${item.step}. ${item.title}</div><div class="ssr-card-text">${item.desc}</div></div>`).join("\n        ")}
+      </div>
+      <p style="text-align:center;margin-top:1.5rem;font-size:0.9rem;color:#6b7280;">${FST_TIMING_NOTE}</p>
+    </div>
+  </section>
+
+  <section class="ssr-section">
     <div class="ssr-section-inner">
       <h2 class="ssr-section-heading">Frequently Asked Questions</h2>
       <div class="ssr-faq-wrapper">
@@ -1542,7 +1556,7 @@ export function getFreeSmartTerminalHtml(): string {
     </div>
   </section>
 
-  <section class="ssr-section">
+  <section class="ssr-section ssr-section-muted">
     <div class="ssr-section-inner">
       <h3 style="text-align:center;font-size:0.95rem;font-weight:600;color:#6b7280;margin-bottom:1rem;">Also useful:</h3>
       <div style="display:flex;flex-wrap:wrap;gap:1.5rem;justify-content:center;font-size:0.9rem;">
@@ -1554,7 +1568,7 @@ export function getFreeSmartTerminalHtml(): string {
     </div>
   </section>
 
-  ${ctaSection("Check Your Eligibility Today", "Upload your statement and we'll confirm whether your business qualifies for terminal placement at no upfront cost.")}`;
+  ${ctaSection(FST_FINAL.heading, FST_FINAL.body)}`;
 
   return ssrHtmlShell({
     title: FST_TITLE_FULL,

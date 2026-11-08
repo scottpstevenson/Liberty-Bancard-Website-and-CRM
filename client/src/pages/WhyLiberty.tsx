@@ -145,7 +145,7 @@ export default function WhyLiberty() {
         "@type": "Place",
         name: "Fort Lauderdale, Florida",
       },
-      description: "Liberty Bancard is a registered Independent Sales Organization providing transparent, statement-based payment processing for businesses nationwide. Wholesale interchange-plus pricing, compliant cash discount programs, next-day funding, and dedicated human support.",
+      description: "Liberty Bancard is a registered Independent Sales Organization providing transparent, statement-based payment processing for businesses nationwide. Wholesale interchange-plus pricing, compliant cash discount programs, and dedicated human support.",
       telephone: "+1-954-266-8214",
       email: "support@libertybancard.com",
       numberOfEmployees: {
@@ -463,7 +463,7 @@ export default function WhyLiberty() {
                   "We show you exactly what interchange rates you're paying and where markup is hiding",
                   "We recommend the best-fit program: wholesale interchange-plus, cash discount, or hybrid",
                   "We never pad interchange or add junk fees — what you see is what you pay",
-                  "No long-term contracts required — we earn your business every month",
+                  "Your written agreement sets the term, fees and cancellation requirements",
                   "If we can't save you money, we'll tell you — and explain why your current setup is already competitive",
                 ].map((item, i) => (
                   <div key={i} className="flex items-start gap-3" data-testid={`pricing-point-${i}`}>

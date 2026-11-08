@@ -33,6 +33,7 @@ import {
   searchArticles,
 } from "@/lib/help-center-data";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
+import { claimText } from "@shared/public-claims";
 
 const iconMap: Record<string, typeof Rocket> = {
   Rocket,
@@ -55,9 +56,9 @@ export default function HelpCenter() {
   const popular = getPopularArticles();
 
   const faqItems = [
-    { question: "How long does merchant account approval take?", answer: "Most merchant applications are reviewed and approved within 24-48 hours. The complete process from application to first transaction is typically 3-5 business days." },
-    { question: "Do I need a long-term contract?", answer: "Liberty Bancard offers month-to-month processing agreements with no early termination fees. You can close your account at any time without penalty." },
-    { question: "What is next-day funding?", answer: "Next-day funding means the money from your credit card transactions is deposited into your bank account the following business day, instead of the standard 2-3 days." },
+    { question: "How long does merchant account approval take?", answer: claimText("timing.staged-process") },
+    { question: "Do I need a long-term contract?", answer: claimText("equipment.agreement.summary") },
+    { question: "When do card sales reach my bank account?", answer: claimText("funding.availability") },
     { question: "What is PCI compliance?", answer: "PCI DSS is a set of security requirements to protect cardholder data. Every business that accepts credit cards must comply, typically by completing an annual Self-Assessment Questionnaire." },
     { question: "Can I accept American Express?", answer: "Yes, all Liberty Bancard merchants can accept American Express through the OptBlue program with competitive interchange-plus pricing." },
     { question: "What is a cash discount program?", answer: "A cash discount program offers a discount to customers who pay with cash while charging a service fee to card users, effectively eliminating your processing costs." },

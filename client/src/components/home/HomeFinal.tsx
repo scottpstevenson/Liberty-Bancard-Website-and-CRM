@@ -20,7 +20,7 @@ export function HomeFinal() {
           <h2 id="home-final-heading" className="public-h2 text-white" data-testid="text-final-cta-heading">
             Your statement tells the truth. Let's read it together.
           </h2>
-          <p className="public-body public-secondary mt-3 max-w-xl">30 seconds to upload. Most reviews finish the same business day. You keep the breakdown no matter what.</p>
+          <p className="public-body public-secondary mt-3 max-w-xl">Upload takes about 30 seconds. You keep the breakdown no matter what.</p>
           <ul className="public-small mt-4 grid gap-2 text-white/90">
             {["No obligation", "No contract to see your numbers", "Yours to keep"].map((item) => (
               <li key={item} className="flex items-center gap-2">

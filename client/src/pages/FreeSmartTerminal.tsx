@@ -39,22 +39,24 @@ import {
   FST_PATH,
   FST_SERVICE_NAME,
   FST_SERVICE_DESCRIPTION,
+  FST_HERO,
+  FST_PLACEMENT_CLAIM,
+  FST_EQUIPMENT_TERMS_DISCLOSURE,
+  FST_TRUST_STRIP,
+  FST_FEATURES_HEADING,
+  FST_FEATURES_INTRO,
+  FST_FEATURES,
+  FST_ELIGIBILITY,
+  FST_STEPS_HEADING,
+  FST_STEPS_INTRO,
+  FST_STEPS,
+  FST_TIMING_NOTE,
+  FST_FINAL,
   fstFaqItems,
 } from "@shared/free-smart-terminal-content";
 
-const eligibilityItems = [
-  "New merchant opening a processing account with Liberty Bancard",
-  "Monthly card volume of $5,000 or more",
-  "Not under an existing equipment lease or locked-in contract",
-  "Approved underwriting — standard qualification applies",
-];
-
-const terminalFeatures = [
-  { icon: Wifi, label: "Tap, chip & swipe", desc: "Accepts all major card types and contactless payments" },
-  { icon: CreditCard, label: "Dual-price ready", desc: "Pre-configured for cash discount or standard processing" },
-  { icon: Zap, label: "Fast setup", desc: "Configured, shipped, and supported by a real person" },
-  { icon: Monitor, label: "Clear receipts", desc: "Compliant receipts with dual-pricing disclosure built in" },
-];
+const trustIcons = [ShieldCheck, BadgeCheck, Clock, DollarSign];
+const featureIcons = [Wifi, CreditCard, Zap, Monitor];
 
 
 export default function FreeSmartTerminal() {
@@ -83,19 +85,24 @@ export default function FreeSmartTerminal() {
               <div className="accent-rule pt-5">
                 <div className="inline-flex items-center gap-2 border border-border bg-card text-muted-foreground text-sm font-semibold px-3 py-1.5 rounded-md mb-6 shadow-sm" data-testid="badge-terminal-hero">
                   <Monitor className="w-4 h-4 text-accent" />
-                  Smart Terminal Program
+                  {FST_HERO.badge}
                 </div>
                 <h1 className="public-h1 font-display font-bold text-foreground mb-6" data-testid="text-terminal-hero-heading">
-                  See If Your Business Qualifies for a Smart Terminal at No Upfront Cost.
+                  {FST_HERO.heading}
                 </h1>
                 <p className="text-lg text-muted-foreground mb-4 leading-relaxed" data-testid="text-terminal-hero-sub">
-                  Qualifying merchants who open a Liberty Bancard processing account may receive terminal placement with no purchase cost. We review your statement to confirm eligibility — no guesswork, no pressure.
+                  {FST_HERO.sub}
                 </p>
+                {FST_PLACEMENT_CLAIM ? (
+                  <p className="text-sm text-muted-foreground mb-4 leading-relaxed" data-testid="text-terminal-placement-claim">
+                    {FST_PLACEMENT_CLAIM} {FST_EQUIPMENT_TERMS_DISCLOSURE}
+                  </p>
+                ) : null}
                 <div className="flex flex-col sm:flex-row gap-4 flex-wrap mb-3">
                   <Button size="lg" className="public-cta gap-2" asChild>
                     <Link href="/get-started?offer=free-terminal" data-testid="link-terminal-primary-cta" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: "Check My Eligibility", offer: "free-terminal" })}>
                       <Upload className="w-4 h-4" />
-                      Check My Eligibility — Free
+                      {FST_HERO.primaryCta}
                     </Link>
                   </Button>
                   <Button size="lg" variant="outline" className="public-cta gap-2" asChild>
@@ -106,7 +113,7 @@ export default function FreeSmartTerminal() {
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground mt-2 max-w-lg" data-testid="text-terminal-hero-disclaimer">
-                  Terminal placement subject to account approval, underwriting, minimum volume requirements, and eligibility review. Not a guaranteed offer.
+                  {FST_HERO.disclaimer}
                 </p>
               </div>
               <div className="flex flex-col gap-4 items-center">
@@ -131,10 +138,12 @@ export default function FreeSmartTerminal() {
         <div className="bg-muted/50 border-b border-border py-3" data-testid="section-trust-strip">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1.5 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Eligibility confirmed via statement review</span>
-              <span className="flex items-center gap-1.5"><BadgeCheck className="w-3.5 h-3.5 text-sky-500" /> No upfront purchase cost for qualifying merchants</span>
-              <span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-primary" /> Setup in as little as 48 hours</span>
-              <span className="flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5 text-primary" /> No long-term processing contract</span>
+              {FST_TRUST_STRIP.map((label, i) => {
+                const Icon = trustIcons[i % trustIcons.length];
+                return (
+                  <span key={label} className="flex items-center gap-1.5"><Icon className="w-3.5 h-3.5 text-primary" /> {label}</span>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -144,15 +153,15 @@ export default function FreeSmartTerminal() {
           <div className="public-container">
             <div className="reveal text-center mb-12">
               <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-features-heading">
-                What's Included with Terminal Placement
+                {FST_FEATURES_HEADING}
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
-                Every terminal is configured for your business type — cash discount or standard pricing — with compliant receipts and go-live support built in.
+                {FST_FEATURES_INTRO}
               </p>
             </div>
             <div className="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {terminalFeatures.map((feature, i) => {
-                const Icon = feature.icon;
+              {FST_FEATURES.map((feature, i) => {
+                const Icon = featureIcons[i % featureIcons.length];
                 return (
                   <Card key={i} data-testid={`card-feature-${i}`}>
                     <CardContent className="p-6">
@@ -175,13 +184,13 @@ export default function FreeSmartTerminal() {
             <div className="reveal grid grid-cols-1 md:grid-cols-2 gap-12 items-start">
               <div>
                 <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-eligibility-heading">
-                  Who Typically Qualifies
+                  {FST_ELIGIBILITY.heading}
                 </h2>
                 <p className="text-muted-foreground mb-6 leading-relaxed">
-                  Terminal placement is available for qualifying merchants opening a Liberty Bancard processing account. We confirm eligibility by reviewing your processing statement — no guesswork required.
+                  {FST_ELIGIBILITY.intro}
                 </p>
                 <ul className="space-y-3 mb-6">
-                  {eligibilityItems.map((item, i) => (
+                  {FST_ELIGIBILITY.items.map((item, i) => (
                     <li key={i} className="flex items-start gap-3" data-testid={`eligibility-item-${i}`}>
                       <CheckCircle2 className="w-5 h-5 text-emerald-500 mt-0.5 shrink-0" />
                       <span className="text-muted-foreground text-sm">{item}</span>
@@ -191,7 +200,7 @@ export default function FreeSmartTerminal() {
                 <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-md p-4 flex gap-3 mb-6">
                   <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                   <p className="text-sm text-amber-800 dark:text-amber-300">
-                    Terminal placement is not a guaranteed offer for all merchants. Eligibility depends on account approval, underwriting, card volume, and business type. We confirm details during your free statement review.
+                    {FST_ELIGIBILITY.notGuaranteed}
                   </p>
                 </div>
                 <Button className="gap-2" asChild>
@@ -207,10 +216,10 @@ export default function FreeSmartTerminal() {
                   <CardContent className="p-6 text-center">
                     <Monitor className="w-10 h-10 text-primary mx-auto mb-4" />
                     <h3 className="text-xl font-display font-bold text-foreground mb-2">
-                      Not Sure If You Qualify?
+                      {FST_ELIGIBILITY.ctaCardHeading}
                     </h3>
                     <p className="text-muted-foreground text-sm mb-6">
-                      Upload your most recent processing statement. We'll review your card volume, current setup, and equipment situation — then confirm eligibility and show your savings potential.
+                      {FST_ELIGIBILITY.ctaCardBody}
                     </p>
                     <div className="flex flex-col gap-3">
                       <Button className="w-full gap-2" asChild>
@@ -238,19 +247,14 @@ export default function FreeSmartTerminal() {
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-12">
               <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-howitworks-heading">
-                How Terminal Placement Works
+                {FST_STEPS_HEADING}
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">
-                From statement upload to processing live — here's the typical path.
+                {FST_STEPS_INTRO}
               </p>
             </div>
             <div className="reveal grid grid-cols-1 md:grid-cols-4 gap-6">
-              {[
-                { step: "1", title: "Upload Your Statement", desc: "PDF or photo. We only need totals and fee lines. Redact account numbers if you prefer." },
-                { step: "2", title: "Eligibility Review", desc: "We review your volume, setup, and current equipment situation same business day." },
-                { step: "3", title: "Account Approval", desc: "If you qualify, we set up your processing account and confirm terminal placement details." },
-                { step: "4", title: "Terminal Shipped", desc: "Pre-configured terminal shipped to you. Go-live support included. Live in as little as 48 hours." },
-              ].map((item, i) => (
+              {FST_STEPS.map((item, i) => (
                 <div key={i} className="text-center" data-testid={`step-terminal-${i}`}>
                   <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center mx-auto mb-4 text-lg font-bold">
                     {item.step}
@@ -260,6 +264,9 @@ export default function FreeSmartTerminal() {
                 </div>
               ))}
             </div>
+            <p className="reveal text-center text-sm text-muted-foreground max-w-2xl mx-auto mt-8" data-testid="text-terminal-timing-note">
+              {FST_TIMING_NOTE}
+            </p>
           </div>
         </section>
 
@@ -293,10 +300,10 @@ export default function FreeSmartTerminal() {
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h2 className="public-h2 font-display font-bold text-primary-foreground mb-4" data-testid="text-final-cta-heading">
-              Find Out If You Qualify
+              {FST_FINAL.heading}
             </h2>
             <p className="text-primary-foreground/80 mb-8 leading-relaxed">
-              Upload your statement and we'll review your eligibility — same business day. Free. No obligation. You keep the breakdown either way.
+              {FST_FINAL.body}
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
               <Button size="lg" className="public-cta gap-2 bg-accent hover:bg-accent border-accent text-white" asChild>
@@ -319,7 +326,7 @@ export default function FreeSmartTerminal() {
               </Button>
             </div>
             <p className="text-primary-foreground/70 text-xs mt-6">
-              Terminal placement available for qualifying merchants. Subject to account approval, underwriting, and minimum volume requirements.
+              {FST_FINAL.footnote}
             </p>
           </div>
         </section>

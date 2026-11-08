@@ -186,7 +186,7 @@ export default function ThanksStatement() {
               Statement Received. Your Review Has Started.
             </h1>
             <p className="text-lg text-primary-foreground/80 mb-8 leading-relaxed max-w-xl mx-auto" data-testid="text-thanks-statement-subheadline">
-              We're reviewing your statement line-by-line right now. You'll get your breakdown during business hours - usually the same day.
+              We received your statement. Our team reviews it and follows up with what we found and your options.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
               <Button size="lg" variant="secondary" className="gap-2" asChild>

@@ -26,6 +26,9 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
+import { claimText } from "@shared/public-claims";
+import { TIMING_NOTE } from "@shared/public-disclosures";
+import { COMPARE_ENTRIES } from "@shared/compare-content";
 
 interface FAQItem {
   question: string;
@@ -48,12 +51,12 @@ const faqCategories: FAQCategory[] = [
       {
         question: "What is the best payment processor for small businesses?",
         answer:
-          "Liberty Bancard is consistently rated among the best payment processors for small businesses because we offer transparent interchange-plus pricing, no long-term contracts, next-day funding, and dedicated human support. Unlike flat-rate processors like Square or Stripe, we tailor your rates to your business type and volume, which saves most merchants $1,800 to $6,100 per year.",
+          "Liberty Bancard quotes transparent interchange-plus pricing from your own statement and pairs it with dedicated human support. The best processor for your business depends on your volume, card mix, ticket size and the equipment and services you need, so we compare costs line by line from your statement before you decide.",
       },
       {
         question: "How do I open a merchant account with Liberty Bancard?",
         answer:
-          "Opening a merchant account takes less than 10 minutes. Submit your application online with your business details, government-issued ID, and a voided check. Most applications are approved within 24 to 48 hours, and you can begin processing within 3 to 5 business days.",
+          `Opening a merchant account starts with an online application: your business details, government-issued ID, and a voided check. ${TIMING_NOTE}`,
       },
       {
         question: "What documents do I need to apply for a merchant account?",
@@ -63,12 +66,12 @@ const faqCategories: FAQCategory[] = [
       {
         question: "How long does merchant account approval take?",
         answer:
-          "Most standard retail and restaurant merchants are approved within 24 to 48 hours. The complete process from application to first transaction typically takes 3 to 5 business days. Rush processing is available for urgent needs.",
+          `Approval depends on your application, the underwriting review and the product you apply for. ${TIMING_NOTE}`,
       },
       {
         question: "Do I need a long-term contract with Liberty Bancard?",
         answer:
-          "No. Liberty Bancard offers month-to-month processing agreements with no early termination fees. You can close your account at any time without penalty, which is a major advantage over processors that lock you into multi-year contracts with cancellation fees of $500 or more.",
+          `Contract terms are set by your written processing agreement and any equipment arrangement. ${claimText("equipment.agreement.summary")} Review both before you sign, and ask about any early termination fee that applies.`,
       },
     ],
   },
@@ -85,12 +88,12 @@ const faqCategories: FAQCategory[] = [
       {
         question: "What is interchange-plus pricing?",
         answer:
-          "Interchange-plus pricing separates the true cost of processing (interchange fees set by card brands) from the processor's markup. This is the most transparent pricing model in the industry because you see exactly what the card brands charge and exactly what Liberty Bancard charges. It typically saves businesses 20% to 40% compared to flat-rate or tiered pricing.",
+          "Interchange-plus pricing separates the cost set by the card networks (interchange) from the processor's markup, so each appears as its own item. Whether it costs less than flat-rate or tiered pricing depends on your card mix, volume and ticket size, and a statement review shows the comparison for your business.",
       },
       {
         question: "Are there hidden fees with Liberty Bancard?",
         answer:
-          "No. Liberty Bancard does not charge application fees, setup fees, annual fees, or cancellation fees on month-to-month agreements. We do not pad interchange rates or add hidden surcharges. Every fee is itemized on your monthly statement so you can verify your costs line by line.",
+          "Every fee that applies to your account is stated in your written quote and processing agreement before you decide, and processing charges appear on your monthly statement. Ask for the complete fee schedule, including any setup, annual, monthly, equipment or cancellation fee, and compare it with your current statement.",
       },
       {
         question: "What is an effective rate and how do I calculate it?",
@@ -100,12 +103,12 @@ const faqCategories: FAQCategory[] = [
       {
         question: "Why is flat-rate pricing more expensive than interchange-plus?",
         answer:
-          "Flat-rate processors like Square (2.6% + $0.10) and Stripe (2.9% + $0.30) charge the same rate regardless of card type. Since many transactions have interchange rates well below 2%, you overpay on the majority of your sales. Liberty Bancard's interchange-plus model passes through the actual interchange cost plus a small fixed markup, saving most businesses thousands per year.",
+          "Flat-rate processors charge one published rate regardless of card type, while interchange-plus passes through each card's network cost plus a stated markup. Which is lower depends on your card mix, volume and ticket size, so a like-for-like comparison needs your own statement. Our rates page lists dated provider rates.",
       },
       {
         question: "What is a PCI compliance fee?",
         answer:
-          "A PCI compliance fee covers the cost of your annual PCI DSS validation program, which protects cardholder data. Liberty Bancard's PCI compliance fee is a small monthly charge that includes access to our compliance portal, Self-Assessment Questionnaire tools, and quarterly vulnerability scans if required.",
+          "A PCI compliance fee, where one is charged, relates to PCI DSS validation. Any PCI-related fee on your account is stated in your written quote, so ask what it includes before you decide.",
       },
     ],
   },
@@ -117,22 +120,22 @@ const faqCategories: FAQCategory[] = [
       {
         question: "What is cash discount processing?",
         answer:
-          "Cash discount processing is a program where businesses offer a discount to customers who pay with cash while posting a slightly higher price for card payments. This effectively eliminates your credit card processing fees. Liberty Bancard's cash discount program is fully compliant with card brand rules and has helped restaurants, auto shops, and retail stores save thousands annually.",
+          `Cash discount processing is a program where a business posts a lower cash price and a standard card price. ${claimText("program.overview")}`,
       },
       {
         question: "Is cash discount processing legal?",
         answer:
-          "Yes, cash discount processing is legal in all 50 states. It differs from surcharging, which has state-specific restrictions. Liberty Bancard ensures your cash discount program complies with Visa, Mastercard, and all applicable state regulations, including proper signage and receipt formatting.",
+          `Whether a program is permitted and what it requires depends on the program and your state. ${claimText("program.card-types")} ${claimText("program.requirements")}`,
       },
       {
         question: "What is zero-percent processing?",
         answer:
-          "Zero-percent processing is another name for cash discount or dual pricing programs where the merchant's effective processing cost is reduced to zero. Customers who pay with a card see a small service fee, while cash-paying customers receive the posted cash price. Liberty Bancard provides compliant signage, terminal programming, and staff training materials.",
+          `"Zero-percent" is a marketing name for cash discount or dual pricing programs. ${claimText("program.overview")} ${claimText("program.remaining-costs")}`,
       },
       {
         question: "What is the difference between cash discount and surcharging?",
         answer:
-          "A cash discount program posts the card price as the standard price and gives a discount for cash payments. Surcharging adds a fee on top of the listed price for card payments. Surcharging is prohibited in several states and has stricter compliance requirements. Liberty Bancard recommends cash discount programs because they are legal everywhere and simpler to implement.",
+          `A cash discount program posts the card price as the standard price and gives a discount for cash payments. Surcharging adds a fee on top of the listed price for card payments. ${claimText("program.card-types")} ${claimText("program.requirements")}`,
       },
       {
         question: "Does Liberty Bancard offer a referral program?",
@@ -154,7 +157,7 @@ const faqCategories: FAQCategory[] = [
       {
         question: "Can I use my existing terminal with Liberty Bancard?",
         answer:
-          "In many cases, yes. If you own your terminal outright and it supports standard payment protocols, we can often reprogram it to work with Liberty Bancard's processing platform. Contact our integration team with your terminal model and we will confirm compatibility at no charge.",
+          `That depends on your terminal model and its current agreement. ${claimText("compat.inquiry")}`,
       },
       {
         question: "What is tap-to-pay and do your terminals support it?",
@@ -164,12 +167,12 @@ const faqCategories: FAQCategory[] = [
       {
         question: "Do I have to lease equipment from Liberty Bancard?",
         answer:
-          "No. Liberty Bancard offers terminals for purchase outright with no leasing required. We believe equipment leases are one of the most expensive hidden costs in the payments industry. Purchasing your terminal saves you hundreds or even thousands of dollars over the life of a lease.",
+          `${claimText("equipment.options.summary")} ${claimText("equipment.agreement.summary")}`,
       },
       {
         question: "What is a virtual terminal?",
         answer:
-          "A virtual terminal is a web-based interface that allows you to process credit card payments from any computer or tablet without a physical card reader. It is ideal for phone orders, mail orders, invoicing, and service businesses. Liberty Bancard includes virtual terminal access with every merchant account at no additional cost.",
+          "A virtual terminal is a web-based interface that allows you to process credit card payments from any computer or tablet without a physical card reader. It is ideal for phone orders, mail orders, invoicing, and service businesses. Availability and any related fees are confirmed during review.",
       },
     ],
   },
@@ -181,27 +184,27 @@ const faqCategories: FAQCategory[] = [
       {
         question: "How do I switch payment processors?",
         answer:
-          "Switching to Liberty Bancard is straightforward. Upload your current processing statement for a free analysis, apply for your new account, and once approved we handle terminal reprogramming or new equipment setup. You can continue processing with your current provider until your Liberty Bancard account is fully active, ensuring zero downtime.",
+          `Switching starts with a free statement review, then an application for your new account. Equipment and activation steps are confirmed during review, and you can keep processing with your current provider until your new account is active. ${TIMING_NOTE}`,
       },
       {
         question: "Will I experience downtime when switching processors?",
         answer:
-          "No. Liberty Bancard coordinates your transition to ensure there is no gap in your ability to accept payments. We activate your new account and equipment before you deactivate your old processor, so your business never misses a transaction.",
+          "We recommend activating your new account and equipment before you deactivate your current processor so there is no gap in accepting payments. Equipment availability and activation are separate steps, so confirm each one before you close the old account.",
       },
       {
         question: "Is Liberty Bancard better than Square?",
         answer:
-          "For most businesses processing over $5,000 per month, Liberty Bancard offers significantly lower costs than Square. Square charges a flat 2.6% + $0.10 per transaction regardless of card type, while Liberty Bancard's interchange-plus pricing passes through the actual card cost plus a small markup. Most merchants switching from Square save $1,800 to $4,200 per year.",
+          `${COMPARE_ENTRIES.square.faqs[0].answer} ${COMPARE_ENTRIES.square.faqs[1].answer}`,
       },
       {
         question: "Is Liberty Bancard better than Stripe?",
         answer:
-          "Stripe charges 2.9% + $0.30 per online transaction, which is among the highest flat rates in the industry. Liberty Bancard's interchange-plus pricing and gateway integration offer the same e-commerce capabilities at a fraction of the cost. Businesses processing $10,000 or more monthly typically save $3,000 to $5,400 per year by switching to Liberty Bancard.",
+          `${COMPARE_ENTRIES.stripe.faqs[0].answer} ${COMPARE_ENTRIES.stripe.faqs[1].answer}`,
       },
       {
         question: "What happens to my old processor contract when I switch?",
         answer:
-          "If your current processor has an early termination fee, review your agreement to understand the cost. Liberty Bancard can often help offset cancellation fees through our savings guarantee. Many processors also offer month-to-month terms after the initial contract period expires, so check whether your contract has already rolled over.",
+          "If your current processor has an early termination fee, review your agreement to understand the cost before you switch. Check whether your contract's initial term has already ended or renewed.",
       },
     ],
   },
@@ -446,7 +449,7 @@ export default function FAQ() {
               data-testid="text-faq-resources-body"
             >
               Dive deeper into payment processing topics with our comprehensive
-              guides, comparison tools, and savings calculators.
+              guides, comparison tools, and cost calculators.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Link href="/upload-statement" data-testid="link-faq-statement-review">
@@ -456,8 +459,8 @@ export default function FAQ() {
                       Get My Free Analysis
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      Upload your current statement and see exactly how much you
-                      can save with Liberty Bancard.
+                      Upload your current statement and see what you pay, fee by
+                      fee, with no obligation to switch.
                     </p>
                     <span className="inline-flex items-center gap-1 text-sm text-primary mt-3 font-medium">
                       Upload Now <ArrowRight className="w-3.5 h-3.5" />
@@ -472,8 +475,8 @@ export default function FAQ() {
                       Rate Comparison Tool
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      Compare Liberty Bancard's interchange-plus rates against
-                      Square, Stripe, Clover, and others.
+                      See the processing rates Square, Stripe, Clover and others
+                      publish, dated and sourced.
                     </p>
                     <span className="inline-flex items-center gap-1 text-sm text-primary mt-3 font-medium">
                       Compare Rates <ArrowRight className="w-3.5 h-3.5" />

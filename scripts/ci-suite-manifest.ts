@@ -233,6 +233,8 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     capability:"deterministic-integration",providerDenial:"Vite/private Chromium loopback fixture; no DB, login or providers"},
   {name:"Stage 3 C2 Destination and Source Contracts",script:"scripts/test-stage3-c2-contracts.ts",capability:"deterministic-static",
     providerDenial:"Pure codecs/time windows/provider payloads and temporary output tamper tests; no DB or provider I/O"},
+  {name:"Public Claims Contract",script:"scripts/test-public-claims-contract.ts",capability:"deterministic-static",
+    providerDenial:"Loads shared claim modules and server HTML builders, scans source files and the built client bundle; no server, DB, network or provider I/O"},
   {name:"Stage 3 C2 Real Handler Actions",script:"scripts/test-stage3-c2-actions.ts",capability:"deterministic-integration",
     providerDenial:"Disposable DB and reserved private Redis before imports; actual sessions/CSRF/object guards; outbound/public egress denied"},
   {name:"Stage 3 C2 Protected Workspace Browser",script:"scripts/test-stage3-c2-browser.mjs",capability:"deterministic-integration",

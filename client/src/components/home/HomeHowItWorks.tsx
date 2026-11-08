@@ -8,7 +8,7 @@ import { trackStatementUploadCtaClick } from "@/lib/tracking";
 
 const STEPS = [
   { step: "1", title: "Upload your statement", body: "PDF or photo, about 30 seconds. Redact account numbers if you want; we only need totals and fee lines." },
-  { step: "2", title: "We run the Liberty analysis", body: "Usually the same business day we review every fee and markup and calculate your true effective rate." },
+  { step: "2", title: "We run the Liberty analysis", body: "We review every fee and markup we can identify and calculate your effective cost." },
   { step: "3", title: "Compare 2–3 clear options", body: "Real math, no pressure. See the options side by side and keep the full breakdown either way." },
 ] as const;
 
@@ -16,7 +16,7 @@ const STEPS = [
 export function HomeHowItWorks() {
   return (
     <PublicSection tone="warm" labelledBy="home-how-heading" data-testid="section-how-it-works">
-      <PublicSectionHeader id="home-how-heading" eyebrow="How it works" title="How the Liberty analysis works" description="Three clear steps. Most reviews finish the same business day, and you keep the results no matter what." titleTestId="text-how-heading" />
+      <PublicSectionHeader id="home-how-heading" eyebrow="How it works" title="How the Liberty analysis works" description="Three clear steps, and you keep the results no matter what." titleTestId="text-how-heading" />
       <div className="grid gap-8 lg:grid-cols-[1fr_0.9fr] lg:items-center lg:gap-14">
         <ol className="grid gap-4" data-testid="list-how-steps">
           {STEPS.map((item) => (

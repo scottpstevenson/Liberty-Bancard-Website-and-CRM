@@ -43,13 +43,15 @@ import {
   Users,
 } from "lucide-react";
 import imgCloverFlex3 from "@/assets/images/terminal-clover-flex-3.png";
+import { claimText } from "@shared/public-claims";
+import { TIMING_NOTE, FUNDING_NOTE } from "@shared/public-disclosures";
 
 const TOTAL_STEPS = 6;
 
 const goalOptions = [
   { value: "lower fees", label: "I think I'm overpaying on processing", icon: DollarSign, desc: "We'll show you exactly where" },
   { value: "deposit clarity", label: "Deposits are unpredictable", icon: Landmark, desc: "Get funding you can plan around" },
-  { value: "0% interest", label: "Liberty Zero™ — Pay $0 to Process", icon: Percent, desc: "Where permitted by state law" },
+  { value: "0% interest", label: "Liberty Zero™ — cash discount and surcharging review", icon: Percent, desc: "Reviewed for your state and card mix" },
   { value: "need terminal", label: "I need a terminal or POS", icon: Monitor, desc: "Modern hardware, guided setup" },
   { value: "compare vs flat-rate", label: "Compare vs Square / Stripe", icon: Scale, desc: "See the real cost difference" },
   { value: "not sure", label: "Just exploring options", icon: HelpCircle, desc: "We'll point you in the right direction" },
@@ -106,8 +108,8 @@ function getRecommendation(goal: string, vertical: string, volume: string, inter
       path: "Terminal + Processing Package",
       icon: Monitor,
       headline: "The right terminal paired with the right pricing makes all the difference.",
-      description: "We'll pair you with the Liberty Smart Terminal - modern, reliable, and set up with guided onboarding. Free equipment for qualifying merchants.* Processing is bundled so you get one relationship for hardware + support.",
-      urgency: "Most terminal setups are completed within 48 hours of approval.",
+      description: "We'll pair you with the Liberty Smart Terminal - modern, reliable, and set up with guided onboarding. Equipment availability and terms are confirmed during review.* Processing is bundled so you get one relationship for hardware + support.",
+      urgency: TIMING_NOTE,
       nextSteps: [
         { label: "Upload statement to check eligibility", primary: true, href: "/upload-statement?terminal=yes" },
         { label: "Call us to discuss setup", primary: false, href: "tel:9542668214" },
@@ -132,8 +134,8 @@ function getRecommendation(goal: string, vertical: string, volume: string, inter
       path: "Funding Clarity + Rate Review",
       icon: Landmark,
       headline: "Unpredictable deposits usually point to a bigger issue.",
-      description: "Funding timing depends on cutoffs, risk holds, and your processor's schedule. We'll review your setup, clarify what's causing delays, and show you next-day funding options where available.*",
-      urgency: "Most funding issues can be resolved within your first week of switching.",
+      description: "Funding timing depends on cutoffs, risk holds, and your processor's schedule. We'll review your setup, clarify what's causing delays, and show you the funding options that apply to your account.*",
+      urgency: FUNDING_NOTE,
       nextSteps: [
         { label: "Upload statement to start review", primary: true, href: "/upload-statement" },
         { label: "Call us about funding issues", primary: false, href: "tel:9542668214" },
@@ -145,7 +147,7 @@ function getRecommendation(goal: string, vertical: string, volume: string, inter
     icon: FileText,
     headline: "Not sure what you need? Your statement will tell us.",
     description: "Upload your most recent processing statement and we'll identify the specific cost drivers, markup, and opportunities in your current setup. You keep the breakdown either way.",
-    urgency: "Most reviews are completed same-day during business hours.",
+    urgency: claimText("review.process.summary"),
     nextSteps: [
       { label: "Upload statement for free review", primary: true, href: "/upload-statement" },
       { label: "Talk to someone first", primary: false, href: "tel:9542668214" },
@@ -320,7 +322,7 @@ export default function GetStarted() {
                   <Card data-testid="card-result-trust-1">
                     <CardContent className="p-4 text-center">
                       <ShieldCheck className="w-8 h-8 text-primary mx-auto mb-2" />
-                      <p className="text-sm font-medium text-foreground">No Contract Required</p>
+                      <p className="text-sm font-medium text-foreground">No Obligation</p>
                       <p className="text-xs text-muted-foreground">Review is free and no-obligation</p>
                     </CardContent>
                   </Card>
@@ -348,10 +350,10 @@ export default function GetStarted() {
               <div className="flex flex-col items-center gap-2 py-6 border-t border-border" data-testid="section-no-lockin">
                 <div className="inline-flex items-center gap-2 text-sm text-foreground font-semibold">
                   <ShieldCheck className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
-                  Flexible Terms. Most Programs Have No Long-Term Contract.
+                  Terms are set in your written agreement.
                 </div>
                 <p className="text-xs text-muted-foreground text-center max-w-sm">
-                  Some programs include a 1-3 year term with an early termination fee ($295-$595) if canceled early. Ask about our no-ETF options. <Link href="/terms" className="underline text-primary">See merchant terms →</Link>
+                  {claimText("equipment.agreement.summary")} <Link href="/terms" className="underline text-primary">See merchant terms →</Link>
                 </p>
               </div>
 
@@ -545,7 +547,7 @@ export default function GetStarted() {
                       <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-40 rounded-md object-contain" data-testid="img-quiz-terminal" />
                     </div>
                     <p className="text-sm text-muted-foreground mb-4">
-                      We offer the Liberty Smart Terminal - free for qualifying merchants.* Tap, dip, swipe, and manual key.
+                      {claimText("equipment.options.summary")}* Tap, dip, swipe, and manual key.
                     </p>
                     <div className="grid grid-cols-2 gap-4">
                       <Button

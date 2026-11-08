@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getStoredUTMParams } from "@/lib/utm";
 import { getCsrfToken } from "@/lib/queryClient";
+import { claimText } from "@shared/public-claims";
 import { buildPublicApplicationPayload, finalizeAttributionExtras } from "@shared/merchant-application-submission";
 import {
   clearSubmissionTuple, guardedLocalDraft, intentKeyForDraft, readDraftCredentials, readIntent, writeDraftCredentials,
@@ -1819,10 +1820,10 @@ export default function MerchantApplication() {
             <div className="flex flex-col items-center gap-1.5 mt-6 py-4 border-t border-border" data-testid="section-no-lockin">
               <div className="inline-flex items-center gap-2 text-sm text-foreground font-semibold">
                 <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                Flexible Terms. Most Programs Have No Long-Term Contract.
+                Terms are set in your written agreement.
               </div>
               <p className="text-xs text-muted-foreground text-center max-w-sm">
-                Some programs include a 1-3 year term with an early termination fee ($295-$595) if canceled early. Ask about our no-ETF options.{" "}
+                {claimText("equipment.agreement.summary")}{" "}
                 <Link href="/terms" className="underline text-primary">See merchant terms →</Link>
               </p>
             </div>

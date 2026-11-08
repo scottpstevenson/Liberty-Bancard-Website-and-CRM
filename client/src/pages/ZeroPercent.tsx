@@ -3,7 +3,7 @@ import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import {
@@ -32,59 +32,41 @@ import {
   MessageSquare,
   Zap,
 } from "lucide-react";
-import { PHONE_TEL, PHONE_NUMBER, CALENDAR_URL } from "@/lib/constants";
+import { PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
 import { trackCashDiscountReviewClick, trackSurchargeReviewClick } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
 import imgCloverFlex3 from "@/assets/images/terminal-clover-flex-3.png";
 import imgPaxA920 from "@/assets/images/terminal-pax-a920.png";
+import {
+  ZP_CASH_DISCOUNT,
+  ZP_COSTS,
+  ZP_EQUIPMENT,
+  ZP_FAQ,
+  ZP_FAQ_HEADING,
+  ZP_FINAL,
+  ZP_FIT,
+  ZP_HERO,
+  ZP_META,
+  ZP_PATH,
+  ZP_PROGRAMS_HEADING,
+  ZP_PROGRAMS_INTRO,
+  ZP_REQUIREMENTS,
+  ZP_REVIEW_CARD,
+  ZP_SURCHARGE,
+  ZP_TRUST_STRIP,
+  ZP_UNSURE,
+} from "@shared/zero-percent-content";
 
-const faqItems = [
-  {
-    question: 'Is Liberty Zero the same as "surcharging"?',
-    answer:
-      'Liberty Zero is a branded name for our compliant fee-offset programs. The two legal structures are cash discount (a discount for cash-paying customers) and compliant surcharging (a disclosed fee on eligible credit transactions where state law permits). We recommend the right fit for your business.',
-  },
-  {
-    question: "Does Liberty Zero apply to debit cards?",
-    answer:
-      "Debit cards have different rules under card brand guidelines. We configure the correct treatment automatically — debit transactions are handled properly so you stay compliant without any manual workarounds.",
-  },
-  {
-    question: "Will customers push back?",
-    answer:
-      "With clear signage, proper receipt formatting, and a one-sentence staff script (which we provide), most merchants report minimal friction. Transparency is the key — customers who see the pricing upfront rarely complain.",
-  },
-  {
-    question: "Is it allowed in my state?",
-    answer:
-      "Cash discount programs are legal in all 50 states. Surcharging is permitted in most states with proper disclosures, but a few states have restrictions. We verify the right approach for your location before recommending anything.",
-  },
-  {
-    question: "What businesses qualify for Liberty Zero?",
-    answer:
-      "Most brick-and-mortar businesses qualify — restaurants, retail, medical, auto repair, salons, and service businesses are common fits. E-commerce merchants may qualify depending on volume and card type mix. We review your statement to confirm.",
-  },
-  {
-    question: "What does the math actually look like?",
-    answer:
-      "If you process $10,000/month in card volume and currently pay $250-$350 in fees, Liberty Zero could bring that to $0 in processor fees. The service fee (typically 3-4%) is added to eligible card transactions — your revenue is never reduced by processing costs.",
-  },
-];
+const faqItems = ZP_FAQ;
 
-const complianceItems = [
-  { icon: Store, title: "Compliant Signage", desc: "Point-of-sale signage with required disclosures, pre-printed and ready to display. Wording meets card brand guidelines." },
-  { icon: Receipt, title: "Receipt Formatting", desc: "Receipts automatically show the cash price and card price as required. No manual adjustments, no compliance gaps." },
-  { icon: MessageSquare, title: "Staff Script", desc: "One sentence. We provide it. 'Cash price is X, card price is Y — how would you like to pay?' That's all your team needs." },
-  { icon: ShieldCheck, title: "Card Brand Registration", desc: "For surcharging programs, we handle required registration with Visa and Mastercard so you're covered from day one." },
-];
-
-const qualifyingBusinessTypes = [
-  { icon: UtensilsCrossed, label: "Restaurants & Cafes" },
-  { icon: Store, label: "Retail Stores" },
-  { icon: Stethoscope, label: "Medical & Dental" },
-  { icon: Car, label: "Auto Repair" },
-  { icon: Wrench, label: "Home Services" },
-  { icon: Users, label: "Professional Services" },
+const requirementIcons = [Store, Receipt, MessageSquare, ShieldCheck];
+const businessTypeIcons = [UtensilsCrossed, Store, Stethoscope, Car, Wrench, Users];
+const trustIcons = [
+  <ShieldCheck key="0" className="w-3.5 h-3.5 text-emerald-500" />,
+  <BadgeCheck key="1" className="w-3.5 h-3.5 text-sky-500" />,
+  <Users key="2" className="w-3.5 h-3.5 text-primary" />,
+  <DollarSign key="3" className="w-3.5 h-3.5 text-primary" />,
+  <Zap key="4" className="w-3.5 h-3.5 text-amber-500" />,
 ];
 
 export default function ZeroPercent() {
@@ -92,18 +74,18 @@ export default function ZeroPercent() {
   return (
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
-        title="Liberty Zero — Pay $0 to Accept Credit Cards"
-        description="Liberty Zero eliminates credit card processing costs for qualifying merchants. Compliant cash discount and surcharging programs handled the right way."
-        path="/0-percent-processing"
-        keywords="liberty zero, 0% processing, cash discount program, surcharging, zero cost processing, compliant surcharge, pay zero to accept cards"
-        breadcrumbs={[{ name: "Liberty Zero", path: "/0-percent-processing" }]}
-        structuredData={[getFAQSchema(faqItems), getServiceSchema("Liberty Zero — 0% Processing Program", "Compliant cash discount and surcharge programs that eliminate credit card processing fees for qualifying merchants.", "/0-percent-processing")]}
+        title={ZP_META.title}
+        description={ZP_META.description}
+        path={ZP_PATH}
+        keywords={ZP_META.keywords}
+        breadcrumbs={[{ name: "Liberty Zero", path: ZP_PATH }]}
+        structuredData={[getFAQSchema([...faqItems]), getServiceSchema(ZP_META.serviceName, ZP_META.serviceDescription, ZP_PATH)]}
       />
       <Navbar />
 
       <main className="flex-grow public-main-offset" ref={containerRef}>
 
-        {/* SECTION 1: Hero — The Promise */}
+        {/* SECTION 1: Hero */}
         <section className="relative overflow-hidden" data-testid="section-zero-hero">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
           <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
@@ -113,34 +95,31 @@ export default function ZeroPercent() {
               <div>
                 <div className="inline-flex items-center gap-2 bg-emerald-500/20 text-emerald-300 text-sm font-semibold px-3 py-1.5 rounded-md mb-6 border border-emerald-500/30" data-testid="badge-liberty-zero-hero">
                   <Zap className="w-4 h-4" />
-                  Cash Discount &amp; Surcharging
+                  {ZP_HERO.badge}
                 </div>
                 <h1
                   className="public-h1 font-display font-bold text-white mb-6"
                   data-testid="text-zero-heading"
                 >
-                  Stop Paying to Process Cards.<br /><span className="text-sky-400">We'll find your legal path to zero fees — and keep you compliant.</span>
+                  {ZP_HERO.headingLead}<br /><span className="text-sky-400">{ZP_HERO.headingAccent}</span>
                 </h1>
                 <p
-                  className="text-lg text-white/75 mb-4 leading-relaxed"
+                  className="text-lg text-white/75 mb-8 leading-relaxed"
                   data-testid="text-zero-subheadline"
                 >
-                  We determine if <strong className="text-white/90">cash discount</strong> or <strong className="text-white/90">compliant surcharging</strong> is legally sound for your specific state, handle every regulatory requirement, and implement the right solution. If neither program fits, we'll cut your current rates with a transparent Interchange Plus plan instead.
-                </p>
-                <p className="text-lg text-white/90 font-medium mb-8" data-testid="text-zero-wallet-impact">
-                  For a merchant processing $10,000/month, that's $250–$350 back in your pocket. Every month.
+                  {ZP_HERO.sub}
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
                   <Button size="lg" className="public-cta gap-2 bg-sky-400 border-sky-400 text-slate-950 hover:bg-sky-300" asChild>
-                    <Link href="/upload-statement" data-testid="link-zero-primary-cta" onClick={() => trackCashDiscountReviewClick({ page: "/0-percent-processing", ctaLabel: "Check Eligibility" })}>
+                    <Link href="/upload-statement" data-testid="link-zero-primary-cta" onClick={() => trackCashDiscountReviewClick({ page: ZP_PATH, ctaLabel: "Check Eligibility" })}>
                       <Upload className="w-4 h-4" />
-                      Check Eligibility — Free Review
+                      {ZP_HERO.cta}
                     </Link>
                   </Button>
                   <Button size="lg" variant="outline" className="public-cta gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white" asChild>
-                    <a href={PHONE_TEL} data-testid="link-zero-secondary-cta" onClick={() => trackPhoneCallClick({ sourcePage: "/0-percent-processing" })}>
+                    <a href={PHONE_TEL} data-testid="link-zero-secondary-cta" onClick={() => trackPhoneCallClick({ sourcePage: ZP_PATH })}>
                       <Phone className="w-4 h-4" />
-                      Talk to a Specialist
+                      {ZP_HERO.secondaryCta}
                     </a>
                   </Button>
                 </div>
@@ -148,34 +127,29 @@ export default function ZeroPercent() {
                   className="text-sm text-white/60 mt-4 max-w-lg"
                   data-testid="text-zero-abovefold-disclaimer"
                 >
-                  Program availability depends on business type, state rules, card-network rules, disclosure requirements, and underwriting.
+                  {ZP_HERO.disclaimer}
                 </p>
                 <p
                   className="text-xs text-white/70 mt-2"
                   data-testid="text-zero-microcopy"
                 >
-                  Eligibility confirmed via statement review.
+                  {ZP_HERO.microcopy}
                 </p>
               </div>
 
               <div className="flex items-center justify-center" data-testid="hero-visual-zero">
                 <Card className="w-full max-w-sm border border-white/10 bg-white/5 backdrop-blur-md shadow-2xl">
                   <CardContent className="p-6 space-y-4">
-                    <div className="text-sm font-medium text-white/60 uppercase tracking-wider">$10,000/month in card volume</div>
-                    <div className="space-y-3">
-                      {[
-                        { label: "Current processing cost", value: "$300/mo", flag: true },
-                        { label: "With our program", value: "$0/mo", flag: false },
-                        { label: "Monthly savings", value: "$300", flag: false },
-                        { label: "Annual savings", value: "$3,600+", flag: false },
-                      ].map((item, i) => (
-                        <div key={i} className="flex items-center justify-between py-2 border-b border-white/10 last:border-0">
-                          <span className="text-sm text-white/80">{item.label}</span>
-                          <span className={`text-sm font-semibold ${item.flag ? "text-red-400" : "text-emerald-400"}`}>{item.value}</span>
-                        </div>
+                    <div className="text-sm font-medium text-white/60 uppercase tracking-wider">{ZP_REVIEW_CARD.heading}</div>
+                    <ul className="space-y-3">
+                      {ZP_REVIEW_CARD.items.map((item, i) => (
+                        <li key={i} className="flex items-start gap-3 py-2 border-b border-white/10 last:border-0">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
+                          <span className="text-sm text-white/80">{item}</span>
+                        </li>
                       ))}
-                    </div>
-                    <p className="text-[10px] text-white/70">*Illustrative example. Actual results depend on statement review and eligibility.</p>
+                    </ul>
+                    <p className="text-[10px] text-white/70">{ZP_REVIEW_CARD.footnote}</p>
                   </CardContent>
                 </Card>
               </div>
@@ -186,11 +160,9 @@ export default function ZeroPercent() {
         <div className="bg-muted/50 border-b border-border py-3" data-testid="section-trust-strip">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1.5 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Secure statement review</span>
-              <span className="flex items-center gap-1.5"><BadgeCheck className="w-3.5 h-3.5 text-sky-500" /> No obligation comparison</span>
-              <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5 text-primary" /> Transparent rate analysis</span>
-              <span className="flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5 text-primary" /> Merchant-focused payment review</span>
-              <span className="flex items-center gap-1.5"><Zap className="w-3.5 h-3.5 text-amber-500" /> Eligibility confirmed via statement review</span>
+              {ZP_TRUST_STRIP.map((label, i) => (
+                <span key={label} className="flex items-center gap-1.5">{trustIcons[i]} {label}</span>
+              ))}
             </div>
           </div>
         </div>
@@ -200,10 +172,10 @@ export default function ZeroPercent() {
           <div className="public-container">
             <div className="reveal text-center mb-12">
               <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-how-heading">
-                Two Ways to Eliminate Your Card Processing Cost
+                {ZP_PROGRAMS_HEADING}
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
-                Cash discount and compliant surcharging are different programs with different rules — the right one depends on your state, card mix, and customer type. We make the recommendation and handle the compliance. Here's how each works.
+                {ZP_PROGRAMS_INTRO}
               </p>
             </div>
             <div className="reveal grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
@@ -213,20 +185,20 @@ export default function ZeroPercent() {
                     <Scale className="w-6 h-6 text-emerald-700" />
                   </div>
                   <div className="flex items-center gap-2 mb-3">
-                    <h3 className="text-xl font-display font-bold text-foreground">Cash Discount</h3>
-                    <Badge variant="secondary" className="text-xs">All 50 States</Badge>
+                    <h3 className="text-xl font-display font-bold text-foreground">{ZP_CASH_DISCOUNT.title}</h3>
+                    <Badge variant="secondary" className="text-xs">{ZP_CASH_DISCOUNT.badge}</Badge>
                   </div>
                   <p className="text-muted-foreground mb-4 leading-relaxed">
-                    Your posted price is the cash price. Card transactions run at a slightly higher price — covering your processing cost entirely. Your revenue is the same on every sale, regardless of payment method.
+                    {ZP_CASH_DISCOUNT.body}
                   </p>
-                  <p className="text-sm font-medium text-foreground mb-4">Best for: Retail, restaurants, service businesses</p>
+                  <p className="text-sm font-medium text-foreground mb-4">{ZP_CASH_DISCOUNT.fit}</p>
                   <Link
                     href="/upload-statement"
                     className="text-sm text-primary underline"
                     data-testid="link-cash-discount-review"
-                    onClick={() => trackCashDiscountReviewClick({ page: "/0-percent-processing", ctaLabel: "See My Cash Discount Savings" })}
+                    onClick={() => trackCashDiscountReviewClick({ page: ZP_PATH, ctaLabel: ZP_CASH_DISCOUNT.cta })}
                   >
-                    See My Cash Discount Savings →
+                    {ZP_CASH_DISCOUNT.cta} →
                   </Link>
                 </CardContent>
               </Card>
@@ -237,20 +209,20 @@ export default function ZeroPercent() {
                     <ShieldCheck className="w-6 h-6 text-sky-600" />
                   </div>
                   <div className="flex items-center gap-2 mb-3">
-                    <h3 className="text-xl font-display font-bold text-foreground">Compliant Surcharging</h3>
-                    <Badge variant="secondary" className="text-xs">Most States</Badge>
+                    <h3 className="text-xl font-display font-bold text-foreground">{ZP_SURCHARGE.title}</h3>
+                    <Badge variant="secondary" className="text-xs">{ZP_SURCHARGE.badge}</Badge>
                   </div>
                   <p className="text-muted-foreground mb-4 leading-relaxed">
-                    A disclosed service fee is added to eligible credit card transactions at checkout. State law and card brand rules govern where this applies. We verify eligibility before recommending this path.
+                    {ZP_SURCHARGE.body}
                   </p>
-                  <p className="text-sm font-medium text-foreground mb-4">Best for: Higher-ticket B2B, professional services</p>
+                  <p className="text-sm font-medium text-foreground mb-4">{ZP_SURCHARGE.fit}</p>
                   <Link
                     href="/upload-statement"
                     className="text-sm text-primary underline"
                     data-testid="link-surcharge-review"
-                    onClick={() => trackSurchargeReviewClick({ page: "/0-percent-processing", ctaLabel: "Check My Surcharging Eligibility" })}
+                    onClick={() => trackSurchargeReviewClick({ page: ZP_PATH, ctaLabel: ZP_SURCHARGE.cta })}
                   >
-                    Check My Surcharging Eligibility →
+                    {ZP_SURCHARGE.cta} →
                   </Link>
                 </CardContent>
               </Card>
@@ -261,7 +233,7 @@ export default function ZeroPercent() {
                 <CardContent className="p-6">
                   <p className="text-center text-sm text-foreground font-medium">
                     <BadgeCheck className="w-4 h-4 text-primary inline mr-2" />
-                    Not sure which structure fits? Upload your statement and we'll analyze your card mix, ticket size, and state rules — then recommend the right path.
+                    {ZP_UNSURE}
                   </p>
                 </CardContent>
               </Card>
@@ -274,31 +246,28 @@ export default function ZeroPercent() {
           <div className="public-container">
             <div className="reveal max-w-3xl mx-auto">
               <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-qualify-heading">
-                Is This a Good Fit for Your Business?
+                {ZP_FIT.heading}
               </h2>
               <p className="text-muted-foreground mb-8 leading-relaxed">
-                These programs work best when your customers are not extremely price-sensitive, your average ticket is reasonable, and your state allows the program. Upload your statement and we verify eligibility — you don't guess.
+                {ZP_FIT.intro}
               </p>
 
+              <h3 className="text-sm font-semibold text-foreground mb-3">{ZP_FIT.businessTypesHeading}</h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-10">
-                {qualifyingBusinessTypes.map((biz, i) => (
-                  <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-muted/50" data-testid={`qualify-biz-${i}`}>
-                    <biz.icon className="w-5 h-5 text-primary shrink-0" />
-                    <span className="text-sm font-medium text-foreground">{biz.label}</span>
-                  </div>
-                ))}
+                {ZP_FIT.businessTypes.map((label, i) => {
+                  const Icon = businessTypeIcons[i];
+                  return (
+                    <div key={label} className="flex items-center gap-3 p-3 rounded-lg bg-muted/50" data-testid={`qualify-biz-${i}`}>
+                      <Icon className="w-5 h-5 text-primary shrink-0" />
+                      <span className="text-sm font-medium text-foreground">{label}</span>
+                    </div>
+                  );
+                })}
               </div>
 
-              <h3 className="text-xl font-display font-semibold text-foreground mb-4">Eligibility checklist</h3>
+              <h3 className="text-xl font-display font-semibold text-foreground mb-4">{ZP_FIT.checklistHeading}</h3>
               <ul className="space-y-3 mb-8">
-                {[
-                  "Business located in an eligible state (confirmed before enrollment)",
-                  "Processing volume of $5,000+/month in card transactions",
-                  "Customers are not extremely price-sensitive (B2C or B2B)",
-                  "Average ticket high enough that a disclosed service fee isn't disruptive",
-                  "Staff can follow a one-sentence checkout script (provided by Liberty)",
-                  "Debit card percentage of volume is understood and handled correctly",
-                ].map((item, i) => (
+                {ZP_FIT.checklist.map((item, i) => (
                   <li key={i} className="flex items-start gap-3" data-testid={`qualify-bullet-${i}`}>
                     <CheckCircle2 className="w-5 h-5 text-emerald-500 mt-0.5 shrink-0" />
                     <span className="text-muted-foreground">{item}</span>
@@ -308,7 +277,7 @@ export default function ZeroPercent() {
               <Button className="gap-2" asChild>
                 <Link href="/upload-statement" data-testid="link-qualify-cta">
                   <Upload className="w-4 h-4" />
-                  Check My Eligibility
+                  {ZP_FIT.cta}
                   <ArrowRight className="w-4 h-4" />
                 </Link>
               </Button>
@@ -316,44 +285,40 @@ export default function ZeroPercent() {
           </div>
         </section>
 
-        {/* SECTION 4: Compliance — Liberty Handles It All */}
+        {/* SECTION 4: Requirements reviewed with the merchant */}
         <section className="bg-muted py-10" data-testid="section-compliance">
           <div className="public-container">
             <div className="reveal text-center mb-12">
               <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-compliance-heading">
-                Compliance Is Our Job, Not Yours
+                {ZP_REQUIREMENTS.heading}
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
-                Most providers hand you a brochure and call it a day. Our programs include everything required to run fully compliant — from the first sign to the last receipt.
+                {ZP_REQUIREMENTS.intro}
               </p>
             </div>
             <div className="reveal grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-4xl mx-auto mb-10">
-              {complianceItems.map((item, i) => (
-                <Card key={i} data-testid={`card-compliance-${i}`}>
-                  <CardContent className="p-6 flex items-start gap-4">
-                    <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
-                      <item.icon className="w-5 h-5 text-primary" />
-                    </div>
-                    <div>
-                      <h3 className="font-display font-bold text-foreground mb-1">{item.title}</h3>
-                      <p className="text-sm text-muted-foreground leading-relaxed">{item.desc}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+              {ZP_REQUIREMENTS.cards.map((item, i) => {
+                const Icon = requirementIcons[i];
+                return (
+                  <Card key={item.title} data-testid={`card-compliance-${i}`}>
+                    <CardContent className="p-6 flex items-start gap-4">
+                      <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                        <Icon className="w-5 h-5 text-primary" />
+                      </div>
+                      <div>
+                        <h3 className="font-display font-bold text-foreground mb-1">{item.title}</h3>
+                        <p className="text-sm text-muted-foreground leading-relaxed">{item.desc}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
 
             <div className="reveal max-w-4xl mx-auto">
-              <h3 className="text-xl font-display font-semibold text-foreground mb-4 text-center">Everything we configure and handle for you</h3>
+              <h3 className="text-xl font-display font-semibold text-foreground mb-4 text-center">{ZP_REQUIREMENTS.listHeading}</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {[
-                  "Signage and checkout messaging (card brand compliant)",
-                  "Receipt formatting with required dual-price disclosures",
-                  "Debit program rules (handled automatically in the terminal)",
-                  "Card brand requirements (Visa/MC registration where required)",
-                  "Ongoing support as card brand and state rules evolve",
-                  "Staff training script — one sentence, we write it",
-                ].map((item, i) => (
+                {ZP_REQUIREMENTS.list.map((item, i) => (
                   <div key={i} className="flex items-start gap-3 p-3 rounded-md bg-background" data-testid={`compliance-detail-${i}`}>
                     <FileCheck className="w-4 h-4 text-primary mt-0.5 shrink-0" />
                     <span className="text-sm text-foreground">{item}</span>
@@ -364,89 +329,31 @@ export default function ZeroPercent() {
           </div>
         </section>
 
-        {/* SECTION 5: The Math — Real Example */}
+        {/* SECTION 5: Reading your own numbers (no dollar figures without a statement) */}
         <section className="relative overflow-hidden py-10" data-testid="section-math-example">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-sky-500" />
           <div className="public-container relative">
             <div className="text-center mb-12">
               <h2 className="public-h2 font-display font-bold text-white mb-4" data-testid="text-math-heading">
-                The Math, Plainly
+                {ZP_COSTS.heading}
               </h2>
-              <p className="text-white/70 max-w-xl mx-auto">
-                Here's exactly what this looks like at $10,000/month in card volume — a common volume for restaurants, retail shops, and service businesses.
+              <p className="text-white/70 max-w-2xl mx-auto">
+                {ZP_COSTS.intro}
               </p>
             </div>
 
-            <div className="max-w-3xl mx-auto">
-              <Card className="border border-white/10 bg-white/5 backdrop-blur-md mb-8" data-testid="card-math-example">
-                <CardContent className="p-8">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div>
-                      <div className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-4">WITHOUT OUR PROGRAM</div>
-                      <div className="space-y-3">
-                        <div className="flex justify-between text-sm border-b border-white/10 pb-2">
-                          <span className="text-white/70">Monthly card volume</span>
-                          <span className="text-white font-medium">$10,000</span>
-                        </div>
-                        <div className="flex justify-between text-sm border-b border-white/10 pb-2">
-                          <span className="text-white/70">Effective processing rate</span>
-                          <span className="text-red-400 font-medium">~2.7%</span>
-                        </div>
-                        <div className="flex justify-between text-sm border-b border-white/10 pb-2">
-                          <span className="text-white/70">Monthly fees paid</span>
-                          <span className="text-red-400 font-semibold">$270</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-white/70">Annual fees paid</span>
-                          <span className="text-red-400 font-semibold">$3,240</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-sm font-semibold text-emerald-400 uppercase tracking-wider mb-4">WITH OUR PROGRAM</div>
-                      <div className="space-y-3">
-                        <div className="flex justify-between text-sm border-b border-white/10 pb-2">
-                          <span className="text-white/70">Monthly card volume</span>
-                          <span className="text-white font-medium">$10,000</span>
-                        </div>
-                        <div className="flex justify-between text-sm border-b border-white/10 pb-2">
-                          <span className="text-white/70">Processing cost recovered — not deducted from revenue</span>
-                          <span className="text-white/70 font-medium text-xs">~3% from payer</span>
-                        </div>
-                        <div className="flex justify-between text-sm border-b border-white/10 pb-2">
-                          <span className="text-white/70">Processing fees deducted from your revenue</span>
-                          <span className="text-emerald-400 font-semibold">$0</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-white/70">Annual cost to you</span>
-                          <span className="text-emerald-400 font-semibold">$0</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-6 pt-6 border-t border-white/10 text-center">
-                    <div className="text-3xl font-display font-bold text-emerald-400 mb-1">$3,240/year saved</div>
-                    <p className="text-sm text-white/70">Based on $10,000/month at 2.7% effective rate. Your actual savings depend on your statement.</p>
-                  </div>
-                </CardContent>
-              </Card>
-
+            <div className="max-w-4xl mx-auto">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-                {[
-                  { volume: "$5,000/mo", savings: "~$1,350/yr" },
-                  { volume: "$25,000/mo", savings: "~$8,100/yr" },
-                  { volume: "$50,000/mo", savings: "~$16,200/yr" },
-                ].map((row, i) => (
-                  <div key={i} className="bg-white/5 border border-white/10 rounded-lg p-4 text-center" data-testid={`math-example-${i}`}>
-                    <div className="text-sm text-white/60 mb-1">{row.volume} volume</div>
-                    <div className="text-xl font-display font-bold text-emerald-400">{row.savings}</div>
-                    <div className="text-xs text-white/70 mt-1">potential annual savings</div>
+                {ZP_COSTS.cards.map((card, i) => (
+                  <div key={card.title} className="bg-white/5 border border-white/10 rounded-lg p-5" data-testid={`math-example-${i}`}>
+                    <div className="text-sm font-semibold text-white mb-2">{card.title}</div>
+                    <div className="text-sm text-white/70 leading-relaxed">{card.desc}</div>
                   </div>
                 ))}
               </div>
               <p className="text-center text-xs text-white/70">
-                *Illustrative estimates based on ~2.7% effective rate. Actual results depend on your statement, card mix, and underwriting. No savings claims without review.
+                {ZP_COSTS.footnote}
               </p>
             </div>
           </div>
@@ -458,23 +365,18 @@ export default function ZeroPercent() {
             <div className="reveal max-w-5xl mx-auto">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
                 <div className="flex flex-col gap-4 items-center order-2 md:order-1">
-                  <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal configured for cash discount processing" className="w-full max-w-xs rounded-md object-contain" data-testid="img-zero-terminal-hero" />
-                  <img src={imgPaxA920} alt="PAX A920 smart payment terminal with compliant surcharging" className="w-full max-w-xs rounded-md object-cover" data-testid="img-zero-terminal-tap" />
+                  <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-full max-w-xs rounded-md object-contain" data-testid="img-zero-terminal-hero" />
+                  <img src={imgPaxA920} alt="PAX A920 smart payment terminal" className="w-full max-w-xs rounded-md object-cover" data-testid="img-zero-terminal-tap" />
                 </div>
                 <div className="order-1 md:order-2">
                   <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-terminal-heading">
-                    Ready to Go in 48 Hours
+                    {ZP_EQUIPMENT.heading}
                   </h2>
                   <p className="text-muted-foreground mb-6 leading-relaxed" data-testid="text-terminal-description">
-                    Every deployment is configured directly on your terminal. Dual-pricing, compliant receipts, and disclosures are handled automatically — no manual math, no workarounds.
+                    {ZP_EQUIPMENT.description}
                   </p>
                   <ul className="space-y-3 mb-6">
-                    {[
-                      "Statement review to confirm eligibility and savings",
-                      "Program type confirmed (cash discount or surcharge)",
-                      "Terminal pre-configured with dual-pricing and signage",
-                      "Staff script provided, go-live support included",
-                    ].map((item, i) => (
+                    {ZP_EQUIPMENT.steps.map((item, i) => (
                       <li key={i} className="flex items-start gap-3" data-testid={`impl-step-${i}`}>
                         <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center shrink-0 mt-0.5">
                           <span className="text-primary-foreground text-xs font-bold">{i + 1}</span>
@@ -487,18 +389,18 @@ export default function ZeroPercent() {
                     <Button className="gap-2" asChild>
                       <Link href="/upload-statement" data-testid="link-zero-terminal-cta">
                         <Upload className="w-4 h-4" />
-                        Upload Statement
+                        {ZP_EQUIPMENT.primaryCta}
                         <ArrowRight className="w-4 h-4" />
                       </Link>
                     </Button>
                     <Button variant="outline" className="gap-2" asChild>
-                      <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-zero-call-cta" onClick={() => trackPhoneCallClick({ sourcePage: "/0-percent-processing" })}>
+                      <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-zero-call-cta" onClick={() => trackPhoneCallClick({ sourcePage: ZP_PATH })}>
                         <Phone className="w-4 h-4" />
-                        Call {PHONE_NUMBER}
+                        {ZP_EQUIPMENT.secondaryCta} {PHONE_NUMBER}
                       </a>
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-4">*Free terminal placement requires approved account and meets minimum processing requirements.</p>
+                  <p className="text-xs text-muted-foreground mt-4" data-testid="text-zero-equipment-footnote">{ZP_EQUIPMENT.footnote}</p>
                 </div>
               </div>
             </div>
@@ -513,7 +415,7 @@ export default function ZeroPercent() {
                 className="public-h2 font-display font-bold text-foreground mb-8"
                 data-testid="text-zero-faq-heading"
               >
-                Cash Discount &amp; Surcharging — Common Questions
+                {ZP_FAQ_HEADING}
               </h2>
               <Accordion type="single" collapsible className="w-full">
                 {faqItems.map((item, i) => (
@@ -538,7 +440,7 @@ export default function ZeroPercent() {
                 <Button className="gap-2" asChild>
                   <Link href="/upload-statement" data-testid="link-faq-cta">
                     <Upload className="w-4 h-4" />
-                    Check Eligibility — Free Review
+                    {ZP_HERO.cta}
                   </Link>
                 </Button>
               </div>
@@ -554,30 +456,30 @@ export default function ZeroPercent() {
               className="public-h2 font-display font-bold text-white mb-4"
               data-testid="text-zero-final-cta-heading"
             >
-              Ready to Reduce Your Processing Cost to $0?
+              {ZP_FINAL.heading}
             </h2>
             <p
               className="text-white/60 mb-8 max-w-2xl mx-auto"
               data-testid="text-zero-final-cta-body"
             >
-              Upload your statement and we'll confirm eligibility, show you the math, and set everything up — signage, receipts, and staff scripts included.
+              {ZP_FINAL.body}
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
               <Button size="lg" className="public-cta gap-2 bg-sky-400 border-sky-400 text-slate-950 hover:bg-sky-300" asChild>
                 <Link href="/upload-statement" data-testid="link-zero-final-upload">
                   <Upload className="w-4 h-4" />
-                  Upload Statement — Check Eligibility
+                  {ZP_FINAL.primaryCta}
                 </Link>
               </Button>
               <Button size="lg" variant="outline" className="public-cta gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white" asChild>
-                <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-zero-final-call" onClick={() => trackPhoneCallClick({ sourcePage: "/0-percent-processing" })}>
+                <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-zero-final-call" onClick={() => trackPhoneCallClick({ sourcePage: ZP_PATH })}>
                   <Phone className="w-4 h-4" />
                   Call {PHONE_NUMBER}
                 </a>
               </Button>
             </div>
             <p className="text-xs text-white/70 mt-6 max-w-xl mx-auto">
-              Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
+              {ZP_FINAL.compliance}
             </p>
           </div>
         </section>

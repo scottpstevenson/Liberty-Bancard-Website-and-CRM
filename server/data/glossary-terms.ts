@@ -197,7 +197,7 @@ See your current interchange costs broken down in our free statement analysis.`,
     shortDefinition: "A simplified pricing model charging the same percentage on all transactions, regardless of card type or transaction method.",
     category: "Core Fee & Pricing Terms",
     searchVolume: "880/mo",
-    fullDefinition: `Flat rate pricing is a payment processing model where merchants pay the same percentage fee on every transaction, regardless of the card type used. Square charges 2.6% + $0.10 for in-person swipes; Stripe charges 2.9% + $0.30 for online transactions. These rates don't change whether a customer uses a basic debit card or a premium travel rewards card.
+    fullDefinition: `Flat rate pricing is a payment processing model where merchants pay the same percentage fee on every transaction, regardless of the card type used. Providers publish flat rates by plan and channel (for example Square's in-person rate and Stripe's online rate), so check each provider's official pricing page for current figures. These rates don't change whether a customer uses a basic debit card or a premium travel rewards card.
 
 The appeal of flat rate pricing is simplicity. You know exactly what you'll pay per transaction. There are no surprises from interchange categories, no qualification tiers, and no complex statements. This makes flat rate ideal for new, very small, or low-volume businesses that value predictability over optimization.
 
@@ -223,7 +223,7 @@ The key question: how much do you value simplicity over savings? For very small 
         answer: "Flat rate pricing is excellent for businesses just starting out or processing under $5,000/month. The simplicity and no monthly fees make it accessible. As volume grows, the math favors switching to interchange plus pricing.",
       },
       {
-        question: "Why does Square charge 2.6% when interchange is often lower?",
+        question: "Why do flat-rate processors charge more than interchange on some cards?",
         answer: "Square charges a premium for simplicity, instant setup, no monthly fees, and no merchant account underwriting. They profit on the difference between actual interchange costs (which average around 1.7-1.9% for credit) and their flat rate. For high-volume merchants, this premium becomes significant.",
       },
       {
@@ -2290,7 +2290,7 @@ Important limitation: Mobile card readers typically require cellular data or Wi-
 Cost consideration: Mobile readers from payfacs (Square, PayPal) come with flat-rate pricing. Mobile readers from traditional processors offer interchange plus pricing and often lower effective rates.`,
     merchantImpact: `Mobile card readers enable businesses to accept payments anywhere with cellular or Wi-Fi connectivity. For the right business type (food trucks, farmers markets, contractors, event vendors), they're essential tools.
 
-The main cost consideration: mobile processing through payfacs like Square costs 2.6% + $0.10. Through a traditional processor with interchange plus pricing, the same mobile transactions might cost 1.9%–2.1%. On $20,000 in monthly mobile volume, that's a $100–$140/month difference.`,
+The main cost consideration: mobile processing through payfacs like Square is priced at a published flat rate per transaction. Whether interchange plus pricing costs less depends on your card mix, ticket size and monthly volume.`,
     example: `A mobile pet groomer processes $12,000/month via card reader:
 - Using Square Reader (2.6% + $0.10, avg. $75 ticket, ~160 transactions):
   - Processing cost: $312 + $16 = $328/month

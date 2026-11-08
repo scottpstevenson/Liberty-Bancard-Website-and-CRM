@@ -107,7 +107,7 @@ export default function MerchantStatementUpload() {
             <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2" data-testid="text-upload-success">Statement Uploaded!</h2>
             <p className="text-muted-foreground text-sm">
-              Thank you! We've received your processing statement and will have your personalized savings analysis ready within 24 hours.
+              Thank you! We've received your processing statement. Our team reviews it and follows up with what we found and your options.
             </p>
             <p className="text-xs text-muted-foreground mt-4">
               Liberty Bancard — Eligibility, underwriting, card brand rules, and applicable laws apply.

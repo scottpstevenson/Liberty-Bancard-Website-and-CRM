@@ -1,5 +1,23 @@
 import { ssrNavbar, ssrFooter } from "../ssrShared";
 import { serializeJsonLd } from "../../shared/json-ld";
+import { TIMING_NOTE } from "../../shared/public-disclosures";
+import { COMPARE_ENTRIES, describeRecord } from "../../shared/compare-content";
+import { PRICE_CHECKED_ON, formatCheckedDate } from "../../shared/competitor-pricing";
+
+const EQUIPMENT_LINE =
+  "Equipment options are reviewed with you; availability and terms are confirmed during review";
+const CONTRACT_LINE = "Contract, term and cancellation terms are stated in your written processing agreement";
+const PROGRAM_LINE = "Cash discount and surcharging programs are reviewed where they fit*";
+
+/** Published list rates for a provider, read from the dated price records. */
+function published(slug: string): string {
+  const entry = COMPARE_ENTRIES[slug];
+  if (!entry || entry.records.length === 0) {
+    return `${entry?.name ?? slug} does not publish a single processing rate; pricing is quoted`;
+  }
+  return `Published list rates (checked ${formatCheckedDate(PRICE_CHECKED_ON)}): ${entry.records.map(describeRecord).join("; ")}`;
+}
+
 
 function escHtml(str: string): string {
   return str
@@ -28,18 +46,18 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     slug: "square",
     category: "Flat-Rate Processor",
     whyMerchantsLeave: [
-      "2.6% + $0.10 flat rate overcharges on debit cards and standard credit cards",
+      published("square"),
       "No interchange-plus pricing — paying more on every transaction",
       "No dedicated account representative when issues arise",
       "Account holds and fund stability concerns at higher volumes",
-      "No Liberty Zero™ or 0% processing programs available",
+      PROGRAM_LINE,
     ],
     whatLibertySolves: [
-      "Interchange-plus pricing reduces costs by 0.5%–1.0% for most merchants",
+      "Interchange-plus pricing quoted from your own statement review",
       "Dedicated account rep available by phone — knows your business personally",
       "Stable merchant account underwritten specifically for your business",
-      "Liberty Zero™ program available — most card fees passed to card users*",
-      "Free terminal for qualifying merchants",
+      PROGRAM_LINE,
+      EQUIPMENT_LINE,
     ],
     relatedIndustries: [
       { name: "Restaurant Payment Processing", slug: "restaurant-payment-processing" },
@@ -56,18 +74,18 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     slug: "stripe",
     category: "Developer Payment Platform",
     whyMerchantsLeave: [
-      "2.9% + $0.30 is one of the most expensive flat rates for in-person transactions",
+      published("stripe"),
       "Built for developers and SaaS — not optimized for brick-and-mortar businesses",
       "No dedicated account representative, email support only",
       "Limited in-person payment hardware and support",
       "No cash discount or dual pricing programs",
     ],
     whatLibertySolves: [
-      "Interchange-plus pricing is significantly lower for card-present transactions",
+      "Interchange-plus pricing lets you compare card-present costs line by line",
       "Purpose-built for in-person businesses with full terminal support",
       "Dedicated account rep available directly",
-      "Liberty Zero™ — pay $0 to accept cards (where eligible)*",
-      "Free terminal for qualifying merchants",
+      PROGRAM_LINE,
+      EQUIPMENT_LINE,
     ],
     relatedIndustries: [
       { name: "Professional Services Payment Processing", slug: "professional-services-payment-processing" },
@@ -85,16 +103,16 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     category: "Bundled POS and Processing",
     whyMerchantsLeave: [
       "3-year contracts with early termination fees up to $500",
-      "Processing rates of 2.3%–3.5% depending on plan and reseller",
+      published("clover"),
       "Equipment is often leased, not owned — you pay for years for hardware you don't own",
       "PCI compliance fees added as a separate monthly charge",
       "Rate increases are common after the promotional period",
     ],
     whatLibertySolves: [
-      "No long-term contracts or early termination fees",
+      CONTRACT_LINE,
       "Interchange-plus pricing transparent from day one",
-      "Free terminal for qualifying merchants — equipment you own",
-      "PCI compliance included at no extra charge",
+      EQUIPMENT_LINE,
+      "PCI and other recurring fees are stated in your written quote",
       "Dedicated account rep for proactive support",
     ],
     relatedIndustries: [
@@ -112,17 +130,17 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     slug: "toast",
     category: "Restaurant POS and Processing",
     whyMerchantsLeave: [
-      "Processing rates of 2.49%–3.69% are significantly above interchange costs",
+      published("toast"),
       "24–36 month contracts with early termination fees that can exceed $10,000",
       "Must use Toast processing — no flexibility to switch processors",
       "Equipment financing creates another long-term financial obligation",
       "Monthly software fees increase as you add features",
     ],
     whatLibertySolves: [
-      "Interchange-plus pricing saves restaurants $3,000–$7,000 per year at typical volumes",
-      "No long-term contracts or termination penalties",
-      "Freedom to choose your own POS system",
-      "Cash discount programs popular with restaurant owners",
+      "Interchange-plus pricing quoted from your own statement review",
+      CONTRACT_LINE,
+      "Point-of-sale compatibility is confirmed during review before you change anything",
+      PROGRAM_LINE,
       "Dedicated rep who understands restaurant operations",
     ],
     relatedIndustries: [
@@ -139,18 +157,18 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     slug: "paypal",
     category: "Consumer Payment Platform",
     whyMerchantsLeave: [
-      "2.99% + $0.49 in-person rate is one of the highest in the industry",
+      published("paypal"),
       "Account holds and fund freezes cause cash flow disruption",
       "No dedicated merchant account representative",
       "No interchange passthrough pricing",
       "Not designed for high-volume brick-and-mortar businesses",
     ],
     whatLibertySolves: [
-      "Interchange-plus pricing substantially lower than PayPal's flat rate",
-      "Stable merchant account without surprise holds",
+      "Interchange-plus pricing lets you compare card-present costs line by line",
+      "Account terms are stated in your written agreement",
       "Dedicated account rep who knows your business",
-      "Cash discount programs available to offset processing costs",
-      "Next-day funding for healthy cash flow",
+      PROGRAM_LINE,
+      "Funding availability and timing are confirmed during review",
     ],
     relatedIndustries: [
       { name: "Retail Payment Processing", slug: "retail-payment-processing" },
@@ -170,15 +188,15 @@ const competitorInfo: Record<string, CompetitorInfo> = {
       "Fully self-service — no dedicated account representative",
       "Limited phone support and slow response times",
       "No cash discount or dual pricing programs",
-      "No free terminal for new merchants",
+      "Terminal and equipment costs are set by Helcim; compare them with your own costs",
       "Smaller processor with less coverage for complex account types",
     ],
     whatLibertySolves: [
       "Dedicated account rep who answers the phone and knows your account",
-      "Liberty Zero™ — pay $0 to accept cards (where eligible)*",
-      "Free terminal for qualifying merchants",
+      PROGRAM_LINE,
+      EQUIPMENT_LINE,
       "Guided onboarding with personal go-live support",
-      "Competitive interchange-plus markup with better service",
+      "Interchange-plus markup quoted from your own statement review",
     ],
     relatedIndustries: [
       { name: "Retail Payment Processing", slug: "retail-payment-processing" },
@@ -193,7 +211,7 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     slug: "authorize-net",
     category: "Payment Gateway",
     whyMerchantsLeave: [
-      "$25/month gateway fee plus $0.10 per transaction creates a double-fee structure",
+      published("authorize-net"),
       "Requires a separate payment processor — two vendors, two billing relationships",
       "Older platform — less modern UX and integration options than newer alternatives",
       "No dedicated account representative",
@@ -203,8 +221,8 @@ const competitorInfo: Record<string, CompetitorInfo> = {
       "Single provider for processing and gateway — one billing relationship",
       "Transparent interchange-plus pricing with no separate gateway layer",
       "Dedicated account rep for all payment questions",
-      "Better in-person terminal support and optimization",
-      "Free statement review to quantify the savings",
+      "Terminal support for in-person payments",
+      "Free statement review to show your current costs",
     ],
     relatedIndustries: [
       { name: "E-Commerce Payment Processing", slug: "ecommerce-payment-processing" },
@@ -221,18 +239,18 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     slug: "shopify-payments",
     category: "Platform-Bundled Processing",
     whyMerchantsLeave: [
-      "Rates of 2.4%–2.9% + $0.30 are high compared to interchange-plus pricing",
+      "Processing pricing is set by your Shopify plan and agreement; compare it with your own statement",
       "Processing is tied to your Shopify subscription — lose Shopify, lose payments",
-      "Third-party processors incur an additional fee (0.5%–2%)",
+      "Shopify may charge an additional fee when a third-party processor is used at checkout; check your plan",
       "Not optimized for in-person high-volume processing",
       "No cash discount or dual pricing programs",
     ],
     whatLibertySolves: [
       "Interchange-plus pricing not tied to any platform subscription",
       "Fully optimized for in-person payment processing",
-      "Cash discount and dual pricing programs available",
-      "No additional fee for using your preferred platform",
-      "Free terminal for qualifying merchants",
+      PROGRAM_LINE,
+      "Platform compatibility is confirmed before you change anything",
+      EQUIPMENT_LINE,
     ],
     relatedIndustries: [
       { name: "Retail Payment Processing", slug: "retail-payment-processing" },
@@ -249,16 +267,16 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     category: "Large Merchant Processor",
     whyMerchantsLeave: [
       "3-year contracts with termination fees are standard",
-      "Monthly fees often $20–$75, above market rates",
+      "Monthly and recurring fees vary by agreement; your statement shows what you pay",
       "Tiered pricing obscures true cost for many merchants",
       "Equipment is frequently leased rather than sold",
       "Rate increase clauses buried in contracts",
     ],
     whatLibertySolves: [
-      "No long-term contracts or termination penalties",
+      CONTRACT_LINE,
       "Transparent interchange-plus pricing from the start",
-      "Monthly fees significantly lower — often $0–$9.95",
-      "Free terminal for qualifying merchants",
+      "Recurring fees are stated in your written quote",
+      EQUIPMENT_LINE,
       "Individual dedicated rep for personalized service",
     ],
     relatedIndustries: [
@@ -282,7 +300,7 @@ const competitorInfo: Record<string, CompetitorInfo> = {
       "Pricing difficult to understand or compare",
     ],
     whatLibertySolves: [
-      "No long-term contracts — stay because the service is good",
+      CONTRACT_LINE,
       "Transparent interchange-plus statements you can read and verify",
       "Focused on small and mid-sized merchants — you are not an afterthought",
       "Dedicated rep who knows your account and responds quickly",
@@ -309,11 +327,11 @@ const competitorInfo: Record<string, CompetitorInfo> = {
       "Difficult to reach knowledgeable support for individual accounts",
     ],
     whatLibertySolves: [
-      "No long-term contracts or equipment leases",
+      CONTRACT_LINE,
       "Transparent interchange-plus statements that are straightforward to read",
-      "Free terminal for qualifying merchants",
+      EQUIPMENT_LINE,
       "Dedicated rep for individual account attention",
-      "No surprise rate increases — pricing stays transparent",
+      "Pricing and any change terms are stated in writing",
     ],
     relatedIndustries: [
       { name: "Retail Payment Processing", slug: "retail-payment-processing" },
@@ -336,9 +354,9 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     ],
     whatLibertySolves: [
       "Pure interchange-plus markup with no flat-fee layer",
-      "Liberty Zero™ — pay $0 to accept cards (where eligible)*",
+      PROGRAM_LINE,
       "National coverage with local-level dedicated support",
-      "Free terminal for qualifying merchants",
+      EQUIPMENT_LINE,
       "Full range of merchant program options",
     ],
     relatedIndustries: [
@@ -373,9 +391,9 @@ const switchFromInfo: Record<string, SwitchFromInfo> = {
       { title: "Notify your staff", detail: "Let employees know about the transition date and any new POS or terminal workflow changes." },
       { title: "Process your last Square batch", detail: "Make sure all transactions have been settled before deactivating. Check pending payouts and wait for final deposits." },
     ],
-    whatToExpect: "The transition from Square typically takes 2–5 business days from application approval to live processing. Most merchants run parallel briefly — keeping Square active for existing transactions while the new account is set up.",
-    libertyHandles: "Liberty Bancard handles the application, underwriting, equipment shipping (for qualifying merchants), terminal programming, and go-live support. You do not need to contact Square about your new processor — simply stop using Square once your Liberty Bancard account is active.",
-    timeline: "Day 1–2: Submit application and Square statement. Day 2–3: Underwriting and approval. Day 3–5: Equipment shipped (or activated). Day 5: Live processing on Liberty Bancard.",
+    whatToExpect: "Many merchants keep Square active for existing transactions while a new account is set up. Account approval, equipment availability, shipping and activation are separate steps.",
+    libertyHandles: "Liberty Bancard handles the application, underwriting, equipment arrangements where offered, terminal setup, and activation support. You do not need to contact Square about your new processor — simply stop using Square once your Liberty Bancard account is active.",
+    timeline: TIMING_NOTE,
     whatYouNeed: [
       "Last 3 months of Square processing statements",
       "Business bank account information (for deposits)",
@@ -393,7 +411,7 @@ const switchFromInfo: Record<string, SwitchFromInfo> = {
     ],
     whatToExpect: "Stripe closure requires ensuring no pending funds remain. Because Stripe is often used for online transactions, migration includes updating payment integrations on your website or POS. Liberty Bancard will advise on gateway alternatives for any online processing needs.",
     libertyHandles: "Liberty Bancard manages in-person terminal setup, merchant account underwriting, and funding configuration. For online transaction migration, we advise on gateway options and connection methods. Your dedicated rep coordinates the transition to minimize downtime.",
-    timeline: "Day 1–2: Application and Stripe statement review. Day 3: Approval and account setup. Day 4–7: Equipment and integration setup. Day 7–10: Fully live on Liberty Bancard.",
+    timeline: TIMING_NOTE,
     whatYouNeed: [
       "Last 3 months of Stripe processing statements (CSV export)",
       "Business bank account information",
@@ -406,13 +424,13 @@ const switchFromInfo: Record<string, SwitchFromInfo> = {
     howToCancel: [
       { title: "Review your contract for notice requirements", detail: "Clover contracts typically require 30–90 days written notice of non-renewal, sent to your reseller or directly to Clover. Check Section 2 of your merchant agreement for the exact timeline." },
       { title: "Calculate your termination cost", detail: "If mid-contract, calculate the early termination fee (usually $250–$500) plus any remaining equipment lease obligations. Determine whether savings from switching exceed these costs." },
-      { title: "Determine equipment ownership", detail: "If you purchased Clover hardware, it may be reprogrammable (Clover devices are locked to Clover's network). In most cases, you will need new terminal hardware. Liberty Bancard provides free terminals for qualifying merchants." },
+      { title: "Determine equipment ownership", detail: "If you purchased Clover hardware, it may be reprogrammable (Clover devices are locked to Clover's network). In most cases, you will need new terminal hardware. Equipment options are reviewed with you during the application." },
       { title: "Send written cancellation notice", detail: "Send written notice to your Clover reseller via certified mail or email with read receipt. Keep documentation of when notice was sent." },
       { title: "Confirm cancellation acknowledgment", detail: "Follow up to confirm your notice was received and the contract end date. Get confirmation in writing." },
     ],
-    whatToExpect: "Because Clover devices are network-locked, you will need new terminal hardware when switching. Liberty Bancard ships free terminals to qualifying merchants. Plan for a 5–10 day transition from application to live processing with new equipment.",
-    libertyHandles: "Liberty Bancard reviews your contract to identify the right transition timing, provides free terminals for qualifying merchants, handles all underwriting and account setup, and provides go-live support. We help you calculate the breakeven on any termination costs versus ongoing savings.",
-    timeline: "Day 1: Contract review and application. Day 2–3: Underwriting and approval. Day 3–7: Terminal shipping. Day 7–10: Live on Liberty Bancard with new equipment.",
+    whatToExpect: "Because Clover devices are network-locked, you will need new terminal hardware when switching. Equipment options are reviewed with you, and availability, shipping and activation are separate steps.",
+    libertyHandles: "Liberty Bancard reviews your contract to identify the right transition timing, reviews equipment options with you, handles underwriting and account setup, and provides activation support. We help you compare any termination costs with your expected costs once the review is complete.",
+    timeline: TIMING_NOTE,
     whatYouNeed: [
       "Last 3 months of Clover processing statements",
       "Your merchant agreement (to review termination terms)",
@@ -429,9 +447,9 @@ const switchFromInfo: Record<string, SwitchFromInfo> = {
       { title: "Send written notice of non-renewal", detail: "If your contract is near renewal, send written notice (certified mail) at least 30–90 days before the renewal date to avoid auto-renewal." },
       { title: "Coordinate go-live timing", detail: "For restaurants, plan the transition for a slow business period — typically a Monday or Tuesday morning during an off-peak week." },
     ],
-    whatToExpect: "The Toast transition is more complex than simpler processor switches because it involves both processing and POS. Expect a 10–21 day transition period, including POS selection, installation, and training. Minimize disruption by planning the live date on a low-volume day.",
+    whatToExpect: "The Toast transition is more complex than simpler processor switches because it involves both processing and POS. The transition includes POS selection, installation and training, and each is a separate step. Minimize disruption by planning the live date on a low-volume day.",
     libertyHandles: "Liberty Bancard reviews your Toast contract, helps identify the most cost-effective exit strategy, advises on restaurant POS alternatives, provides terminal and integration setup, and supports your team through the go-live process. We schedule go-live for your lowest-volume period.",
-    timeline: "Week 1: Contract review, POS selection, application. Week 2: Underwriting, equipment ordering, POS setup. Week 3: Staff training, go-live on Liberty Bancard.",
+    timeline: TIMING_NOTE,
     whatYouNeed: [
       "Last 3 months of Toast processing statements",
       "Toast merchant agreement (for termination review)",
@@ -449,7 +467,7 @@ const switchFromInfo: Record<string, SwitchFromInfo> = {
     ],
     whatToExpect: "PayPal account closure is straightforward once your balance is zero and disputes are resolved. Because PayPal is often used as a checkout option (not just processing), some businesses keep PayPal as a customer-facing option while switching their primary card processing to Liberty Bancard.",
     libertyHandles: "Liberty Bancard sets up your primary card processing account — in-person terminals, and if needed, online gateway connections. You can continue to offer PayPal as a supplementary checkout option for customers who prefer it while using Liberty Bancard for all traditional card processing.",
-    timeline: "Day 1–2: Application and PayPal statement review. Day 2–3: Approval. Day 3–5: Equipment and account setup. Day 5: Live on Liberty Bancard.",
+    timeline: TIMING_NOTE,
     whatYouNeed: [
       "Last 3 months of PayPal transaction reports",
       "Business bank account information",
@@ -464,9 +482,9 @@ const switchFromInfo: Record<string, SwitchFromInfo> = {
       { title: "Contact Helcim support to close the account", detail: "Helcim does not have long-term contracts. Email or message support to initiate account closure. There are no termination fees." },
       { title: "Download your account data", detail: "Export transaction history and any customer records before closing." },
     ],
-    whatToExpect: "Helcim has no long-term contracts, so switching is straightforward. The primary transition work is equipment — if you use Helcim-compatible hardware, Liberty Bancard will confirm compatibility or provide a free replacement terminal for qualifying merchants.",
-    libertyHandles: "Liberty Bancard sets up your account, confirms or replaces your terminal hardware, and provides a dedicated account rep going forward. The migration is typically complete within 3–5 business days.",
-    timeline: "Day 1–2: Application and account review. Day 2–3: Approval. Day 3–5: Equipment confirmation and go-live.",
+    whatToExpect: "Helcim has no long-term contracts, so switching is straightforward. The primary transition work is equipment — if you use Helcim-compatible hardware, Liberty Bancard will confirm compatibility or review replacement options with you.",
+    libertyHandles: "Liberty Bancard sets up your account, confirms terminal compatibility or reviews replacement options, and provides a dedicated account rep going forward.",
+    timeline: TIMING_NOTE,
     whatYouNeed: [
       "Last 3 months of Helcim processing statements",
       "Business bank account information",
@@ -482,7 +500,7 @@ const switchFromInfo: Record<string, SwitchFromInfo> = {
     ],
     whatToExpect: "Switching from Authorize.net involves a technical update to any website or POS that used it as a gateway. Liberty Bancard will advise on alternative gateway connections and coordinate the migration with minimal downtime.",
     libertyHandles: "Liberty Bancard handles the processing account setup and advises on gateway alternatives for online integrations. Your dedicated rep coordinates the technical migration support with your team.",
-    timeline: "Day 1–3: Application, statement review, and gateway assessment. Day 3–7: Approval and integration planning. Day 7–14: Go-live (timeline depends on website integration complexity).",
+    timeline: TIMING_NOTE,
     whatYouNeed: [
       "Last 3 months of processing statements (from your paired processor)",
       "Current website platform and shopping cart information",
@@ -497,9 +515,9 @@ const switchFromInfo: Record<string, SwitchFromInfo> = {
       { title: "Update any in-person POS", detail: "If using Shopify POS hardware, you may need to replace it with Liberty Bancard-compatible terminals." },
       { title: "Verify checkout is working on the new processor", detail: "Place a test transaction before going fully live to confirm the new payment connection is working." },
     ],
-    whatToExpect: "Shopify's third-party processor fee (0.5%–2%) applies if you use Liberty Bancard through Shopify's checkout. Many merchants find that even with this fee, interchange-plus pricing still produces meaningful savings at volume. For in-person processing, the third-party fee does not apply.",
+    whatToExpect: "Shopify may charge an additional fee when a third-party processor is used at its online checkout; check your Shopify plan for the current terms. Compare your total cost from your own statement.",
     libertyHandles: "Liberty Bancard handles in-person terminal setup and all processing account configuration. For online checkout, we advise on the most cost-effective integration approach given your Shopify plan and transaction volume.",
-    timeline: "Day 1–3: Application and statement review. Day 3–5: Approval and account setup. Day 5–7: Terminal and integration setup. Day 7: Live on Liberty Bancard.",
+    timeline: TIMING_NOTE,
     whatYouNeed: [
       "Last 3 months of Shopify Payments reports",
       "Shopify plan level (for third-party fee calculation)",
@@ -514,9 +532,9 @@ const switchFromInfo: Record<string, SwitchFromInfo> = {
       { title: "Determine equipment status", detail: "Whether you own or lease your terminals. Owned equipment can be reprogrammed or replaced. Leased equipment obligations continue separately." },
       { title: "Send formal written notice", detail: "Send your cancellation notice to the address specified in your agreement via certified mail with return receipt. Keep all documentation." },
     ],
-    whatToExpect: "Heartland transitions vary by contract terms. For merchants near renewal, the switch is clean and typically takes 5–10 days. Mid-contract switches require termination fee analysis to confirm the math favors switching despite the fee.",
-    libertyHandles: "Liberty Bancard reviews your Heartland contract, calculates termination vs savings analysis, provides equipment for qualifying merchants, handles all underwriting and account setup, and provides go-live support.",
-    timeline: "Day 1–2: Contract review and application. Day 2–4: Underwriting and approval. Day 4–10: Equipment setup and go-live.",
+    whatToExpect: "Heartland transitions vary by contract terms. For merchants near renewal, the switch is simpler. Mid-contract switches require termination fee analysis to confirm the math favors switching despite the fee.",
+    libertyHandles: "Liberty Bancard reviews your Heartland contract, compares termination costs with your expected costs, reviews equipment options, handles underwriting and account setup, and provides activation support.",
+    timeline: TIMING_NOTE,
     whatYouNeed: [
       "Last 3 months of Heartland processing statements",
       "Heartland merchant agreement",
@@ -532,9 +550,9 @@ const switchFromInfo: Record<string, SwitchFromInfo> = {
       { title: "Resolve any open disputes or chargebacks", detail: "Ensure all chargebacks and disputes are resolved before closing. Worldpay can hold funds post-closure for dispute resolution." },
       { title: "Confirm closure confirmation in writing", detail: "Follow up until you receive written confirmation of account closure and the final statement." },
     ],
-    whatToExpect: "Worldpay transitions are clean once the notice period is satisfied. Equipment compatibility should be verified — some Worldpay terminals can be reprogrammed; others need replacement. Liberty Bancard provides free terminals for qualifying merchants.",
+    whatToExpect: "Worldpay transitions are clean once the notice period is satisfied. Equipment compatibility should be verified — some Worldpay terminals can be reprogrammed; others need replacement. Liberty Bancard reviews equipment options with you.",
     libertyHandles: "Liberty Bancard manages the full transition: contract review, application, underwriting, equipment, and go-live support. Your dedicated rep is your single point of contact from day one.",
-    timeline: "Day 1–2: Application and statement review. Day 3–5: Underwriting and approval. Day 5–10: Equipment setup and go-live.",
+    timeline: TIMING_NOTE,
     whatYouNeed: [
       "Last 3 months of Worldpay processing statements",
       "Worldpay merchant agreement",
@@ -549,9 +567,9 @@ const switchFromInfo: Record<string, SwitchFromInfo> = {
       { title: "Return or address leased equipment", detail: "If you have leased equipment, the lease continues even if you cancel processing. Review options: returning equipment, paying off the lease, or continuing lease payments while using new equipment." },
       { title: "Confirm final billing and closure", detail: "Request written confirmation of your account closure date and final statement to ensure no additional fees are charged." },
     ],
-    whatToExpect: "Fiserv transitions can be complex due to the multi-contract structure (processing + equipment lease). Liberty Bancard helps you navigate both contracts and provides free terminals for qualifying merchants so you can start fresh without equipment hassle.",
-    libertyHandles: "Liberty Bancard reviews both your processing contract and equipment lease, helps you calculate the full cost of switching (including any lease obligations), provides free terminals for qualifying merchants, and handles all account setup with dedicated onboarding support.",
-    timeline: "Day 1–3: Contract review and application. Day 3–5: Underwriting and approval. Day 5–14: Equipment and go-live (timeline varies based on contract situation).",
+    whatToExpect: "Fiserv transitions can be complex due to the multi-contract structure (processing + equipment lease). Liberty Bancard helps you navigate both contracts and reviews equipment options with you.",
+    libertyHandles: "Liberty Bancard reviews both your processing contract and equipment lease, helps you calculate the full cost of switching (including any lease obligations), reviews equipment options with you, and handles all account setup with dedicated onboarding support.",
+    timeline: TIMING_NOTE,
     whatYouNeed: [
       "Last 3 months of Fiserv processing statements",
       "Fiserv merchant processing agreement",
@@ -566,9 +584,9 @@ const switchFromInfo: Record<string, SwitchFromInfo> = {
       { title: "Contact Gravity Payments to close account", detail: "Notify Gravity Payments support of your intention to close. There are no early termination fees." },
       { title: "Export your data", detail: "Download transaction history before closing." },
     ],
-    whatToExpect: "Because Gravity Payments has no long-term contracts, the transition is simple. Switching typically takes 3–7 days from application to live processing with Liberty Bancard.",
-    libertyHandles: "Liberty Bancard handles account setup, equipment (free for qualifying merchants), and provides a dedicated account rep — addressing the primary reason merchants leave Gravity for a more full-service provider.",
-    timeline: "Day 1–2: Application and statement review. Day 2–4: Underwriting and approval. Day 4–7: Equipment and go-live.",
+    whatToExpect: "Because Gravity Payments has no long-term contracts, the transition is simple. Account approval, equipment availability, shipping and activation are separate steps with Liberty Bancard.",
+    libertyHandles: "Liberty Bancard handles account setup, equipment options reviewed with you, and provides a dedicated account rep — addressing the primary reason merchants leave Gravity for a more full-service provider.",
+    timeline: TIMING_NOTE,
     whatYouNeed: [
       "Last 3 months of Gravity Payments statements",
       "Business bank account information",
@@ -597,7 +615,7 @@ export function renderAlternativesHtml(competitorSlug: string): string {
       {
         "@type": "Question",
         "name": `What is the best alternative to ${info.name} for businesses?`,
-        "acceptedAnswer": { "@type": "Answer", "text": `Liberty Bancard is a leading alternative to ${info.name}, offering interchange-plus pricing, dedicated account representation, and cash discount programs that ${info.name} does not provide. Most merchants switching from ${info.name} to Liberty Bancard see meaningful cost reductions within the first month.` }
+        "acceptedAnswer": { "@type": "Answer", "text": `Liberty Bancard is a leading alternative to ${info.name}, offering interchange-plus pricing, dedicated account representation, and cash discount programs that ${info.name} does not provide. A statement review shows how your current costs compare before you decide to change.` }
       },
       {
         "@type": "Question",
@@ -665,7 +683,7 @@ ${ssrNavbar()}
 
 <section class="content-section">
 <h2>Switching From ${escHtml(info.name)}</h2>
-<p>If you decide ${escHtml(info.name)} isn't right and you're ready to switch, we've put together a complete guide on how to make the transition smooth and risk-free.</p>
+<p>If you decide ${escHtml(info.name)} isn't right and you're ready to switch, we've put together a complete guide on how to approach the transition.</p>
 <a href="/switch-from/${escHtml(info.slug)}" class="internal-link">→ How to Switch From ${escHtml(info.name)}</a>
 </section>
 
@@ -764,7 +782,7 @@ ${howToCancelHtml}
 
 <section class="content-section cta-section">
 <h2>Ready to Start?</h2>
-<p>Upload your ${escHtml(info.name)} statement and we'll handle the rest — statement review, application, underwriting, equipment, and go-live support. Most merchants are fully live within a week.</p>
+<p>Upload your ${escHtml(info.name)} statement and we'll review it with you. ${escHtml(TIMING_NOTE)}</p>
 <a href="/upload-statement" class="btn-primary">Upload Your Statement to Start</a>
 <a href="/compare/${escHtml(info.slug)}" class="btn-secondary">See Liberty Bancard vs ${escHtml(info.name)}</a>
 </section>

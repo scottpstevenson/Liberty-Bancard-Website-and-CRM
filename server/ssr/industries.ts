@@ -1,4 +1,5 @@
 import { ssrHtmlShell } from "../ssrShared";
+import { claimText } from "../../shared/public-claims";
 
 const BASE_URL = "https://libertybancard.com";
 
@@ -33,7 +34,7 @@ export const INDUSTRY_DATA: Record<string, IndustryData> = {
     ],
     solutions: [
       { title: "Interchange-plus pricing transparency", description: "See exactly what Visa and Mastercard charge vs. what your processor marks up. No bundled rates hiding the truth." },
-      { title: "Next-day funding availability", description: "Qualified restaurants can receive deposits by the next business day, keeping cash flow predictable.*" },
+      { title: "Funding clarity", description: "Funding availability and timing depend on the product, your eligibility, cutoffs and bank and risk conditions; we explain what applies to you.*" },
       { title: "Tip adjustment optimization", description: "We help configure your terminal settings to minimize unnecessary authorizations and reduce interchange costs." },
       { title: "POS-agnostic integration", description: "Work with your preferred POS system without being locked into overpriced bundled processing." },
       { title: "Dedicated support representative", description: "A real person who understands restaurant operations and answers when you call." },
@@ -47,7 +48,7 @@ export const INDUSTRY_DATA: Record<string, IndustryData> = {
       { question: "Can I keep my current POS system?", answer: "In most cases, yes. We integrate with major restaurant POS systems including Toast, Square, Clover, and others. We'll confirm compatibility during your statement review." },
       { question: "How do tip adjustments affect my processing costs?", answer: "Each tip adjustment creates a separate authorization that can trigger higher interchange rates. We optimize your terminal configuration to minimize these costs while maintaining compliance." },
       { question: "What about 0% processing for restaurants?", answer: "Compliant cash discount and surcharging programs are available where permitted by state law and card brand rules. We'll review your specific situation and explain all options during your statement analysis." },
-      { question: "How fast will I receive my deposits?", answer: "Qualified merchants can receive next-day funding. Actual timing depends on cutoff times, bank schedules, and risk review. We'll outline your specific funding timeline during onboarding.*" },
+      { question: "How fast will I receive my deposits?", answer: `${claimText("funding.availability")} We'll outline your specific funding timeline during onboarding.*` },
       { question: "Is there a contract or early termination fee?", answer: "Contract terms and any applicable early termination fees are clearly outlined before you sign anything. We believe in transparency — no surprises." },
     ],
   },
@@ -138,7 +139,7 @@ export const INDUSTRY_DATA: Record<string, IndustryData> = {
       { title: "Card-on-file capability", description: "Securely store client cards for no-show fees, recurring appointments, and retail purchases with PCI-compliant tokenization." },
       { title: "Clear daily deposit reporting", description: "Match your daily deposits to your appointment book with detailed batch reporting that makes sense." },
       { title: "Software-agnostic integration", description: "Use your preferred salon management software without being forced into overpriced bundled processing." },
-      { title: "Next-day funding availability", description: "Qualified salons can receive deposits by the next business day to keep cash flow aligned with daily operations.*" },
+      { title: "Funding clarity", description: "Funding availability and timing depend on the product, your eligibility, cutoffs and bank and risk conditions; we explain what applies to you.*" },
     ],
     stats: [
       { value: "2.8%", label: "Average effective rate we find on salon/spa statements" },

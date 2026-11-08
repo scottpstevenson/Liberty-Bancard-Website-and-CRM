@@ -59,6 +59,7 @@ import {
 } from "lucide-react";
 import { PromoBanner } from "@/components/PromoBanner";
 import logoBlue from "@/assets/logo-blue.png";
+import { claimText } from "@shared/public-claims";
 
 function encodeResults(data: { industry: string; volume: string; processor: string; painPoints: string[] }): string {
   return btoa(JSON.stringify(data));
@@ -91,11 +92,11 @@ const faqItems = [
   },
   {
     q: "Am I locked into a contract if I switch?",
-    a: "No. We offer month-to-month processing agreements with no early termination fees on most programs. We earn your business every month.",
+    a: claimText("equipment.agreement.summary"),
   },
   {
     q: "How long does it take to switch processors?",
-    a: "Most merchants are fully switched within 2-5 business days. We handle the equipment, programming, and onboarding so there's zero downtime for your business.",
+    a: claimText("timing.staged-process"),
   },
   {
     q: "What types of businesses do you work with?",
@@ -564,7 +565,7 @@ export default function FreeAnalysis() {
                   <div className="flex items-start gap-2">
                     <Zap className="w-4 h-4 text-primary mt-0.5 shrink-0" />
                     <p className="text-sm text-foreground font-medium" data-testid="text-urgency-message">
-                      Complete your application in 48 hours to lock in your rate.
+                      {claimText("timing.staged-process")}
                     </p>
                   </div>
                 </div>
@@ -661,7 +662,7 @@ export default function FreeAnalysis() {
               <Card data-testid="card-trust-1">
                 <CardContent className="p-4 text-center">
                   <ShieldCheck className="w-8 h-8 text-primary mx-auto mb-2" />
-                  <p className="text-sm font-medium text-foreground">No Contract Required</p>
+                  <p className="text-sm font-medium text-foreground">No Obligation</p>
                   <p className="text-xs text-muted-foreground">Free, no-obligation review</p>
                 </CardContent>
               </Card>
@@ -1206,8 +1207,8 @@ export default function FreeAnalysis() {
               <Card data-testid="card-badge-no-contract">
                 <CardContent className="p-4 text-center">
                   <ShieldCheck className="w-7 h-7 text-primary mx-auto mb-2" />
-                  <p className="text-xs font-semibold text-foreground">No Contract Lock-In</p>
-                  <p className="text-[10px] text-muted-foreground">Month-to-month available</p>
+                  <p className="text-xs font-semibold text-foreground">No Obligation to Switch</p>
+                  <p className="text-[10px] text-muted-foreground">Terms set in your agreement</p>
                 </CardContent>
               </Card>
               <Card data-testid="card-badge-pci">
@@ -1227,8 +1228,8 @@ export default function FreeAnalysis() {
               <Card data-testid="card-badge-nextday">
                 <CardContent className="p-4 text-center">
                   <TrendingUp className="w-7 h-7 text-primary mx-auto mb-2" />
-                  <p className="text-xs font-semibold text-foreground">Next-Day Funding</p>
-                  <p className="text-[10px] text-muted-foreground">For qualified merchants</p>
+                  <p className="text-xs font-semibold text-foreground">Funding Options</p>
+                  <p className="text-[10px] text-muted-foreground">Depends on your account</p>
                 </CardContent>
               </Card>
             </div>

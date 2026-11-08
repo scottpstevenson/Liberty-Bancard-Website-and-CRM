@@ -30,6 +30,8 @@ import { CALENDAR_URL } from "@/lib/constants";
 import { trackCalendarBooking, trackBookingCtaClick } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
 import { buildAttributedBookingUrl } from "@/lib/utm";
+import { ZP_NAV_DESCRIPTION } from "@shared/zero-percent-content";
+import { FST_NAV_DESCRIPTION } from "@shared/free-smart-terminal-content";
 
 // ─── Rationalised link lists ────────────────────────────────────────────────
 
@@ -43,13 +45,13 @@ const solutionLinks = [
   {
     name: "Cash Discount & Surcharging",
     href: "/0-percent-processing",
-    desc: "Compliant fee-offset programs — process at 0%",
+    desc: ZP_NAV_DESCRIPTION,
     featured: false,
   },
   {
     name: "Free Smart Terminal",
     href: "/free-smart-terminal",
-    desc: "Modern hardware at no extra cost for qualifying merchants",
+    desc: FST_NAV_DESCRIPTION,
     featured: false,
   },
   {
