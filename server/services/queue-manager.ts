@@ -1866,7 +1866,10 @@ export class QueueManager {
             ? queueName === QUEUE_NAMES.GHL_SYNC && _jobGroup === "ghl-integration"
             : _jobGroup === null
               || _activeGroups.includes(_jobGroup as any)
-              || (queueName === QUEUE_NAMES.GHL_SYNC && _activeGroups.includes("ghl-sync-only" as any));
+              || (queueName === QUEUE_NAMES.GHL_SYNC && _activeGroups.includes("ghl-sync-only" as any))
+              // The narrow statement-upload capability owns exactly this physical queue; the broader critical-commands
+              // group (which also contains it) keeps working unchanged.
+              || (queueName === QUEUE_NAMES.STATEMENT_UPLOAD && _activeGroups.includes("statement-upload" as any));
           if (!_profileSelected || !_groupSelected) {
             console.info(JSON.stringify({
               event: "job:selective_capability_suppressed",

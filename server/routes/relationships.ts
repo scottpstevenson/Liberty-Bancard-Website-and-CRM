@@ -110,7 +110,7 @@ export function registerRelationshipsRoutes(app: Express) {
             const deal = await storage.getDeal(counterpartyId).catch(() => null);
             if (deal) {
               targetName = `Deal #${deal.id} — ${deal.stage}`;
-              targetUrl = `/dashboard/deals/${deal.id}`;
+              targetUrl = `/dashboard/pipeline?id=${deal.id}`;
             }
           }
 

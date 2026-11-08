@@ -35,7 +35,7 @@ import {
   ArrowRightLeft, Loader2, ExternalLink,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { InboundResumeAction } from "@/components/lead-ops/InboundResumeAction";
+import { InboundRequestList, type InboundRequestRow } from "@/components/lead-ops/InboundRequestList";
 import { useAuth } from "@/hooks/use-auth";
 import { rememberReturnUrl } from "@/lib/crm-return-context";
 import { SouthFloridaQualificationPanel } from "@/components/lead-ops/SouthFloridaQualificationPanel";
@@ -677,31 +677,7 @@ interface AiAnalysis {
   verticals: any[];
 }
 
-interface InboundRequest {
-  requestReceipt: string;
-  sourceClass: string;
-  sourceCategory: string;
-  sourceType: string;
-  lifecycleState: string;
-  effects: Array<{
-    effectKey: string;
-    effectType: string;
-    state: string;
-    required: boolean;
-    externalSideEffect: boolean;
-    terminalReason: string | null;
-  }>;
-  assignmentStatus: string;
-  assignmentReason?: string | null;
-  assignedTo: string | null;
-  slaDueAt: string | null;
-  contactId: number | null;
-  dealId: number | null;
-  ticketId: number | null;
-  createdAt: string;
-  terminalReason: string | null;
-  reviewRevision?: number | null;
-}
+type InboundRequest = InboundRequestRow;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function scoreBadge(score: string | null) {
@@ -717,19 +693,6 @@ function statusBadge(status: string) {
   if (status === "processing") return "bg-blue-100 text-blue-800 border-blue-200";
   if (status === "failed")     return "bg-red-100 text-red-800 border-red-200";
   return "bg-gray-100 text-gray-700 border-gray-200";
-}
-
-function inboundStatusBadge(status: string | null | undefined) {
-  if (status === "accepted" || status === "completed" || status === "sent" || status === "assigned") return "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300";
-  if (status === "failed" || status === "cancelled" || status === "suppressed" || status === "unassigned_policy_missing") return "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300";
-  if (status === "review_required" || status === "pending" || status === "held") return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300";
-  return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300";
-}
-
-function formatInboundDate(value: string | null | undefined) {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
 }
 
 // ─── MI-04: Canonical Business Free Enrichment Panel ─────────────────────────
@@ -2261,6 +2224,35 @@ export default function LeadOpsCenter() {
   const [inboundSourceClass, setInboundSourceClass] = useState("all");
   const [inboundLifecycle, setInboundLifecycle] = useState("all");
   const INBOUND_LIMIT = 25;
+  // Short-reference lookup. The reference is the one a requester sees in their confirmation; it is also carried in the
+  // URL (?ref=) so a notification or a shared link opens the exact request.
+  const refFromUrl = (new URLSearchParams(urlSearch).get("ref") ?? "").trim().toUpperCase().slice(0, 8);
+  const [inboundRef, setInboundRef] = useState(refFromUrl);
+  const [inboundRefInput, setInboundRefInput] = useState(refFromUrl);
+  const [inboundRefError, setInboundRefError] = useState<string | null>(null);
+  useEffect(() => {
+    setInboundRef(refFromUrl);
+    setInboundRefInput(refFromUrl);
+    setInboundRefError(null);
+    setInboundPage(0);
+  }, [refFromUrl]);
+  const applyInboundRef = (raw: string) => {
+    const value = raw.trim().toUpperCase();
+    if (value === "") {
+      setInboundRef("");
+      setInboundRefError(null);
+      navigate(typedTabUrl("/dashboard/lead-ops", urlSearch, window.location.hash, { tab: "pipeline" }));
+      return;
+    }
+    if (!/^[0-9A-F]{4,8}$/.test(value)) {
+      setInboundRefError("A reference is 4 to 8 characters using the digits 0-9 and the letters A-F.");
+      return;
+    }
+    setInboundRefError(null);
+    setInboundRef(value);
+    setInboundPage(0);
+    navigate(typedTabUrl("/dashboard/lead-ops", urlSearch, window.location.hash, { tab: "pipeline", ref: value }));
+  };
 
   // ── Selection state ────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -2341,9 +2333,10 @@ export default function LeadOpsCenter() {
     offset: String(inboundPage * INBOUND_LIMIT),
     ...(inboundSourceClass !== "all" ? { sourceClass: inboundSourceClass } : {}),
     ...(inboundLifecycle !== "all" ? { lifecycleState: inboundLifecycle } : {}),
+    ...(inboundRef ? { ref: inboundRef } : {}),
   });
   const inboundRequestsQuery = useCrmQuery<InboundRequest[]>({
-    queryKey: ["/api/lead-ops/inbound-requests", inboundPage, inboundSourceClass, inboundLifecycle],
+    queryKey: ["/api/lead-ops/inbound-requests", inboundPage, inboundSourceClass, inboundLifecycle, inboundRef],
     queryFn: ({ signal }) => crmFetch(`/api/lead-ops/inbound-requests?${inboundParams}`, signal),
     enabled: onPipeline,
   });
@@ -2737,19 +2730,19 @@ export default function LeadOpsCenter() {
         <TabsContent value="pipeline" className="space-y-6">
           {/* Inbound request operations */}
           {/* ── Inbound request operations ─────────────────────────────── */}
-      <Card className="shadow-sm">
+      <Card className="shadow-sm" data-testid="card-inbound-operations">
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <CardTitle className="text-base">Inbound Request Operations</CardTitle>
               <CardDescription className="text-xs mt-1">
-                Bounded operational view of governed inbound receipts and their canonical work links.
+                Website requests from the public forms, with the review work, deadline and receipt email for each. Enter the reference from a requester's confirmation to open that request.
               </CardDescription>
             </div>
             <Button
               variant="outline"
               size="sm"
-              className="gap-1.5 shrink-0"
+              className="gap-1.5 shrink-0 min-h-11 sm:min-h-8"
               onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/inbound-requests"] })}
               disabled={inboundRequestsQuery.isFetching}
             >
@@ -2757,14 +2750,46 @@ export default function LeadOpsCenter() {
               Refresh
             </Button>
           </div>
+          <form
+            className="flex flex-col gap-2 pt-2 sm:flex-row sm:items-start"
+            onSubmit={(event) => { event.preventDefault(); applyInboundRef(inboundRefInput); }}
+            data-testid="form-inbound-ref-lookup"
+          >
+            <div className="flex-1 sm:max-w-xs">
+              <label htmlFor="inbound-ref-input" className="sr-only">Request reference</label>
+              <Input
+                id="inbound-ref-input"
+                value={inboundRefInput}
+                onChange={(event) => setInboundRefInput(event.target.value)}
+                placeholder="Reference, for example 269B66AF"
+                autoComplete="off"
+                autoCapitalize="characters"
+                spellCheck={false}
+                maxLength={8}
+                className="min-h-11 sm:min-h-9 font-mono"
+                aria-invalid={inboundRefError ? true : undefined}
+                aria-describedby={inboundRefError ? "inbound-ref-error" : undefined}
+                data-testid="input-inbound-ref"
+              />
+              {inboundRefError && <p id="inbound-ref-error" role="alert" className="mt-1 text-xs text-destructive" data-testid="text-inbound-ref-error">{inboundRefError}</p>}
+            </div>
+            <div className="flex gap-2">
+              <Button type="submit" className="min-h-11 sm:min-h-9" data-testid="button-inbound-ref-lookup">Find request</Button>
+              {(inboundRef || inboundRefInput) && (
+                <Button type="button" variant="outline" className="min-h-11 sm:min-h-9" onClick={() => { setInboundRefInput(""); applyInboundRef(""); }} data-testid="button-inbound-ref-clear">
+                  Show all
+                </Button>
+              )}
+            </div>
+          </form>
           <div className="flex flex-wrap gap-2 pt-1">
             <Select value={inboundSourceClass} onValueChange={(value) => { setInboundSourceClass(value); setInboundPage(0); }}>
-              <SelectTrigger className="h-8 w-44 text-xs"><SelectValue placeholder="All source classes" /></SelectTrigger>
+              <SelectTrigger className="h-11 sm:h-8 w-full sm:w-48 text-xs"><SelectValue placeholder="All request types" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All source classes</SelectItem>
+                <SelectItem value="all">All request types</SelectItem>
                 <SelectItem value="sales_request">Sales request</SelectItem>
                 <SelectItem value="support_request">Support request</SelectItem>
-                <SelectItem value="fulfillment_request">Fulfillment request</SelectItem>
+                <SelectItem value="fulfillment_request">Equipment order</SelectItem>
                 <SelectItem value="partner_application_request">Partner application</SelectItem>
                 <SelectItem value="privacy_request">Privacy request</SelectItem>
                 <SelectItem value="content_reputation">Content &amp; reputation</SelectItem>
@@ -2773,121 +2798,50 @@ export default function LeadOpsCenter() {
               </SelectContent>
             </Select>
             <Select value={inboundLifecycle} onValueChange={(value) => { setInboundLifecycle(value); setInboundPage(0); }}>
-              <SelectTrigger className="h-8 w-44 text-xs"><SelectValue placeholder="All lifecycle states" /></SelectTrigger>
+              <SelectTrigger className="h-11 sm:h-8 w-full sm:w-48 text-xs"><SelectValue placeholder="All statuses" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All lifecycle states</SelectItem>
-                <SelectItem value="claimed">Claimed</SelectItem>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="claimed">Received</SelectItem>
                 <SelectItem value="processing">Processing</SelectItem>
                 <SelectItem value="accepted">Accepted</SelectItem>
                 <SelectItem value="completed">Completed</SelectItem>
                 <SelectItem value="failed">Failed</SelectItem>
                 <SelectItem value="cancelled">Cancelled</SelectItem>
-                <SelectItem value="review_required">Review required</SelectItem>
+                <SelectItem value="review_required">Needs review</SelectItem>
               </SelectContent>
             </Select>
           </div>
+          {inboundRef && !inboundRequestsQuery.isError && !inboundRequestsQuery.isLoading && (
+            <p className="text-xs text-muted-foreground pt-1" role="status" data-testid="text-inbound-ref-result">
+              {inboundRequests.length === 0
+                ? `No request starts with ${inboundRef}. Check the reference exactly as shown in the confirmation.`
+                : inboundRequests.length === 1
+                  ? `Showing the request that starts with ${inboundRef}.`
+                  : `${inboundRequests.length} requests start with ${inboundRef}. Enter more characters of the reference to narrow it to one.`}
+            </p>
+          )}
         </CardHeader>
         <CardContent className="p-0">
           {inboundRequestsQuery.isError ? (
-            <div className="px-6 py-8 text-sm text-destructive">
-              Unable to load inbound requests. {inboundRequestsQuery.error instanceof Error ? inboundRequestsQuery.error.message : ""}
+            <div className="px-4 sm:px-6 py-8 space-y-3" role="alert" data-testid="inbound-unavailable">
+              <p className="text-sm text-destructive">
+                Inbound requests are unavailable right now, so this is not an all-clear. {inboundRequestsQuery.error instanceof Error ? inboundRequestsQuery.error.message : ""}
+              </p>
+              <Button variant="outline" className="min-h-11 sm:min-h-9" onClick={() => inboundRequestsQuery.refetch()} data-testid="button-inbound-retry">Retry</Button>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table className="min-w-[1300px]">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Source / received</TableHead>
-                    <TableHead>Opaque receipt</TableHead>
-                    <TableHead>Assignment</TableHead>
-                    <TableHead>SLA due</TableHead>
-                    <TableHead>Lifecycle / effect truth</TableHead>
-                    <TableHead>Terminal reason (redacted)</TableHead>
-                    <TableHead>Canonical links</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {inboundRequestsQuery.isLoading
-                    ? Array.from({ length: 5 }).map((_, index) => (
-                      <TableRow key={index}>
-                        {Array.from({ length: 7 }).map((__, cell) => <TableCell key={cell}><Skeleton className="h-4 w-full" /></TableCell>)}
-                      </TableRow>
-                    ))
-                    : inboundRequests.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="h-24 text-center text-sm text-muted-foreground">
-                          No inbound requests match the current filters.
-                        </TableCell>
-                      </TableRow>
-                    ) : inboundRequests.map((request) => (
-                      <TableRow key={request.requestReceipt}>
-                        <TableCell className="text-xs">
-                          <div className="font-medium">{request.sourceClass}</div>
-                          <div className="text-muted-foreground">{request.sourceCategory} / {request.sourceType}</div>
-                          <div className="text-muted-foreground mt-1">{formatInboundDate(request.createdAt)}</div>
-                        </TableCell>
-                        <TableCell className="max-w-[190px] font-mono text-[11px] break-all">{request.requestReceipt}</TableCell>
-                        <TableCell className="text-xs">
-                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-5 ${inboundStatusBadge(request.assignmentStatus)}`}>
-                            {request.assignmentStatus}
-                          </Badge>
-                          {(request.assignedTo || request.assignmentReason) && (
-                            <div className="text-muted-foreground mt-1 max-w-[180px] break-words">
-                              {request.assignedTo || request.assignmentReason}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap text-xs">{formatInboundDate(request.slaDueAt)}</TableCell>
-                        <TableCell className="text-xs space-y-1">
-                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-5 ${inboundStatusBadge(request.lifecycleState)}`}>
-                            {request.lifecycleState}
-                          </Badge>
-                          <div className="space-y-1 pt-0.5">
-                            {request.effects.length === 0 ? (
-                              <div className="text-muted-foreground">No effects reported</div>
-                            ) : request.effects.map((effect) => (
-                              <div key={effect.effectKey} className="flex flex-wrap items-center gap-1 text-[10px]">
-                                <span className="text-muted-foreground">{effect.effectKey}</span>
-                                <Badge variant="outline" className={`text-[9px] px-1 py-0 h-4 ${inboundStatusBadge(effect.state)}`}>
-                                  {effect.state}
-                                </Badge>
-                                {effect.externalSideEffect && <span className="text-muted-foreground">(external effect)</span>}
-                                {effect.terminalReason && <span className="text-muted-foreground">{effect.terminalReason}</span>}
-                              </div>
-                            ))}
-                          </div>
-                        </TableCell>
-                        <TableCell className="max-w-[220px] text-xs text-muted-foreground break-words">
-                          {request.terminalReason || "—"}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          <div className="flex flex-col items-start gap-1">
-                            {request.contactId && <a className="text-blue-600 hover:underline" href={`/dashboard/contacts/${request.contactId}`}>Contact #{request.contactId}</a>}
-                            {request.dealId && <a className="text-blue-600 hover:underline" href="/dashboard/pipeline">Deal #{request.dealId}</a>}
-                            {request.ticketId && <a className="text-blue-600 hover:underline" href="/dashboard/tickets">Ticket #{request.ticketId}</a>}
-                            {!request.contactId && !request.dealId && !request.ticketId && <span className="text-muted-foreground">—</span>}
-                            {request.sourceClass === "sales_request" && request.lifecycleState === "review_required" && request.contactId && (
-                              <InboundResumeAction requestReceipt={request.requestReceipt} reviewRevision={request.reviewRevision ?? null} />
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  }
-                </TableBody>
-              </Table>
-            </div>
+            <InboundRequestList requests={inboundRequests} isLoading={inboundRequestsQuery.isLoading} isAdmin={user?.role === "admin"} />
           )}
         </CardContent>
-        <div className="flex items-center justify-between border-t px-6 py-3">
+        <div className="flex flex-col gap-2 border-t px-4 sm:px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
           <span className="text-xs text-muted-foreground">
-            {inboundRequestsQuery.isLoading ? "Loading receipts…" : `Page ${inboundPage + 1} · up to ${INBOUND_LIMIT} receipts`}
+            {inboundRequestsQuery.isLoading ? "Loading requests…" : `Page ${inboundPage + 1} · up to ${INBOUND_LIMIT} requests`}
           </span>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={inboundPage === 0 || inboundRequestsQuery.isFetching} onClick={() => setInboundPage((page) => page - 1)}>
+            <Button variant="outline" size="sm" className="min-h-11 sm:min-h-8" disabled={inboundPage === 0 || inboundRequestsQuery.isFetching} onClick={() => setInboundPage((page) => page - 1)}>
               <ChevronLeft className="h-4 w-4 mr-1" /> Previous
             </Button>
-            <Button variant="outline" size="sm" disabled={inboundRequests.length < INBOUND_LIMIT || inboundRequestsQuery.isFetching} onClick={() => setInboundPage((page) => page + 1)}>
+            <Button variant="outline" size="sm" className="min-h-11 sm:min-h-8" disabled={inboundRequests.length < INBOUND_LIMIT || inboundRequestsQuery.isFetching} onClick={() => setInboundPage((page) => page + 1)}>
               Next <ChevronRight className="h-4 w-4 ml-1" />
             </Button>
           </div>

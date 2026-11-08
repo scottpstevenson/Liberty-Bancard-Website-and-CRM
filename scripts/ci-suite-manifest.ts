@@ -510,6 +510,24 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "source-backed authority boundary checks; no providers",
   },
   {
+    name: "Website intake and CRM handoff",
+    script: "scripts/certification/test-website-intake-handoff.ts",
+    capability: "deterministic-integration",
+    providerDenial: "disposable PostgreSQL and isolated Redis; real multipart route with deny-by-default provider egress; no send, queue consumer, GHL or paid provider call; outbound pause stays paused",
+  },
+  {
+    name: "Statement-upload queue capability",
+    script: "scripts/certification/test-statement-upload-queue-capability.ts",
+    capability: "deterministic-integration",
+    providerDenial: "disposable PostgreSQL and isolated Redis; real BullMQ producer with the physical queue paused before any job is added, so nothing is consumed, processed or sent; deny-by-default provider egress",
+  },
+  {
+    name: "Website intake and CRM handoff mounted browser",
+    script: "scripts/certification/test-website-intake-handoff-browser.ts",
+    capability: "deterministic-integration",
+    providerDenial: "private compiled client, actual admin/manager/agent sessions, disposable PostgreSQL and isolated Redis; real multipart route, other /api answers 501, fixture-supplied inbox payload; deny-by-default provider egress; no send, queue consumer, GHL or paid provider call",
+  },
+  {
     name: "Canonical address ownership and receipt/native contracts",
     script: "scripts/certification/test-canonical-address-validation.ts",
     capability: "deterministic-integration",

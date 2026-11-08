@@ -15,7 +15,9 @@ import { contacts } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { normalizePhoneE164 } from "../services/sdr/dedupe";
-import { persistAndEnqueueStatementCommand } from "../services/statement-command-worker";
+import { retainStatementAndTryEnqueue } from "../services/statement-command-worker";
+import { inspectStatementFile, STATEMENT_MAX_BYTES } from "../services/statement-upload-file";
+import { ensureStatementOccurrenceNotification } from "../services/statement-review-notification";
 import {
   claimCommand,
   computeRequestFingerprint,
@@ -39,6 +41,7 @@ import {
   claimInboundRequest,
   getInboundRequestById,
   getPublicInboundRequestStatus,
+  inboundShortRef,
   inboundSlaDueAt,
   orchestrateInboundRequest,
   queueAmbiguousCallbackReview,
@@ -365,7 +368,24 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
 
   // === PUBLIC FORM SUBMISSIONS ===
-  app.post("/api/public/statement-upload", publicLeadRateLimit, upload.single("statementFile"), async (req, res) => {
+  // Multipart parsing runs before the handler claims anything, so a rejected file must answer with a structured,
+  // non-sensitive code here: the size ceiling (10 MB, shared with every document upload) is 413 and an
+  // unsupported media type is 415, never a generic 500 or an opaque error string.
+  const parseStatementMultipart: import("express").RequestHandler = (req, res, next) => {
+    upload.single("statementFile")(req, res, (err: unknown) => {
+      if (!err) return next();
+      const code = (err as { code?: string } | null)?.code;
+      if (code === "LIMIT_FILE_SIZE") {
+        return res.status(413).json({ error: "STATEMENT_FILE_TOO_LARGE", message: `The statement must be ${Math.floor(STATEMENT_MAX_BYTES / 1024 / 1024)} MB or smaller.` });
+      }
+      if (typeof code === "string" && code.startsWith("LIMIT_")) {
+        return res.status(400).json({ error: "STATEMENT_UPLOAD_REJECTED", message: "The upload could not be read. Please try again." });
+      }
+      return res.status(415).json({ error: "STATEMENT_FILE_TYPE_UNSUPPORTED", message: "Upload a PDF, JPG or PNG statement." });
+    });
+  };
+
+  app.post("/api/public/statement-upload", publicLeadRateLimit, parseStatementMultipart, async (req, res) => {
     let ownedCommandId: string | null = null;
     let ownedInboundRequestId: string | null = null;
     try {
@@ -380,6 +400,20 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         return res.status(400).json({
           error: "INVALID_IDEMPOTENCY_KEY",
           message: "Idempotency-Key must be a valid UUID v4.",
+        });
+      }
+
+      // The file is validated BEFORE anything is claimed, stored or created: a missing, oversize or non-statement
+      // upload must leave no occurrence, contact or retained object behind.
+      const fileVerdict = inspectStatementFile(req.file);
+      if (!fileVerdict.ok) {
+        return res.status(fileVerdict.status).json({
+          error: fileVerdict.code,
+          message: fileVerdict.code === "STATEMENT_FILE_REQUIRED"
+            ? "Choose a statement file to upload."
+            : fileVerdict.code === "STATEMENT_FILE_TOO_LARGE"
+              ? `The statement must be ${Math.floor(STATEMENT_MAX_BYTES / 1024 / 1024)} MB or smaller.`
+              : "Upload a PDF, JPG or PNG statement.",
         });
       }
 
@@ -450,10 +484,16 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }
       if (inboundClaim.outcome === "replay") {
         const status = inboundClaim.request.lifecycleState;
+        // A replay answers from the stored occurrence: same reference, and the processing state it really has.
+        const replayDeferred = String(inboundClaim.request.terminalReason ?? "").startsWith("STATEMENT_PROCESSING_DEFERRED");
         return res.status(status === "claimed" || status === "processing" ? 202 : 200).json({
           success: true,
           requestReceipt: inboundClaim.request.id,
           status,
+          reference: inboundShortRef(inboundClaim.request.id),
+          ...(["review_required", "processing", "accepted", "completed"].includes(status)
+            ? { statementProcessing: replayDeferred ? "deferred" : "queued" }
+            : {}),
         });
       }
       const submissionId = inboundClaim.request.id;
@@ -637,7 +677,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       // Run the full 11-step conversion chain (fire-and-forget — merchant always gets 201).
       // Replay paths return early above, so everything below the claim runs exactly once
       // per approved Idempotency-Key — no need to serialize side effects behind the chain.
-      const statementQueued = await persistAndEnqueueStatementCommand({
+      const handoff = await retainStatementAndTryEnqueue({
         contactId: contact.id,
         dealId: existingDealId || null,
         fileBuffer: statementFileBuffer,
@@ -647,31 +687,45 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         partnerOrgId: resolvedPartnerOrgId,
         commandId,
         requestId: idempotencyKey,
-         inboundRequestId: submissionId,
+        inboundRequestId: submissionId,
       });
-      if (!statementQueued) {
-        await markRecoverableFailed(commandId, {
-          code: "STATEMENT_COMMAND_QUEUE_UNAVAILABLE",
-        }).catch(() => {});
-        await setInboundRequestLifecycle(
-          submissionId,
-          "failed",
-          "STATEMENT_COMMAND_QUEUE_UNAVAILABLE",
-        ).catch(() => {});
-        ownedCommandId = null;
-        ownedInboundRequestId = null;
-        return res.status(503).json({ error: "REQUEST_PROCESSING_UNAVAILABLE" });
-      }
-      // Durable command/object/queue ownership has transferred. Later
-      // route-local bookkeeping must not terminalize the worker-owned command.
+      // The retained object and the durable in-progress command now exist. If the queue refused the handoff, the
+      // command stays unleased and the recovery tick re-enqueues it once a consumer is selected: that is a deferral
+      // the operator must see, not a failure to report to the merchant, so the occurrence continues below.
       ownedCommandId = null;
-      // The contact and protected-object command handoff both exist before
-      // request orchestration creates request-derived sales work.
-      const inboundResponse = await acceptInbound(req, {
+      const deferred = handoff.state === "deferred";
+      // Durable review obligation (task, SLA, assignment evidence) exists whether or not the queue accepted the job.
+      const businessLabel = (businessName || contact.companyName || "").toString().trim() || null;
+      try {
+        await ensureStatementOccurrenceNotification({
+          requestId: submissionId,
+          contactId: contact.id,
+          dealId: existingDealId || null,
+          business: businessLabel,
+          state: deferred ? "needs_attention" : "queued",
+        });
+      } catch (notificationError) {
+        // The task and SLA are the durable obligation; a missing notification must not hide the retained upload.
+        console.error("[StatementUpload] occurrence notification failed:", notificationError instanceof Error ? notificationError.name : "unknown");
+        await storage.createAuditLog({
+          action: "statement_occurrence_notification_failed", entityType: "contact", entityId: contact.id, actorType: "system",
+          details: { requestId: submissionId },
+        } as any).catch(() => {});
+      }
+      const accepted = await acceptInbound(req, {
         contactId: contact.id,
         dealId: existingDealId || null,
       });
-      if (!inboundResponse) throw new Error("INBOUND_REQUEST_HANDOFF_MISSING");
+      if (!accepted) throw new Error("INBOUND_REQUEST_HANDOFF_MISSING");
+      if (deferred) {
+        await setInboundRequestLifecycle(submissionId, "review_required", `STATEMENT_PROCESSING_DEFERRED:${handoff.code}`);
+      }
+      const inboundResponse = {
+        ...accepted,
+        status: deferred ? "review_required" : accepted.status,
+        reference: inboundShortRef(submissionId),
+        statementProcessing: deferred ? "deferred" : "queued",
+      };
       // Required inbound orchestration is now durable. Optional route-local
       // records below cannot rewrite the canonical request lifecycle.
       ownedInboundRequestId = null;
@@ -733,6 +787,10 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }
       if (ownedInboundRequestId) {
         await setInboundRequestLifecycle(ownedInboundRequestId, "failed", "STATEMENT_UPLOAD_FAILED").catch(() => {});
+      }
+      // Retention/binding faults are server-side and carry internal identifiers: answer with a stable code, never the message.
+      if (typeof err?.message === "string" && /^(PROTECTED_OBJECT_|STATEMENT_COMMAND_|INBOUND_REQUEST_LINK_FAILED|STATEMENT_HANDOFF_)/.test(err.message)) {
+        return res.status(503).json({ error: "REQUEST_PROCESSING_UNAVAILABLE" });
       }
       res.status(400).json({ message: err.message || "Invalid submission" });
     }

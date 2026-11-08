@@ -73,6 +73,12 @@ export interface StatementUploadChainResult {
 }
 
 // Active stages that should be advanced to "Statement Received" on upload
+/**
+ * Durable, default-closed owner switch. While it is not exactly "true", a public (website) statement occurrence does
+ * not enqueue automatic AI analysis; reps can still start analysis from the deal.
+ */
+export const STATEMENT_AUTO_ANALYSIS_SETTING = "statement_auto_analysis_enabled";
+
 const STAGES_TO_ADVANCE = ["New Lead", "Review In Progress"];
 
 async function logStepFailure(
@@ -346,7 +352,19 @@ export async function runStatementUploadChain(
   // ────────────────────────────────────────────────────────────────────────────
   // STEP 5 — AI analysis job queued  (lifecycle: pending → processing → complete)
   // ────────────────────────────────────────────────────────────────────────────
-  if (dealId) {
+  // A public (website) occurrence must not spend a paid AI provider on a stranger's financial document without an
+  // explicit, durable owner decision. Default closed: the step is recorded truthfully as held, the deal's
+  // analysis status is left untouched, and a rep can still start analysis from the deal.
+  const autoAnalysisHeld = Boolean(dealId) && input.source === "website" && Boolean(input.inboundRequestId)
+    && (await storage.getSystemSetting(STATEMENT_AUTO_ANALYSIS_SETTING).catch(() => null)) !== "true";
+  if (autoAnalysisHeld) {
+    steps.push(makeStep(5, "AI analysis held", true, undefined, {
+      dealId,
+      state: "held",
+      reason: "STATEMENT_AUTO_ANALYSIS_NOT_ENABLED",
+      providerAttempted: false,
+    }));
+  } else if (dealId) {
     try {
       // Set pending immediately so the deal card reflects queued state
       await storage.updateDeal(dealId, { analysisStatus: "pending" });
@@ -446,13 +464,32 @@ export async function runStatementUploadChain(
       // recipientId stays null → notification is system-wide (visible to all admins)
     }
 
+    // Retired `/dashboard/deals/:id` has no route; the pipeline opens a deal by query parameter.
     const dealLink = dealId
-      ? `${process.env.APP_URL || ""}/dashboard/deals/${dealId}`
-      : `${process.env.APP_URL || ""}/dashboard/pipeline`;
+      ? `/dashboard/pipeline?id=${dealId}`
+      : `/dashboard/pipeline`;
 
     // In-app notification — recipientId MUST be the user's string id so that
     // getNotificationsPaginated(userId) correctly scopes it to that user's inbox.
     // When repUserId is null the notification is system-wide (recipientId IS NULL).
+    if (input.inboundRequestId) {
+      // A public occurrence has exactly one durable notification, owned by its request-derived command key. Reuse it
+      // (or create it when this run is the first writer); never add a second row per worker run or recovery.
+      const { ensureStatementOccurrenceNotification } = await import("./statement-review-notification");
+      await ensureStatementOccurrenceNotification({
+        requestId: input.inboundRequestId,
+        contactId: input.contactId,
+        dealId: dealId || null,
+        business: merchantName === "Unknown" ? null : merchantName,
+        state: "queued",
+      });
+      steps.push(makeStep(6, "Rep notified", true, undefined, {
+        repUserId: "management-audience",
+        channel: "in-app-only",
+        owner: "occurrence_notification",
+        externalDeliveryState: "held",
+      }));
+    } else {
     await storage.createNotification({
       channel: "internal",
       title: "New Statement Uploaded",
@@ -472,6 +509,7 @@ export async function runStatementUploadChain(
       channel: "in-app-only",
       externalDeliveryState: "held",
     }));
+    }
   } catch (err: any) {
     steps.push(makeStep(6, "Rep notified", false, err.message));
     await logStepFailure(dealId, 6, "Rep notified", err.message);

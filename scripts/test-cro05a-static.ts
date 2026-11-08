@@ -40,7 +40,7 @@ const authority = source("server/services/inbound-request-authority.ts");
 const publicRoutes = source("server/routes/public.ts");
 const importsRoutes = source("server/routes/imports.ts");
 const leadOpsRoutes = source("server/routes/lead-ops.ts");
-const leadOpsUi = source("client/src/pages/dashboard/LeadOpsCenter.tsx");
+const leadOpsUi = source("client/src/pages/dashboard/LeadOpsCenter.tsx") + "\n" + source("client/src/components/lead-ops/InboundRequestList.tsx");
 const statementWorker = source("server/services/statement-command-worker.ts");
 const statementChain = source("server/services/statement-upload-chain.ts");
 const statementAnalyzer = source("server/services/statement-analyzer.ts");
@@ -243,8 +243,8 @@ check("statement upload claims the canonical inbound occurrence before contact o
   assert.match(statementRoute, /status:\s*inboundClaim\.request\.lifecycleState/);
   assert.doesNotMatch(statementRoute, /status:\s*"(?:accepted|processing)"/);
   assert.match(statementRoute, /eventKey:\s*`form:statement_upload:\$\{submissionId\}`/);
-  assert.match(statementRoute, /await persistAndEnqueueStatementCommand\(/);
-  assert.match(statementRoute, /const inboundResponse = await acceptInbound\(req, \{\s*contactId:\s*contact\.id/);
+  assert.match(statementRoute, /await retainStatementAndTryEnqueue\(/);
+  assert.match(statementRoute, /const accepted = await acceptInbound\(req, \{\s*contactId:\s*contact\.id/);
   assert.match(statementRoute, /res\.status\(202\)\.json\(inboundResponse\)/);
   assert.doesNotMatch(statementRoute, /X-Statement-Upload-Request-Id|statement_upload_request_id/);
   assert.doesNotMatch(statementRoute, /crypto\.randomUUID\(\)/);
@@ -416,7 +416,7 @@ check("operator API and Lead Ops view return every effect truthfully", () => {
   assert.match(leadOpsRoutes, /from\(inboundRequestEffects\)/);
   assert.match(leadOpsRoutes, /effects: effectsByRequest\.get\(row\.id\) \|\| \[\]/);
   assert.match(leadOpsUi, /effects: Array<\{/);
-  assert.match(leadOpsUi, /request\.effects\.map\(\(effect\)/);
+  assert.match(leadOpsUi, /row\.effects\.map\(\(effect\)/);
   assert.match(leadOpsUi, /effect\.externalSideEffect/);
 });
 

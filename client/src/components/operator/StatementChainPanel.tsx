@@ -153,7 +153,7 @@ export default function StatementChainPanel() {
                       </td>
                       <td className="py-2 pr-3">
                         <a
-                          href={`/dashboard/pipeline?dealId=${d?.dealId}`}
+                          href={`/dashboard/pipeline?id=${d?.dealId}`}
                           className="text-primary hover:underline font-mono"
                           data-testid={`link-deal-${d?.dealId}`}
                         >

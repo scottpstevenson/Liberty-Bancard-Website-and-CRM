@@ -50,6 +50,54 @@ export const ACK_CONTACTLESS_SOURCE_CLASSES: readonly string[] = ["privacy_reque
 const isContactless = (sourceClass: string) => ACK_CONTACTLESS_SOURCE_CLASSES.includes(sourceClass);
 
 /**
+ * The internal review milestone that must already be durable (`sent`) before a receipt for the class may be admitted.
+ * A receipt tells the requester that a person will review their request; it must never go out ahead of the work that
+ * makes that statement true. Only effects the request actually carries are enforced, so a request without the
+ * milestone row keeps the receipt-only behavior it always had.
+ */
+export const ACK_INTERNAL_MILESTONE_EFFECT: Record<AckSourceClass, string> = {
+  sales_request: "sales_work",
+  support_request: "support_ticket",
+  fulfillment_request: "fulfillment",
+  partner_application_request: "review_notification",
+  privacy_request: "review_notification",
+};
+
+export async function ackInternalReviewGate(requestId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const [req] = await db
+    .select({ sourceClass: inboundRequests.sourceClass, sourceType: inboundRequests.sourceType, protectedObjectRef: inboundRequests.protectedObjectRef })
+    .from(inboundRequests).where(eq(inboundRequests.id, requestId)).limit(1);
+  if (!req) return { ok: false, reason: "request_missing" };
+  // A statement receipt says the file was received: that is only true once the file is retained.
+  if (req.sourceType === "statement_upload" && !req.protectedObjectRef) return { ok: false, reason: "statement_not_retained" };
+  const effectKey = ACK_INTERNAL_MILESTONE_EFFECT[req.sourceClass as AckSourceClass];
+  if (!effectKey) return { ok: true };
+  const milestone = await db.select({ state: inboundRequestEffects.state }).from(inboundRequestEffects)
+    .where(and(eq(inboundRequestEffects.requestId, requestId), eq(inboundRequestEffects.effectKey, effectKey)));
+  if (milestone.some((m) => m.state !== "sent")) return { ok: false, reason: "internal_review_not_durable" };
+  return { ok: true };
+}
+
+/**
+ * SQL form of {@link ackInternalReviewGate} for the sweep pre-filter, so requests whose review work is not yet durable
+ * are not selected at all (they would otherwise occupy the head of the bounded batch every pass).
+ */
+const ackInternalReviewReadySql = sql`(
+  NOT (${inboundRequests.sourceType} = 'statement_upload' AND ${inboundRequests.protectedObjectRef} IS NULL)
+  AND NOT EXISTS (
+    SELECT 1 FROM inbound_request_effects m
+    WHERE m.request_id = ${inboundRequests.id}
+      AND m.state <> 'sent'
+      AND m.effect_key = CASE ${inboundRequests.sourceClass}
+        WHEN 'sales_request' THEN 'sales_work'
+        WHEN 'support_request' THEN 'support_ticket'
+        WHEN 'fulfillment_request' THEN 'fulfillment'
+        WHEN 'partner_application_request' THEN 'review_notification'
+        WHEN 'privacy_request' THEN 'review_notification'
+        ELSE '' END)
+)`;
+
+/**
  * Block reasons that can never clear: eligibility only moves forward (activation is never backdated) and the
  * recipient snapshot is immutable. The sweep stops revisiting these, so a backlog of them cannot starve new requests.
  */
@@ -61,8 +109,16 @@ export const ACK_TERMINAL_BLOCK_REASONS = [
 
 export interface AckCapability {
   enabled: boolean;
-  /** Requests received before this instant are never acknowledged by email (no historical catch-up). */
+  /**
+   * Requests received before this instant are never acknowledged by email (no historical catch-up). Legacy field: the
+   * earliest per-class cutoff. A class listed in `classEligibleFrom` is governed by its own cutoff instead.
+   */
   eligibleFrom: string | null;
+  /**
+   * Per-class cutoff. A class that stays enabled across saves keeps its original cutoff, so re-saving the setting can
+   * never push an already-enabled request type's window forward and strand requests received in between.
+   */
+  classEligibleFrom?: Record<string, string>;
   expiresAt: string | null;
   sourceClasses: string[];
   activatedBy: string | null;
@@ -84,6 +140,14 @@ async function readAckCapability(): Promise<AckCapability> {
     return {
       enabled: true,
       eligibleFrom: typeof parsed.eligibleFrom === "string" ? parsed.eligibleFrom : null,
+      ...(parsed.classEligibleFrom && typeof parsed.classEligibleFrom === "object" && !Array.isArray(parsed.classEligibleFrom)
+        ? {
+            classEligibleFrom: Object.fromEntries(
+              Object.entries(parsed.classEligibleFrom as Record<string, unknown>)
+                .filter(([k, v]) => (ACK_SOURCE_CLASSES as readonly string[]).includes(k) && typeof v === "string" && !Number.isNaN(Date.parse(v))),
+            ) as Record<string, string>,
+          }
+        : {}),
       expiresAt: typeof parsed.expiresAt === "string" ? parsed.expiresAt : null,
       sourceClasses: Array.isArray(parsed.sourceClasses) ? parsed.sourceClasses.filter((x: unknown) => typeof x === "string") : [],
       activatedBy: typeof parsed.activatedBy === "string" ? parsed.activatedBy : null,
@@ -114,8 +178,9 @@ export function ackCapabilityAllows(
   if (!cap.enabled) return { ok: false, reason: "capability_closed" };
   if (cap.expiresAt && Date.parse(cap.expiresAt) <= now.getTime()) return { ok: false, reason: "capability_expired" };
   if (!cap.sourceClasses.includes(input.sourceClass)) return { ok: false, reason: "source_class_not_enabled" };
-  if (!cap.eligibleFrom || Number.isNaN(Date.parse(cap.eligibleFrom))) return { ok: false, reason: "eligibility_window_missing" };
-  const from = Math.max(Date.parse(cap.eligibleFrom), input.ownerStartedAt.getTime());
+  const classCutoff = cap.classEligibleFrom?.[input.sourceClass] ?? cap.eligibleFrom;
+  if (!classCutoff || Number.isNaN(Date.parse(classCutoff))) return { ok: false, reason: "eligibility_window_missing" };
+  const from = Math.max(Date.parse(classCutoff), input.ownerStartedAt.getTime());
   if (input.sourceReceivedAt.getTime() < from) return { ok: false, reason: "request_before_eligibility_window" };
   return { ok: true };
 }
@@ -128,14 +193,37 @@ export async function setAckCapability(input: {
   actor: string;
 }): Promise<AckCapability> {
   const now = new Date();
-  const ownerStartedAt = await getOwnerStartedAt();
+  // Initializes the owner start marker on first use (historical requests stay ineligible).
+  await getOwnerStartedAt();
+  const requested = [...new Set((input.sourceClasses ?? []).filter((c) => (ACK_SOURCE_CLASSES as readonly string[]).includes(c)))];
+  // A request type that was already enabled (and not expired) keeps its original cutoff: saving the settings again with
+  // the same selection must not move that window forward. A newly enabled type starts no earlier than now (no catch-up,
+  // no backdating). A removed type is dropped. An unreadable or closed previous setting grants no continuity.
+  const previous = await getAckCapability();
+  const previousLive = previous.enabled && !(previous.expiresAt && Date.parse(previous.expiresAt) <= now.getTime());
+  const startOfNewWindow = input.eligibleFrom && input.eligibleFrom > now ? input.eligibleFrom : now;
+  const classEligibleFrom: Record<string, string> = {};
+  const retained: string[] = [];
+  const added: string[] = [];
+  for (const cls of requested) {
+    const prior = previous.classEligibleFrom?.[cls] ?? previous.eligibleFrom;
+    if (previousLive && previous.sourceClasses.includes(cls) && prior && !Number.isNaN(Date.parse(prior))) {
+      classEligibleFrom[cls] = prior;
+      retained.push(cls);
+    } else {
+      classEligibleFrom[cls] = startOfNewWindow.toISOString();
+      added.push(cls);
+    }
+  }
+  const removed = previousLive ? previous.sourceClasses.filter((c) => !requested.includes(c)) : [];
+  const earliest = Object.values(classEligibleFrom).sort()[0] ?? startOfNewWindow.toISOString();
   const value: AckCapability = input.enabled
     ? {
         enabled: true,
-        // Never earlier than now: a request that predates activation can never become eligible (no catch-up, no backdating).
-        eligibleFrom: (input.eligibleFrom && input.eligibleFrom > now ? input.eligibleFrom : now).toISOString(),
+        eligibleFrom: earliest,
+        classEligibleFrom,
         expiresAt: input.expiresAt ? input.expiresAt.toISOString() : null,
-        sourceClasses: (input.sourceClasses ?? []).filter((c) => (ACK_SOURCE_CLASSES as readonly string[]).includes(c)),
+        sourceClasses: requested,
         activatedBy: input.actor,
         activatedAt: now.toISOString(),
       }
@@ -145,7 +233,11 @@ export async function setAckCapability(input: {
     action: input.enabled ? "inbound_ack_capability_enabled" : "inbound_ack_capability_closed",
     entityType: "system_setting",
     entityId: 0,
-    details: { actor: input.actor, sourceClasses: value.sourceClasses, eligibleFrom: value.eligibleFrom, expiresAt: value.expiresAt },
+    details: {
+      actor: input.actor, sourceClasses: value.sourceClasses, eligibleFrom: value.eligibleFrom,
+      classEligibleFrom: value.classEligibleFrom ?? null, expiresAt: value.expiresAt,
+      ...(input.enabled ? { retainedClasses: retained, addedClasses: added, removedClasses: removed } : {}),
+    },
   } as any);
   return value;
 }
@@ -340,6 +432,9 @@ export async function verifyAckTransportCapability(
     ownerStartedAt: await getOwnerStartedAt(),
   });
   if (!verdict.ok) return deny(`ACK_${verdict.reason.toUpperCase()}`);
+  // Last-moment internal check: the review work the receipt promises must be durable at the instant of the send.
+  const review = await ackInternalReviewGate(row.requestId);
+  if (!review.ok) return deny(`ACK_${review.reason.toUpperCase()}`);
   return { ok: true };
 }
 
@@ -366,6 +461,14 @@ function safeReason(error: string | undefined): string {
 }
 
 export async function dispatchAcknowledgement(effectId: string, deps?: { send?: SendFn; now?: Date }): Promise<AckDispatchOutcome> {
+  // Admission precedes preparation: no receipt row, claim or provider call exists for a request whose review work is
+  // not durable yet. This is a wait (the sweep revisits it), never a block or a consumed attempt.
+  const [owner] = await db.select({ requestId: inboundRequestEffects.requestId, effectType: inboundRequestEffects.effectType })
+    .from(inboundRequestEffects).where(eq(inboundRequestEffects.id, effectId)).limit(1);
+  if (owner?.effectType === "transactional_ack") {
+    const review = await ackInternalReviewGate(owner.requestId);
+    if (!review.ok) return { state: "skipped", reason: review.reason };
+  }
   const ack = await prepareAcknowledgement(effectId);
   if (!ack) return { state: "skipped", reason: "not_an_acknowledgement_effect" };
   if (["accepted", "uncertain", "failed", "suppressed", "attempting"].includes(ack.state)) {
@@ -469,7 +572,8 @@ export async function dispatchAcknowledgement(effectId: string, deps?: { send?: 
   }
   // A pause or other pre-send refusal is a wait, not a consumed attempt.
   const waited = reason === "outbound_paused" || reason === "ack_delivery_override_active"
-    || reason === "ack_capability_closed" || reason === "ack_capability_expired";
+    || reason === "ack_capability_closed" || reason === "ack_capability_expired"
+    || reason === "ack_internal_review_not_durable" || reason === "ack_statement_not_retained";
   const attempts = ack.attemptCount + (waited ? 0 : 1);
   const exhausted = !waited && attempts >= ACK_MAX_SEND_ATTEMPTS;
   await db.update(inboundAcknowledgements)
@@ -568,6 +672,8 @@ export async function runAcknowledgementSweep(opts?: { limit?: number; deps?: { 
       inArray(inboundRequestEffects.state, ["held", "ready"]),
       // Historical requests (before this owner started) are never prepared or sent; they keep an explicit disposition.
       gte(inboundRequests.sourceReceivedAt, ownerStartedAt),
+      // Receipts wait for durable internal review work (task/ticket/notification) and, for statements, a retained file.
+      ackInternalReviewReadySql,
       // Terminal blocks are never revisited; transient waits (pause, unreadable state, retryable failures) are
       // rotated by least-recently-touched so no backlog can pin the head of the queue.
       sql`(${inboundAcknowledgements.id} IS NULL OR ${inboundAcknowledgements.state} = 'prepared'

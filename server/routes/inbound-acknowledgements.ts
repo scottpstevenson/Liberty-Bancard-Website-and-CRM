@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireRole } from "../replit_integrations/auth";
 import { serverError } from "../utils/server-error";
 import { getBackgroundProfile } from "../services/background-profile";
+import { resolvePolicy } from "../services/sender-policy";
 import {
   ACK_SOURCE_CLASSES,
   ACK_PREVIEW_SOURCE_TYPE,
@@ -49,13 +50,27 @@ export function registerInboundAcknowledgementRoutes(app: Express) {
   // queued or sent, and receipt wording is code-owned (not editable here).
   app.get("/api/admin/inbound-acknowledgements/preview", requireRole("admin", "manager"), async (_req, res) => {
     try {
-      const previews = await Promise.all(ACK_SOURCE_CLASSES.map(async (sourceClass) => {
-        const c = await buildAckContent({
-          sourceClass, sourceType: ACK_PREVIEW_SOURCE_TYPE[sourceClass], requestId: "abcd1234-0000-4000-8000-000000000000", firstName: "Alex",
-        });
-        return { sourceClass, templateKey: c.templateKey, subject: c.subject, html: c.html, text: c.text };
-      }));
-      res.json({ previews, note: "Sample reference and first name. Nothing is sent by previewing." });
+      // Receipts are sent under the `support` sender category for every class (fixed by sender policy); the preview
+      // reports that identity rather than assuming it.
+      const policy = resolvePolicy("support");
+      const sample = "abcd1234-0000-4000-8000-000000000000";
+      const build = async (sourceClass: (typeof ACK_SOURCE_CLASSES)[number], sourceType: string, variant: string) => {
+        const c = await buildAckContent({ sourceClass, sourceType, requestId: sample, firstName: "Alex" });
+        return {
+          sourceClass, variant, sourceType, templateKey: c.templateKey, subject: c.subject, html: c.html, text: c.text,
+          sender: { name: policy.displayName, address: policy.from },
+          replyTo: policy.replyTo,
+        };
+      };
+      const previews = await Promise.all([
+        ...ACK_SOURCE_CLASSES.map((sourceClass) => build(sourceClass, ACK_PREVIEW_SOURCE_TYPE[sourceClass], "default")),
+        // The sales class is previewed with an estimate example above; a statement upload receipt names the statement.
+        build("sales_request", "statement_upload", "statement_upload"),
+      ]);
+      res.json({
+        previews,
+        note: "Sample reference and first name. Nothing is sent by previewing. The Sales preview uses an estimate request as its example; the Statement upload preview shows the wording a statement receipt uses.",
+      });
     } catch (err) {
       serverError(res, err);
     }

@@ -609,7 +609,7 @@ function StatementSlaAlert() {
                     <Badge variant="destructive" className="text-xs">{a.hoursStuck}h</Badge>
                   </td>
                   <td className="py-2 text-right">
-                    <a href={`/dashboard/deals/${a.dealId}`} className="text-xs text-primary hover:underline" data-testid={`link-deal-${a.dealId}`}>View</a>
+                    <a href={`/dashboard/pipeline?id=${a.dealId}`} className="text-xs text-primary hover:underline" data-testid={`link-deal-${a.dealId}`}>View</a>
                   </td>
                 </tr>
               ))}

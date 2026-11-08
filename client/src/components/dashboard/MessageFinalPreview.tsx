@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useInlinedPreviewHtml } from "@/lib/email-preview-assets";
 
 export interface FinalMessagePreview {
   channel: "email" | "sms";
@@ -39,6 +40,8 @@ export function FinalEmailPreview({ final }: { final: FinalMessagePreview }) {
   const [imagesOff, setImagesOff] = useState(false);
   const [plain, setPlain] = useState(false);
   const toggle = (on: boolean) => (on ? "default" : "outline");
+  // Display-only substitution so the logo shows inside the sandboxed frame; the sent HTML is unchanged.
+  const shownHtml = useInlinedPreviewHtml(final.html);
 
   return (
     <div className="space-y-2 min-w-0" data-testid="final-email-preview">
@@ -62,9 +65,9 @@ export function FinalEmailPreview({ final }: { final: FinalMessagePreview }) {
           <iframe
             title="Final email preview"
             sandbox=""
-            srcDoc={imagesOff ? final.htmlImagesOff : final.html}
+            srcDoc={imagesOff ? final.htmlImagesOff : shownHtml}
             style={{ width: CANVAS_WIDTH[device], minWidth: CANVAS_WIDTH[device], maxWidth: "none", margin: "0 auto", display: "block", ...(dark ? DARK_STYLE : {}) }}
-            className="h-96 bg-white"
+            className="h-[60vh] min-h-[24rem] max-h-[40rem] bg-white"
             data-testid="final-html-frame"
             data-canvas-width={CANVAS_WIDTH[device]}
           />

@@ -6801,7 +6801,7 @@ function StatementUploadFailuresPanel() {
                         <td className="py-2 px-4">
                           {f.dealId ? (
                             <a
-                              href={`/dashboard/deals/${f.dealId}`}
+                              href={`/dashboard/pipeline?id=${f.dealId}`}
                               className="text-primary hover:underline"
                               data-testid={`link-deal-${f.dealId}`}
                             >
@@ -6992,7 +6992,7 @@ function ConversionPanel() {
                         {ev.contactId ? <a href={`/dashboard/contacts/${ev.contactId}`} className="text-primary hover:underline">#{ev.contactId}</a> : "—"}
                       </td>
                       <td className="py-2 pr-4 text-muted-foreground">
-                        {ev.dealId ? <a href={`/dashboard/deals/${ev.dealId}`} className="text-primary hover:underline">#{ev.dealId}</a> : "—"}
+                        {ev.dealId ? <a href={`/dashboard/pipeline?id=${ev.dealId}`} className="text-primary hover:underline">#{ev.dealId}</a> : "—"}
                       </td>
                       <td className="py-2 pr-4 text-muted-foreground text-xs">
                         {ev.channel ?? ev.dealStage ?? ev.blockReason ?? ev.offerRoute ?? "—"}

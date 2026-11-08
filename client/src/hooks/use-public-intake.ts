@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  checkIntakeStatus, clearIntent, loadIntent, submitPublicIntake,
-  type IntakeForm, type IntakeOutcome,
+  checkIntakeStatus, checkStatementStatus, claimStatementAnalytics, classifyStatementResponse, clearIntent,
+  clearStatementIntent, loadIntent, loadStatementIntent, recordStatementOutcome, saveStatementIntent, sendStatementUpload,
+  statementFingerprint, statementIntentFor, submitPublicIntake,
+  type IntakeForm, type IntakeOutcome, type StatementOutcome, type StatementRejection,
 } from "@/lib/public-intake";
 
 export type PublicIntakeState =
@@ -61,4 +63,85 @@ export function usePublicIntake(form: IntakeForm, path: string) {
   const acknowledgeSaved = useCallback(() => setState((current) => (current.phase === "saved" ? { phase: "idle" } : current)), []);
 
   return { state, submit, check, dismiss, acknowledgeSaved, checking, checkNote, submitting: state.phase === "submitting" };
+}
+
+export type StatementUploadState =
+  | { phase: "idle" }
+  /** Bytes are leaving the browser; `percent` is real transfer progress. */
+  | { phase: "uploading"; percent: number }
+  /** Every byte was sent; waiting for the server to say what it recorded. No steps are implied. */
+  | { phase: "confirming" }
+  | { phase: "saved"; receipt: string; reference: string; processing: "queued" | "deferred"; restored: boolean; fresh: boolean }
+  | { phase: "unresolved"; receipt: string | null; reason: string; restored: boolean }
+  | { phase: "rejected"; code: StatementRejection; message: string };
+
+/**
+ * One public statement-upload intent. The idempotency key lives in sessionStorage with the receipt and reference only
+ * (never the details, file name or contents), so a reload restores the real state and a retry of the identical
+ * submission can never create a second occurrence. `fresh` is true only for the response that first confirmed receipt,
+ * which is when analytics fire (once per receipt).
+ */
+export function usePublicStatementUpload() {
+  const [state, setState] = useState<StatementUploadState>({ phase: "idle" });
+  const [checking, setChecking] = useState(false);
+  const [checkNote, setCheckNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    const stored = loadStatementIntent();
+    if (!stored) return;
+    if (stored.state === "saved" && stored.receipt && stored.reference && stored.processing) {
+      setState({ phase: "saved", receipt: stored.receipt, reference: stored.reference, processing: stored.processing, restored: true, fresh: false });
+    } else if (stored.state === "unresolved") {
+      setState({ phase: "unresolved", receipt: stored.receipt, reason: "restored", restored: true });
+    }
+  }, []);
+
+  const apply = useCallback((outcome: StatementOutcome): StatementOutcome => {
+    if (outcome.kind === "saved") {
+      setState({ phase: "saved", receipt: outcome.receipt, reference: outcome.reference, processing: outcome.processing, restored: false, fresh: claimStatementAnalytics(outcome.receipt) });
+    } else if (outcome.kind === "unresolved") {
+      setState({ phase: "unresolved", receipt: outcome.receipt, reason: outcome.reason, restored: false });
+    } else {
+      setState({ phase: "rejected", code: outcome.code, message: outcome.message });
+    }
+    return outcome;
+  }, []);
+
+  const submit = useCallback(async (fields: Record<string, string>, file: File) => {
+    setCheckNote(null);
+    setState({ phase: "uploading", percent: 0 });
+    const fingerprint = await statementFingerprint(fields, file);
+    const intent = await statementIntentFor(fingerprint);
+    const formData = new FormData();
+    for (const [name, value] of Object.entries(fields)) if (value !== "") formData.append(name, value);
+    formData.append("statementFile", file);
+    const sent = await sendStatementUpload(formData, intent.key, (percent) => {
+      setState(percent >= 100 ? { phase: "confirming" } : { phase: "uploading", percent });
+    });
+    const outcome: StatementOutcome = sent ? classifyStatementResponse(sent.status, sent.text) : { kind: "unresolved", receipt: intent.receipt, reason: "network" };
+    recordStatementOutcome(intent, outcome);
+    return apply(outcome);
+  }, [apply]);
+
+  const check = useCallback(async () => {
+    setChecking(true);
+    setCheckNote(null);
+    const result = await checkStatementStatus();
+    setChecking(false);
+    if (!result) { setCheckNote("We couldn't read the status from this browser session. Try again, or call us."); return null; }
+    if (result.saved) {
+      const intent = loadStatementIntent();
+      if (intent?.receipt) {
+        const reference = intent.reference ?? intent.receipt.replace(/-/g, "").slice(0, 8).toUpperCase();
+        const processing = intent.processing ?? (result.status === "review_required" ? "deferred" : "queued");
+        saveStatementIntent({ ...intent, state: "saved", reference, processing });
+        setState({ phase: "saved", receipt: intent.receipt, reference, processing, restored: true, fresh: claimStatementAnalytics(intent.receipt) });
+      }
+    } else setCheckNote("Still pending. Your upload is not lost; submit the same file again to finish it.");
+    return result;
+  }, []);
+
+  const dismiss = useCallback(() => { clearStatementIntent(); setCheckNote(null); setState({ phase: "idle" }); }, []);
+
+  return { state, submit, check, dismiss, checking, checkNote, busy: state.phase === "uploading" || state.phase === "confirming" };
 }

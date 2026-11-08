@@ -661,17 +661,23 @@ function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) 
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 
+/** Plain names for the inbox sources, used when a source is unavailable. */
+const SOURCE_LABELS: Record<string, string> = {
+  email_audit: "Email", ghl_sms: "SMS", ghl_chat: "Chat", ghl_voicemail: "Voicemail", live_chat: "Site chat",
+};
+
 const CHANNEL_FILTERS: { key: ChannelType; label: string; icon: React.ReactNode }[] = [
   { key: "all", label: "All", icon: <Inbox className="w-3.5 h-3.5" /> },
   { key: "email", label: "Email", icon: <Mail className="w-3.5 h-3.5" /> },
   { key: "sms", label: "SMS", icon: <Phone className="w-3.5 h-3.5" /> },
   { key: "voicemail", label: "Voicemail", icon: <Voicemail className="w-3.5 h-3.5" /> },
   { key: "ghl_chat", label: "Chat", icon: <MessageSquare className="w-3.5 h-3.5" /> },
-  { key: "site", label: "Site", icon: <Globe className="w-3.5 h-3.5" /> },
+  { key: "site", label: "Site chat", icon: <Globe className="w-3.5 h-3.5" /> },
 ];
 
 export default function CommsHub() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
   const locationSearch = useSearch();
@@ -718,6 +724,10 @@ export default function CommsHub() {
   const allItems = pages.flatMap(page => page.items);
   const lastPage = pages.at(-1);
   const inboxDegraded = pages.some(page => !page.complete || page.sourceStatus.some((source) => source.status === "failed"));
+  // Sources whose latest answer was a failure. An empty list from one of these is "unavailable", never "no messages".
+  const failedSources = Array.from(new Set(
+    (pages.at(-1)?.sourceStatus ?? []).filter((source) => source.status === "failed").map((source) => SOURCE_LABELS[source.source] ?? source.source),
+  ));
 
   // Client-side search filter
   const items = allItems.filter((item) => {
@@ -785,8 +795,18 @@ export default function CommsHub() {
             )}
           </div>
           <p className="text-sm text-muted-foreground">
-            All channels in one place — email, SMS, voicemail, chat, and site visitors
+            Email, SMS, voicemail, chat and website live chat in your authorized scope
           </p>
+          <p className="text-xs text-muted-foreground" data-testid="text-site-scope">
+            Site chat shows conversations visitors start in the website chat. Website forms and statement uploads are not chat messages; review them in Inbound Operations or your review tasks.
+            {(user?.role === "admin" || user?.role === "manager") && <> <a className="underline" href="/dashboard/lead-ops?tab=pipeline" data-testid="link-site-scope-inbound-operations">Open Inbound Operations</a></>}
+          </p>
+          {failedSources.length > 0 && (
+            <p className="mt-1 text-xs text-destructive" role="alert" data-testid="inbox-failed-sources">
+              Unavailable right now: {failedSources.join(", ")}. Missing messages from these sources are not an all-clear.{" "}
+              <button type="button" className="underline" onClick={() => void refetch()} data-testid="button-retry-failed-sources">Retry</button>
+            </p>
+          )}
           {inboxDegraded && (
             <p className="mt-1 text-xs text-amber-700 dark:text-amber-300" data-testid="inbox-partial-state">
               Partial inbox window — one or more sources are unavailable or sampled.
@@ -893,7 +913,10 @@ export default function CommsHub() {
               <div className="text-center py-12 px-4">
                 <AlertTriangle className="w-8 h-8 mx-auto mb-3 text-amber-500" />
                  {search && <p className="text-sm text-foreground mb-2">No loaded messages match your search</p>}
-                <p className="text-sm text-muted-foreground">Inbox sources are unavailable or incomplete; this is not a confirmed empty inbox.</p>
+                <p className="text-sm text-muted-foreground">
+                  {failedSources.length > 0 ? `${failedSources.join(", ")} could not be loaded; ` : "Inbox sources are unavailable or incomplete; "}this is not a confirmed empty inbox.
+                </p>
+                <Button variant="outline" className="mt-3 min-h-11" onClick={() => void refetch()} data-testid="button-inbox-retry">Retry</Button>
               </div>
             ) : items.length === 0 ? (
               <div className="text-center py-12 px-4">

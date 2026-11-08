@@ -8,12 +8,14 @@ import { storage } from "../storage";
 import { requireRole } from "../replit_integrations/auth";
 import OpenAI from "openai";
 import { featureFlags } from "../services/feature-flags";
-import { listInboundRequests, resumeInboundSalesRequestForActor } from "../services/inbound-request-authority";
+import { inboundShortRef, listInboundRequests, parseInboundShortRef, resumeInboundSalesRequestForActor } from "../services/inbound-request-authority";
+import { recoverStatementOccurrence } from "../services/statement-occurrence-recovery";
+import { getInboundRequestSummary } from "../services/inbound-request-summary";
 import { businessLacksDbprLineageSql } from "../services/dbpr";
 import { deriveCanonicalBusinessSafeNextAction } from "../services/canonical-business-safe-next-action";
 import { buildCanonicalBusinessEmailDisplay } from "../services/canonical-business-email-display";
 import { sanitizeAuditPayload } from "../services/audit-sanitizer";
-import { backgroundJobs, inboundAssignmentDecisions, inboundRequestEffects, sdrMerchants } from "@shared/schema";
+import { backgroundJobs, contacts, inboundAcknowledgements, inboundAssignmentDecisions, inboundRequestEffects, inboundRequestWorkLinks, sdrMerchants, tasks } from "@shared/schema";
 import { retiredPilotEntrance } from "../services/pilot-entrance-retirement";
 import { safeSfpFailureDiagnostics } from "../services/cro03/sfp-failure-diagnostics";
 import { registerSfpReadyHeldOperatorRoutes } from "./sfp-ready-held-operator";
@@ -119,13 +121,39 @@ export function registerLeadOpsRoutes(app: Express) {
   registerSfpStagedProjectionReconciliationRoutes(app);
   app.get("/api/lead-ops/inbound-requests", requireRole("admin", "manager"), async (req, res) => {
     try {
+      if (typeof req.query.ref === "string" && req.query.ref.trim() && !parseInboundShortRef(req.query.ref)) {
+        return res.status(400).json({ error: "INVALID_REFERENCE", message: "Enter the reference from the confirmation (up to 8 letters a-f and digits)." });
+      }
       const rows = await listInboundRequests({
         limit: Number(req.query.limit) || 50,
         offset: Number(req.query.offset) || 0,
         sourceClass: typeof req.query.sourceClass === "string" ? req.query.sourceClass : undefined,
         lifecycleState: typeof req.query.lifecycleState === "string" ? req.query.lifecycleState : undefined,
+        shortRef: typeof req.query.ref === "string" ? req.query.ref : undefined,
       });
       const requestIds = rows.map((row) => row.id);
+      // Operator context for each row: business name, the request's own work item, and the receipt state. All of it is
+      // already-recorded identity; no statement content, file name or financial figure is read.
+      const contactIds = [...new Set(rows.map((row) => row.contactId).filter((id): id is number => typeof id === "number"))];
+      const businessByContact = new Map(contactIds.length
+        ? (await db.select({ id: contacts.id, companyName: contacts.companyName }).from(contacts).where(inArray(contacts.id, contactIds)))
+            .map((c) => [c.id, c.companyName?.trim() || null] as const)
+        : []);
+      const workLinks = requestIds.length
+        ? await db.select({
+          requestId: inboundRequestWorkLinks.requestId, workType: inboundRequestWorkLinks.workType,
+          taskId: inboundRequestWorkLinks.taskId, ticketId: inboundRequestWorkLinks.ticketId,
+          taskTitle: tasks.title, taskStatus: tasks.status,
+        }).from(inboundRequestWorkLinks)
+          .leftJoin(tasks, sql`${tasks.id} = ${inboundRequestWorkLinks.taskId}`)
+          .where(inArray(inboundRequestWorkLinks.requestId, requestIds))
+        : [];
+      const workByRequest = new Map(workLinks.map((link) => [link.requestId, link]));
+      const receipts = requestIds.length
+        ? await db.select({ requestId: inboundAcknowledgements.requestId, state: inboundAcknowledgements.state, blockedReason: inboundAcknowledgements.blockedReason })
+            .from(inboundAcknowledgements).where(inArray(inboundAcknowledgements.requestId, requestIds))
+        : [];
+      const receiptByRequest = new Map(receipts.map((r) => [r.requestId, r]));
       const effects = requestIds.length
         ? await db.select({
           effectKey: inboundRequestEffects.effectKey,
@@ -151,8 +179,23 @@ export function registerLeadOpsRoutes(app: Express) {
         requestEffects.push(effect);
         effectsByRequest.set(effect.requestId, requestEffects);
       }
-      res.json(rows.map((row) => ({
+      res.json(rows.map((row) => {
+        const rowEffects = effectsByRequest.get(row.id) || [];
+        const statementReview = rowEffects.find((e) => e.effectKey === "statement_review");
+        const work = workByRequest.get(row.id);
+        const receipt = receiptByRequest.get(row.id);
+        return {
         requestReceipt: row.id,
+        shortRef: inboundShortRef(row.id),
+        businessName: row.contactId ? businessByContact.get(row.contactId) ?? null : null,
+        // True only when the statement could not reach, or did not finish in, its processor: the file is retained and
+        // the review work exists, but nobody should assume automatic processing happened.
+        processingNeedsAttention: row.sourceType === "statement_upload" && Boolean(statementReview)
+          && (statementReview!.state === "held" || statementReview!.state === "failed"),
+        work: work
+          ? { taskId: work.taskId, ticketId: work.ticketId, title: work.taskTitle ?? null, status: work.taskStatus ?? null }
+          : null,
+        receipt: receipt ? { state: receipt.state, reason: receipt.blockedReason } : null,
         sourceClass: row.sourceClass,
         sourceCategory: row.sourceCategory,
         sourceType: row.sourceType,
@@ -168,10 +211,41 @@ export function registerLeadOpsRoutes(app: Express) {
         // The decision revision an operator must have seen to continue a retained review.
         reviewRevision: revisionByRequest.get(row.id) ?? null,
         effects: effectsByRequest.get(row.id) || [],
-      })));
+        };
+      }));
     } catch (error) {
       console.error("[LeadOps] inbound request list failed:", error instanceof Error ? error.message : "unknown");
       res.status(500).json({ error: "Failed to load inbound requests" });
+    }
+  });
+
+  // Separate, individually-failing populations for the Overview (received / needs review / statement attention /
+  // due today / overdue). Registered as a fixed one-segment GET so it cannot collide with a `:receipt` pattern.
+  app.get("/api/lead-ops/inbound-requests/summary", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      res.json(await getInboundRequestSummary(Number(req.query.days) || 7));
+    } catch (error) {
+      console.error("[LeadOps] inbound summary failed:", error instanceof Error ? error.name : "unknown");
+      res.status(500).json({ error: "Failed to load the website request summary" });
+    }
+  });
+
+  // Re-drive ONE retained statement occurrence whose handoff never reached a consumer. Admin only; CSRF applies to
+  // every authenticated POST. Idempotent, creates no replacement submission, and never touches the receipt.
+  app.post("/api/lead-ops/inbound-requests/:receipt/statement-recovery", requireRole("admin"), async (req, res) => {
+    const receipt = String(req.params.receipt);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(receipt)) {
+      return res.status(404).json({ error: "REQUEST_NOT_FOUND" });
+    }
+    const actor = (req.user as { email?: string; id?: string } | undefined)?.email ?? (req.user as { id?: string } | undefined)?.id;
+    if (!actor) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const result = await recoverStatementOccurrence({ requestId: receipt.toLowerCase(), actor });
+      if (!result.ok) return res.status(result.status).json({ outcome: "blocked", reason: result.code });
+      return res.status(200).json({ outcome: "recovered", ...result });
+    } catch (error) {
+      console.error("[LeadOps] statement recovery failed:", error instanceof Error ? error.name : "unknown");
+      return res.status(500).json({ outcome: "failed", reason: "STATEMENT_RECOVERY_FAILED" });
     }
   });
 

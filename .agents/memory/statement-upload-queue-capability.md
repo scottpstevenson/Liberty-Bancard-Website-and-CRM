@@ -1,0 +1,8 @@
+---
+name: Statement-upload queue capability and deferred handoff
+description: Why website statement uploads returned 503 in production, the narrow capability fix, and the truthful deferred-handoff contract
+---
+The public statement route needs a BullMQ producer for the statement-upload queue. The published `BACKGROUND_JOB_PROFILE` (in `.replit`) selected groups that did not include it, so the route answered 503 before the request was recorded and nothing reached the CRM. A narrow `statement-upload` capability group now owns that one queue; `critical-commands` was deliberately not widened.
+**Why:** a broader group would have started unrelated consumers in production. A queue refusal is not a failed request: the retained file and the in-progress command stand, the review task/SLA/one management notification are created from the request, and the merchant gets a truthful 202 "deferred" with a short reference.
+**How to apply:** (1) any new request-recording route that enqueues must work with the queue refused, retain the evidence first, and report `deferred`, not 503 and not a silent success; (2) a profile edit only takes effect after the owner publishes, so say so and never claim recovery before then; (3) recover a retained occurrence only through the admin recovery route (same occurrence, never a new submission, never touching an already-sent receipt); (4) other statement-command producers keep their boolean/503 contract on purpose.
+Certify the capability with a real QueueManager under the narrow profile and the physical queue paused before any add, so nothing is consumed; inject the broker fault by patching `queue.add`.

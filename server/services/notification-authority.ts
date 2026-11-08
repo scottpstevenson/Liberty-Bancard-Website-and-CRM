@@ -61,6 +61,14 @@ const adminQueueLinks:Record<string,string>={
   partner_application_received:"/dashboard/referral-program",
   privacy_request_received:"/dashboard/data-requests",
 };
+/**
+ * Statement-upload review notifications point at the existing Inbound Operations review surface by short reference.
+ * The surface and its routes are admin/manager only, so the link is allowed only for the event type that owns it and
+ * only for those roles. It deliberately carries no contact/deal typed target: an unclassified or unlinked contact must
+ * not make the review notification disappear.
+ */
+const STATEMENT_REVIEW_EVENT="statement_uploaded";
+const STATEMENT_REVIEW_LINK_PATTERN="^/dashboard/lead-ops\\?tab=pipeline&ref=[0-9A-F]{8}$";
 function readExpression(actor:Actor) {
   return sql<boolean>`COALESCE((SELECT s.read_at IS NOT NULL FROM notification_actor_states s
     WHERE s.actor_id=${actor.id} AND s.notification_id=${notifications.id}),FALSE)
@@ -93,6 +101,7 @@ function scope(actor:Actor,category="all") {
     sql`(${value("link")} IS NULL OR ${value("link")}='/dashboard' OR
       (${actor.role==="admin"} AND (${sql.join(Object.entries(adminQueueLinks).map(([event,link])=>
         sql`(${value("eventType")}=${event} AND ${value("link")}=${link})`),sql` OR `)})) OR
+      (${privileged} AND ${value("eventType")}=${STATEMENT_REVIEW_EVENT} AND ${value("link")} ~ ${STATEMENT_REVIEW_LINK_PATTERN}) OR
       (${sql.join(targetKinds.map(kind=>{
         const linkedId=positive(sql`substring(${value("link")} from ${legacyPatterns[kind]})`);
         return sql`(${linkedId} IS NOT NULL AND ${resourceAllowed(actor,kind,linkedId)})`;
@@ -131,6 +140,9 @@ function typedTarget(metadata:any):{kind:string;id:number}|null {
   return null; // Never infer an entity from a title, name or arbitrary URL.
 }
 function destination(metadata:any) {
+  if(metadata?.eventType===STATEMENT_REVIEW_EVENT && typeof metadata.link==="string"
+    && new RegExp(STATEMENT_REVIEW_LINK_PATTERN).test(metadata.link))
+    return {state:"available",url:metadata.link,context:"inbound_review",label:"Open Inbound Operations review"};
   const target=typedTarget(metadata);
   if(!target && metadata?.eventType && adminQueueLinks[metadata.eventType]===metadata?.link)
     return {state:"available",url:metadata.link};

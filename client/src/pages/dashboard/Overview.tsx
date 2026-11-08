@@ -10,6 +10,7 @@ import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { apiRequest, queryClient, protectedScope } from "@/lib/queryClient";
 import { useToolCapability } from "@/hooks/use-tool-capabilities";
 import { useOutboundPauseObservation } from "@/hooks/use-outbound-pause-observation";
+import { WebsiteRequestsSummary } from "@/components/dashboard/WebsiteRequestsSummary";
 import { Link } from "wouter";
 import { OPEN_SALES_LEAD_STAGES } from "@shared/schema";
 import { todayDestinations } from "@/lib/crm-destination-state";
@@ -488,12 +489,13 @@ export default function Overview() {
         >
           <PauseCircle className="h-4 w-4 text-orange-600 dark:text-orange-400" />
           <AlertDescription className="flex items-center justify-between gap-4 flex-wrap">
-            <span>
-              <strong>Outbound is globally paused.</strong>
+            <span data-testid="text-outbound-paused-copy">
+              <strong>Promotional and follow-up delivery is paused.</strong>
               {outboundSettings.outboundGlobalPausedReason && (
                 <span className="ml-1 opacity-80">{outboundSettings.outboundGlobalPausedReason}</span>
               )}{" "}
-              No emails, SMS, or sequences will be sent until outbound is re-enabled.
+              No marketing email, SMS, sequences or campaigns will go out until it is re-enabled. Request receipts that an
+              administrator has authorized may still be sent to the person who submitted a request; they are separate from this pause.
             </span>
             <Link
               href="/dashboard/activation"
@@ -505,6 +507,8 @@ export default function Overview() {
           </AlertDescription>
         </Alert>
       )}
+
+      {(user?.role === "admin" || user?.role === "manager") && <WebsiteRequestsSummary />}
 
       <div className="space-y-1 text-sm" data-testid="today-ai-notices">
         <p role="status" data-testid="today-ai-capability-reason">{aiCapability.reason}</p>

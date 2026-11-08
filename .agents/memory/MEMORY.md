@@ -198,3 +198,8 @@
 - [Public-site verification lessons](public-site-verification-lessons.md) — Chromium blocks port 6000; WebKit cannot run here; clean-clone baselines need attached_assets; known baseline failures.
 - [SFP pool count authority](sfp-pool-count-authority.md) — real SFP validated count = cr04 ready_held + launch gates (~1,200 businesses); staging/eligibility tables are stale; no live 30-day expiry; `active` tag does not block.
 - [Website email lifecycle lane](website-email-lifecycle-lane.md) — warm Gmail lane is default closed; marked-enrollment readers must filter; provider CHECK, migration-proof and fixture-egress traps.
+- [Statement-upload queue capability](statement-upload-queue-capability.md) — 503 root cause was a missing producer queue in the published profile; narrow group + truthful deferred handoff; owner Publish required.
+- [Receipt milestone gating](ack-milestone-gating-cutoffs.md) — receipts wait for the internal handoff; per-class cutoffs are monotonic and a re-save must not move them.
+- [Website intake review surfaces](website-intake-review-surfaces.md) — existing Tasks/Notifications/Inbound Operations only, one management notification, canonical deal link, display-only preview logo.
+- [Website intake cert harness lessons](website-intake-cert-harness-lessons.md) — phone NOT NULL, per-key caller IP, build identity covers scripts/, hidden duplicate DOM nodes, soft-fail sections.
+

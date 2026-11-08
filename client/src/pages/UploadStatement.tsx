@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getCsrfToken } from "@/lib/queryClient";
 import { trackStatementUploadStarted, trackStatementUploadFailed, trackBookingCtaClick } from "@/lib/tracking";
 import { useFormAbandonment } from "@/hooks/use-form-abandonment";
+import { usePublicStatementUpload } from "@/hooks/use-public-intake";
+import { STATEMENT_REJECTION_COPY } from "@/lib/public-intake";
 import { SEO, getServiceSchema } from "@/components/SEO";
 import { useLocation, Link } from "wouter";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import {
@@ -103,20 +105,21 @@ export default function UploadStatement() {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<number>(0);
-  const [isUploading, setIsUploading] = useState(false);
-  const [processingStep, setProcessingStep] = useState<number>(0);
   const [analysisVertical, setAnalysisVertical] = useState("");
-  const [uploadSucceeded, setUploadSucceeded] = useState(false);
+  // One stable intent per submission: the server's answer (not a timer) decides what the visitor is told.
+  const intake = usePublicStatementUpload();
+  const uploadSucceeded = intake.state.phase === "saved";
+  const isUploading = intake.busy;
+  const trackedReceipt = useRef<string | null>(null);
 
-  const PROCESSING_STEPS = [
-    "Uploading your statement…",
-    "Securing your file…",
-    "Creating your deal record…",
-    "Queuing AI analysis…",
-    "Notifying your advisor…",
-    "Almost done…",
-  ];
+  useEffect(() => {
+    const current = intake.state;
+    if (current.phase !== "saved" || !current.fresh || trackedReceipt.current === current.receipt) return;
+    trackedReceipt.current = current.receipt;
+    trackStatementUploadCompleted({ page: "/upload-statement", ctaLocation: "form" });
+    trackFormSubmission("statement_upload");
+    trackConversion("statement_upload");
+  }, [intake.state]);
 
   const params = new URLSearchParams(window.location.search);
   const preTerminal = params.get("terminal") === "yes";
@@ -208,115 +211,54 @@ export default function UploadStatement() {
     }
   }, [formVerticalValue]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Idempotency key: generated once per logical submission, reused on retries, cleared on success.
-  const [submitIdempotencyKey, setSubmitIdempotencyKey] = useState<string>(() => crypto.randomUUID());
+  const STATEMENT_MAX_BYTES = 10 * 1024 * 1024;
 
-  const submitMutation = useMutation({
-    mutationFn: (data: UploadFormData) => {
-      const refCode = localStorage.getItem("lb_ref_code") || undefined;
-      const utmParams = getStoredUTMParams();
-      const gclidFromUrl = new URLSearchParams(window.location.search).get("gclid") || utmParams.gclid;
-      const formData = new FormData();
-      formData.append("businessName", data.businessName);
-      formData.append("contactName", data.contactName);
-      formData.append("email", data.email);
-      formData.append("mobile", data.mobile);
-      formData.append("vertical", data.vertical);
-      if (data.currentProvider) formData.append("currentProvider", data.currentProvider);
-      formData.append("interestedIn0Percent", String(data.interestedIn0Percent));
-      formData.append("needTerminal", String(data.needTerminal));
-      if (data.notes) formData.append("notes", data.notes);
-      formData.append("pewcConsent", String(data.pewcConsent));
-      if (refCode) formData.append("referralCode", refCode);
-      if (gclidFromUrl) formData.append("gclid", gclidFromUrl);
-      Object.entries(utmParams).forEach(([key, value]) => {
-        if (value) formData.append(key, String(value));
-      });
-      if (selectedFile) formData.append("statementFile", selectedFile);
-
-      return new Promise<unknown>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.withCredentials = true;
-        xhr.open("POST", "/api/public/statement-upload");
-        xhr.setRequestHeader("Idempotency-Key", submitIdempotencyKey);
-
-        setIsUploading(true);
-        setUploadProgress(0);
-        setProcessingStep(0);
-
-        xhr.upload.addEventListener("progress", (event) => {
-          if (event.lengthComputable) {
-            setUploadProgress(Math.round((event.loaded / event.total) * 100));
-          }
-        });
-
-        xhr.addEventListener("load", () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            setUploadProgress(100);
-            let step = 1;
-            setProcessingStep(step);
-            const stepInterval = setInterval(() => {
-              step += 1;
-              setProcessingStep(step);
-              if (step >= 6) {
-                clearInterval(stepInterval);
-                setIsUploading(false);
-                try { resolve(JSON.parse(xhr.responseText)); } catch { resolve({}); }
-              }
-            }, 650);
-          } else {
-            setIsUploading(false);
-            let message = "Upload failed";
-            try {
-              const body = JSON.parse(xhr.responseText);
-              message = body.message || message;
-            } catch { /* ignore */ }
-            reject(new Error(`${xhr.status}: ${message}`));
-          }
-        });
-
-        xhr.addEventListener("error", () => {
-          setIsUploading(false);
-          reject(new Error("Network error — please check your connection and try again."));
-        });
-
-        xhr.addEventListener("abort", () => {
-          setIsUploading(false);
-          reject(new Error("Upload was cancelled."));
-        });
-
-        xhr.send(formData);
-      });
-    },
-    onSuccess: () => {
-      trackStatementUploadCompleted({ page: "/upload-statement", ctaLocation: "form" });
-      trackFormSubmission("statement_upload");
-      trackConversion("statement_upload");
-      setUploadSucceeded(true);
-      // Rotate key so a future fresh submission gets a new idempotency key
-      setSubmitIdempotencyKey(crypto.randomUUID());
-    },
-    onError: (error: Error) => {
-      setUploadProgress(0);
-      const msg = error?.message || "";
-      trackStatementUploadFailed({ page: "/upload-statement", errorMessage: msg });
-      if (msg.startsWith("429:")) {
-        setSubmitError("Too many submissions — please wait a few minutes and try again.");
-      } else if (/^5\d{2}:/.test(msg)) {
-        setSubmitError("Something went wrong on our end — please try again shortly.");
-      } else {
-        setSubmitError(msg.replace(/^\d{3}:\s*/, "") || "Please try again or call us at 954-266-8214.");
-      }
-      // Keep the same idempotency key so a retry of the same logical submission is deduplicated
-    },
-  });
-
-  const onSubmit = (data: UploadFormData) => {
-    // Guard double-click: mutation is already pending
-    if (submitMutation.isPending) return;
+  const onSubmit = async (data: UploadFormData) => {
+    // Guard double-click: an upload is already in flight
+    if (intake.busy) return;
     setSubmitError(null);
+    if (!selectedFile) {
+      setSubmitError(STATEMENT_REJECTION_COPY.file_required);
+      return;
+    }
+    if (selectedFile.size > STATEMENT_MAX_BYTES) {
+      setSubmitError(STATEMENT_REJECTION_COPY.file_too_large);
+      return;
+    }
     trackStatementUploadStarted({ page: "/upload-statement", ctaLocation: "form" });
-    submitMutation.mutate(data);
+    const refCode = localStorage.getItem("lb_ref_code") || undefined;
+    const utmParams = getStoredUTMParams();
+    const gclidFromUrl = new URLSearchParams(window.location.search).get("gclid") || utmParams.gclid;
+    const fields: Record<string, string> = {
+      businessName: data.businessName,
+      contactName: data.contactName,
+      email: data.email,
+      mobile: data.mobile,
+      vertical: data.vertical,
+      currentProvider: data.currentProvider || "",
+      interestedIn0Percent: String(data.interestedIn0Percent),
+      needTerminal: String(data.needTerminal),
+      notes: data.notes || "",
+      pewcConsent: String(data.pewcConsent),
+      referralCode: refCode || "",
+      gclid: gclidFromUrl ? String(gclidFromUrl) : "",
+    };
+    Object.entries(utmParams).forEach(([key, value]) => {
+      if (value && !(key in fields)) fields[key] = String(value);
+    });
+    const outcome = await intake.submit(fields, selectedFile);
+    if (outcome.kind === "rejected") {
+      trackStatementUploadFailed({ page: "/upload-statement", errorMessage: outcome.code });
+    } else if (outcome.kind === "unresolved") {
+      trackStatementUploadFailed({ page: "/upload-statement", errorMessage: outcome.reason });
+    }
+  };
+
+  const unresolvedMessage = (reason: string): string => {
+    if (reason === "restored") return "A previous upload in this browser session was not confirmed. Choose your statement and press Upload again to finish it. It will not create a duplicate.";
+    if (reason === "rate_limited") return "Too many submissions — please wait a few minutes and try again.";
+    if (reason === "network") return "We couldn't confirm your upload. Check your connection and press Upload again. It will not create a duplicate.";
+    return "We couldn't confirm that your statement was saved. Press Upload again to finish it (it will not create a duplicate), or call us at 954-266-8214.";
   };
 
   const handleAnalysis = async () => {
@@ -615,16 +557,31 @@ export default function UploadStatement() {
                 </div>
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900 mb-2" data-testid="text-success-heading">
-                    Statement Received!
+                    Statement Received
                   </h2>
-                  <p className="text-gray-500 max-w-sm mx-auto text-sm leading-relaxed">
-                    Our AI is analyzing it now. A team member will follow up with your personalized savings report — typically within 1 business day.
-                  </p>
+                  {intake.state.phase === "saved" && (
+                    <>
+                      <p className="text-gray-500 max-w-sm mx-auto text-sm leading-relaxed">
+                        Your statement is saved securely. Your reference is{" "}
+                        <strong className="text-gray-900" data-testid="text-upload-reference">{intake.state.reference}</strong>.
+                        A member of our team will review it and follow up using the email you provided.
+                      </p>
+                      {intake.state.processing === "deferred" && (
+                        <p className="text-gray-500 max-w-sm mx-auto text-sm leading-relaxed mt-2" data-testid="text-processing-deferred">
+                          Automatic processing is running behind, so your advisor will handle this one directly. You do not need to upload it again.
+                        </p>
+                      )}
+                    </>
+                  )}
                 </div>
-                <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
-                  <Loader2 className="h-4 w-4 animate-spin text-sky-500" />
-                  <span data-testid="text-analyzing">Analyzing your statement…</span>
-                </div>
+                <button
+                  type="button"
+                  className="text-xs text-gray-500 underline underline-offset-2"
+                  onClick={() => { setSelectedFile(null); form.reset(); intake.dismiss(); }}
+                  data-testid="button-upload-another"
+                >
+                  Upload a different statement
+                </button>
                 <Button asChild variant="outline" className="rounded-xl" data-testid="button-view-portal">
                   <Link href="/merchant-portal">View My Portal</Link>
                 </Button>
@@ -915,71 +872,69 @@ export default function UploadStatement() {
                   />
 
                   {/* ── Error banner ── */}
-                  {submitError && (
+                  {(submitError || intake.state.phase === "rejected" || intake.state.phase === "unresolved") && (
                     <div
                       className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3"
                       data-testid="alert-submit-error"
                       role="alert"
                     >
                       <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
-                      <p className="text-sm text-red-700">{submitError}</p>
+                      <div className="space-y-2">
+                        <p className="text-sm text-red-700" data-testid="text-submit-error">
+                          {submitError
+                            ?? (intake.state.phase === "rejected"
+                              ? intake.state.message
+                              : intake.state.phase === "unresolved"
+                                ? unresolvedMessage(intake.state.reason)
+                                : "")}
+                        </p>
+                        {intake.state.phase === "unresolved" && intake.state.receipt && (
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-red-700 underline underline-offset-2 disabled:opacity-60"
+                            onClick={() => { void intake.check(); }}
+                            disabled={intake.checking}
+                            data-testid="button-check-upload-status"
+                          >
+                            {intake.checking ? "Checking…" : "Check whether it was saved"}
+                          </button>
+                        )}
+                        {intake.checkNote && <p className="text-xs text-red-700" data-testid="text-upload-check-note">{intake.checkNote}</p>}
+                      </div>
                     </div>
                   )}
 
-                  {/* ── Upload progress ── */}
+                  {/* ── Upload progress: real bytes sent, then an honest wait for the server ── */}
                   {isUploading && (
                     <div
-                      className="space-y-3 rounded-xl bg-gray-50 border border-gray-100 px-4 py-4"
+                      className="space-y-2 rounded-xl bg-gray-50 border border-gray-100 px-4 py-4"
                       data-testid="upload-progress-container"
                       role="status"
                       aria-label="Upload in progress"
                     >
-                      {uploadProgress < 100 && (
-                        <div className="space-y-2">
+                      {intake.state.phase === "uploading" ? (
+                        <>
                           <div className="flex items-center justify-between text-xs text-gray-500">
                             <span className="flex items-center gap-1.5">
                               <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-500" />
-                              {PROCESSING_STEPS[0]}
+                              Uploading your statement…
                             </span>
                             <span data-testid="text-upload-progress-percent" className="font-semibold">
-                              {uploadProgress}%
+                              {intake.state.percent}%
                             </span>
                           </div>
-                          <div
-                            className="h-1.5 w-full rounded-full bg-gray-200 overflow-hidden"
-                            data-testid="upload-progress-bar-track"
-                          >
+                          <div className="h-1.5 w-full rounded-full bg-gray-200 overflow-hidden" data-testid="upload-progress-bar-track">
                             <div
                               className="h-full rounded-full bg-sky-500 transition-all duration-200"
-                              style={{ width: `${uploadProgress}%` }}
+                              style={{ width: `${intake.state.percent}%` }}
                               data-testid="upload-progress-bar-fill"
                             />
                           </div>
-                        </div>
-                      )}
-                      {uploadProgress >= 100 && (
-                        <div className="space-y-1.5" data-testid="upload-processing-steps">
-                          {PROCESSING_STEPS.slice(1).map((label, idx) => {
-                            const stepNum = idx + 1;
-                            const done = processingStep > stepNum;
-                            const active = processingStep === stepNum;
-                            return (
-                              <div
-                                key={label}
-                                className={`flex items-center gap-2 text-xs transition-all duration-300 ${done ? "text-green-700" : active ? "text-sky-600 font-medium" : "text-gray-500 opacity-50"}`}
-                                data-testid={`step-processing-${stepNum}`}
-                              >
-                                {done ? (
-                                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                                ) : active ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                                ) : (
-                                  <span className="w-3.5 h-3.5 shrink-0 rounded-full border border-gray-300 inline-block" />
-                                )}
-                                {label}
-                              </div>
-                            );
-                          })}
+                        </>
+                      ) : (
+                        <div className="flex items-center gap-1.5 text-xs text-gray-600" data-testid="upload-confirming">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-500" />
+                          Upload complete. Saving your submission…
                         </div>
                       )}
                     </div>
@@ -989,13 +944,13 @@ export default function UploadStatement() {
                   <Button
                     type="submit"
                     className="w-full h-14 text-base font-bold rounded-2xl bg-[#0d1b2e] hover:bg-[#162840] text-white shadow-lg shadow-gray-900/20 transition-all active:scale-[0.98]"
-                    disabled={submitMutation.isPending || isUploading}
+                    disabled={isUploading}
                     data-testid="button-upload-submit"
                   >
-                    {submitMutation.isPending || isUploading ? (
+                    {isUploading ? (
                       <>
                         <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                        {isUploading ? "Uploading…" : "Submitting…"}
+                        {intake.state.phase === "confirming" ? "Saving…" : "Uploading…"}
                       </>
                     ) : (
                       <>

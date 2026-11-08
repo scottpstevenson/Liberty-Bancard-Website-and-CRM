@@ -11,7 +11,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 interface AckStatus {
-  capability: { enabled: boolean; eligibleFrom: string | null; expiresAt: string | null; sourceClasses: string[]; activatedBy: string | null; activatedAt: string | null };
+  capability: { enabled: boolean; eligibleFrom: string | null; classEligibleFrom?: Record<string, string>; expiresAt: string | null; sourceClasses: string[]; activatedBy: string | null; activatedAt: string | null };
   counts: Record<string, number>;
   worker?: { state: "reporting" | "stale" | "never_reported"; lastTickAt: string | null; ageSeconds: number | null; lastOutcome: "ok" | "error" | null; lastErrorName: string | null };
   meaning: Record<string, string>;
@@ -39,15 +39,24 @@ const QUERY_KEY = ["/api/admin/inbound-acknowledgements/status"];
 
 export function InboundAcknowledgementCard({ canControl }: { canControl: boolean }) {
   const { toast } = useToast();
-  const [selected, setSelected] = useState<string[]>(["sales_request"]);
+  // null = show exactly what is saved. The boxes are derived from the saved capability, never from a local default,
+  // so what is checked is what the server will actually send receipts for.
+  const [edited, setEdited] = useState<string[] | null>(null);
   const { data, isLoading, isError } = useQuery<AckStatus>({ queryKey: QUERY_KEY });
+  const saved = data?.capability.enabled ? data.capability.sourceClasses : [];
+  const selected = edited ?? saved;
+  const dirty = edited !== null && (edited.length !== saved.length || edited.some((x) => !saved.includes(x)));
+  const setSelected = (update: (current: string[]) => string[]) => setEdited(update(selected));
 
   const change = useMutation({
     mutationFn: async (body: { enabled: boolean; sourceClasses?: string[] }) => {
       const res = await apiRequest("POST", "/api/admin/inbound-acknowledgements/capability", body);
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEY }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      setEdited(null);
+    },
     onError: (e: Error) => toast({ title: "Could not change receipt delivery", description: e.message, variant: "destructive" }),
   });
 
@@ -98,15 +107,32 @@ export function InboundAcknowledgementCard({ canControl }: { canControl: boolean
               ))}
             </dl>
             {open && (
-              <p className="text-sm" data-testid="text-ack-window">
-                Enabled for {data.capability.sourceClasses.join(", ") || "no request types"} from {data.capability.eligibleFrom ? new Date(data.capability.eligibleFrom).toLocaleString() : "an unknown time"}
-                {data.capability.activatedBy ? ` by ${data.capability.activatedBy}` : ""}.
-              </p>
+              <div className="text-sm space-y-1" data-testid="text-ack-window">
+                <p>
+                  Enabled{data.capability.activatedBy ? ` by ${data.capability.activatedBy}` : ""}. Each type applies to requests received from its own start time:
+                </p>
+                <ul className="list-disc pl-5">
+                  {data.capability.sourceClasses.map((cls) => {
+                    const from = data.capability.classEligibleFrom?.[cls] ?? data.capability.eligibleFrom;
+                    return (
+                      <li key={cls} data-testid={`text-ack-class-window-${cls}`}>
+                        {REQUEST_TYPES.find((t) => t.value === cls)?.label.split(" (")[0] ?? cls}
+                        {" — from "}{from ? new Date(from).toLocaleString() : "an unknown time"}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
             )}
             {canControl ? (
               <div className="space-y-3">
                 <fieldset className="space-y-2">
                   <legend className="text-sm font-medium">Request types to enable</legend>
+                  <p className="text-xs text-muted-foreground" data-testid="text-ack-save-semantics">
+                    {open
+                      ? "Checked boxes show what is saved. Types that stay checked keep their original start time; a newly checked type starts when you save, and older requests are never sent a receipt."
+                      : "Delivery is closed. Choose the request types to enable; receipts apply only to requests received after you save."}
+                  </p>
                   {REQUEST_TYPES.map((t) => (
                     <div key={t.value} className="flex items-center gap-2 min-h-11">
                       <Checkbox
@@ -121,7 +147,7 @@ export function InboundAcknowledgementCard({ canControl }: { canControl: boolean
                 <div className="flex flex-wrap gap-2">
                   <Button
                     className="min-h-11"
-                    disabled={change.isPending || selected.length === 0}
+                    disabled={change.isPending || selected.length === 0 || (open && !dirty)}
                     onClick={() => change.mutate({ enabled: true, sourceClasses: selected })}
                     data-testid="button-ack-enable"
                   >

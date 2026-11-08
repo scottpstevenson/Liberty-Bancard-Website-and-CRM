@@ -17,6 +17,7 @@
  *
  * Permitted capability group names (defined in WORKER_CAPABILITY_GROUPS):
  *   critical-commands   — deal-stage-effects, chargeback-commands, statement-upload
+ *   statement-upload    — statement-upload only (narrow; excludes the rest of critical-commands)
  *   ghl-integration     — ghl-sync, ghl-enrollment-recovery, voicemail-sync
  *   ghl-sync-only       — GHL CRM reconciliation queue only; no workflows or voicemail
  *   enrichment          — enrichment, post-enrichment, cro03a-qualification, discovery
@@ -69,6 +70,15 @@ export const WORKER_CAPABILITY_GROUPS = {
   "critical-commands": [
     "deal-stage-effects",
     "chargeback-commands",
+    "statement-upload",
+  ],
+  /**
+   * Narrow capability: ONLY the physical `statement-upload` queue and its consumer. A public statement upload is
+   * accepted by the web process but executed by this consumer; without it the producer has no queue and the upload
+   * can never be processed. Deliberately excludes deal-stage-effects, chargeback-commands and every outbound,
+   * enrichment, sequence or GHL capability, so selecting it never implies the broader `critical-commands` fleet.
+   */
+  "statement-upload": [
     "statement-upload",
   ],
   /** GHL API integration: sync, enrollment recovery, voicemail */

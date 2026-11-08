@@ -859,6 +859,27 @@ export async function resumeInboundSalesRequestForActor(input: {
  * while delivery of one occurrence is replay safe.  External effects are
  * deliberately left in their original held state.
  */
+/** Short, human-quotable reference for an occurrence: the first eight characters of its id, upper-cased. */
+export function inboundShortRef(requestId: string): string {
+  return requestId.replace(/-/g, "").slice(0, 8).toUpperCase();
+}
+
+/**
+ * Operator-facing copy for a statement occurrence. Only the business name and the short reference appear; no
+ * statement content, file name or financial figure ever enters a task.
+ */
+async function statementReviewCopy(requestId: string, contactId: number | null | undefined): Promise<{ title: string; description: string }> {
+  let business: string | null = null;
+  if (contactId) {
+    const [c] = await db.select({ companyName: contacts.companyName }).from(contacts).where(eq(contacts.id, contactId)).limit(1);
+    business = c?.companyName?.trim() || null;
+  }
+  return {
+    title: `Review statement — ${business ?? "business name not provided"}`,
+    description: `Inbound statement_upload request (reference ${inboundShortRef(requestId)})`,
+  };
+}
+
 export async function orchestrateInboundRequest(input: {
   requestId: string;
   contactId?: number | null;
@@ -891,6 +912,11 @@ export async function orchestrateInboundRequest(input: {
     let reviewRequired = false;
     if (policy.sourceClass === "sales_request") {
       let sales: { review: boolean };
+      // A statement occurrence is operator work named for the business, with the short reference the merchant was
+      // shown, so it can be found from the task list without opening the request first.
+      const statementCopy = request.sourceType === "statement_upload"
+        ? await statementReviewCopy(request.id, input.contactId ?? request.contactId)
+        : null;
       try {
       sales = await db.transaction(async tx => {
       const assignment = await evaluateInboundAssignment({
@@ -905,8 +931,9 @@ export async function orchestrateInboundRequest(input: {
       const task = await storage.createAuthorityTask({
         contactId: assignment.reasonCode==="CONTACT_CLASS_REVIEW_REQUIRED" ? undefined : input.contactId,
         dealId: assignment.reasonCode==="CONTACT_CLASS_REVIEW_REQUIRED" ? undefined : input.dealId ?? undefined,
-        title: assignment.reasonCode==="CONTACT_CLASS_REVIEW_REQUIRED" ? "Review retained inbound request" : "Follow up inbound sales request",
-        description: `Inbound ${request.sourceType} request${!assignment.assignedTo ? ` — Management assignment review: ${assignment.reasonCode}` : ""}`,
+        title: statementCopy?.title
+          ?? (assignment.reasonCode==="CONTACT_CLASS_REVIEW_REQUIRED" ? "Review retained inbound request" : "Follow up inbound sales request"),
+        description: `${statementCopy?.description ?? `Inbound ${request.sourceType} request`}${!assignment.assignedTo ? ` — Management assignment review: ${assignment.reasonCode}` : ""}`,
         assignedTo: assignment.status==="review_required" ? undefined : assignment.assignedTo ?? undefined,
         dueDate: slaDueAt ?? undefined,
         status: "pending",
@@ -928,8 +955,8 @@ export async function orchestrateInboundRequest(input: {
         const owner = assignment.status==="review_required" ? null : assignment.assignedTo;
         const resumed = await tx.update(tasks).set({
           contactId: input.contactId, dealId: input.dealId ?? null,
-          title: "Follow up inbound sales request",
-          description: `Inbound ${request.sourceType} request${!assignment.assignedTo ? ` — Management assignment review: ${assignment.reasonCode}` : ""}`,
+          title: statementCopy?.title ?? "Follow up inbound sales request",
+          description: `${statementCopy?.description ?? `Inbound ${request.sourceType} request`}${!assignment.assignedTo ? ` — Management assignment review: ${assignment.reasonCode}` : ""}`,
           assignedTo: owner, canonicalAssignee: owner,
           authorityFence: sql`${tasks.authorityFence} + 1`,
         }).where(and(eq(tasks.id,task.id),sql`${tasks.contactId} IS NULL`,
@@ -1163,17 +1190,33 @@ export async function getPublicInboundRequestStatus(input: {
   return row || null;
 }
 
+/**
+ * The short reference a requester is shown (first eight hex characters of the request id) as a lookup prefix, or null
+ * when the input is not a plausible reference. Dashes and case are ignored; anything non-hex is rejected rather than
+ * interpolated.
+ */
+export function parseInboundShortRef(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const cleaned = input.trim().replace(/-/g, "").toLowerCase();
+  return /^[0-9a-f]{4,8}$/.test(cleaned) ? cleaned : null;
+}
+
 export async function listInboundRequests(input: {
   limit?: number;
   offset?: number;
   sourceClass?: string;
   lifecycleState?: string;
+  /** Exact short reference (or prefix of at least four characters) as quoted by the requester. */
+  shortRef?: string;
 }) {
   const limit = Math.min(Math.max(input.limit || 50, 1), 200);
   const offset = Math.max(input.offset || 0, 0);
   const filters = [];
   if (input.sourceClass) filters.push(eq(inboundRequests.sourceClass, input.sourceClass));
   if (input.lifecycleState) filters.push(eq(inboundRequests.lifecycleState, input.lifecycleState));
+  const ref = parseInboundShortRef(input.shortRef);
+  // The first uuid group is the short reference, so a text prefix on the canonical form is exact.
+  if (ref) filters.push(sql`${inboundRequests.id}::text LIKE ${`${ref}%`}`);
   return db.select().from(inboundRequests)
     .where(filters.length ? and(...filters) : undefined)
     .orderBy(desc(inboundRequests.createdAt))

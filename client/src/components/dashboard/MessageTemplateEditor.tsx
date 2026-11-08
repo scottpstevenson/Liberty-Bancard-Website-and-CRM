@@ -12,6 +12,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getApiErrorMessage } from "@/lib/ghlTruth";
 import { useToast } from "@/hooks/use-toast";
 import { FinalEmailPreview, type FinalMessagePreview } from "./MessageFinalPreview";
+import { useInlinedPreviewHtml } from "@/lib/email-preview-assets";
 import type { MessageTemplate, MessageTemplateVersion } from "@shared/schema";
 
 interface Finding { rule: string; match: string; why: string }
@@ -63,9 +64,19 @@ function FindingList({ findings, testId }: { findings: Finding[]; testId: string
   );
 }
 
-function SandboxedEmail({ html, title }: { html: string; title: string }) {
-  // Empty sandbox: no scripts, forms, navigation or same-origin access for the previewed markup.
-  return <iframe title={title} sandbox="" srcDoc={html} className="w-full h-64 rounded-md border bg-white" />;
+function SandboxedEmail({ html, title, tall }: { html: string; title: string; tall?: boolean }) {
+  // Empty sandbox: no scripts, forms, navigation or same-origin access for the previewed markup. The logo is swapped for
+  // an inline copy of the same image for DISPLAY only; the HTML that is sent is not touched.
+  const shown = useInlinedPreviewHtml(html);
+  return (
+    <iframe
+      title={title}
+      sandbox=""
+      srcDoc={shown}
+      className={`w-full rounded-md border bg-white ${tall ? "h-[70vh] min-h-[24rem]" : "h-64"}`}
+      data-testid="sandboxed-email-frame"
+    />
+  );
 }
 
 export function MessageTemplateEditor({
@@ -336,17 +347,26 @@ export function MessageTemplateEditor({
   );
 }
 
-interface ReceiptPreviews { previews: Array<{ sourceClass: string; templateKey: string; subject: string; html: string; text: string }>; note: string }
+interface ReceiptPreviewItem {
+  sourceClass: string; variant: string; sourceType: string; templateKey: string; subject: string; html: string; text: string;
+  sender: { name: string | null; address: string }; replyTo: string;
+}
+interface ReceiptPreviews { previews: ReceiptPreviewItem[]; note: string }
 
 const RECEIPT_LABELS: Record<string, string> = {
   sales_request: "Sales requests", support_request: "Support requests", fulfillment_request: "Equipment orders",
   partner_application_request: "Partner applications", privacy_request: "Privacy requests",
 };
+const EXAMPLE_LABELS: Record<string, string> = {
+  estimate_form: "Example: estimate request", statement_upload: "Example: statement upload", support_form: "Example: support request",
+  equipment_request: "Example: equipment order", partner_application: "Example: partner application", privacy_request: "Example: privacy request",
+};
 
 /** Read-only view of the exact receipt wording. Delivery is enabled in the Request receipts card, not here. */
 export function ReceiptWordingPreview({ canView }: { canView: boolean }) {
   const [open, setOpen] = useState(false);
-  const { data, isLoading, isError, error } = useQuery<ReceiptPreviews>({
+  const [expanded, setExpanded] = useState<ReceiptPreviewItem | null>(null);
+  const { data, isLoading, isError, error, refetch } = useQuery<ReceiptPreviews>({
     queryKey: ["/api/admin/inbound-acknowledgements/preview"],
     enabled: open && canView,
   });
@@ -363,18 +383,48 @@ export function ReceiptWordingPreview({ canView }: { canView: boolean }) {
         </Button>
       </div>
       {open && (isLoading ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-        : isError ? <p className="text-sm text-destructive">{getApiErrorMessage(error, "Could not load receipt preview")}</p>
-        : data && (
-          <div className="grid gap-4 md:grid-cols-3">
-            {data.previews.map((p) => (
-              <div key={p.sourceClass} className="space-y-1" data-testid={`receipt-preview-${p.sourceClass}`}>
-                <p className="text-xs font-medium">{RECEIPT_LABELS[p.sourceClass] ?? p.sourceClass}</p>
-                <p className="text-xs text-muted-foreground">{p.subject}</p>
-                <SandboxedEmail html={p.html} title={`Receipt preview: ${p.sourceClass}`} />
-              </div>
-            ))}
+        : isError ? (
+          <div className="flex items-center gap-3 flex-wrap">
+            <p className="text-sm text-destructive">{getApiErrorMessage(error, "Could not load receipt preview")}</p>
+            <Button variant="outline" className="min-h-11" onClick={() => refetch()} data-testid="button-receipt-preview-retry">Retry</Button>
           </div>
+        )
+        : data && (
+          <>
+            <p className="text-xs text-muted-foreground" data-testid="text-receipt-preview-note">{data.note}</p>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {data.previews.map((p) => (
+                <div key={`${p.sourceClass}:${p.variant}`} className="space-y-2 rounded-md border p-4 min-w-0" data-testid={p.variant === "default" ? `receipt-preview-${p.sourceClass}` : `receipt-preview-${p.sourceClass}-${p.variant}`}>
+                  <div>
+                    <p className="text-sm font-medium">{RECEIPT_LABELS[p.sourceClass] ?? p.sourceClass}</p>
+                    <p className="text-xs text-muted-foreground">{EXAMPLE_LABELS[p.sourceType] ?? p.sourceType}</p>
+                  </div>
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+                    <dt className="font-medium">Subject</dt><dd className="min-w-0 break-words" data-testid="receipt-preview-subject">{p.subject}</dd>
+                    <dt className="font-medium">From</dt><dd className="min-w-0 break-words" data-testid="receipt-preview-sender">{p.sender.name ? `${p.sender.name} <${p.sender.address}>` : p.sender.address}</dd>
+                    <dt className="font-medium">Reply-To</dt><dd className="min-w-0 break-words">{p.replyTo}</dd>
+                  </dl>
+                  <SandboxedEmail html={p.html} title={`Receipt preview: ${p.sourceClass} (${p.variant})`} />
+                  <Button variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => setExpanded(p)} data-testid={`button-expand-receipt-${p.sourceClass}-${p.variant}`}>
+                    Open full preview
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </>
         ))}
+      <Dialog open={expanded !== null} onOpenChange={(next) => { if (!next) setExpanded(null); }}>
+        <DialogContent className="max-w-3xl w-[calc(100vw-1rem)] max-h-[95vh] overflow-y-auto p-4 sm:p-6" data-testid="dialog-receipt-full-preview"
+          // The preview frame comes first in tab order, so default auto-focus lands inside it, and keystrokes (Escape) in a
+          // sandboxed frame never reach this dialog. Start on the dialog itself so Escape closes it.
+          onOpenAutoFocus={(event) => { event.preventDefault(); (event.target as HTMLElement | null)?.focus?.({ preventScroll: true }); }}>
+          <DialogHeader>
+            <DialogTitle>{expanded ? `${RECEIPT_LABELS[expanded.sourceClass] ?? expanded.sourceClass} receipt` : "Receipt preview"}</DialogTitle>
+            <DialogDescription>{expanded ? `${expanded.subject} — from ${expanded.sender.address}` : ""}</DialogDescription>
+          </DialogHeader>
+          {expanded && <SandboxedEmail html={expanded.html} title="Full receipt preview" tall />}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

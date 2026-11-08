@@ -92,7 +92,6 @@ async function run(): Promise<void> {
   const { readFileSync } = await import("fs");
   const readRoute = (file: string) => readFileSync(`${process.cwd()}/${file}`, "utf8");
   const queuedRoutes = [
-    "server/routes/public.ts",
     "server/routes/documents.ts",
     "server/routes/rate-review.ts",
     "server/routes/sdr.ts",
@@ -111,7 +110,14 @@ async function run(): Promise<void> {
   }
   const producerCount = queuedRoutes.reduce((count, file) =>
     count + (readRoute(file).match(/persistAndEnqueueStatementCommand\s*\(\s*\{/g)?.length ?? 0), 0);
-  assert(producerCount === 7, "all seven production statement-command producers remain in the reviewed inventory");
+  assert(producerCount === 6, "the six non-public statement-command producers keep the boolean 503 handoff contract");
+  // The public intake route is the one producer where retention, not the queue, is the commitment: a refused enqueue
+  // is a deferred occurrence with durable review work, never a 503 and never a lost upload.
+  const publicRoute = readRoute("server/routes/public.ts");
+  assert((publicRoute.match(/retainStatementAndTryEnqueue\s*\(\s*\{/g)?.length ?? 0) === 1, "public intake has exactly one statement producer");
+  assert(!/persistAndEnqueueStatementCommand/.test(publicRoute), "public intake no longer uses the boolean 503 handoff");
+  assert(/handoff\.state === "deferred"/.test(publicRoute) && /ensureStatementOccurrenceNotification\(/.test(publicRoute), "public intake creates review work even when the queue defers");
+  assert(/res\.status\(202\)\.json\(inboundResponse\)/.test(publicRoute), "public intake answers 202 for queued and deferred handoffs");
   const sdrRoute = readRoute("server/routes/sdr.ts");
   assert(sdrRoute.includes("STATEMENT_FILE_REQUIRED"), "token upload rejects a missing statement file");
   assert(sdrRoute.includes("STATEMENT_UPLOAD_CONTACT_REQUIRED"), "token upload rejects an unlinked contact");
