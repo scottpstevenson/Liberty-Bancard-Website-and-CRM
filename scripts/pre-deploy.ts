@@ -264,6 +264,7 @@ export const MANDATORY_SUITES: Suite[] = [
   {name:"Stage 3 C5 Cutover Browser Smoke",script:"scripts/test-stage3-c5-browser.ts",timeoutSecs:480,requiresDisposableTestDatabase:true},
   {name:"Website email lifecycle browser (warm content, lane card, role matrix, public consent)",script:"scripts/test-website-email-browser.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
   {name:"Website email lifecycle migration (fresh, parity, upgrade, partial, replay)",script:"scripts/test-website-email-migration.ts",timeoutSecs:420,requiresDisposableTestDatabase:true},
+  {name:"Website email post-publish check (tables, marker column, Gmail ledger CHECK, read-only)",script:"scripts/test-website-email-publish-check.ts",timeoutSecs:420,requiresDisposableTestDatabase:true},
   {name:"Stage 3 C4 Source and Codec Contracts",script:"scripts/test-stage3-c4-contracts.ts",timeoutSecs:60},
   {name:"Stage 3 C4 Real Handler Actions",script:"scripts/test-stage3-c4-actions.ts",timeoutSecs:240,requiresDisposableTestDatabase:true},
   {name:"Stage 3 C4 Bounded Mounted Browser",script:"scripts/test-stage3-c4-browser.ts",timeoutSecs:480,requiresDisposableTestDatabase:true},
