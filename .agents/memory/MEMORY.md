@@ -197,4 +197,5 @@
 - [Statement-upload queue capability](statement-upload-queue-capability.md) — 503 root cause was a missing producer queue in the published profile; narrow group + truthful deferred handoff; owner Publish required.
 - [Receipt milestone gating](ack-milestone-gating-cutoffs.md) — receipts wait for the internal handoff; per-class cutoffs are monotonic and a re-save must not move them.
 - [Website intake](website-intake-review-surfaces.md) / [cert harness](website-intake-cert-harness-lessons.md) — existing surfaces only; /api/health sha check; dialog autofocus.
+- [Public claims preflight lessons](public-claims-preflight-lessons.md) — register suites in both rosters; xlsx via python zipfile; React and SSR copy are separate emitters.
 
