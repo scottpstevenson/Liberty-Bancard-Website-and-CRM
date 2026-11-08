@@ -4,7 +4,7 @@ Date: 2026-11-08
 Scope: LI-W03 (equipment and contract terms), LI-W06 (statement fee explanation and data handling), LI-W09 (timing and funding), LI-W10 (zero-percent program), LI-W12 (integration compatibility), LI-W13 (competitor pricing).
 Routes owned: `/free-smart-terminal`, `/upload-statement`, `/0-percent-processing`, `/integrations`, `/compare/square` (and the other comparison, alternatives, switch-from, rates and Square-versus pages that read the same records).
 Governing contract: `attached_assets/Liberty-W-A-Truth-and-Terms_1794148597077.md`.
-Status: source and fixture work complete; **not published, not deployed, not verified on the live site.**
+Status: source and fixture work complete. Published by the owner on 2026-11-08; the live site serves source commit `1a90e734` (the tested candidate) and a read-only read-back of 18 live routes found none of the retired assertions (section 7a).
 
 ## 1. Identity of what was tested
 
@@ -115,9 +115,15 @@ Each layer is reported separately.
 
 - Route validation check (`test-public-route-validation.ts`): 12 passed, including the Get Started submission checks.
 
-**Deployed UI.** Not verified. Nothing was published; the live site still serves the previous build until the owner publishes.
+**Deployed UI.** See section 7a.
+
 **Data and schema.** No schema, migration or data change; nothing to verify.
 **Receipt delivery, native booking, GHL, advertising and outbound activation.** Not touched and not verified; all outbound controls remain as found.
+
+## 7a. Post-Publish read-back (2026-11-08)
+
+The production health endpoint reported source commit `1a90e734`, built 2026-11-08 17:52 UTC (`env: production`, publish build `f8e627db`), an ancestor of the current main head that contains the full candidate. Read-only, unauthenticated, Chromium with analytics and third-party scripts blocked: the hydrated text, title, meta description and JSON-LD of 18 public routes (the five owned routes, the other comparison and rates pages, Home, FAQ, Get Started, Shop, Free Analysis, About and Contact, Why Liberty, Savings Calculator, Merchant Application and the retail industry page) contain none of the retired assertions, no Review or AggregateRating schema and no evidence-register marker. The raw server HTML of `/why-liberty-bancard` still includes a "Next-Day Funding" card that hydration replaces (W-D). `/free-smart-terminal` and `/shop` are served as the client shell. Not read back: the production outbound pause, receipt capability and provider controls; Safari/WebKit and real devices; field performance.
+
 
 ## 8. Handoffs (not edited here)
 
@@ -133,4 +139,4 @@ Revert the changed source files to `f20104fa` and redeploy; there is no schema, 
 
 ## 10. Remaining gates (not claimed)
 
-Owner review and Publish of this build; read the health endpoint afterward and compare the served source to the tested candidate; supply the owner evidence in section 4 so held claims can be approved; WebKit/Safari and real-device check; W-B, W-C and W-D handoffs above. This record does not assert that the whole website, Stage 5, AI readiness, advertising or automatic email activation is complete.
+Supply the owner evidence in section 4 so held claims can be approved; WebKit/Safari and real-device check; W-B, W-C and W-D handoffs above. This record does not assert that the whole website, Stage 5, AI readiness, advertising or automatic email activation is complete.
