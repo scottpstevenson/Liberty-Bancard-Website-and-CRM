@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { serializeJsonLd } from "../shared/json-ld";
 import { PUBLIC_FOOTER_GROUPS } from "../shared/public-footer-links";
+import { PUBLIC_NAV_CTA, PUBLIC_NAV_GROUPS, PUBLIC_NAV_UTILITY } from "../shared/public-navigation";
 import { FOOTER_COMPLIANCE, FOOTER_DISCLAIMER } from "../shared/public-disclosures";
 
 const BASE_URL = "https://libertybancard.com";
@@ -48,7 +49,7 @@ try {
 }
 
 try {
-  const logoWhitePath = path.resolve("./client/src/assets/logo-white.png");
+  const logoWhitePath = path.resolve("./client/src/assets/logo-white-420.png");
   if (fs.existsSync(logoWhitePath)) {
     LOGO_WHITE_B64 = fs.readFileSync(logoWhitePath).toString("base64");
   }
@@ -57,7 +58,7 @@ try {
 }
 
 try {
-  const logoBluePath = path.resolve("./client/src/assets/logo-blue.png");
+  const logoBluePath = path.resolve("./client/src/assets/logo-blue-420.png");
   if (fs.existsSync(logoBluePath)) {
     LOGO_BLUE_B64 = fs.readFileSync(logoBluePath).toString("base64");
   }
@@ -81,6 +82,82 @@ interface SsrShellOptions {
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
+
+/**
+ * Navigation bar and footer rules shared by every server-rendered public document: the standard shell
+ * below and the standalone comparison documents in ssr/competitor-ssr.ts. Both emit ssrNavbar() and
+ * ssrFooter(), so both must carry these rules; without them the logo renders at its intrinsic size.
+ */
+export const SSR_CHROME_CSS = `
+    /* Navbar: 56px on phones (logo + menu), 64px from 768px. Groups come from shared/public-navigation.ts. */
+    .ssr-navbar { position: relative; z-index: 50; }
+    .ssr-mainbar { background: #fff; border-bottom: 1px solid #e2e8f0; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.05); }
+    .ssr-mainbar-inner { max-width: 1280px; margin: 0 auto; padding: 0 1rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; height: 3.5rem; }
+    @media (min-width: 640px) { .ssr-mainbar-inner { padding: 0 1.5rem; } }
+    @media (min-width: 768px) { .ssr-mainbar-inner { height: 4rem; } }
+    .ssr-logo { display: flex; align-items: center; min-height: 2.75rem; flex-shrink: 0; }
+    .ssr-logo img { height: 1.75rem; width: auto; max-width: 200px; }
+    @media (min-width: 768px) { .ssr-logo img { height: 2.25rem; max-width: none; } }
+    .ssr-nav-links { display: none; }
+    @media (min-width: 1024px) { .ssr-nav-links { display: flex; align-items: center; gap: 1.75rem; font-size: 0.875rem; font-weight: 500; color: #334155; } }
+    .ssr-nav-links a { display: inline-flex; align-items: center; min-height: 2.75rem; }
+    .ssr-nav-links a:hover, .ssr-nav-support:hover { color: #071D57; }
+    .ssr-nav-actions { display: flex; align-items: center; gap: 0.5rem; }
+    @media (min-width: 640px) { .ssr-nav-actions { gap: 1rem; } }
+    .ssr-nav-support { display: none; font-size: 0.875rem; font-weight: 500; color: #334155; align-items: center; min-height: 2.75rem; }
+    @media (min-width: 1024px) { .ssr-nav-support { display: inline-flex; } }
+    .ssr-cta-btn { display: none; align-items: center; gap: 0.5rem; background: #071D57; color: #fff; padding: 0.5rem 1.25rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; white-space: nowrap; min-height: 2.5rem; }
+    @media (min-width: 640px) { .ssr-cta-btn { display: inline-flex; } }
+    .ssr-cta-btn:hover { background: #0c2a7a; }
+    .ssr-menu { display: block; }
+    @media (min-width: 1024px) { .ssr-menu { display: none; } }
+    .ssr-menu > summary { display: flex; align-items: center; justify-content: center; width: 3rem; height: 3rem; border-radius: 0.5rem; cursor: pointer; list-style: none; color: #071D57; font-size: 0.8125rem; font-weight: 600; }
+    .ssr-menu > summary::-webkit-details-marker { display: none; }
+    .ssr-menu[open] > summary { background: #f4f6fa; }
+    .ssr-menu-panel { position: absolute; left: 0; right: 0; top: 100%; background: #fff; border-bottom: 1px solid #e2e8f0; box-shadow: 0 12px 24px -12px rgba(7,29,87,0.25); max-height: calc(100vh - 3.5rem); overflow-y: auto; padding: 0.5rem 1rem 1rem; }
+    .ssr-menu-group { margin: 0.5rem 0 0; padding: 0.5rem 0.75rem 0; font-size: 0.8125rem; font-weight: 700; color: #071D57; text-transform: uppercase; letter-spacing: 0.06em; }
+    .ssr-menu-panel ul { list-style: none; margin: 0; padding: 0; }
+    .ssr-menu-panel li a { display: flex; align-items: center; min-height: 2.75rem; padding: 0.5rem 0.75rem; font-size: 0.9375rem; color: #334155; }
+    .ssr-menu-panel li a:hover { color: #071D57; background: #f4f6fa; }
+    .ssr-menu-panel .ssr-menu-offer a { border: 1px solid #e2e8f0; background: #f4f6fa; border-radius: 0.5rem; margin: 0.25rem 0.75rem 0; font-weight: 600; }
+    .ssr-menu-panel .ssr-menu-cta { display: flex; justify-content: center; margin-top: 1rem; min-height: 3rem; font-size: 1rem; }
+
+    /* Footer: brand + four link groups. Groups are <details open> (everything visible and crawlable without
+       JavaScript); a tiny inline script after the footer collapses them below 1024px. */
+    .ssr-footer { background: #071D57; border-top: 3px solid #C8102E; color: #fff; padding-top: 2.5rem; padding-bottom: 2rem; }
+    .ssr-footer-grid { max-width: 1280px; margin: 0 auto; padding: 0 1rem; display: grid; grid-template-columns: 1fr; gap: 0; margin-bottom: 2rem; }
+    @media (min-width: 640px) { .ssr-footer-grid { padding: 0 1.5rem; } }
+    @media (min-width: 1024px) { .ssr-footer-grid { grid-template-columns: 1.1fr repeat(4, minmax(0, 1fr)); padding: 0 2rem; gap: 2.5rem; margin-bottom: 3rem; } .ssr-footer { padding-top: 4rem; } }
+    .ssr-footer-brand { padding-bottom: 1.5rem; }
+    @media (min-width: 1024px) { .ssr-footer-brand { padding-bottom: 0; } }
+    .ssr-footer-logo { height: 2.5rem; width: auto; margin-bottom: 1rem; }
+    .ssr-footer-tagline { font-size: 0.875rem; color: rgba(255,255,255,0.8); margin-bottom: 1.25rem; line-height: 1.6; }
+    .ssr-footer h4 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; color: #fff; }
+    .ssr-footer ul { list-style: none; }
+    .ssr-footer li { margin-bottom: 0; }
+    .ssr-footer a { display: inline-flex; align-items: center; min-height: 2.75rem; font-size: 0.875rem; color: rgba(255,255,255,0.8); }
+    .ssr-footer a:hover { color: #fff; }
+    .ssr-footer-group { border-top: 1px solid rgba(255,255,255,0.12); }
+    .ssr-footer-group summary { display: flex; align-items: center; justify-content: space-between; min-height: 3rem; font-size: 1rem; font-weight: 600; color: #fff; cursor: pointer; list-style: none; }
+    .ssr-footer-group summary::-webkit-details-marker { display: none; }
+    .ssr-footer-group summary::after { content: "+"; font-size: 1.25rem; line-height: 1; }
+    .ssr-footer-group[open] summary::after { content: "\\2212"; }
+    .ssr-footer-group ul { padding-bottom: 0.75rem; }
+    @media (min-width: 1024px) {
+      .ssr-footer-group { border-top: 0; }
+      .ssr-footer-group summary { min-height: 0; margin-bottom: 1rem; font-size: 1.125rem; pointer-events: none; cursor: default; }
+      .ssr-footer-group summary::after { content: none; }
+      .ssr-footer-group ul { padding-bottom: 0; }
+      .ssr-footer a { min-height: 0; padding: 0.25rem 0; }
+    }
+    .ssr-footer-bottom { max-width: 1280px; margin: 0 auto; padding: 1.5rem 1rem 0; border-top: 1px solid rgba(255,255,255,0.1); }
+    @media (min-width: 640px) { .ssr-footer-bottom { padding: 1.5rem 1.5rem 0; } }
+    @media (min-width: 1024px) { .ssr-footer-bottom { padding: 1.5rem 2rem 0; } }
+    .ssr-footer-disclaimer { font-size: 0.75rem; color: rgba(255,255,255,0.72); line-height: 1.5; margin-bottom: 0.75rem; }
+    .ssr-footer-copy { font-size: 0.875rem; color: rgba(255,255,255,0.72); }
+    .ssr-footer-trust { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: center; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1.5rem; padding-bottom: 1.5rem; }
+    .ssr-footer-trust-badge { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: rgba(255,255,255,0.72); }
+`;
 
 export function ssrHtmlShell({
   title,
@@ -120,7 +197,7 @@ export function ssrHtmlShell({
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#1e3a5f" />
+  <meta name="theme-color" content="#071D57" />
   <meta name="robots" content="index, follow" />
   <title>${safeTitle}</title>
   <meta name="description" content="${safeDescription}" />
@@ -171,57 +248,7 @@ export function ssrHtmlShell({
     @media (min-width: 640px) { .container { padding: 0 1.5rem; } }
     @media (min-width: 1024px) { .container { padding: 0 2rem; } }
 
-    /* Navbar */
-    .ssr-navbar { position: relative; z-index: 50; }
-    .ssr-mainbar { background: #fff; border-bottom: 1px solid #e2e8f0; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.05); }
-    .ssr-mainbar-inner { max-width: 1280px; margin: 0 auto; padding: 0 1rem; display: flex; justify-content: space-between; align-items: center; height: 4rem; }
-    @media (min-width: 640px) { .ssr-mainbar-inner { padding: 0 1.5rem; } }
-    .ssr-logo { display: flex; align-items: center; }
-    .ssr-logo img { height: 2.25rem; width: auto; }
-    .ssr-nav-links { display: none; }
-    @media (min-width: 768px) { .ssr-nav-links { display: flex; align-items: center; gap: 1.5rem; font-size: 0.875rem; font-weight: 500; color: #334155; } }
-    .ssr-nav-links a:hover { color: #1e3a5f; }
-    .ssr-nav-phone { display: none; font-size: 0.875rem; color: #64748b; }
-    @media (min-width: 768px) { .ssr-nav-phone { display: flex; align-items: center; gap: 0.375rem; } }
-    .ssr-nav-phone:hover { color: #1e3a5f; }
-    .ssr-cta-btn { display: inline-flex; align-items: center; gap: 0.5rem; background: #1e3a5f; color: #fff; padding: 0.5rem 1.25rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; white-space: nowrap; }
-    .ssr-cta-btn:hover { background: #1a3254; }
-
-    /* Footer: brand + four link groups. Groups are <details open> (everything visible and crawlable without
-       JavaScript); a tiny inline script after the footer collapses them below 1024px. */
-    .ssr-footer { background: #1e3a5f; color: #fff; padding-top: 2.5rem; padding-bottom: 2rem; }
-    .ssr-footer-grid { max-width: 1280px; margin: 0 auto; padding: 0 1rem; display: grid; grid-template-columns: 1fr; gap: 0; margin-bottom: 2rem; }
-    @media (min-width: 640px) { .ssr-footer-grid { padding: 0 1.5rem; } }
-    @media (min-width: 1024px) { .ssr-footer-grid { grid-template-columns: 1.1fr repeat(4, minmax(0, 1fr)); padding: 0 2rem; gap: 2.5rem; margin-bottom: 3rem; } .ssr-footer { padding-top: 4rem; } }
-    .ssr-footer-brand { padding-bottom: 1.5rem; }
-    @media (min-width: 1024px) { .ssr-footer-brand { padding-bottom: 0; } }
-    .ssr-footer-logo { height: 2.5rem; width: auto; margin-bottom: 1rem; }
-    .ssr-footer-tagline { font-size: 0.875rem; color: rgba(255,255,255,0.8); margin-bottom: 1.25rem; line-height: 1.6; }
-    .ssr-footer h4 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; color: #fff; }
-    .ssr-footer ul { list-style: none; }
-    .ssr-footer li { margin-bottom: 0; }
-    .ssr-footer a { display: inline-flex; align-items: center; min-height: 2.75rem; font-size: 0.875rem; color: rgba(255,255,255,0.8); }
-    .ssr-footer a:hover { color: #fff; }
-    .ssr-footer-group { border-top: 1px solid rgba(255,255,255,0.12); }
-    .ssr-footer-group summary { display: flex; align-items: center; justify-content: space-between; min-height: 3rem; font-size: 1rem; font-weight: 600; color: #fff; cursor: pointer; list-style: none; }
-    .ssr-footer-group summary::-webkit-details-marker { display: none; }
-    .ssr-footer-group summary::after { content: "+"; font-size: 1.25rem; line-height: 1; }
-    .ssr-footer-group[open] summary::after { content: "\\2212"; }
-    .ssr-footer-group ul { padding-bottom: 0.75rem; }
-    @media (min-width: 1024px) {
-      .ssr-footer-group { border-top: 0; }
-      .ssr-footer-group summary { min-height: 0; margin-bottom: 1rem; font-size: 1.125rem; pointer-events: none; cursor: default; }
-      .ssr-footer-group summary::after { content: none; }
-      .ssr-footer-group ul { padding-bottom: 0; }
-      .ssr-footer a { min-height: 0; padding: 0.25rem 0; }
-    }
-    .ssr-footer-bottom { max-width: 1280px; margin: 0 auto; padding: 1.5rem 1rem 0; border-top: 1px solid rgba(255,255,255,0.1); }
-    @media (min-width: 640px) { .ssr-footer-bottom { padding: 1.5rem 1.5rem 0; } }
-    @media (min-width: 1024px) { .ssr-footer-bottom { padding: 1.5rem 2rem 0; } }
-    .ssr-footer-disclaimer { font-size: 0.75rem; color: rgba(255,255,255,0.72); line-height: 1.5; margin-bottom: 0.75rem; }
-    .ssr-footer-copy { font-size: 0.875rem; color: rgba(255,255,255,0.72); }
-    .ssr-footer-trust { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: center; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1.5rem; padding-bottom: 1.5rem; }
-    .ssr-footer-trust-badge { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: rgba(255,255,255,0.72); }
+    ${SSR_CHROME_CSS}
 
     /* Hero */
     .ssr-hero { position: relative; overflow: hidden; background: linear-gradient(135deg, #0f1f3d 0%, #1a2f5a 40%, #1e3a8a 100%); color: #fff; padding: 5rem 0; }
@@ -238,7 +265,7 @@ export function ssrHtmlShell({
     .ssr-btn-primary:hover { background: #0284c7; }
     .ssr-btn-outline { display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.05); color: #fff; padding: 0.75rem 1.75rem; border-radius: 0.5rem; font-size: 1rem; font-weight: 600; border: 1px solid rgba(255,255,255,0.2); }
     .ssr-btn-outline:hover { background: rgba(255,255,255,0.1); }
-    .ssr-btn-dark { display: inline-flex; align-items: center; gap: 0.5rem; background: #1e3a5f; color: #fff; padding: 0.75rem 1.75rem; border-radius: 0.5rem; font-size: 1rem; font-weight: 600; }
+    .ssr-btn-dark { display: inline-flex; align-items: center; gap: 0.5rem; background: #071D57; color: #fff; padding: 0.75rem 1.75rem; border-radius: 0.5rem; font-size: 1rem; font-weight: 600; }
     .ssr-btn-dark:hover { background: #1a3254; }
 
     /* Sections */
@@ -259,7 +286,7 @@ export function ssrHtmlShell({
     .ssr-grid-2 { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
     @media (min-width: 768px) { .ssr-grid-2 { grid-template-columns: repeat(2, 1fr); } }
     .ssr-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.05); }
-    .ssr-stat-value { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 2rem; font-weight: 700; color: #1e3a5f; margin-bottom: 0.25rem; }
+    .ssr-stat-value { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 2rem; font-weight: 700; color: #071D57; margin-bottom: 0.25rem; }
     .ssr-stat-label { font-size: 0.875rem; color: #64748b; }
     .ssr-card-title { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 1.125rem; font-weight: 600; margin-bottom: 0.5rem; color: #0f172a; }
     .ssr-card-text { font-size: 0.875rem; color: #64748b; line-height: 1.6; }
@@ -314,13 +341,13 @@ export function ssrHtmlShell({
     .ssr-savings-grid { display: grid; grid-template-columns: 1fr; gap: 1rem; max-width: 48rem; margin: 0 auto; }
     @media (min-width: 640px) { .ssr-savings-grid { grid-template-columns: repeat(3, 1fr); } }
     .ssr-savings-card { background: #fff; border: 2px solid #e2e8f0; border-radius: 0.75rem; padding: 1.25rem; text-align: center; }
-    .ssr-savings-card.liberty { border-color: #1e3a5f; }
+    .ssr-savings-card.liberty { border-color: #071D57; }
     .ssr-savings-card.winner { border-color: #10b981; background: #f0fdf4; }
     .ssr-savings-label { font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; margin-bottom: 0.5rem; }
-    .ssr-savings-label.liberty { color: #1e3a5f; }
+    .ssr-savings-label.liberty { color: #071D57; }
     .ssr-savings-label.winner { color: #059669; }
     .ssr-savings-value { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 1.625rem; font-weight: 700; color: #0f172a; }
-    .ssr-savings-value.liberty { color: #1e3a5f; }
+    .ssr-savings-value.liberty { color: #071D57; }
     .ssr-savings-value.winner { font-size: 2rem; color: #059669; }
      .ssr-savings-sub { font-size: 0.75rem; color: #94a3b8; margin-top: 0.375rem; }
      }
@@ -343,25 +370,34 @@ export function ssrNavbar(): string {
   const logoSrc = LOGO_BLUE_B64
     ? `data:image/png;base64,${LOGO_BLUE_B64}`
     : "/favicon.png";
+  const topLevel = PUBLIC_NAV_GROUPS.map((g) => `        <a href="${escapeHtml(g.href)}">${escapeHtml(g.label)}</a>`).join("\n");
+  const menuGroups = PUBLIC_NAV_GROUPS.map((g) => {
+    const links = g.links.map((l) => `<li><a href="${escapeHtml(l.href)}">${escapeHtml(l.label)}</a></li>`);
+    if (g.offer?.current) links.push(`<li class="ssr-menu-offer"><a href="${escapeHtml(g.offer.href)}">${escapeHtml(g.offer.label)}</a></li>`);
+    return `        <p class="ssr-menu-group">${escapeHtml(g.label)}</p>
+        <ul>${links.join("")}</ul>`;
+  }).join("\n");
   return `<header class="ssr-navbar">
   <div class="ssr-mainbar">
     <div class="ssr-mainbar-inner">
       <a href="/" class="ssr-logo">
-        <img src="${logoSrc}" alt="Liberty Bancard" />
+        <img src="${logoSrc}" alt="Liberty Bancard" width="135" height="28" />
       </a>
-      <nav class="ssr-nav-links">
-        <a href="/">Home</a>
-        <a href="/0-percent-processing" style="color:#10b981;font-weight:600;">⚡ Liberty Zero™</a>
-        <a href="/upload-statement">Solutions</a>
-        <a href="/industries/restaurant-payment-processing">Industries</a>
-        <a href="/blog">Resources</a>
-        <a href="/about-contact">About</a>
+      <nav class="ssr-nav-links" aria-label="Main">
+${topLevel}
       </nav>
-      <div style="display:flex;align-items:center;gap:0.75rem;">
-        <a href="tel:9542668214" class="ssr-nav-phone">📞 954-266-8214</a>
-        <a href="/upload-statement" class="ssr-cta-btn">
-          Upload Statement
-        </a>
+      <div class="ssr-nav-actions">
+        <a href="${escapeHtml(PUBLIC_NAV_UTILITY.href)}" class="ssr-nav-support">${escapeHtml(PUBLIC_NAV_UTILITY.label)}</a>
+        <a href="${escapeHtml(PUBLIC_NAV_CTA.href)}" class="ssr-cta-btn">${escapeHtml(PUBLIC_NAV_CTA.label)}</a>
+        <details class="ssr-menu">
+          <summary aria-label="Open menu">Menu</summary>
+          <div class="ssr-menu-panel">
+${menuGroups}
+            <p class="ssr-menu-group">${escapeHtml(PUBLIC_NAV_UTILITY.label)}</p>
+            <ul><li><a href="${escapeHtml(PUBLIC_NAV_UTILITY.href)}">${escapeHtml(PUBLIC_NAV_UTILITY.label)}</a></li></ul>
+            <a href="${escapeHtml(PUBLIC_NAV_CTA.href)}" class="ssr-cta-btn ssr-menu-cta">${escapeHtml(PUBLIC_NAV_CTA.label)}</a>
+          </div>
+        </details>
       </div>
     </div>
   </div>
@@ -384,7 +420,7 @@ ${group.links.map((link) => `        <li><a href="${escapeHtml(link.href)}">${es
   return `<footer class="ssr-footer">
   <div class="ssr-footer-grid">
     <div class="ssr-footer-brand">
-      <a href="/"><img src="${logoSrc}" alt="Liberty Bancard" class="ssr-footer-logo" /></a>
+      <a href="/"><img src="${logoSrc}" alt="Liberty Bancard" class="ssr-footer-logo" width="193" height="40" /></a>
       <p class="ssr-footer-tagline">We don't sell a rate. We prove your real cost and fix it.</p>
       <h4>Contact</h4>
       <ul>

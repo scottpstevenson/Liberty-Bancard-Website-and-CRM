@@ -27,11 +27,10 @@ import {
 import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
 import { trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
-import imgCloverFlex3 from "@/assets/images/terminal-clover-flex-3.png";
-import imgPaxA920 from "@/assets/images/terminal-pax-a920.png";
+import { PublicImage } from "@/components/public/PublicImage";
 import { claimText } from "@shared/public-claims";
 import { BEAT_SQUARE_STRIPE, COMPARE_METHOD_NOTE, COMPARE_NEEDS, COMPARE_TABLE_FOOTNOTE, beatSquareStripeRecords } from "@shared/compare-content";
-import { formatCheckedDate, formatMonthly, formatRate } from "@shared/competitor-pricing";
+import { CHANNEL_LABELS, formatCheckedDate, formatMonthly, formatQualifier, formatRateLabel } from "@shared/competitor-pricing";
 
 const BASE_URL = "https://libertybancard.com";
 
@@ -206,15 +205,15 @@ export default function BeatSquareStripe() {
                 <Card key={record.id} data-testid={`card-published-rate-${record.id}`}>
                   <CardContent className="p-6">
                     <h3 className="text-lg font-display font-bold text-foreground mb-1">{record.product}</h3>
-                    <p className="text-xs text-muted-foreground mb-4">{record.plan} ({record.channel})</p>
-                    <div className="text-2xl font-display font-bold text-foreground mb-1" data-testid={`text-published-rate-${record.id}`}>{formatRate(record)}</div>
+                    <p className="text-xs text-muted-foreground mb-4">{record.plan} ({CHANNEL_LABELS[record.channel]})</p>
+                    <div className="text-2xl font-display font-bold text-foreground mb-1" data-testid={`text-published-rate-${record.id}`}>{formatRateLabel(record)}</div>
                     {record.monthlyFeeCents !== null && (
                       <p className="text-xs text-muted-foreground mb-1">{formatMonthly(record.monthlyFeeCents)}</p>
                     )}
-                    {record.qualifier && <p className="text-xs text-muted-foreground mb-2">{record.qualifier}</p>}
+                    {record.qualifier && <p className="text-xs text-muted-foreground mb-2">{formatQualifier(record)}</p>}
                     <p className="text-xs text-muted-foreground">
-                      <a href={record.sourceUrl} className="underline" target="_blank" rel="noopener noreferrer">Official pricing page</a>
-                      , checked {formatCheckedDate(record.checkedOn)}
+                      <a href={record.sourceUrl} className="inline-flex min-h-11 items-center underline" target="_blank" rel="noopener noreferrer">Official pricing page</a>
+                      <span className="block">Checked {formatCheckedDate(record.checkedOn)}</span>
                     </p>
                   </CardContent>
                 </Card>
@@ -382,8 +381,8 @@ export default function BeatSquareStripe() {
                       </p>
                     </div>
                     <div className="flex flex-col gap-4 items-center">
-                      <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-full max-w-xs rounded-md object-contain" data-testid="img-terminal-hero" />
-                      <img src={imgPaxA920} alt="PAX A920 smart payment terminal" className="w-full max-w-xs rounded-md object-cover" data-testid="img-terminal-tap" />
+                      <PublicImage id="product-clover-flex-3" variant="product" sizes={"(max-width: 351px) calc(100vw - 32px), 320px"} className="block w-full max-w-xs" imgClassName="rounded-md object-contain" data-testid="img-terminal-hero" />
+                      <PublicImage id="product-pax-a920" variant="product" sizes={"(max-width: 351px) calc(100vw - 32px), 320px"} className="block w-full max-w-xs" imgClassName="rounded-md object-contain" data-testid="img-terminal-tap" />
                     </div>
                   </div>
                 </CardContent>
@@ -472,9 +471,9 @@ export default function BeatSquareStripe() {
         {/* Compare page crawlable links */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 border-t border-border" data-testid="section-beat-compare-links">
           <p className="text-sm text-muted-foreground mb-3 font-medium">Detailed comparisons:</p>
-          <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
-            <Link href="/compare/square" className="text-primary hover:underline" data-testid="link-beat-compare-square">Liberty vs Square — Full Comparison</Link>
-            <Link href="/compare/stripe" className="text-primary hover:underline" data-testid="link-beat-compare-stripe">Liberty vs Stripe — Full Comparison</Link>
+          <div className="flex flex-wrap gap-x-6 text-sm">
+            <Link href="/compare/square" className="inline-flex min-h-11 items-center text-primary hover:underline" data-testid="link-beat-compare-square">Liberty vs Square — Full Comparison</Link>
+            <Link href="/compare/stripe" className="inline-flex min-h-11 items-center text-primary hover:underline" data-testid="link-beat-compare-stripe">Liberty vs Stripe — Full Comparison</Link>
           </div>
         </div>
       </main>

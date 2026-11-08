@@ -3,6 +3,7 @@ import { ArrowRight, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PublicSection, PublicSectionHeader } from "@/components/public/PublicSection";
 import { PublicAccordion, type PublicAccordionItem } from "@/components/public/PublicAccordion";
+import { HOME_PROCESSING_ANCHOR } from "@shared/public-home-content";
 import { COMPARE_LINKS } from "./home-content";
 import { ZP_HOME_DESCRIPTION, ZP_HOME_FOOTNOTE, ZP_HOME_HEADING, ZP_HOME_PROGRAMS } from "@shared/zero-percent-content";
 
@@ -45,7 +46,7 @@ export function HomePrograms() {
   }));
 
   return (
-    <PublicSection tone="canvas" labelledBy="home-programs-heading" data-testid="section-choose-path">
+    <PublicSection tone="canvas" id={HOME_PROCESSING_ANCHOR} labelledBy="home-programs-heading" data-testid="section-choose-path">
       <PublicSectionHeader id="home-programs-heading" eyebrow="Program options" title={ZP_HOME_HEADING} description={ZP_HOME_DESCRIPTION} titleTestId="text-choose-path-heading" />
       <div className="lg:hidden">
         <PublicAccordion items={items} defaultValue="interchange-plus" data-testid="accordion-choose-path" />

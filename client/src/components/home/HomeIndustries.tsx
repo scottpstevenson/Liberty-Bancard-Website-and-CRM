@@ -35,7 +35,12 @@ export function HomeIndustries() {
           </li>
         ))}
       </ul>
-      <p className="public-caption public-secondary mt-4" data-testid="text-verticals-illustrative">
+      <p className="mt-4">
+        <Link href="/industries" className="public-tap inline-flex items-center gap-1.5 font-semibold text-primary underline underline-offset-4 hover:no-underline" data-testid="link-all-industries">
+          All industries <ArrowRight className="h-4 w-4" aria-hidden="true" />
+        </Link>
+      </p>
+      <p className="public-caption public-secondary mt-2" data-testid="text-verticals-illustrative">
         Photos are illustrative and do not show Liberty customers.
       </p>
     </PublicSection>

@@ -10,9 +10,11 @@ import { claimText } from "./public-claims";
 import {
   PRICE_CHECKED_ON,
   UNPUBLISHED_RATE_PROVIDERS,
+  CHANNEL_LABELS,
+  describePriceRecord,
   formatCheckedDate,
+  formatRateLabel,
   formatMonthly,
-  formatRate,
   priceRecordsFor,
   type PriceRecord,
 } from "./competitor-pricing";
@@ -33,6 +35,14 @@ export interface CompareEntry {
   name: string;
   fullName: string;
   tagline: string;
+  /** True when official dated price records exist for this provider. */
+  ratesPublished: boolean;
+  /** Heading above the rate list: "X Published Rates" only when records exist. */
+  ratesHeading: string;
+  /** Introduction above the comparison table, conditional on whether rates are published. */
+  tableIntro: string;
+  /** Method note below the rate list; says no rate is shown when the provider publishes none. */
+  methodNote: string;
   metaTitle: string;
   metaDescription: string;
   metaKeywords: string;
@@ -109,7 +119,7 @@ const SEEDS: readonly Seed[] = [
     slug: "authorize-net",
     name: "Authorize.Net",
     fullName: "Authorize.Net (Visa)",
-    model: "Gateway plans with a monthly fee",
+    model: "All-in-One (merchant account and gateway) or Gateway Only plans, each with a monthly fee",
     fit: "Online businesses that need a payment gateway with recurring billing and customer data management.",
     keywords: "authorize.net alternative, authorize.net vs liberty bancard, authorize.net fees, payment gateway comparison",
   },
@@ -137,14 +147,27 @@ export const COMPARE_NEEDS = {
     claimText("review.effective-cost.definition"),
 } as const;
 
+/** Full statement of one record, shared by the table, FAQ, schema and server renderers. */
 export function describeRecord(record: PriceRecord): string {
-  const rate = formatRate(record);
-  const monthly = record.monthlyFeeCents === null ? "" : `, ${formatMonthly(record.monthlyFeeCents)}`;
-  return `${record.plan} (${record.channel}): ${rate}${monthly}`;
+  return describePriceRecord(record);
 }
 
 function recordSummary(records: PriceRecord[]): string {
   return records.map(describeRecord).join("; ");
+}
+
+/** Monthly fees by plan, de-duplicated, for the table row. */
+function monthlyFeeSummary(records: PriceRecord[]): string {
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const r of records) {
+    if (r.monthlyFeeCents === null) continue;
+    const key = `${r.product}|${r.plan}|${r.monthlyFeeCents}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    parts.push(`${formatMonthly(r.monthlyFeeCents)} (${r.product} - ${r.plan})`);
+  }
+  return parts.length ? parts.join("; ") : "See the provider's current pricing page";
 }
 
 function buildEntry(seed: Seed): CompareEntry {
@@ -153,17 +176,14 @@ function buildEntry(seed: Seed): CompareEntry {
   const checked = formatCheckedDate(PRICE_CHECKED_ON);
 
   const rateCell = records.length
-    ? records.map((r) => `${formatRate(r)} (${r.channel})`).join(" · ")
+    ? `${recordSummary(records)}. Checked ${checked}.`
     : (unpublishedNote ?? "No single rate published; see the provider's current pricing page");
-  const monthlyRecord = records.find((r) => r.monthlyFeeCents !== null);
-  const monthlyCell = monthlyRecord
-    ? formatMonthly(monthlyRecord.monthlyFeeCents as number) + ` (${monthlyRecord.plan})`
-    : "See the provider's current pricing page";
+  const monthlyCell = monthlyFeeSummary(records);
 
   const rows: CompareRow[] = [
     {
-      feature: "Published processing rate",
-      provider: records.length ? `${rateCell}. Checked ${checked}.` : rateCell,
+      feature: records.length ? "Published processing rate" : "Processing pricing",
+      provider: rateCell,
       liberty: "Quoted for your business after statement review and shown in writing",
     },
     {
@@ -215,13 +235,21 @@ function buildEntry(seed: Seed): CompareEntry {
     slug: seed.slug,
     name: seed.name,
     fullName: seed.fullName,
-    tagline: "Published Rates vs. a Statement-Based Quote",
+    tagline: records.length ? "Published Rates vs. a Statement-Based Quote" : "Quoted Pricing vs. a Statement-Based Quote",
+    ratesPublished: records.length > 0,
+    ratesHeading: records.length ? `${seed.name} Published Rates` : `${seed.name} Pricing`,
+    tableIntro: records.length
+      ? `${seed.name} figures are published list rates, dated and sourced below. Liberty Bancard terms come from your written quote.`
+      : `${seed.name} does not publish a single processing rate, so no ${seed.name} rate is shown. Liberty Bancard terms come from your written quote.`,
+    methodNote: records.length ? COMPARE_METHOD_NOTE : claimText("price.comparison.method.unpublished"),
     metaTitle: `Liberty Bancard vs ${seed.name} - Payment Processing Comparison`,
     metaDescription: records.length
       ? `Compare Liberty Bancard and ${seed.name}: dated, sourced ${seed.name} rates and how a like-for-like comparison is calculated from your own statement.`
       : `Compare Liberty Bancard and ${seed.name}: what ${seed.name} publishes and how a like-for-like comparison is calculated from your own statement.`,
     metaKeywords: seed.keywords,
-    heroDescription: `${seed.name} publishes its pricing by plan and channel. Liberty Bancard quotes from your own statement. Here is how to compare the two like for like.`,
+    heroDescription: records.length
+      ? `${seed.name} publishes its pricing by plan and channel. Liberty Bancard quotes from your own statement. Here is how to compare the two like for like.`
+      : `${seed.name} quotes pricing individually rather than publishing a single rate. Liberty Bancard quotes from your own statement. Here is how to compare the two like for like.`,
     records,
     unpublishedNote,
     rows,
@@ -245,7 +273,7 @@ export const COMPARE_HERO_DISCLAIMER =
   "Actual cost depends on your statement, card mix, volume, and eligibility. No savings claims without a statement review.";
 
 export const COMPARE_TABLE_FOOTNOTE =
-  "*Eligibility, underwriting, card brand rules, and applicable laws apply. Provider rates are published list rates and may change.";
+  "*Eligibility, underwriting, card brand rules, and applicable laws apply. Where a provider rate is shown, it is a published list rate and may change.";
 
 // ── Rates overview page (/compare-rates) ────────────────────────────────────
 
@@ -320,10 +348,10 @@ export function ratesPageRows(): RatesPageRow[] {
       rows.push({
         provider: entry.name,
         slug,
-        detail: `${r.product} - ${r.plan}${r.qualifier ? ` (${r.qualifier})` : ""}`,
-        rate: formatRate(r),
+        detail: `${r.product} - ${r.plan} (${CHANNEL_LABELS[r.channel]})${r.qualifier ? `: ${r.qualifier}` : ""}`,
+        rate: formatRateLabel(r),
         monthly: r.monthlyFeeCents === null ? "Not stated on the page" : formatMonthly(r.monthlyFeeCents),
-        channel: r.channel,
+        channel: CHANNEL_LABELS[r.channel],
         sourceUrl: r.sourceUrl,
         checkedOn: r.checkedOn,
       });

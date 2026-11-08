@@ -42,7 +42,7 @@ import {
   BadgeCheck,
   Users,
 } from "lucide-react";
-import imgCloverFlex3 from "@/assets/images/terminal-clover-flex-3.png";
+import { PublicImage } from "@/components/public/PublicImage";
 import { claimText } from "@shared/public-claims";
 import { TIMING_NOTE, FUNDING_NOTE } from "@shared/public-disclosures";
 
@@ -81,9 +81,9 @@ function getRecommendation(goal: string, vertical: string, volume: string, inter
     return {
       path: "Liberty Zero™ Program",
       icon: Percent,
-      headline: "Liberty Zero could eliminate your processing costs entirely.",
+      headline: "A cash discount or surcharging program may be worth reviewing.",
       description: "Based on your answers, Liberty Zero — our compliant fee-offset program — could be a strong fit. We'll verify eligibility for your state, card brands, and business model, then handle signage, receipt formatting, and your staff script.",
-      urgency: "Most merchants in your vertical are already exploring this option.",
+      urgency: claimText("program.remaining-costs"),
       nextSteps: [
         { label: "Upload your statement for exact comparison", primary: true, href: "/upload-statement?interest0=yes" },
         { label: "Learn more about Liberty Zero™", primary: false, href: "/0-percent-processing" },
@@ -544,7 +544,7 @@ export default function GetStarted() {
                 {step === 4 && (
                   <div data-testid="step-terminal">
                     <div className="flex justify-center mb-6">
-                      <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-40 rounded-md object-contain" data-testid="img-quiz-terminal" />
+                      <PublicImage id="product-clover-flex-3" variant="product" sizes="160px" className="block w-40" imgClassName="rounded-md object-contain" data-testid="img-quiz-terminal" />
                     </div>
                     <p className="text-sm text-muted-foreground mb-4">
                       {claimText("equipment.options.summary")}* Tap, dip, swipe, and manual key.

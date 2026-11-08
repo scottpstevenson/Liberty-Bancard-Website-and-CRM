@@ -12,7 +12,7 @@ import {
   beatSquareStripeRecords,
   ratesPageRows,
 } from "@shared/compare-content";
-import { formatCheckedDate, formatMonthly, formatRate } from "@shared/competitor-pricing";
+import { CHANNEL_LABELS, formatCheckedDate, formatMonthly, formatQualifier, formatRateLabel } from "@shared/competitor-pricing";
 import {
   COMPAT_STATE_LABEL,
   INTEGRATIONS_CALLOUT,
@@ -308,7 +308,7 @@ export function getWhyLibertyHtml(): string {
         </div>
         <div class="ssr-card">
           <div class="ssr-card-title">💳 0% Processing Option</div>
-          <div class="ssr-card-text">Compliant cash discount and surcharging programs available where permitted. Many businesses reduce net processing to near zero.</div>
+          <div class="ssr-card-text">${claimText("program.overview")} ${claimText("program.remaining-costs")}</div>
         </div>
         <div class="ssr-card">
           <div class="ssr-card-title">🏅 PCI DSS Level 1 Certified</div>
@@ -856,9 +856,9 @@ export function getBeatSquareStripeHtml(): string {
     .map(
       (record) => `<div class="ssr-card">
           <div class="ssr-card-title">${record.product}</div>
-          <div class="ssr-card-text">${record.plan} (${record.channel})</div>
-          <div class="ssr-stat-value">${formatRate(record)}</div>
-          <div class="ssr-card-text">${record.monthlyFeeCents !== null ? `${formatMonthly(record.monthlyFeeCents)}. ` : ""}${record.qualifier ?? ""}</div>
+          <div class="ssr-card-text">${record.plan} (${CHANNEL_LABELS[record.channel]})</div>
+          <div class="ssr-stat-value">${formatRateLabel(record)}</div>
+          <div class="ssr-card-text">${record.monthlyFeeCents !== null ? `${formatMonthly(record.monthlyFeeCents)}. ` : ""}${formatQualifier(record)}</div>
           <div class="ssr-card-text"><a href="${record.sourceUrl}" rel="noopener noreferrer">Official pricing page</a>, checked ${formatCheckedDate(record.checkedOn)}</div>
         </div>`,
     )

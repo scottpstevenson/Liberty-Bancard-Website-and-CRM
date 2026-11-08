@@ -108,6 +108,7 @@ const BlogPost = lazy(() => import("@/pages/BlogPost"));
 const AuthorPage = lazy(() => import("@/pages/AuthorPage"));
 const HelpCenter = lazy(() => import("@/pages/HelpCenter"));
 const HelpArticle = lazy(() => import("@/pages/HelpArticle"));
+const IndustriesHub = lazy(() => import("@/pages/Industries"));
 const IndustryPage = lazy(() => import("@/pages/IndustryPage"));
 const LocationIndustryPage = lazy(() => import("@/pages/LocationIndustryPage"));
 const TerminalShop = lazy(() => import("@/pages/TerminalShop"));
@@ -572,6 +573,7 @@ function Router() {
         <Route path="/sales/:slug" component={SalesOnePager} />
 
         {/* Industry Pages */}
+        <Route path="/industries" component={IndustriesHub} />
         <Route path="/industries/:slug" component={IndustryPage} />
 
         {/* Areas Served Hub */}

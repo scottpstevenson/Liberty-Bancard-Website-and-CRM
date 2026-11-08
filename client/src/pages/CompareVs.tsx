@@ -40,12 +40,11 @@ import { trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracki
 import { trackPhoneCallClick } from "@/lib/analytics";
 import {
   COMPARE_HERO_DISCLAIMER,
-  COMPARE_METHOD_NOTE,
   COMPARE_NEEDS,
   COMPARE_TABLE_FOOTNOTE,
   getCompareEntry,
 } from "@shared/compare-content";
-import { formatCheckedDate, formatMonthly, formatRate } from "@shared/competitor-pricing";
+import { describePriceRecord, formatCheckedDate } from "@shared/competitor-pricing";
 
 const BASE_URL = "https://libertybancard.com";
 
@@ -190,7 +189,7 @@ export default function CompareVs() {
               Side-by-Side Comparison
             </h2>
             <p className="text-center text-muted-foreground mb-8 text-sm">
-              {data.name} figures are published list rates, dated and sourced below. Liberty Bancard terms come from your written quote.
+              {data.tableIntro}
             </p>
             <div className="reveal overflow-x-auto -mx-4 px-4">
               <table className="w-full min-w-[600px] border-collapse" data-testid="table-vs-comparison">
@@ -221,7 +220,7 @@ export default function CompareVs() {
         <section className="bg-muted/30 py-10" data-testid="section-vs-savings">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2 className="public-h2 reveal font-display font-bold text-foreground text-center mb-8" data-testid="text-vs-savings-heading">
-              {data.name} Published Rates
+              {data.ratesHeading}
             </h2>
             <Card className="reveal" data-testid="card-savings-example">
               <CardContent className="p-6 md:p-8">
@@ -229,11 +228,9 @@ export default function CompareVs() {
                   <ul className="space-y-4" data-testid="list-price-records">
                     {data.records.map((record) => (
                       <li key={record.id} className="text-sm" data-testid={`price-record-${record.id}`}>
-                        <p className="font-semibold text-foreground">
-                          {record.product} - {record.plan} ({record.channel}): {formatRate(record)}
-                          {record.monthlyFeeCents !== null && `, ${formatMonthly(record.monthlyFeeCents)}`}
+                        <p className="font-semibold text-foreground" data-testid={`price-record-text-${record.id}`}>
+                          {describePriceRecord(record)}
                         </p>
-                        {record.qualifier && <p className="text-xs text-muted-foreground">{record.qualifier}</p>}
                         <p className="text-xs text-muted-foreground">
                           Source:{" "}
                           <a href={record.sourceUrl} className="underline" target="_blank" rel="noopener noreferrer">
@@ -262,7 +259,7 @@ export default function CompareVs() {
               </CardContent>
             </Card>
             <p className="text-[10px] text-muted-foreground text-center mt-4" data-testid="text-compare-method-note">
-              {COMPARE_METHOD_NOTE} {COMPARE_NEEDS.footnote}
+              {data.methodNote} {COMPARE_NEEDS.footnote}
             </p>
           </div>
         </section>

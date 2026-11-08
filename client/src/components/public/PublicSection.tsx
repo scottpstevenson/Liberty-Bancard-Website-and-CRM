@@ -1,7 +1,7 @@
 import type { ElementType, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-export type PublicSectionTone = "canvas" | "warm" | "ink";
+export type PublicSectionTone = "canvas" | "warm" | "light" | "ink";
 
 export interface PublicSectionProps {
   tone?: PublicSectionTone;

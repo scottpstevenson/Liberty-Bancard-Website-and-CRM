@@ -12,3 +12,7 @@ description: Environment limits and baseline failures hit while verifying public
 
 **Why:** each cost real time in the public-site mobile work; none is visible in the code.
 **How to apply:** before browser, perf or baseline work on public pages.
+- Isolated preview (`start-stage3-c1-cloud-preview.ts`) must be launched as a ShellExec background task; a `nohup ... &` subshell dies when the call returns. A `git archive` baseline needs `mkdir -p .local/tasks`, a `git init` commit, and symlinks (not copies) of `node_modules`/`attached_assets` (copying 2.3 GB took minutes). Run baseline and candidate on the same port one after the other so no new `.replit` port mapping is added.
+- SSR-only routes (`/alternatives/*`, `/switch-from/*`, some others) can serve the SPA shell to non-crawler user agents in the preview; check with curl byte counts before trusting a browser run. The perf harness reports ~3 KB for server pages because the logo was an inline data URI; check document size separately.
+- The brand logo originals are 3360x697 PNGs (75 KB each); the server shell used to inline both as base64 (~220 KB per server page). Public shells now use the 420 px derivatives (`logo-*-420.png`); keep the originals for emails and dashboards.
+- Lab LCP on routes that wait for hydration of the 560 KB bundle (`/faq`) swings between ~1 s and 12 s run to run on this host; compare baseline and candidate with single-load probes (first paint, LCP element list) before calling a regression, and record such routes as unstable rather than as before/after evidence.

@@ -9,3 +9,6 @@ Wait on specific test IDs, not on generic text, when a failure is injected with 
 
 ## Service worker hides /api/contacts from fault injection
 The app's sw.js answers /api/contacts, /api/deals, /api/tasks and /api/appointments itself once it controls the page (second navigation onward), so b.failRead never fires and the request shows status 200. Call Network.setBypassServiceWorker {bypass:true} before such tests. Editing any script (even the suite) requires a rebuild before the browser suite because build identity covers scripts/.
+
+## Closed <details> content measured as visible
+Content inside a closed `<details>` keeps stale zero-width boxes, so the generic audit reported menu links as 24 px-wide tap targets and white-on-white text. `scripts/lib/public-site-browser.ts` now skips anything inside a closed details except its summary; keep that helper when editing the audit.

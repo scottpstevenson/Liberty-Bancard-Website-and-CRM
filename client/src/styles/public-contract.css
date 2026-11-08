@@ -26,6 +26,13 @@
   --public-green-ink: 152 55% 26%;
   --public-red-ink: 0 72% 40%;
 
+  /* Liberty brand tokens (owner palette). Extend only: these sit beside the verified ink/canvas
+     pairs above and never replace index.css or the CRM themes.
+     navy #071D57 on white 15.1:1; red #C8102E on white 5.9:1 and on #F4F6FA 5.4:1; white on either. */
+  --liberty-navy: 224 85% 18%;
+  --liberty-red: 350 85% 42%;
+  --liberty-surface: 220 38% 97%;
+
   /* type scale: size / leading, mobile first */
   --public-h1-size: 2rem; /* 32 */
   --public-h1-leading: 2.25rem; /* 36 */
@@ -137,6 +144,9 @@
   text-transform: uppercase;
   color: hsl(var(--public-blue-ink));
 }
+.marketing-theme .public-eyebrow--brand {
+  color: hsl(var(--liberty-red));
+}
 .marketing-theme .public-measure {
   max-width: var(--public-prose-width);
 }
@@ -156,6 +166,10 @@
 }
 .marketing-theme .public-section--warm {
   background-color: hsl(var(--public-warm));
+  border-block: 1px solid hsl(var(--public-line));
+}
+.marketing-theme .public-section--light {
+  background-color: hsl(var(--liberty-surface));
   border-block: 1px solid hsl(var(--public-line));
 }
 .marketing-theme .public-section--ink {
@@ -186,6 +200,13 @@
   border: 1px solid hsl(var(--public-line));
   border-radius: var(--public-radius-card);
   box-shadow: var(--shadow-card);
+}
+.marketing-theme .public-card--brand {
+  border-top: 3px solid hsl(var(--liberty-navy));
+}
+a.public-card--brand:hover,
+.marketing-theme a.public-card--brand:hover {
+  border-color: hsl(var(--liberty-navy));
 }
 .marketing-theme .public-frame {
   position: relative;
@@ -228,6 +249,15 @@
 .marketing-theme .public-section--ink a:focus-visible,
 .marketing-theme .public-section--ink button:focus-visible {
   outline-color: hsl(199 89% 78%);
+}
+.marketing-theme .public-cta--brand {
+  background-color: hsl(var(--liberty-navy));
+  color: hsl(0 0% 100%);
+  border-color: hsl(var(--liberty-navy));
+}
+.marketing-theme .public-cta--brand:hover {
+  background-color: hsl(224 85% 25%);
+  color: hsl(0 0% 100%);
 }
 .marketing-theme .public-cta--inverse {
   background-color: hsl(0 0% 100%);
@@ -291,4 +321,25 @@
   .marketing-theme .cta-pulse {
     animation: none;
   }
+}
+
+/* ── Public header and footer (shared model: shared/public-navigation.ts) ──
+   Header is 56px on phones (logo + menu), 64px from the tablet breakpoint; the logo is
+   size-constrained so the 3360x697 source can never render at intrinsic size. */
+.marketing-theme .public-nav-link {
+  color: hsl(var(--public-ink-secondary));
+}
+.marketing-theme .public-nav-link:hover,
+.marketing-theme .public-nav-link[aria-current="page"],
+.marketing-theme .public-nav-link[data-active="true"] {
+  color: hsl(var(--liberty-navy));
+}
+.marketing-theme .public-nav-link[data-active="true"] {
+  box-shadow: inset 0 -2px 0 hsl(var(--liberty-red));
+}
+.marketing-theme [data-testid="footer"] {
+  background-color: hsl(var(--liberty-navy));
+}
+.marketing-theme [data-testid="footer"] > .bg-accent {
+  background-color: hsl(var(--liberty-red));
 }

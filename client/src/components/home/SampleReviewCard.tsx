@@ -1,42 +1,40 @@
 import { FileText } from "lucide-react";
-import { SAMPLE_FINDINGS } from "./home-content";
+import { HOME_SAMPLE_REVIEW } from "@shared/public-home-content";
 import { cn } from "@/lib/utils";
 
-const chipTone = { negative: "report-chip-negative", positive: "report-chip-positive", neutral: "report-chip-neutral" } as const;
-const valueTone = { negative: "text-stat-negative", positive: "text-stat-positive", neutral: "text-foreground" } as const;
-
 /**
- * The one illustrative fee-audit report used on Home. It is labelled as a sample both in its
- * header stamp and in its footer, and carries no real account data.
+ * Review layout shown on Home: the four things a statement review covers, with a dash where a result
+ * would appear. It is a worksheet, not a result: no rate, fee amount or savings figure is shown, and
+ * it is labelled as an illustrative layout in the header stamp and in the caption.
  */
-export function SampleReviewCard({ className, rows = SAMPLE_FINDINGS.length, testId = "card-statement-audit" }: { className?: string; rows?: number; testId?: string }) {
+export function SampleReviewCard({ className, testId = "card-statement-audit" }: { className?: string; testId?: string }) {
   return (
-    <figure className={cn("public-card overflow-hidden", className)} data-testid={testId} aria-label="Example statement review (illustrative sample)">
+    <figure className={cn("public-card overflow-hidden", className)} data-testid={testId} aria-label="Statement review layout (illustrative, no results shown)">
       <div className="flex items-center justify-between gap-3 bg-primary px-4 py-3">
-        <div className="flex items-center gap-2.5 min-w-0">
+        <div className="flex min-w-0 items-center gap-2.5">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/10">
             <FileText className="h-4 w-4 text-sky-200" aria-hidden="true" />
           </span>
-          <div className="leading-tight min-w-0">
-            <div className="text-sm font-semibold text-white">Statement Fee Audit</div>
-            <div className="num text-[11px] tracking-wide text-white/75">REF · LB-0000 · SAMPLE</div>
+          <div className="min-w-0 leading-tight">
+            <div className="text-sm font-semibold text-white">Statement review</div>
+            <div className="num text-[11px] tracking-wide text-white/75">LAYOUT · NO RESULTS</div>
           </div>
         </div>
-        <span className="audit-stamp bg-card shrink-0" data-testid="badge-illustrative">Illustrative</span>
+        <span className="audit-stamp shrink-0 bg-card" data-testid="badge-illustrative">Illustrative</span>
       </div>
-      <div className="px-4">
-        {SAMPLE_FINDINGS.slice(0, rows).map((row, i) => (
-          <div key={row.label} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-border py-2.5 last:border-0" data-testid={row.testId ?? `row-statement-${i}`}>
-            <span className="public-small min-w-0 flex-1 text-foreground">{row.label}</span>
-            <span className="flex items-center gap-2">
-              <span className={cn("report-chip", chipTone[row.tone])}>{row.chip}</span>
-              <span className={cn("num whitespace-nowrap text-sm font-semibold", valueTone[row.tone])}>{row.value}</span>
-            </span>
+      <dl className="px-4">
+        {HOME_SAMPLE_REVIEW.rows.map((row, i) => (
+          <div key={row.label} className="flex items-start justify-between gap-3 border-b border-border py-3 last:border-0" data-testid={`row-statement-${i}`}>
+            <div className="min-w-0">
+              <dt className="public-small font-semibold text-foreground">{row.label}</dt>
+              <dd className="public-caption public-secondary">{row.note}</dd>
+            </div>
+            <span className="num shrink-0 text-sm font-semibold text-muted-foreground" aria-hidden="true">—</span>
           </div>
         ))}
-      </div>
+      </dl>
       <figcaption className="border-t border-border bg-muted/50 px-4 py-3 public-caption public-secondary">
-        Sample for illustration only, not a real account. Actual findings require statement review. *Funding timing subject to eligibility, underwriting, and card brand rules.
+        {HOME_SAMPLE_REVIEW.label}
       </figcaption>
     </figure>
   );

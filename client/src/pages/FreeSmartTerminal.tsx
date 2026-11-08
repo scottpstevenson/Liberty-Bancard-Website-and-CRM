@@ -30,8 +30,7 @@ import {
 import { PHONE_TEL, PHONE_NUMBER, CALENDAR_URL } from "@/lib/constants";
 import { trackFreeTerminalEligibilityClick, trackStatementUploadCtaClick, trackBookingCtaClick } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
-import imgCloverFlex3 from "@/assets/images/terminal-clover-flex-3.png";
-import imgPaxA920 from "@/assets/images/terminal-pax-a920.png";
+import { PublicImage } from "@/components/public/PublicImage";
 import {
   FST_TITLE,
   FST_DESCRIPTION,
@@ -99,13 +98,13 @@ export default function FreeSmartTerminal() {
                   </p>
                 ) : null}
                 <div className="flex flex-col sm:flex-row gap-4 flex-wrap mb-3">
-                  <Button size="lg" className="public-cta gap-2" asChild>
+                  <Button size="lg" className="public-cta h-auto max-w-full gap-2 whitespace-normal py-2 text-center leading-snug" asChild>
                     <Link href="/get-started?offer=free-terminal" data-testid="link-terminal-primary-cta" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: "Check My Eligibility", offer: "free-terminal" })}>
                       <Upload className="w-4 h-4" />
                       {FST_HERO.primaryCta}
                     </Link>
                   </Button>
-                  <Button size="lg" variant="outline" className="public-cta gap-2" asChild>
+                  <Button size="lg" variant="outline" className="public-cta h-auto max-w-full gap-2 whitespace-normal py-2 text-center leading-snug" asChild>
                     <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-terminal-book-cta" onClick={() => trackBookingCtaClick({ page: "/free-smart-terminal", ctaLabel: "Book a review call" })}>
                       <Calendar className="w-4 h-4" />
                       Book a review call
@@ -117,18 +116,8 @@ export default function FreeSmartTerminal() {
                 </p>
               </div>
               <div className="flex flex-col gap-4 items-center">
-                <img
-                  src={imgCloverFlex3}
-                  alt="Clover Flex 3 smart payment terminal"
-                  className="w-full max-w-xs rounded-md object-contain"
-                  data-testid="img-terminal-clover"
-                />
-                <img
-                  src={imgPaxA920}
-                  alt="PAX A920 smart payment terminal"
-                  className="w-full max-w-xs rounded-md object-cover"
-                  data-testid="img-terminal-pax"
-                />
+                <PublicImage id="product-clover-flex-3" variant="product" sizes={"(max-width: 351px) calc(100vw - 32px), 320px"} className="block w-full max-w-xs" imgClassName="rounded-md object-contain" data-testid="img-terminal-clover" />
+                <PublicImage id="product-pax-a920" variant="product" sizes={"(max-width: 351px) calc(100vw - 32px), 320px"} className="block w-full max-w-xs" imgClassName="rounded-md object-contain" data-testid="img-terminal-pax" />
               </div>
             </div>
           </div>
@@ -203,7 +192,7 @@ export default function FreeSmartTerminal() {
                     {FST_ELIGIBILITY.notGuaranteed}
                   </p>
                 </div>
-                <Button className="gap-2" asChild>
+                <Button className="h-auto min-h-9 max-w-full gap-2 whitespace-normal py-2 text-left leading-snug" asChild>
                   <Link href="/upload-statement?offer=free-terminal" data-testid="link-eligibility-upload" onClick={() => trackStatementUploadCtaClick({ page: "/free-smart-terminal", ctaLabel: "Upload Statement to Check Eligibility", offer: "free-terminal" })}>
                     <Upload className="w-4 h-4" />
                     Upload Statement to Check Eligibility
@@ -222,13 +211,13 @@ export default function FreeSmartTerminal() {
                       {FST_ELIGIBILITY.ctaCardBody}
                     </p>
                     <div className="flex flex-col gap-3">
-                      <Button className="w-full gap-2" asChild>
+                      <Button className="w-full gap-2 h-auto max-w-full whitespace-normal py-2 text-center leading-snug" asChild>
                         <Link href="/upload-statement?offer=free-terminal" data-testid="link-cta-card-upload" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: "Check My Eligibility", ctaLocation: "card" })}>
                           <Upload className="w-4 h-4" />
                           Check My Eligibility
                         </Link>
                       </Button>
-                      <Button variant="outline" className="w-full gap-2" asChild>
+                      <Button variant="outline" className="w-full gap-2 h-auto max-w-full whitespace-normal py-2 text-center leading-snug" asChild>
                         <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-cta-card-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/free-smart-terminal" })}>
                           <Phone className="w-4 h-4" />
                           {PHONE_NUMBER}
@@ -306,19 +295,19 @@ export default function FreeSmartTerminal() {
               {FST_FINAL.body}
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <Button size="lg" className="public-cta gap-2 bg-accent hover:bg-accent border-accent text-white" asChild>
+              <Button size="lg" className="public-cta gap-2 bg-accent hover:bg-accent border-accent text-white h-auto max-w-full whitespace-normal py-2 text-center leading-snug" asChild>
                 <Link href="/upload-statement?offer=free-terminal" data-testid="link-final-upload" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: "Upload My Statement", ctaLocation: "final_cta" })}>
                   <Upload className="w-4 h-4" />
                   Upload My Statement
                 </Link>
               </Button>
-              <Button size="lg" variant="outline" className="public-cta gap-2 bg-transparent border-white/30 text-white hover:bg-white/10" asChild>
+              <Button size="lg" variant="outline" className="public-cta gap-2 bg-transparent border-white/30 text-white hover:bg-white/10 h-auto max-w-full whitespace-normal py-2 text-center leading-snug" asChild>
                 <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-final-book" onClick={() => trackBookingCtaClick({ page: "/free-smart-terminal", ctaLabel: "Book a review call", ctaLocation: "final_cta" })}>
                   <Calendar className="w-4 h-4" />
                   Book a review call
                 </a>
               </Button>
-              <Button size="lg" variant="ghost" className="public-cta gap-2 text-white hover:bg-white/10" asChild>
+              <Button size="lg" variant="ghost" className="public-cta gap-2 text-white hover:bg-white/10 h-auto max-w-full whitespace-normal py-2 text-center leading-snug" asChild>
                 <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-final-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/free-smart-terminal" })}>
                   <Phone className="w-4 h-4" />
                   {PHONE_NUMBER}

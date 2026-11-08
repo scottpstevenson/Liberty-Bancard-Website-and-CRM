@@ -13,6 +13,7 @@
 import { FSR_META } from "./free-statement-review-content";
 import { ZP_META } from "./zero-percent-content";
 import { INTEGRATIONS_META } from "./integrations-content";
+import { INDUSTRIES_HUB } from "./public-industries";
 import { FST_TITLE_FULL, FST_DESCRIPTION, FST_KEYWORDS } from "./free-smart-terminal-content";
 import { COMPARE_ENTRIES, RATES_PAGE, BEAT_SQUARE_STRIPE } from "./compare-content";
 
@@ -33,6 +34,7 @@ export const SEO_ROUTE_DEFAULTS: Record<string, SeoRouteDefault> = {
   "/free-analysis-guaranteed": { title: "Free Statement Analysis — Guaranteed Savings | Liberty Bancard", description: "Upload your statement and we'll find hidden fees, benchmark against 3,200+ statements, and show what you should pay. No savings? We'll send you a $50 gift card.", keywords: "free merchant statement analysis, guaranteed savings, payment processing review, hidden fees, merchant services benchmark", ogTemplate: "service", inSitemap: true },
   "/0-percent-processing": { title: `${ZP_META.title} | Liberty Bancard`, description: ZP_META.description, ogTemplate: "service", inSitemap: true },
   "/beat-square-stripe": { title: `${BEAT_SQUARE_STRIPE.title} | Liberty Bancard`, description: BEAT_SQUARE_STRIPE.description, ogTemplate: "compare", inSitemap: true },
+  "/industries": { title: `${INDUSTRIES_HUB.title} | Liberty Bancard`, description: INDUSTRIES_HUB.description, keywords: INDUSTRIES_HUB.keywords, ogTemplate: "industry", inSitemap: true },
   "/about-contact": { title: "About Us & Contact | Liberty Bancard", description: "Learn about Liberty Bancard approach to merchant payment processing. Direct support and transparent pricing, with terms stated in writing before you decide.", ogTemplate: "default", inSitemap: true },
   "/estimate": { title: "Free Effective Rate Estimate | Liberty Bancard", description: "Get a quick processing cost estimate. Provide your monthly volume and current fees for a preliminary analysis and next steps.", ogTemplate: "service", inSitemap: true },
   "/support": { title: "Contact Support | Liberty Bancard", description: "Submit a support request to Liberty Bancard. We respond within 4 hours during business hours. Emergency support available 24/7.", ogTemplate: "default", inSitemap: true },

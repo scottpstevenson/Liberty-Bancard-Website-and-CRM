@@ -2,7 +2,10 @@ import { SEO, getLocalBusinessSchema, getWebSiteSchema } from "@/components/SEO"
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { HomeHero } from "@/components/home/HomeHero";
+import { HomeSolutions } from "@/components/home/HomeSolutions";
+import { HomeFounder } from "@/components/home/HomeFounder";
 import { HomeReview } from "@/components/home/HomeReview";
+import { HomeStartingPoints } from "@/components/home/HomeStartingPoints";
 import { HomeIndustries } from "@/components/home/HomeIndustries";
 import { HomeHowItWorks } from "@/components/home/HomeHowItWorks";
 import { HomePrograms } from "@/components/home/HomePrograms";
@@ -11,9 +14,11 @@ import { HomeFaq } from "@/components/home/HomeFaq";
 import { HomeFinal } from "@/components/home/HomeFinal";
 
 /**
- * Public Home, eight sections in the order set by the mobile audit: merchant-first hero, what the
- * review gives you, businesses we serve, how it works, program options, merchant proof, common
- * questions, final action. The rate calculator lives at /estimate and is linked from the FAQ.
+ * Public Home: evergreen hero, solution starting points (#solutions), founder note, businesses we
+ * serve, contextual starting points, what the review gives you, how it works, program options
+ * (#processing-options), merchant proof, common questions, final action. Hero, solutions, founder
+ * and starting-point copy is shared with the server-rendered Home (shared/public-home-content.ts).
+ * The rate calculator lives at /estimate and is linked from the FAQ.
  */
 export default function Home() {
   return (
@@ -23,8 +28,11 @@ export default function Home() {
 
       <main className="marketing-surface flex-grow pt-[var(--public-header-height)] md:pt-24 dock-clearance-main md:pb-0">
         <HomeHero />
-        <HomeReview />
+        <HomeSolutions />
+        <HomeFounder />
         <HomeIndustries />
+        <HomeStartingPoints />
+        <HomeReview />
         <HomeHowItWorks />
         <HomePrograms />
         <HomeProof />

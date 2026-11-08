@@ -614,6 +614,342 @@
           ]
         }
       ]
+    },
+    {
+      "id": "product-clover-flex-3",
+      "source": "client/src/assets/images/terminal-clover-flex-3.png",
+      "sourceSha256": "f3057a77e69ff6166744c4c8fee4138f99176bc75666f2b6dde597670492df73",
+      "variants": [
+        {
+          "name": "product",
+          "width": 896,
+          "height": 1280,
+          "files": [
+            {
+              "format": "avif",
+              "file": "product-clover-flex-3-product-320.avif",
+              "width": 320,
+              "height": 457,
+              "bytes": 10566
+            },
+            {
+              "format": "webp",
+              "file": "product-clover-flex-3-product-320.webp",
+              "width": 320,
+              "height": 457,
+              "bytes": 16892
+            },
+            {
+              "format": "jpg",
+              "file": "product-clover-flex-3-product-320.jpg",
+              "width": 320,
+              "height": 457,
+              "bytes": 14045
+            },
+            {
+              "format": "avif",
+              "file": "product-clover-flex-3-product-640.avif",
+              "width": 640,
+              "height": 914,
+              "bytes": 25618
+            },
+            {
+              "format": "webp",
+              "file": "product-clover-flex-3-product-640.webp",
+              "width": 640,
+              "height": 914,
+              "bytes": 41694
+            },
+            {
+              "format": "jpg",
+              "file": "product-clover-flex-3-product-640.jpg",
+              "width": 640,
+              "height": 914,
+              "bytes": 38182
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "product-pax-a920",
+      "source": "client/src/assets/images/terminal-pax-a920.png",
+      "sourceSha256": "7a7161cb796dcd24d0004eb6cabbeda8b969426901e34503a679c5354008b3e0",
+      "variants": [
+        {
+          "name": "product",
+          "width": 896,
+          "height": 1280,
+          "files": [
+            {
+              "format": "avif",
+              "file": "product-pax-a920-product-320.avif",
+              "width": 320,
+              "height": 457,
+              "bytes": 8526
+            },
+            {
+              "format": "webp",
+              "file": "product-pax-a920-product-320.webp",
+              "width": 320,
+              "height": 457,
+              "bytes": 15072
+            },
+            {
+              "format": "jpg",
+              "file": "product-pax-a920-product-320.jpg",
+              "width": 320,
+              "height": 457,
+              "bytes": 11269
+            },
+            {
+              "format": "avif",
+              "file": "product-pax-a920-product-640.avif",
+              "width": 640,
+              "height": 914,
+              "bytes": 18727
+            },
+            {
+              "format": "webp",
+              "file": "product-pax-a920-product-640.webp",
+              "width": 640,
+              "height": 914,
+              "bytes": 34892
+            },
+            {
+              "format": "jpg",
+              "file": "product-pax-a920-product-640.jpg",
+              "width": 640,
+              "height": 914,
+              "bytes": 29500
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "product-clover-mini-3",
+      "source": "client/src/assets/images/terminal-clover-mini-3.png",
+      "sourceSha256": "a6067676ca526f0470cb7487216b5bd8e5b337599b629ad6a8fe3db16c07a196",
+      "variants": [
+        {
+          "name": "product",
+          "width": 896,
+          "height": 1280,
+          "files": [
+            {
+              "format": "avif",
+              "file": "product-clover-mini-3-product-320.avif",
+              "width": 320,
+              "height": 457,
+              "bytes": 6237
+            },
+            {
+              "format": "webp",
+              "file": "product-clover-mini-3-product-320.webp",
+              "width": 320,
+              "height": 457,
+              "bytes": 11166
+            },
+            {
+              "format": "jpg",
+              "file": "product-clover-mini-3-product-320.jpg",
+              "width": 320,
+              "height": 457,
+              "bytes": 8208
+            },
+            {
+              "format": "avif",
+              "file": "product-clover-mini-3-product-640.avif",
+              "width": 640,
+              "height": 914,
+              "bytes": 13165
+            },
+            {
+              "format": "webp",
+              "file": "product-clover-mini-3-product-640.webp",
+              "width": 640,
+              "height": 914,
+              "bytes": 25518
+            },
+            {
+              "format": "jpg",
+              "file": "product-clover-mini-3-product-640.jpg",
+              "width": 640,
+              "height": 914,
+              "bytes": 20164
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "product-clover-station-duo",
+      "source": "client/src/assets/images/terminal-clover-station-duo.png",
+      "sourceSha256": "ae9e13867d58901f9aa28d9defae2bf3ba1a070d3a354d7668a554617706b0dd",
+      "variants": [
+        {
+          "name": "product",
+          "width": 1280,
+          "height": 896,
+          "files": [
+            {
+              "format": "avif",
+              "file": "product-clover-station-duo-product-320.avif",
+              "width": 320,
+              "height": 224,
+              "bytes": 5521
+            },
+            {
+              "format": "webp",
+              "file": "product-clover-station-duo-product-320.webp",
+              "width": 320,
+              "height": 224,
+              "bytes": 9940
+            },
+            {
+              "format": "jpg",
+              "file": "product-clover-station-duo-product-320.jpg",
+              "width": 320,
+              "height": 224,
+              "bytes": 6431
+            },
+            {
+              "format": "avif",
+              "file": "product-clover-station-duo-product-640.avif",
+              "width": 640,
+              "height": 448,
+              "bytes": 12119
+            },
+            {
+              "format": "webp",
+              "file": "product-clover-station-duo-product-640.webp",
+              "width": 640,
+              "height": 448,
+              "bytes": 22836
+            },
+            {
+              "format": "jpg",
+              "file": "product-clover-station-duo-product-640.jpg",
+              "width": 640,
+              "height": 448,
+              "bytes": 16980
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "product-dejavoo-qd4",
+      "source": "client/src/assets/images/terminal-dejavoo-qd4.png",
+      "sourceSha256": "17ac5beb0ae156358099f1cd986f3c2e1c718a58d26aa85d7f47f863a8043d15",
+      "variants": [
+        {
+          "name": "product",
+          "width": 896,
+          "height": 1280,
+          "files": [
+            {
+              "format": "avif",
+              "file": "product-dejavoo-qd4-product-320.avif",
+              "width": 320,
+              "height": 457,
+              "bytes": 9240
+            },
+            {
+              "format": "webp",
+              "file": "product-dejavoo-qd4-product-320.webp",
+              "width": 320,
+              "height": 457,
+              "bytes": 15770
+            },
+            {
+              "format": "jpg",
+              "file": "product-dejavoo-qd4-product-320.jpg",
+              "width": 320,
+              "height": 457,
+              "bytes": 12667
+            },
+            {
+              "format": "avif",
+              "file": "product-dejavoo-qd4-product-640.avif",
+              "width": 640,
+              "height": 914,
+              "bytes": 20202
+            },
+            {
+              "format": "webp",
+              "file": "product-dejavoo-qd4-product-640.webp",
+              "width": 640,
+              "height": 914,
+              "bytes": 36352
+            },
+            {
+              "format": "jpg",
+              "file": "product-dejavoo-qd4-product-640.jpg",
+              "width": 640,
+              "height": 914,
+              "bytes": 31951
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "product-swipesimple-b250",
+      "source": "client/src/assets/images/terminal-swipesimple-b250.png",
+      "sourceSha256": "8f27acaab245bd0e27191c121d9af518bcba8b8d7348122ea4bf7d90fcbcfd1f",
+      "variants": [
+        {
+          "name": "product",
+          "width": 896,
+          "height": 1280,
+          "files": [
+            {
+              "format": "avif",
+              "file": "product-swipesimple-b250-product-320.avif",
+              "width": 320,
+              "height": 457,
+              "bytes": 4887
+            },
+            {
+              "format": "webp",
+              "file": "product-swipesimple-b250-product-320.webp",
+              "width": 320,
+              "height": 457,
+              "bytes": 8704
+            },
+            {
+              "format": "jpg",
+              "file": "product-swipesimple-b250-product-320.jpg",
+              "width": 320,
+              "height": 457,
+              "bytes": 7536
+            },
+            {
+              "format": "avif",
+              "file": "product-swipesimple-b250-product-640.avif",
+              "width": 640,
+              "height": 914,
+              "bytes": 10238
+            },
+            {
+              "format": "webp",
+              "file": "product-swipesimple-b250-product-640.webp",
+              "width": 640,
+              "height": 914,
+              "bytes": 19298
+            },
+            {
+              "format": "jpg",
+              "file": "product-swipesimple-b250-product-640.jpg",
+              "width": 640,
+              "height": 914,
+              "bytes": 19373
+            }
+          ]
+        }
+      ]
     }
   ]
 }

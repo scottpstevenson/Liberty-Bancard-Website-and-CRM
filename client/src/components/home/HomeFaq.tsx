@@ -33,15 +33,15 @@ export function HomeFaq() {
       question: "I'm on Square or Stripe. Can you still help?",
       answer: (
         <>
-          Absolutely. We'll compare apples-to-apples using your actual numbers. Many businesses processing over $10k/month find that flat-rate pricing costs significantly more than interchange-plus. <Link href="/beat-square-stripe" className={inlineLink}>See the comparison</Link>.
+          Absolutely. We'll compare apples-to-apples using your actual numbers. Which pricing costs less depends on your volume, card mix and ticket size. <Link href="/beat-square-stripe" className={inlineLink}>See the comparison</Link>.
         </>
       ),
     },
     {
-      question: 'Is "0% processing" actually legal?',
+      question: "Does surcharging apply to debit or prepaid cards?",
       answer: (
         <>
-          "0%" programs have rules. We only recommend compliant cash discount or surcharging programs where permitted by law and appropriate for your business model. We handle disclosures, receipt formatting, and staff scripts. <Link href="/0-percent-processing" className={inlineLink}>Learn more</Link>.
+          {claimText("program.card-types", "faq")} {claimText("program.requirements", "faq")} <Link href="/0-percent-processing" className={inlineLink}>Learn more</Link>.
         </>
       ),
     },

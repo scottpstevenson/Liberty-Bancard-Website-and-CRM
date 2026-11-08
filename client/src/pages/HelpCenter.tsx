@@ -61,7 +61,7 @@ export default function HelpCenter() {
     { question: "When do card sales reach my bank account?", answer: claimText("funding.availability") },
     { question: "What is PCI compliance?", answer: "PCI DSS is a set of security requirements to protect cardholder data. Every business that accepts credit cards must comply, typically by completing an annual Self-Assessment Questionnaire." },
     { question: "Can I accept American Express?", answer: "Yes, all Liberty Bancard merchants can accept American Express through the OptBlue program with competitive interchange-plus pricing." },
-    { question: "What is a cash discount program?", answer: "A cash discount program offers a discount to customers who pay with cash while charging a service fee to card users, effectively eliminating your processing costs." },
+    { question: "What is a cash discount program?", answer: `A cash discount program offers a discount to customers who pay with cash and posts a standard card price. ${claimText("program.overview")}` },
   ];
 
   return (

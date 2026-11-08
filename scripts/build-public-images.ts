@@ -30,6 +30,8 @@ interface Variant {
   crop: Crop;
   /** Output widths (px); never larger than the crop. */
   widths: number[];
+  /** Source has real transparency: AVIF/WebP keep it, the JPEG fallback is flattened onto this colour. */
+  flattenJpegOn?: string;
 }
 interface Source {
   id: string;
@@ -79,6 +81,38 @@ const SOURCES: Source[] = [
       { name: "wide", crop: { left: 0, top: 64, width: 1280, height: 720 }, widths: [480, 800, 1200] }, // 16:9
     ],
   },
+  // Terminal product shots (transparent cut-outs). Full frame, two widths: the originals were served at
+  // 0.7-1.1 MB each on the terminal, program, comparison, quiz and shop pages.
+  {
+    id: "product-clover-flex-3",
+    file: "terminal-clover-flex-3.png", // 896x1280
+    variants: [{ name: "product", crop: { left: 0, top: 0, width: 896, height: 1280 }, widths: [320, 640], flattenJpegOn: "#ffffff" }],
+  },
+  {
+    id: "product-pax-a920",
+    file: "terminal-pax-a920.png", // 896x1280
+    variants: [{ name: "product", crop: { left: 0, top: 0, width: 896, height: 1280 }, widths: [320, 640], flattenJpegOn: "#ffffff" }],
+  },
+  {
+    id: "product-clover-mini-3",
+    file: "terminal-clover-mini-3.png", // 896x1280
+    variants: [{ name: "product", crop: { left: 0, top: 0, width: 896, height: 1280 }, widths: [320, 640], flattenJpegOn: "#ffffff" }],
+  },
+  {
+    id: "product-clover-station-duo",
+    file: "terminal-clover-station-duo.png", // 1280x896
+    variants: [{ name: "product", crop: { left: 0, top: 0, width: 1280, height: 896 }, widths: [320, 640], flattenJpegOn: "#ffffff" }],
+  },
+  {
+    id: "product-dejavoo-qd4",
+    file: "terminal-dejavoo-qd4.png", // 896x1280
+    variants: [{ name: "product", crop: { left: 0, top: 0, width: 896, height: 1280 }, widths: [320, 640], flattenJpegOn: "#ffffff" }],
+  },
+  {
+    id: "product-swipesimple-b250",
+    file: "terminal-swipesimple-b250.png", // 896x1280
+    variants: [{ name: "product", crop: { left: 0, top: 0, width: 896, height: 1280 }, widths: [320, 640], flattenJpegOn: "#ffffff" }],
+  },
 ];
 
 const FORMATS = ["avif", "webp", "jpg"] as const;
@@ -112,6 +146,7 @@ async function build(): Promise<ManifestEntry[]> {
         for (const format of FORMATS) {
           const file = `${src.id}-${variant.name}-${width}.${format}`;
           let pipe = sharp(buf).extract(c).resize(w, h, { fit: "fill" });
+          if (format === "jpg" && variant.flattenJpegOn) pipe = pipe.flatten({ background: variant.flattenJpegOn });
           if (format === "avif") pipe = pipe.avif({ quality: QUALITY.avif, effort: 6 });
           else if (format === "webp") pipe = pipe.webp({ quality: QUALITY.webp, effort: 6 });
           else pipe = pipe.jpeg({ quality: QUALITY.jpg, mozjpeg: true });

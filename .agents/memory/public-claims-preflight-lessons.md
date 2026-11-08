@@ -16,3 +16,4 @@ description: Tooling and roster quirks found while preflighting the public truth
 
 **Why:** these cost extra rounds during the preflight and are not visible from reading one file.
 **How to apply:** when planning or building any public-content change, check both renderers, register suites in both rosters, and treat the legal pages (Terms, Privacy) as read-only evidence.
+- SEO audit measures raw HTML title length, so `&amp;` costs five characters; keep titles under the limit after escaping and write contrast-sensitive CSS colors as shared tokens (light-blue #3b82f6 on white is 3.7:1, below AA).

@@ -5,6 +5,7 @@ import { getCompareHtml } from "../ssr/compare";
 import { getLocationHtml, getCityHubHtml } from "../ssr/locations";
 import { isValidLocationCombination } from "../ssr/location-html";
 import { getHomeHtml } from "../ssr/home";
+import { getIndustriesHubHtml } from "../ssr/industries-hub";
 import {
   getUploadStatementHtml,
   getFreeAnalysisHtml,
@@ -137,6 +138,12 @@ export function registerSsrRoutes(app: Express) {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", SSR_CACHE);
     res.send(html);
+  });
+
+  app.get("/industries", (_req, res) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", PAGE_CACHE);
+    res.send(getIndustriesHubHtml());
   });
 
   app.get("/industries/:slug", (req, res, next) => {

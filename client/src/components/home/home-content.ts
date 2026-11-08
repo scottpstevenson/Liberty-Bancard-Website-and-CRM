@@ -1,23 +1,5 @@
 import type { PublicImageId } from "@/lib/public-imagery";
 
-/** Sample findings shown in the labelled example review. Illustrative figures only; no real account. */
-export interface SampleFinding {
-  label: string;
-  value: string;
-  chip: string;
-  tone: "negative" | "neutral" | "positive";
-  testId?: string;
-}
-
-export const SAMPLE_FINDINGS: SampleFinding[] = [
-  { label: "Effective rate", value: "3.47%", chip: "Flagged", tone: "negative", testId: "text-statement-audit-effective-rate" },
-  { label: "Monthly fixed fees", value: "$127/mo", chip: "Recurring", tone: "negative", testId: "text-statement-audit-fixed-fees" },
-  { label: "Downgrades / card mix", value: "23%", chip: "Review", tone: "negative" },
-  { label: "Add-on fees (PCI, batch)", value: "$38/mo", chip: "Itemized", tone: "negative" },
-  { label: "Funding timeline", value: "Varies*", chip: "Eligibility", tone: "neutral" },
-  { label: "Savings opportunity", value: "Identified", chip: "On review", tone: "positive" },
-];
-
 export const COMPLIANCE_LINE = "Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.";
 
 /** Industry entrances on Home. Every slug is an existing /industries/:slug template. */

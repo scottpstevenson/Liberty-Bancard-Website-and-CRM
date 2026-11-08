@@ -1,8 +1,9 @@
-import { ssrNavbar, ssrFooter } from "../ssrShared";
+import { ssrNavbar, ssrFooter, SSR_CHROME_CSS } from "../ssrShared";
 import { serializeJsonLd } from "../../shared/json-ld";
 import { TIMING_NOTE } from "../../shared/public-disclosures";
 import { COMPARE_ENTRIES, describeRecord } from "../../shared/compare-content";
 import { PRICE_CHECKED_ON, formatCheckedDate } from "../../shared/competitor-pricing";
+import { claimText } from "../../shared/public-claims";
 
 const EQUIPMENT_LINE =
   "Equipment options are reviewed with you; availability and terms are confirmed during review";
@@ -212,14 +213,14 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     category: "Payment Gateway",
     whyMerchantsLeave: [
       published("authorize-net"),
-      "Requires a separate payment processor — two vendors, two billing relationships",
+      "On the Gateway Only plan the merchant account is separate, so processing is priced under a second agreement",
       "Older platform — less modern UX and integration options than newer alternatives",
       "No dedicated account representative",
       "Not optimized for in-person payment processing",
     ],
     whatLibertySolves: [
-      "Single provider for processing and gateway — one billing relationship",
-      "Transparent interchange-plus pricing with no separate gateway layer",
+      claimText("compat.inquiry"),
+      "Interchange-plus markup quoted from your own statement review",
       "Dedicated account rep for all payment questions",
       "Terminal support for in-person payments",
       "Free statement review to show your current costs",
@@ -493,7 +494,7 @@ const switchFromInfo: Record<string, SwitchFromInfo> = {
   },
   "authorize-net": {
     howToCancel: [
-      { title: "Notify your payment processor", detail: "Authorize.net is a gateway, so you also need to cancel the separate payment processor you paired with it. Contact both vendors." },
+      { title: "Check which plan and processor you use", detail: "Authorize.net's All-in-One plan includes the merchant account and gateway. On the Gateway Only plan the merchant account is separate, so check your agreements and contact each provider that bills you." },
       { title: "Update your website or POS integration", detail: "If Authorize.net is connected to your website's shopping cart, you will need to update the payment gateway integration when switching. Coordinate this update with your web developer." },
       { title: "Cancel your Authorize.net account", detail: "Contact Authorize.net customer support to cancel. There is a monthly fee that will stop billing once the account is closed." },
       { title: "Export transaction data", detail: "Download your transaction history and customer profiles before closing the account." },
@@ -502,7 +503,7 @@ const switchFromInfo: Record<string, SwitchFromInfo> = {
     libertyHandles: "Liberty Bancard handles the processing account setup and advises on gateway alternatives for online integrations. Your dedicated rep coordinates the technical migration support with your team.",
     timeline: TIMING_NOTE,
     whatYouNeed: [
-      "Last 3 months of processing statements (from your paired processor)",
+      "Last 3 months of processing statements (from your merchant account provider)",
       "Current website platform and shopping cart information",
       "Business bank account information",
       "Business documentation for underwriting",
@@ -735,7 +736,7 @@ export function renderSwitchFromHtml(competitorSlug: string): string {
 ${sharedStyles()}
 <style>
 .step-item { display: flex; gap: 1rem; margin-bottom: 1.5rem; align-items: flex-start; }
-.step-number { background: #3b82f6; color: #fff; width: 2rem; height: 2rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; font-size: 0.875rem; }
+.step-number { background: #071D57; color: #fff; width: 2rem; height: 2rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; font-size: 0.875rem; }
 .step-content h3 { font-size: 1.05rem; font-weight: 600; color: #0f172a; margin-bottom: 0.4rem; }
 .step-content p { color: #475569; font-size: 0.95rem; margin: 0; }
 .info-box { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 1.25rem; margin: 1.5rem 0; }
@@ -801,10 +802,13 @@ function sharedStyles(): string {
   return `<style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1a1a2e; background: #fff; line-height: 1.7; }
+img { max-width: 100%; height: auto; }
+:where(.ssr-navbar, .ssr-footer) a { color: inherit; text-decoration: none; }
+${SSR_CHROME_CSS}
 .site-header { background: #0f172a; padding: 1rem 2rem; }
 .site-header a { color: #fff; text-decoration: none; font-weight: 700; font-size: 1.25rem; }
 nav.breadcrumb { padding: 1rem 2rem; background: #f8fafc; border-bottom: 1px solid #e2e8f0; font-size: 0.875rem; color: #64748b; }
-nav.breadcrumb a { color: #3b82f6; text-decoration: none; }
+nav.breadcrumb a { color: #1d4ed8; text-decoration: none; }
 nav.breadcrumb span { margin: 0 0.5rem; }
 .page-header { background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); color: #fff; padding: 4rem 2rem 3rem; }
 .page-header-inner { max-width: 860px; margin: 0 auto; }
@@ -823,12 +827,12 @@ nav.breadcrumb span { margin: 0 0.5rem; }
 .cta-section h2 { color: #fff; border-bottom-color: rgba(255,255,255,0.2); }
 .cta-section p { color: #e2e8f0; }
 .compare-cta-section { background: #f8fafc; border-radius: 12px; padding: 2rem; }
-.btn-primary { display: inline-block; background: #3b82f6; color: #fff; padding: 0.875rem 2rem; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 1rem; margin-top: 1rem; margin-right: 1rem; }
-.btn-primary:hover { background: #2563eb; }
+.btn-primary { display: inline-block; background: #C8102E; color: #fff; padding: 0.875rem 2rem; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 1rem; margin-top: 1rem; margin-right: 1rem; }
+.btn-primary:hover { background: #A30D25; }
 .btn-secondary { display: inline-block; background: rgba(255,255,255,0.15); color: #fff; padding: 0.875rem 2rem; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 1rem; margin-top: 1rem; border: 1px solid rgba(255,255,255,0.3); }
 .btn-secondary:hover { background: rgba(255,255,255,0.25); }
 .compare-cta-section .btn-primary { margin-top: 0.75rem; }
-.internal-link { color: #3b82f6; text-decoration: none; font-weight: 500; }
+.internal-link { color: #1d4ed8; text-decoration: none; font-weight: 500; }
 .internal-link:hover { text-decoration: underline; }
 .link-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1rem; }
 .link-grid div { padding: 1rem; background: #f8fafc; border-radius: 8px; }

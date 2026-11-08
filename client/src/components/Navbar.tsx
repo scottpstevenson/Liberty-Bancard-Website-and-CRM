@@ -1,338 +1,223 @@
 import { Link, useLocation } from "wouter";
-import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import {
-  Menu,
-  Phone,
-  Mail,
-  Upload,
-  Calendar,
-  ChevronDown,
-  Zap,
-  Handshake,
-} from "lucide-react";
-import { useState, useEffect } from "react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Menu, Phone, Mail, ChevronDown } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import logoBlue from "@/assets/logo-blue.png";
-import { CALENDAR_URL } from "@/lib/constants";
-import { trackCalendarBooking, trackBookingCtaClick } from "@/lib/tracking";
+import logoBlue from "@/assets/logo-blue-420.png";
+import { PHONE_NUMBER, PHONE_TEL } from "@/lib/constants";
 import { trackPhoneCallClick } from "@/lib/analytics";
-import { buildAttributedBookingUrl } from "@/lib/utm";
-import { ZP_NAV_DESCRIPTION } from "@shared/zero-percent-content";
-import { FST_NAV_DESCRIPTION } from "@shared/free-smart-terminal-content";
+import {
+  isHomeAnchor,
+  navTestId,
+  PUBLIC_NAV_CTA,
+  PUBLIC_NAV_GROUPS,
+  PUBLIC_NAV_UTILITY,
+  type PublicNavGroup,
+  type PublicNavLink,
+} from "@shared/public-navigation";
 
-// ─── Rationalised link lists ────────────────────────────────────────────────
+// The five groups, their links, the header action and the utility link come from
+// shared/public-navigation.ts, the same model the server-rendered header reads.
 
-const solutionLinks = [
-  {
-    name: "Statement Analysis",
-    href: "/free-analysis",
-    desc: "Upload a statement and get a free line-item cost breakdown",
-    featured: true,
-  },
-  {
-    name: "Cash Discount & Surcharging",
-    href: "/0-percent-processing",
-    desc: ZP_NAV_DESCRIPTION,
-    featured: false,
-  },
-  {
-    name: "Free Smart Terminal",
-    href: "/free-smart-terminal",
-    desc: FST_NAV_DESCRIPTION,
-    featured: false,
-  },
-  {
-    name: "Equipment & Terminals",
-    href: "/shop",
-    desc: "Browse payment terminals, POS systems, and accessories",
-    featured: false,
-  },
-  {
-    name: "ISO Partner Program",
-    href: "/partners",
-    desc: "Earn 30–50% residuals for every merchant you refer",
-    featured: false,
-  },
-];
-
-const industryLinks = [
-  { name: "Restaurant", href: "/industries/restaurant-payment-processing" },
-  { name: "Retail", href: "/industries/retail-payment-processing" },
-  { name: "Healthcare", href: "/industries/healthcare-payment-processing" },
-  { name: "Salon & Spa", href: "/industries/salon-spa-payment-processing" },
-  { name: "Auto Repair", href: "/industries/auto-repair-payment-processing" },
-  { name: "Professional Services", href: "/industries/professional-services-payment-processing" },
-  { name: "E-Commerce", href: "/industries/ecommerce-payment-processing" },
-  { name: "Construction", href: "/industries/construction-payment-processing" },
-];
-
-const resourceLinks = [
-  {
-    name: "Blog",
-    href: "/blog",
-    desc: "Expert guides on processing costs, fees, and merchant services",
-  },
-  {
-    name: "Help Center",
-    href: "/help",
-    desc: "Browse articles on account setup, billing, terminals, and compliance",
-  },
-  {
-    name: "Savings Calculator",
-    href: "/savings-calculator",
-    desc: "Estimate how much you could save with interchange-plus pricing",
-  },
-  {
-    name: "Free Analysis",
-    href: "/free-analysis",
-    desc: "60-second quiz — get a personalised savings estimate",
-  },
-  {
-    name: "Case Studies",
-    href: "/case-studies",
-    desc: "Real merchant results from switching to Liberty Bancard",
-  },
-  {
-    name: "Sales Training",
-    href: "/sales-tools",
-    desc: "Partner resources, one-pagers, and objection handlers",
-  },
-  {
-    name: "Partner Resources",
-    href: "/partners",
-    desc: "ISO tools, co-branded collateral, and partner portal access",
-  },
-];
-
-// ─── Desktop dropdown item ───────────────────────────────────────────────────
-
-function DropdownItem({
+/** Hash links to a section of Home navigate natively so the browser scrolls; everything else is client-side. */
+function NavAnchor({
   href,
-  name,
-  desc,
-  active,
-  featured,
-  onClose,
-  testId,
+  className,
+  onClick,
+  children,
+  ...rest
 }: {
   href: string;
-  name: string;
-  desc?: string;
-  active: boolean;
-  featured?: boolean;
-  onClose: () => void;
-  testId?: string;
+  className?: string;
+  onClick?: () => void;
+  children: React.ReactNode;
+  "data-testid"?: string;
+  "data-active"?: boolean;
+  "aria-current"?: "page";
 }) {
-  if (featured) {
+  if (isHomeAnchor(href)) {
     return (
-      <Link
-        href={href}
-        className={cn(
-          "flex items-start gap-2.5 px-4 py-3 text-sm transition-colors border-b border-border",
-          active
-            ? "text-emerald-700 bg-emerald-50 dark:bg-emerald-950/30"
-            : "text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 bg-emerald-50/50 dark:bg-emerald-950/10"
-        )}
-        onClick={onClose}
-        data-testid={testId}
-      >
-        <Zap className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-        <div className="min-w-0">
-          <span className="font-semibold block">{name}</span>
-          {desc && <span className="text-xs text-emerald-700 dark:text-emerald-500/70">{desc}</span>}
-        </div>
-      </Link>
+      <a href={href} className={className} onClick={onClick} {...rest}>
+        {children}
+      </a>
     );
   }
   return (
-    <Link
-      href={href}
+    <Link href={href} className={className} onClick={onClick} {...rest}>
+      {children}
+    </Link>
+  );
+}
+
+function isGroupActive(group: PublicNavGroup, location: string): boolean {
+  if (group.id === "industries") return location === "/industries" || location.startsWith("/industries/");
+  if (group.id === "equipment") return location === "/shop" || location.startsWith("/shop/") || location === "/free-smart-terminal";
+  if (group.id === "resources") return ["/learn", "/blog", "/compare-rates", "/faq", "/case-studies", "/savings-calculator"].some((p) => location === p || location.startsWith(`${p}/`));
+  if (group.id === "company") return ["/about-contact", "/why-liberty-bancard", "/partners"].includes(location);
+  return group.links.some((l) => !isHomeAnchor(l.href) && location === l.href);
+}
+
+// ─── Desktop dropdown ────────────────────────────────────────────────────────
+
+function DesktopDropdown({
+  group,
+  isOpen,
+  onOpen,
+  onClose,
+  location,
+}: {
+  group: PublicNavGroup;
+  isOpen: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+  location: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const panelId = useId();
+  const active = isGroupActive(group, location);
+
+  return (
+    <div
+      ref={ref}
+      className="relative"
+      onMouseEnter={onOpen}
+      onMouseLeave={onClose}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          onClose();
+          ref.current?.querySelector<HTMLButtonElement>("button")?.focus();
+        }
+      }}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onClose();
+      }}
+    >
+      <button
+        type="button"
+        className="public-nav-link flex items-center gap-1 py-5 text-sm font-medium transition-colors"
+        data-active={active}
+        aria-expanded={isOpen}
+        aria-controls={panelId}
+        onClick={() => (isOpen ? onClose() : onOpen())}
+        data-testid={`button-nav-${group.id}`}
+      >
+        {group.label}
+        <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", isOpen && "rotate-180")} aria-hidden="true" />
+      </button>
+      <div
+        id={panelId}
+        className={cn(
+          "absolute left-0 top-full z-50 w-80 rounded-md border border-border bg-background py-1 shadow-lg transition-opacity",
+          isOpen ? "visible opacity-100" : "invisible opacity-0",
+        )}
+        data-testid={`menu-nav-${group.id}`}
+      >
+        {group.links.map((link) => (
+          <DropdownItem key={`${link.label}-${link.href}`} group={group} link={link} active={!isHomeAnchor(link.href) && location === link.href} onClose={onClose} />
+        ))}
+        {group.offer?.current && (
+          <div className="mx-3 mb-2 mt-1 border-t border-border pt-2">
+            <NavAnchor
+              href={group.offer.href}
+              onClick={onClose}
+              className="block rounded-md border border-border bg-[hsl(var(--liberty-surface))] px-3 py-2.5 text-sm transition-colors hover:border-[hsl(var(--liberty-navy))]"
+              data-testid={`link-nav-offer-${group.id}`}
+            >
+              <span className="block font-semibold leading-snug text-foreground">{group.offer.label}</span>
+              {group.offer.description && <span className="mt-0.5 block text-xs text-muted-foreground">{group.offer.description}</span>}
+            </NavAnchor>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DropdownItem({ group, link, active, onClose }: { group: PublicNavGroup; link: PublicNavLink; active: boolean; onClose: () => void }) {
+  return (
+    <NavAnchor
+      href={link.href}
+      onClick={onClose}
       className={cn(
         "block px-4 py-2.5 text-sm transition-colors",
-        active ? "text-primary bg-primary/5" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+        active ? "bg-[hsl(var(--liberty-surface))] text-[hsl(var(--liberty-navy))]" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
       )}
-      onClick={onClose}
-      data-testid={testId}
+      aria-current={active ? "page" : undefined}
+      data-testid={`link-nav-${group.id}-${navTestId(link.label)}`}
     >
-      <span className="font-medium block leading-snug">{name}</span>
-      {desc && <span className="text-xs text-muted-foreground mt-0.5 block">{desc}</span>}
-    </Link>
+      <span className="block font-medium leading-snug">{link.label}</span>
+      {link.description && <span className="mt-0.5 block text-xs text-muted-foreground">{link.description}</span>}
+    </NavAnchor>
   );
 }
 
 // ─── Main Navbar ─────────────────────────────────────────────────────────────
 
 export function Navbar() {
-  const { user } = useAuth();
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [solutionsOpen, setSolutionsOpen] = useState(false);
-  const [industriesOpen, setIndustriesOpen] = useState(false);
-  const [resourcesOpen, setResourcesOpen] = useState(false);
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
 
-  // Close all dropdowns and mobile drawer on route change
+  // Close dropdowns and the mobile drawer on route change
   useEffect(() => {
-    setSolutionsOpen(false);
-    setIndustriesOpen(false);
-    setResourcesOpen(false);
+    setOpenGroup(null);
     setMobileOpen(false);
   }, [location]);
 
+  const closeAll = useCallback(() => setOpenGroup(null), []);
+
   return (
-    <nav className="fixed w-full z-50" data-testid="navbar">
-      <div className="bg-card/95 backdrop-blur-md border-b border-border shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-[72px] md:h-16 gap-4">
+    <nav className="fixed z-50 w-full" data-testid="navbar" aria-label="Main">
+      <div className="border-b border-border bg-card/95 shadow-sm backdrop-blur-md">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex h-14 items-center justify-between gap-4 md:h-16">
             {/* Logo */}
-            <Link href="/" className="flex min-h-11 items-center shrink-0" data-testid="link-logo">
-              <img
-                src={logoBlue}
-                alt="Liberty Bancard"
-                className="h-8 w-auto max-w-[240px] md:h-10 md:max-w-none"
-              />
+            <Link href="/" className="flex min-h-11 shrink-0 items-center" data-testid="link-logo">
+              <img src={logoBlue} alt="Liberty Bancard" width={154} height={32} className="h-7 w-auto max-w-[200px] md:h-9 md:max-w-none" />
             </Link>
 
-            {/* Desktop nav */}
-            <div className="hidden lg:flex items-center gap-6">
-              <Link
-                href="/"
-                className={cn(
-                  "text-sm font-medium transition-colors",
-                  location === "/" ? "text-primary" : "text-muted-foreground hover:text-foreground"
-                )}
-                data-testid="link-nav-home"
-              >
-                Home
-              </Link>
-
-              {/* Solutions dropdown */}
-              <DesktopDropdown
-                label="Solutions"
-                isOpen={solutionsOpen}
-                onOpen={() => setSolutionsOpen(true)}
-                onClose={() => setSolutionsOpen(false)}
-                active={solutionLinks.some(l => location === l.href)}
-                testId="button-nav-solutions"
-                width="w-80"
-              >
-                {solutionLinks.map((link) => (
-                  <DropdownItem
-                    key={link.name}
-                    href={link.href}
-                    name={link.name}
-                    desc={link.desc}
-                    active={location === link.href}
-                    featured={link.featured}
-                    onClose={() => setSolutionsOpen(false)}
-                    testId={`link-nav-solution-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                  />
-                ))}
-              </DesktopDropdown>
-
-              {/* Industries dropdown */}
-              <DesktopDropdown
-                label="Industries"
-                isOpen={industriesOpen}
-                onOpen={() => setIndustriesOpen(true)}
-                onClose={() => setIndustriesOpen(false)}
-                active={location.startsWith("/industries")}
-                testId="button-nav-industries"
-                width="w-64"
-              >
-                {industryLinks.map((link) => (
-                  <DropdownItem
-                    key={link.name}
-                    href={link.href}
-                    name={link.name}
-                    active={location === link.href}
-                    onClose={() => setIndustriesOpen(false)}
-                    testId={`link-nav-industry-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                  />
-                ))}
-              </DesktopDropdown>
-
-              {/* Resources dropdown */}
-              <DesktopDropdown
-                label="Resources"
-                isOpen={resourcesOpen}
-                onOpen={() => setResourcesOpen(true)}
-                onClose={() => setResourcesOpen(false)}
-                active={resourceLinks.some(l => location === l.href)}
-                testId="button-nav-resources"
-                width="w-80"
-              >
-                {resourceLinks.map((link) => (
-                  <DropdownItem
-                    key={link.name}
-                    href={link.href}
-                    name={link.name}
-                    desc={link.desc}
-                    active={location === link.href}
-                    onClose={() => setResourcesOpen(false)}
-                    testId={`link-nav-resource-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                  />
-                ))}
-              </DesktopDropdown>
-
-              <Link
-                href="/partners"
-                className={cn(
-                  "text-sm font-medium transition-colors flex items-center gap-1.5",
-                  location === "/partners" || location === "/partner-portal"
-                    ? "text-primary"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                data-testid="link-nav-partners"
-              >
-                <Handshake className="w-3.5 h-3.5" />
-                Partner Program
-              </Link>
-
+            {/* Desktop groups */}
+            <div className="hidden items-center gap-7 lg:flex">
+              {PUBLIC_NAV_GROUPS.map((group) => (
+                <DesktopDropdown
+                  key={group.id}
+                  group={group}
+                  isOpen={openGroup === group.id}
+                  onOpen={() => setOpenGroup(group.id)}
+                  onClose={closeAll}
+                  location={location}
+                />
+              ))}
             </div>
 
-            {/* Desktop CTAs */}
-            <div className="hidden lg:flex items-center gap-3">
-              <Button variant="outline" className="gap-2" asChild>
-                <a href={buildAttributedBookingUrl(CALENDAR_URL, { ctaLocation: "navbar_desktop" })} target="_blank" rel="noopener noreferrer" onClick={() => {
-                  trackCalendarBooking("navbar_desktop");
-                  trackBookingCtaClick({ ctaLocation: "navbar_desktop" });
-                }} data-testid="link-book-call">
-                  <Calendar className="w-4 h-4" />
-                  Book a review call
-                </a>
-              </Button>
-              <Button className="gap-2" asChild>
-                <Link href="/upload-statement" data-testid="link-upload-statement">
-                  <Upload className="w-4 h-4" />
-                  Upload Statement
-                </Link>
-              </Button>
-            </div>
-
-            {/* Mobile hamburger */}
-            <div className="lg:hidden">
-              <Button
-                variant="ghost"
-                className="h-12 w-12 p-0 text-primary [&_svg]:size-6"
-                onClick={() => setMobileOpen(true)}
-                data-testid="button-mobile-menu"
-                aria-label="Open menu"
+            {/* Header action: utility link (desktop) and the single primary action (from sm) */}
+            <div className="flex items-center gap-2 sm:gap-4">
+              <Link
+                href={PUBLIC_NAV_UTILITY.href}
+                className="public-nav-link hidden text-sm font-medium transition-colors lg:inline-flex lg:min-h-11 lg:items-center"
+                data-active={location === PUBLIC_NAV_UTILITY.href}
+                data-testid="link-nav-support"
               >
-                <Menu className="w-6 h-6" />
+                {PUBLIC_NAV_UTILITY.label}
+              </Link>
+              <Button asChild className="public-cta--brand hidden h-10 sm:inline-flex" data-testid="link-nav-talk">
+                <Link href={PUBLIC_NAV_CTA.href}>{PUBLIC_NAV_CTA.label}</Link>
               </Button>
+
+              {/* Mobile hamburger */}
+              <div className="lg:hidden">
+                <Button
+                  variant="ghost"
+                  className="h-12 w-12 p-0 text-primary [&_svg]:size-6"
+                  onClick={() => setMobileOpen(true)}
+                  data-testid="button-mobile-menu"
+                  aria-label="Open menu"
+                >
+                  <Menu className="h-6 w-6" />
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -341,191 +226,104 @@ export function Navbar() {
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetContent
             side="right"
-            className="w-[85vw] max-w-sm p-0 flex flex-col"
+            className="flex w-[85vw] max-w-sm flex-col p-0"
             closeClassName="right-2 top-2 grid h-11 w-11 place-items-center opacity-100 [&_svg]:h-5 [&_svg]:w-5"
             data-testid="mobile-nav-drawer"
           >
             {/* SheetContent already renders an absolute close (X) button top-right;
                 no custom SheetClose needed here — adding one creates duplicates. */}
-            <SheetHeader className="px-4 pt-2 pb-2 border-b border-border shrink-0 pr-14">
+            <SheetHeader className="shrink-0 border-b border-border px-4 pb-2 pr-14 pt-2">
               <SheetTitle asChild>
                 <Link href="/" className="flex min-h-11 items-center" onClick={() => setMobileOpen(false)} data-testid="link-mobile-logo">
-                  <img src={logoBlue} alt="Liberty Bancard" className="h-7 w-auto" />
+                  <img src={logoBlue} alt="Liberty Bancard" width={134} height={28} className="h-7 w-auto max-w-full" />
                 </Link>
               </SheetTitle>
             </SheetHeader>
 
             {/* Scrollable nav body */}
             <div className="flex-1 overflow-y-auto px-2 py-2">
-              <Link
-                href="/"
-                className={cn(
-                  "flex min-h-11 items-center px-3 py-2.5 rounded-md text-sm font-medium transition-colors mb-1",
-                  location === "/" ? "text-primary bg-primary/5" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                )}
-                onClick={() => setMobileOpen(false)}
-                data-testid="link-mobile-nav-home"
-              >
-                Home
-              </Link>
-
-              {/* Accordion groups */}
               <Accordion type="single" collapsible className="w-full">
-                {/* Solutions */}
-                <AccordionItem value="solutions" className="border-none">
-                  <AccordionTrigger
-                    className="min-h-11 px-3 py-2.5 text-sm font-semibold text-muted-foreground hover:text-foreground hover:no-underline rounded-md hover:bg-muted/50"
-                    data-testid="accordion-trigger-solutions"
-                  >
-                    Solutions
-                  </AccordionTrigger>
-                  <AccordionContent className="pb-1">
-                    {solutionLinks.map((link) => (
-                      <Link
-                        key={link.name}
-                        href={link.href}
-                        className={cn(
-                          "flex min-h-11 flex-col justify-center px-4 py-2.5 rounded-md text-sm transition-colors",
-                          link.featured ? "font-semibold text-emerald-700" : "font-medium",
-                          location === link.href
-                            ? "text-primary bg-primary/5"
-                            : link.featured
-                              ? "text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
-                              : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                        )}
-                        onClick={() => setMobileOpen(false)}
-                        data-testid={`link-mobile-solution-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                      >
-                        {link.name}
-                        {link.desc && (
-                          <span className="block text-xs font-normal text-muted-foreground mt-0.5">
-                            {link.desc}
-                          </span>
-                        )}
-                      </Link>
-                    ))}
-                  </AccordionContent>
-                </AccordionItem>
-
-                {/* Industries */}
-                <AccordionItem value="industries" className="border-none">
-                  <AccordionTrigger
-                    className="min-h-11 px-3 py-2.5 text-sm font-semibold text-muted-foreground hover:text-foreground hover:no-underline rounded-md hover:bg-muted/50"
-                    data-testid="accordion-trigger-industries"
-                  >
-                    Industries
-                  </AccordionTrigger>
-                  <AccordionContent className="pb-1">
-                    {industryLinks.map((link) => (
-                      <Link
-                        key={link.name}
-                        href={link.href}
-                        className={cn(
-                          "flex min-h-11 flex-col justify-center px-4 py-2.5 rounded-md text-sm font-medium transition-colors",
-                          location === link.href
-                            ? "text-primary bg-primary/5"
-                            : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                        )}
-                        onClick={() => setMobileOpen(false)}
-                        data-testid={`link-mobile-industry-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                      >
-                        {link.name}
-                      </Link>
-                    ))}
-                  </AccordionContent>
-                </AccordionItem>
-
-                {/* Resources */}
-                <AccordionItem value="resources" className="border-none">
-                  <AccordionTrigger
-                    className="min-h-11 px-3 py-2.5 text-sm font-semibold text-muted-foreground hover:text-foreground hover:no-underline rounded-md hover:bg-muted/50"
-                    data-testid="accordion-trigger-resources"
-                  >
-                    Resources
-                  </AccordionTrigger>
-                  <AccordionContent className="pb-1">
-                    {resourceLinks.map((link) => (
-                      <Link
-                        key={link.name}
-                        href={link.href}
-                        className={cn(
-                          "flex min-h-11 flex-col justify-center px-4 py-2.5 rounded-md text-sm font-medium transition-colors",
-                          location === link.href
-                            ? "text-primary bg-primary/5"
-                            : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                        )}
-                        onClick={() => setMobileOpen(false)}
-                        data-testid={`link-mobile-resource-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                      >
-                        {link.name}
-                        {link.desc && (
-                          <span className="block text-xs font-normal text-muted-foreground mt-0.5">
-                            {link.desc}
-                          </span>
-                        )}
-                      </Link>
-                    ))}
-                  </AccordionContent>
-                </AccordionItem>
+                {PUBLIC_NAV_GROUPS.map((group) => (
+                  <AccordionItem key={group.id} value={group.id} className="border-none">
+                    <AccordionTrigger
+                      className="min-h-11 rounded-md px-3 py-2.5 text-sm font-semibold text-foreground hover:bg-muted/50 hover:no-underline"
+                      data-testid={`accordion-trigger-${group.id}`}
+                    >
+                      {group.label}
+                    </AccordionTrigger>
+                    <AccordionContent className="pb-1">
+                      {group.links.map((link) => {
+                        const active = !isHomeAnchor(link.href) && location === link.href;
+                        return (
+                          <NavAnchor
+                            key={`${link.label}-${link.href}`}
+                            href={link.href}
+                            className={cn(
+                              "flex min-h-11 flex-col justify-center rounded-md px-4 py-2.5 text-sm font-medium transition-colors",
+                              active ? "bg-[hsl(var(--liberty-surface))] text-[hsl(var(--liberty-navy))]" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                            )}
+                            onClick={() => setMobileOpen(false)}
+                            aria-current={active ? "page" : undefined}
+                            data-testid={`link-mobile-${group.id}-${navTestId(link.label)}`}
+                          >
+                            {link.label}
+                            {link.description && <span className="mt-0.5 block text-xs font-normal text-muted-foreground">{link.description}</span>}
+                          </NavAnchor>
+                        );
+                      })}
+                      {group.offer?.current && (
+                        <NavAnchor
+                          href={group.offer.href}
+                          className="mx-3 mt-1 block rounded-md border border-border bg-[hsl(var(--liberty-surface))] px-3 py-2.5 text-sm"
+                          onClick={() => setMobileOpen(false)}
+                          data-testid={`link-mobile-offer-${group.id}`}
+                        >
+                          <span className="block min-h-6 font-semibold leading-snug text-foreground">{group.offer.label}</span>
+                          {group.offer.description && <span className="mt-0.5 block text-xs text-muted-foreground">{group.offer.description}</span>}
+                        </NavAnchor>
+                      )}
+                    </AccordionContent>
+                  </AccordionItem>
+                ))}
               </Accordion>
 
-              <div className="h-px bg-border my-2" />
+              <div className="my-2 h-px bg-border" />
 
               <Link
-                href="/partners"
+                href={PUBLIC_NAV_UTILITY.href}
                 className={cn(
-                  "flex min-h-11 items-center gap-2 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
-                  location === "/partners" || location === "/partner-portal"
-                    ? "text-primary bg-primary/5"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  "flex min-h-11 items-center rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
+                  location === PUBLIC_NAV_UTILITY.href ? "bg-[hsl(var(--liberty-surface))] text-[hsl(var(--liberty-navy))]" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
                 )}
                 onClick={() => setMobileOpen(false)}
-                data-testid="link-mobile-nav-partners"
+                data-testid="link-mobile-support"
               >
-                <Handshake className="w-4 h-4" />
-                Partner Program
+                {PUBLIC_NAV_UTILITY.label}
               </Link>
 
-              <div className="h-px bg-border my-2" />
-
               {/* Contact info */}
-              <div className="flex flex-col gap-2 px-3 py-2">
+              <div className="flex flex-col gap-1 px-3 py-2">
                 <a
-                  href="tel:9542668214"
+                  href={PHONE_TEL}
                   className="flex min-h-11 items-center gap-2 text-sm text-muted-foreground"
                   data-testid="link-mobile-phone"
                   onClick={() => trackPhoneCallClick({})}
                 >
-                  <Phone className="w-4 h-4" />
-                  Call/Text 954-266-8214
+                  <Phone className="h-4 w-4" aria-hidden="true" />
+                  Call/Text {PHONE_NUMBER}
                 </a>
-                <a
-                  href="mailto:support@libertybancard.com"
-                  className="flex min-h-11 items-center gap-2 text-sm text-muted-foreground"
-                  data-testid="link-mobile-email"
-                >
-                  <Mail className="w-4 h-4" />
+                <a href="mailto:support@libertybancard.com" className="flex min-h-11 items-center gap-2 text-sm text-muted-foreground" data-testid="link-mobile-email">
+                  <Mail className="h-4 w-4" aria-hidden="true" />
                   support@libertybancard.com
                 </a>
               </div>
             </div>
 
-            {/* Pinned CTA buttons at the bottom of the drawer */}
-            <div className="shrink-0 border-t border-border p-4 flex flex-col gap-2 bg-background">
-              <Button variant="outline" className="w-full gap-2" asChild>
-                <a href={buildAttributedBookingUrl(CALENDAR_URL, { ctaLocation: "navbar_mobile" })} target="_blank" rel="noopener noreferrer" onClick={() => {
-                  trackCalendarBooking("navbar_mobile");
-                  trackBookingCtaClick({ ctaLocation: "navbar_mobile" });
-                  setMobileOpen(false);
-                }} data-testid="link-mobile-book-call">
-                  <Calendar className="w-4 h-4" />
-                  Book a review call
-                </a>
-              </Button>
-              <Button className="w-full gap-2" asChild>
-                <Link href="/upload-statement" onClick={() => setMobileOpen(false)} data-testid="link-mobile-upload-statement">
-                  <Upload className="w-4 h-4" />
-                  Upload My Statement
+            {/* Pinned primary action */}
+            <div className="shrink-0 border-t border-border bg-background p-4">
+              <Button asChild size="lg" className="public-cta public-cta--brand w-full" data-testid="link-mobile-talk">
+                <Link href={PUBLIC_NAV_CTA.href} onClick={() => setMobileOpen(false)}>
+                  {PUBLIC_NAV_CTA.label}
                 </Link>
               </Button>
             </div>
@@ -533,50 +331,5 @@ export function Navbar() {
         </Sheet>
       </div>
     </nav>
-  );
-}
-
-// ─── Desktop dropdown wrapper ─────────────────────────────────────────────────
-
-function DesktopDropdown({
-  label,
-  isOpen,
-  onOpen,
-  onClose,
-  active,
-  testId,
-  width,
-  children,
-}: {
-  label: string;
-  isOpen: boolean;
-  onOpen: () => void;
-  onClose: () => void;
-  active: boolean;
-  testId: string;
-  width: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="relative" onMouseEnter={onOpen} onMouseLeave={onClose}>
-      <button
-        className={cn(
-          "text-sm font-medium transition-colors flex items-center gap-1",
-          active ? "text-primary" : "text-muted-foreground hover:text-foreground"
-        )}
-        data-testid={testId}
-      >
-        {label}
-        <ChevronDown className="w-3.5 h-3.5" />
-      </button>
-      <div
-        className={cn(
-          `absolute top-full left-0 mt-1 ${width} bg-background border border-border rounded-md shadow-lg py-1 z-50 transition-all`,
-          isOpen ? "opacity-100 visible" : "opacity-0 invisible"
-        )}
-      >
-        {children}
-      </div>
-    </div>
   );
 }

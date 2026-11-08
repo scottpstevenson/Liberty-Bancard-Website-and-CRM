@@ -49,6 +49,14 @@ export const CLAIM_EVIDENCE: readonly EvidenceEntry[] = [
     source: "server/services/protected-object.ts; server/services/statement-upload-chain.ts; client/src/pages/PrivacyPolicy.tsx",
     recordedOn: "2026-11-08",
   },
+  {
+    key: "EV-WA-CARD-NETWORK-DEBIT-PREPAID",
+    kind: "official-source",
+    summary:
+      "Visa's merchant surcharging Q&A (read 2026-11-08) states that surcharging is limited to credit cards, that U.S. merchants cannot surcharge Visa debit or prepaid cards, and that a Visa debit card remains a debit card when the cardholder selects 'credit' at the terminal (the choice is signature versus PIN). Supports only the credit-only statement. Mastercard and acquirer wording was not independently read for this record, and no state-law or legality statement is supported.",
+    source: "https://usa.visa.com/content/dam/VCOM/global/support-legal/documents/merchant-surcharging-qa-for-web.pdf",
+    recordedOn: "2026-11-08",
+  },
 ];
 
 export const CLAIM_EVIDENCE_KEYS: ReadonlySet<string> = new Set(CLAIM_EVIDENCE.map((e) => e.key));
@@ -63,6 +71,48 @@ export interface RetiredWording {
 }
 
 export const RETIRED_WORDING: readonly RetiredWording[] = [
+  {
+    claimId: "offer.free-processing",
+    originalWording: "See If You Qualify for Free Processing",
+    appearedOn: "/shop and /free-analysis promotion banner, list, inline and card variants (the FREE30 promotion)",
+    reason: "No written program record supports a free-processing benefit; the promotion code is attribution only and is not evidence of an approved benefit.",
+  },
+  {
+    claimId: "offer.eliminate-processing-fees",
+    originalWording: "Eligible businesses can eliminate card processing fees entirely.",
+    appearedOn: "/shop and /free-analysis promotion banner, list, inline and card variants",
+    reason: "No source; contradicts the remaining-costs disclosure (equipment, software, gateway, PCI and other fees).",
+  },
+  {
+    claimId: "equipment.contract.no-lease",
+    originalWording: "No Leases. Ever. We never lease equipment. Buy outright or qualify for free placement with your processing agreement.",
+    appearedOn: "/shop trust strip",
+    reason: "The footer and Terms page describe lease-to-own and Liberty-owned equipment depending on the program; no written program record supports an absolute no-lease statement.",
+  },
+  {
+    claimId: "equipment.placement.free-with-processing",
+    originalWording: "qualify for free placement with your processing agreement",
+    appearedOn: "/shop trust strip",
+    reason: "Same evidence gap as the no-upfront placement claim; the equipment program record is still an open owner item.",
+  },
+  {
+    claimId: "equipment.monthly-fee.zero",
+    originalWording: "$0/mo with processing; $0/mo",
+    appearedOn: "/shop terminal cards and detail view (Dejavoo QD4, PAX A920, SwipeSimple B250)",
+    reason: "No product-specific written evidence for a zero monthly equipment fee.",
+  },
+  {
+    claimId: "compat.single-billing-relationship",
+    originalWording: "Single provider for processing and gateway — one billing relationship",
+    appearedOn: "/alternatives/authorize-net server page",
+    reason: "No evidence of a confirmed Liberty gateway path or billing arrangement.",
+  },
+  {
+    claimId: "compat.no-gateway-layer",
+    originalWording: "Transparent interchange-plus pricing with no separate gateway layer",
+    appearedOn: "/alternatives/authorize-net server page",
+    reason: "No evidence of a confirmed Liberty gateway path; an online setup may involve a gateway.",
+  },
   {
     claimId: "equipment.contract.month-to-month",
     originalWording: "Liberty Bancard does not require long-term processing contracts. Your month-to-month agreement means you're staying because it works.",

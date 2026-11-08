@@ -2,13 +2,12 @@ import { ssrHtmlShell } from "../ssrShared";
 import {
   COMPARE_ENTRIES,
   COMPARE_HERO_DISCLAIMER,
-  COMPARE_METHOD_NOTE,
   COMPARE_NEEDS,
   COMPARE_TABLE_FOOTNOTE,
   getCompareEntry,
   type CompareEntry,
 } from "../../shared/compare-content";
-import { formatCheckedDate, formatMonthly, formatRate } from "../../shared/competitor-pricing";
+import { describePriceRecord, formatCheckedDate } from "../../shared/competitor-pricing";
 
 /** Single dataset shared with the React comparison page; consumers such as the SEO audit read it from here. */
 export const COMPETITOR_DATA: Readonly<Record<string, CompareEntry>> = COMPARE_ENTRIES;
@@ -48,9 +47,7 @@ function renderCompareHtml(data: CompareEntry): string {
     ? `<ul class="ssr-check-list">${data.records
         .map(
           (record) =>
-            `<li><span class="check-icon">✓</span><span><strong>${record.product} - ${record.plan} (${record.channel}): ${formatRate(record)}${
-              record.monthlyFeeCents !== null ? `, ${formatMonthly(record.monthlyFeeCents)}` : ""
-            }</strong>${record.qualifier ? `<br/>${record.qualifier}` : ""}<br/>Source: <a href="${record.sourceUrl}" rel="noopener noreferrer">${record.sourceUrl}</a>. Checked ${formatCheckedDate(record.checkedOn)}.</span></li>`,
+            `<li><span class="check-icon">✓</span><span><strong>${describePriceRecord(record)}</strong><br/>Source: <a href="${record.sourceUrl}" rel="noopener noreferrer">${record.sourceUrl}</a>. Checked ${formatCheckedDate(record.checkedOn)}.</span></li>`,
         )
         .join("")}</ul>`
     : `<p class="ssr-card-text">${data.unpublishedNote ?? ""}</p>`;
@@ -88,7 +85,7 @@ function renderCompareHtml(data: CompareEntry): string {
     <section class="ssr-section">
       <div class="ssr-section-inner">
         <h2 class="ssr-section-heading">Side-by-Side Comparison</h2>
-        <p class="ssr-section-subheading">${data.name} figures are published list rates, dated and sourced below. Liberty Bancard terms come from your written quote.</p>
+        <p class="ssr-section-subheading">${data.tableIntro}</p>
         <div class="ssr-table-wrapper">
           <table class="ssr-table">
             <thead>
@@ -107,14 +104,14 @@ function renderCompareHtml(data: CompareEntry): string {
 
     <section class="ssr-section ssr-section-muted">
       <div class="ssr-section-inner">
-        <h2 class="ssr-section-heading">${data.name} Published Rates</h2>
+        <h2 class="ssr-section-heading">${data.ratesHeading}</h2>
         <div class="ssr-card">${recordsHtml}</div>
         <div class="ssr-card" style="margin-top:1.5rem;">
           <h3 class="ssr-card-title">${COMPARE_NEEDS.heading}</h3>
           <p class="ssr-card-text">${COMPARE_NEEDS.intro}</p>
           <ul class="ssr-check-list">${needsHtml}</ul>
         </div>
-        <p style="font-size:0.75rem;color:#6b7280;text-align:center;margin-top:1rem;">${COMPARE_METHOD_NOTE} ${COMPARE_NEEDS.footnote}</p>
+        <p style="font-size:0.75rem;color:#6b7280;text-align:center;margin-top:1rem;">${data.methodNote} ${COMPARE_NEEDS.footnote}</p>
       </div>
     </section>
 

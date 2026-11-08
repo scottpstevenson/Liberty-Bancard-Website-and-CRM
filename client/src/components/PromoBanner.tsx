@@ -1,15 +1,18 @@
 import { useState } from "react";
 import { Link } from "wouter";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CountdownTimer, getDefaultTarget } from "@/components/CountdownTimer";
-import { type LucideIcon, X, Tag, Zap } from "lucide-react";
+import { type LucideIcon, X, Zap } from "lucide-react";
+import { REVIEW_OFFER } from "@shared/public-offers";
 
+// Wording, routing and attribution come from the shared review offer record
+// (shared/public-offers.ts). The promotion code travels only in the CTA query
+// string; it is never rendered as a benefit.
 interface Promo {
   id: string;
   title: string;
   description: string;
-  code?: string;
+  shortDescription: string;
   icon: LucideIcon;
   ctaLabel?: string;
   ctaHref?: string;
@@ -17,13 +20,13 @@ interface Promo {
 
 const activePromos: Promo[] = [
   {
-    id: "free-processing",
-    title: "See If You Qualify for Free Processing",
-    description: "Eligible businesses can eliminate card processing fees entirely. Upload your statement and we'll show you exactly how.",
-    code: "FREE30",
+    id: REVIEW_OFFER.id,
+    title: REVIEW_OFFER.title,
+    description: REVIEW_OFFER.description,
+    shortDescription: REVIEW_OFFER.shortDescription,
     icon: Zap,
-    ctaLabel: "Check Eligibility",
-    ctaHref: "/free-analysis?promo=FREE30",
+    ctaLabel: REVIEW_OFFER.ctaLabel,
+    ctaHref: REVIEW_OFFER.ctaHref,
   },
 ];
 
@@ -64,15 +67,9 @@ export function PromoBanner({
             </span>
             <span className="hidden sm:inline text-sm text-muted-foreground">—</span>
             <span className="hidden sm:inline text-sm text-muted-foreground" data-testid="promo-banner-desc">
-              {promo.description}
+              {promo.shortDescription}
             </span>
           </div>
-          {promo.code && (
-            <Badge variant="secondary" className="text-xs gap-1" data-testid="promo-banner-code">
-              <Tag className="w-3 h-3" />
-              {promo.code}
-            </Badge>
-          )}
           {showCountdown && (
             <CountdownTimer targetDate={target} compact className="text-primary" />
           )}
@@ -109,12 +106,6 @@ export function PromoBanner({
           <p className="text-sm font-medium text-foreground" data-testid="promo-inline-title">{promo.title}</p>
           <p className="text-xs text-muted-foreground">{promo.description}</p>
         </div>
-        {promo.code && (
-          <Badge variant="secondary" className="text-xs gap-1 shrink-0" data-testid="promo-inline-code">
-            <Tag className="w-3 h-3" />
-            {promo.code}
-          </Badge>
-        )}
       </div>
     );
   }
@@ -144,15 +135,11 @@ export function PromoBanner({
           </Button>
         )}
       </div>
-      <div className="flex items-center gap-3 flex-wrap">
-        {promo.code && (
-          <Badge variant="secondary" className="text-xs gap-1" data-testid="promo-card-code">
-            <Tag className="w-3 h-3" />
-            Use code: {promo.code}
-          </Badge>
-        )}
-        {showCountdown && <CountdownTimer targetDate={target} compact className="text-primary" />}
-      </div>
+      {showCountdown && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <CountdownTimer targetDate={target} compact className="text-primary" />
+        </div>
+      )}
       {promo.ctaHref && promo.ctaLabel && (
         <Button size="sm" className="mt-3 w-full" asChild>
           <Link href={promo.ctaHref} data-testid="promo-card-cta">{promo.ctaLabel}</Link>

@@ -15,11 +15,12 @@ import {
   Headphones,
   Phone,
   Mail,
+  ArrowRight,
 } from "lucide-react";
-import heroTeam from "@/assets/images/hero-team.jpg";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { CALENDAR_URL } from "@/lib/constants";
 import { trackCalendarBooking } from "@/lib/tracking";
+import { ABOUT_CONTACT_BOOKING_LABEL, ABOUT_CONTACT_HERO, ABOUT_CONTACT_INTENTS } from "@shared/public-contact-content";
 
 const steps = [
   {
@@ -56,41 +57,55 @@ export default function AboutContact() {
       <Navbar />
 
       <main className="flex-grow public-main-offset" ref={containerRef}>
-        <section className="relative overflow-hidden" data-testid="section-about-hero">
-          <div className="absolute inset-0">
-            <img src={heroTeam} alt="Liberty Bancard team of payment processing professionals" className="w-full h-full object-cover" width="1408" height="792" />
-            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222_47%_6%/0.97)] via-[hsl(222_47%_6%/0.93)] to-[hsl(222_47%_6%/0.85)]" />
-          </div>
-          <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
-          <div className="glow-blob glow-blob-2 w-48 h-48 bg-blue-600 bottom-10 left-1/4" />
-          <div className="public-container relative py-10 lg:py-20">
-            <div className="max-w-3xl reveal">
-              <h1
-                className="public-h1 public-h1--page font-display font-bold text-white mb-6"
-                data-testid="text-about-heading"
-              >
-                <span className="text-sky-400">Merchant-First</span> Support. Statement-First Pricing.
+        <section className="marketing-surface public-section public-section--light" data-testid="section-about-hero">
+          <div className="public-container">
+            <div className="max-w-3xl">
+              <h1 className="public-h1 public-h1--page text-foreground mb-4" data-testid="text-about-heading">
+                {ABOUT_CONTACT_HERO.heading}
               </h1>
-              <p
-                className="text-lg text-white/70 leading-relaxed mb-8"
-                data-testid="text-about-body"
-              >
-                Liberty Bancard helps operators stop overpaying and stop guessing with line-item statement diagnostics, clear options, and support that sticks around.
+              <p className="public-body public-secondary lg:text-lg" data-testid="text-about-body">
+                {ABOUT_CONTACT_HERO.body}
               </p>
-              <div className="flex flex-wrap items-center gap-4">
-                <Button className="gap-2 cta-pulse" asChild>
-                  <Link href="/upload-statement" data-testid="link-hero-upload-statement">
-                    <Upload className="w-4 h-4" />
-                    Upload Statement
+            </div>
+            <ul className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-6" data-testid="grid-contact-intents">
+              {ABOUT_CONTACT_INTENTS.map((intent) => (
+                <li key={intent.id}>
+                  <Link
+                    href={intent.href}
+                    className="group public-card public-card--brand flex h-full flex-col p-5"
+                    data-testid={`card-intent-${intent.id}`}
+                  >
+                    <h2 className="public-h3 text-foreground">{intent.label}</h2>
+                    <p className="public-body public-secondary mt-1 flex-1">{intent.body}</p>
+                    <ArrowRight className="mt-3 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
                   </Link>
-                </Button>
-                <Button variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white" asChild>
-                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("about_contact_hero")} data-testid="link-hero-book-call">
-                    <Calendar className="w-4 h-4" />
-                    Get My Free Analysis
-                  </a>
-                </Button>
-              </div>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-8" data-testid="hero-contact-row">
+              <a
+                href="tel:9542668214"
+                className="public-tap inline-flex items-center gap-2 font-medium text-foreground hover:text-primary"
+                data-testid="link-contact-phone"
+                onClick={() => trackPhoneCallClick({ sourcePage: "/about-contact" })}
+              >
+                <Phone className="h-4 w-4 text-primary" aria-hidden="true" />
+                Call/Text 954-266-8214
+              </a>
+              <a
+                href="mailto:support@libertybancard.com"
+                className="public-tap inline-flex items-center gap-2 font-medium text-foreground hover:text-primary"
+                data-testid="link-contact-email"
+              >
+                <Mail className="h-4 w-4 text-primary" aria-hidden="true" />
+                support@libertybancard.com
+              </a>
+              <Button asChild size="lg" className="public-cta public-cta--brand gap-2 sm:w-auto" data-testid="link-contact-book">
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("about_contact_hero")}>
+                  <Calendar className="h-4 w-4" aria-hidden="true" />
+                  {ABOUT_CONTACT_BOOKING_LABEL}
+                </a>
+              </Button>
             </div>
           </div>
         </section>
@@ -161,82 +176,6 @@ export default function AboutContact() {
           </div>
         </section>
 
-        <section className="bg-muted py-10" data-testid="section-contact">
-          <div className="public-container">
-            <div className="max-w-3xl mx-auto">
-              <div className="reveal">
-                <h2
-                  className="public-h2 font-display font-bold text-foreground mb-8 text-center"
-                  data-testid="text-contact-heading"
-                >
-                  Contact <span className="text-accent">Liberty Bancard</span>
-                </h2>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-10">
-                <Card className="reveal reveal-delay-1" data-testid="card-contact-phone">
-                  <CardContent className="pt-6 text-center">
-                    <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                      <Phone className="w-6 h-6 text-accent" />
-                    </div>
-                    <h3 className="font-display font-bold text-foreground mb-2">Call/Text</h3>
-                    <a
-                      href="tel:9542668214"
-                      className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                      data-testid="link-contact-phone"
-                      onClick={() => trackPhoneCallClick({ sourcePage: "/about/contact" })}
-                    >
-                      954-266-8214
-                    </a>
-                  </CardContent>
-                </Card>
-
-                <Card className="reveal reveal-delay-2" data-testid="card-contact-email">
-                  <CardContent className="pt-6 text-center">
-                    <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                      <Mail className="w-6 h-6 text-accent" />
-                    </div>
-                    <h3 className="font-display font-bold text-foreground mb-2">Email</h3>
-                    <a
-                      href="mailto:support@libertybancard.com"
-                      className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                      data-testid="link-contact-email"
-                    >
-                      support@libertybancard.com
-                    </a>
-                  </CardContent>
-                </Card>
-
-                <Card className="reveal reveal-delay-3" data-testid="card-contact-book">
-                  <CardContent className="pt-6 text-center">
-                    <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                      <Calendar className="w-6 h-6 text-accent" />
-                    </div>
-                    <h3 className="font-display font-bold text-foreground mb-2">Book</h3>
-                    <a
-                      href={CALENDAR_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => trackCalendarBooking("about_contact_card")}
-                      className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                      data-testid="link-contact-book"
-                    >
-                      Book a review call →
-                    </a>
-                  </CardContent>
-                </Card>
-              </div>
-
-              <div className="text-center reveal reveal-delay-4">
-                <Button className="gap-2" asChild>
-                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("about_contact_footer_cta")} data-testid="link-contact-book-call">
-                    <Calendar className="w-4 h-4" />
-                    Get My Free Analysis
-                  </a>
-                </Button>
-              </div>
-            </div>
-          </div>
-        </section>
       </main>
 
       <Footer />

@@ -58,6 +58,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { PromoBanner } from "@/components/PromoBanner";
+import { REVIEW_OFFER } from "@shared/public-offers";
 import logoBlue from "@/assets/logo-blue.png";
 import { claimText } from "@shared/public-claims";
 
@@ -213,7 +214,7 @@ function calculateSavings(
     targetRate = 0;
     recommendedProgram = "Cash Discount / Dual Pricing";
     programDescription =
-      "Based on your industry and volume, a compliant cash discount program could eliminate your processing costs entirely. Customers who pay with cash get the listed price; card payments include a small, clearly disclosed service fee.";
+      `Based on your industry and volume, a cash discount program may be worth reviewing. ${claimText("program.overview")} ${claimText("program.remaining-costs")}`;
   } else if (isFlatRate || isHighVolume || currentRate > 2.5) {
     targetRate = isHighVolume ? 1.6 : 1.85;
     recommendedProgram = "Interchange-Plus Pricing";
@@ -569,7 +570,7 @@ export default function FreeAnalysis() {
                     </p>
                   </div>
                 </div>
-                <PromoBanner variant="inline" promoId="free-processing" dismissible={false} className="mt-4" />
+                <PromoBanner variant="inline" promoId={REVIEW_OFFER.id} dismissible={false} className="mt-4" />
               </CardContent>
             </Card>
 
@@ -725,7 +726,7 @@ export default function FreeAnalysis() {
         keywords="free statement analysis, payment processing savings, credit card processing, merchant services, rate comparison"
       />
 
-      <PromoBanner variant="bar" promoId="free-processing" />
+      <PromoBanner variant="bar" promoId={REVIEW_OFFER.id} />
 
       <main className="flex flex-1 flex-col">
       <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-quiz-hero">

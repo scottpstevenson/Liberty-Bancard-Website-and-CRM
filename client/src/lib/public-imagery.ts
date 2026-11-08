@@ -29,7 +29,13 @@ export type PublicImageId =
   | "industry-automotive"
   | "industry-retail"
   | "industry-home-services"
-  | "how-statement-review";
+  | "how-statement-review"
+  | "product-clover-flex-3"
+  | "product-pax-a920"
+  | "product-clover-mini-3"
+  | "product-clover-station-duo"
+  | "product-dejavoo-qd4"
+  | "product-swipesimple-b250";
 
 export type ImageProvenance = "unverified";
 
@@ -102,6 +108,48 @@ export const PUBLIC_IMAGE_RECORDS: Record<PublicImageId, PublicImageRecord> = {
     usage: "illustrative",
     provenance: "unverified",
     note: "Desk with printed charts. Generic by design: it does not show a real customer's statement.",
+  },
+  "product-clover-flex-3": {
+    id: "product-clover-flex-3",
+    alt: "Clover Flex 3 smart payment terminal",
+    usage: "illustrative",
+    provenance: "unverified",
+    note: "Transparent product cut-out used on terminal pages. It shows the device model only; it is not a statement that the device is included, free or available to a given merchant (page copy carries the terms).",
+  },
+  "product-pax-a920": {
+    id: "product-pax-a920",
+    alt: "PAX A920 smart payment terminal",
+    usage: "illustrative",
+    provenance: "unverified",
+    note: "Transparent product cut-out used on terminal pages. It shows the device model only; it is not a statement that the device is included, free or available to a given merchant (page copy carries the terms).",
+  },
+  "product-clover-mini-3": {
+    id: "product-clover-mini-3",
+    alt: "Clover Mini 3 countertop payment terminal",
+    usage: "illustrative",
+    provenance: "unverified",
+    note: "Transparent product cut-out used on terminal pages. It shows the device model only; it is not a statement that the device is included, free or available to a given merchant (page copy carries the terms).",
+  },
+  "product-clover-station-duo": {
+    id: "product-clover-station-duo",
+    alt: "Clover Station Duo payment terminal with a customer-facing display",
+    usage: "illustrative",
+    provenance: "unverified",
+    note: "Transparent product cut-out used on terminal pages. It shows the device model only; it is not a statement that the device is included, free or available to a given merchant (page copy carries the terms).",
+  },
+  "product-dejavoo-qd4": {
+    id: "product-dejavoo-qd4",
+    alt: "Dejavoo QD4 countertop payment terminal",
+    usage: "illustrative",
+    provenance: "unverified",
+    note: "Transparent product cut-out used on terminal pages. It shows the device model only; it is not a statement that the device is included, free or available to a given merchant (page copy carries the terms).",
+  },
+  "product-swipesimple-b250": {
+    id: "product-swipesimple-b250",
+    alt: "SwipeSimple B250 countertop payment terminal",
+    usage: "illustrative",
+    provenance: "unverified",
+    note: "Transparent product cut-out used on terminal pages. It shows the device model only; it is not a statement that the device is included, free or available to a given merchant (page copy carries the terms).",
   },
 };
 

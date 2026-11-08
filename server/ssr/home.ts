@@ -1,7 +1,10 @@
 import { FSR_HOME_LINK_TEXT } from "@shared/free-statement-review-content";
 import { claimText } from "@shared/public-claims";
 import { ZP_HOME_SSR } from "@shared/zero-percent-content";
+import { HOME_FOUNDER, HOME_HERO, HOME_PROCESSING_ANCHOR, HOME_SOLUTIONS, HOME_SOLUTIONS_ANCHOR, HOME_STARTING_POINTS } from "@shared/public-home-content";
 import { ssrHtmlShell } from "../ssrShared";
+
+const esc = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 export function getHomeHtml(): string {
   const orgSchema = {
@@ -53,17 +56,40 @@ export function getHomeHtml(): string {
   const body = `
     <div class="ssr-hero">
       <div class="ssr-hero-inner">
-        <div class="ssr-hero-badge">South Florida Merchant Services</div>
-        <h1>Credit Card Processing Without the Rate Games</h1>
+        <div class="ssr-hero-badge">${esc(HOME_HERO.eyebrow)}</div>
+        <h1>${esc(HOME_HERO.heading)}</h1>
         <p class="ssr-hero-subtitle">
-          Upload a recent processing statement and we'll show your effective rate, markup, monthly fees, and hidden charges — before you switch.
+          ${esc(HOME_HERO.body)}
         </p>
         <div class="ssr-hero-buttons">
-          <a href="/upload-statement" class="ssr-btn-primary">Upload My Statement — Free</a>
-          <a href="/free-analysis" class="ssr-btn-outline">Free Savings Analysis</a>
+          <a href="${HOME_HERO.primary.href}" class="ssr-btn-primary">${esc(HOME_HERO.primary.label)}</a>
+          <a href="${HOME_HERO.secondary.href}" class="ssr-btn-outline">${esc(HOME_HERO.secondary.label)}</a>
         </div>
       </div>
     </div>
+
+    <section class="ssr-section ssr-section-muted" id="${HOME_SOLUTIONS_ANCHOR}">
+      <div class="ssr-section-inner">
+        <h2 class="ssr-section-heading">${esc(HOME_SOLUTIONS.heading)}</h2>
+        <div class="ssr-grid-3">
+${HOME_SOLUTIONS.cards.map((card) => `          <a href="${card.href}" class="ssr-card" style="display:block;text-decoration:none;border-top:3px solid #071D57;">
+            <div class="ssr-card-title">${esc(card.title)}</div>
+            <div class="ssr-card-text">${esc(card.body)}</div>
+            <div class="ssr-card-text" style="margin-top:0.75rem;font-weight:600;color:#071D57;text-decoration:underline;">${esc(card.linkLabel)}</div>
+          </a>`).join("\n")}
+        </div>
+      </div>
+    </section>
+
+    <section class="ssr-section">
+      <div class="ssr-section-inner">
+        <div style="max-width:48rem;border-left:4px solid #C8102E;padding-left:1.25rem;">
+          <h2 class="ssr-section-heading" style="text-align:left;">${esc(HOME_FOUNDER.heading)}</h2>
+          <p class="ssr-section-subheading" style="text-align:left;">${esc(HOME_FOUNDER.body)}</p>
+          <a href="${HOME_FOUNDER.cta.href}" class="ssr-btn-dark">${esc(HOME_FOUNDER.cta.label)}</a>
+        </div>
+      </div>
+    </section>
 
     <section class="ssr-section ssr-section-muted">
       <div class="ssr-section-inner">
@@ -88,7 +114,7 @@ export function getHomeHtml(): string {
       </div>
     </section>
 
-    <section class="ssr-section">
+    <section class="ssr-section" id="${HOME_PROCESSING_ANCHOR}">
       <div class="ssr-section-inner">
         <h2 class="ssr-section-heading">What We Do Differently</h2>
         <p class="ssr-section-subheading">Most processors hide their margins in bundled rates. We don't.</p>
@@ -197,6 +223,21 @@ export function getHomeHtml(): string {
             <div class="ssr-card-text">Virtual terminal, payment links for invoices, retainer billing, variable volume support.</div>
           </a>
         </div>
+        <p style="text-align:center;margin-top:1.5rem;"><a href="/industries" style="font-weight:600;text-decoration:underline;">All industries</a></p>
+      </div>
+    </section>
+
+    <section class="ssr-section ssr-section-muted">
+      <div class="ssr-section-inner">
+        <h2 class="ssr-section-heading">${esc(HOME_STARTING_POINTS.heading)}</h2>
+        <div class="ssr-grid-2">
+${HOME_STARTING_POINTS.cards.map((card) => `          <div class="ssr-card" style="border-top:3px solid #071D57;">
+            <div class="ssr-card-title">${esc(card.title)}</div>
+            <div class="ssr-card-text">${esc(card.body)}</div>
+            <p style="margin-top:1rem;"><a href="${card.href}" class="ssr-btn-dark">${esc(card.ctaLabel)}</a></p>
+            <div class="ssr-card-text" style="margin-top:0.75rem;">${esc(card.note)}</div>
+          </div>`).join("\n")}
+        </div>
       </div>
     </section>
 
@@ -216,7 +257,7 @@ export function getHomeHtml(): string {
 
   return ssrHtmlShell({
     title: "Merchant Payment Processing | Liberty Bancard",
-    description: "Liberty Bancard offers transparent interchange-plus payment processing. Free statement review, cash discount and surcharging program reviews, and dedicated merchant support.",
+    description: "Liberty Bancard offers transparent interchange-plus payment processing, a free statement review, cash discount and surcharging reviews, and merchant support.",
     canonical: "/",
     // Logo card sized for iOS/social square crops; the generated card is the fallback for other pages.
     ogImage: "https://libertybancard.com/og-home-logo-card.jpg",

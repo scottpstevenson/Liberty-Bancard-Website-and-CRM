@@ -103,6 +103,7 @@ function held(
 const EV_CONTRACT = "EV-WA-CONTRACT-SAFE-WORDING";
 const EV_TAXONOMY = "EV-WA-CONTRACT-FEE-TAXONOMY";
 const EV_HANDLING = "EV-WA-CODE-STATEMENT-HANDLING-TRACE";
+const EV_CARD_TYPES = "EV-WA-CARD-NETWORK-DEBIT-PREPAID";
 
 export const PUBLIC_CLAIM_RECORDS: readonly PublicClaimRecord[] = [
   // ── Equipment and processing agreement ────────────────────────────────────
@@ -146,6 +147,20 @@ export const PUBLIC_CLAIM_RECORDS: readonly PublicClaimRecord[] = [
     EV_CONTRACT,
     ["page", "faq", "schema"],
   ),
+  approved(
+    "equipment.terms.card",
+    "equipment",
+    "Equipment availability, fees and terms are confirmed in your quote and written processing agreement before you decide.",
+    EV_CONTRACT,
+    ["page", "faq"],
+  ),
+  approved(
+    "equipment.terms.quote",
+    "equipment",
+    "Terms confirmed in your quote",
+    EV_CONTRACT,
+    ["page", "faq", "schema"],
+  ),
   // Held: the unqualified no-upfront-cost placement offer. Becomes displayable
   // only with a written program record (qualification, ownership, return, term,
   // fees) shown together before inquiry submission.
@@ -154,8 +169,30 @@ export const PUBLIC_CLAIM_RECORDS: readonly PublicClaimRecord[] = [
   held("equipment.contract.no-etf", "equipment", "retired", "equipment.agreement.summary"),
   held("equipment.contract.you-own-equipment", "equipment", "retired", "equipment.agreement.summary"),
   held("equipment.contract.no-lock-in", "equipment", "retired", "equipment.agreement.summary"),
+  // Held: absolute equipment-cost promises that no written program record supports.
+  held("equipment.contract.no-lease", "equipment", "retired", "equipment.agreement.summary"),
+  held("equipment.placement.free-with-processing", "equipment", "retired", "equipment.agreement.summary"),
+  held("equipment.monthly-fee.zero", "equipment", "retired", "equipment.terms.quote"),
   held("equipment.volume-threshold", "equipment", "withheld", "equipment.eligibility.questions"),
   held("equipment.commonly-placed", "equipment", "retired", "equipment.models.options"),
+
+  // ── Review offers and promotions ──────────────────────────────────────────
+  approved(
+    "offer.review.inquiry",
+    "review",
+    "Upload your statement and we'll review your current processing costs and the options that may fit your business. Eligibility, pricing and equipment terms are confirmed during review, and costs such as equipment, software, gateway and PCI can remain.",
+    EV_CONTRACT,
+    ["page", "faq", "home"],
+  ),
+  approved(
+    "offer.review.short",
+    "review",
+    "Upload your statement for a review of your processing costs. Eligibility, pricing and equipment terms are confirmed during review.",
+    EV_CONTRACT,
+    ["page", "home"],
+  ),
+  held("offer.free-processing", "review", "retired", "offer.review.inquiry"),
+  held("offer.eliminate-processing-fees", "review", "retired", "offer.review.inquiry"),
 
   // ── Timing ────────────────────────────────────────────────────────────────
   approved(
@@ -227,10 +264,17 @@ export const PUBLIC_CLAIM_RECORDS: readonly PublicClaimRecord[] = [
     EV_CONTRACT,
   ),
   approved(
+    "program.surcharge.credit-only",
+    "program",
+    "Credit card surcharging does not apply to debit or prepaid cards, including a debit card run without a PIN.",
+    EV_CARD_TYPES,
+    ["page", "faq", "schema", "home"],
+  ),
+  approved(
     "program.card-types",
     "program",
-    "Credit, debit and prepaid cards are treated differently under card brand rules and state law. We review how each applies to your business before recommending a program.",
-    EV_CONTRACT,
+    "Credit card surcharging does not apply to debit or prepaid cards, including a debit card run without a PIN. A cash discount is a separate program and is reviewed separately. We review how each card type applies to your business, under state law and card brand rules, before recommending a program.",
+    EV_CARD_TYPES,
   ),
   approved(
     "program.remaining-costs",
@@ -276,12 +320,20 @@ export const PUBLIC_CLAIM_RECORDS: readonly PublicClaimRecord[] = [
   held("compat.platform-count", "compat", "retired", "compat.inquiry"),
   held("compat.no-lock-in", "compat", "retired", "compat.inquiry"),
   held("compat.fee-bypass", "compat", "retired", "compat.inquiry"),
+  held("compat.single-billing-relationship", "compat", "retired", "compat.inquiry"),
+  held("compat.no-gateway-layer", "compat", "retired", "compat.inquiry"),
 
   // ── Pricing ───────────────────────────────────────────────────────────────
   approved(
     "price.comparison.method",
     "price",
     "Provider rates shown are published list rates for the plan and channel named, checked on the date shown. They are not a quote for your business. A like-for-like comparison needs your statement.",
+    EV_CONTRACT,
+  ),
+  approved(
+    "price.comparison.method.unpublished",
+    "price",
+    "No provider rate is shown here because the provider does not publish a single rate. A like-for-like comparison needs your statement.",
     EV_CONTRACT,
   ),
   held("price.liberty.assumed-rates", "price", "retired", "price.comparison.method"),

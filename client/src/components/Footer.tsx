@@ -1,7 +1,7 @@
 import { useId, useState, useSyncExternalStore } from "react";
 import { Link } from "wouter";
 import { ChevronDown, Phone, Mail, Calendar } from "lucide-react";
-import logoWhite from "@/assets/logo-white.png";
+import logoWhite from "@/assets/logo-white-420.png";
 import { CALENDAR_URL } from "@/lib/constants";
 import { trackBookingCtaClick } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
@@ -78,7 +78,7 @@ export function Footer() {
         <div className="mb-8 grid grid-cols-1 gap-8 lg:mb-12 lg:grid-cols-[1.1fr_repeat(4,minmax(0,1fr))] lg:gap-10">
           <div>
             <Link href="/" data-testid="link-footer-logo">
-              <img src={logoWhite} alt="Liberty Bancard" className="h-10 w-auto mb-4" />
+              <img src={logoWhite} alt="Liberty Bancard" width={193} height={40} className="h-10 w-auto mb-4" />
             </Link>
             <p className="text-primary-foreground/80 text-sm leading-relaxed mb-5" data-testid="text-footer-description">
               We don't sell a rate. We prove your real cost and fix it.

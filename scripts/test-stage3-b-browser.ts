@@ -112,7 +112,7 @@ try {
   for(const width of [1440,402]){
     await browser.call("Emulation.setDeviceMetricsOverride",{width,height:874,deviceScaleFactor:1,mobile:width<500});
     await browser.navigate("/");
-    await browser.waitFor(/Credit Card Processing\s+Without the Rate Games/);
+    await browser.waitFor(/Payments that fit the way your business works\./);
     for(let attempt=0;attempt<100;attempt++){
       if(await browser.evaluate("!!document.querySelector('[data-testid=\"text-hero-heading\"]')"))break;
       await new Promise(resolve=>setTimeout(resolve,100));

@@ -468,6 +468,7 @@ Guidelines:
       { url: "/testimonials", priority: "0.8", changefreq: "monthly" },
       { url: "/testimonials/submit", priority: "0.5", changefreq: "monthly" },
       { url: "/integrations", priority: "0.8", changefreq: "monthly" },
+      { url: "/industries", priority: "0.8", changefreq: "monthly" },
       ...INDUSTRY_SLUGS.map(slug => ({ url: `/industries/${slug}`, priority: "0.8", changefreq: "monthly" })),
       { url: "/privacy-policy", priority: "0.3", changefreq: "yearly" },
       { url: "/terms", priority: "0.3", changefreq: "yearly" },

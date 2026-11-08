@@ -11,7 +11,7 @@ import { TIMING_NOTE } from "./public-disclosures";
 export const ZP_PATH = "/0-percent-processing";
 
 export const ZP_META = {
-  title: "Liberty Zero — Cash Discount & Surcharging Programs",
+  title: "Liberty Zero — Cash Discount and Surcharging",
   description: claimText("program.overview.meta", "meta"),
   keywords:
     "liberty zero, cash discount program, surcharging program, dual pricing, credit card surcharge review, 0% processing program",
@@ -36,7 +36,7 @@ export const ZP_REVIEW_CARD = {
   heading: "What a review confirms",
   items: [
     "Whether your state and card brand rules permit a program for your business",
-    "How credit, debit and prepaid cards are treated",
+    "Credit card surcharging excludes debit and prepaid cards; we confirm how a cash discount treats each card type",
     "Which costs remain after any program, such as equipment, software, gateway and PCI",
     "Signage, receipt and registration or disclosure requirements",
   ],
@@ -66,10 +66,10 @@ export const ZP_CASH_DISCOUNT = {
 export const ZP_SURCHARGE = {
   title: "Compliant Surcharging",
   badge: "Credit cards only",
-  body: "A disclosed fee is added to eligible credit card transactions at checkout. Whether, where and how much depends on state law and card brand rules, and debit cards are treated differently. We review eligibility before recommending this path.",
+  body: `A disclosed fee is added to eligible credit card transactions at checkout. ${claimText("program.surcharge.credit-only")} Whether, where and how much depends on state law and card brand rules. We review eligibility before recommending this path.`,
   fit: "Fit depends on your customers, ticket size and state.",
   cta: "Check My Surcharging Eligibility",
-  summary: "A clearly disclosed fee on eligible credit card sales, after a state and card-brand review",
+  summary: "A clearly disclosed fee on eligible credit card sales only, after a state and card-brand review",
 } as const;
 
 export const ZP_UNSURE = "Not sure which structure fits? Upload your statement and we'll review your card mix, ticket size and state rules, then explain your options.";
@@ -112,7 +112,7 @@ export const ZP_REQUIREMENTS = {
   list: [
     "Signage and checkout messaging",
     "Receipt format and required disclosures",
-    "How debit and prepaid cards are treated",
+    "How the credit-only surcharging limit and a cash discount apply to debit and prepaid cards",
     "Card brand and state requirements, including any registration or notice",
     "What to do if card brand or state rules change",
     "How your staff will explain the program",
@@ -152,7 +152,7 @@ export const ZP_FAQ: readonly { question: string; answer: string }[] = [
     answer: `Liberty Zero is the name of our program review. It covers two different structures: cash discount (a discount for customers who pay with cash) and surcharging (a disclosed fee on eligible credit card transactions). ${claimText("program.overview", "faq")}`,
   },
   {
-    question: "Does this apply to debit cards?",
+    question: "Does surcharging apply to debit or prepaid cards?",
     answer: claimText("program.card-types", "faq"),
   },
   {
@@ -224,8 +224,8 @@ export const ZP_HOME_PROGRAMS: readonly HomeProgramCard[] = [
     value: "surcharging",
     title: "Compliant Surcharging",
     badge: "Credit cards only",
-    summary: "A clearly disclosed fee on eligible credit card sales, after a state and card-brand review",
-    body: "A disclosed fee appears on eligible credit card transactions at checkout. State law and card brand rules govern where this applies, and debit cards are treated differently. We review eligibility before recommending it.*",
+    summary: "A clearly disclosed fee on eligible credit card sales only, after a state and card-brand review",
+    body: `A disclosed fee appears on eligible credit card transactions at checkout. ${claimText("program.surcharge.credit-only", "home")} State law and card brand rules govern where else this applies. We review eligibility before recommending it.*`,
     points: ["Card-brand notices reviewed with you", "State eligibility confirmed before enrollment", "Receipts and checkout disclosures reviewed"],
     figureLabel: "What it changes",
     figure: "A disclosed fee on eligible credit sales*",
@@ -248,13 +248,13 @@ export const ZP_HOME_PROGRAMS: readonly HomeProgramCard[] = [
 
 export const ZP_HOME_HEADING = "Choose the program that fits your business";
 export const ZP_HOME_DESCRIPTION =
-  "Cash discount and surcharging are different programs, and whether either fits depends on your state and card mix. Interchange Plus keeps one price for every customer and shows the processor markup separately.";
+  `Cash discount and surcharging are different programs, and whether either fits depends on your state and card mix. ${claimText("program.surcharge.credit-only", "home")} Interchange Plus keeps one price for every customer and shows the processor markup separately.`;
 export const ZP_HOME_FOOTNOTE = "*Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.";
 
 /** Home server-rendered feature card for the program. */
 export const ZP_HOME_SSR = {
   title: "Liberty Zero™ — Cash Discount & Surcharging Review",
-  text: `${claimText("program.overview", "home")}*`,
+  text: `${claimText("program.overview", "home")} ${claimText("program.surcharge.credit-only", "home")}*`,
 } as const;
 
 /** Navigation description strings (React and SSR navigation). */

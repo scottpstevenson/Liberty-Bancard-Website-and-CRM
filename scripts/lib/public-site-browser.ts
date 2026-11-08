@@ -245,8 +245,10 @@ export const PAGE_AUDIT=String.raw`(()=>{
   const over=(top,bottom)=>{const a=top.a+bottom.a*(1-top.a);if(a===0)return {r:0,g:0,b:0,a:0};return {r:(top.r*top.a+bottom.r*bottom.a*(1-top.a))/a,g:(top.g*top.a+bottom.g*bottom.a*(1-top.a))/a,b:(top.b*top.a+bottom.b*bottom.a*(1-top.a))/a,a};};
   const lum=(c)=>{const f=(v)=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4)};return 0.2126*f(c.r)+0.7152*f(c.g)+0.0722*f(c.b);};
   const ratio=(a,b)=>{const l1=lum(a),l2=lum(b);return (Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05);};
-  const visible=(el)=>{const r=el.getBoundingClientRect();if(r.width<1||r.height<1)return false;const cs=getComputedStyle(el);return cs.visibility!=='hidden'&&cs.display!=='none';};
-  const inViewportTree=(el)=>{for(let n=el;n&&n.nodeType===1;n=n.parentElement){const cs=getComputedStyle(n);if(cs.display==='none'||cs.visibility==='hidden')return false;if(n.getAttribute&&n.getAttribute('aria-hidden')==='true')return false;}return true;};
+  // Content of a closed <details> is not rendered (only its summary is), but its stale boxes still report a size.
+  const inClosedDetails=(el)=>{let child=el;for(let n=el.parentElement;n;child=n,n=n.parentElement){if(n.tagName==='DETAILS'&&!n.open&&!(child.tagName==='SUMMARY'&&child.parentElement===n))return true;}return false;};
+  const visible=(el)=>{const r=el.getBoundingClientRect();if(r.width<1||r.height<1)return false;if(inClosedDetails(el))return false;const cs=getComputedStyle(el);return cs.visibility!=='hidden'&&cs.display!=='none';};
+  const inViewportTree=(el)=>{if(inClosedDetails(el))return false;for(let n=el;n&&n.nodeType===1;n=n.parentElement){const cs=getComputedStyle(n);if(cs.display==='none'||cs.visibility==='hidden')return false;if(n.getAttribute&&n.getAttribute('aria-hidden')==='true')return false;}return true;};
   const effectiveOpacity=(el)=>{let o=1;for(let n=el;n&&n.nodeType===1;n=n.parentElement){const v=parseFloat(getComputedStyle(n).opacity);if(!isNaN(v))o*=v;}return o;};
   // Sample a linear-gradient at a point inside its box. Chromium serialises computed
   // gradients with explicit percentage stops, so the colour under the text can be
@@ -429,7 +431,7 @@ export const PAGE_AUDIT=String.raw`(()=>{
   };
 })()`;
 
-/** The 26 public routes inspected for Task 2140 (shared by the public-site checks). */
+/** The 27 public routes inspected for Task 2140 (shared by the public-site checks). */
 export const INSPECTED_ROUTES=[
   "/","/free-analysis","/upload-statement","/estimate","/get-started",
   "/0-percent-processing","/free-smart-terminal","/shop",
@@ -437,6 +439,6 @@ export const INSPECTED_ROUTES=[
   "/faq","/support","/help","/blog",
   "/compare-rates","/savings-calculator","/compare/square",
   "/partners","/affiliate","/areas-served","/privacy-policy",
-  "/industries/restaurant-payment-processing","/industries/retail-payment-processing",
+  "/industries","/industries/restaurant-payment-processing","/industries/retail-payment-processing",
   "/industries/healthcare-payment-processing","/industries/auto-repair-payment-processing",
 ];

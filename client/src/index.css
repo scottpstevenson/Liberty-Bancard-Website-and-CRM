@@ -34,7 +34,7 @@
   /* Mobile layout tokens — consumed by scroll offsets and safe-area clearance */
   /* Measured public Navbar height (inner 72px / 64px + 1px border). Page offsets and anchor
      margins derive from it; keep in step with Navbar.tsx. */
-  --public-header-height: 73px;
+  --public-header-height: 57px;
   --mobile-dock-height: 72px;
 
   /* Corporate Navy & Trustworthy Blue Palette */
@@ -722,7 +722,7 @@ html.dark.public-surface {
 }
 
 /* ── Anchor / programmatic scroll clearance for the fixed public Navbar ─────── */
-/* Navbar is 72px + border below 768px and 64px + border from 768px up (no phone bar). */
+/* Navbar is 56px + border below 768px and 64px + border from 768px up (no phone bar). */
 @media (min-width: 768px) {
   :root {
     --public-header-height: 65px;

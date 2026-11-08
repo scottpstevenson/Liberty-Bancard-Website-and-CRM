@@ -11,3 +11,4 @@ Removing the eager wait declaration as well left the external mapping removed, w
 
 **How to apply:** Use the supported configuration validator, remove only the unintended mapping/declaration,
 and verify persistence in a subsequent read. Do not describe a transient successful replacement as final removal.
+- The `.replit` edit helper (`verifyAndReplaceDotReplit`) takes `tempFilePath`, which must be an absolute path inside the workspace (not /tmp). Write the full corrected TOML there, call it, then confirm `git diff .replit` is empty.

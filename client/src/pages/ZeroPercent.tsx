@@ -35,8 +35,7 @@ import {
 import { PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
 import { trackCashDiscountReviewClick, trackSurchargeReviewClick } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
-import imgCloverFlex3 from "@/assets/images/terminal-clover-flex-3.png";
-import imgPaxA920 from "@/assets/images/terminal-pax-a920.png";
+import { PublicImage } from "@/components/public/PublicImage";
 import {
   ZP_CASH_DISCOUNT,
   ZP_COSTS,
@@ -365,8 +364,8 @@ export default function ZeroPercent() {
             <div className="reveal max-w-5xl mx-auto">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
                 <div className="flex flex-col gap-4 items-center order-2 md:order-1">
-                  <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-full max-w-xs rounded-md object-contain" data-testid="img-zero-terminal-hero" />
-                  <img src={imgPaxA920} alt="PAX A920 smart payment terminal" className="w-full max-w-xs rounded-md object-cover" data-testid="img-zero-terminal-tap" />
+                  <PublicImage id="product-clover-flex-3" variant="product" sizes={"(max-width: 351px) calc(100vw - 32px), 320px"} className="block w-full max-w-xs" imgClassName="rounded-md object-contain" data-testid="img-zero-terminal-hero" />
+                  <PublicImage id="product-pax-a920" variant="product" sizes={"(max-width: 351px) calc(100vw - 32px), 320px"} className="block w-full max-w-xs" imgClassName="rounded-md object-contain" data-testid="img-zero-terminal-tap" />
                 </div>
                 <div className="order-1 md:order-2">
                   <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-terminal-heading">

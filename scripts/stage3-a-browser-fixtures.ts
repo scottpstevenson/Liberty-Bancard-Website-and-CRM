@@ -92,7 +92,7 @@ export async function certifyStage3Browser(ctx: {
     for (const viewport of [{ width: 1440, height: 1000 }, { width: 402, height: 874 }]) {
       await call("Emulation.setDeviceMetricsOverride", { ...viewport, deviceScaleFactor: 1, mobile: viewport.width < 500 });
       await call("Page.navigate", { url: `${ctx.base}/` });
-      await waitFor(/Credit Card Processing\s+Without the Rate Games/);
+      await waitFor(/Payments that fit the way your business works\./);
       // Let the existing entrance animation settle before measuring it.
       await new Promise(resolve => setTimeout(resolve, 1200));
       const publicLayout = (await call("Runtime.evaluate", { returnByValue: true, expression: `(() => {

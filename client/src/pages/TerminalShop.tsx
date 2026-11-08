@@ -1,3 +1,5 @@
+import { PublicImage } from "@/components/public/PublicImage";
+import type { PublicImageId } from "@/lib/public-imagery";
 import { useState, useRef } from "react";
 import { Link } from "wouter";
 import { SEO } from "@/components/SEO";
@@ -32,12 +34,7 @@ import {
 } from "lucide-react";
 import { PromoBanner, PromoList } from "@/components/PromoBanner";
 import { claimText } from "@shared/public-claims";
-import imgCloverFlex3 from "@/assets/images/terminal-clover-flex-3.png";
-import imgCloverMini3 from "@/assets/images/terminal-clover-mini-3.png";
-import imgCloverStationDuo from "@/assets/images/terminal-clover-station-duo.png";
-import imgDejavooQD4 from "@/assets/images/terminal-dejavoo-qd4.png";
-import imgPaxA920 from "@/assets/images/terminal-pax-a920.png";
-import imgSwipeSimpleB250 from "@/assets/images/terminal-swipesimple-b250.png";
+import { EQUIPMENT_TERMS_LABEL, REVIEW_OFFER, SHOP_TERMS_CARD } from "@shared/public-offers";
 
 interface ShopTerminal {
   id: string;
@@ -45,7 +42,7 @@ interface ShopTerminal {
   brand: string;
   tagline: string;
   shortDescription: string;
-  image: string;
+  imageId: PublicImageId;
   popular?: boolean;
   price: number | null;
   priceLabel: string;
@@ -64,7 +61,7 @@ const shopTerminals: ShopTerminal[] = [
     brand: "Clover",
     tagline: "All-in-one handheld POS",
     shortDescription: "Powerful handheld POS with built-in printer, barcode scanner, and 4G LTE. Take payments anywhere — tableside, curbside, or on the go.",
-    image: imgCloverFlex3,
+    imageId: "product-clover-flex-3",
     popular: true,
     price: null,
     priceLabel: "Custom Quote",
@@ -93,7 +90,7 @@ const shopTerminals: ShopTerminal[] = [
     brand: "Clover",
     tagline: "Compact countertop powerhouse",
     shortDescription: "Full POS functionality in a compact 8\" countertop form. Built-in printer, fingerprint login, and the complete Clover ecosystem.",
-    image: imgCloverMini3,
+    imageId: "product-clover-mini-3",
     price: null,
     priceLabel: "Custom Quote",
     monthlyFee: "Varies by plan",
@@ -121,7 +118,7 @@ const shopTerminals: ShopTerminal[] = [
     brand: "Clover",
     tagline: "Full register experience",
     shortDescription: "Flagship dual-screen POS: 14\" merchant display + 8\" customer screen. Cash drawer, printer, and full suite included. The complete register.",
-    image: imgCloverStationDuo,
+    imageId: "product-clover-station-duo",
     price: null,
     priceLabel: "Custom Quote",
     monthlyFee: "Varies by plan",
@@ -149,11 +146,11 @@ const shopTerminals: ShopTerminal[] = [
     brand: "Dejavoo",
     tagline: "Rugged mobile smart terminal",
     shortDescription: "Built tough for the field. Android-based smart terminal with dual SIM, long battery, and drop-resistant design. Perfect for delivery, contractors, and mobile merchants.",
-    image: imgDejavooQD4,
+    imageId: "product-dejavoo-qd4",
     popular: true,
     price: 299,
     priceLabel: "$299",
-    monthlyFee: "$0/mo with processing",
+    monthlyFee: EQUIPMENT_TERMS_LABEL,
     highlights: [
       "5.5\" touchscreen",
       "Built-in printer",
@@ -178,11 +175,11 @@ const shopTerminals: ShopTerminal[] = [
     brand: "PAX",
     tagline: "Sleek Android smart terminal",
     shortDescription: "One of the most popular smart terminals on the market. Slim design, fast processor, dual cameras, and all-day battery. Accepts everything — chip, swipe, tap, QR.",
-    image: imgPaxA920,
+    imageId: "product-pax-a920",
     popular: true,
     price: 249,
     priceLabel: "$249",
-    monthlyFee: "$0/mo with processing",
+    monthlyFee: EQUIPMENT_TERMS_LABEL,
     highlights: [
       "5\" HD IPS display",
       "Built-in printer",
@@ -207,10 +204,10 @@ const shopTerminals: ShopTerminal[] = [
     brand: "SwipeSimple",
     tagline: "Turn your phone into a terminal",
     shortDescription: "No terminal needed — just pair the Bluetooth reader with your phone or tablet. Accept chip, swipe, and tap. Perfect for solo businesses and pop-ups.",
-    image: imgSwipeSimpleB250,
+    imageId: "product-swipesimple-b250",
     price: 49,
     priceLabel: "From $49",
-    monthlyFee: "$0/mo",
+    monthlyFee: EQUIPMENT_TERMS_LABEL,
     highlights: [
       "Works with iOS & Android",
       "Bluetooth chip/tap reader",
@@ -424,7 +421,7 @@ export default function TerminalShop() {
       <div className="print:hidden"><Navbar /></div>
 
       <main className="flex-grow public-main-offset">
-        <PromoBanner variant="bar" promoId="free-processing" />
+        <PromoBanner variant="bar" promoId={REVIEW_OFFER.id} />
 
         {step === "browse" && !detail && (
           <>
@@ -476,10 +473,13 @@ export default function TerminalShop() {
                             <Star className="w-3 h-3 mr-1" /> Popular
                           </Badge>
                         )}
-                        <img
-                          src={terminal.image}
+                        <PublicImage
+                          id={terminal.imageId}
+                          variant="product"
+                          sizes="(max-width: 351px) 144px, 160px"
                           alt={terminal.name}
-                          className="max-h-36 w-auto object-contain"
+                          className="block max-h-36"
+                          imgClassName="h-36 w-auto max-w-full object-contain"
                         />
                       </div>
                       <CardContent className="p-5 flex flex-col flex-1">
@@ -539,8 +539,8 @@ export default function TerminalShop() {
                       <Shield className="w-5 h-5 text-primary" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-foreground mb-1">No Leases. Ever.</h3>
-                      <p className="text-sm text-muted-foreground">We never lease equipment. Buy outright or qualify for free placement with your processing agreement.</p>
+                      <h3 className="font-semibold text-foreground mb-1">{SHOP_TERMS_CARD.title}</h3>
+                      <p className="text-sm text-muted-foreground">{SHOP_TERMS_CARD.text}</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-4">
@@ -582,7 +582,7 @@ export default function TerminalShop() {
             <section className="py-10">
               <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
                 <h2 className="text-xl font-display font-bold text-foreground mb-4 text-center" data-testid="text-active-promos-heading">
-                  Current Promotions
+                  Request a Statement Review
                 </h2>
                 <PromoList />
               </div>
@@ -604,7 +604,7 @@ export default function TerminalShop() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="bg-muted/30 rounded-xl p-8 flex items-center justify-center">
-                  <img src={detail.image} alt={detail.name} className="max-h-80 w-auto object-contain" />
+                  <PublicImage id={detail.imageId} variant="product" sizes="(min-width: 768px) 224px, 192px" alt={detail.name} className="block" imgClassName="h-80 w-auto max-w-full object-contain" />
                 </div>
 
                 <div>
@@ -725,7 +725,7 @@ export default function TerminalShop() {
                             <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
                               <div className="flex items-center gap-3 flex-1 min-w-0">
                                 <div className="w-14 h-14 sm:w-16 sm:h-16 bg-muted/30 rounded-lg flex items-center justify-center shrink-0">
-                                  <img src={t.image} alt={t.name} className="max-h-10 sm:max-h-12 w-auto object-contain" />
+                                  <PublicImage id={t.imageId} variant="product" sizes="48px" alt={t.name} className="block" imgClassName="h-10 sm:h-12 w-auto max-w-full object-contain" />
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <h3 className="font-semibold text-foreground truncate">{t.name}</h3>

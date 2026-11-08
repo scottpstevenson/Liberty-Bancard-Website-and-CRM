@@ -235,7 +235,7 @@ export default function Integrations() {
           >
             <button
               onClick={() => setSelectedCategory(null)}
-              className={`text-sm font-medium px-4 py-2 rounded-full border transition-colors ${
+              className={`min-h-11 text-sm font-medium px-4 py-2 rounded-full border transition-colors ${
                 selectedCategory === null
                   ? "bg-primary text-primary-foreground border-primary"
                   : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
@@ -248,7 +248,7 @@ export default function Integrations() {
               <button
                 key={cat.name}
                 onClick={() => setSelectedCategory(cat.name)}
-                className={`text-sm font-medium px-4 py-2 rounded-full border transition-colors ${
+                className={`min-h-11 text-sm font-medium px-4 py-2 rounded-full border transition-colors ${
                   selectedCategory === cat.name
                     ? "bg-primary text-primary-foreground border-primary"
                     : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
@@ -338,7 +338,7 @@ export default function Integrations() {
                             {integration.learnMoreUrl && (
                               <Link
                                 href={integration.learnMoreUrl}
-                                className="inline-flex items-center gap-1.5 text-xs text-primary font-medium hover:underline"
+                                className="inline-flex min-h-11 items-center gap-1.5 text-xs text-primary font-medium hover:underline"
                                 data-testid={`link-integration-learn-${integration.id}`}
                               >
                                 Learn more

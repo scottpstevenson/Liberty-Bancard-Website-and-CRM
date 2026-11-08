@@ -26,7 +26,12 @@ export interface PriceRecord {
   monthlyFeeCents: number | null;
   /** True when the percentage is an interchange markup rather than an all-in rate. */
   interchangePlus?: boolean;
-  /** Plain-language qualifier the page states, such as "as low as" or a volume tier. */
+  /** Wording the official page puts in front of the rate, such as "as little as". It must stay attached to the rate wherever the rate is shown. */
+  ratePrefix?: string;
+  /**
+   * Plain-language scope the page states for this rate: the card types, channel or volume tier it applies to.
+   * It does not repeat the monthly fee, which has its own field.
+   */
   qualifier?: string;
   /** Official page the figures were read from. */
   sourceUrl: string;
@@ -48,7 +53,7 @@ export const PRICE_RECORDS: readonly PriceRecord[] = [
     percent: 2.6,
     fixedFeeCents: 15,
     monthlyFeeCents: 0,
-    qualifier: "Tap, dip or swipe; $0 per month per location on this plan",
+    qualifier: "tap, dip or swipe, with the monthly fee charged per location",
     sourceUrl: "https://squareup.com/us/en/pricing",
     checkedOn: PRICE_CHECKED_ON,
   },
@@ -62,7 +67,7 @@ export const PRICE_RECORDS: readonly PriceRecord[] = [
     percent: 3.3,
     fixedFeeCents: 30,
     monthlyFeeCents: 0,
-    qualifier: "Online payments; $0 per month per location on this plan",
+    qualifier: "online payments, with the monthly fee charged per location",
     sourceUrl: "https://squareup.com/us/en/pricing",
     checkedOn: PRICE_CHECKED_ON,
   },
@@ -76,7 +81,7 @@ export const PRICE_RECORDS: readonly PriceRecord[] = [
     percent: 2.9,
     fixedFeeCents: 30,
     monthlyFeeCents: null,
-    qualifier: "Per successful transaction for domestic cards",
+    qualifier: "per successful transaction for domestic cards",
     sourceUrl: "https://stripe.com/pricing",
     checkedOn: PRICE_CHECKED_ON,
   },
@@ -90,7 +95,7 @@ export const PRICE_RECORDS: readonly PriceRecord[] = [
     percent: 2.7,
     fixedFeeCents: 5,
     monthlyFeeCents: null,
-    qualifier: "Per successful transaction for domestic cards",
+    qualifier: "per successful transaction for domestic cards",
     sourceUrl: "https://stripe.com/pricing",
     checkedOn: PRICE_CHECKED_ON,
   },
@@ -104,7 +109,8 @@ export const PRICE_RECORDS: readonly PriceRecord[] = [
     percent: 2.3,
     fixedFeeCents: 10,
     monthlyFeeCents: null,
-    qualifier: "Advertised as \"as little as\"; the rate varies by plan and business type, and is shown only on Clover.com",
+    ratePrefix: "as little as",
+    qualifier: "the rate varies by plan and business type, and is shown only on Clover.com",
     sourceUrl: "https://www.clover.com/pricing",
     checkedOn: PRICE_CHECKED_ON,
   },
@@ -118,7 +124,7 @@ export const PRICE_RECORDS: readonly PriceRecord[] = [
     percent: 2.29,
     fixedFeeCents: 9,
     monthlyFeeCents: null,
-    qualifier: "Card-present transactions",
+    qualifier: "card-present transactions",
     sourceUrl: "https://www.paypal.com/us/business/paypal-business-fees",
     checkedOn: PRICE_CHECKED_ON,
   },
@@ -132,7 +138,7 @@ export const PRICE_RECORDS: readonly PriceRecord[] = [
     percent: 2.99,
     fixedFeeCents: 49,
     monthlyFeeCents: null,
-    qualifier: "Standard credit and debit card payments, Apple Pay and other third-party wallets",
+    qualifier: "standard credit and debit card payments, Apple Pay and other third-party wallets",
     sourceUrl: "https://www.paypal.com/us/business/paypal-business-fees",
     checkedOn: PRICE_CHECKED_ON,
   },
@@ -161,7 +167,7 @@ export const PRICE_RECORDS: readonly PriceRecord[] = [
     fixedFeeCents: 8,
     monthlyFeeCents: null,
     interchangePlus: true,
-    qualifier: "Added to interchange; lower tiers apply at higher monthly volume",
+    qualifier: "added to interchange, and lower tiers apply at higher monthly volume",
     sourceUrl: "https://www.helcim.com/pricing/",
     checkedOn: PRICE_CHECKED_ON,
   },
@@ -176,7 +182,7 @@ export const PRICE_RECORDS: readonly PriceRecord[] = [
     fixedFeeCents: 25,
     monthlyFeeCents: null,
     interchangePlus: true,
-    qualifier: "Keyed and online; added to interchange; lower tiers apply at higher monthly volume",
+    qualifier: "keyed and online transactions, added to interchange, and lower tiers apply at higher monthly volume",
     sourceUrl: "https://www.helcim.com/pricing/",
     checkedOn: PRICE_CHECKED_ON,
   },
@@ -190,8 +196,7 @@ export const PRICE_RECORDS: readonly PriceRecord[] = [
     percent: 2.9,
     fixedFeeCents: 30,
     monthlyFeeCents: 2500,
-    qualifier: "Plus a $25 monthly fee",
-    sourceUrl: "https://www.authorize.net/solutions/merchantsolutions/pricing/",
+    sourceUrl: "https://www.authorize.net/sign-up/pricing.html",
     checkedOn: PRICE_CHECKED_ON,
   },
   {
@@ -204,8 +209,8 @@ export const PRICE_RECORDS: readonly PriceRecord[] = [
     percent: null,
     fixedFeeCents: 10,
     monthlyFeeCents: 2500,
-    qualifier: "Plus a $25 monthly fee and a 10¢ daily batch fee; the merchant account is separate",
-    sourceUrl: "https://www.authorize.net/solutions/merchantsolutions/pricing/",
+    qualifier: "the gateway charge only, plus a 10¢ daily batch fee, and the merchant account is separate",
+    sourceUrl: "https://www.authorize.net/sign-up/pricing.html",
     checkedOn: PRICE_CHECKED_ON,
   },
 ] as const;
@@ -217,6 +222,39 @@ export const UNPUBLISHED_RATE_PROVIDERS: Readonly<Record<string, string>> = {
 
 export function priceRecordsFor(provider: string): PriceRecord[] {
   return PRICE_RECORDS.filter((r) => r.provider === provider);
+}
+
+/** Customer-facing channel wording. A gateway record is a gateway charge, not a processing rate. */
+export const CHANNEL_LABELS: Readonly<Record<PriceChannel, string>> = {
+  "in-person": "in person",
+  online: "online",
+  gateway: "gateway fee",
+};
+
+/**
+ * The rate exactly as the official page frames it: "as little as 2.3% + 10¢" keeps its qualifying
+ * prefix, and a gateway record reads as a per-transaction gateway charge.
+ */
+export function formatRateLabel(record: Pick<PriceRecord, "percent" | "fixedFeeCents" | "interchangePlus" | "ratePrefix">): string {
+  const rate = formatRate(record);
+  return record.ratePrefix ? `${record.ratePrefix} ${rate}` : rate;
+}
+
+/** The record qualifier as a standalone sentence fragment ("Tap, dip or swipe, with..."), or an empty string. */
+export function formatQualifier(record: Pick<PriceRecord, "qualifier">): string {
+  const q = record.qualifier ?? "";
+  return q ? `${q.charAt(0).toUpperCase()}${q.slice(1)}` : "";
+}
+
+/**
+ * One complete statement of a record: product and plan, channel, the rate with its prefix, the monthly fee
+ * when the page states one, and the qualifier. Every comparison surface (table, FAQ, schema, server HTML)
+ * uses this so a rate never appears without its product, plan, channel or material qualifier.
+ */
+export function describePriceRecord(record: PriceRecord): string {
+  const monthly = record.monthlyFeeCents === null ? "" : `, ${formatMonthly(record.monthlyFeeCents)}`;
+  const qualifier = record.qualifier ? ` (${record.qualifier})` : "";
+  return `${record.product} - ${record.plan} (${CHANNEL_LABELS[record.channel]}): ${formatRateLabel(record)}${monthly}${qualifier}`;
 }
 
 /** Render one rate as "2.6% + 15¢" (or "10¢ per transaction" when there is no percentage). */
