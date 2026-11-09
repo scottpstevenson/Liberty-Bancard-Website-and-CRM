@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { InboundRequestList, type InboundRequestRow } from "@/components/lead-ops/InboundRequestList";
+import StatementChainPanel from "@/components/operator/StatementChainPanel";
 import { useAuth } from "@/hooks/use-auth";
 import { rememberReturnUrl } from "@/lib/crm-return-context";
 import { SouthFloridaQualificationPanel } from "@/components/lead-ops/SouthFloridaQualificationPanel";
@@ -2847,6 +2848,8 @@ export default function LeadOpsCenter() {
           </div>
         </div>
       </Card>
+
+      {(user?.role === "admin" || user?.role === "manager") && <StatementChainPanel />}
 
       {/* ── Stats row ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">

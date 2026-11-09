@@ -23,6 +23,9 @@ export function statementReviewLink(requestId: string): string {
   return `/dashboard/lead-ops?tab=pipeline&ref=${inboundShortRef(requestId)}`;
 }
 
+/** Same review surface and reference format for every public occurrence (inquiry, support, statement). */
+export const inboundReviewLink = statementReviewLink;
+
 function copy(input: { requestId: string; business: string | null; state: StatementProcessingState }) {
   const ref = inboundShortRef(input.requestId);
   const who = input.business?.trim() || "A merchant";

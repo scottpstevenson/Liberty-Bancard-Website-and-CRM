@@ -27,12 +27,30 @@ export const FST_SERVICE_NAME = "Smart Terminal Equipment Options";
 export const FST_SERVICE_DESCRIPTION = claimText("equipment.options.summary", "schema");
 
 export const FST_HERO = {
-  badge: "Smart Terminal Options",
-  heading: "Explore Smart Terminal Options for Your Business.",
-  sub: `${claimText("equipment.options.summary")} We review your statement to confirm what fits.`,
-  primaryCta: "Check My Options — Free Review",
+  badge: "LIBERTY BANCARD EQUIPMENT PROGRAM",
+  heading: "Equipment options. For qualified merchants.",
+  sub: `${claimText("equipment.options.summary")} Start with an eligibility check so you understand the processing costs and equipment terms before you decide.`,
+  primaryCta: "Discuss my setup",
   secondaryCta: "Book a review call",
+  /** Shown beside the primary action, at readable size. Matches the approved footer disclosure's account requirement. */
+  offerNote: "Approved processing account required. Processing fees and equipment program terms apply.",
   disclaimer: `${claimText("equipment.agreement.summary")} Not a guaranteed offer.`,
+} as const;
+
+/** The terminal request path: an offer-specific mode of the existing intake. A statement is never required here. */
+export const FST_INQUIRY_PATH = "/get-started?offer=free-terminal";
+/** Existing merchants who already accept cards can ask for a statement review instead. */
+export const FST_STATEMENT_REVIEW_PATH = "/upload-statement#statement-review-form";
+
+/** Directly after the hero: the equipment and the processing are explained together, with the approved terms adjacent. */
+export const FST_OFFER = {
+  heading: "Understand the equipment and the processing together.",
+  body: "We'll discuss your business, current equipment and card-processing needs. If your business qualifies, we'll explain the equipment arrangement, applicable costs and next steps.",
+  checklist: ["Business eligibility", "Equipment arrangement", "Processing and recurring fees", "Setup and support requirements"],
+  secondaryLead: "Already accepting cards?",
+  secondaryCta: "Get a statement review.",
+  /** Hardware shown is a set of equipment options, not a guarantee of a model or its availability. */
+  imageNote: "Models shown are examples of equipment options. Which model is available for your business is confirmed during review.",
 } as const;
 
 /**
@@ -45,7 +63,7 @@ export const FST_PLACEMENT_CLAIM: string | null = publicClaims.textOrNull("equip
 export const FST_EQUIPMENT_TERMS_DISCLOSURE = claimText("equipment.footer.disclosure", "page");
 
 export const FST_TRUST_STRIP: readonly string[] = [
-  "Eligibility confirmed via statement review",
+  "Eligibility confirmed during review",
   "Equipment terms confirmed during review",
   "Your written agreement sets term, fees and return requirements",
   "Account approval, equipment availability and shipping are separate",
@@ -72,18 +90,18 @@ export const FST_ELIGIBILITY = {
     "The information needed to review an account application",
   ],
   notGuaranteed:
-    "Equipment is not guaranteed for all merchants. Eligibility depends on account approval, underwriting, card volume and business type. We confirm details during your free statement review.",
+    "Equipment is not guaranteed for all merchants. Eligibility depends on account approval, underwriting, card volume and business type. We confirm details during review.",
   ctaCardHeading: "Not Sure What Fits?",
   ctaCardBody:
-    "Upload your most recent processing statement. We'll review your card volume, current setup and equipment situation, then follow up with your options.",
+    "Tell us about your business and your current setup. We'll review whether it fits the equipment program and contact you about next steps. A new business doesn't need a statement.",
 } as const;
 
 export const FST_STEPS_HEADING = "How It Works";
 export const FST_STEPS_INTRO = "The stages are separate, and each depends on your review and approval.";
 
 export const FST_STEPS: readonly { step: string; title: string; desc: string }[] = [
-  { step: "1", title: "Upload Your Statement", desc: "PDF or photo. We only need totals and fee lines. Redact account numbers if you prefer." },
-  { step: "2", title: "Review", desc: "We review your volume, setup and current equipment situation and contact you about next steps." },
+  { step: "1", title: "Tell Us About Your Business", desc: "Share your business type, expected card volume and whether you lease a terminal today. No statement is needed for a new business." },
+  { step: "2", title: "Review", desc: "Our team reviews your details and contacts you about eligibility and next steps." },
   { step: "3", title: "Account Approval", desc: "If you apply, your account is underwritten. Approval is separate from equipment." },
   { step: "4", title: "Equipment and Activation", desc: "Equipment availability, shipping and activation are confirmed separately after approval." },
 ];
@@ -93,7 +111,7 @@ export const FST_TIMING_STAGES = TIMING_STAGES;
 
 export const FST_FINAL = {
   heading: "Find Out What Fits",
-  body: "Upload your statement and we'll review it. The review is free, with no obligation. You keep the breakdown either way.",
+  body: "Tell us about your business and we'll review your equipment options. If you already accept cards, you can also request a statement review.",
   footnote: `${claimText("equipment.options.summary")} ${claimText("equipment.agreement.summary")}`,
 } as const;
 

@@ -35,6 +35,9 @@ export function PublicIntakeNotice({ state, testIdPrefix, checking, checkNote, o
   if (state.phase !== "recoverable" && state.phase !== "unresolved") return null;
   const recoverable = state.phase === "recoverable";
   const receipt = state.receipt;
+  // The visitor changed details while an earlier request is unconfirmed, or the server could not match the saved key (for example
+  // after a network change). A retry cannot fix either; the explicit choice is to check, call, or deliberately start a new request.
+  const blocked = state.phase === "unresolved" && (state.reason === "different_request_pending" || state.reason === "mismatch");
   return (
     <div role="status" className={`rounded-md border border-amber-300 bg-amber-50 text-left text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100 ${compact ? "p-3 text-xs" : "p-4 text-sm"} space-y-3`}
       data-testid={`${testIdPrefix}-notice`} data-intake-phase={state.phase}>
@@ -47,7 +50,11 @@ export function PublicIntakeNotice({ state, testIdPrefix, checking, checkNote, o
           <p>
             {recoverable
               ? "Your details are saved, but we could not finish routing them. We cannot say when someone will reach you. You can check the status or try to finish it now."
-              : state.restored
+              : state.phase === "unresolved" && state.reason === "different_request_pending"
+                ? "An earlier request from this session was not confirmed, and it may have been saved. Your changed details were not sent. Check the earlier request, call us, or start a new request on purpose."
+                : state.phase === "unresolved" && state.reason === "mismatch"
+                  ? "We could not match this browser to the earlier request, so we cannot say whether it was saved. Call us to confirm, or start a new request on purpose."
+                  : state.restored
                 ? "A request from this session was not confirmed. Check it below, or re-enter the same details to finish it without creating a second request."
                 : "We could not confirm that your request arrived. Trying again re-sends the same request and will not create a duplicate."}
           </p>
@@ -60,7 +67,7 @@ export function PublicIntakeNotice({ state, testIdPrefix, checking, checkNote, o
             {checking && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}Check status
           </Button>
         )}
-        {onRetry && (
+        {onRetry && !blocked && (
           <Button type="button" size="sm" onClick={onRetry} data-testid={`${testIdPrefix}-retry`}>
             {recoverable ? "Try to finish now" : "Try again"}
           </Button>
@@ -71,7 +78,7 @@ export function PublicIntakeNotice({ state, testIdPrefix, checking, checkNote, o
         <Button size="sm" variant="outline" asChild>
           <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid={`${testIdPrefix}-book`}>Book a review call</a>
         </Button>
-        {state.restored && (
+        {(state.restored || blocked) && (
           <Button type="button" size="sm" variant="ghost" onClick={onDismiss} data-testid={`${testIdPrefix}-dismiss`}>Start a new request</Button>
         )}
       </div>

@@ -8,6 +8,7 @@ import { trackPhoneCallClick } from "@/lib/analytics";
 import { trackCalendarBooking } from "@/lib/tracking";
 import { buildAttributedBookingUrl } from "@/lib/utm";
 import { PublicSection, PublicSectionHeader } from "@/components/public/PublicSection";
+import { GeneralInquiryForm } from "@/components/intake/GeneralInquiryForm";
 import {
   ABOUT_CONTACT_HERO,
   ABOUT_CONTACT_INQUIRY,
@@ -20,9 +21,9 @@ import {
 
 /**
  * About & Contact. Three starting points, then a stable #inquiry section that lists the real channels
- * (phone, email, booking) and is the mount point for the persisted inquiry flow, then what happens next.
- * No inquiry form is rendered here, and no hours, response time or address is stated because none has
- * owner evidence. Wording lives in shared/public-contact-content.ts and is shared with the server render.
+ * (phone, email, booking) and hosts the short general inquiry, then what happens next. No hours, response
+ * time or address is stated because none has owner evidence. Wording lives in shared/public-contact-content.ts
+ * and is shared with the server render; the inquiry form itself only exists once the page is hydrated.
  */
 export default function AboutContact() {
   const { phone, email, booking } = PUBLIC_CONTACT_CHANNELS;
@@ -92,6 +93,9 @@ export default function AboutContact() {
                 {booking.label}
               </a>
             </Button>
+          </div>
+          <div className="mt-8 max-w-2xl">
+            <GeneralInquiryForm />
           </div>
         </PublicSection>
 

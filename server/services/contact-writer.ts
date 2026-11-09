@@ -47,6 +47,8 @@ const VALID_SOURCE_COMBOS: ReadonlySet<string> = new Set([
   "website_form|partner_application",
   "website_form|merchant_application",
   "website_form|get_started_form",
+  "website_form|equipment_inquiry",
+  "website_form|general_inquiry",
   "website_form|integration_request",
   "website_form|testimonial_submit",
   "website_form|newsletter_signup",

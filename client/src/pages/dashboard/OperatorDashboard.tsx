@@ -28,7 +28,6 @@ import { useSearch, useLocation } from "wouter";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
 } from "@/components/ui/sheet";
-import StatementChainPanel from "@/components/operator/StatementChainPanel";
 import { ALeadQueue } from "./sdr/ALeadQueue";
 import { LeadQueuePanel } from "@/components/dashboard/LeadQueuePanel";
 import { ProcessorIntelligence } from "./sdr/ProcessorIntelligence";

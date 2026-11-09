@@ -25,7 +25,10 @@ export function inboundRecoveryLeaseMs(): number {
   return Number.isFinite(configured) && configured >= 0 ? configured : 120_000;
 }
 
-export const RECOVERABLE_SALES_SOURCE_TYPES = ["estimate_form", "get_started_form", "callback_form"] as const;
+export const RECOVERABLE_SALES_SOURCE_TYPES = ["estimate_form", "get_started_form", "callback_form", "equipment_inquiry", "general_inquiry"] as const;
+
+/** Support owns its own resumable executor; it is intentionally NOT part of the sales recovery list above. */
+export const RECOVERABLE_SUPPORT_SOURCE_TYPES = ["support_form"] as const;
 
 export interface OccurrenceProgress { contactId: number | null; dealId: number | null }
 
@@ -111,9 +114,12 @@ export async function pewcDecisionRecorded(eventKey: string): Promise<boolean> {
   return list.length > 0;
 }
 
-/** One internal sales notification per occurrence (command-key identity); a recovery never creates a second. */
-export async function ensureOccurrenceNotification(requestId: string, input: InsertNotification) {
-  const commandKey = `inbound:${requestId}:sales-notification`;
+/**
+ * One internal notification per occurrence and kind (command-key identity); a recovery never creates a second.
+ * Sales occurrences keep their original `sales-notification` identity; support requests own a distinct `support-notification`.
+ */
+export async function ensureOccurrenceNotification(requestId: string, input: InsertNotification, kind: "sales" | "support" = "sales") {
+  const commandKey = `inbound:${requestId}:${kind}-notification`;
   const [existing] = await db.select({ id: notifications.id }).from(notifications).where(eq(notifications.commandKey, commandKey)).limit(1);
   if (existing) return existing;
   try {
@@ -130,13 +136,16 @@ export async function ensureOccurrenceNotification(requestId: string, input: Ins
  * the request; a concurrent or later replay gets null and answers normally. Eligible: an explicit recoverable hold, or a
  * claimed/processing request whose first execution has been silent past the lease.
  */
-export async function claimInboundRecovery(requestId: string): Promise<InboundRequest | null> {
+export async function claimInboundRecovery(
+  requestId: string,
+  sourceTypes: readonly string[] = RECOVERABLE_SALES_SOURCE_TYPES,
+): Promise<InboundRequest | null> {
   const leaseMs = inboundRecoveryLeaseMs();
   const [claimed] = await db.update(inboundRequests).set({
     lifecycleState: "processing", terminalReason: INBOUND_HANDOFF_RECOVERING, updatedAt: new Date(),
   }).where(and(
     eq(inboundRequests.id, requestId),
-    inArray(inboundRequests.sourceType, [...RECOVERABLE_SALES_SOURCE_TYPES]),
+    inArray(inboundRequests.sourceType, [...sourceTypes]),
     sql`(
       (${inboundRequests.lifecycleState} = 'review_required' AND ${inboundRequests.terminalReason} = ${INBOUND_HANDOFF_RECOVERABLE})
       OR (${inboundRequests.lifecycleState} IN ('claimed','processing') AND ${inboundRequests.updatedAt} < now() - (${leaseMs} * interval '1 millisecond'))

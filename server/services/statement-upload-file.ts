@@ -6,9 +6,11 @@
  * Pure and dependency-free so the public route can run it BEFORE it claims an occurrence, creates a contact or
  * stores an object, and so tests can exercise it without a database.
  */
+import { STATEMENT_UPLOAD_LIMITS } from "../../shared/statement-upload-limits";
 
-/** Same ceiling as the shared document upload middleware. */
-export const STATEMENT_MAX_BYTES = 10 * 1024 * 1024;
+
+/** Same ceiling as the shared document upload middleware, and as the public form (one shared definition). */
+export const STATEMENT_MAX_BYTES = STATEMENT_UPLOAD_LIMITS.maxBytes;
 
 export type StatementMimeType = "application/pdf" | "image/jpeg" | "image/png";
 

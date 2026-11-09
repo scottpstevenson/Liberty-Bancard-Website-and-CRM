@@ -4,7 +4,8 @@ import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
+import GetStartedTerminal, { readTerminalIntent } from "./GetStartedTerminal";
 import { PublicHero } from "@/components/public/PublicHero";
 import { Input } from "@/components/ui/input";
 import { PewcCheckbox } from "@/components/PewcCheckbox";
@@ -45,6 +46,7 @@ import {
 import { PublicImage } from "@/components/public/PublicImage";
 import { claimText } from "@shared/public-claims";
 import { TIMING_NOTE, FUNDING_NOTE } from "@shared/public-disclosures";
+import { FST_INQUIRY_PATH } from "@shared/free-smart-terminal-content";
 
 const TOTAL_STEPS = 6;
 
@@ -111,7 +113,8 @@ function getRecommendation(goal: string, vertical: string, volume: string, inter
       description: "We'll pair you with the Liberty Smart Terminal - modern, reliable, and set up with guided onboarding. Equipment availability and terms are confirmed during review.* Processing is bundled so you get one relationship for hardware + support.",
       urgency: TIMING_NOTE,
       nextSteps: [
-        { label: "Upload statement to check eligibility", primary: true, href: "/upload-statement?terminal=yes" },
+        { label: "Discuss my terminal setup", primary: true, href: FST_INQUIRY_PATH },
+        { label: "Also review my current statement", primary: false, href: "/upload-statement?terminal=yes" },
         { label: "Call us to discuss setup", primary: false, href: "tel:9542668214" },
       ],
     };
@@ -155,7 +158,16 @@ function getRecommendation(goal: string, vertical: string, volume: string, inter
   };
 }
 
+/**
+ * One URL, two modes. A request that already carries terminal intent opens the short terminal inquiry; anything else (including
+ * an unknown `offer`, which is ignored) keeps the unchanged six-step goal quiz and its API contract.
+ */
 export default function GetStarted() {
+  const intent = readTerminalIntent(useSearch());
+  return intent.terminal ? <GetStartedTerminal offer={intent.offer} /> : <GetStartedQuiz />;
+}
+
+function GetStartedQuiz() {
   const [step, setStep] = useState(1);
   const [goal, setGoal] = useState("");
   const [vertical, setVertical] = useState("");

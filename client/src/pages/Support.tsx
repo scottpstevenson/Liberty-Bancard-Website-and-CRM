@@ -3,14 +3,12 @@ import { useLocation } from "wouter";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation } from "@tanstack/react-query";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -26,39 +24,36 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
 import { trackConversion } from "@/lib/analytics";
-import { useState, useRef } from "react";
+import { usePublicIntake } from "@/hooks/use-public-intake";
+import { PublicIntakeNotice } from "@/components/PublicIntakeNotice";
+import { isPlausibleInquiryPhone } from "@shared/public-inquiry";
+import { useState } from "react";
 import {
   Loader2,
-  Clock,
-  Mail,
-  UserCheck,
+  Hash,
+  Users,
+  Phone,
   AlertCircle,
 } from "lucide-react";
 import heroSupport from "@/assets/images/hero-support.jpg";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 
 const supportSchema = z.object({
-  name: z.string().min(1, "Your name is required"),
-  businessName: z.string().min(1, "Business name is required"),
-  email: z.string().email("Valid email is required"),
-  mobile: z.string().min(10, "Valid mobile number is required"),
+  name: z.string().trim().min(1, "Your name is required"),
+  businessName: z.string().trim().min(1, "Business name is required"),
+  email: z.string().trim().email("Valid email is required"),
+  // Optional: a phone number is never required to get help. A non-blank value must be a real number.
+  mobile: z.string().trim().refine((v) => v === "" || isPlausibleInquiryPhone(v), "Enter a valid phone number, or leave it blank"),
   issueType: z.string().min(1, "Please select an issue type"),
   priority: z.string().min(1, "Please select a priority"),
-  message: z.string().min(1, "Please describe your issue"),
-  fileName: z.string().optional(),
-  consentSms: z.boolean().refine((v) => v === true, {
-    message: "You must consent to receive communications",
-  }),
+  message: z.string().trim().min(1, "Please describe your issue"),
 });
 
 type SupportFormData = z.infer<typeof supportSchema>;
 
 export default function Support() {
   const [, setLocation] = useLocation();
-  const { toast } = useToast();
   const containerRef = useScrollReveal();
 
   const form = useForm<SupportFormData>({
@@ -71,59 +66,39 @@ export default function Support() {
       issueType: "",
       priority: "Normal",
       message: "",
-      fileName: "",
-      consentSms: false,
     },
+  });
+
+  // One stable intent per request: the shared hook owns the idempotency key, the typed outcome and the saved receipt.
+  const intake = usePublicIntake("support", "/api/public/support");
+
+  const buildPayload = (data: SupportFormData) => ({
+    name: data.name,
+    businessName: data.businessName,
+    email: data.email,
+    // A blank number is omitted, never sent as an empty or placeholder value.
+    ...(data.mobile ? { mobile: data.mobile } : {}),
+    issueType: data.issueType,
+    priority: data.priority,
+    message: data.message,
   });
 
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const idempotencyKeyRef = useRef<string | null>(null);
 
-  function getFormErrorMessage(error: Error): string {
-    const msg = error?.message || "";
-    if (msg.startsWith("429:")) return "Too many submissions — please wait a few minutes and try again.";
-    if (/^5\d{2}:/.test(msg)) return "Something went wrong on our end — please try again shortly.";
-    return msg || "Please try again or call us at 954-266-8214.";
-  }
-
-  const submitMutation = useMutation({
-    mutationFn: async (data: SupportFormData) => {
-      idempotencyKeyRef.current ??= crypto.randomUUID();
-      const res = await apiRequest("POST", "/api/public/support", {
-        name: data.name,
-        businessName: data.businessName,
-        email: data.email,
-        mobile: data.mobile,
-        issueType: data.issueType,
-        priority: data.priority,
-        message: data.message,
-        consentSms: data.consentSms,
-      }, { "Idempotency-Key": idempotencyKeyRef.current });
-      return res.json();
-    },
-    onSuccess: () => {
-      trackConversion("support_request", { issue_type: form.getValues("issueType"), priority: form.getValues("priority") });
-      toast({
-        title: "Request Submitted",
-        description: "We received your support request and will follow up shortly.",
-      });
-      setLocation("/thanks-support");
-    },
-    onError: (error: Error) => {
-      // A 400 (INVALID_SUBMISSION) never reached mutation on the server, so
-      // no record was claimed under this key — rotate it before the user
-      // edits and resubmits. Any other error keeps the key so a resubmission
-      // is a safe retry rather than a duplicate.
-      if (/^400:/.test(error?.message || "")) {
-        idempotencyKeyRef.current = null;
-      }
-      setSubmitError(getFormErrorMessage(error));
-    },
-  });
-
-  const onSubmit = (data: SupportFormData) => {
+  const onSubmit = async (data: SupportFormData) => {
     setSubmitError(null);
-    submitMutation.mutate(data);
+    const outcome = await intake.submit(buildPayload(data));
+    if (outcome.kind === "saved") {
+      // Conversion and the confirmation page follow ONLY a confirmed save (never a 202, an unreadable body or a failure).
+      trackConversion("support_request", { issue_type: data.issueType, priority: data.priority });
+      const reference = outcome.receipt.replace(/-/g, "").slice(0, 8).toUpperCase();
+      setLocation(`/thanks-support?ref=${reference}`);
+    } else if (outcome.kind === "rejected") {
+      for (const [path, message] of Object.entries(outcome.fieldErrors ?? {})) {
+        if (path in data) form.setError(path as keyof SupportFormData, { message });
+      }
+      setSubmitError("We couldn't send your request. Please check your details and try again. If the problem continues, call 954-266-8214.");
+    }
   };
 
   const issueTypes = [
@@ -138,25 +113,25 @@ export default function Support() {
 
   const expectItems = [
     {
-      icon: Clock,
-      title: "Fast Response",
-      text: "We'll review your request and reply within 4 business hours (urgent: 1 hour).",
+      icon: Hash,
+      title: "A reference when it's saved",
+      text: "When your request is saved you'll see a reference. Keep it if you call us about this request.",
     },
     {
-      icon: Mail,
-      title: "Instant Confirmation",
-      text: "You'll get a confirmation by text/email.",
+      icon: Users,
+      title: "Reviewed by our team",
+      text: "A member of our team reviews each request and follows up using the contact details you give us.",
     },
     {
-      icon: UserCheck,
-      title: "Human Support",
-      text: "A real person - not a ticket loop - will follow up.",
+      icon: Phone,
+      title: "Terminal completely down?",
+      text: "If you can't take payments at all, call 954-266-8214 instead of waiting on a form.",
     },
   ];
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <SEO title="Contact Support" description="Submit a support request to Liberty Bancard. We respond within 4 hours during business hours. Emergency support available 24/7." path="/support" breadcrumbs={[{ name: "Support", path: "/support" }]} />
+      <SEO title="Contact Support" description="Existing merchants can send a support request about deposits, terminals, chargebacks or PCI, or call 954-266-8214 or email support@libertybancard.com." path="/support" breadcrumbs={[{ name: "Support", path: "/support" }]} />
       <Navbar />
 
       <main className="flex-grow public-main-offset" ref={containerRef}>
@@ -263,7 +238,7 @@ export default function Support() {
                           name="mobile"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Mobile Number</FormLabel>
+                              <FormLabel>Phone (optional)</FormLabel>
                               <FormControl>
                                 <Input
                                   type="tel"
@@ -364,49 +339,19 @@ export default function Support() {
                         )}
                       />
 
-                      <FormField
-                        control={form.control}
-                        name="fileName"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Upload supporting file (optional)</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="file"
-                                data-testid="input-file"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  field.onChange(file?.name || "");
-                                }}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                      <p className="text-sm text-muted-foreground" data-testid="text-support-sensitive-note">
+                        Please don&apos;t include full card numbers or bank login details here. To share a processing statement, use the{" "}
+                        <a href="/upload-statement#statement-review-form" className="underline" data-testid="link-support-statement-upload">secure statement upload</a>.
+                      </p>
 
-                      <FormField
-                        control={form.control}
-                        name="consentSms"
-                        render={({ field }) => (
-                          <FormItem className="flex items-start gap-3">
-                            <FormControl>
-                              <Checkbox
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                                data-testid="checkbox-consent"
-                              />
-                            </FormControl>
-                            <div className="space-y-1 leading-none">
-                              <FormLabel className="text-sm font-normal text-muted-foreground">
-                              By submitting, I agree to receive SMS and email communications from Liberty Bancard regarding my support request and related services. Reply STOP to opt out. Message &amp; data rates may apply. See our{" "}
-                              <a href="/privacy-policy" className="underline">Privacy Policy</a> and{" "}
-                              <a href="/sms-terms" className="underline">SMS Terms</a>.
-                              </FormLabel>
-                              <FormMessage />
-                            </div>
-                          </FormItem>
-                        )}
+                      <PublicIntakeNotice
+                        state={intake.state}
+                        testIdPrefix="support"
+                        checking={intake.checking}
+                        checkNote={intake.checkNote}
+                        onCheck={intake.check}
+                        onRetry={() => { void form.handleSubmit(onSubmit)(); }}
+                        onDismiss={intake.dismiss}
                       />
 
                       {submitError && (
@@ -419,13 +364,13 @@ export default function Support() {
                       <Button
                         type="submit"
                         className="w-full"
-                        disabled={submitMutation.isPending}
+                        disabled={intake.submitting}
                         data-testid="button-support-submit"
                       >
-                        {submitMutation.isPending ? (
+                        {intake.submitting ? (
                           <>
                             <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                            Submitting...
+                            Sending your request…
                           </>
                         ) : (
                           "Submit Support Request"

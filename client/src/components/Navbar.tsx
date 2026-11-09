@@ -165,10 +165,54 @@ export function Navbar() {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const drawerId = useId();
+  // The Menu button sits outside the Sheet and has no SheetTrigger, so Radix has no trigger ref to hand focus back to
+  // and focus would land on BODY after the drawer unmounts. Keep an explicit ref and restore it for the dismissals that
+  // stay on the same page (Escape, the close button, the overlay); a navigation close must never refocus the old page.
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreMenuFocusRef = useRef(true);
+  // The page region that was on screen when a drawer link was activated; the destination's own region replaces it.
+  const departingMainRef = useRef<Element | null>(null);
+
+  const openMobileMenu = useCallback(() => {
+    restoreMenuFocusRef.current = true;
+    departingMainRef.current = document.querySelector("main");
+    setMobileOpen(true);
+  }, []);
+  const closeMobileForNavigation = useCallback(() => {
+    restoreMenuFocusRef.current = false;
+    departingMainRef.current = document.querySelector("main");
+    setMobileOpen(false);
+  }, []);
+  const handleDrawerCloseAutoFocus = useCallback((event: Event) => {
+    event.preventDefault();
+    if (restoreMenuFocusRef.current) {
+      menuButtonRef.current?.focus();
+      return;
+    }
+    // Navigation: the link that was activated is gone and the page changed, so focus the new page's main region. Route
+    // modules load lazily, so the destination's <main> can appear after the drawer has closed; wait for it (never the
+    // departing page's region) and fall back to the current one only when the destination is the same page.
+    const departing = departingMainRef.current;
+    const started = performance.now();
+    const focusDestination = () => {
+      const main = document.querySelector<HTMLElement>("main");
+      const elapsed = performance.now() - started;
+      if (main && (main !== departing || elapsed > 1000)) {
+        if (!main.hasAttribute("tabindex")) main.setAttribute("tabindex", "-1");
+        main.style.outline = "none";
+        main.focus({ preventScroll: true });
+        return;
+      }
+      if (elapsed < 4000) requestAnimationFrame(focusDestination);
+    };
+    focusDestination();
+  }, []);
 
   // Close dropdowns and the mobile drawer on route change
   useEffect(() => {
     setOpenGroup(null);
+    restoreMenuFocusRef.current = false;
     setMobileOpen(false);
   }, [location]);
 
@@ -220,11 +264,15 @@ export function Navbar() {
               {/* Labelled menu button below 1280px */}
               <div className="xl:hidden">
                 <Button
+                  ref={menuButtonRef}
                   variant="ghost"
                   className="h-11 gap-2 px-3 text-primary [&_svg]:size-6"
-                  onClick={() => setMobileOpen(true)}
+                  onClick={openMobileMenu}
                   data-testid="button-mobile-menu"
                   aria-label="Open menu"
+                  aria-haspopup="dialog"
+                  aria-expanded={mobileOpen}
+                  aria-controls={drawerId}
                 >
                   <Menu className="h-6 w-6" aria-hidden="true" />
                   <span className="text-sm font-semibold">Menu</span>
@@ -237,7 +285,9 @@ export function Navbar() {
         {/* ── Mobile full-height Sheet drawer ───────────────────────────────── */}
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetContent
+            id={drawerId}
             side="right"
+            onCloseAutoFocus={handleDrawerCloseAutoFocus}
             className="flex w-[85vw] max-w-sm flex-col p-0"
             closeClassName="right-2 top-2 grid h-11 w-11 place-items-center opacity-100 [&_svg]:h-5 [&_svg]:w-5"
             data-testid="mobile-nav-drawer"
@@ -246,7 +296,7 @@ export function Navbar() {
                 no custom SheetClose needed here — adding one creates duplicates. */}
             <SheetHeader className="shrink-0 border-b border-border px-4 pb-2 pr-14 pt-2">
               <SheetTitle asChild>
-                <Link href="/" className="flex min-h-11 items-center" onClick={() => setMobileOpen(false)} data-testid="link-mobile-logo">
+                <Link href="/" className="flex min-h-11 items-center" onClick={closeMobileForNavigation} data-testid="link-mobile-logo">
                   <img src={logoBlue} alt="Liberty Bancard" width={134} height={28} className="h-7 w-auto max-w-full" />
                 </Link>
               </SheetTitle>
@@ -274,7 +324,7 @@ export function Navbar() {
                               "flex min-h-11 flex-col justify-center rounded-md px-4 py-2.5 text-sm font-medium transition-colors",
                               active ? "bg-[hsl(var(--liberty-surface))] text-[hsl(var(--liberty-navy))]" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
                             )}
-                            onClick={() => setMobileOpen(false)}
+                            onClick={closeMobileForNavigation}
                             aria-current={active ? "page" : undefined}
                             data-testid={`link-mobile-${group.id}-${navTestId(link.label)}`}
                           >
@@ -287,7 +337,7 @@ export function Navbar() {
                         <NavAnchor
                           href={group.offer.href}
                           className="mx-3 mt-1 block rounded-md border border-border bg-[hsl(var(--liberty-surface))] px-3 py-2.5 text-sm"
-                          onClick={() => setMobileOpen(false)}
+                          onClick={closeMobileForNavigation}
                           data-testid={`link-mobile-offer-${group.id}`}
                         >
                           <span className="block min-h-6 font-semibold leading-snug text-foreground">{group.offer.label}</span>
@@ -310,7 +360,7 @@ export function Navbar() {
                         "flex min-h-11 items-center rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
                         location === utility.href ? "bg-[hsl(var(--liberty-surface))] text-[hsl(var(--liberty-navy))]" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
                       )}
-                      onClick={() => setMobileOpen(false)}
+                      onClick={closeMobileForNavigation}
                       data-testid={`link-mobile-${navTestId(utility.label)}`}
                     >
                       {utility.label}
@@ -340,7 +390,7 @@ export function Navbar() {
             {/* Pinned primary action */}
             <div className="shrink-0 border-t border-border bg-background p-4">
               <Button asChild size="lg" className="public-cta public-cta--brand w-full" data-testid="link-mobile-talk">
-                <Link href={PUBLIC_NAV_CTA.href} onClick={() => setMobileOpen(false)}>
+                <Link href={PUBLIC_NAV_CTA.href} onClick={closeMobileForNavigation}>
                   {PUBLIC_NAV_CTA.label}
                 </Link>
               </Button>

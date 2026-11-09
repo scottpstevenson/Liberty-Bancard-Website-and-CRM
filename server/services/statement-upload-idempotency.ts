@@ -95,6 +95,8 @@ export type ClaimResult =
 export async function claimCommand(params: {
   requestId: string;
   fingerprint: string;
+  /** Earlier-version fingerprints of the same logical request; a stored command under one of them still replays. */
+  legacyFingerprints?: readonly string[];
   ownerScope: string;
   context?: Record<string, unknown>;
   source?: string;
@@ -176,7 +178,7 @@ export async function claimCommand(params: {
   const existing = rows[0];
 
   // ── Fingerprint mismatch → conflict (any scope) ───────────────────────────
-  if (existing.requestFingerprint !== fingerprint) {
+  if (existing.requestFingerprint !== fingerprint && !(params.legacyFingerprints ?? []).includes(existing.requestFingerprint)) {
     return { outcome: "conflict" };
   }
 

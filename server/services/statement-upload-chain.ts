@@ -7,6 +7,7 @@
  */
 
 import { storage } from "../storage";
+import { toStoredChainSteps } from "@shared/statement-chain-state";
 import { ACTIVE_DEAL_STAGES, statementProposals } from "@shared/schema";
 import { db } from "../db";
 import { eq, sql } from "drizzle-orm";
@@ -719,6 +720,8 @@ export async function runStatementUploadChain(
       documentId: documentId ?? null,
       failedSteps,
       allSuccess: chainResult.allSuccess,
+      // Normalised per-step truth for the operator view: held and handed-off steps stay distinct from completed work.
+      steps: toStoredChainSteps(steps),
     };
     if (chainResult.allSuccess) {
       await markSucceeded(commandId, resultPayload, commandLeaseToken).catch(err =>

@@ -198,3 +198,4 @@
 - [Receipt milestone gating](ack-milestone-gating-cutoffs.md) — receipts wait for the internal handoff; per-class cutoffs are monotonic and a re-save must not move them.
 - [Website intake](website-intake-review-surfaces.md) / [cert harness](website-intake-cert-harness-lessons.md) / [W-C source & operator truth](public-intake-source-policy-and-operator-truth.md) — new modes stay outside warm lane.
 - [Public site lessons](public-claims-preflight-lessons.md) / [shell & hubs](public-shell-hubs-lessons.md) — register suites in both rosters; React and SSR copy are separate emitters; server-only links need native anchors.
+- [W-C intake & handoff lessons](wc-intake-handoff-lessons.md) — plain 64-hex fingerprint CHECK; new inquiry sources stay out of the warm lane; statement handoff truth from durable steps; stale baseline suite.

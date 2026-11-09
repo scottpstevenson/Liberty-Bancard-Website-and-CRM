@@ -30,6 +30,7 @@ import { resolveWorkAssignee, workPrincipalFields, WorkCommandError } from "./wo
 import { auditChange } from "./audit-change";
 import { WEBSITE_LANE_SOURCE_PROGRAMS, laneSourceKey } from "./website-email-contracts";
 import { z } from "zod";
+import { INQUIRY_GENERAL_INTENTS, INQUIRY_LEASE_ANSWERS, INQUIRY_VOLUME_BANDS } from "@shared/public-inquiry";
 type InboundTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
@@ -162,7 +163,21 @@ function withWarmEffects(policy: SourcePolicy): SourcePolicy {
   };
 }
 
-export const INBOUND_SOURCE_POLICIES: readonly SourcePolicy[] = INBOUND_SOURCE_POLICIES_V2.map(withWarmEffects);
+/**
+ * Sources added to the CURRENT (v3) contract only. They are not in the frozen v2 table (no v2 occurrence can exist for
+ * them) and are deliberately absent from WEBSITE_LANE_SOURCE_PROGRAMS, so they get no warm/nurture effect, no
+ * requested-follow-up eligibility and no promotional enrollment merely because they share the get-started route.
+ * Their semantic intent is frozen on the occurrence by the public inquiry handler, never inferred from mutable contact data.
+ */
+const INBOUND_SOURCE_POLICIES_V3_ADDITIONS: readonly SourcePolicy[] = [
+  { sourceCategory: "website_form", sourceType: "equipment_inquiry", sourceClass: "sales_request", effects: SALES_EFFECTS, forbiddenEffects: ["promotional_enrollment", "proposal_send"] },
+  { sourceCategory: "website_form", sourceType: "general_inquiry", sourceClass: "sales_request", effects: SALES_EFFECTS, forbiddenEffects: ["promotional_enrollment", "proposal_send"] },
+];
+
+export const INBOUND_SOURCE_POLICIES: readonly SourcePolicy[] = [
+  ...INBOUND_SOURCE_POLICIES_V2.map(withWarmEffects),
+  ...INBOUND_SOURCE_POLICIES_V3_ADDITIONS,
+];
 
 const policyKey = (policy: Pick<SourcePolicy, "sourceCategory" | "sourceType">) => `${policy.sourceCategory}|${policy.sourceType}`;
 const POLICY_MAP = new Map(INBOUND_SOURCE_POLICIES.map((policy) => [policyKey(policy), policy]));
@@ -283,6 +298,13 @@ export async function claimInboundRequest(input: {
    * include their bytes in this value before claiming the occurrence.
    */
   requestFingerprint?: string;
+  /**
+   * Fingerprints the SAME logical request was stored under by earlier fingerprint versions. A stored occurrence that
+   * matches one of them replays exactly as before (old hashes are never rewritten, and a retry that started under an
+   * older build is never turned into a conflict or a second submission). A new occurrence is always stored under the
+   * current `requestFingerprint`.
+   */
+  legacyRequestFingerprints?: readonly string[];
   sourceCategory: string;
   sourceType: string;
   callerScope: string;
@@ -328,7 +350,9 @@ export async function claimInboundRequest(input: {
   if (inserted) return { outcome: "claimed", request: inserted, policy };
   const [existing] = await db.select().from(inboundRequests).where(eq(inboundRequests.idempotencyKey, input.idempotencyKey)).limit(1);
   if (!existing) return claimInboundRequest(input);
-  if (existing.requestFingerprint !== requestFingerprint || existing.sourceType !== input.sourceType || existing.sourceCategory !== input.sourceCategory) return { outcome: "conflict" };
+  const fingerprintMatches = existing.requestFingerprint === requestFingerprint
+    || (input.legacyRequestFingerprints ?? []).includes(existing.requestFingerprint);
+  if (!fingerprintMatches || existing.sourceType !== input.sourceType || existing.sourceCategory !== input.sourceCategory) return { outcome: "conflict" };
   if (existing.callerScope !== input.callerScope) return { outcome: "scope_mismatch" };
   // Replay keeps the contract the occurrence was claimed under (frozen v2 never gains v3 effects).
   return { outcome: "replay", request: existing, policy: resolveStoredInboundPolicy(existing) };
@@ -880,6 +904,36 @@ async function statementReviewCopy(requestId: string, contactId: number | null |
   };
 }
 
+/**
+ * Operator-facing task copy for the W-C inquiry modes, built from the context frozen on the occurrence (never from mutable
+ * contact fields). Contains the business, the intent and the answers needed to open the review, and no free text beyond the
+ * bounded note, which stays on the request details.
+ */
+function inquiryReviewCopy(request: InboundRequest): { title: string; description: string } | null {
+  if (request.sourceType !== "equipment_inquiry" && request.sourceType !== "general_inquiry") return null;
+  const refs = request.attributionRefs as Record<string, unknown> | null;
+  if (!refs || refs.schema !== "wc-inquiry-v1") return null;
+  const business = typeof refs.businessName === "string" && refs.businessName.trim() ? refs.businessName.trim() : "business name not provided";
+  const equipment = request.sourceType === "equipment_inquiry";
+  const parts: string[] = [`Inbound ${request.sourceType} request (reference ${inboundShortRef(request.id)})`];
+  if (equipment) {
+    const band = INQUIRY_VOLUME_BANDS.find((b) => b.code === refs.volumeBand)?.label;
+    const lease = INQUIRY_LEASE_ANSWERS.find((a) => a.code === refs.currentlyLeasing)?.label;
+    if (typeof refs.businessType === "string") parts.push(`business type: ${refs.businessType}`);
+    if (band) parts.push(`monthly card volume: ${band}`);
+    if (lease) parts.push(`current terminal lease: ${lease}`);
+    const offer = refs.offer as { id?: string } | null;
+    if (offer?.id) parts.push(`offer: ${offer.id}`);
+  } else {
+    const intent = INQUIRY_GENERAL_INTENTS.find((i) => i.code === refs.intent)?.label;
+    if (intent) parts.push(`interested in: ${intent}`);
+  }
+  return {
+    title: `${equipment ? "Review equipment inquiry" : "Follow up business inquiry"} — ${business}`,
+    description: parts.join("; "),
+  };
+}
+
 export async function orchestrateInboundRequest(input: {
   requestId: string;
   contactId?: number | null;
@@ -916,7 +970,7 @@ export async function orchestrateInboundRequest(input: {
       // shown, so it can be found from the task list without opening the request first.
       const statementCopy = request.sourceType === "statement_upload"
         ? await statementReviewCopy(request.id, input.contactId ?? request.contactId)
-        : null;
+        : inquiryReviewCopy(request);
       try {
       sales = await db.transaction(async tx => {
       const assignment = await evaluateInboundAssignment({

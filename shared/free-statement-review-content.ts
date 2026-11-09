@@ -5,6 +5,7 @@
 // claim records in shared/public-claims.ts.
 
 import { claimText } from "./public-claims";
+import { STATEMENT_UPLOAD_HELPER } from "./statement-upload-limits";
 
 export const FSR_HEADING = "Free Statement Review";
 
@@ -46,7 +47,7 @@ export const FSR_COST = {
 export const FSR_WHAT_TO_SUBMIT = {
   heading: "What to submit, and how",
   paragraphs: [
-    "Submit your most recent processing statement — any processor, any format — using the secure upload form on this page.",
+    `Submit your most recent processing statement — from any processor, as a ${STATEMENT_UPLOAD_HELPER} — using the secure upload form on this page.`,
     "Please don't send financial documents by email, text, or social media messages. The upload form on this page is the secure way to send us your statement. If a statement reaches us any other way, we will ask you to resend it here.",
   ],
 } as const;
@@ -88,13 +89,76 @@ export const FSR_META = {
 } as const;
 
 export const FSR_HERO = {
-  badge: "Free statement review",
-  heading: "Know what you pay for card processing.",
-  sub: "Upload your statement — no processor login needed. We'll explain your effective cost and each fee we can identify, including who charges it.",
+  badge: "STATEMENT REVIEW",
+  heading: "See what you’re really paying to accept cards.",
+  sub: "Send us a recent processing statement. We’ll explain the charges and help you compare your current costs with an actual Liberty proposal.",
+  button: "Get my statement review",
+  support: "Understand the full cost before you change processors.",
   effectiveCostTitle: "See your effective cost",
   effectiveCostNote: claimText("review.effective-cost.definition"),
   chips: ["Free", "No obligation", "Secure upload", "No processor login"],
   uploadNote: "Encrypted upload. How documents are handled is explained below.",
+} as const;
+
+/** LB-SR-02 — what the review gives you. Four short rows; the sample worksheet carries headings and dashes only. */
+export const FSR_DELIVERABLE = {
+  heading: "A breakdown you can use.",
+  rows: [
+    "Your effective processing cost for the statement period.",
+    "What interchange, network assessments and processor fees mean.",
+    "Questions about equipment and your current agreement.",
+    "If we propose an alternative, a comparison of relevant processing, recurring and equipment costs.",
+  ],
+  sampleLabel: "Illustrative review layout. No customer results shown.",
+  /** Worksheet column/row headings only: the sample never shows an amount, a saving or a customer. */
+  sampleHeadings: ["Statement period", "Card volume", "Fees included", "Effective cost", "Interchange", "Network assessments", "Processor fees", "Equipment and other"],
+} as const;
+
+/** LB-SR-03 — the three steps, with no countdown and no promised response time. */
+export const FSR_PROCESS = {
+  heading: "One statement. A clearer conversation.",
+  steps: [
+    "Share a recent statement through the upload form.",
+    "We review the charges and identify what needs clarification.",
+    "We walk you through the findings and any available next steps.",
+  ],
+  support: "Your proposal and account eligibility depend on your business and processing requirements.",
+} as const;
+
+/** LB-SR-04 — the statement intake form. */
+export const FSR_FORM = {
+  heading: "Start your statement review.",
+  intro: "Share your statement and the details we need to contact you.",
+  fileLabel: "Recent processing statement",
+  helper: "Need help or don’t have a statement?",
+  helperLink: "Discuss your business with us.",
+  helperHref: "/about-contact",
+  submit: "Request my review",
+  pending: "Sending your request…",
+  success: "We’ve received your review request. Our team will review the information and contact you using the details you provided.",
+  failure: "We couldn’t send your request. Please try again. If the problem continues, contact Liberty Bancard.",
+  requiredError: "Please complete this field.",
+  emailError: "Enter a valid email address.",
+} as const;
+
+/** LB-SR-05 — three questions, all answers visible to assistive technology and no turnaround or confidentiality claim. */
+export const FSR_FAQ = {
+  heading: "Before you send your statement.",
+  items: [
+    {
+      question: "Will you guarantee savings?",
+      answer: "No. Your costs depend on your current pricing, transaction mix and proposed terms. The review helps make that comparison clear.",
+    },
+    {
+      question: "What if I’m starting a new business?",
+      answer: "You can discuss your processing and equipment needs without a current statement.",
+      link: { label: "Discuss my business", href: "/about-contact" },
+    },
+    {
+      question: "Can I ask about a terminal too?",
+      answer: "Yes. We can review whether your business qualifies for the equipment program. Processing fees and program terms apply.",
+    },
+  ],
 } as const;
 
 export const FSR_REVIEW_ITEMS: readonly { label: string; note: string }[] = [
@@ -142,7 +206,7 @@ export const FSR_SSR_CARDS: readonly { title: string; text: string }[] = [
 ];
 
 export const FSR_SSR_STEPS: readonly { icon: string; title: string; text: string }[] = [
-  { icon: "1️⃣", title: "Upload Your Statement", text: "Upload your most recent processing statement. PDF, JPG or PNG up to 10 MB." },
+  { icon: "1️⃣", title: "Upload Your Statement", text: `Upload your most recent processing statement. ${STATEMENT_UPLOAD_HELPER}.` },
   { icon: "2️⃣", title: "We Review It", text: claimText("review.process.summary") },
   { icon: "3️⃣", title: "See Your Options", text: "We explain the numbers with the inputs shown. No obligation; if the numbers don't make sense, we say so." },
 ];

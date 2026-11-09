@@ -3,190 +3,194 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, XCircle, Clock, AlertTriangle, RefreshCw, Minus } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, CheckCircle2, Clock, Hand, RefreshCw, ShieldAlert, XCircle } from "lucide-react";
+import {
+  ANALYSIS_LABEL,
+  CHAIN_STEP_LABEL,
+  OCCURRENCE_STATUS_LABEL,
+  type ChainStepState,
+  type OccurrenceStatus,
+  type StatementChainResponse,
+  type StoredChainStep,
+} from "@shared/statement-chain-state";
 
-interface ChainStepResult {
-  name: string;
-  status: "success" | "failed" | "skipped";
-  error?: string;
-  durationMs: number;
+/** A failed read is never an empty list: the panel says whether access was denied or the data is unavailable. */
+export class ChainReadError extends Error {
+  constructor(public readonly kind: "denied" | "unavailable", message: string) {
+    super(message);
+  }
 }
 
-interface ChainLog {
-  id: number;
-  action: string;
-  entityId: number;
-  createdAt: string;
-  details: {
-    contactId: number;
-    dealId: number;
-    steps: ChainStepResult[];
-    hasFailures: boolean;
-    failedSteps: string[];
-    completedAt: string;
-  };
-}
-
-const STEP_LABELS: Record<string, string> = {
-  blueprint_generation: "Blueprint",
-  proposal_generation: "Proposal",
-  ghl_form_sync: "GHL Sync",
-  ghl_statement_sync: "GHL Tag",
-  sequence_enrollment: "Sequence",
-  workflow_trigger: "Workflow",
-  inbound_confirmation: "Confirmation",
-  confirm_sms: "SMS",
+const STEP_STATE_TEXT: Record<ChainStepState, string> = {
+  done: "Done",
+  held: "Held — not run",
+  handed_off: "Handed off — not confirmed by the provider",
+  failed: "Failed",
 };
 
-function StepDot({ step }: { step: ChainStepResult }) {
-  if (step.status === "success") return (
-    <div title={`${STEP_LABELS[step.name] || step.name} — OK`}>
-      <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-    </div>
-  );
-  if (step.status === "failed") return (
-    <div title={`${STEP_LABELS[step.name] || step.name} — FAILED: ${step.error}`}>
-      <XCircle className="h-3.5 w-3.5 text-red-500" />
-    </div>
-  );
+const STATUS_CLASS: Record<OccurrenceStatus, string> = {
+  complete: "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/20 dark:text-green-300",
+  held: "bg-amber-100 text-amber-900 border-amber-200 dark:bg-amber-900/20 dark:text-amber-200",
+  manual_review: "bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-200",
+  needs_attention: "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/20 dark:text-red-300",
+  in_progress: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300",
+  unrecorded: "bg-muted text-muted-foreground border-border",
+};
+
+function StepMark({ step }: { step: StoredChainStep }) {
+  const name = CHAIN_STEP_LABEL[step.name] ?? step.name;
+  const text = `${name}: ${STEP_STATE_TEXT[step.state]}${step.detail ? ` (${step.detail})` : ""}`;
+  const icon =
+    step.state === "done" ? <CheckCircle2 className="h-3.5 w-3.5 text-green-600" aria-hidden="true" />
+    : step.state === "failed" ? <XCircle className="h-3.5 w-3.5 text-red-600" aria-hidden="true" />
+    : step.state === "held" ? <Hand className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
+    : <ArrowRightLeft className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />;
   return (
-    <div title={`${STEP_LABELS[step.name] || step.name} — skipped`}>
-      <Minus className="h-3.5 w-3.5 text-muted-foreground" />
-    </div>
+    <li className="flex items-center gap-1.5">
+      {icon}
+      <span>{text}</span>
+    </li>
   );
+}
+
+export async function loadStatementChain(failuresOnly: boolean): Promise<StatementChainResponse> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/operator/statement-chain?failuresOnly=${failuresOnly}&limit=60`, { credentials: "include" });
+  } catch {
+    throw new ChainReadError("unavailable", "The connection failed.");
+  }
+  if (res.status === 401 || res.status === 403) throw new ChainReadError("denied", "Your account is not allowed to view statement handoff status.");
+  if (!res.ok) throw new ChainReadError("unavailable", "Statement handoff status could not be loaded.");
+  return res.json();
 }
 
 export default function StatementChainPanel() {
   const [failuresOnly, setFailuresOnly] = useState(false);
 
-  const { data: logs = [], isLoading, refetch, isFetching } = useQuery<ChainLog[]>({
+  const query = useQuery<StatementChainResponse, ChainReadError>({
     queryKey: ["/api/operator/statement-chain", failuresOnly],
-    queryFn: async () => {
-      const res = await fetch(
-        `/api/operator/statement-chain?failuresOnly=${failuresOnly}&limit=60`,
-        { credentials: "include" }
-      );
-      if (!res.ok) return [];
-      return res.json();
-    },
+    queryFn: () => loadStatementChain(failuresOnly),
     refetchInterval: 60000,
+    retry: false,
   });
 
-  const totalFailures = logs.filter((l) => l.action === "statement_chain_partial_failure").length;
+  const data = query.data;
+  const asOf = data ? new Date(data.asOf).toLocaleString() : null;
 
   return (
     <Card data-testid="statement-chain-panel">
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <CardTitle className="text-base">Statement Upload Chain</CardTitle>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Per-step visibility on every statement upload. Each upload fires 7-8 async steps (GHL sync, blueprint, proposal, sequences…).
+            <CardTitle className="text-base">Statement handoff status</CardTitle>
+            <p className="mt-0.5 text-xs text-muted-foreground" data-testid="text-chain-scope">
+              The latest statement requests and what actually happened to each step. A held step has not run, and a handed-off step is not
+              confirmed by the provider.
+              {data ? ` Showing ${data.scope.returned} of the latest ${data.scope.limit} requests as of ${asOf}.` : ""}
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Button
               size="sm"
               variant={failuresOnly ? "default" : "outline"}
-              className="h-7 text-xs gap-1"
-              onClick={() => setFailuresOnly((v) => !v)}
+              className="min-h-11 gap-1 text-xs sm:min-h-8"
+              onClick={() => setFailuresOnly((value) => !value)}
+              aria-pressed={failuresOnly}
               data-testid="button-failures-only-toggle"
             >
-              <AlertTriangle className="h-3 w-3" />
-              {failuresOnly ? "Showing failures" : "Show failures only"}
-              {totalFailures > 0 && !failuresOnly && (
-                <Badge variant="destructive" className="h-4 text-[10px] px-1 ml-0.5">{totalFailures}</Badge>
+              <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+              {failuresOnly ? "Showing items needing attention" : "Show items needing attention"}
+              {data && data.scope.needsAttention > 0 && !failuresOnly && (
+                <Badge variant="destructive" className="ml-0.5 h-4 px-1 text-[10px]">{data.scope.needsAttention}</Badge>
               )}
             </Button>
             <Button
               size="sm"
               variant="outline"
-              className="h-7 text-xs gap-1"
-              onClick={() => refetch()}
-              disabled={isFetching}
+              className="min-h-11 gap-1 text-xs sm:min-h-8"
+              onClick={() => query.refetch()}
+              disabled={query.isFetching}
               data-testid="button-refresh-chain"
             >
-              <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
+              <RefreshCw className={`h-3 w-3 ${query.isFetching ? "animate-spin" : ""}`} aria-hidden="true" />
               Refresh
             </Button>
           </div>
         </div>
+        {data && (
+          <p className="text-xs text-muted-foreground" data-testid="text-chain-analysis-setting">
+            {data.autoAnalysisEnabled
+              ? "Automatic statement analysis is turned on."
+              : "Automatic statement analysis is held. Statements wait for manual review until an owner turns it on."}
+          </p>
+        )}
       </CardHeader>
       <CardContent>
-        {isLoading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground py-6 justify-center">
-            <Clock className="h-4 w-4 animate-spin" /> Loading chain events…
+        {query.isLoading ? (
+          <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground" role="status">
+            <Clock className="h-4 w-4 animate-spin" aria-hidden="true" /> Loading statement requests…
           </div>
-        ) : logs.length === 0 ? (
-          <div className="text-center py-8 text-sm text-muted-foreground">
+        ) : query.isError ? (
+          <div className="space-y-3 py-6" role="alert" data-testid={query.error.kind === "denied" ? "chain-denied" : "chain-unavailable"}>
+            <p className="flex items-start gap-2 text-sm text-destructive">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>
+                {query.error.kind === "denied" ? "Access denied. " : "Unavailable right now, so this is not an all-clear. "}
+                {query.error.message}
+              </span>
+            </p>
+            <Button variant="outline" className="min-h-11 sm:min-h-9" onClick={() => query.refetch()} data-testid="button-chain-retry">Retry</Button>
+          </div>
+        ) : !data || data.rows.length === 0 ? (
+          <div className="py-8 text-center text-sm text-muted-foreground" data-testid="chain-empty">
             {failuresOnly
-              ? "No chain failures recorded. All statement uploads completed successfully."
-              : "No statement chain events yet. Upload a statement to see chain tracking here."}
+              ? `No requests in this window need attention (latest ${data?.scope.limit ?? 60} requests, as of ${asOf}).`
+              : "No statement requests have been received yet."}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs" data-testid="table-statement-chain">
-              <thead>
-                <tr className="border-b text-muted-foreground">
-                  <th className="text-left pb-2 pr-3 font-medium">Time</th>
-                  <th className="text-left pb-2 pr-3 font-medium">Deal</th>
-                  <th className="text-left pb-2 pr-3 font-medium">Status</th>
-                  <th className="text-left pb-2 pr-3 font-medium">Steps</th>
-                  <th className="text-left pb-2 font-medium">Failed</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map((log) => {
-                  const d = log.details;
-                  const hasFailure = log.action === "statement_chain_partial_failure";
-                  return (
-                    <tr
-                      key={log.id}
-                      className={`border-b last:border-0 ${hasFailure ? "bg-red-50/30 dark:bg-red-950/10" : ""}`}
-                      data-testid={`row-chain-${log.id}`}
-                    >
-                      <td className="py-2 pr-3 text-muted-foreground whitespace-nowrap">
-                        {new Date(log.createdAt).toLocaleString(undefined, {
-                          month: "short", day: "numeric",
-                          hour: "2-digit", minute: "2-digit",
-                        })}
-                      </td>
-                      <td className="py-2 pr-3">
-                        <a
-                          href={`/dashboard/pipeline?id=${d?.dealId}`}
-                          className="text-primary hover:underline font-mono"
-                          data-testid={`link-deal-${d?.dealId}`}
-                        >
-                          #{d?.dealId}
-                        </a>
-                      </td>
-                      <td className="py-2 pr-3">
-                        {hasFailure ? (
-                          <Badge variant="outline" className="h-4 text-[10px] px-1 bg-red-100 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300">
-                            Partial failure
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="h-4 text-[10px] px-1 bg-green-100 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300">
-                            Complete
-                          </Badge>
-                        )}
-                      </td>
-                      <td className="py-2 pr-3">
-                        <div className="flex items-center gap-1">
-                          {(d?.steps || []).map((step, i) => (
-                            <StepDot key={i} step={step} />
-                          ))}
-                        </div>
-                      </td>
-                      <td className="py-2 text-red-600 dark:text-red-400">
-                        {(d?.failedSteps || []).map((s) => STEP_LABELS[s] || s).join(", ") || "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <ul className="divide-y" data-testid="list-statement-chain">
+            {data.rows.map((row) => (
+              <li key={row.requestReceipt} className="space-y-2 py-3" data-testid={`row-chain-${row.shortRef}`}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{row.businessName ?? "Business name not provided"}</span>
+                  <span className="font-mono text-xs text-muted-foreground">Ref {row.shortRef}</span>
+                  <span className="text-xs text-muted-foreground">{new Date(row.occurredAt).toLocaleString()}</span>
+                  <Badge variant="outline" className={`h-5 px-1.5 text-[10px] ${STATUS_CLASS[row.status]}`} data-testid={`badge-chain-status-${row.shortRef}`}>
+                    {OCCURRENCE_STATUS_LABEL[row.status]}
+                  </Badge>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                  <span data-testid={`text-chain-analysis-${row.shortRef}`}>{ANALYSIS_LABEL[row.analysis]}</span>
+                  <a className="text-blue-600 hover:underline" href={`/dashboard/lead-ops?tab=pipeline&ref=${row.shortRef}`} data-testid={`link-chain-request-${row.shortRef}`}>Open request</a>
+                  {row.documentId != null && (
+                    <a className="text-blue-600 hover:underline" href={`/api/documents/download/${row.documentId}`} data-testid={`link-chain-file-${row.shortRef}`}>Open retained file</a>
+                  )}
+                  {row.dealId != null && <a className="text-blue-600 hover:underline" href={`/dashboard/pipeline?id=${row.dealId}`}>Open deal</a>}
+                </div>
+                {row.steps.length > 0 ? (
+                  <details className="text-xs">
+                    <summary className="inline-flex min-h-11 cursor-pointer items-center text-muted-foreground hover:text-foreground lg:min-h-0">Step detail</summary>
+                    <ul className="mt-1 space-y-1" data-testid={`steps-chain-${row.shortRef}`}>
+                      {row.steps.map((step) => <StepMark key={step.step} step={step} />)}
+                    </ul>
+                  </details>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {row.status === "manual_review"
+                      ? "Automatic processing did not start. The file is retained for manual review."
+                      : "No step detail was recorded for this request."}
+                  </p>
+                )}
+                {row.diagnostics.terminalReason && (
+                  <details className="text-xs">
+                    <summary className="inline-flex min-h-11 cursor-pointer items-center text-muted-foreground hover:text-foreground lg:min-h-0">Diagnostics</summary>
+                    <p className="mt-1 break-words text-muted-foreground">Reason on record: {row.diagnostics.terminalReason}</p>
+                  </details>
+                )}
+              </li>
+            ))}
+          </ul>
         )}
       </CardContent>
     </Card>

@@ -95,7 +95,13 @@ check("every public POST route is enumerated and every intake is authority-owned
       assert.match(body, /claimInboundRequest\(/, `${route} does not claim authority`);
     } else {
       assert.match(publicRoutes, new RegExp(`"${route.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}": \\["website_form"`));
-      assert.match(routeBody(routes, route), /acceptInbound\(req,/, `${route} does not hand off to authority`);
+      if (route === "/api/public/support") {
+        // W-C: the route delegates to the per-effect executor, which hands the committed refs to the authority.
+        assert.match(routeBody(routes, route), /runSupportIntake\(req, res, \{ acceptInbound/, `${route} does not delegate to the support executor`);
+        assert.match(source("server/routes/public-support.ts"), /deps\.acceptInbound\(req,/, `${route} executor does not hand off to authority`);
+      } else {
+        assert.match(routeBody(routes, route), /acceptInbound\(req,/, `${route} does not hand off to authority`);
+      }
     }
   }
 });

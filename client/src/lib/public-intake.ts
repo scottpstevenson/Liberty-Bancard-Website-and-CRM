@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/queryClient";
+import { STATEMENT_UPLOAD_LIMITS } from "@shared/statement-upload-limits";
 
 /**
  * Shared, typed handling of the public sales-form responses (estimate, get-started, callback).
@@ -11,13 +12,25 @@ import { apiRequest } from "@/lib/queryClient";
  * `apiRequest` only throws for non-2xx, so a 202 and an unreadable 2xx body must be classified here. An unreadable or
  * truncated body is never treated as success and never starts a new intent: the same key is kept for the retry.
  */
-export type IntakeForm = "estimate" | "get_started" | "callback_home" | "callback_bubble" | "callback_help" | "statement_upload";
+export type IntakeForm =
+  | "estimate" | "get_started" | "callback_home" | "callback_bubble" | "callback_help" | "statement_upload"
+  // One storage slot per semantic form/mode: a still-pending equipment inquiry is never replaced by a general inquiry or a support request.
+  | "equipment_inquiry" | "general_inquiry" | "support";
+
+/**
+ * Why a request is unresolved.
+ *  - `mismatch`: the server answered 404/409 for this key. That proves the capability could not be verified (for example the
+ *    caller network changed), NOT that nothing was saved, so the original key and receipt are kept.
+ *  - `different_request_pending`: an earlier request of this form was never confirmed and the visitor changed the details. The
+ *    key is never rotated automatically; the visitor must explicitly start a new request.
+ */
+export type UnresolvedReason = "unreadable" | "network" | "server" | "in_progress" | "rate_limited" | "mismatch" | "different_request_pending";
 
 export type IntakeOutcome =
-  | { kind: "saved"; receipt: string; pendingReview: boolean; emailConsent?: "recorded" | "not_recorded" | "unavailable" }
+  | { kind: "saved"; receipt: string; pendingReview: boolean; emailConsent?: "recorded" | "not_recorded" | "unavailable"; reference?: string }
   | { kind: "recoverable"; receipt: string }
-  | { kind: "unresolved"; receipt: string | null; reason: "unreadable" | "network" | "server" | "in_progress" | "rate_limited" }
-  | { kind: "rejected"; message: string };
+  | { kind: "unresolved"; receipt: string | null; reason: UnresolvedReason }
+  | { kind: "rejected"; message: string; fieldErrors?: Record<string, string> };
 
 interface StoredIntent {
   key: string;
@@ -60,14 +73,37 @@ async function fingerprintPayload(payload: unknown): Promise<string> {
   return `weak-${hash}-${text.length}`;
 }
 
-/** Reuse the unresolved intent's key only for the identical payload; any edit is a different intent. */
-async function intentFor(form: IntakeForm, payload: unknown): Promise<StoredIntent> {
+/**
+ * Reuse the stored key for the identical payload. A stored intent that was never confirmed (pending, unresolved or
+ * recoverable) is ambiguous: it may have been saved. Different details are therefore NOT given a fresh key silently; the
+ * caller gets `blockedBy` and must offer the explicit "start a new request" action. A confirmed (saved) intent is resolved,
+ * so a different payload is a genuinely new request.
+ */
+async function intentFor(form: IntakeForm, payload: unknown): Promise<{ intent: StoredIntent; blockedBy: StoredIntent | null }> {
   const fingerprint = await fingerprintPayload(payload);
   const existing = loadIntent(form);
-  if (existing && existing.fingerprint === fingerprint) return existing;
+  if (existing && existing.fingerprint === fingerprint) return { intent: existing, blockedBy: null };
+  if (existing && existing.state !== "saved") return { intent: existing, blockedBy: existing };
   const fresh: StoredIntent = { key: crypto.randomUUID(), fingerprint, receipt: null, state: "pending" };
   saveIntent(form, fresh);
-  return fresh;
+  return { intent: fresh, blockedBy: null };
+}
+
+/** Structured read of an `apiRequest` failure (`"<status>: <json body>"`). Never throws. */
+function classifyRequestError(error: unknown): { status: string | null; fieldErrors?: Record<string, string> } {
+  const message = error instanceof Error ? error.message : "";
+  const status = /^(\d{3}):/.exec(message)?.[1] ?? null;
+  let fieldErrors: Record<string, string> | undefined;
+  try {
+    const body = JSON.parse(message.slice(message.indexOf(":") + 1).trim());
+    if (Array.isArray(body?.details)) {
+      fieldErrors = {};
+      for (const detail of body.details) {
+        if (typeof detail?.path === "string" && typeof detail?.message === "string" && !(detail.path in fieldErrors)) fieldErrors[detail.path] = detail.message;
+      }
+    }
+  } catch { /* not a JSON body */ }
+  return { status, fieldErrors };
 }
 
 /** Classify a 2xx response. Anything that is not a readable, receipt-bearing body is unresolved. */
@@ -90,18 +126,24 @@ export async function readIntakeOutcome(res: Response): Promise<IntakeOutcome> {
 
 /** Submit one intent. Never throws: every outcome is typed so the caller cannot show a false success. */
 export async function submitPublicIntake(form: IntakeForm, path: string, payload: Record<string, unknown>): Promise<IntakeOutcome> {
-  const intent = await intentFor(form, payload);
+  const { intent, blockedBy } = await intentFor(form, payload);
+  // An earlier request of this form is unconfirmed and the details differ: do not send, do not rotate the key.
+  if (blockedBy) return { kind: "unresolved", receipt: blockedBy.receipt, reason: "different_request_pending" };
   let outcome: IntakeOutcome;
   try {
     const res = await apiRequest("POST", path, payload, { "Idempotency-Key": intent.key });
     outcome = await readIntakeOutcome(res);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    const status = /^(\d{3}):/.exec(message)?.[1];
-    if (status === "400" || status === "409" || status === "404") {
-      // The server refused the intent before saving anything: the next edit is a new intent.
+    const { status, fieldErrors } = classifyRequestError(error);
+    if (status === "400") {
+      // Real validation failure: the server refused the request before saving anything, so the next edit is a new intent.
       clearIntent(form);
-      return { kind: "rejected", message: status === "400" ? "Please check your details and try again." : "That request could not be matched. Please try again." };
+      return { kind: "rejected", message: "Please check your details and try again.", ...(fieldErrors && Object.keys(fieldErrors).length ? { fieldErrors } : {}) };
+    }
+    if (status === "404" || status === "409") {
+      // Not proof that nothing was saved (a changed caller network also answers 404). Keep the key and receipt, never clear.
+      saveIntent(form, { ...intent, state: intent.state === "pending" ? "unresolved" : intent.state });
+      return { kind: "unresolved", receipt: intent.receipt, reason: "mismatch" };
     }
     if (status === "429") outcome = { kind: "unresolved", receipt: intent.receipt, reason: "rate_limited" };
     else outcome = { kind: "unresolved", receipt: intent.receipt, reason: status ? "server" : "network" };
@@ -114,19 +156,24 @@ export async function submitPublicIntake(form: IntakeForm, path: string, payload
 
 /**
  * Read-only check of a saved request. Needs the original idempotency key (kept in this browser session) and the original
- * caller scope. Returns null when the capability cannot be verified.
+ * caller scope. Returns null when the capability cannot be verified, which is NOT proof that nothing was saved: the stored
+ * key and receipt are left untouched in that case.
+ *
+ * The verified receipt is returned with the result, and a confirmed request is kept as `saved` (key + receipt only) rather
+ * than deleted, so the visitor's reference survives the read, a reload and navigation.
  */
-export async function checkIntakeStatus(form: IntakeForm): Promise<{ saved: boolean; recoverable: boolean; status: string } | null> {
+export async function checkIntakeStatus(form: IntakeForm): Promise<{ saved: boolean; recoverable: boolean; status: string; receipt: string } | null> {
   const intent = loadIntent(form);
   if (!intent?.receipt) return null;
+  const receipt = intent.receipt;
   try {
-    const res = await apiRequest("GET", `/api/public/inbound-requests/${encodeURIComponent(intent.receipt)}/status`, undefined, { "Idempotency-Key": intent.key });
+    const res = await apiRequest("GET", `/api/public/inbound-requests/${encodeURIComponent(receipt)}/status`, undefined, { "Idempotency-Key": intent.key });
     const body = JSON.parse(await res.text());
     if (typeof body?.status !== "string") return null;
     const recoverable = body.recoverable === true;
     const saved = !recoverable && ["accepted", "completed", "review_required"].includes(body.status);
-    if (saved) clearIntent(form);
-    return { saved, recoverable, status: body.status };
+    if (saved) saveIntent(form, { ...intent, receipt, state: "saved" });
+    return { saved, recoverable, status: body.status, receipt };
   } catch {
     return null;
   }
@@ -139,18 +186,24 @@ export async function checkIntakeStatus(form: IntakeForm): Promise<{ saved: bool
 // details, the file name or any figure), typed outcomes, and no success message unless the server returned a readable,
 // receipt-bearing body. Progress shown to the visitor is real bytes sent; nothing is simulated.
 
-export type StatementRejection = "file_required" | "file_too_large" | "file_type_unsupported" | "changed_request" | "invalid";
+/**
+ * Only a refusal the server issues BEFORE it claims or stores anything is a rejection (the next edit is a new intent).
+ * Everything else, including a server fault, a key conflict and a body that cannot be read, may have followed a saved
+ * upload, so it is unresolved and the key is kept.
+ */
+export type StatementRejection = "file_required" | "file_too_large" | "file_type_unsupported" | "invalid";
+
+export type StatementUnresolvedReason = "unreadable" | "network" | "server" | "in_progress" | "rate_limited" | "failed" | "mismatch" | "different_request_pending";
 
 export type StatementOutcome =
   | { kind: "saved"; receipt: string; reference: string; processing: "queued" | "deferred" }
-  | { kind: "unresolved"; receipt: string | null; reason: "unreadable" | "network" | "server" | "in_progress" | "rate_limited" | "failed" }
-  | { kind: "rejected"; code: StatementRejection; message: string };
+  | { kind: "unresolved"; receipt: string | null; reason: StatementUnresolvedReason }
+  | { kind: "rejected"; code: StatementRejection; message: string; fieldErrors?: Record<string, string> };
 
 export const STATEMENT_REJECTION_COPY: Record<StatementRejection, string> = {
   file_required: "Choose a statement file to upload.",
-  file_too_large: "That file is larger than 10 MB. Upload a smaller PDF, JPG or PNG.",
-  file_type_unsupported: "Upload your statement as a PDF, JPG or PNG.",
-  changed_request: "Those details changed since the last attempt. Please submit again.",
+  file_too_large: `That file is larger than ${STATEMENT_UPLOAD_LIMITS.maxLabel}. Upload a smaller ${STATEMENT_UPLOAD_LIMITS.typesLabel}.`,
+  file_type_unsupported: `Upload your statement as a ${STATEMENT_UPLOAD_LIMITS.typesLabel}.`,
   invalid: "Please check your details and try again.",
 };
 
@@ -158,8 +211,16 @@ const STATEMENT_SERVER_CODES: Record<string, StatementRejection> = {
   STATEMENT_FILE_REQUIRED: "file_required",
   STATEMENT_FILE_TOO_LARGE: "file_too_large",
   STATEMENT_FILE_TYPE_UNSUPPORTED: "file_type_unsupported",
-  IDEMPOTENCY_KEY_CONFLICT: "changed_request",
 };
+
+function statementFieldErrors(body: any): Record<string, string> | undefined {
+  if (!Array.isArray(body?.details)) return undefined;
+  const out: Record<string, string> = {};
+  for (const detail of body.details) {
+    if (typeof detail?.path === "string" && typeof detail?.message === "string" && !(detail.path in out)) out[detail.path] = detail.message;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
 
 /**
  * Classify one statement-upload HTTP response. Pure: no network, storage or DOM. A 2xx is "saved" only with a readable
@@ -181,11 +242,17 @@ export function classifyStatementResponse(status: number, bodyText: string): Sta
     return { kind: "saved", receipt, reference, processing };
   }
   const serverCode = typeof body?.error === "string" ? body.error : null;
+  // A key conflict proves an earlier occurrence exists under this key. It is not permission to forget the key.
+  if (serverCode === "IDEMPOTENCY_KEY_CONFLICT" || status === 409) return { kind: "unresolved", receipt: null, reason: "mismatch" };
+  // The route answers this for any fault after the claim, including one after the upload was retained. Same key on retry.
+  if (serverCode === "STATEMENT_UPLOAD_FAILED") return { kind: "unresolved", receipt: null, reason: "server" };
   const mapped = serverCode ? STATEMENT_SERVER_CODES[serverCode] : undefined;
   if (mapped) return { kind: "rejected", code: mapped, message: STATEMENT_REJECTION_COPY[mapped] };
+  if (serverCode === "INVALID_SUBMISSION") {
+    return { kind: "rejected", code: "invalid", message: STATEMENT_REJECTION_COPY.invalid, fieldErrors: statementFieldErrors(body) };
+  }
   if (status === 413) return { kind: "rejected", code: "file_too_large", message: STATEMENT_REJECTION_COPY.file_too_large };
   if (status === 415) return { kind: "rejected", code: "file_type_unsupported", message: STATEMENT_REJECTION_COPY.file_type_unsupported };
-  if (status === 409) return { kind: "rejected", code: "changed_request", message: STATEMENT_REJECTION_COPY.changed_request };
   if (status === 400) return { kind: "rejected", code: "invalid", message: STATEMENT_REJECTION_COPY.invalid };
   if (status === 429) return { kind: "unresolved", receipt: null, reason: "rate_limited" };
   if (status === 422) return { kind: "unresolved", receipt: null, reason: "failed" };
@@ -234,13 +301,19 @@ export function saveStatementIntent(intent: StatementIntent) { saveIntent("state
 
 export function clearStatementIntent() { clearIntent("statement_upload"); }
 
-/** Reuse the stored key for an identical submission (retry, replay after reload); otherwise mint a new one. */
-export async function statementIntentFor(fingerprint: string): Promise<StatementIntent> {
+/**
+ * Reuse the stored key for an identical submission (retry, replay after reload). An earlier upload that was never confirmed
+ * (pending, unresolved or recoverable) may have been saved, so different details or a different file are NOT given a fresh
+ * key silently: the caller gets `blockedBy` and must offer the explicit "start a new request" action. A confirmed (saved)
+ * upload is resolved, so a different submission is a genuinely new request.
+ */
+export async function statementIntentFor(fingerprint: string): Promise<{ intent: StatementIntent; blockedBy: StatementIntent | null }> {
   const existing = loadStatementIntent();
-  if (existing && existing.fingerprint === fingerprint) return existing;
+  if (existing && existing.fingerprint === fingerprint) return { intent: existing, blockedBy: null };
+  if (existing && existing.state !== "saved") return { intent: existing, blockedBy: existing };
   const fresh: StatementIntent = { key: crypto.randomUUID(), fingerprint, receipt: null, state: "pending" };
   saveStatementIntent(fresh);
-  return fresh;
+  return { intent: fresh, blockedBy: null };
 }
 
 /** Record the outcome against the stored intent so a reload can show the truth (receipt, reference, processing state only). */
@@ -250,7 +323,8 @@ export function recordStatementOutcome(intent: StatementIntent, outcome: Stateme
     saveStatementIntent({ ...intent, receipt: outcome.receipt, reference: outcome.reference, processing: outcome.processing, state: "saved" });
     return;
   }
-  saveStatementIntent({ ...intent, receipt: outcome.receipt ?? intent.receipt, state: "unresolved" });
+  // Never demote a confirmed upload, and never drop the key or receipt of an unconfirmed one.
+  saveStatementIntent({ ...intent, receipt: outcome.receipt ?? intent.receipt, state: intent.state === "saved" ? "saved" : "unresolved" });
 }
 
 /** Analytics are claimed exactly once per confirmed receipt, across replays and reloads of the same session. */

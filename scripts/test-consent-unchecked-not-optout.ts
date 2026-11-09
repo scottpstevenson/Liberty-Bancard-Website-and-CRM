@@ -41,11 +41,15 @@ check("support existing-contact SMS consent is undefined when unchecked, not fal
   const supportRoute = publicRoutes.slice(publicRoutes.indexOf('"/api/public/support"'));
   const nextRouteIdx = supportRoute.indexOf('app.post("/api/public/get-started"');
   const scoped = nextRouteIdx > -1 ? supportRoute.slice(0, nextRouteIdx) : supportRoute;
-  assert.doesNotMatch(
-    scoped,
-    /incomingConsent:\s*\{\s*consentSms:\s*consentSms\s*===\s*true\s*\}/,
-    "support route must not pass a defined boolean derived directly from consentSms===true for an optional box",
-  );
+  const supportModule = fs.readFileSync("server/routes/public-support.ts", "utf-8");
+  for (const body of [scoped, supportModule]) {
+    assert.doesNotMatch(
+      body,
+      /incomingConsent:\s*\{\s*consentSms:\s*consentSms\s*===\s*true\s*\}/,
+      "support route must not pass a defined boolean derived directly from consentSms===true for an optional box",
+    );
+  }
+  assert.match(supportModule, /incomingConsent:\s*\{\s*consentSms:\s*consentSms === true \? true : undefined\s*\}/);
 });
 
 check("consent-merge.ts still blocks re-opt-in over an existing opt-out/DNC record", () => {

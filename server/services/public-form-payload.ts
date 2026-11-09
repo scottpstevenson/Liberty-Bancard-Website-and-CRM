@@ -17,6 +17,8 @@ export type PublicFormType =
   | "estimate_form"
   | "support_form"
   | "get_started_form"
+  | "equipment_inquiry"
+  | "general_inquiry"
   | "integration_request"
   | "callback_form"
   | "equipment_order"
@@ -92,6 +94,18 @@ const FORM_PROFILE_ALLOWLISTS: Record<PublicFormType, ReadonlySet<string>> = {
   get_started_form: new Set([
     "firstName", "lastName", "email", "phone", "vertical",
     "monthlyVolume", "interestedIn0Percent", "needTerminal", "primaryOfferPath",
+    "utmSource", "utmMedium", "utmCampaign", "utmContent", "utmTerm",
+    "landingPage",
+  ]),
+  // W-C inquiry modes: identity/contact details and attribution only. Business type, volume band and lease answers are
+  // frozen on the occurrence, never written over an existing contact's profile.
+  equipment_inquiry: new Set([
+    "firstName", "lastName", "email", "phone", "companyName",
+    "utmSource", "utmMedium", "utmCampaign", "utmContent", "utmTerm",
+    "landingPage",
+  ]),
+  general_inquiry: new Set([
+    "firstName", "lastName", "email", "phone", "companyName",
     "utmSource", "utmMedium", "utmCampaign", "utmContent", "utmTerm",
     "landingPage",
   ]),

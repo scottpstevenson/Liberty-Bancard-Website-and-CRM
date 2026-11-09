@@ -1,14 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { getCsrfToken } from "@/lib/queryClient";
-import { trackStatementUploadStarted, trackStatementUploadFailed, trackBookingCtaClick } from "@/lib/tracking";
+import { trackStatementUploadStarted, trackStatementUploadFailed } from "@/lib/tracking";
 import { useFormAbandonment } from "@/hooks/use-form-abandonment";
 import { usePublicStatementUpload } from "@/hooks/use-public-intake";
 import { STATEMENT_REJECTION_COPY } from "@/lib/public-intake";
 import { SEO, getServiceSchema } from "@/components/SEO";
-import { useLocation, Link } from "wouter";
-import { z } from "zod";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -18,99 +14,67 @@ import {
   FreeStatementReviewDetails,
 } from "@/components/FreeStatementReviewExplainer";
 import {
-  FSR_EQUIPMENT_CARD,
-  FSR_EQUIPMENT_STRIP,
+  FSR_DELIVERABLE,
+  FSR_FAQ,
+  FSR_FORM,
   FSR_HERO,
   FSR_META,
-  FSR_NEXT_HEADING,
   FSR_NEXT_NOTE,
-  FSR_NEXT_STEPS,
+  FSR_PROCESS,
   FSR_REVIEW_CARD_FOOTNOTE,
-  FSR_REVIEW_ITEMS,
 } from "@shared/free-statement-review-content";
+import { STATEMENT_UPLOAD_HELPER, STATEMENT_UPLOAD_LIMITS } from "@shared/statement-upload-limits";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { PewcCheckbox } from "@/components/PewcCheckbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { trackStatementUploadCompleted, trackFormSubmission } from "@/lib/tracking";
-import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
+import { PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
 import { trackConversion, trackPhoneCallClick } from "@/lib/analytics";
-import { getStoredUTMParams } from "@/lib/utm";
 import {
-  FileSearch,
-  ShieldCheck,
-  Lock,
-  Calendar,
-  Loader2,
-  CheckCircle2,
-  Sparkles,
-  AlertCircle,
-  Phone,
-  Monitor,
-  Upload,
-  ChevronRight,
-  DollarSign,
-  TrendingDown,
-  Zap,
-} from "lucide-react";
+  EMPTY_PERSON,
+  InquiryTextField,
+  focusFirstError,
+  inquiryAttribution,
+  validatePerson,
+  type InquiryErrors,
+} from "@/components/intake/inquiry-fields";
+import { AlertCircle, CheckCircle2, Loader2, Lock, Phone, Upload, X } from "lucide-react";
 
-const uploadSchema = z.object({
-  businessName: z.string().min(1, "Business name is required"),
-  contactName: z.string().min(1, "Your name is required"),
-  email: z.string().email("Valid email is required"),
-  mobile: z.string().min(10, "Valid mobile number is required"),
-  vertical: z.string().min(1, "Please select an industry"),
-  fileName: z.string().optional(),
-  currentProvider: z.string().optional(),
-  interestedIn0Percent: z.boolean().default(false),
-  needTerminal: z.boolean().default(false),
-  notes: z.string().optional(),
-  pewcConsent: z.boolean().optional().default(false),
-});
+const PREFIX = "statement";
+const FIELD_ORDER = ["businessName", "contactName", "email", "mobile", "pewcConsent", "file"];
+const ALLOWED_EXTENSIONS = /\.(pdf|png|jpe?g)$/i;
 
-type UploadFormData = z.infer<typeof uploadSchema>;
-
-const WHAT_WE_REVIEW = FSR_REVIEW_ITEMS;
+/**
+ * Code-native sample of the review layout (LB-A02): headings and dashes only. It never shows an amount, a saving or a
+ * customer, and it is labelled as an illustration wherever it appears.
+ */
+function SampleWorksheet({ testId }: { testId: string }) {
+  return (
+    <figure className="rounded-2xl border border-gray-200 bg-white p-4 text-gray-700 shadow-sm" data-testid={testId}>
+      <table className="w-full border-separate border-spacing-y-1 text-left text-xs">
+        <caption className="sr-only">Illustrative statement review layout with headings only</caption>
+        <tbody>
+          {FSR_DELIVERABLE.sampleHeadings.map((heading) => (
+            <tr key={heading}>
+              <th scope="row" className="w-2/3 rounded-l-md bg-gray-50 px-3 py-2 font-medium text-gray-700">{heading}</th>
+              <td className="rounded-r-md bg-gray-50 px-3 py-2 text-gray-500" aria-label="No value shown">—</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption className="mt-2 text-[11px] text-gray-500">{FSR_DELIVERABLE.sampleLabel}</figcaption>
+    </figure>
+  );
+}
 
 export default function UploadStatement() {
-  const [, setLocation] = useLocation();
-  const { toast } = useToast();
   const containerRef = useScrollReveal();
-  const [analysisResult, setAnalysisResult] = useState<{
-    effectiveRate?: string;
-    recommendedPath?: string;
-    keyFindings?: string[];
-    overallAssessment?: string;
-    [key: string]: unknown;
-  } | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [analysisVolume, setAnalysisVolume] = useState("");
-  const [analysisRate, setAnalysisRate] = useState("");
-  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [person, setPerson] = useState({ ...EMPTY_PERSON });
+  const [errors, setErrors] = useState<InquiryErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [analysisVertical, setAnalysisVertical] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // One stable intent per submission: the server's answer (not a timer) decides what the visitor is told.
   const intake = usePublicStatementUpload();
   const uploadSucceeded = intake.state.phase === "saved";
@@ -126,6 +90,8 @@ export default function UploadStatement() {
     trackConversion("statement_upload");
   }, [intake.state]);
 
+  // Compatible entry points: `?terminal=yes` and `?interest0=yes` carry context into the review request. They are never
+  // asked as extra questions, and neither one is required to get a review.
   const params = new URLSearchParams(window.location.search);
   const preTerminal = params.get("terminal") === "yes";
   const preInterest0 = params.get("interest0") === "yes";
@@ -134,7 +100,6 @@ export default function UploadStatement() {
     queryKey: ["/api/auth/user"],
     queryFn: async () => {
       const res = await fetch("/api/auth/user", { credentials: "include" });
-      if (res.status === 401) return null;
       if (!res.ok) return null;
       return res.json();
     },
@@ -152,162 +117,118 @@ export default function UploadStatement() {
     staleTime: 1000 * 60 * 5,
   });
 
-  const form = useForm<UploadFormData>({
-    resolver: zodResolver(uploadSchema),
-    defaultValues: {
-      businessName: "",
-      contactName: "",
-      email: "",
-      mobile: "",
-      vertical: "",
-      fileName: "",
-      currentProvider: "",
-      interestedIn0Percent: preInterest0,
-      needTerminal: preTerminal,
-      notes: "",
-      pewcConsent: false,
-    },
-  });
-
-  const { isDirty: formIsDirty } = form.formState;
+  const formIsDirty = Boolean(person.businessName || person.name || person.email || person.phone || selectedFile);
   useFormAbandonment("upload_statement", formIsDirty && !uploadSucceeded);
 
+  // Signed-in visitors get their own details filled in once, and only into blank fields.
   useEffect(() => {
-    if (preTerminal) form.setValue("needTerminal", true);
-    if (preInterest0) form.setValue("interestedIn0Percent", true);
-  }, [preTerminal, preInterest0, form]);
+    if (!authUser) return;
+    const fullName = [authUser.firstName, authUser.lastName].filter(Boolean).join(" ");
+    setPerson((current) => ({
+      ...current,
+      name: current.name || fullName,
+      email: current.email || authUser.email || "",
+      businessName: current.businessName || merchantProfile?.businessName || "",
+    }));
+  }, [authUser, merchantProfile]);
 
-  useEffect(() => {
-    if (authUser) {
-      const fullName = [authUser.firstName, authUser.lastName].filter(Boolean).join(" ");
-      if (fullName && !form.getValues("contactName")) form.setValue("contactName", fullName);
-      if (authUser.email && !form.getValues("email")) form.setValue("email", authUser.email);
+  const reject = (message: string, field?: string) => {
+    setSubmitError(message);
+    if (field) {
+      const next = { [field]: message };
+      setErrors((current) => ({ ...current, ...next }));
+      focusFirstError(PREFIX, next, [field]);
     }
-  }, [authUser, form]);
-
-  useEffect(() => {
-    if (merchantProfile?.businessName && !form.getValues("businessName")) {
-      form.setValue("businessName", merchantProfile.businessName);
-    }
-  }, [merchantProfile, form]);
-
-  const ANALYSIS_VERTICALS: { label: string; slug: string }[] = [
-    { label: "Medical / Med Spa", slug: "med_spa" },
-    { label: "Dental", slug: "dental" },
-    { label: "Auto Repair", slug: "auto_repair" },
-    { label: "Salon / Beauty", slug: "salon" },
-    { label: "Gym / Fitness", slug: "gym" },
-    { label: "Hotel / Lodging", slug: "hotel" },
-    { label: "Landscaping", slug: "landscaping" },
-    { label: "Construction", slug: "construction" },
-    { label: "Legal", slug: "legal" },
-  ];
-
-  const FORM_TO_ANALYSIS_SLUG: Record<string, string> = {
-    "Medical/Dental/Medspa": "med_spa",
-    "Automotive": "auto_repair",
   };
 
-  const formVerticalValue = form.watch("vertical");
-  useEffect(() => {
-    if (formVerticalValue && !analysisVertical) {
-      const mapped = FORM_TO_ANALYSIS_SLUG[formVerticalValue];
-      if (mapped) setAnalysisVertical(mapped);
-    }
-  }, [formVerticalValue]); // eslint-disable-line react-hooks/exhaustive-deps
+  const chooseFile = (file: File | null) => {
+    setSelectedFile(file);
+    setSubmitError(null);
+    setErrors((current) => { const { file: _removed, ...rest } = current; return rest; });
+    if (!file) return;
+    // The server re-checks the real bytes; this only avoids sending a file it would certainly refuse.
+    if (file.size > STATEMENT_UPLOAD_LIMITS.maxBytes) setSubmitError(STATEMENT_REJECTION_COPY.file_too_large);
+    else if (!ALLOWED_EXTENSIONS.test(file.name)) setSubmitError(STATEMENT_REJECTION_COPY.file_type_unsupported);
+  };
 
-  const STATEMENT_MAX_BYTES = 10 * 1024 * 1024;
+  const removeFile = () => {
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    chooseFile(null);
+  };
 
-  const onSubmit = async (data: UploadFormData) => {
-    // Guard double-click: an upload is already in flight
+  const onSubmit = async () => {
+    // Guard double-click: an upload is already in flight.
     if (intake.busy) return;
     setSubmitError(null);
-    if (!selectedFile) {
-      setSubmitError(STATEMENT_REJECTION_COPY.file_required);
+    const found = validatePerson(person);
+    const next: InquiryErrors = {};
+    if (found.businessName) next.businessName = found.businessName;
+    if (found.name) next.contactName = found.name;
+    if (found.email) next.email = found.email;
+    if (found.phone) next.mobile = found.phone;
+    if (found.pewcConsent) next.pewcConsent = found.pewcConsent;
+    setErrors(next);
+    if (Object.keys(next).length) {
+      focusFirstError(PREFIX, next, FIELD_ORDER);
       return;
     }
-    if (selectedFile.size > STATEMENT_MAX_BYTES) {
-      setSubmitError(STATEMENT_REJECTION_COPY.file_too_large);
+    if (!selectedFile) {
+      reject(STATEMENT_REJECTION_COPY.file_required);
+      document.getElementById("statement-choose-file")?.focus();
+      return;
+    }
+    if (selectedFile.size > STATEMENT_UPLOAD_LIMITS.maxBytes) {
+      reject(STATEMENT_REJECTION_COPY.file_too_large);
+      return;
+    }
+    if (!ALLOWED_EXTENSIONS.test(selectedFile.name)) {
+      reject(STATEMENT_REJECTION_COPY.file_type_unsupported);
       return;
     }
     trackStatementUploadStarted({ page: "/upload-statement", ctaLocation: "form" });
-    const refCode = localStorage.getItem("lb_ref_code") || undefined;
-    const utmParams = getStoredUTMParams();
-    const gclidFromUrl = new URLSearchParams(window.location.search).get("gclid") || utmParams.gclid;
+    const phone = person.phone.trim();
     const fields: Record<string, string> = {
-      businessName: data.businessName,
-      contactName: data.contactName,
-      email: data.email,
-      mobile: data.mobile,
-      vertical: data.vertical,
-      currentProvider: data.currentProvider || "",
-      interestedIn0Percent: String(data.interestedIn0Percent),
-      needTerminal: String(data.needTerminal),
-      notes: data.notes || "",
-      pewcConsent: String(data.pewcConsent),
-      referralCode: refCode || "",
-      gclid: gclidFromUrl ? String(gclidFromUrl) : "",
+      businessName: person.businessName.trim(),
+      contactName: person.name.trim(),
+      email: person.email.trim(),
+      ...(phone ? { mobile: phone } : {}),
+      ...(preInterest0 ? { interestedIn0Percent: "true" } : {}),
+      ...(preTerminal ? { needTerminal: "true" } : {}),
+      ...(person.pewcConsent && phone ? { pewcConsent: "true" } : {}),
     };
-    Object.entries(utmParams).forEach(([key, value]) => {
-      if (value && !(key in fields)) fields[key] = String(value);
-    });
+    for (const [key, value] of Object.entries(inquiryAttribution())) {
+      if (value !== "" && value !== false) fields[key] = String(value);
+    }
+    const gclidFromUrl = params.get("gclid");
+    if (gclidFromUrl) fields.gclid = gclidFromUrl.slice(0, 500);
     const outcome = await intake.submit(fields, selectedFile);
     if (outcome.kind === "rejected") {
       trackStatementUploadFailed({ page: "/upload-statement", errorMessage: outcome.code });
+      if (outcome.fieldErrors) {
+        setErrors(outcome.fieldErrors);
+        focusFirstError(PREFIX, outcome.fieldErrors, FIELD_ORDER);
+      }
     } else if (outcome.kind === "unresolved") {
       trackStatementUploadFailed({ page: "/upload-statement", errorMessage: outcome.reason });
     }
   };
 
   const unresolvedMessage = (reason: string): string => {
-    if (reason === "restored") return "A previous upload in this browser session was not confirmed. Choose your statement and press Upload again to finish it. It will not create a duplicate.";
+    if (reason === "restored") return "A previous request in this browser session was not confirmed. Choose your statement and press Request my review again to finish it. It will not create a duplicate.";
+    if (reason === "different_request_pending") return "An earlier request from this session was not confirmed, and it may have been saved. Your changed details or file were not sent. Check the earlier request, call us at 954-266-8214, or start a new request on purpose.";
+    if (reason === "mismatch") return "We could not match this browser to the earlier request, so we cannot say whether it was saved. Call us at 954-266-8214 to confirm, or start a new request on purpose.";
     if (reason === "rate_limited") return "Too many submissions — please wait a few minutes and try again.";
-    if (reason === "network") return "We couldn't confirm your upload. Check your connection and press Upload again. It will not create a duplicate.";
-    return "We couldn't confirm that your statement was saved. Press Upload again to finish it (it will not create a duplicate), or call us at 954-266-8214.";
+    if (reason === "network") return "We couldn't confirm your request. Check your connection and press Request my review again. It will not create a duplicate.";
+    return "We couldn't confirm that your statement was saved. Press Request my review again to finish it (it will not create a duplicate), or call us at 954-266-8214.";
   };
 
-  const handleAnalysis = async () => {
-    setAnalyzing(true);
-    setAnalysisError(null);
-    try {
-      const analysisHeaders: Record<string, string> = { "Content-Type": "application/json" };
-      const csrfAnalysis = getCsrfToken();
-      if (csrfAnalysis) analysisHeaders["X-CSRF-Token"] = csrfAnalysis;
-      const res = await fetch("/api/ai/analyze-statement", {
-        method: "POST",
-        headers: analysisHeaders,
-        credentials: "include",
-        body: JSON.stringify({
-          statementData: `Monthly volume: $${analysisVolume}, Current effective rate: ${analysisRate}%, Processor type: unknown`,
-          ...(analysisVertical ? { vertical: analysisVertical } : {}),
-        }),
-      });
-      if (!res.ok) {
-        if (res.status === 401) throw new Error("Please log in to use the AI analysis feature.");
-        throw new Error("Analysis failed. Please try again.");
-      }
-      const data = await res.json();
-      if (data?.error) {
-        setAnalysisError(data.message || "The AI analysis service is temporarily unavailable. Please try again later.");
-      } else {
-        setAnalysisResult(data);
-      }
-    } catch (err: any) {
-      console.error(err);
-      setAnalysisError(err.message || "Analysis failed. Please try again.");
-    } finally {
-      setAnalyzing(false);
-    }
+  const rejectedMessage = (): string | null => {
+    if (intake.state.phase !== "rejected") return null;
+    return intake.state.message;
   };
 
-  const verticals = [
-    "Medical/Dental/Medspa",
-    "Automotive",
-    "Restaurant",
-    "Home Services",
-    "Retail",
-    "Other",
-  ];
+  const showBanner = Boolean(submitError) || intake.state.phase === "rejected" || intake.state.phase === "unresolved";
+  const bannerText = submitError ?? rejectedMessage() ?? (intake.state.phase === "unresolved" ? unresolvedMessage(intake.state.reason) : "");
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
@@ -321,921 +242,326 @@ export default function UploadStatement() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-20 pb-20 sm:pb-0" ref={containerRef}>
-
-        {/* ═══════════════════════════════════════════════════
-            PROMO STRIP — amber offer bar
-        ═══════════════════════════════════════════════════ */}
-        <div className="bg-amber-700 px-4 py-2.5 text-center" data-testid="promo-strip">
-          <p className="text-xs font-bold text-white tracking-wide" data-testid="text-promo-strip">
-            {FSR_EQUIPMENT_STRIP}
-          </p>
-        </div>
-
-        {/* ═══════════════════════════════════════════════════
-            HERO — dark navy, high-energy, branded
-        ═══════════════════════════════════════════════════ */}
-        <section
-          className="relative bg-[#0d1b2e] px-5 pt-10 pb-12 overflow-hidden"
-          data-testid="section-upload-hero"
-        >
-          {/* Dot grid texture */}
+      <main className="flex-grow pt-20" ref={containerRef}>
+        {/* HERO — copy and button first; the sample layout sits beside it on desktop and follows the form on mobile. */}
+        <section className="relative overflow-hidden bg-[#0d1b2e] px-5 pt-10 pb-12" data-testid="section-upload-hero">
           <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              backgroundImage:
-                "radial-gradient(circle, rgba(255,255,255,0.055) 1px, transparent 1px)",
-              backgroundSize: "20px 20px",
-            }}
+            className="pointer-events-none absolute inset-0"
+            style={{ backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.055) 1px, transparent 1px)", backgroundSize: "20px 20px" }}
             aria-hidden="true"
           />
-          {/* Accent glow top-right */}
-          <div
-            className="absolute -top-16 -right-16 w-64 h-64 bg-sky-500 opacity-[0.07] rounded-full blur-3xl pointer-events-none"
-            aria-hidden="true"
-          />
-          {/* Accent glow bottom-left */}
-          <div
-            className="absolute -bottom-10 -left-10 w-48 h-48 bg-indigo-500 opacity-[0.06] rounded-full blur-2xl pointer-events-none"
-            aria-hidden="true"
-          />
-
-          <div className="max-w-lg mx-auto relative">
-
-            {/* Badge */}
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/15 px-3.5 py-1.5 mb-5">
-              <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              <span className="text-[11px] font-bold text-white/90 tracking-wider uppercase">
-                {FSR_HERO.badge}
-              </span>
-            </div>
-
-            {/* Headline */}
-            <h1
-              className="public-h1 public-h1--page text-[34px] font-extrabold text-white mb-4 tracking-tight"
-              data-testid="text-upload-heading"
-            >
-              {FSR_HERO.heading}
-            </h1>
-
-            {/* Subheadline */}
-            <p
-              className="text-[15px] text-white/65 leading-relaxed mb-5"
-              data-testid="text-upload-subheadline"
-            >
-              {FSR_HERO.sub}
-            </p>
-
-            {/* Savings hook */}
-            <div className="flex items-start gap-3 bg-emerald-500/15 border border-emerald-400/20 rounded-xl px-4 py-3.5 mb-6">
-              <div className="w-8 h-8 rounded-full bg-emerald-400/20 flex items-center justify-center shrink-0 mt-0.5">
-                <TrendingDown className="w-4 h-4 text-emerald-300" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-emerald-300 leading-snug">
-                  {FSR_HERO.effectiveCostTitle}
-                </p>
-                <p className="text-[11px] text-white/70 leading-snug mt-1" data-testid="text-effective-cost-definition">
-                  {FSR_HERO.effectiveCostNote}
-                </p>
-              </div>
-            </div>
-
-            {/* Primary CTA — white button on navy */}
-            <a href="#upload-form" data-testid="link-hero-scroll-cta" className="w-full h-14 bg-white text-[#0d1b2e] font-extrabold text-base rounded-2xl shadow-xl flex items-center justify-center gap-2.5 hover:bg-white/95 active:scale-[0.98] transition-all mb-3">
-                <Upload className="w-5 h-5 shrink-0" />
-                Get My Free Statement Review
-              </a>
-
-            {/* Secondary CTA — book a call */}
-            <a href={CALENDAR_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              
-              data-testid="link-upload-hero-book"
-              onClick={() =>
-                trackBookingCtaClick({
-                  page: "/upload-statement",
-                  ctaLabel: "Book a review call",
-                  ctaLocation: "hero",
-                })
-              } className="w-full h-12 border border-white/20 bg-white/5 text-white font-semibold text-sm rounded-2xl flex items-center justify-center gap-2 hover:bg-white/10 transition-all mb-6">
-                <Calendar className="w-4 h-4 shrink-0" />
-                Book a review call
-              </a>
-
-            {/* Trust chips */}
-            <div className="flex flex-wrap gap-2 mb-8" data-testid="trust-chips">
-              {[
-                { icon: ShieldCheck, label: FSR_HERO.chips[0] },
-                { icon: CheckCircle2, label: FSR_HERO.chips[1] },
-                { icon: Lock, label: FSR_HERO.chips[2] },
-                { icon: CheckCircle2, label: FSR_HERO.chips[3] },
-              ].map(({ icon: Icon, label }) => (
-                <span
-                  key={label}
-                  className="inline-flex items-center gap-1.5 rounded-full bg-white/8 border border-white/12 px-3 py-1.5 text-[11px] font-medium text-white/75"
-                  data-testid={`chip-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                >
-                  <Icon className="w-3 h-3 shrink-0 text-sky-400" />
-                  {label}
-                </span>
-              ))}
-            </div>
-
-            {/* Scroll hint */}
-            <div className="flex justify-center">
+          <div className="relative mx-auto grid max-w-5xl items-center gap-10 lg:grid-cols-2">
+            <div>
+              <p className="mb-4 text-xs font-bold uppercase tracking-widest text-sky-300" data-testid="text-upload-eyebrow">{FSR_HERO.badge}</p>
+              <h1 className="public-h1 public-h1--page mb-4 text-[34px] font-extrabold tracking-tight text-white" data-testid="text-upload-heading">
+                {FSR_HERO.heading}
+              </h1>
+              <p className="mb-6 text-[15px] leading-relaxed text-white/75" data-testid="text-upload-subheadline">{FSR_HERO.sub}</p>
               <a
-                href="#upload-form"
-                className="public-tap flex flex-col items-center justify-center gap-1 opacity-80 hover:opacity-100 transition-opacity"
-                aria-label="Scroll to form"
+                href="#statement-review-form"
+                data-testid="link-hero-scroll-cta"
+                className="mb-4 flex h-14 w-full items-center justify-center gap-2.5 rounded-2xl bg-white text-base font-extrabold text-[#0d1b2e] shadow-xl transition-all hover:bg-white/95 active:scale-[0.98] sm:max-w-xs"
               >
-                <span className="text-[9px] text-white uppercase tracking-widest font-semibold">
-                  Send us your statement
-                </span>
-                <ChevronRight className="w-4 h-4 text-white rotate-90" />
+                <Upload className="h-5 w-5 shrink-0" aria-hidden="true" />
+                {FSR_HERO.button}
               </a>
+              <p className="text-sm text-white/70" data-testid="text-upload-support">{FSR_HERO.support}</p>
+            </div>
+            <div className="hidden lg:block">
+              <SampleWorksheet testId="sample-review-hero" />
             </div>
           </div>
         </section>
 
-        {/* ═══════════════════════════════════════════════════
-            WHAT WE REVEAL + FREE TERMINAL OFFER
-        ═══════════════════════════════════════════════════ */}
-        <section className="bg-gray-50 px-5 py-6" data-testid="section-what-we-review">
-          <div className="max-w-lg mx-auto space-y-4">
-
-            {/* What we reveal card */}
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="bg-[#0d1b2e] px-4 py-2.5">
-                <p className="text-[10px] font-bold tracking-widest text-white/55 uppercase">
-                  What we reveal in your statement
-                </p>
+        {/* FORM — directly after the hero. #upload-form is kept as a compatible alias of #statement-review-form. */}
+        <section id="statement-review-form" className="scroll-mt-24 bg-white px-5 pt-8 pb-10" data-testid="section-upload-form" aria-labelledby="statement-form-heading">
+          <span id="upload-form" aria-hidden="true" />
+          <div className="mx-auto max-w-xl">
+            {uploadSucceeded ? (
+              <div className="space-y-5 py-10 text-center" data-testid="section-upload-success" role="status">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
+                  <CheckCircle2 className="h-9 w-9 text-green-600" aria-hidden="true" />
+                </div>
+                <h2 id="statement-form-heading" className="text-2xl font-bold text-gray-900" data-testid="text-success-heading">Request received</h2>
+                {intake.state.phase === "saved" && (
+                  <>
+                    <p className="mx-auto max-w-md text-sm leading-relaxed text-gray-600" data-testid="text-success-body">{FSR_FORM.success}</p>
+                    <p className="mx-auto max-w-md text-sm leading-relaxed text-gray-600">
+                      Your reference is <strong className="text-gray-900" data-testid="text-upload-reference">{intake.state.reference}</strong>. Keep it if you call us about this request.
+                    </p>
+                    {intake.state.processing === "deferred" && (
+                      <p className="mx-auto max-w-md text-sm leading-relaxed text-gray-600" data-testid="text-processing-deferred">
+                        Automatic processing is running behind, so your advisor will handle this one directly. You do not need to upload it again.
+                      </p>
+                    )}
+                  </>
+                )}
+                <button
+                  type="button"
+                  className="text-sm text-gray-600 underline underline-offset-2"
+                  onClick={() => { removeFile(); setPerson({ ...EMPTY_PERSON }); setErrors({}); intake.dismiss(); }}
+                  data-testid="button-upload-another"
+                >
+                  Send a different statement
+                </button>
               </div>
-              <ul className="divide-y divide-gray-100">
-                {WHAT_WE_REVIEW.map(({ label, note }) => (
-                  <li key={label} className="flex items-start gap-3 px-4 py-3">
-                    <CheckCircle2 className="w-4 h-4 text-sky-500 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-sm font-semibold text-gray-800">{label}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{note}</p>
+            ) : (
+              <form
+                noValidate
+                onSubmit={(event) => { event.preventDefault(); void onSubmit(); }}
+                className="space-y-4"
+                data-testid="form-upload-statement"
+                aria-labelledby="statement-form-heading"
+              >
+                <div className="mb-2">
+                  <h2 id="statement-form-heading" className="text-2xl font-bold text-gray-900" data-testid="text-form-title">{FSR_FORM.heading}</h2>
+                  <p className="mt-1 text-sm text-gray-600">{FSR_FORM.intro}</p>
+                </div>
+
+                <InquiryTextField prefix={PREFIX} name="businessName" label="Business name" required value={person.businessName} testId="input-business-name"
+                  onChange={(v) => setPerson({ ...person, businessName: v })} error={errors.businessName} autoComplete="organization" maxLength={160} />
+                <InquiryTextField prefix={PREFIX} name="contactName" label="Your name" required value={person.name} testId="input-contact-name"
+                  onChange={(v) => setPerson({ ...person, name: v })} error={errors.contactName} autoComplete="name" maxLength={120} />
+                <InquiryTextField prefix={PREFIX} name="email" label="Email" required type="email" value={person.email} testId="input-email"
+                  onChange={(v) => setPerson({ ...person, email: v })} error={errors.email} autoComplete="email" maxLength={160} />
+                <InquiryTextField prefix={PREFIX} name="mobile" label="Phone" optional type="tel" value={person.phone} testId="input-mobile"
+                  onChange={(v) => setPerson({ ...person, phone: v })} error={errors.mobile} autoComplete="tel" maxLength={40} />
+
+                {/* Statement file: a visible Choose file button over a real file input, never drag-and-drop only. */}
+                <div>
+                  <label htmlFor="statement-choose-file" className="mb-1.5 block text-sm font-medium text-gray-800" data-testid="label-file-upload">
+                    {FSR_FORM.fileLabel}*
+                  </label>
+                  <input
+                    ref={fileInputRef}
+                    id="statement-file"
+                    type="file"
+                    accept={STATEMENT_UPLOAD_LIMITS.accept}
+                    className="sr-only"
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    data-testid="input-file"
+                    onChange={(event) => chooseFile(event.target.files?.[0] ?? null)}
+                  />
+                  <div className="flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-gray-300 bg-gray-50 p-3">
+                    <Button
+                      id="statement-choose-file"
+                      type="button"
+                      variant="outline"
+                      className="min-h-11"
+                      onClick={() => fileInputRef.current?.click()}
+                      aria-describedby="statement-file-help"
+                      data-testid="button-choose-file"
+                    >
+                      <Upload className="mr-2 h-4 w-4" aria-hidden="true" />
+                      {selectedFile ? "Choose a different file" : "Choose file"}
+                    </Button>
+                    {selectedFile ? (
+                      <span className="flex min-w-0 items-center gap-2 text-sm text-gray-800" data-testid="text-selected-file">
+                        <CheckCircle2 className="h-4 w-4 shrink-0 text-sky-600" aria-hidden="true" />
+                        <span className="break-all">{selectedFile.name}</span>
+                        <button type="button" onClick={removeFile} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md text-gray-600 hover:text-gray-900" aria-label={`Remove ${selectedFile.name}`} data-testid="button-remove-file">
+                          <X className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      </span>
+                    ) : (
+                      <span className="text-sm text-gray-600">No file chosen</span>
+                    )}
+                  </div>
+                  <p id="statement-file-help" className="mt-1.5 flex items-center gap-1.5 text-xs text-gray-600" data-testid="text-secure-upload">
+                    <Lock className="h-3 w-3 shrink-0" aria-hidden="true" />
+                    {STATEMENT_UPLOAD_HELPER}. {FSR_HERO.uploadNote}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-600">{FSR_REVIEW_CARD_FOOTNOTE}</p>
+                </div>
+
+                {/* Separate, optional and unchecked: a review never requires phone or text-message permission. */}
+                <div>
+                  <PewcCheckbox id="statement-pewcConsent" checked={person.pewcConsent} onCheckedChange={(checked) => setPerson({ ...person, pewcConsent: checked })} />
+                  {errors.pewcConsent ? <p role="alert" className="mt-1 text-sm text-destructive" data-testid="statement-pewcConsent-error">{errors.pewcConsent}</p> : null}
+                </div>
+
+                {showBanner && bannerText && (
+                  <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3" data-testid="alert-submit-error" role="alert">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-700" aria-hidden="true" />
+                    <div className="space-y-2">
+                      <p className="text-sm text-red-800" data-testid="text-submit-error">{bannerText}</p>
+                      {intake.state.phase === "unresolved" && intake.state.receipt && (
+                        <button
+                          type="button"
+                          className="min-h-11 text-sm font-semibold text-red-800 underline underline-offset-2 disabled:opacity-60"
+                          onClick={() => { void intake.check(); }}
+                          disabled={intake.checking}
+                          data-testid="button-check-upload-status"
+                        >
+                          {intake.checking ? "Checking…" : "Check whether it was saved"}
+                        </button>
+                      )}
+                      {intake.state.phase === "unresolved" && (intake.state.restored || intake.state.reason === "different_request_pending" || intake.state.reason === "mismatch") && (
+                        <button
+                          type="button"
+                          className="ml-0 min-h-11 text-sm font-semibold text-red-800 underline underline-offset-2"
+                          onClick={() => { intake.dismiss(); }}
+                          data-testid="button-start-new-upload"
+                        >
+                          Start a new request
+                        </button>
+                      )}
+                      {intake.checkNote && <p className="text-xs text-red-800" data-testid="text-upload-check-note">{intake.checkNote}</p>}
                     </div>
+                  </div>
+                )}
+
+                {isUploading && (
+                  <div className="space-y-2 rounded-xl border border-gray-100 bg-gray-50 px-4 py-4" data-testid="upload-progress-container" role="status" aria-label="Upload in progress">
+                    {intake.state.phase === "uploading" ? (
+                      <>
+                        <div className="flex items-center justify-between text-xs text-gray-600">
+                          <span className="flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin text-sky-600" aria-hidden="true" />Uploading your statement…</span>
+                          <span data-testid="text-upload-progress-percent" className="font-semibold">{intake.state.percent}%</span>
+                        </div>
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200" data-testid="upload-progress-bar-track">
+                          <div className="h-full rounded-full bg-sky-500 transition-all duration-200" style={{ width: `${intake.state.percent}%` }} data-testid="upload-progress-bar-fill" />
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-xs text-gray-700" data-testid="upload-confirming">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-600" aria-hidden="true" />
+                        Upload complete. Saving your request…
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <Button
+                  type="submit"
+                  className="h-14 w-full rounded-2xl bg-[#0d1b2e] text-base font-bold text-white shadow-lg shadow-gray-900/20 transition-all hover:bg-[#162840] active:scale-[0.98]"
+                  disabled={isUploading}
+                  data-testid="button-upload-submit"
+                >
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="mr-2 h-5 w-5 animate-spin" aria-hidden="true" />
+                      {FSR_FORM.pending}
+                    </>
+                  ) : (
+                    FSR_FORM.submit
+                  )}
+                </Button>
+
+                <p className="text-center text-sm text-gray-700" data-testid="text-form-helper">
+                  {FSR_FORM.helper}{" "}
+                  <Link href={FSR_FORM.helperHref} className="underline underline-offset-2" data-testid="link-form-help">{FSR_FORM.helperLink}</Link>
+                </p>
+
+                <p className="text-center text-xs leading-snug text-gray-600" data-testid="text-compliance-microcopy">
+                  We use these details to respond to your request and review your statement. See our{" "}
+                  <a href="/privacy-policy" className="underline">Privacy Policy</a>. Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
+                </p>
+              </form>
+            )}
+          </div>
+        </section>
+
+        {/* LB-SR-02 — what the review gives you, with the sample layout following the form on mobile. */}
+        <section className="bg-gray-50 px-5 py-10" data-testid="section-what-we-review" aria-labelledby="deliverable-heading">
+          <div className="mx-auto grid max-w-5xl gap-8 lg:grid-cols-2 lg:items-start">
+            <div>
+              <h2 id="deliverable-heading" className="mb-4 text-2xl font-bold text-gray-900" data-testid="text-deliverable-heading">{FSR_DELIVERABLE.heading}</h2>
+              <ol className="space-y-3" data-testid="list-deliverable">
+                {FSR_DELIVERABLE.rows.map((row, index) => (
+                  <li key={row} className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#0d1b2e] text-sm font-bold text-white" aria-hidden="true">{index + 1}</span>
+                    <p className="text-sm text-gray-800">{row}</p>
                   </li>
                 ))}
-              </ul>
-              <div className="bg-sky-50 border-t border-sky-100 px-4 py-2.5">
-                <p className="text-[11px] text-sky-700 font-medium leading-snug">
-                  {FSR_REVIEW_CARD_FOOTNOTE}
-                </p>
+              </ol>
+            </div>
+            <div>
+              <div className="lg:hidden">
+                <details data-testid="sample-review-details">
+                  <summary className="min-h-11 cursor-pointer py-2 text-sm font-semibold text-gray-900">See the review layout</summary>
+                  <SampleWorksheet testId="sample-review-mobile" />
+                </details>
+              </div>
+              <div className="hidden lg:block">
+                <SampleWorksheet testId="sample-review-desktop" />
               </div>
             </div>
-
-            {/* Free terminal promo */}
-            <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl px-4 py-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Monitor className="w-4 h-4 text-amber-600 shrink-0" />
-                <p className="text-sm font-bold text-amber-800">{FSR_EQUIPMENT_CARD.title}</p>
-              </div>
-              <p className="text-[12px] text-amber-700 leading-snug mb-2">
-                {FSR_EQUIPMENT_CARD.body}
-              </p>
-              <p className="text-[10px] text-amber-700 leading-snug">
-                {FSR_EQUIPMENT_CARD.fine}
-              </p>
-            </div>
-
           </div>
         </section>
 
         <FreeStatementReviewIntro />
         <FreeStatementReviewSubmitGuidance />
-
-        {/* ═══════════════════════════════════════════════════
-            MAIN FORM
-        ═══════════════════════════════════════════════════ */}
-        <section
-          id="upload-form"
-          className="bg-white px-5 pt-7 pb-10"
-          data-testid="section-upload-form"
-        >
-          <div className="max-w-lg mx-auto">
-
-            {uploadSucceeded ? (
-              /* ── SUCCESS STATE ── */
-              <div className="text-center py-12 space-y-5" data-testid="section-upload-success">
-                <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto">
-                  <CheckCircle2 className="h-9 w-9 text-green-500" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-900 mb-2" data-testid="text-success-heading">
-                    Statement Received
-                  </h2>
-                  {intake.state.phase === "saved" && (
-                    <>
-                      <p className="text-gray-500 max-w-sm mx-auto text-sm leading-relaxed">
-                        Your statement is saved securely. Your reference is{" "}
-                        <strong className="text-gray-900" data-testid="text-upload-reference">{intake.state.reference}</strong>.
-                        A member of our team will review it and follow up using the email you provided.
-                      </p>
-                      {intake.state.processing === "deferred" && (
-                        <p className="text-gray-500 max-w-sm mx-auto text-sm leading-relaxed mt-2" data-testid="text-processing-deferred">
-                          Automatic processing is running behind, so your advisor will handle this one directly. You do not need to upload it again.
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  className="text-xs text-gray-500 underline underline-offset-2"
-                  onClick={() => { setSelectedFile(null); form.reset(); intake.dismiss(); }}
-                  data-testid="button-upload-another"
-                >
-                  Upload a different statement
-                </button>
-                <Button asChild variant="outline" className="rounded-xl" data-testid="button-view-portal">
-                  <Link href="/merchant-portal">View My Portal</Link>
-                </Button>
-              </div>
-            ) : (
-              <Form {...form}>
-                <form
-                  onSubmit={form.handleSubmit(onSubmit)}
-                  className="space-y-4"
-                  data-testid="form-upload-statement"
-                >
-                  {/* Form header */}
-                  <div className="mb-2">
-                    <p className="text-lg font-bold text-gray-900" data-testid="text-form-title">
-                      Send us your statement
-                    </p>
-                    <p className="text-sm text-gray-500 mt-0.5">
-                      Takes about 30 seconds. We'll do the rest.
-                    </p>
-                  </div>
-
-                  {/* ── Row: Business + Name ── */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <FormField
-                      control={form.control}
-                      name="businessName"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-xs font-medium text-gray-600">Business Name</FormLabel>
-                          <FormControl>
-                            <Input
-                              className="h-12 text-base rounded-xl border-gray-200 focus:border-sky-500 focus:ring-sky-500"
-                              placeholder="Your business"
-                              data-testid="input-business-name"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="contactName"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-xs font-medium text-gray-600">Your Name</FormLabel>
-                          <FormControl>
-                            <Input
-                              className="h-12 text-base rounded-xl border-gray-200 focus:border-sky-500"
-                              placeholder="Full name"
-                              data-testid="input-contact-name"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  {/* ── Row: Email + Mobile ── */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <FormField
-                      control={form.control}
-                      name="email"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-xs font-medium text-gray-600">Email</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="email"
-                              className="h-12 text-base rounded-xl border-gray-200 focus:border-sky-500"
-                              placeholder="you@business.com"
-                              data-testid="input-email"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="mobile"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-xs font-medium text-gray-600">Mobile</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="tel"
-                              className="h-12 text-base rounded-xl border-gray-200 focus:border-sky-500"
-                              placeholder="(555) 123-4567"
-                              data-testid="input-mobile"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  {/* ── Industry ── */}
-                  <FormField
-                    control={form.control}
-                    name="vertical"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs font-medium text-gray-600">Industry</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger
-                              className="h-12 text-base rounded-xl border-gray-200 focus:border-sky-500"
-                              data-testid="select-vertical"
-                            >
-                              <SelectValue placeholder="Select your industry" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {verticals.map((v) => (
-                              <SelectItem
-                                key={v}
-                                value={v}
-                                data-testid={`select-item-${v.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                              >
-                                {v}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  {/* ── File Upload — styled tap target ── */}
-                  <FormField
-                    control={form.control}
-                    name="fileName"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs font-medium text-gray-600">
-                          Statement <span className="text-gray-500 font-normal">(PDF or photo)</span>
-                        </FormLabel>
-                        <FormControl>
-                          <label
-                            className={`flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed cursor-pointer transition-colors min-h-[100px] px-4 py-5
-                              ${selectedFile
-                                ? "border-sky-400 bg-sky-50"
-                                : "border-gray-200 bg-gray-50 hover:border-sky-300 hover:bg-sky-50/50"
-                              }`}
-                            data-testid="label-file-upload"
-                          >
-                            <input
-                              type="file"
-                              accept=".pdf,.png,.jpg,.jpeg"
-                              className="sr-only"
-                              data-testid="input-file"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                field.onChange(file?.name || "");
-                                setSelectedFile(file || null);
-                              }}
-                            />
-                            {selectedFile ? (
-                              <>
-                                <CheckCircle2 className="w-7 h-7 text-sky-500" />
-                                <span className="text-sm font-semibold text-sky-700 text-center break-all">
-                                  {selectedFile.name}
-                                </span>
-                                <span className="text-xs text-sky-500">Tap to change file</span>
-                              </>
-                            ) : (
-                              <>
-                                <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
-                                  <Upload className="w-5 h-5 text-gray-500" />
-                                </div>
-                                <span className="text-sm font-semibold text-gray-700">
-                                  Tap to upload statement
-                                </span>
-                                <span className="text-xs text-gray-500">PDF, JPG, PNG — up to 10 MB</span>
-                              </>
-                            )}
-                          </label>
-                        </FormControl>
-                        <div className="flex items-center gap-1.5 mt-1.5">
-                          <Lock className="w-3 h-3 text-gray-500 shrink-0" />
-                          <span className="text-[11px] text-gray-500" data-testid="text-secure-upload">
-                            {FSR_HERO.uploadNote}
-                          </span>
-                        </div>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  {/* ── Current Provider (optional) ── */}
-                  <FormField
-                    control={form.control}
-                    name="currentProvider"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs font-medium text-gray-600">
-                          Current provider <span className="text-gray-500 font-normal">(optional)</span>
-                        </FormLabel>
-                        <FormControl>
-                          <Input
-                            className="h-12 text-base rounded-xl border-gray-200"
-                            placeholder="e.g. Square, Stripe, Clover"
-                            data-testid="input-current-provider"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  {/* ── Optional checkboxes ── */}
-                  <div className="space-y-3 py-1">
-                    <FormField
-                      control={form.control}
-                      name="interestedIn0Percent"
-                      render={({ field }) => (
-                        <FormItem className="flex items-center gap-3">
-                          <FormControl>
-                            <Checkbox
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                              data-testid="checkbox-interested-0-percent"
-                            />
-                          </FormControl>
-                          <FormLabel className="flex min-h-11 flex-1 items-center text-sm font-normal text-gray-600 leading-snug cursor-pointer">
-                            Interested in a compliant 0% processing program?
-                          </FormLabel>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="needTerminal"
-                      render={({ field }) => (
-                        <FormItem className="flex items-center gap-3">
-                          <FormControl>
-                            <Checkbox
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                              data-testid="checkbox-need-terminal"
-                            />
-                          </FormControl>
-                          <FormLabel className="flex min-h-11 flex-1 items-center text-sm font-normal text-gray-600 leading-snug cursor-pointer">
-                            Do you need a terminal?
-                          </FormLabel>
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  {/* ── Notes ── */}
-                  <FormField
-                    control={form.control}
-                    name="notes"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs font-medium text-gray-600">
-                          Anything you want us to focus on?{" "}
-                          <span className="text-gray-500 font-normal">(optional)</span>
-                        </FormLabel>
-                        <FormControl>
-                          <Textarea
-                            className="text-base rounded-xl border-gray-200 resize-none"
-                            placeholder="Tell us what matters most to you"
-                            rows={3}
-                            data-testid="textarea-notes"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  {/* ── PEWC ── */}
-                  <PewcCheckbox
-                    checked={form.watch("pewcConsent") ?? false}
-                    onCheckedChange={(val) => form.setValue("pewcConsent", val)}
-                  />
-
-                  {/* ── Error banner ── */}
-                  {(submitError || intake.state.phase === "rejected" || intake.state.phase === "unresolved") && (
-                    <div
-                      className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3"
-                      data-testid="alert-submit-error"
-                      role="alert"
-                    >
-                      <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
-                      <div className="space-y-2">
-                        <p className="text-sm text-red-700" data-testid="text-submit-error">
-                          {submitError
-                            ?? (intake.state.phase === "rejected"
-                              ? intake.state.message
-                              : intake.state.phase === "unresolved"
-                                ? unresolvedMessage(intake.state.reason)
-                                : "")}
-                        </p>
-                        {intake.state.phase === "unresolved" && intake.state.receipt && (
-                          <button
-                            type="button"
-                            className="text-xs font-semibold text-red-700 underline underline-offset-2 disabled:opacity-60"
-                            onClick={() => { void intake.check(); }}
-                            disabled={intake.checking}
-                            data-testid="button-check-upload-status"
-                          >
-                            {intake.checking ? "Checking…" : "Check whether it was saved"}
-                          </button>
-                        )}
-                        {intake.checkNote && <p className="text-xs text-red-700" data-testid="text-upload-check-note">{intake.checkNote}</p>}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ── Upload progress: real bytes sent, then an honest wait for the server ── */}
-                  {isUploading && (
-                    <div
-                      className="space-y-2 rounded-xl bg-gray-50 border border-gray-100 px-4 py-4"
-                      data-testid="upload-progress-container"
-                      role="status"
-                      aria-label="Upload in progress"
-                    >
-                      {intake.state.phase === "uploading" ? (
-                        <>
-                          <div className="flex items-center justify-between text-xs text-gray-500">
-                            <span className="flex items-center gap-1.5">
-                              <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-500" />
-                              Uploading your statement…
-                            </span>
-                            <span data-testid="text-upload-progress-percent" className="font-semibold">
-                              {intake.state.percent}%
-                            </span>
-                          </div>
-                          <div className="h-1.5 w-full rounded-full bg-gray-200 overflow-hidden" data-testid="upload-progress-bar-track">
-                            <div
-                              className="h-full rounded-full bg-sky-500 transition-all duration-200"
-                              style={{ width: `${intake.state.percent}%` }}
-                              data-testid="upload-progress-bar-fill"
-                            />
-                          </div>
-                        </>
-                      ) : (
-                        <div className="flex items-center gap-1.5 text-xs text-gray-600" data-testid="upload-confirming">
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-500" />
-                          Upload complete. Saving your submission…
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* ══ PRIMARY SUBMIT CTA ══ */}
-                  <Button
-                    type="submit"
-                    className="w-full h-14 text-base font-bold rounded-2xl bg-[#0d1b2e] hover:bg-[#162840] text-white shadow-lg shadow-gray-900/20 transition-all active:scale-[0.98]"
-                    disabled={isUploading}
-                    data-testid="button-upload-submit"
-                  >
-                    {isUploading ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                        {intake.state.phase === "confirming" ? "Saving…" : "Uploading…"}
-                      </>
-                    ) : (
-                      <>
-                        <Upload className="w-5 h-5 mr-2" />
-                        Upload My Statement — Free
-                      </>
-                    )}
-                  </Button>
-
-                  {/* ── Secondary: book ── */}
-                  <Button
-                    variant="outline"
-                    className="w-full h-12 rounded-2xl border-gray-200 text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-300"
-                    asChild
-                  >
-                    <a
-                      href={CALENDAR_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      data-testid="link-upload-form-book"
-                      onClick={() =>
-                        trackBookingCtaClick({
-                          page: "/upload-statement",
-                          ctaLabel: "Book a review call",
-                          ctaLocation: "form",
-                        })
-                      }
-                    >
-                      <Calendar className="w-4 h-4 mr-2 text-gray-500" />
-                      Book a review call
-                    </a>
-                  </Button>
-
-                  {/* ── Tertiary: phone ── */}
-                  <a
-                    href={PHONE_TEL}
-                    aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
-                    data-testid="link-upload-hero-phone"
-                    onClick={() => trackPhoneCallClick({ sourcePage: "/upload-statement" })}
-                    className="public-tap flex items-center justify-center gap-2 text-sm text-gray-500 hover:text-gray-700 transition-colors py-1"
-                  >
-                    <Phone className="w-4 h-4" />
-                    Or call {PHONE_NUMBER}
-                  </a>
-
-                  {/* Compliance microcopy */}
-                  <p
-                    className="text-[10px] text-gray-500 text-center leading-snug"
-                    data-testid="text-compliance-microcopy"
-                  >
-                    Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
-                  </p>
-                </form>
-              </Form>
-            )}
-          </div>
-        </section>
-
         <FreeStatementReviewDetails />
 
-        {/* ═══════════════════════════════════════════════════
-            WHAT HAPPENS NEXT — 3 steps
-        ═══════════════════════════════════════════════════ */}
-        <section className="bg-gray-50 px-5 py-10" data-testid="section-what-happens-next">
-          <div className="max-w-lg mx-auto reveal">
-            <h2
-              className="text-xl font-bold text-gray-900 mb-1"
-              data-testid="text-what-happens-next"
-            >
-              {FSR_NEXT_HEADING}
-            </h2>
-            <p className="text-sm text-gray-500 mb-6" data-testid="text-what-happens-next-note">{FSR_NEXT_NOTE}</p>
-            <div className="space-y-3">
-              {FSR_NEXT_STEPS.map((step, i) => ({ ...step, delay: `reveal-delay-${i + 1}` })).map(({ n, title, body, delay }) => (
-                <div
-                  key={n}
-                  className={`flex items-start gap-4 bg-white rounded-2xl border border-gray-100 px-4 py-4 shadow-sm reveal ${delay}`}
-                  data-testid={`card-step-${n}`}
-                >
-                  <div className="w-9 h-9 rounded-full bg-[#0d1b2e] text-white flex items-center justify-center text-sm font-bold shrink-0">
-                    {n}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">{title}</p>
-                    <p className="text-sm text-gray-500 mt-0.5">{body}</p>
-                  </div>
-                </div>
+        {/* LB-SR-03 — three steps, with no countdown and no promised response time. */}
+        <section className="bg-white px-5 py-10" data-testid="section-what-happens-next" aria-labelledby="process-heading">
+          <div className="reveal mx-auto max-w-5xl">
+            <h2 id="process-heading" className="mb-6 text-2xl font-bold text-gray-900" data-testid="text-what-happens-next">{FSR_PROCESS.heading}</h2>
+            <ol className="grid gap-3 md:grid-cols-3">
+              {FSR_PROCESS.steps.map((step, index) => (
+                <li key={step} className="flex items-start gap-4 rounded-2xl border border-gray-100 bg-white px-4 py-4 shadow-sm" data-testid={`card-step-${index + 1}`}>
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#0d1b2e] text-sm font-bold text-white" aria-hidden="true">{index + 1}</span>
+                  <p className="text-sm text-gray-800">{step}</p>
+                </li>
               ))}
-            </div>
-
-            <div className="text-center mt-6 reveal reveal-delay-4">
-              <Button variant="outline" className="rounded-xl gap-2 border-gray-200 text-gray-700" asChild>
-                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="button-book-call-next">
-                  <Calendar className="w-4 h-4" />
-                  Prefer to talk? Book a review call
-                </a>
-              </Button>
-            </div>
+            </ol>
+            <p className="mt-4 text-sm text-gray-600" data-testid="text-what-happens-next-note">{FSR_PROCESS.support} {FSR_NEXT_NOTE}</p>
           </div>
         </section>
 
-        {/* ═══════════════════════════════════════════════════
-            AI QUICK ANALYSIS — power-user tool
-        ═══════════════════════════════════════════════════ */}
-        <section className="bg-white px-5 py-8" data-testid="section-ai-analysis">
-          <div className="max-w-lg mx-auto">
-            <Card data-testid="card-ai-analysis" className="rounded-2xl border-gray-200">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base font-bold text-gray-900 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-sky-500" />
-                  Quick AI rate estimate
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-gray-500">
-                  Don't have your statement handy? Enter your volume and rate for an instant estimate.
-                </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-gray-600">Monthly Volume ($)</Label>
-                    <Input
-                      className="h-11 text-base rounded-xl border-gray-200"
-                      placeholder="e.g. 50000"
-                      data-testid="input-analysis-volume"
-                      value={analysisVolume}
-                      onChange={(e) => setAnalysisVolume(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-gray-600">Effective Rate (%)</Label>
-                    <Input
-                      className="h-11 text-base rounded-xl border-gray-200"
-                      placeholder="e.g. 3.2"
-                      data-testid="input-analysis-rate"
-                      value={analysisRate}
-                      onChange={(e) => setAnalysisRate(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-gray-600">
-                    Industry{" "}
-                    <span className="text-gray-500 font-normal">(optional — unlocks tailored output)</span>
-                  </Label>
-                  <Select
-                    value={analysisVertical || "_none"}
-                    onValueChange={(v) => setAnalysisVertical(v === "_none" ? "" : v)}
-                  >
-                    <SelectTrigger
-                      className="h-11 text-base rounded-xl border-gray-200"
-                      data-testid="select-analysis-vertical"
-                    >
-                      <SelectValue placeholder="Select vertical for tailored analysis" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="_none">No vertical (generic analysis)</SelectItem>
-                      {ANALYSIS_VERTICALS.map(({ label, slug }) => (
-                        <SelectItem
-                          key={slug}
-                          value={slug}
-                          data-testid={`select-analysis-item-${slug}`}
-                        >
-                          {label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button
-                  className="gap-2 rounded-xl w-full sm:w-auto"
-                  onClick={handleAnalysis}
-                  disabled={analyzing || !analysisVolume}
-                  data-testid="button-analyze-statement"
-                >
-                  {analyzing ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-4 h-4" />
-                  )}
-                  Analyze My Rate
-                </Button>
-                {analysisError && (
-                  <div className="text-sm text-red-600" data-testid="text-analysis-error">
-                    {analysisError}
-                  </div>
-                )}
-                {analysisResult && (
-                  <div className="space-y-3 border-t pt-4" data-testid="analysis-results">
-                    {(analysisResult._vertical as string | null | undefined) && (
-                      <div className="flex items-center gap-2" data-testid="text-analysis-vertical">
-                        <span className="text-xs text-gray-500">Vertical context applied:</span>
-                        <span className="inline-flex items-center rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-700">
-                          {ANALYSIS_VERTICALS.find(
-                            (v) => v.slug === (analysisResult._vertical as string)
-                          )?.label ?? (analysisResult._vertical as string)}
-                        </span>
-                      </div>
-                    )}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <div className="text-xs text-gray-500">Effective Rate</div>
-                        <div
-                          className="text-lg font-bold text-gray-900"
-                          data-testid="text-effective-rate"
-                        >
-                          {analysisResult.effectiveRate}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-gray-500">Recommended Program</div>
-                        <div
-                          className="text-lg font-bold text-gray-900"
-                          data-testid="text-recommended-path"
-                        >
-                          {analysisResult.recommendedPath}
-                        </div>
-                      </div>
-                    </div>
-                    {analysisResult.keyFindings && (
-                      <div>
-                        <div className="text-sm font-medium text-gray-900 mb-2">Key Findings</div>
-                        <ul className="space-y-1">
-                          {(analysisResult.keyFindings as string[]).map((f, i) => (
-                            <li
-                              key={i}
-                              className="text-sm text-gray-500 flex items-start gap-2"
-                            >
-                              <CheckCircle2 className="w-4 h-4 text-sky-500 shrink-0 mt-0.5" />
-                              {f}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {analysisResult.overallAssessment && (
-                      <div className="rounded-xl bg-sky-50 border border-sky-100 p-3">
-                        <p className="text-sm text-sky-800">{analysisResult.overallAssessment as string}</p>
-                      </div>
-                    )}
-                    <p className="text-[11px] text-gray-500 leading-snug">
-                      This is an AI estimate, not a formal quote. Upload your actual statement for a
-                      precise, line-item analysis.
-                    </p>
-                    <Button size="sm" className="gap-2 rounded-xl w-full" asChild>
-                      <a href="#upload-form" className="block">
-                        <Upload className="w-3.5 h-3.5" />
-                        Upload My Actual Statement
-                      </a>
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+        {/* LB-SR-05 — the three questions. */}
+        <section className="bg-gray-50 px-5 py-10" data-testid="section-statement-faq" aria-labelledby="faq-heading">
+          <div className="mx-auto max-w-3xl">
+            <h2 id="faq-heading" className="mb-4 text-2xl font-bold text-gray-900" data-testid="text-faq-heading">{FSR_FAQ.heading}</h2>
+            <Accordion type="multiple" className="rounded-2xl border border-gray-200 bg-white px-4" data-testid="accordion-statement-faq">
+              {FSR_FAQ.items.map((item, index) => (
+                <AccordionItem key={item.question} value={`faq-${index}`} data-testid={`faq-item-${index + 1}`}>
+                  <AccordionTrigger className="min-h-11 text-left text-base font-semibold text-gray-900">{item.question}</AccordionTrigger>
+                  <AccordionContent className="text-sm text-gray-700">
+                    {item.answer}
+                    {"link" in item && item.link ? (
+                      <>
+                        {" "}
+                        <Link href={item.link.href} className="underline underline-offset-2" data-testid="link-faq-discuss">{item.link.label}</Link>.
+                      </>
+                    ) : null}
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
           </div>
         </section>
 
-        {/* ═══════════════════════════════════════════════════
-            BOTTOM CTA PANEL
-        ═══════════════════════════════════════════════════ */}
-        <section className="bg-[#0d1b2e] px-5 py-10">
-          <div className="max-w-lg mx-auto text-center space-y-4">
-            <p className="text-xs font-bold tracking-widest text-white/70 uppercase">
-              Ready to see your numbers?
-            </p>
-            <h2 className="text-2xl font-extrabold text-white leading-tight">
-              Get your free statement<br />review today.
-            </h2>
-            <p className="text-sm text-white/55 leading-relaxed max-w-xs mx-auto">
-              Upload takes 30 seconds. No processor login, no pressure, no obligation.
-            </p>
-            <a href="#upload-form" className="w-full h-13 bg-white text-[#0d1b2e] font-extrabold text-base rounded-2xl py-3.5 flex items-center justify-center gap-2.5 hover:bg-white/95 active:scale-[0.98] transition-all shadow-xl max-w-xs mx-auto">
-                <Upload className="w-5 h-5 shrink-0" />
-                Upload My Statement
-              </a>
+        {/* Closing prompt. */}
+        <section className="bg-[#0d1b2e] px-5 py-10" data-testid="section-upload-closing">
+          <div className="mx-auto max-w-lg space-y-4 text-center">
+            <h2 className="text-2xl font-extrabold leading-tight text-white">{FSR_HERO.heading}</h2>
+            <a
+              href="#statement-review-form"
+              className="mx-auto flex h-14 w-full max-w-xs items-center justify-center gap-2.5 rounded-2xl bg-white text-base font-extrabold text-[#0d1b2e] shadow-xl transition-all hover:bg-white/95 active:scale-[0.98]"
+              data-testid="link-closing-cta"
+            >
+              <Upload className="h-5 w-5 shrink-0" aria-hidden="true" />
+              {FSR_HERO.button}
+            </a>
             <a
               href={PHONE_TEL}
               aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
-              className="public-tap inline-flex items-center gap-2 text-sm text-white/70 hover:text-white/70 transition-colors"
+              data-testid="link-upload-hero-phone"
+              className="public-tap inline-flex items-center gap-2 text-sm text-white/80 transition-colors hover:text-white"
               onClick={() => trackPhoneCallClick({ sourcePage: "/upload-statement" })}
             >
-              <Phone className="w-4 h-4" />
+              <Phone className="h-4 w-4" aria-hidden="true" />
               Or call {PHONE_NUMBER}
             </a>
-            <p className="text-[10px] text-white/70 leading-snug max-w-sm mx-auto"
-              style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
-              Eligibility, underwriting, card brand rules, and applicable laws apply.
-            </p>
+            <p className="text-[11px] leading-snug text-white/70">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>
           </div>
         </section>
-
       </main>
 
       <Footer />
-
-      {/* ═══════════════════════════════════════════════════
-          STICKY BOTTOM BAR — mobile only
-          (App.tsx disables StickyMobileCTA on /upload-statement)
-      ═══════════════════════════════════════════════════ */}
-      {!uploadSucceeded && (
-        <div
-          className="fixed bottom-0 left-0 right-0 z-40 sm:hidden bg-white/95 backdrop-blur-sm border-t border-gray-200 px-4 pt-3 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]"
-          style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
-          data-testid="sticky-upload-cta"
-        >
-          <a
-            href="#upload-form"
-            className="flex items-center justify-center gap-2.5 w-full bg-[#0d1b2e] text-white font-bold text-sm rounded-xl py-3 active:scale-[0.98] transition-all"
-            data-testid="link-sticky-upload-statement"
-          >
-            <Upload className="w-4 h-4 shrink-0" />
-            Upload My Statement — Free
-          </a>
-        </div>
-      )}
     </div>
   );
 }

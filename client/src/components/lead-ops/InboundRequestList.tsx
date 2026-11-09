@@ -36,6 +36,27 @@ export interface InboundRequestRow {
   createdAt: string;
   terminalReason: string | null;
   reviewRevision?: number | null;
+  /** Frozen context of an equipment or general inquiry (null for every other source). */
+  inquiry?: {
+    mode: "equipment_inquiry" | "general_inquiry";
+    offerId: string | null;
+    businessName: string;
+    businessType: string | null;
+    volumeBand: string | null;
+    currentlyLeasing: string | null;
+    intent: string | null;
+    phoneProvided: boolean;
+    smsPermissionRequested: boolean;
+    note: string | null;
+  } | null;
+  /** Statement rows only. `available: false` means the durable read failed, not that the analysis is held. */
+  statement?: {
+    available: boolean;
+    analysis: "completed" | "queued" | "failed" | "held" | "not_started" | null;
+    documentId: number | null;
+    documentHref: string | null;
+    autoAnalysisEnabled: boolean | null;
+  } | null;
 }
 
 export const PROCESSING_NEEDS_ATTENTION = "Processing needs attention";
@@ -54,6 +75,8 @@ const SOURCE_TYPE_LABEL: Record<string, string> = {
   statement_upload: "Statement upload",
   estimate_form: "Estimate request",
   get_started_form: "Get-started request",
+  equipment_inquiry: "Equipment inquiry",
+  general_inquiry: "General inquiry",
   callback_form: "Callback request",
   free_analysis: "Free analysis request",
   integration_request: "Integration request",
@@ -224,12 +247,58 @@ function ReceiptLine({ row }: { row: InboundRequestRow }) {
   );
 }
 
+const ANALYSIS_TEXT: Record<string, string> = {
+  completed: "Analysis completed",
+  queued: "Analysis queued",
+  failed: "Analysis failed",
+  held: "Automatic analysis held — review the statement manually",
+  not_started: "Analysis not started",
+};
+
+/** What the requester told us, and where the retained file can be opened. Authorized staff only; no figures are shown. */
+function RequestDetails({ row }: { row: InboundRequestRow }) {
+  const inquiry = row.inquiry;
+  const statement = row.statement;
+  if (!inquiry && !statement) return null;
+  return (
+    <div className="mt-1.5 space-y-0.5 text-xs" data-testid={`request-details-${row.shortRef}`}>
+      {inquiry && (
+        <>
+          {inquiry.intent && <div><span className="text-muted-foreground">Discuss: </span>{inquiry.intent}</div>}
+          {inquiry.businessType && <div><span className="text-muted-foreground">Business type: </span>{inquiry.businessType}</div>}
+          {inquiry.volumeBand && <div><span className="text-muted-foreground">Monthly card volume: </span>{inquiry.volumeBand}</div>}
+          {inquiry.currentlyLeasing && <div><span className="text-muted-foreground">Currently leasing a terminal: </span>{inquiry.currentlyLeasing}</div>}
+          <div className="text-muted-foreground">{inquiry.phoneProvided ? "Phone provided" : "No phone provided"}{inquiry.smsPermissionRequested ? " · text-message permission given" : ""}</div>
+          {inquiry.note && <div className="break-words"><span className="text-muted-foreground">Note: </span>{inquiry.note}</div>}
+        </>
+      )}
+      {statement && (
+        statement.available ? (
+          <>
+            <div data-testid={`statement-analysis-${row.shortRef}`}>{statement.analysis ? ANALYSIS_TEXT[statement.analysis] : "Analysis state unavailable"}</div>
+            {statement.documentHref ? (
+              <a className="text-blue-600 hover:underline inline-flex items-center min-h-11 lg:min-h-0" href={statement.documentHref} data-testid={`link-statement-file-${row.shortRef}`}>
+                Open retained statement file
+              </a>
+            ) : (
+              <div className="text-muted-foreground">No retained file linked to this request</div>
+            )}
+          </>
+        ) : (
+          <div className="text-amber-700 dark:text-amber-400" data-testid={`statement-unavailable-${row.shortRef}`}>Statement detail is unavailable right now. Reload to try again.</div>
+        )
+      )}
+    </div>
+  );
+}
+
 function Title({ row }: { row: InboundRequestRow }) {
   return (
     <div className="min-w-0">
       <div className="font-medium break-words">{row.businessName ?? "Business name not provided"}</div>
       <div className="text-xs text-muted-foreground">{inboundSourceLabel(row)}</div>
       <div className="text-xs text-muted-foreground">Ref <span className="font-mono">{row.shortRef}</span> · {when(row.createdAt)}</div>
+      <RequestDetails row={row} />
     </div>
   );
 }

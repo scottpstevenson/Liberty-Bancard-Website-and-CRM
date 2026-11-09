@@ -330,9 +330,6 @@ try {
     await b!.set('[data-testid="input-contact-name"]', "Una Merchant");
     await b!.set('[data-testid="input-email"]', uiEmail);
     await b!.set('[data-testid="input-mobile"]', phoneFor());
-    await b!.click('[data-testid="select-vertical"]');
-    await until(async () => await present('[data-testid="select-item-automotive"]'), "industry options");
-    await b!.click('[data-testid="select-item-automotive"]');
     // No file chosen.
     await b!.evaluate(`document.querySelector('[data-testid="button-upload-submit"]').scrollIntoView({block:'center'})`);
     await b!.click('[data-testid="button-upload-submit"]');
@@ -341,7 +338,7 @@ try {
     // A program posing as statement.pdf is refused by the server and the form says what to do.
     await chooseFile(badPath);
     await b!.click('[data-testid="button-upload-submit"]');
-    await until(async () => /PDF, JPG or PNG/.test(await text('[data-testid="text-submit-error"]')), "unsupported file message");
+    await until(async () => /PDF, JPEG or PNG/.test(await text('[data-testid="text-submit-error"]')), "unsupported file message");
     check(await count(`SELECT count(*) n FROM contacts WHERE email=$1`, [uiEmail]) === 0 && !(await present('[data-testid="section-upload-success"]')), "A non-statement file is refused with clear copy and leaves no contact, file or request behind");
     // The real statement.
     await chooseFile(goodPath);

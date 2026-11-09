@@ -12,7 +12,7 @@ export type PublicIntakeState =
   | { phase: "saved"; receipt: string; pendingReview: boolean }
   | { phase: "recoverable"; receipt: string; restored: boolean }
   | { phase: "unresolved"; receipt: string | null; restored: boolean; reason: string }
-  | { phase: "rejected"; message: string };
+  | { phase: "rejected"; message: string; fieldErrors?: Record<string, string> };
 
 /**
  * One public sales-form intent. Restores an unresolved/recoverable intent after a reload (key + receipt only, never the
@@ -26,15 +26,17 @@ export function usePublicIntake(form: IntakeForm, path: string) {
   useEffect(() => {
     const stored = loadIntent(form);
     if (!stored) return;
-    if (stored.state === "recoverable" && stored.receipt) setState({ phase: "recoverable", receipt: stored.receipt, restored: true });
-    else if (stored.state === "unresolved") setState({ phase: "unresolved", receipt: stored.receipt, restored: true, reason: "restored" });
+    if (stored.state === "saved" && stored.receipt) setState({ phase: "saved", receipt: stored.receipt, pendingReview: false });
+    else if (stored.state === "recoverable" && stored.receipt) setState({ phase: "recoverable", receipt: stored.receipt, restored: true });
+    // A request that was in flight when the page went away (pending) is as ambiguous as an unresolved one: never silently dropped.
+    else if (stored.state === "unresolved" || stored.state === "pending") setState({ phase: "unresolved", receipt: stored.receipt, restored: true, reason: "restored" });
   }, [form]);
 
   const apply = useCallback((outcome: IntakeOutcome): IntakeOutcome => {
     if (outcome.kind === "saved") setState({ phase: "saved", receipt: outcome.receipt, pendingReview: outcome.pendingReview });
     else if (outcome.kind === "recoverable") setState({ phase: "recoverable", receipt: outcome.receipt, restored: false });
     else if (outcome.kind === "unresolved") setState({ phase: "unresolved", receipt: outcome.receipt, restored: false, reason: outcome.reason });
-    else setState({ phase: "rejected", message: outcome.message });
+    else setState({ phase: "rejected", message: outcome.message, fieldErrors: outcome.fieldErrors });
     return outcome;
   }, []);
 
@@ -50,17 +52,19 @@ export function usePublicIntake(form: IntakeForm, path: string) {
     const result = await checkIntakeStatus(form);
     setChecking(false);
     if (!result) { setCheckNote("We couldn't read the status from this browser session. Try again, or call us."); return null; }
-    if (result.saved) {
-      const receipt = loadIntent(form)?.receipt ?? "";
-      setState({ phase: "saved", receipt, pendingReview: result.status === "review_required" });
-    } else setCheckNote("Still pending. Your details are saved; nothing needs to be re-entered.");
+    // The verified receipt comes back with the result; storage is never read after the status read.
+    if (result.saved) setState({ phase: "saved", receipt: result.receipt, pendingReview: result.status === "review_required" });
+    else setCheckNote("Still pending. Your details are saved; nothing needs to be re-entered.");
     return result;
   }, [form]);
 
   const dismiss = useCallback(() => { clearIntent(form); setCheckNote(null); setState({ phase: "idle" }); }, [form]);
 
   /** Leave the saved view (e.g. closing a widget) without discarding an unresolved intent. */
-  const acknowledgeSaved = useCallback(() => setState((current) => (current.phase === "saved" ? { phase: "idle" } : current)), []);
+  const acknowledgeSaved = useCallback(() => {
+    if (loadIntent(form)?.state === "saved") clearIntent(form);
+    setState((current) => (current.phase === "saved" ? { phase: "idle" } : current));
+  }, [form]);
 
   return { state, submit, check, dismiss, acknowledgeSaved, checking, checkNote, submitting: state.phase === "submitting" };
 }
@@ -111,7 +115,9 @@ export function usePublicStatementUpload() {
     setCheckNote(null);
     setState({ phase: "uploading", percent: 0 });
     const fingerprint = await statementFingerprint(fields, file);
-    const intent = await statementIntentFor(fingerprint);
+    const { intent, blockedBy } = await statementIntentFor(fingerprint);
+    // An earlier upload of this form is unconfirmed and this submission differs: send nothing and never rotate the key.
+    if (blockedBy) return apply({ kind: "unresolved", receipt: blockedBy.receipt, reason: "different_request_pending" });
     const formData = new FormData();
     for (const [name, value] of Object.entries(fields)) if (value !== "") formData.append(name, value);
     formData.append("statementFile", file);

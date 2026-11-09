@@ -11,6 +11,9 @@ import { featureFlags } from "../services/feature-flags";
 import { inboundShortRef, listInboundRequests, parseInboundShortRef, resumeInboundSalesRequestForActor } from "../services/inbound-request-authority";
 import { recoverStatementOccurrence } from "../services/statement-occurrence-recovery";
 import { getInboundRequestSummary } from "../services/inbound-request-summary";
+import { readStatementOccurrenceTruth } from "../services/statement-chain-read-model";
+import { readInquiryContext } from "./public-inquiry";
+import { generalIntentLabel, leaseAnswerLabel, volumeBandLabel } from "@shared/public-inquiry";
 import { businessLacksDbprLineageSql } from "../services/dbpr";
 import { deriveCanonicalBusinessSafeNextAction } from "../services/canonical-business-safe-next-action";
 import { buildCanonicalBusinessEmailDisplay } from "../services/canonical-business-email-display";
@@ -179,8 +182,18 @@ export function registerLeadOpsRoutes(app: Express) {
         requestEffects.push(effect);
         effectsByRequest.set(effect.requestId, requestEffects);
       }
+      // Held-analysis truth and protected-document access for statement rows, read from durable state. If this read
+      // fails the list still loads and each statement row says its detail is unavailable (never "analysis completed").
+      const statementRows = rows.filter((row) => row.sourceType === "statement_upload");
+      let statementTruth: Awaited<ReturnType<typeof readStatementOccurrenceTruth>> | null = null;
+      if (statementRows.length) {
+        try { statementTruth = await readStatementOccurrenceTruth(statementRows); }
+        catch (truthError) { console.error("[LeadOps] statement truth read failed:", truthError instanceof Error ? truthError.name : "unknown"); }
+      }
       res.json(rows.map((row) => {
         const rowEffects = effectsByRequest.get(row.id) || [];
+        const inquiryContext = readInquiryContext(row.attributionRefs);
+        const truth = statementTruth?.byRequest.get(row.id) ?? null;
         const statementReview = rowEffects.find((e) => e.effectKey === "statement_review");
         const work = workByRequest.get(row.id);
         const receipt = receiptByRequest.get(row.id);
@@ -211,6 +224,27 @@ export function registerLeadOpsRoutes(app: Express) {
         // The decision revision an operator must have seen to continue a retained review.
         reviewRevision: revisionByRequest.get(row.id) ?? null,
         effects: effectsByRequest.get(row.id) || [],
+        // Frozen server-owned context of an equipment or general inquiry. Absent for every other source.
+        inquiry: inquiryContext ? {
+          mode: inquiryContext.mode,
+          offerId: inquiryContext.offer?.id ?? null,
+          businessName: inquiryContext.businessName,
+          businessType: inquiryContext.businessType ?? null,
+          volumeBand: volumeBandLabel(inquiryContext.volumeBand),
+          currentlyLeasing: leaseAnswerLabel(inquiryContext.currentlyLeasing),
+          intent: generalIntentLabel(inquiryContext.intent),
+          phoneProvided: inquiryContext.phoneProvided,
+          smsPermissionRequested: inquiryContext.smsPermissionRequested,
+          note: inquiryContext.note ?? null,
+        } : null,
+        // Statement rows only. `available:false` means the durable read failed, which is not the same as "held".
+        statement: row.sourceType !== "statement_upload" ? null : truth ? {
+          available: true,
+          analysis: truth.analysis,
+          documentId: truth.documentId,
+          documentHref: truth.documentId ? `/api/documents/download/${truth.documentId}` : null,
+          autoAnalysisEnabled: statementTruth!.autoAnalysisEnabled,
+        } : { available: false, analysis: null, documentId: null, documentHref: null, autoAnalysisEnabled: null },
         };
       }));
     } catch (error) {

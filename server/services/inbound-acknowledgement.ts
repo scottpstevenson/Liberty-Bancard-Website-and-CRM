@@ -249,6 +249,8 @@ const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 const SOURCE_LABELS: Record<string, string> = {
   estimate_form: "estimate request",
   get_started_form: "get-started request",
+  equipment_inquiry: "equipment inquiry",
+  general_inquiry: "inquiry",
   callback_form: "callback request",
   free_analysis: "free analysis request",
   statement_upload: "statement upload",

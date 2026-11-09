@@ -68,6 +68,12 @@ const adminQueueLinks:Record<string,string>={
  * not make the review notification disappear.
  */
 const STATEMENT_REVIEW_EVENT="statement_uploaded";
+/**
+ * Every public occurrence whose review lives on that same surface. A public inquiry or a support request can arrive from a
+ * contact that is not yet classified as production, so a typed contact/deal/ticket target would silently hide the
+ * notification from everyone; these events link to the request's review page by short reference instead.
+ */
+const INBOUND_REVIEW_EVENTS=[STATEMENT_REVIEW_EVENT,"public_inquiry_received","support_request_received"];
 const STATEMENT_REVIEW_LINK_PATTERN="^/dashboard/lead-ops\\?tab=pipeline&ref=[0-9A-F]{8}$";
 function readExpression(actor:Actor) {
   return sql<boolean>`COALESCE((SELECT s.read_at IS NOT NULL FROM notification_actor_states s
@@ -101,7 +107,7 @@ function scope(actor:Actor,category="all") {
     sql`(${value("link")} IS NULL OR ${value("link")}='/dashboard' OR
       (${actor.role==="admin"} AND (${sql.join(Object.entries(adminQueueLinks).map(([event,link])=>
         sql`(${value("eventType")}=${event} AND ${value("link")}=${link})`),sql` OR `)})) OR
-      (${privileged} AND ${value("eventType")}=${STATEMENT_REVIEW_EVENT} AND ${value("link")} ~ ${STATEMENT_REVIEW_LINK_PATTERN}) OR
+      (${privileged} AND ${value("eventType")} IN (${sql.join(INBOUND_REVIEW_EVENTS.map(event=>sql`${event}`),sql`,`)}) AND ${value("link")} ~ ${STATEMENT_REVIEW_LINK_PATTERN}) OR
       (${sql.join(targetKinds.map(kind=>{
         const linkedId=positive(sql`substring(${value("link")} from ${legacyPatterns[kind]})`);
         return sql`(${linkedId} IS NOT NULL AND ${resourceAllowed(actor,kind,linkedId)})`;
@@ -140,7 +146,7 @@ function typedTarget(metadata:any):{kind:string;id:number}|null {
   return null; // Never infer an entity from a title, name or arbitrary URL.
 }
 function destination(metadata:any) {
-  if(metadata?.eventType===STATEMENT_REVIEW_EVENT && typeof metadata.link==="string"
+  if(INBOUND_REVIEW_EVENTS.includes(metadata?.eventType) && typeof metadata.link==="string"
     && new RegExp(STATEMENT_REVIEW_LINK_PATTERN).test(metadata.link))
     return {state:"available",url:metadata.link,context:"inbound_review",label:"Open Inbound Operations review"};
   const target=typedTarget(metadata);

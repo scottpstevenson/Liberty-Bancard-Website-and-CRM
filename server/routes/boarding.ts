@@ -1651,21 +1651,20 @@ export function registerBoardingRoutes(app: Express) {
     }
   });
 
+  // Statement occurrences with the real state of each handoff step. Read-only: it derives held/manual/analysis truth from
+  // the retained command, the occurrence and the deal, never from a step that merely reported success. A failure is a
+  // 503 so the panel shows "unavailable" with Retry instead of an empty all-clear.
   app.get("/api/operator/statement-chain", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const limit = Math.min(Number(req.query.limit) || 60, 200);
-      const failuresOnly = req.query.failuresOnly === "true";
-      const all = await storage.getAuditLogs({ limit: limit * 4 });
-      const filtered = all
-        .filter((l) =>
-          failuresOnly
-            ? l.action === "statement_chain_partial_failure"
-            : l.action === "statement_chain_complete" || l.action === "statement_chain_partial_failure"
-        )
-        .slice(0, limit);
-      res.json(filtered);
+      const { readStatementChain } = await import("../services/statement-chain-read-model");
+      res.set("Cache-Control", "no-store");
+      res.json(await readStatementChain({
+        limit: Number(req.query.limit) || 60,
+        failuresOnly: req.query.failuresOnly === "true",
+      }));
     } catch (err: any) {
-      serverError(res, err);
+      console.error("[Operator] statement chain read failed:", err instanceof Error ? err.name : "unknown");
+      res.status(503).json({ error: "STATEMENT_CHAIN_UNAVAILABLE", message: "Statement handoff status could not be loaded." });
     }
   });
 

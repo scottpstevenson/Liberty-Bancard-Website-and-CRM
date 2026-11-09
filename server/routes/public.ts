@@ -17,7 +17,9 @@ import { db } from "../db";
 import { normalizePhoneE164 } from "../services/sdr/dedupe";
 import { retainStatementAndTryEnqueue } from "../services/statement-command-worker";
 import { inspectStatementFile, STATEMENT_MAX_BYTES } from "../services/statement-upload-file";
+import { STATEMENT_UPLOAD_LIMITS } from "../../shared/statement-upload-limits";
 import { ensureStatementOccurrenceNotification } from "../services/statement-review-notification";
+import { parseStatementFields, computeStatementFingerprintV2 } from "../services/public-statement-fields";
 import {
   claimCommand,
   computeRequestFingerprint,
@@ -28,6 +30,8 @@ import { parse } from "csv-parse/sync";
 import path from "path";
 import fs from "fs";
 import { upload, trackReferral } from "./helpers";
+import { resolvePublicInboundSource, runInquiryIntake } from "./public-inquiry";
+import { runSupportIntake } from "./public-support";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { recordPewcDecision } from "../services/consent-evidence";
 import { recordWebsiteEmailConsent, validateWebsiteEmailConsent } from "../services/website-email-consent";
@@ -50,6 +54,7 @@ import {
 import {
   INBOUND_HANDOFF_RECOVERABLE,
   RECOVERABLE_SALES_SOURCE_TYPES,
+  RECOVERABLE_SUPPORT_SOURCE_TYPES,
   bindOccurrenceProgress,
   claimInboundRecovery,
   contactHasOccurrenceEvidence,
@@ -80,7 +85,8 @@ export function registerPublicRoutes(app: Express) {
   // command ID, so it is intentionally excluded from this middleware.
   app.use(async (req, res, next) => {
     if (req.method !== "POST") return next();
-    const source = PUBLIC_INBOUND_SOURCES[req.path];
+    // Path decides the source; get-started additionally honours an exactly allowlisted W-C inquiry mode.
+    const source = resolvePublicInboundSource(req.path, req.body, PUBLIC_INBOUND_SOURCES);
     if (!source) return next();
     const suppliedKey = req.header("Idempotency-Key");
     if (!suppliedKey) {
@@ -102,8 +108,13 @@ export function registerPublicRoutes(app: Express) {
       if (claim.outcome === "replay") {
         // An unfinished sales occurrence (explicit recoverable hold, or a first execution silent past its lease) is
         // re-entered through the SAME handler, intent and key. Exactly one concurrent replay wins the atomic claim.
-        if ((RECOVERABLE_SALES_SOURCE_TYPES as readonly string[]).includes(claim.request.sourceType)) {
-          const recovering = await claimInboundRecovery(claim.request.id);
+        const recoverableTypes = (RECOVERABLE_SALES_SOURCE_TYPES as readonly string[]).includes(claim.request.sourceType)
+          ? RECOVERABLE_SALES_SOURCE_TYPES
+          : (RECOVERABLE_SUPPORT_SOURCE_TYPES as readonly string[]).includes(claim.request.sourceType)
+            ? RECOVERABLE_SUPPORT_SOURCE_TYPES
+            : null;
+        if (recoverableTypes) {
+          const recovering = await claimInboundRecovery(claim.request.id, recoverableTypes);
           if (recovering) {
             (req as any).inboundRequestId = recovering.id;
             (req as any).inboundRequest = recovering;
@@ -169,7 +180,7 @@ export function registerPublicRoutes(app: Express) {
     if (requestId) await setInboundRequestLifecycle(requestId, "failed", `HTTP_${status}`);
   }
 
-  const PEWC_EVENT_PREFIX: Record<string, string> = { estimate_form: "estimate", get_started_form: "get_started", callback_form: "callback" };
+  const PEWC_EVENT_PREFIX: Record<string, string> = { estimate_form: "estimate", get_started_form: "get_started", callback_form: "callback", equipment_inquiry: "equipment_inquiry", general_inquiry: "general_inquiry" };
 
   /** Retained rows of THIS occurrence for a recovery re-entry (null when nothing committed). */
   async function recoveredContext(req: any, sourceType: string) {
@@ -381,13 +392,16 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       if (typeof code === "string" && code.startsWith("LIMIT_")) {
         return res.status(400).json({ error: "STATEMENT_UPLOAD_REJECTED", message: "The upload could not be read. Please try again." });
       }
-      return res.status(415).json({ error: "STATEMENT_FILE_TYPE_UNSUPPORTED", message: "Upload a PDF, JPG or PNG statement." });
+      return res.status(415).json({ error: "STATEMENT_FILE_TYPE_UNSUPPORTED", message: `Upload a ${STATEMENT_UPLOAD_LIMITS.typesLabel} statement.` });
     });
   };
 
   app.post("/api/public/statement-upload", publicLeadRateLimit, parseStatementMultipart, async (req, res) => {
     let ownedCommandId: string | null = null;
     let ownedInboundRequestId: string | null = null;
+    // Set the moment the required inbound work is durable. Everything after that point is optional bookkeeping that must
+    // never turn a retained, accepted upload into a failure answer (the visitor would retry and create a second request).
+    let acceptedInboundResponse: Record<string, unknown> | null = null;
     try {
       const idempotencyKey = req.headers["idempotency-key"] as string | undefined;
       if (!idempotencyKey) {
@@ -413,14 +427,25 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
             ? "Choose a statement file to upload."
             : fileVerdict.code === "STATEMENT_FILE_TOO_LARGE"
               ? `The statement must be ${Math.floor(STATEMENT_MAX_BYTES / 1024 / 1024)} MB or smaller.`
-              : "Upload a PDF, JPG or PNG statement.",
+              : `Upload a ${STATEMENT_UPLOAD_LIMITS.typesLabel} statement.`,
         });
       }
 
-      const { businessName, contactName, email, mobile, vertical, currentProvider, interestedIn0Percent, needTerminal, notes, consentSms, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid, referrerUrl: bodyReferrerUrl } = req.body;
-      const referrerUrl = bodyReferrerUrl || req.headers["referer"] || req.headers["referrer"] || undefined;
-      const nameParts = (contactName || "").split(" ");
-      const firstName = nameParts[0] || "";
+      // Strict, bounded validation of every text field BEFORE anything is claimed: unknown multipart keys, oversized
+      // values, a malformed phone, and text-message permission without a real number are all refused here.
+      const fieldsVerdict = parseStatementFields(req.body);
+      if (!fieldsVerdict.ok) {
+        return res.status(400).json({ error: "INVALID_SUBMISSION", details: fieldsVerdict.issues });
+      }
+      const fields = fieldsVerdict.data;
+      const { businessName, contactName, email, mobile, vertical, currentProvider, notes, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid } = fields;
+      const interestedIn0Percent = fields.interestedIn0Percent === true;
+      const needTerminal = fields.needTerminal === true;
+      const consentSms = fields.consentSms === true;
+      const referrerHeader = req.headers["referer"] || req.headers["referrer"];
+      const referrerUrl = fields.referrerUrl || (typeof referrerHeader === "string" ? referrerHeader : undefined);
+      const nameParts = contactName.split(/\s+/).filter(Boolean);
+      const firstName = nameParts[0] || contactName;
       const lastName = nameParts.slice(1).join(" ") || "";
 
       const parseBool = (v: unknown) => v === true || v === "true";
@@ -447,19 +472,20 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       // The request authority owns the public occurrence. Its multipart
       // fingerprint includes the statement bytes, while its caller scope is
       // identical to other public intake capability checks.
-      const normalizedEmailForFp = (email || "").trim().toLowerCase();
-      const fingerprint = computeRequestFingerprint({
+      const normalizedEmailForFp = email.trim().toLowerCase();
+      // Versioned semantic fingerprint (see public-statement-fields.ts). The pre-W-C fingerprint is computed from the same
+      // raw request and passed as a legacy match, so a retry that began under the older build still replays exactly once.
+      const rawBody = (req.body || {}) as Record<string, string | undefined>;
+      const fingerprint = computeStatementFingerprintV2({ data: fields, existingContactId, existingDealId, fileBuffer: req.file?.buffer ?? Buffer.alloc(0) });
+      const legacyFingerprint = computeRequestFingerprint({
         fields: {
-          // Target identity (normalized)
-          email: normalizedEmailForFp,
-          mobile: (mobile || "").trim(),
-          businessName: (businessName || "").trim().toLowerCase(),
-          // Source/workflow metadata
+          email: (rawBody.email || "").trim().toLowerCase(),
+          mobile: (rawBody.mobile || "").trim(),
+          businessName: (rawBody.businessName || "").trim().toLowerCase(),
           source: "website",
-          utmSource: utmSource || null,
-          utmCampaign: utmCampaign || null,
-          landingPage: landingPage || "/upload-statement",
-          // FK hints
+          utmSource: rawBody.utmSource || null,
+          utmCampaign: rawBody.utmCampaign || null,
+          landingPage: rawBody.landingPage || "/upload-statement",
           existingContactId: existingContactId ?? null,
           existingDealId: existingDealId ?? null,
         },
@@ -474,6 +500,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         callerScope,
         actorType: "public",
         requestFingerprint: fingerprint,
+        legacyRequestFingerprints: [legacyFingerprint],
         payload: req.body || {},
       });
       if (inboundClaim.outcome === "conflict") {
@@ -506,6 +533,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const claim = await claimCommand({
         requestId: idempotencyKey,
         fingerprint,
+        legacyFingerprints: [legacyFingerprint],
         ownerScope: callerScope,
         source: "website",
         context: {
@@ -566,7 +594,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           contact = await processExistingPublicFormSubmission({
             existingContact: existingByEmail,
             permittedProfileUpdates: buildPublicContactPayload("statement_upload", {
-              firstName, lastName, email, phone: mobile,
+              firstName, lastName, email, phone: mobile ?? "",
               companyName: businessName, vertical, currentProvider,
               interestedIn0Percent: parseBool(interestedIn0Percent),
               needTerminal: parseBool(needTerminal),
@@ -587,7 +615,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           contact = await writeContact({
             mode: "local_first",
             mutation: {
-              firstName, lastName, email, phone: mobile,
+              firstName, lastName, email, phone: mobile ?? "",
               companyName: businessName, vertical, currentProvider,
               interestedIn0Percent: parseBool(interestedIn0Percent),
               needTerminal: parseBool(needTerminal),
@@ -616,7 +644,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
       if (!contact) throw new Error("Could not resolve contact record");
 
-      const pewcConsent = parseBool(req.body.pewcConsent);
+      const pewcConsent = fields.pewcConsent === true;
         if (!statementConsentHandledByMerge && parseBool(consentSms)) {
           await applyConsentCommand({
             subject: { type: "contact", id: contact.id },
@@ -729,6 +757,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       // Required inbound orchestration is now durable. Optional route-local
       // records below cannot rewrite the canonical request lifecycle.
       ownedInboundRequestId = null;
+      acceptedInboundResponse = inboundResponse;
 
       // Fire-and-forget side effects — owner execution only (replays returned early above).
       // NOTE: statement_review enrollment is owned by enrollInInboundConfirmation inside
@@ -750,32 +779,51 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }).catch(() => {});
       trackReferral(referralCode, contactName, email, mobile, businessName).catch((err: Error) => console.error("Referral tracking error:", err));
       ingestBusinessFromContact(contact.id, "manual_upload", "website_statement").catch((err: Error) => console.warn("[Statement] Business ingest failed:", err));
-      // Acknowledge canonical inbound persistence before accepting the form.
-      const { recordInboundEvent } = await import("../services/communication-events");
-      await recordInboundEvent({
-        contactId: contact.id,
-        channel: "form",
-        provider: "internal",
-        subject: `Statement Upload — ${businessName || email || "unknown"}`,
-        status: "received",
-        metadata: { formType: "statement_upload", submissionId, vertical: vertical || null },
-      });
+      // Timeline record of the upload. The request, task and retained file are already durable, so a failure here is logged
+      // and audited but must not change the answer: reporting failure for an accepted upload invites a duplicate retry.
+      try {
+        const { recordInboundEvent } = await import("../services/communication-events");
+        await recordInboundEvent({
+          contactId: contact.id,
+          channel: "form",
+          provider: "internal",
+          subject: `Statement Upload — ${businessName || email || "unknown"}`,
+          status: "received",
+          metadata: { formType: "statement_upload", submissionId, vertical: vertical || null },
+        });
+      } catch (eventError) {
+        console.error("[StatementUpload] inbound timeline event failed after acceptance:", eventError instanceof Error ? eventError.name : "unknown");
+        await storage.createAuditLog({
+          action: "statement_occurrence_event_failed", entityType: "contact", entityId: contact.id, actorType: "system",
+          details: { requestId: submissionId },
+        } as any).catch(() => {});
+      }
       // NOTE: enrollInInboundConfirmation is owned by Step 9 of runStatementUploadChain.
       // Do NOT call it here — that would duplicate the merchant confirmation for every
       // new upload and break idempotency (replay paths skip the chain entirely).
 
-      await storage.createAuditLog({
-        action: "statement_uploaded",
-        entityType: "contact",
-        entityId: contact.id,
-        details: { source: "website", hasFile: !!statementFileBuffer },
-      });
+      try {
+        await storage.createAuditLog({
+          action: "statement_uploaded",
+          entityType: "contact",
+          entityId: contact.id,
+          details: { source: "website", hasFile: !!statementFileBuffer },
+        });
+      } catch (auditError) {
+        console.error("[StatementUpload] upload audit record failed after acceptance:", auditError instanceof Error ? auditError.name : "unknown");
+      }
 
       // onStatementReceived() is now called inside runStatementUploadChain() (STEP 5b)
       // so it runs for all upload paths uniformly. Do not call it here again.
 
       res.status(202).json(inboundResponse);
     } catch (err: any) {
+      // Anything that throws after the required inbound work is durable (an unforeseen optional step) still answers with
+      // the accepted receipt: the upload is retained and a failure answer would only invite a duplicate.
+      if (acceptedInboundResponse && !res.headersSent) {
+        console.error("[StatementUpload] optional step failed after acceptance:", err instanceof Error ? err.name : "unknown");
+        return res.status(202).json(acceptedInboundResponse);
+      }
       // If we owned an idempotency slot and failed before/around handing off to
       // the chain, honestly mark it recoverable-failed so the key never replays
       // as a success and can be retried.
@@ -792,7 +840,9 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       if (typeof err?.message === "string" && /^(PROTECTED_OBJECT_|STATEMENT_COMMAND_|INBOUND_REQUEST_LINK_FAILED|STATEMENT_HANDOFF_)/.test(err.message)) {
         return res.status(503).json({ error: "REQUEST_PROCESSING_UNAVAILABLE" });
       }
-      res.status(400).json({ message: err.message || "Invalid submission" });
+      // Never echo an internal message to a public caller: a stable code the browser maps to calm, accurate copy.
+      console.error("[StatementUpload] submission failed:", err instanceof Error ? err.name : "unknown");
+      res.status(400).json({ error: "STATEMENT_UPLOAD_FAILED" });
     }
   });
 
@@ -998,131 +1048,16 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
     }
   });
 
-  app.post("/api/public/support", publicLeadRateLimit, async (req, res) => {
-    try {
-      const submissionId = (req as any).inboundRequestId;
-      const schema = z.object({
-        name: z.string().trim().min(1).max(120),
-        businessName: z.string().trim().min(1).max(160),
-        email: z.string().trim().email().max(160),
-        mobile: z.string().trim().min(10).max(40),
-        issueType: z.enum(["Funding / Deposits", "Terminal", "Chargeback / Dispute", "PCI Compliance", "Other"]),
-        priority: z.enum(["Normal", "Urgent"]),
-        message: z.string().trim().min(1).max(5000),
-        consentSms: z.boolean().optional(),
-      }).strict();
-      const parsed = schema.safeParse(req.body);
-      if (!parsed.success) {
-        await failInbound(req, 400);
-        return res.status(400).json({
-          error: "INVALID_SUBMISSION",
-          details: parsed.error.issues.map(({ path, message }) => ({ path: path.join("."), message })),
-        });
-      }
-      const { name, businessName, email, mobile, issueType, priority, message: msg, consentSms } = parsed.data;
-      const nameParts = (name || "").trim().split(" ").filter(Boolean);
-      const firstName = nameParts[0] || "there";
-      const lastName = nameParts.slice(1).join(" ") || "";
-
-      const normalizedSupportEmail = email?.trim().toLowerCase() || null;
-      const existingSupportContact = normalizedSupportEmail ? await storage.getContactByEmail(normalizedSupportEmail) : null;
-      let contact: Contact;
-      if (existingSupportContact) {
-        contact = await processExistingPublicFormSubmission({
-          existingContact: existingSupportContact,
-          permittedProfileUpdates: buildPublicContactPayload("support_form", {
-            firstName, lastName, email, phone: mobile || "",
-            companyName: businessName,
-          }),
-          incomingConsent: { consentSms: consentSms === true ? true : undefined },
-          submissionId,
-          formType: "support_form",
-          requestEvidence: {
-            ipAddress: req.ip || req.socket.remoteAddress || "unknown",
-            userAgent: req.headers["user-agent"] || "unknown",
-          },
-        });
-      } else {
-        contact = await writeContact({
-          mode: "local_first",
-          mutation: {
-            firstName, lastName, email, phone: mobile || "",
-            companyName: businessName,
-            status: "Active",
-            tags: ["src_website", "support_request", `support_${(issueType || "other").toLowerCase().replace(/[^a-z]/g, "_")}`],
-          },
-          provenance: {
-            sourceCategory: "website_form",
-            sourceType: "support_form",
-            eventKey: `form:support_form:${submissionId}`,
-            actorType: "public",
-          },
-          actor: { actorType: "public" },
-        });
-        // New contacts only: write the opt_in audit row here.
-        // Existing contacts: processExistingPublicFormSubmission() writes opt_in (or
-        // consent_reenable_blocked) audit rows inside its transaction — never both.
-        if (consentSms) {
-          await applyConsentCommand({
-            subject: { type: "contact", id: contact.id },
-            kind: "opt_in",
-            channel: "sms",
-            purpose: "outreach",
-            eventNamespace: "public_form",
-            eventKey: `support_form:${submissionId}:sms`,
-            source: "website_form",
-            ipAddress: req.ip || req.socket.remoteAddress || "unknown",
-            userAgent: req.headers["user-agent"] || "unknown",
-            evidence: { formType: "support", submissionId },
-            details: { formType: "support", submissionId },
-          });
-        }
-      }
-
-      const ticket = await storage.createAuthorityTicket({
-        contactId: contact.id,
-        subject: `${issueType || "Support"} - ${businessName || firstName}`,
-        description: msg || "",
-        priority: priority || "Normal",
-        category: issueType || "Other",
-      }, {
-        producer: "inbound_request",
-        commandKey: `inbound:${(req as any).inboundRequestId}:ticket`,
-        issueKey: `inbound-support:${(req as any).inboundRequestId}`,
-      });
-
-      const ackMessages: Record<string, string> = {
-        "Funding / Deposits": `Hi ${firstName} — thanks for reaching out about a funding question. We know how important it is to have your deposits landing on time, so we're pulling up your account now.\n\nIf this is a same-day issue, feel free to call us directly at 954-266-8214 and we'll get right on it. Otherwise, someone from our team will follow up within a few hours with an update.\n\nHang tight — we're on it.`,
-        "Terminal": `Hey ${firstName} — we got your message about your terminal. Whether it's acting up, needs a reset, or you're looking at a replacement, we deal with this stuff daily so we'll get you sorted out.\n\nIf your terminal is completely down and you can't take payments, call us at 954-266-8214 so we can walk you through a fix right away. Otherwise, expect a reply from our tech team shortly.\n\nAppreciate your patience.`,
-        "Chargeback / Dispute": `Hi ${firstName} — thanks for letting us know about this. Chargebacks can be stressful, but the good news is we handle these all the time and we're going to walk you through exactly what to do.\n\nTime matters with disputes, so we've flagged this for priority review. A team member will reach out shortly with the specific documents you'll need and the steps to respond. In the meantime, don't worry — we've got your back on this.\n\nIf you have the transaction date and amount handy, that'll help us move faster.`,
-        "PCI Compliance": `Hey ${firstName} — good on you for staying on top of PCI compliance. A lot of merchants overlook this until there's a problem, so we're glad you reached out.\n\nOur compliance team will take a look at your account status and let you know exactly where things stand — whether you need to complete your annual questionnaire, update anything, or if you're already good to go.\n\nYou'll hear from us soon. If you have any compliance notices or letters you've received, feel free to forward them to support@libertybancard.com so we can reference them.`,
-      };
-      const ackText = ackMessages[issueType] || `Hi ${firstName} — thanks for reaching out. We received your request and a team member is reviewing it now.\n\nYou can expect a personal follow-up within a few hours during business hours. If you need something handled immediately, you're always welcome to call us at 954-266-8214.\n\nWe appreciate your patience — we'll be in touch soon.`;
-
-      await storage.createTicketComment({
-        ticketId: ticket.id,
-        content: ackText,
-        authorName: "Liberty Bancard Support",
-        isInternal: false,
-      });
-
-      await storage.createNotification({
-        channel: "#support",
-        title: `New ${priority || "Normal"} Support Ticket`,
-        message: `${firstName} ${lastName} (${businessName || "N/A"}) — ${issueType || "General"}: ${(msg || "").slice(0, 120)}`,
-        type: priority === "Urgent" ? "urgent" : "info",
-        metadata: { ticketId: ticket.id, contactId: contact.id },
-      });
-
-
-      res.status(201).json(await acceptInbound(req, { contactId: contact.id, ticketId: ticket.id }));
-    } catch (err: any) {
-      await failInbound(req, 400);
-      res.status(400).json({ error: "INVALID_SUBMISSION" });
-    }
-  });
+  // Support owns a per-effect resumable executor (contact, ticket, one factual receipt comment, one notification, accept).
+  app.post("/api/public/support", publicLeadRateLimit, (req, res) =>
+    runSupportIntake(req, res, { acceptInbound, recoveredContext, failInbound }));
 
   app.post("/api/public/get-started", publicLeadRateLimit, async (req, res) => {
+    // A W-C inquiry mode was resolved by the claim middleware from an allowlisted value; it never shares the generic schema.
+    const inquiryMode = (req as any).inboundRequest?.sourceType;
+    if (inquiryMode === "equipment_inquiry" || inquiryMode === "general_inquiry") {
+      return runInquiryIntake(req, res, inquiryMode, { acceptInbound, recoveredContext, respondInboundFailure, failInbound });
+    }
     try {
       const submissionId = (req as any).inboundRequestId;
       const schema = z.object({

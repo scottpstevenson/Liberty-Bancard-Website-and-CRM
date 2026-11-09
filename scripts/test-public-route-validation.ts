@@ -11,6 +11,8 @@ import fs from "fs";
 import assert from "assert";
 
 const publicRoutes = fs.readFileSync("server/routes/public.ts", "utf-8");
+// W-C: support owns its own module (schema + per-effect executor); the route in public.ts only delegates to it.
+const supportModule = fs.readFileSync("server/routes/public-support.ts", "utf-8");
 
 function routeBody(src: string, path: string): string {
   const appPostStart = src.indexOf(`app.post("${path}"`);
@@ -34,12 +36,17 @@ function check(name: string, fn: () => void) {
 }
 
 for (const path of ["/api/public/estimate", "/api/public/support", "/api/public/get-started"]) {
-  const route = routeBody(publicRoutes, path);
+  const route = path === "/api/public/support" ? supportModule : routeBody(publicRoutes, path);
+  if (path === "/api/public/support") {
+    check("/api/public/support is served by the per-effect executor", () => {
+      assert.match(routeBody(publicRoutes, path), /runSupportIntake\(req, res,/, "the support route must delegate to runSupportIntake");
+    });
+  }
   check(`${path} validates the body with a strict Zod schema before mutation`, () => {
     assert.match(route, /z\.object\(\{/, "expected a z.object schema literal in this route");
     assert.match(route, /\}\)\.strict\(\)/, "schema must reject unexpected keys (.strict())");
     assert.match(route, /safeParse\(req\.body\)/, "expected schema.safeParse(req.body)");
-    assert.match(route, /if \(!parsed\.success\)/, "expected an explicit failure branch");
+    assert.match(route, /if \(!parsed\.success\b/, "expected an explicit failure branch");
     assert.match(route, /res\.status\(400\)/, "invalid input must return 400");
   });
   check(`${path} schema validation runs before any storage/contact mutation`, () => {
@@ -60,8 +67,7 @@ for (const path of ["/api/public/estimate", "/api/public/support", "/api/public/
 // normal, validly-filled-out submission gets rejected by the new strict Zod
 // schema before it ever reaches business logic.
 //
-// Support still posts directly with apiRequest (kind "direct"). Estimate and
-// GetStarted submit through the shared intake hook (kind "intake"): the page
+// Estimate, Support and GetStarted submit through the shared intake hook (kind "intake"): the page
 // builds the payload and calls usePublicIntake(form, route).submit(payload),
 // and the hook + lib/public-intake own the POST and the idempotency key.
 type ClientCheck =
@@ -77,10 +83,12 @@ const clientChecks: ClientCheck[] = [
     requiredServerFields: ["contactName", "businessName", "email", "phone", "vertical", "monthlyVolume", "totalFees"],
   },
   {
-    kind: "direct",
+    // W-C: support submits through the shared intake hook (typed outcomes, stable key, saved receipt). Phone is optional.
+    kind: "intake",
     route: "/api/public/support",
     file: "client/src/pages/Support.tsx",
-    requiredServerFields: ["name", "businessName", "email", "mobile", "issueType", "priority", "message"],
+    form: "support",
+    requiredServerFields: ["name", "businessName", "email", "issueType", "priority", "message"],
   },
   {
     kind: "intake",
@@ -142,6 +150,12 @@ function assertIntakeKeyRotation() {
   const submitFn = sliceBlock(libSrc, "export async function submitPublicIntake", /\n\}\n/, "submitPublicIntake");
   assert.match(
     submitFn,
+    /classifyRequestError\(error\)/,
+    `expected ${INTAKE_LIB_FILE} to classify the apiRequest failure through classifyRequestError`,
+  );
+  const classifyFn = sliceBlock(libSrc, "function classifyRequestError", /\n\}\n/, "classifyRequestError");
+  assert.match(
+    classifyFn,
     /\/\^\(\\d\{3\}\):\/\.exec\(message\)/,
     `expected ${INTAKE_LIB_FILE} to read the HTTP status from the apiRequest error message`,
   );

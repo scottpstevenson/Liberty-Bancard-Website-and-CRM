@@ -523,10 +523,22 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "disposable PostgreSQL and isolated Redis; real multipart route with deny-by-default provider egress; no send, queue consumer, GHL or paid provider call; outbound pause stays paused",
   },
   {
+    name: "Public W-C intake and staff handoff",
+    script: "scripts/certification/test-public-wc-intake.ts",
+    capability: "deterministic-integration",
+    providerDenial: "disposable PostgreSQL and isolated Redis; real public JSON and multipart routes plus the real Lead Ops and statement-handoff reads with deny-by-default provider egress; no send, queue consumer, GHL or paid provider call; outbound pause stays paused",
+  },
+  {
     name: "Statement-upload queue capability",
     script: "scripts/certification/test-statement-upload-queue-capability.ts",
     capability: "deterministic-integration",
     providerDenial: "disposable PostgreSQL and isolated Redis; real BullMQ producer with the physical queue paused before any job is added, so nothing is consumed, processed or sent; deny-by-default provider egress",
+  },
+  {
+    name: "Public W-C intake and staff handoff mounted browser",
+    script: "scripts/certification/test-public-wc-intake-browser.ts",
+    capability: "deterministic-integration",
+    providerDenial: "private compiled client, anonymous visitor and actual admin/manager/agent sessions, disposable PostgreSQL and isolated Redis; real public JSON, support and multipart routes with the real Lead Ops and statement-handoff reads, other /api answers 501; browser-side fault injection runs the real request first; deny-by-default provider egress; no send, queue consumer, GHL or paid provider call",
   },
   {
     name: "Website intake and CRM handoff mounted browser",

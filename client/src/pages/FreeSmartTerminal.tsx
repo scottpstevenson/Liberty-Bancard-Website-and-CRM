@@ -12,7 +12,6 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import {
-  Upload,
   CheckCircle2,
   ShieldCheck,
   Phone,
@@ -28,7 +27,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { PHONE_TEL, PHONE_NUMBER, CALENDAR_URL } from "@/lib/constants";
-import { trackFreeTerminalEligibilityClick, trackStatementUploadCtaClick, trackBookingCtaClick } from "@/lib/tracking";
+import { trackFreeTerminalEligibilityClick, trackBookingCtaClick } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
 import { PublicImage } from "@/components/public/PublicImage";
 import {
@@ -39,6 +38,9 @@ import {
   FST_SERVICE_NAME,
   FST_SERVICE_DESCRIPTION,
   FST_HERO,
+  FST_OFFER,
+  FST_INQUIRY_PATH,
+  FST_STATEMENT_REVIEW_PATH,
   FST_PLACEMENT_CLAIM,
   FST_EQUIPMENT_TERMS_DISCLOSURE,
   FST_TRUST_STRIP,
@@ -99,8 +101,8 @@ export default function FreeSmartTerminal() {
                 ) : null}
                 <div className="flex flex-col sm:flex-row gap-4 flex-wrap mb-3">
                   <Button size="lg" className="public-cta h-auto max-w-full gap-2 whitespace-normal py-2 text-center leading-snug" asChild>
-                    <Link href="/get-started?offer=free-terminal" data-testid="link-terminal-primary-cta" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: "Check My Eligibility", offer: "free-terminal" })}>
-                      <Upload className="w-4 h-4" />
+                    <Link href={FST_INQUIRY_PATH} data-testid="link-terminal-primary-cta" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: FST_HERO.primaryCta, offer: "free-terminal" })}>
+                      <Monitor className="w-4 h-4" />
                       {FST_HERO.primaryCta}
                     </Link>
                   </Button>
@@ -111,6 +113,9 @@ export default function FreeSmartTerminal() {
                     </a>
                   </Button>
                 </div>
+                <p className="text-sm text-foreground/80 mb-2 max-w-lg" data-testid="text-terminal-offer-note">
+                  {FST_HERO.offerNote}
+                </p>
                 <p className="text-xs text-muted-foreground mt-2 max-w-lg" data-testid="text-terminal-hero-disclaimer">
                   {FST_HERO.disclaimer}
                 </p>
@@ -118,8 +123,34 @@ export default function FreeSmartTerminal() {
               <div className="flex flex-col gap-4 items-center">
                 <PublicImage id="product-clover-flex-3" variant="product" sizes={"(max-width: 351px) calc(100vw - 32px), 320px"} className="block w-full max-w-xs" imgClassName="rounded-md object-contain" data-testid="img-terminal-clover" />
                 <PublicImage id="product-pax-a920" variant="product" sizes={"(max-width: 351px) calc(100vw - 32px), 320px"} className="block w-full max-w-xs" imgClassName="rounded-md object-contain" data-testid="img-terminal-pax" />
+                <p className="text-xs text-muted-foreground max-w-xs text-center" data-testid="text-terminal-image-note">{FST_OFFER.imageNote}</p>
               </div>
             </div>
+          </div>
+        </section>
+
+        {/* Offer explanation: the equipment and the processing together, with the approved terms adjacent */}
+        <section className="bg-background py-10 border-b border-border" data-testid="section-terminal-offer">
+          <div className="public-container max-w-3xl">
+            <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-terminal-offer-heading">
+              {FST_OFFER.heading}
+            </h2>
+            <p className="text-muted-foreground mb-6 leading-relaxed">{FST_OFFER.body}</p>
+            <ul className="space-y-3 mb-6">
+              {FST_OFFER.checklist.map((item, i) => (
+                <li key={item} className="flex items-start gap-3" data-testid={`terminal-offer-item-${i}`}>
+                  <CheckCircle2 className="w-5 h-5 text-emerald-500 mt-0.5 shrink-0" />
+                  <span className="text-foreground text-sm">{item}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-sm text-muted-foreground mb-4 leading-relaxed" data-testid="text-terminal-offer-terms">{FST_EQUIPMENT_TERMS_DISCLOSURE}</p>
+            <p className="text-sm text-foreground">
+              {FST_OFFER.secondaryLead}{" "}
+              <Link href={FST_STATEMENT_REVIEW_PATH} className="public-tap inline-flex items-center text-primary underline" data-testid="link-terminal-offer-statement">
+                {FST_OFFER.secondaryCta}
+              </Link>
+            </p>
           </div>
         </section>
 
@@ -193,9 +224,9 @@ export default function FreeSmartTerminal() {
                   </p>
                 </div>
                 <Button className="h-auto min-h-9 max-w-full gap-2 whitespace-normal py-2 text-left leading-snug" asChild>
-                  <Link href="/upload-statement?offer=free-terminal" data-testid="link-eligibility-upload" onClick={() => trackStatementUploadCtaClick({ page: "/free-smart-terminal", ctaLabel: "Upload Statement to Check Eligibility", offer: "free-terminal" })}>
-                    <Upload className="w-4 h-4" />
-                    Upload Statement to Check Eligibility
+                  <Link href={FST_INQUIRY_PATH} data-testid="link-eligibility-upload" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: FST_HERO.primaryCta, ctaLocation: "eligibility", offer: "free-terminal" })}>
+                    <Monitor className="w-4 h-4" />
+                    {FST_HERO.primaryCta}
                     <ArrowRight className="w-4 h-4" />
                   </Link>
                 </Button>
@@ -212,9 +243,9 @@ export default function FreeSmartTerminal() {
                     </p>
                     <div className="flex flex-col gap-3">
                       <Button className="w-full gap-2 h-auto max-w-full whitespace-normal py-2 text-center leading-snug" asChild>
-                        <Link href="/upload-statement?offer=free-terminal" data-testid="link-cta-card-upload" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: "Check My Eligibility", ctaLocation: "card" })}>
-                          <Upload className="w-4 h-4" />
-                          Check My Eligibility
+                        <Link href={FST_INQUIRY_PATH} data-testid="link-cta-card-upload" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: FST_HERO.primaryCta, ctaLocation: "card", offer: "free-terminal" })}>
+                          <Monitor className="w-4 h-4" />
+                          {FST_HERO.primaryCta}
                         </Link>
                       </Button>
                       <Button variant="outline" className="w-full gap-2 h-auto max-w-full whitespace-normal py-2 text-center leading-snug" asChild>
@@ -296,9 +327,9 @@ export default function FreeSmartTerminal() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
               <Button size="lg" className="public-cta gap-2 bg-accent hover:bg-accent border-accent text-white h-auto max-w-full whitespace-normal py-2 text-center leading-snug" asChild>
-                <Link href="/upload-statement?offer=free-terminal" data-testid="link-final-upload" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: "Upload My Statement", ctaLocation: "final_cta" })}>
-                  <Upload className="w-4 h-4" />
-                  Upload My Statement
+                <Link href={FST_INQUIRY_PATH} data-testid="link-final-upload" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: FST_HERO.primaryCta, ctaLocation: "final_cta", offer: "free-terminal" })}>
+                  <Monitor className="w-4 h-4" />
+                  {FST_HERO.primaryCta}
                 </Link>
               </Button>
               <Button size="lg" variant="outline" className="public-cta gap-2 bg-transparent border-white/30 text-white hover:bg-white/10 h-auto max-w-full whitespace-normal py-2 text-center leading-snug" asChild>
@@ -324,8 +355,8 @@ export default function FreeSmartTerminal() {
         <div className="public-container py-8 border-t border-border" data-testid="section-internal-links">
           <p className="text-sm text-muted-foreground mb-3 font-medium">Also useful:</p>
           <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
-            <Link href="/upload-statement" className="public-tap inline-flex items-center text-primary hover:underline" data-testid="link-internal-upload-statement">
-              Upload Your Statement for a Free Review
+            <Link href={FST_STATEMENT_REVIEW_PATH} className="public-tap inline-flex items-center text-primary hover:underline" data-testid="link-internal-upload-statement">
+              Get a statement review
             </Link>
             <Link href="/free-analysis" className="public-tap inline-flex items-center text-primary hover:underline" data-testid="link-internal-free-analysis">
               Get a Free Processing Analysis

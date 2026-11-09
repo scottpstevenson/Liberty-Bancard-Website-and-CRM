@@ -51,6 +51,9 @@ import {
   FST_SERVICE_NAME,
   FST_SERVICE_DESCRIPTION,
   FST_HERO,
+  FST_OFFER,
+  FST_INQUIRY_PATH,
+  FST_STATEMENT_REVIEW_PATH,
   FST_PLACEMENT_CLAIM,
   FST_EQUIPMENT_TERMS_DISCLOSURE,
   FST_FEATURES_HEADING,
@@ -77,10 +80,12 @@ import {
   FSR_WHO_QUALIFIES,
   FSR_META,
   FSR_HERO,
-  FSR_EQUIPMENT_STRIP,
+  FSR_DELIVERABLE,
+  FSR_PROCESS,
+  FSR_FAQ,
+  FSR_FORM,
   FSR_NEXT_NOTE,
   FSR_SSR_CARDS,
-  FSR_SSR_STEPS,
   FSR_SSR_CTA,
 } from "@shared/free-statement-review-content";
 
@@ -155,15 +160,32 @@ export function getUploadStatementHtml(): string {
     <div class="ssr-hero-inner">
       <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Upload Statement</span></div>
       <div class="ssr-hero-badge">${FSR_HERO.badge}</div>
-      <h1>Get a Free Merchant Statement Review</h1>
-      <p class="ssr-hero-subtitle">${FSR_HERO.sub} No pressure, no obligation.</p>
+      <h1>${FSR_HERO.heading}</h1>
+      <p class="ssr-hero-subtitle">${FSR_HERO.sub}</p>
       <div class="ssr-hero-buttons">
-        <a href="/upload-statement#form" class="ssr-btn-primary">📤 Upload My Statement Now</a>
-        <a href="/savings-calculator" class="ssr-btn-outline">🧮 Try Savings Calculator</a>
+        <a href="/upload-statement#statement-review-form" class="ssr-btn-primary">${FSR_HERO.button}</a>
       </div>
-      <p class="ssr-hero-subtitle" style="font-size:0.85rem;">${FSR_EQUIPMENT_STRIP}</p>
+      <p class="ssr-hero-subtitle" style="font-size:0.9rem;">${FSR_HERO.support}</p>
     </div>
   </div>
+
+  <section class="ssr-section" id="statement-review-form">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">${FSR_FORM.heading}</h2>
+      <p class="ssr-section-subheading">${FSR_FORM.intro}</p>
+      <p class="ssr-card-text">${FSR_FORM.helper} <a href="${FSR_FORM.helperHref}">${FSR_FORM.helperLink}</a></p>
+    </div>
+  </section>
+
+  <section class="ssr-section ssr-section-muted">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">${FSR_DELIVERABLE.heading}</h2>
+      <ol>
+        ${FSR_DELIVERABLE.rows.map((row) => `<li>${row}</li>`).join("\n        ")}
+      </ol>
+      <p class="ssr-card-text">${FSR_DELIVERABLE.sampleLabel}</p>
+    </div>
+  </section>
 
   ${getFreeStatementReviewExplainerHtml()}
 
@@ -182,15 +204,21 @@ export function getUploadStatementHtml(): string {
 
   <section class="ssr-section">
     <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">How It Works</h2>
-      <div class="ssr-grid-3">
-        ${FSR_SSR_STEPS.map((step) => `<div class="ssr-card" style="text-align:center;">
-          <div style="font-size:2rem;margin-bottom:0.75rem;">${step.icon}</div>
-          <div class="ssr-card-title">${step.title}</div>
-          <div class="ssr-card-text">${step.text}</div>
-        </div>`).join("\n        ")}
-      </div>
-      <p style="text-align:center;margin-top:1.5rem;font-size:0.9rem;color:#6b7280;">${FSR_NEXT_NOTE}</p>
+      <h2 class="ssr-section-heading">${FSR_PROCESS.heading}</h2>
+      <ol>
+        ${FSR_PROCESS.steps.map((step) => `<li>${step}</li>`).join("\n        ")}
+      </ol>
+      <p style="text-align:center;margin-top:1.5rem;font-size:0.9rem;color:#6b7280;">${FSR_PROCESS.support} ${FSR_NEXT_NOTE}</p>
+    </div>
+  </section>
+
+  <section class="ssr-section ssr-section-muted">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">${FSR_FAQ.heading}</h2>
+      ${FSR_FAQ.items.map((item) => `<div class="ssr-card">
+        <div class="ssr-card-title">${item.question}</div>
+        <div class="ssr-card-text">${item.answer}${"link" in item && item.link ? ` <a href="${item.link.href}">${item.link.label}</a>.` : ""}</div>
+      </div>`).join("\n      ")}
     </div>
   </section>
   ${ctaSection(FSR_SSR_CTA.heading, FSR_SSR_CTA.body)}`;
@@ -1507,12 +1535,24 @@ export function getFreeSmartTerminalHtml(): string {
       <p class="ssr-hero-subtitle">${FST_HERO.sub}</p>
       ${FST_PLACEMENT_CLAIM ? `<p class="ssr-hero-subtitle">${FST_PLACEMENT_CLAIM} ${FST_EQUIPMENT_TERMS_DISCLOSURE}</p>` : ""}
       <div class="ssr-hero-buttons">
-        <a href="/get-started?offer=free-terminal" class="ssr-btn-primary">📋 ${FST_HERO.primaryCta}</a>
-        <a href="/upload-statement" class="ssr-btn-outline">📤 Upload Statement First</a>
+        <a href="${FST_INQUIRY_PATH}" class="ssr-btn-primary">📋 ${FST_HERO.primaryCta}</a>
       </div>
+      <p class="ssr-hero-subtitle" style="font-size:0.95rem;">${FST_HERO.offerNote}</p>
       <p class="ssr-hero-subtitle" style="font-size:0.85rem;">${FST_HERO.disclaimer}</p>
     </div>
   </div>
+
+  <section class="ssr-section">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">${FST_OFFER.heading}</h2>
+      <p style="text-align:center;max-width:48rem;margin:0 auto 1.5rem;">${FST_OFFER.body}</p>
+      <div class="ssr-grid-2" style="max-width:48rem;margin:0 auto;">
+        ${FST_OFFER.checklist.map((item) => `<div class="ssr-card"><div class="ssr-card-text">${item}</div></div>`).join("\n        ")}
+      </div>
+      <p style="text-align:center;margin-top:1.5rem;font-size:0.9rem;color:#6b7280;">${FST_EQUIPMENT_TERMS_DISCLOSURE}</p>
+      <p style="text-align:center;margin-top:1rem;">${FST_OFFER.secondaryLead} <a href="${FST_STATEMENT_REVIEW_PATH}" style="color:#3b82f6;">${FST_OFFER.secondaryCta}</a></p>
+    </div>
+  </section>
 
   <section class="ssr-section ssr-section-muted">
     <div class="ssr-section-inner">
@@ -1568,7 +1608,16 @@ export function getFreeSmartTerminalHtml(): string {
     </div>
   </section>
 
-  ${ctaSection(FST_FINAL.heading, FST_FINAL.body)}`;
+  <section class="ssr-section ssr-section-dark">
+    <div class="ssr-section-inner ssr-cta-section">
+      <h2>${FST_FINAL.heading}</h2>
+      <p>${FST_FINAL.body}</p>
+      <div class="ssr-cta-buttons">
+        <a href="${FST_INQUIRY_PATH}" class="ssr-btn-primary">📋 ${FST_HERO.primaryCta}</a>
+        <a href="${FST_STATEMENT_REVIEW_PATH}" class="ssr-btn-outline">📤 Get a statement review</a>
+      </div>
+    </div>
+  </section>`;
 
   return ssrHtmlShell({
     title: FST_TITLE_FULL,

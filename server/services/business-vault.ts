@@ -427,7 +427,7 @@ PROOF POINTS:
   • Interchange-plus captures the lower cost of debit and basic credit cards, passing savings through
 
 HOW IT WORKS (3 STEPS):
-  1. Free statement review — upload any format (PDF, photo)
+  1. Free statement review — upload a PDF, JPEG or PNG (up to 10 MB)
   2. We identify your card mix and exact downgrade patterns
   3. Proposal shows itemized cost reduction by card type
 

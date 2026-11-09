@@ -548,7 +548,7 @@ family("renderer-parity", () => {
   // The React side must read the same shared selectors.
   const reactImports: { file: string; module: string; symbols: string[] }[] = [
     { file: "client/src/pages/FreeSmartTerminal.tsx", module: "@shared/free-smart-terminal-content", symbols: ["fstFaqItems"] },
-    { file: "client/src/pages/UploadStatement.tsx", module: "@shared/free-statement-review-content", symbols: ["FSR_HERO", "FSR_NEXT_NOTE", "FSR_EQUIPMENT_STRIP"] },
+    { file: "client/src/pages/UploadStatement.tsx", module: "@shared/free-statement-review-content", symbols: ["FSR_HERO", "FSR_NEXT_NOTE", "FSR_FAQ", "FSR_PROCESS"] },
     { file: "client/src/pages/ZeroPercent.tsx", module: "@shared/zero-percent-content", symbols: ["ZP_FAQ"] },
     { file: "client/src/pages/Integrations.tsx", module: "@shared/integrations-content", symbols: ["INTEGRATIONS_PROCESS", "showsActiveCheck"] },
     { file: "client/src/pages/CompareVs.tsx", module: "@shared/compare-content", symbols: ["getCompareEntry", "methodNote"] },
