@@ -1,81 +1,94 @@
 /**
  * Public footer link groups, shared by the React footer and the server-rendered footer so both
- * surfaces expose the same destinations. Four groups (Services, Industries, Company & Resources,
- * Legal); contact details and the do-not-sell notice are rendered separately by each footer.
+ * surfaces expose the same destinations. Six groups: Payment solutions, Equipment, Industries,
+ * Resources, Company and Legal. Each of the first five carries a "View all" link to its hub; Legal
+ * lists every legal and consent page because those must stay readable. Contact details and the
+ * do-not-sell notice are rendered separately by each footer.
  *
- * The three staff-only dashboard shortcuts that used to sit in the public footer (pipeline, tickets,
- * AI advisors) are intentionally gone: the footer carries a single "Staff Login" entry.
+ * Staff-only entrances (dashboard, residual calculator, sales discovery pages, affiliate and the
+ * old partner portal login) are intentionally not in the public footer. Partner and account sign-in
+ * live in the header utilities and the Company group.
  */
+import { industryHref, NAV_INDUSTRY_SLUGS, PUBLIC_INDUSTRIES } from "./public-industries";
+
+/** Footer brand line. Neutral by design: no savings, proof or guarantee statement. */
+export const PUBLIC_FOOTER_TAGLINE = "Payment processing, equipment and integrations, explained plainly.";
+
+/** ISO and bank-relationship disclosure shown in both footers. Unchanged legal wording. */
+export const PUBLIC_FOOTER_ISO_DISCLOSURE =
+  "Liberty Bancard is a registered Independent Sales Organization (ISO) and merchant services provider. Liberty Bancard is not a bank. All merchant accounts are subject to application, credit approval, and underwriting by the acquiring bank and payment processor. Liberty Bancard facilitates payment processing services on behalf of its acquiring bank partner(s) and does not directly process transactions, hold merchant funds, or bear settlement risk.";
+
 export interface PublicFooterLink {
   label: string;
   href: string;
 }
 
+export type PublicFooterGroupId = "solutions" | "equipment" | "industries" | "resources" | "company" | "legal";
+
 export interface PublicFooterGroup {
-  id: "services" | "industries" | "company" | "legal";
+  id: PublicFooterGroupId;
   label: string;
   links: PublicFooterLink[];
+  /** Hub link for the group. Absent for Legal, which lists every page. */
+  viewAll?: PublicFooterLink;
 }
+
+const industryLabel = (slug: string): string => PUBLIC_INDUSTRIES.find((i) => i.slug === slug)?.label ?? slug;
 
 export const PUBLIC_FOOTER_GROUPS: PublicFooterGroup[] = [
   {
-    id: "services",
-    label: "Services",
+    id: "solutions",
+    label: "Payment solutions",
     links: [
-      { label: "Cash Discount & Surcharging", href: "/0-percent-processing" },
-      { label: "Compare Rates", href: "/compare-rates" },
-      { label: "Beat Square & Stripe", href: "/beat-square-stripe" },
-      { label: "vs Square", href: "/compare/square" },
-      { label: "vs Stripe", href: "/compare/stripe" },
-      { label: "vs Clover", href: "/compare/clover" },
-      { label: "vs Toast", href: "/compare/toast" },
-      { label: "vs PayPal", href: "/compare/paypal" },
-      { label: "Terminal Shop", href: "/shop" },
-      { label: "Get My Free Analysis", href: "/free-analysis" },
-      { label: "Upload Statement", href: "/upload-statement" },
-      { label: "Quick Estimate", href: "/estimate" },
-      { label: "Savings Calculator", href: "/savings-calculator" },
-      { label: "Processing Cost Quiz", href: "/quiz/processing-cost" },
-      { label: "Get Started", href: "/get-started" },
-      { label: "Merchant Application", href: "/merchant-application" },
+      { label: "Payment processing", href: "/payment-processing" },
+      { label: "Pricing & programs", href: "/pricing-and-programs" },
+      { label: "POS & integrations", href: "/integrations" },
+      { label: "Online payments", href: industryHref("ecommerce-payment-processing") },
+      { label: "Liberty Zero", href: "/0-percent-processing" },
+      { label: "Statement review", href: "/upload-statement" },
     ],
+    viewAll: { label: "View all payment solutions", href: "/payment-processing" },
+  },
+  {
+    id: "equipment",
+    label: "Equipment",
+    links: [
+      { label: "Terminals & equipment", href: "/shop" },
+      { label: "Free Smart Terminal", href: "/free-smart-terminal" },
+      { label: "Equipment fit", href: "/integrations" },
+    ],
+    viewAll: { label: "View all equipment", href: "/shop" },
   },
   {
     id: "industries",
     label: "Industries",
+    links: NAV_INDUSTRY_SLUGS.map((slug) => ({ label: industryLabel(slug), href: industryHref(slug) })),
+    viewAll: { label: "View all industries", href: "/industries" },
+  },
+  {
+    id: "resources",
+    label: "Resources",
     links: [
-      { label: "Restaurant", href: "/industries/restaurant-payment-processing" },
-      { label: "Retail", href: "/industries/retail-payment-processing" },
-      { label: "Healthcare", href: "/industries/healthcare-payment-processing" },
-      { label: "Salon & Spa", href: "/industries/salon-spa-payment-processing" },
-      { label: "Auto Repair", href: "/industries/auto-repair-payment-processing" },
-      { label: "Professional Services", href: "/industries/professional-services-payment-processing" },
-      { label: "E-Commerce", href: "/industries/ecommerce-payment-processing" },
-      { label: "Construction", href: "/industries/construction-payment-processing" },
+      { label: "Guides", href: "/learn" },
+      { label: "Blog", href: "/blog" },
+      { label: "Compare processors", href: "/compare-rates" },
+      { label: "FAQs", href: "/faq" },
+      { label: "Help center", href: "/help" },
+      { label: "Case studies", href: "/case-studies" },
+      { label: "Areas we serve", href: "/areas-served" },
     ],
+    viewAll: { label: "View all resources", href: "/learn" },
   },
   {
     id: "company",
-    label: "Company & Resources",
+    label: "Company",
     links: [
-      { label: "Home", href: "/" },
-      { label: "About & Contact", href: "/about-contact" },
-      { label: "Why Liberty Bancard", href: "/why-liberty-bancard" },
-      { label: "Case Studies", href: "/case-studies" },
-      { label: "Areas We Serve", href: "/areas-served" },
+      { label: "Why Liberty", href: "/why-liberty-bancard" },
+      { label: "About & contact", href: "/about-contact" },
       { label: "Support", href: "/support" },
-      { label: "Help Center", href: "/help" },
-      { label: "FAQ", href: "/faq" },
-      { label: "All Articles", href: "/blog" },
-      { label: "Hidden Fees Guide", href: "/blog/hidden-fees-payment-processing-guide" },
-      { label: "PCI Compliance Checklist", href: "/blog/pci-compliance-checklist-small-business" },
-      { label: "Interchange Plus vs Flat Rate", href: "/blog/interchange-plus-vs-flat-rate" },
-      { label: "ISO & Partner Program", href: "/partners" },
-      { label: "Become a Partner", href: "/partners#apply" },
-      { label: "Residual Income Calculator", href: "/partners#calculator" },
-      { label: "Partner Portal Login", href: "/partner-portal" },
-      { label: "Affiliate Program", href: "/affiliate" },
-      { label: "Staff Login", href: "/dashboard" },
+      { label: "Partner program", href: "/partners" },
+      { label: "Account sign in", href: "/login" },
+      { label: "Partner sign in", href: "/partner-login" },
     ],
   },
   {

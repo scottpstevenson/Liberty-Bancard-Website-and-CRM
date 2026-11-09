@@ -37,6 +37,8 @@ const MerchantStatementUpload = lazy(() => import("@/pages/MerchantStatementUplo
 const ZeroPercent = lazy(() => import("@/pages/ZeroPercent"));
 const BeatSquareStripe = lazy(() => import("@/pages/BeatSquareStripe"));
 const AboutContact = lazy(() => import("@/pages/AboutContact"));
+const PaymentProcessing = lazy(() => import("@/pages/PaymentProcessing"));
+const PricingPrograms = lazy(() => import("@/pages/PricingPrograms"));
 const Estimate = lazy(() => import("@/pages/Estimate"));
 const Support = lazy(() => import("@/pages/Support"));
 const WhyLiberty = lazy(() => import("@/pages/WhyLiberty"));
@@ -459,6 +461,8 @@ function Router() {
         <Route path="/0-percent-processing" component={ZeroPercent} />
         <Route path="/beat-square-stripe" component={BeatSquareStripe} />
         <Route path="/free-smart-terminal" component={FreeSmartTerminal} />
+        <Route path="/payment-processing" component={PaymentProcessing} />
+        <Route path="/pricing-and-programs" component={PricingPrograms} />
         <Route path="/about-contact" component={AboutContact} />
         <Route path="/contact" component={AboutContact} />
         {/* /contact is kept as a redirect alias for external links pointing to /contact */}

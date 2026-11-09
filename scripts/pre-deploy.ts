@@ -282,6 +282,9 @@ export const MANDATORY_SUITES: Suite[] = [
   {name:"Stage 3 C1 Protected Query Runtime",script:"scripts/test-stage3-c1-query-runtime.mjs",timeoutSecs:60},
   {name:"Stage 3 C2 Destination and Source Contracts",script:"scripts/test-stage3-c2-contracts.ts",timeoutSecs:60},
   {name:"Public Claims Contract",script:"scripts/test-public-claims-contract.ts",timeoutSecs:120},
+  {name:"Public Shell Contract",script:"scripts/test-public-shell-contract.ts",timeoutSecs:120},
+  {name:"Public Shell Role-Flow Browser (sign-in utilities, markers, dark mode)",script:"scripts/test-public-shell-browser.mjs",
+    timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Stage 3 C2 Real Handler Actions",script:"scripts/test-stage3-c2-actions.ts",timeoutSecs:240,requiresDisposableTestDatabase:true},
   // Full role/action/viewport workload; not the per-list or input latency limit.
   {name:"Stage 3 C2 Protected Workspace Browser",script:"scripts/test-stage3-c2-browser.mjs",timeoutSecs:1200,requiresDisposableTestDatabase:true},
@@ -1021,6 +1024,12 @@ export const MANDATORY_SUITES: Suite[] = [
     script: "scripts/check-public-site-mobile.ts",
     env: { PUBLIC_SITE_STRICT: "1", PUBLIC_SITE_WIDTHS: "390,1440" },
     timeoutSecs: 1200,
+    requiresServer: true,
+  },
+  {
+    name: "Public Shell and Hubs Design (header utilities, public palette, 320 to 1440, light and dark)",
+    script: "scripts/check-public-shell-design.ts",
+    timeoutSecs: 900,
     requiresServer: true,
   },
   {

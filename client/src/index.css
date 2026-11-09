@@ -152,6 +152,14 @@
      --foreground on section-navy  (white on navy)                 ≈ 14.5:1 ✓
      --foreground on section-warm  (navy on warm-cream #F5F0E8)    ≈ 11.8:1 ✓
      --muted-foreground on --background (#6B7280 on cream)         ≈  5.3:1 ✓ */
+/* Effective public palette. The public-contract tokens are imported first, so this block references them
+   instead of redeclaring a second set (a repeated literal here would silently win the cascade):
+     --primary / --sidebar-primary  -> --liberty-navy        (#071D57)
+     --brand-red                    -> --liberty-red         (#C8102E)
+     --secondary / --muted          -> --liberty-surface     (#F4F6FA)
+     --muted-foreground             -> --public-ink-secondary (#475569)
+   --accent stays the accessible Liberty blue for links and focus. CRM and auth tokens (:root, .dark,
+   .crm-theme) are not touched. */
 .marketing-theme {
   --background: 40 33% 98%;
   --foreground: 222 47% 11%;
@@ -159,12 +167,12 @@
   --card-foreground: 222 47% 11%;
   --popover: 0 0% 100%;
   --popover-foreground: 222 47% 11%;
-  --primary: 222 47% 11%;
+  --primary: var(--liberty-navy);
   --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96.1%;
+  --secondary: var(--liberty-surface);
   --secondary-foreground: 222 47% 11%;
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215 19% 36%;
+  --muted: var(--liberty-surface);
+  --muted-foreground: var(--public-ink-secondary);
   --accent: 221 78% 48%;
   --accent-foreground: 210 40% 98%;
   --destructive: 0 72% 45%;
@@ -172,7 +180,7 @@
   --border: 214.3 31.8% 91.4%;
   --input: 214.3 31.8% 91.4%;
   --ring: 222 47% 11%;
-  --brand-red: 0 72% 47%;
+  --brand-red: var(--liberty-red);
   --stat-positive: 152 55% 26%;
   --stat-negative: 0 66% 48%;
   --shadow-card: 0 1px 2px -1px hsl(222 47% 11% / 0.08), 0 2px 6px -1px hsl(222 47% 11% / 0.06);
@@ -181,9 +189,9 @@
   --sidebar-foreground: 222 47% 11%;
   --sidebar-border: 214.3 31.8% 91.4%;
   --sidebar-ring: 222 47% 11%;
-  --sidebar-primary: 222 47% 11%;
+  --sidebar-primary: var(--liberty-navy);
   --sidebar-primary-foreground: 210 40% 98%;
-  --sidebar-accent: 210 40% 96.1%;
+  --sidebar-accent: var(--liberty-surface);
   --sidebar-accent-foreground: 222 47% 11%;
   color-scheme: light;
 }
@@ -196,12 +204,12 @@
   --card-foreground: 222 47% 11%;
   --popover: 0 0% 100%;
   --popover-foreground: 222 47% 11%;
-  --primary: 222 47% 11%;
+  --primary: var(--liberty-navy);
   --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96.1%;
+  --secondary: var(--liberty-surface);
   --secondary-foreground: 222 47% 11%;
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215 19% 36%;
+  --muted: var(--liberty-surface);
+  --muted-foreground: var(--public-ink-secondary);
   --accent: 221 78% 48%;
   --accent-foreground: 210 40% 98%;
   --destructive: 0 72% 45%;
@@ -209,7 +217,7 @@
   --border: 214.3 31.8% 91.4%;
   --input: 214.3 31.8% 91.4%;
   --ring: 222 47% 11%;
-  --brand-red: 0 72% 47%;
+  --brand-red: var(--liberty-red);
   --stat-positive: 152 55% 26%;
   --stat-negative: 0 66% 48%;
   --shadow-card: 0 1px 2px -1px hsl(222 47% 11% / 0.08), 0 2px 6px -1px hsl(222 47% 11% / 0.06);
@@ -218,9 +226,9 @@
   --sidebar-foreground: 222 47% 11%;
   --sidebar-border: 214.3 31.8% 91.4%;
   --sidebar-ring: 222 47% 11%;
-  --sidebar-primary: 222 47% 11%;
+  --sidebar-primary: var(--liberty-navy);
   --sidebar-primary-foreground: 210 40% 98%;
-  --sidebar-accent: 210 40% 96.1%;
+  --sidebar-accent: var(--liberty-surface);
   --sidebar-accent-foreground: 222 47% 11%;
   color-scheme: light;
 }

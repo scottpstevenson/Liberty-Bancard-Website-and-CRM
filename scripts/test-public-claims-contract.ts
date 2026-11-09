@@ -93,25 +93,29 @@ import {
 import * as pagesSsr from "../server/ssr/pages";
 import { COMPETITOR_DATA, getCompareHtml } from "../server/ssr/compare";
 import { getHomeHtml } from "../server/ssr/home";
+import { getAboutContactHtml } from "../server/ssr/about-contact";
+import { getOverviewPageHtml } from "../server/ssr/overview-pages";
 import { getIndustryHtml } from "../server/ssr/industries";
 import { getIndustriesHubHtml } from "../server/ssr/industries-hub";
 import {
   PUBLIC_NAV_CTA,
   PUBLIC_NAV_GROUPS,
+  PUBLIC_NAV_UTILITIES,
   PUBLIC_NAV_UTILITY,
   isHomeAnchor,
 } from "../shared/public-navigation";
 import {
   HOME_FOUNDER,
   HOME_HERO,
-  HOME_PROCESSING_ANCHOR,
   HOME_SAMPLE_REVIEW,
+  HOME_SECTION_ORDER,
   HOME_SOLUTIONS,
   HOME_SOLUTIONS_ANCHOR,
   HOME_STARTING_POINTS,
 } from "../shared/public-home-content";
 import { INDUSTRIES_HUB, NAV_INDUSTRY_SLUGS, PUBLIC_INDUSTRIES, industryHref } from "../shared/public-industries";
-import { ABOUT_CONTACT_BOOKING_LABEL, ABOUT_CONTACT_HERO, ABOUT_CONTACT_INTENTS } from "../shared/public-contact-content";
+import { ABOUT_CONTACT_BOOKING_LABEL, ABOUT_CONTACT_HERO, ABOUT_CONTACT_INTENTS, PUBLIC_CONTACT_CHANNELS } from "../shared/public-contact-content";
+import { OVERVIEW_PAGES } from "../shared/public-overview-pages";
 import { INDUSTRY_SLUGS } from "../shared/blog-slugs";
 import {
   getAvailableCompetitorSlugs,
@@ -226,7 +230,10 @@ const OWNED_HTML: Record<string, string> = {
   "/why-liberty": pageFn("getWhyLibertyHtml")(),
   "/free-analysis": pageFn("getFreeAnalysisHtml")(),
   "/": getHomeHtml(),
+  "/about-contact": getAboutContactHtml(),
+  "/industries": getIndustriesHubHtml(),
 };
+for (const page of OVERVIEW_PAGES) OWNED_HTML[page.path] = getOverviewPageHtml(page);
 for (const slug of COMPARE_SLUGS) {
   const html = getCompareHtml(slug);
   if (html) OWNED_HTML[`/compare/${slug}`] = html;
@@ -327,10 +334,15 @@ const CONSUMER_SOURCES: readonly string[] = [
   "client/src/pages/SavingsCalculator.tsx",
   "client/src/components/Footer.tsx",
   "client/src/components/Navbar.tsx",
-  "client/src/components/home/HomePrograms.tsx",
+  "client/src/components/home/HomeProcess.tsx",
+  "client/src/components/public/OverviewPageView.tsx",
+  "client/src/pages/PaymentProcessing.tsx",
+  "client/src/pages/PricingPrograms.tsx",
+  "shared/public-overview-pages.ts",
+  "server/ssr/overview-pages.ts",
+  "server/ssr/about-contact.ts",
   "client/src/components/home/HomeFaq.tsx",
   "client/src/components/home/HomeFinal.tsx",
-  "client/src/components/home/HomeHowItWorks.tsx",
   "client/src/components/home/home-content.ts",
   "client/src/components/home/HomeHero.tsx",
   "client/src/components/home/HomeSolutions.tsx",
@@ -1064,7 +1076,7 @@ family("w-b-design-consumers", () => {
   // ── Navigation model and both emitters ─────────────────────────────────────
   ok(PUBLIC_NAV_GROUPS.map((g) => g.label).join("|") === "Solutions|Equipment|Industries|Resources|Company", "five top-level entries in the owner's order");
   ok(PUBLIC_NAV_CTA.label === "Talk to Liberty" && PUBLIC_NAV_CTA.href === "/about-contact", "single header action is Talk to Liberty");
-  ok(PUBLIC_NAV_UTILITY.label === "Support" && PUBLIC_NAV_UTILITY.href === "/support", "Support is the utility link");
+  ok(PUBLIC_NAV_UTILITY.label === "Support" && PUBLIC_NAV_UTILITY.href === "/support", "Support is the first utility link");
 
   const routeExists = (href: string): boolean => {
     if (isHomeAnchor(href)) return true;
@@ -1082,16 +1094,28 @@ family("w-b-design-consumers", () => {
   };
   passes("every navigation destination resolves to a built route or Home anchor", () => assertNavResolves(PUBLIC_NAV_GROUPS));
   negative("navigation entry pointing at an unbuilt proposed page", () =>
-    assertNavResolves([{ ...PUBLIC_NAV_GROUPS[0], links: [...PUBLIC_NAV_GROUPS[0].links, { label: "Payment processing", href: "/payment-processing" }] }]),
+    assertNavResolves([{ ...PUBLIC_NAV_GROUPS[0], links: [...PUBLIC_NAV_GROUPS[0].links, { label: "Proposed page", href: "/proposed-unbuilt-page" }] }]),
   );
 
-  const assertNoGuessedLogin = (groups: typeof PUBLIC_NAV_GROUPS, html: string): void => {
-    const all = JSON.stringify(groups) + html;
-    ensure(!/merchant[- ]login|merchant[- ]portal|\/login\b|\/signin\b/i.test(all), "navigation names a login destination that has no owner-confirmed URL");
+  // Sign-in utilities: exactly the two existing authenticated entrances. A "Merchant login" or "Merchant portal"
+  // label is rejected because the repository does not prove a merchant-only journey at /login.
+  const assertSignInUtilities = (utilities: readonly { label: string; href: string }[], groups: typeof PUBLIC_NAV_GROUPS, html: string): void => {
+    ensure(
+      utilities.map((u) => `${u.label}=${u.href}`).join("|") === "Support=/support|Account sign in=/login|Partner sign in=/partner-login",
+      "utilities are not Support, Account sign in (/login) and Partner sign in (/partner-login)",
+    );
+    ensure(!/merchant[- ]login|merchant[- ]portal|\/signin\b|\/merchant-login/i.test(JSON.stringify([utilities, groups]) + html), "navigation names a merchant login destination that has no owner-confirmed URL");
+    ensure(!groups.some((g) => g.links.some((l) => /\/login\b|\/partner-login\b/.test(l.href))), "sign-in destinations belong to the utilities, not to a dropdown group");
   };
-  passes("navigation carries no unconfirmed Merchant login destination", () => assertNoGuessedLogin(PUBLIC_NAV_GROUPS, ssrNav));
-  negative("guessed Merchant login added to the model", () =>
-    assertNoGuessedLogin([{ ...PUBLIC_NAV_GROUPS[4], links: [...PUBLIC_NAV_GROUPS[4].links, { label: "Merchant login", href: "/login" }] }], ssrNav),
+  passes("navigation carries the two confirmed sign-in entrances and no guessed Merchant login", () => assertSignInUtilities(PUBLIC_NAV_UTILITIES, PUBLIC_NAV_GROUPS, ssrNav));
+  negative("guessed Merchant login added to the utilities", () =>
+    assertSignInUtilities([...PUBLIC_NAV_UTILITIES, { label: "Merchant login", href: "/login" }], PUBLIC_NAV_GROUPS, ssrNav),
+  );
+  negative("sign-in link hidden in a dropdown group", () =>
+    assertSignInUtilities(PUBLIC_NAV_UTILITIES, [{ ...PUBLIC_NAV_GROUPS[4], links: [...PUBLIC_NAV_GROUPS[4].links, { label: "Sign in", href: "/login" }] }], ssrNav),
+  );
+  negative("Account sign in pointed at an unrelated page", () =>
+    assertSignInUtilities(PUBLIC_NAV_UTILITIES.map((u) => (u.label === "Account sign in" ? { ...u, href: "/support" } : u)), PUBLIC_NAV_GROUPS, ssrNav),
   );
 
   const assertSsrNavParity = (html: string): void => {
@@ -1101,16 +1125,17 @@ family("w-b-design-consumers", () => {
       if (g.offer?.current) ensure(html.includes(`href="${g.offer.href}">${g.offer.label}</a>`), `server menu is missing the ${g.label} offer`);
     }
     ensure(html.includes(`href="${PUBLIC_NAV_CTA.href}" class="ssr-cta-btn">${PUBLIC_NAV_CTA.label}</a>`), "server header is missing its action");
-    ensure(html.includes(`>${PUBLIC_NAV_UTILITY.label}</a>`), "server header is missing Support");
+    for (const u of PUBLIC_NAV_UTILITIES) ensure(html.includes(`href="${u.href}">${u.label}</a>`), `server header is missing the ${u.label} utility`);
     ensure(/<details class="ssr-menu"/.test(html), "server header has no no-JavaScript menu");
   };
   passes("server header and menu list every model entry", () => assertSsrNavParity(ssrNav));
   negative("server header missing a model group", () => assertSsrNavParity(ssrNav.replace(/href="\/learn">Resources<\/a>/, "")));
   negative("server header without its menu", () => assertSsrNavParity(ssrNav.replace('<details class="ssr-menu"', "<div")));
+  negative("server header missing Partner sign in", () => assertSsrNavParity(ssrNav.split('<a href="/partner-login">Partner sign in</a>').join("")));
 
   const navLiterals = nav.match(/href=["']\/[^"']*["']/g) ?? [];
   ok(navLiterals.every((l) => l === 'href="/"'), `React header hardcodes destinations: ${navLiterals.join(", ")}`);
-  ok(/PUBLIC_NAV_CTA/.test(nav) && /PUBLIC_NAV_UTILITY/.test(nav), "React header reads the shared action and utility link");
+  ok(/PUBLIC_NAV_CTA/.test(nav) && /PUBLIC_NAV_UTILITIES/.test(nav), "React header reads the shared action and utility links");
   ok(!/Book a call|Upload Statement|Free Analysis/.test(nav), "React header carries no retired action labels");
   ok(/h-14[^"]*md:h-16/.test(nav), "React header height is 56px on phones and 64px from 768px");
   ok(/<img src=\{logoBlue\}[^>]*max-w-\[200px\]/.test(nav), "React logo is width-constrained on phones");
@@ -1122,7 +1147,8 @@ family("w-b-design-consumers", () => {
     ensure(html.includes(`href="${HOME_HERO.primary.href}"`) && html.includes(HOME_HERO.primary.label), "Home primary action missing");
     ensure(html.includes(`href="${HOME_HERO.secondary.href}"`) && html.includes(HOME_HERO.secondary.label), "Home secondary action missing");
     ensure(html.includes(`id="${HOME_SOLUTIONS_ANCHOR}"`), "Home has no #solutions target");
-    ensure(html.includes(`id="${HOME_PROCESSING_ANCHOR}"`), "Home has no #processing-options target");
+    for (const id of HOME_SECTION_ORDER) ensure(html.includes(`data-home-section="${id}"`), `Home has no ${id} section`);
+    ensure(html.indexOf('data-home-section="hero"') < html.indexOf('data-home-section="solutions"') && html.indexOf('data-home-section="process"') < html.indexOf('data-home-section="final"'), "Home sections are out of contract order");
     for (const c of HOME_SOLUTIONS.cards) ensure(html.includes(`href="${c.href}"`) && html.includes(c.title), `Home solution card ${c.id} missing`);
     ensure(html.includes(HOME_FOUNDER.heading) && html.includes(HOME_FOUNDER.body), "Home founder note missing");
     for (const c of HOME_STARTING_POINTS.cards) ensure(html.includes(c.body) && html.includes(c.note) && html.includes(c.ctaLabel), `Home starting point ${c.id} missing or off-contract`);
@@ -1131,7 +1157,7 @@ family("w-b-design-consumers", () => {
   passes("server Home renders the shared hero, solutions, founder and starting points", () => assertHomeParity(homeHtml));
   negative("Home with a different heading", () => assertHomeParity(homeHtml.replace(HOME_HERO.heading, "Credit Card Processing Without the Rate Games")));
   negative("Home without the #solutions target", () => assertHomeParity(homeHtml.replace(`id="${HOME_SOLUTIONS_ANCHOR}"`, "")));
-  negative("Home without the #processing-options target", () => assertHomeParity(homeHtml.replace(`id="${HOME_PROCESSING_ANCHOR}"`, "")));
+  negative("Home without its process section", () => assertHomeParity(homeHtml.replace('data-home-section="process"', "")));
   negative("Home starting point with a hardcoded terminal promotion", () =>
     assertHomeParity(homeHtml.split(HOME_STARTING_POINTS.cards[1].body).join("Free terminal for everyone")),
   );
@@ -1144,7 +1170,8 @@ family("w-b-design-consumers", () => {
   ok(/HOME_SOLUTIONS/.test(homeSolutions) && /HOME_SOLUTIONS_ANCHOR/.test(homeSolutions), "React solutions section reads shared cards and anchor");
   ok(/HOME_FOUNDER/.test(homeFounder), "React founder section reads the shared note");
   ok(/HOME_STARTING_POINTS/.test(homeStarting), "React starting points read the shared cards");
-  ok(/HOME_PROCESSING_ANCHOR/.test(read("client/src/components/home/HomePrograms.tsx")), "React programs section carries the #processing-options target");
+  ok(/HOME_PROCESS\b/.test(read("client/src/components/home/HomeProcess.tsx")), "React process section reads the shared process content");
+  ok(!fs.existsSync(path.join(ROOT, "client/src/components/home/HomePrograms.tsx")) && !fs.existsSync(path.join(ROOT, "client/src/components/home/HomeHowItWorks.tsx")), "retired Home programs and how-it-works sections are not left behind");
 
   const assertNoPortraitInvented = (source: string): void => {
     ensure(!/<img\b|<PublicImage\b|\.jpg|\.png|\.webp/.test(source), "founder section renders an image although no approved portrait exists");
@@ -1168,7 +1195,7 @@ family("w-b-design-consumers", () => {
       ensure(html.includes(`href="${industryHref(slug)}"`), `hub HTML omits ${slug}`);
     }
     ensure(entries.length === INDUSTRY_SLUGS.length, "hub lists an industry that has no page");
-    ensure(/<h1[^>]*>Payment processing by industry<\/h1>/.test(html), "hub has no single h1");
+    ensure(html.match(/<h1[^>]*>/g)?.length === 1 && html.includes(`${INDUSTRIES_HUB.heading}</h1>`), "hub has no single h1 with the specified heading");
   };
   passes("hub lists every existing industry page and no other", () => assertHub(hubHtml, PUBLIC_INDUSTRIES));
   negative("hub missing an industry", () => assertHub(hubHtml.split(`href="${industryHref(INDUSTRY_SLUGS[0])}"`).join(""), PUBLIC_INDUSTRIES));
@@ -1185,12 +1212,13 @@ family("w-b-design-consumers", () => {
   const assertAbout = (intents: readonly { id: string; label: string; href: string }[], source: string): void => {
     const expected: Record<string, [string, string]> = {
       statement: ["Review my statement", "/upload-statement"],
-      terminal: ["Check terminal eligibility", "/free-smart-terminal"],
+      terminal: ["Discuss checkout fit", "/free-smart-terminal"],
       support: ["Get support", "/support"],
     };
     ensure(intents.length === 3, "three intent cards expected");
     for (const i of intents) ensure(expected[i.id]?.[0] === i.label && expected[i.id]?.[1] === i.href, `intent ${i.id} is not the specified label and destination`);
-    ensure(source.includes('href="tel:9542668214"') && source.includes("mailto:support@libertybancard.com"), "phone or email link missing");
+    ensure(/PUBLIC_CONTACT_CHANNELS/.test(source) && PUBLIC_CONTACT_CHANNELS.phone.href === "tel:+19542668214" && PUBLIC_CONTACT_CHANNELS.email.href === "mailto:support@libertybancard.com", "phone or email channel missing or not read from the shared contact channels");
+    ensure(!/Call\s*\/\s*Text|Text us|text us|SMS/.test(source), "page offers a text channel that has no owner evidence");
     ensure(!/hero-team|team of payment processing professionals/.test(source), "page still claims a team photo with no provenance");
     ensure(!/within \d+|24\/7|same[- ]day|business hours|open (mon|tue)|office address/i.test(source + JSON.stringify(ABOUT_CONTACT_HERO)), "page states hours, response time or address that has no owner evidence");
   };

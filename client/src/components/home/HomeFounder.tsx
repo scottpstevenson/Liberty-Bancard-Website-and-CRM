@@ -9,7 +9,7 @@ import { HOME_FOUNDER } from "@shared/public-home-content";
  */
 export function HomeFounder() {
   return (
-    <PublicSection tone="canvas" labelledBy="home-founder-heading" data-testid="section-founder">
+    <PublicSection tone="canvas" data-home-section="founder" labelledBy="home-founder-heading" data-testid="section-founder">
       <div className="max-w-3xl border-l-4 border-[hsl(var(--liberty-red))] pl-5 md:pl-8">
         <h2 id="home-founder-heading" className="public-h2 text-foreground" data-testid="text-founder-heading">
           {HOME_FOUNDER.heading}

@@ -7,16 +7,16 @@
 
    Source: Liberty-Public-Site-Mobile-Audit-and-Visual-Repair-Plan (token/type
    contract). Departures from the audit's proposed values are deliberate and noted:
-   - Secondary ink stays at the stronger existing `--muted-foreground`
-     (hsl 215 19% 36%, about 7.3:1 on the cream canvas) instead of the audit's
-     #526177 (about 6:1). Public text must never get lighter than the verified pair.
+   - Secondary ink is #475569 (hsl 215 19% 34.5%, about 7.6:1 on white and 7.1:1 on the cream
+     canvas), stronger than the audit's #526177 (about 6:1). Public text must never get lighter
+     than the verified pair. index.css maps --muted-foreground to this token.
    - All body/secondary text pairs are the ones verified by the public-site
      contrast scan (scripts/check-public-site-mobile.ts). */
 
 .marketing-theme {
   /* palette (HSL channels, same values the theme isolation block asserts) */
   --public-ink: 222 47% 11%;
-  --public-ink-secondary: 215 19% 36%;
+  --public-ink-secondary: 215 19% 34.5%; /* #475569, 7.6:1 on white */
   --public-canvas: 40 33% 98%;
   --public-warm: 36 38% 95.5%;
   --public-surface: 0 0% 100%;

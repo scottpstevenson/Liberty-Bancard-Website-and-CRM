@@ -173,11 +173,11 @@ async function main(){
       const overlay=await s.evaluate<string>(`window.__overlay()||''`);
       const w=await s.evaluate<any>(`window.__widget()`);
       record("areas-served bottom: launcher never sits on the page bottom with the dock",widgetLoaded?(widgetHidden(w)||!overlay.includes("dock")):true,`data-public-overlay="${overlay}" widget=${JSON.stringify(w)}`);
-      // On phones the footer groups are collapsed; Staff Login lives in "Company & Resources", so open it the way a visitor would.
-      await s.evaluate(`(()=>{const t=document.querySelector('[data-testid="button-footer-company-toggle"]');if(t&&t.getAttribute('aria-expanded')==='false')t.click();return true;})()`);
-      await new Promise(r=>setTimeout(r,300));
-      const staff=await s.evaluate<any>(`(()=>{const a=Array.from(document.querySelectorAll('footer a')).find(x=>/Staff Login/i.test(x.textContent||''));if(!a)return {found:false};a.setAttribute('data-hit-probe','1');a.scrollIntoView({block:'center'});return window.__hit('[data-hit-probe="1"]');})()`);
-      record("areas-served bottom: footer Staff Login is top-most",!!staff.found&&staff.topIsTarget,JSON.stringify(staff));
+      // The shared footer no longer promotes Staff Login. The bottom of the page is still where the dock could sit,
+      // so the probe takes the last footer link in document order (the legal and consent row, always rendered)
+      // and requires that exact link to be the top-most element at its own position.
+      const staff=await s.evaluate<any>(`(()=>{const links=Array.from(document.querySelectorAll('footer a')).filter(x=>x.getClientRects().length);const a=links[links.length-1];if(!a)return {found:false};a.setAttribute('data-hit-probe','1');a.scrollIntoView({block:'center'});return window.__hit('[data-hit-probe="1"]');})()`);
+      record("areas-served bottom: last footer link is top-most",!!staff.found&&staff.topIsTarget,JSON.stringify(staff));
       await s.screenshot(path.join(out,"areas-served-bottom.png"));
       await s.close();
     }

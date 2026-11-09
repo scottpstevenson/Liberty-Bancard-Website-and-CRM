@@ -152,15 +152,6 @@ export function getLocalBusinessSchema(): StructuredData {
       addressRegion: "FL",
       addressCountry: "US",
     },
-    openingHoursSpecification: [
-      {
-        "@type": "OpeningHoursSpecification",
-        dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
-        opens: "09:00",
-        closes: "18:00",
-      },
-    ],
-    priceRange: "$$",
     hasOfferCatalog: {
       "@type": "OfferCatalog",
       name: "Payment Processing Services",

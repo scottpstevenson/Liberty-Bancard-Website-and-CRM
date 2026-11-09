@@ -33,7 +33,7 @@ const record=(name:string,ok:boolean,detail:string)=>{results.push({name,ok,deta
 
 const BLOCK=["leadconnectorhq.com","google-analytics","googletagmanager","facebook.net"];
 const WIDTHS=[320,390,768,1440];
-const SHELL_ROUTES=["/","/industries","/about-contact","/free-smart-terminal","/shop","/alternatives/square","/alternatives/authorize-net","/switch-from/square"];
+const SHELL_ROUTES=["/","/industries","/about-contact","/payment-processing","/pricing-and-programs","/free-smart-terminal","/shop","/alternatives/square","/alternatives/authorize-net","/switch-from/square"];
 const FAQ_ROUTES=["/","/free-smart-terminal","/0-percent-processing","/compare/square","/alternatives/clover"];
 
 const settle=async(s:Session,ms=1200)=>{

@@ -199,3 +199,4 @@
 - [Website intake](website-intake-review-surfaces.md) / [cert harness](website-intake-cert-harness-lessons.md) — existing surfaces only; /api/health sha check; dialog autofocus.
 - [Public claims preflight lessons](public-claims-preflight-lessons.md) — register suites in both rosters; xlsx via python zipfile; React and SSR copy are separate emitters.
 
+- [Public shell and hubs lessons](public-shell-hubs-lessons.md) — server-only glossary links must be native anchors; static pages need own fonts; hover-then-click toggles the dropdown.

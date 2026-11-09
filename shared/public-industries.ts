@@ -43,11 +43,11 @@ export const industryHref = (slug: string): string => `/industries/${slug}`;
 
 export const INDUSTRIES_HUB = {
   path: "/industries",
-  title: "Payment Processing by Industry",
+  title: "Payment Solutions for Your Industry",
   description:
-    "Browse Liberty Bancard payment processing pages by industry, from restaurants and retail to healthcare, professional services and ecommerce.",
+    "Find payment solutions for your industry, from restaurants and retail to healthcare, professional services and ecommerce, and what to ask before changing processors.",
   keywords: "payment processing by industry, merchant services industries, restaurant payment processing, retail payment processing",
-  heading: "Payment processing by industry",
+  heading: "Payment solutions for your industry.",
   intro:
     "Choose your industry to see how payments typically work for it and what to ask before changing processors.",
 } as const;

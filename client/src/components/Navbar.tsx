@@ -6,22 +6,28 @@ import { Menu, Phone, Mail, ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import logoBlue from "@/assets/logo-blue-420.png";
-import { PHONE_NUMBER, PHONE_TEL } from "@/lib/constants";
+import { PUBLIC_CONTACT_CHANNELS } from "@shared/public-contact-content";
 import { trackPhoneCallClick } from "@/lib/analytics";
 import {
   isHomeAnchor,
+  needsNativeNavigation,
   navTestId,
   PUBLIC_NAV_CTA,
   PUBLIC_NAV_GROUPS,
-  PUBLIC_NAV_UTILITY,
+  PUBLIC_NAV_UTILITIES,
   type PublicNavGroup,
   type PublicNavLink,
 } from "@shared/public-navigation";
 
-// The five groups, their links, the header action and the utility link come from
-// shared/public-navigation.ts, the same model the server-rendered header reads.
+// The five groups, their links, the header action and the utility links (Support, Account sign in, Partner
+// sign in) come from shared/public-navigation.ts, the same model the server-rendered header reads. The full
+// desktop header (five groups, three utilities and the action) needs 1280px to fit without crowding, so the
+// labelled Menu button serves everything narrower.
 
-/** Hash links to a section of Home navigate natively so the browser scrolls; everything else is client-side. */
+/**
+ * Hash links to a section of Home navigate natively so the browser scrolls, and so do the server-only glossary
+ * pages (the client router has no route for them); everything else is client-side.
+ */
 function NavAnchor({
   href,
   className,
@@ -37,7 +43,7 @@ function NavAnchor({
   "data-active"?: boolean;
   "aria-current"?: "page";
 }) {
-  if (isHomeAnchor(href)) {
+  if (needsNativeNavigation(href)) {
     return (
       <a href={href} className={className} onClick={onClick} {...rest}>
         {children}
@@ -179,7 +185,7 @@ export function Navbar() {
             </Link>
 
             {/* Desktop groups */}
-            <div className="hidden items-center gap-7 lg:flex">
+            <div className="hidden items-center gap-6 xl:flex">
               {PUBLIC_NAV_GROUPS.map((group) => (
                 <DesktopDropdown
                   key={group.id}
@@ -192,30 +198,36 @@ export function Navbar() {
               ))}
             </div>
 
-            {/* Header action: utility link (desktop) and the single primary action (from sm) */}
+            {/* Header action: utility links (from 1280px) and the single primary action (from 400px) */}
             <div className="flex items-center gap-2 sm:gap-4">
-              <Link
-                href={PUBLIC_NAV_UTILITY.href}
-                className="public-nav-link hidden text-sm font-medium transition-colors lg:inline-flex lg:min-h-11 lg:items-center"
-                data-active={location === PUBLIC_NAV_UTILITY.href}
-                data-testid="link-nav-support"
-              >
-                {PUBLIC_NAV_UTILITY.label}
-              </Link>
-              <Button asChild className="public-cta--brand hidden h-10 sm:inline-flex" data-testid="link-nav-talk">
+              <div className="hidden items-center gap-4 xl:flex" data-testid="nav-utilities">
+                {PUBLIC_NAV_UTILITIES.map((utility) => (
+                  <Link
+                    key={utility.href}
+                    href={utility.href}
+                    className="public-nav-link inline-flex min-h-11 items-center whitespace-nowrap text-[13px] font-medium transition-colors"
+                    data-active={location === utility.href}
+                    data-testid={`link-nav-${navTestId(utility.label)}`}
+                  >
+                    {utility.label}
+                  </Link>
+                ))}
+              </div>
+              <Button asChild className="public-cta--brand hidden h-10 min-[400px]:inline-flex" data-testid="link-nav-talk">
                 <Link href={PUBLIC_NAV_CTA.href}>{PUBLIC_NAV_CTA.label}</Link>
               </Button>
 
-              {/* Mobile hamburger */}
-              <div className="lg:hidden">
+              {/* Labelled menu button below 1280px */}
+              <div className="xl:hidden">
                 <Button
                   variant="ghost"
-                  className="h-12 w-12 p-0 text-primary [&_svg]:size-6"
+                  className="h-11 gap-2 px-3 text-primary [&_svg]:size-6"
                   onClick={() => setMobileOpen(true)}
                   data-testid="button-mobile-menu"
                   aria-label="Open menu"
                 >
-                  <Menu className="h-6 w-6" />
+                  <Menu className="h-6 w-6" aria-hidden="true" />
+                  <span className="text-sm font-semibold">Menu</span>
                 </Button>
               </div>
             </div>
@@ -289,32 +301,38 @@ export function Navbar() {
 
               <div className="my-2 h-px bg-border" />
 
-              <Link
-                href={PUBLIC_NAV_UTILITY.href}
-                className={cn(
-                  "flex min-h-11 items-center rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
-                  location === PUBLIC_NAV_UTILITY.href ? "bg-[hsl(var(--liberty-surface))] text-[hsl(var(--liberty-navy))]" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                )}
-                onClick={() => setMobileOpen(false)}
-                data-testid="link-mobile-support"
-              >
-                {PUBLIC_NAV_UTILITY.label}
-              </Link>
+              <ul className="grid" aria-label="Support and sign in">
+                {PUBLIC_NAV_UTILITIES.map((utility) => (
+                  <li key={utility.href}>
+                    <Link
+                      href={utility.href}
+                      className={cn(
+                        "flex min-h-11 items-center rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
+                        location === utility.href ? "bg-[hsl(var(--liberty-surface))] text-[hsl(var(--liberty-navy))]" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                      )}
+                      onClick={() => setMobileOpen(false)}
+                      data-testid={`link-mobile-${navTestId(utility.label)}`}
+                    >
+                      {utility.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
 
               {/* Contact info */}
               <div className="flex flex-col gap-1 px-3 py-2">
                 <a
-                  href={PHONE_TEL}
+                  href={PUBLIC_CONTACT_CHANNELS.phone.href}
                   className="flex min-h-11 items-center gap-2 text-sm text-muted-foreground"
                   data-testid="link-mobile-phone"
                   onClick={() => trackPhoneCallClick({})}
                 >
                   <Phone className="h-4 w-4" aria-hidden="true" />
-                  Call/Text {PHONE_NUMBER}
+                  {PUBLIC_CONTACT_CHANNELS.phone.label}
                 </a>
-                <a href="mailto:support@libertybancard.com" className="flex min-h-11 items-center gap-2 text-sm text-muted-foreground" data-testid="link-mobile-email">
+                <a href={PUBLIC_CONTACT_CHANNELS.email.href} className="flex min-h-11 items-center gap-2 text-sm text-muted-foreground" data-testid="link-mobile-email">
                   <Mail className="h-4 w-4" aria-hidden="true" />
-                  support@libertybancard.com
+                  {PUBLIC_CONTACT_CHANNELS.email.label}
                 </a>
               </div>
             </div>

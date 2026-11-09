@@ -446,6 +446,8 @@ Guidelines:
 
     const publicPages: Array<{ url: string; priority: string; changefreq: string }> = [
       { url: "/", priority: "1.0", changefreq: "weekly" },
+      { url: "/payment-processing", priority: "0.9", changefreq: "monthly" },
+      { url: "/pricing-and-programs", priority: "0.9", changefreq: "monthly" },
       { url: "/get-started", priority: "0.9", changefreq: "monthly" },
       { url: "/upload-statement", priority: "0.9", changefreq: "monthly" },
       { url: "/free-analysis", priority: "0.9", changefreq: "monthly" },

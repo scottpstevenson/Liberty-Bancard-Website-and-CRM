@@ -70,11 +70,6 @@ const SOURCES: Source[] = [
     variants: [{ name: "card", crop: { left: 50, top: 0, width: 1179, height: 884 }, widths: [320, 480, 640] }],
   },
   {
-    id: "industry-home-services",
-    file: "case-home-services.jpg", // 1280x853
-    variants: [{ name: "card", crop: { left: 143, top: 0, width: 1137, height: 853 }, widths: [320, 480, 640] }],
-  },
-  {
     id: "how-statement-review",
     file: "statement-review.jpg", // 1280x848
     variants: [

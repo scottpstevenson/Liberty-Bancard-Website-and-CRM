@@ -327,7 +327,7 @@ const industries: Record<string, IndustryData> = {
     metaDescription: "Payment processing for contractors and construction companies. Reduce fees on high-value invoices and commercial card payments. Free statement review.",
     keywords: "construction payment processing, contractor credit card processing, builder payment processing, construction merchant services, contractor merchant account",
     icon: HardHat,
-    image: "industry-home-services",
+    image: null,
     painPoints: [
       { icon: DollarSign, title: "Massive fees on progress payments", description: "A 3% fee on a $25,000 progress payment is $750. On a $100,000 project with multiple card payments, processing costs can exceed $3,000." },
       { icon: AlertTriangle, title: "Commercial card surcharges", description: "General contractors and property managers often pay with commercial cards that carry higher interchange rates — and most processors don't optimize for these." },

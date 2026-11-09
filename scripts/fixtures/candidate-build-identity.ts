@@ -54,6 +54,10 @@ function aggregate(files:FileReceipt[]) {
 export async function captureCandidateSource(root=process.cwd()) {
   const files=execFileSync("git",["ls-files","--cached","--others","--exclude-standard","-z",...inputRoots],{cwd:root,encoding:"utf8"})
     .split("\0").filter(Boolean);
+  // A tracked file that was removed from the working tree is not an effective input: the candidate is the
+  // tree as it stands, so the path is excluded from the hash (its absence still changes the hash).
+  const deleted=new Set(execFileSync("git",["ls-files","--deleted","-z",...inputRoots],{cwd:root,encoding:"utf8"})
+    .split("\0").filter(Boolean));
   // The stock isolated build links the asset directory into its checkout.
   // Git reports that untracked directory link as a path in addition to the
   // tracked descendants. Hash the effective files, never the directory itself.
@@ -67,7 +71,7 @@ export async function captureCandidateSource(root=process.cwd()) {
     const next=new Set(ancestors);next.add(key);
     for(const entry of await readdir(path.join(root,file)))await expand(`${file}/${entry}`,next);
   };
-  for(const file of files)await expand(file);
+  for(const file of files)if(!deleted.has(file))await expand(file);
   const inputs=await digestFiles([...effectiveFiles],root);
   return {inputs,inputHash:aggregate(inputs),sourceHead:execFileSync("git",["rev-parse","HEAD"],{cwd:root,encoding:"utf8"}).trim()};
 }

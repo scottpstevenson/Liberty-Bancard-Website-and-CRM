@@ -1,27 +1,29 @@
 import type { PublicImageId } from "@/lib/public-imagery";
 
-export const COMPLIANCE_LINE = "Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.";
+import { HOME_INDUSTRIES_SECTION } from "@shared/public-home-content";
 
-/** Industry entrances on Home. Every slug is an existing /industries/:slug template. */
+/**
+ * Photograph for each Home industry entry. Wording (title, best-for line, order) lives in
+ * shared/public-home-content.ts so the server-rendered Home lists the same entries; only the image
+ * assignment is client-side.
+ */
+const HOME_INDUSTRY_IMAGES: Record<string, PublicImageId | null> = {
+  "restaurant-payment-processing": "industry-restaurant",
+  "healthcare-payment-processing": "industry-healthcare",
+  "auto-repair-payment-processing": "industry-automotive",
+  "retail-payment-processing": "industry-retail",
+  // No registered photograph depicts on-site service work (see public-imagery.ts); the card uses a native icon tile.
+  "construction-payment-processing": null,
+};
+
 export interface HomeIndustry {
   slug: string;
-  image: PublicImageId;
+  image: PublicImageId | null;
   title: string;
   bestFor: string;
 }
 
-export const HOME_INDUSTRIES: HomeIndustry[] = [
-  { slug: "restaurant-payment-processing", image: "industry-restaurant", title: "Restaurants", bestFor: "Tip-adjust + weekend volume" },
-  { slug: "healthcare-payment-processing", image: "industry-healthcare", title: "Medical, Dental & Medspa", bestFor: "Front-desk speed + clean deposits" },
-  { slug: "auto-repair-payment-processing", image: "industry-automotive", title: "Automotive", bestFor: "High-ticket + chargeback safety" },
-  { slug: "retail-payment-processing", image: "industry-retail", title: "Retail", bestFor: "Fast lines + contactless" },
-  { slug: "construction-payment-processing", image: "industry-home-services", title: "Contractors & Field Services", bestFor: "On-the-job mobile acceptance" },
-];
-
-export const COMPARE_LINKS = [
-  { href: "/compare/square", label: "Liberty vs Square", testId: "link-compare-square" },
-  { href: "/compare/stripe", label: "Liberty vs Stripe", testId: "link-compare-stripe" },
-  { href: "/compare/clover", label: "Liberty vs Clover", testId: "link-compare-clover" },
-  { href: "/compare/toast", label: "Liberty vs Toast", testId: "link-compare-toast" },
-  { href: "/compare/paypal", label: "Liberty vs PayPal", testId: "link-compare-paypal" },
-] as const;
+export const HOME_INDUSTRIES: HomeIndustry[] = HOME_INDUSTRIES_SECTION.entries.map((entry) => {
+  if (!(entry.slug in HOME_INDUSTRY_IMAGES)) throw new Error(`Home industry ${entry.slug} has no image assignment`);
+  return { ...entry, image: HOME_INDUSTRY_IMAGES[entry.slug] };
+});

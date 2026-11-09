@@ -11,7 +11,7 @@ import { isHomeAnchor } from "@shared/public-navigation";
  */
 export function HomeSolutions() {
   return (
-    <PublicSection tone="light" id={HOME_SOLUTIONS_ANCHOR} labelledBy="home-solutions-heading" data-testid="section-solutions">
+    <PublicSection tone="light" id={HOME_SOLUTIONS_ANCHOR} data-home-section="solutions" labelledBy="home-solutions-heading" data-testid="section-solutions">
       <PublicSectionHeader id="home-solutions-heading" title={HOME_SOLUTIONS.heading} titleTestId="text-solutions-heading" />
       <ul className="grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-6" data-testid="grid-solutions">
         {HOME_SOLUTIONS.cards.map((card) => {

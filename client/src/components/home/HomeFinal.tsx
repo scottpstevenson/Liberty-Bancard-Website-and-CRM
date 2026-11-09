@@ -1,67 +1,71 @@
 import { Link } from "wouter";
-import { ArrowRight, Calendar, CheckCircle2, Phone, Upload } from "lucide-react";
+import { ArrowRight, Calendar, Mail, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PublicSection } from "@/components/public/PublicSection";
-import { CALENDAR_URL, PHONE_NUMBER, PHONE_TEL } from "@/lib/constants";
 import { trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
+import { buildAttributedBookingUrl } from "@/lib/utm";
+import { HOME_FINAL } from "@shared/public-home-content";
 import { HomeCallbackForm } from "./HomeCallbackForm";
 
+const OUTLINE = "public-cta public-cta--inverse-outline gap-2 sm:w-auto hover:bg-white/10 hover:text-white";
+
 /**
- * Section 8: final action. Upload / Book / Phone as three plainly different choices, plus the
- * existing callback request. One offer, no second hero image.
+ * Final contact section. Talk to Liberty and the statement review are the two primary choices; phone,
+ * email and booking are listed as plain channels. The existing callback request stays (hydrated only; the
+ * server document links to the contact options instead). No hours, response time or text capability is
+ * stated, and the wording comes from shared/public-home-content.ts.
  */
 export function HomeFinal() {
+  const [talk, review] = HOME_FINAL.actions;
+  const [phone, email, booking] = HOME_FINAL.channels;
   return (
-    <PublicSection tone="ink" labelledBy="home-final-heading" className="pb-safe-mobile" data-testid="section-final-cta">
+    <PublicSection tone="ink" data-home-section="final" labelledBy="home-final-heading" className="pb-safe-mobile" data-testid="section-final-cta">
       <div className="grid gap-8 lg:grid-cols-2 lg:items-start lg:gap-14">
         <div>
-          <p className="public-eyebrow mb-2">Liberty statement review</p>
+          <p className="public-eyebrow mb-2">{HOME_FINAL.eyebrow}</p>
           <h2 id="home-final-heading" className="public-h2 text-white" data-testid="text-final-cta-heading">
-            Your statement tells the truth. Let's read it together.
+            {HOME_FINAL.heading}
           </h2>
-          <p className="public-body public-secondary mt-3 max-w-xl">Upload takes about 30 seconds. You keep the breakdown no matter what.</p>
-          <ul className="public-small mt-4 grid gap-2 text-white/90">
-            {["No obligation", "No contract to see your numbers", "Yours to keep"].map((item) => (
-              <li key={item} className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-sky-300" aria-hidden="true" />
-                {item}
-              </li>
-            ))}
-          </ul>
+          <p className="public-body public-secondary mt-3 max-w-xl">{HOME_FINAL.body}</p>
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap" data-testid="final-cta-block">
-            <Button asChild size="lg" className="public-cta public-cta--inverse gap-2 sm:w-auto" data-testid="link-final-upload" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: "Get My Free Analysis", ctaLocation: "final-cta" })}>
-              <Link href="/upload-statement">
-                <Upload className="h-4 w-4 shrink-0" aria-hidden="true" />
-                Get My Free Analysis
+            <Button asChild size="lg" className="public-cta public-cta--inverse gap-2 sm:w-auto" data-testid="link-final-talk">
+              <Link href={talk.href}>
+                {talk.label}
                 <ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />
               </Link>
             </Button>
-            <Button asChild size="lg" variant="outline" className="public-cta public-cta--inverse-outline gap-2 sm:w-auto hover:bg-white/10 hover:text-white">
-              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-final-book" onClick={() => trackBookingCtaClick({ page: "/", ctaLabel: "Book a review call", ctaLocation: "final-cta" })}>
-                <Calendar className="h-4 w-4 shrink-0" aria-hidden="true" />
-                Book a review call
-              </a>
-            </Button>
-            <Button asChild size="lg" variant="outline" className="public-cta public-cta--inverse-outline gap-2 sm:w-auto hover:bg-white/10 hover:text-white">
-              <a href={PHONE_TEL} data-testid="link-final-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/" })}>
-                <Phone className="h-4 w-4 shrink-0" aria-hidden="true" />
-                Call {PHONE_NUMBER}
-              </a>
+            <Button asChild size="lg" variant="outline" className={OUTLINE} data-testid="link-final-upload" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: review.label, ctaLocation: "final-cta" })}>
+              <Link href={review.href}>{review.label}</Link>
             </Button>
           </div>
-          <p className="public-small mt-3">
-            <Link href="/get-started" className="public-tap inline-flex items-center gap-1 text-sky-200 underline underline-offset-4 hover:no-underline" data-testid="link-final-quiz">
-              Or take the 60-second quiz <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-            </Link>
-          </p>
-          <p className="public-caption mt-3 max-w-xl text-white/80" data-testid="text-final-cta-microcopy">
-            Eligibility, underwriting, card brand rules, and applicable laws apply.
+          <ul className="public-small mt-5 grid gap-1 text-white/90" aria-label="Other ways to reach Liberty" data-testid="list-final-channels">
+            <li>
+              <a href={phone.href} className="public-tap inline-flex items-center gap-2 underline underline-offset-4 hover:no-underline" data-testid="link-final-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/" })}>
+                <Phone className="h-4 w-4 shrink-0" aria-hidden="true" />
+                {phone.label}
+              </a>
+            </li>
+            <li>
+              <a href={email.href} className="public-tap inline-flex items-center gap-2 underline underline-offset-4 hover:no-underline" data-testid="link-final-email">
+                <Mail className="h-4 w-4 shrink-0" aria-hidden="true" />
+                {email.label}
+              </a>
+            </li>
+            <li>
+              <a href={buildAttributedBookingUrl(booking.href, { ctaLocation: "final-cta" })} target="_blank" rel="noopener noreferrer" className="public-tap inline-flex items-center gap-2 underline underline-offset-4 hover:no-underline" data-testid="link-final-book" onClick={() => trackBookingCtaClick({ page: "/", ctaLabel: booking.label, ctaLocation: "final-cta" })}>
+                <Calendar className="h-4 w-4 shrink-0" aria-hidden="true" />
+                {booking.label}
+              </a>
+            </li>
+          </ul>
+          <p className="public-caption mt-4 max-w-xl text-white/80" data-testid="text-final-cta-microcopy">
+            {HOME_FINAL.disclosure}
           </p>
         </div>
         <div id="callback" data-testid="section-callback">
-          <h3 className="public-h3 mb-1 text-white" data-testid="text-callback-heading">Rather talk it through?</h3>
-          <p className="public-body public-secondary mb-4">Drop your number. A real person calls you back — no call center, no script, no pitch.</p>
+          <h3 className="public-h3 mb-1 text-white" data-testid="text-callback-heading">{HOME_FINAL.callback.heading}</h3>
+          <p className="public-body public-secondary mb-4">{HOME_FINAL.callback.body}</p>
           <HomeCallbackForm />
         </div>
       </div>

@@ -1,60 +1,46 @@
-import { FSR_HOME_LINK_TEXT } from "@shared/free-statement-review-content";
-import { claimText } from "@shared/public-claims";
-import { ZP_HOME_SSR } from "@shared/zero-percent-content";
-import { HOME_FOUNDER, HOME_HERO, HOME_PROCESSING_ANCHOR, HOME_SOLUTIONS, HOME_SOLUTIONS_ANCHOR, HOME_STARTING_POINTS } from "@shared/public-home-content";
+import {
+  HOME_FAQ,
+  HOME_FINAL,
+  HOME_FOUNDER,
+  HOME_HERO,
+  HOME_INDUSTRIES_SECTION,
+  HOME_LOCAL_BUSINESS_SCHEMA,
+  HOME_META,
+  HOME_ORGANIZATION_SCHEMA,
+  HOME_PROCESS,
+  HOME_SAMPLE_REVIEW,
+  HOME_SECTION_ORDER,
+  HOME_SOLUTIONS,
+  HOME_SOLUTIONS_ANCHOR,
+  HOME_STARTING_POINTS,
+  type HomeSectionId,
+} from "@shared/public-home-content";
+import { industryHref } from "@shared/public-industries";
 import { ssrHtmlShell } from "../ssrShared";
 
 const esc = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-export function getHomeHtml(): string {
-  const orgSchema = {
-    "@context": "https://schema.org",
-    "@type": "Organization",
-    name: "Liberty Bancard",
-    url: "https://libertybancard.com",
-    telephone: "+1-954-266-8214",
-    email: "support@libertybancard.com",
-    description: "Transparent merchant payment processing with interchange-plus pricing, cash discount and surcharging program reviews, and dedicated support for small businesses.",
-    address: {
-      "@type": "PostalAddress",
-      addressLocality: "Fort Lauderdale",
-      addressRegion: "FL",
-      addressCountry: "US",
-    },
-    sameAs: [],
-  };
+const webSiteSchema = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: "Liberty Bancard",
+  url: "https://libertybancard.com",
+  potentialAction: {
+    "@type": "SearchAction",
+    target: "https://libertybancard.com/blog?q={search_term_string}",
+    "query-input": "required name=search_term_string",
+  },
+};
 
-  const localBusinessSchema = {
-    "@context": "https://schema.org",
-    "@type": "LocalBusiness",
-    name: "Liberty Bancard",
-    description: "Transparent merchant payment processing with interchange-plus pricing and dedicated support.",
-    url: "https://libertybancard.com",
-    telephone: "+1-954-266-8214",
-    address: {
-      "@type": "PostalAddress",
-      addressLocality: "Fort Lauderdale",
-      addressRegion: "FL",
-      addressCountry: "US",
-    },
-    priceRange: "$$",
-    openingHours: "Mo-Fr 09:00-18:00",
-  };
-
-  const webSiteSchema = {
-    "@context": "https://schema.org",
-    "@type": "WebSite",
-    name: "Liberty Bancard",
-    url: "https://libertybancard.com",
-    potentialAction: {
-      "@type": "SearchAction",
-      target: "https://libertybancard.com/blog?q={search_term_string}",
-      "query-input": "required name=search_term_string",
-    },
-  };
-
-  const body = `
-    <div class="ssr-hero">
+/**
+ * Server-rendered Home. Each section is emitted in HOME_SECTION_ORDER and tagged with the same
+ * data-home-section value as the hydrated page, so the document a crawler or a slow connection receives
+ * lists the same sections, in the same order, as the page that replaces it. All copy comes from
+ * shared/public-home-content.ts (which reads the public claim records); nothing commercial is written here.
+ */
+const sections: Record<HomeSectionId, () => string> = {
+  hero: () => `
+    <section class="ssr-hero ssr-hero--light" data-home-section="hero">
       <div class="ssr-hero-inner">
         <div class="ssr-hero-badge">${esc(HOME_HERO.eyebrow)}</div>
         <h1>${esc(HOME_HERO.heading)}</h1>
@@ -62,207 +48,136 @@ export function getHomeHtml(): string {
           ${esc(HOME_HERO.body)}
         </p>
         <div class="ssr-hero-buttons">
-          <a href="${HOME_HERO.primary.href}" class="ssr-btn-primary">${esc(HOME_HERO.primary.label)}</a>
+          <a href="${HOME_HERO.primary.href}" class="ssr-btn-dark">${esc(HOME_HERO.primary.label)}</a>
           <a href="${HOME_HERO.secondary.href}" class="ssr-btn-outline">${esc(HOME_HERO.secondary.label)}</a>
         </div>
+        <p class="ssr-hero-note">${esc(HOME_HERO.compliance)}</p>
       </div>
-    </div>
+    </section>`,
 
-    <section class="ssr-section ssr-section-muted" id="${HOME_SOLUTIONS_ANCHOR}">
+  solutions: () => `
+    <section class="ssr-section ssr-section-muted" id="${HOME_SOLUTIONS_ANCHOR}" data-home-section="solutions">
       <div class="ssr-section-inner">
         <h2 class="ssr-section-heading">${esc(HOME_SOLUTIONS.heading)}</h2>
         <div class="ssr-grid-3">
-${HOME_SOLUTIONS.cards.map((card) => `          <a href="${card.href}" class="ssr-card" style="display:block;text-decoration:none;border-top:3px solid #071D57;">
+${HOME_SOLUTIONS.cards.map((card) => `          <a href="${card.href}" class="ssr-card ssr-card-link">
             <div class="ssr-card-title">${esc(card.title)}</div>
             <div class="ssr-card-text">${esc(card.body)}</div>
-            <div class="ssr-card-text" style="margin-top:0.75rem;font-weight:600;color:#071D57;text-decoration:underline;">${esc(card.linkLabel)}</div>
+            <div class="ssr-card-cta">${esc(card.linkLabel)}</div>
           </a>`).join("\n")}
         </div>
       </div>
-    </section>
+    </section>`,
 
-    <section class="ssr-section">
+  industries: () => `
+    <section class="ssr-section" data-home-section="industries">
       <div class="ssr-section-inner">
-        <div style="max-width:48rem;border-left:4px solid #C8102E;padding-left:1.25rem;">
-          <h2 class="ssr-section-heading" style="text-align:left;">${esc(HOME_FOUNDER.heading)}</h2>
-          <p class="ssr-section-subheading" style="text-align:left;">${esc(HOME_FOUNDER.body)}</p>
-          <a href="${HOME_FOUNDER.cta.href}" class="ssr-btn-dark">${esc(HOME_FOUNDER.cta.label)}</a>
-        </div>
-      </div>
-    </section>
-
-    <section class="ssr-section ssr-section-muted">
-      <div class="ssr-section-inner">
+        <h2 class="ssr-section-heading">${esc(HOME_INDUSTRIES_SECTION.heading)}</h2>
+        <p class="ssr-section-subheading">${esc(HOME_INDUSTRIES_SECTION.description)}</p>
         <div class="ssr-grid-3">
-          <div class="ssr-card" style="text-align:center;">
-            <!-- source: Internal — company founding year, verified Aug 2026 -->
-            <!-- measuredAs: Calendar years of operation from founding -->
-            <div class="ssr-stat-value">10+</div>
-            <div class="ssr-stat-label">Years in Business</div>
-          </div>
-          <div class="ssr-card" style="text-align:center;">
-            <!-- source: Internal — CRM cumulative merchant count, last verified Aug 2026 -->
-            <!-- measuredAs: Cumulative approved merchant accounts, all-time -->
-            <div class="ssr-stat-value">5,000+</div>
-            <div class="ssr-stat-label">Merchants Served</div>
-          </div>
-          <div class="ssr-card" style="text-align:center;">
-            <div class="ssr-stat-value">FL-Based</div>
-            <div class="ssr-stat-label">South Florida Team</div>
-          </div>
+${HOME_INDUSTRIES_SECTION.entries.map((entry) => `          <a href="${industryHref(entry.slug)}" class="ssr-card ssr-card-link">
+            <div class="ssr-card-title">${esc(entry.title)}</div>
+            <div class="ssr-card-text">Best for: ${esc(entry.bestFor)}</div>
+          </a>`).join("\n")}
         </div>
+        <p class="ssr-center-link"><a href="${HOME_INDUSTRIES_SECTION.allHref}">${esc(HOME_INDUSTRIES_SECTION.allLabel)}</a></p>
       </div>
-    </section>
+    </section>`,
 
-    <section class="ssr-section" id="${HOME_PROCESSING_ANCHOR}">
-      <div class="ssr-section-inner">
-        <h2 class="ssr-section-heading">What We Do Differently</h2>
-        <p class="ssr-section-subheading">Most processors hide their margins in bundled rates. We don't.</p>
-        <div class="ssr-grid-2">
-          <div class="ssr-card ssr-pain-item">
-            <div class="ssr-solution-icon">💲</div>
-            <div>
-              <div class="ssr-item-title">Interchange-Plus Pricing</div>
-              <div class="ssr-item-text">You see the exact card network cost plus our transparent markup. No bundled rates, no hidden fees — just the truth about what payment processing actually costs.</div>
-            </div>
-          </div>
-          <div class="ssr-card ssr-pain-item">
-            <div class="ssr-solution-icon">📊</div>
-            <div>
-              <div class="ssr-item-title">Free Statement Review</div>
-              <div class="ssr-item-text">Upload your current statement and we'll review every line item. We'll explain what you're paying and who charges it. No commitment required.</div>
-            </div>
-          </div>
-          <div class="ssr-card ssr-pain-item">
-            <div class="ssr-solution-icon">⚡</div>
-            <div>
-              <div class="ssr-item-title">${ZP_HOME_SSR.title}</div>
-              <div class="ssr-item-text">${ZP_HOME_SSR.text}</div>
-            </div>
-          </div>
-          <div class="ssr-card ssr-pain-item">
-            <div class="ssr-solution-icon">🤝</div>
-            <div>
-              <div class="ssr-item-title">Dedicated Account Rep</div>
-              <div class="ssr-item-text">A real person who knows your business, answers when you call, and helps when something goes wrong. Not a call center, not a ticket system — a dedicated partner.</div>
-            </div>
-          </div>
-          <div class="ssr-card ssr-pain-item">
-            <div class="ssr-solution-icon">🏦</div>
-            <div>
-              <div class="ssr-item-title">Funding Availability</div>
-              <div class="ssr-item-text">${claimText("funding.availability", "home")}*</div>
-            </div>
-          </div>
-          <div class="ssr-card ssr-pain-item">
-            <div class="ssr-solution-icon">🖥</div>
-            <div>
-              <div class="ssr-item-title">Equipment Options</div>
-              <div class="ssr-item-text">${claimText("equipment.options.summary", "home")}*</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="ssr-section ssr-section-muted">
-      <div class="ssr-section-inner">
-        <h2 class="ssr-section-heading">How the Free Statement Review Works</h2>
-        <p class="ssr-section-subheading">Three steps to knowing exactly what payment processing should cost your business.</p>
-        <div class="ssr-grid-3">
-          <div class="ssr-card" style="text-align:center;">
-            <div style="font-size:2rem;margin-bottom:0.75rem;">1️⃣</div>
-            <div class="ssr-card-title">Upload Your Statement</div>
-            <div class="ssr-card-text">Securely upload your most recent processing statement — any processor, any format. Takes 30 seconds.</div>
-          </div>
-          <div class="ssr-card" style="text-align:center;">
-            <div style="font-size:2rem;margin-bottom:0.75rem;">2️⃣</div>
-            <div class="ssr-card-title">We Analyze It</div>
-            <div class="ssr-card-text">Our team reviews every line item, explains each fee and who charges it, and calculates your effective cost.</div>
-          </div>
-          <div class="ssr-card" style="text-align:center;">
-            <div style="font-size:2rem;margin-bottom:0.75rem;">3️⃣</div>
-            <div class="ssr-card-title">See Your Options</div>
-            <div class="ssr-card-text">We explain your options with the calculation inputs shown. Keep the analysis either way.</div>
-          </div>
-        </div>
-        <div style="text-align:center;margin-top:2rem;">
-          <a href="/upload-statement" class="ssr-btn-dark">📤 Start Free Statement Review</a>
-        </div>
-        <p style="text-align:center;margin-top:1rem;"><a href="/upload-statement">${FSR_HOME_LINK_TEXT}</a></p>
-      </div>
-    </section>
-
-    <section class="ssr-section">
-      <div class="ssr-section-inner">
-        <h2 class="ssr-section-heading">Industries We Serve</h2>
-        <p class="ssr-section-subheading">Payment processing built around how your industry actually operates.</p>
-        <div class="ssr-grid-3">
-          <a href="/industries/restaurant-payment-processing" class="ssr-card" style="display:block;text-decoration:none;">
-            <div class="ssr-card-title">🍽 Restaurant</div>
-            <div class="ssr-card-text">Tip handling, POS compatibility questions, and statement review for high-volume restaurant operations.</div>
-          </a>
-          <a href="/industries/retail-payment-processing" class="ssr-card" style="display:block;text-decoration:none;">
-            <div class="ssr-card-title">🛍 Retail</div>
-            <div class="ssr-card-text">Interchange-plus pricing shows the card-network cost by card type. Multi-location management, chargeback support.</div>
-          </a>
-          <a href="/industries/healthcare-payment-processing" class="ssr-card" style="display:block;text-decoration:none;">
-            <div class="ssr-card-title">🏥 Healthcare</div>
-            <div class="ssr-card-text">PCI-compliant solutions for medical and dental practices. Patient payment plans, clear reporting.</div>
-          </a>
-          <a href="/industries/salon-spa-payment-processing" class="ssr-card" style="display:block;text-decoration:none;">
-            <div class="ssr-card-title">💇 Salon &amp; Spa</div>
-            <div class="ssr-card-text">Card-on-file for no-shows, tip-optimized processing, software-agnostic integration.</div>
-          </a>
-          <a href="/industries/auto-repair-payment-processing" class="ssr-card" style="display:block;text-decoration:none;">
-            <div class="ssr-card-title">🔧 Auto Repair</div>
-            <div class="ssr-card-text">High-ticket optimization, fleet card acceptance, fast deposits for parts purchasing.</div>
-          </a>
-          <a href="/industries/professional-services-payment-processing" class="ssr-card" style="display:block;text-decoration:none;">
-            <div class="ssr-card-title">💼 Professional Services</div>
-            <div class="ssr-card-text">Virtual terminal, payment links for invoices, retainer billing, variable volume support.</div>
-          </a>
-        </div>
-        <p style="text-align:center;margin-top:1.5rem;"><a href="/industries" style="font-weight:600;text-decoration:underline;">All industries</a></p>
-      </div>
-    </section>
-
-    <section class="ssr-section ssr-section-muted">
+  "starting-points": () => `
+    <section class="ssr-section ssr-section-muted" data-home-section="starting-points">
       <div class="ssr-section-inner">
         <h2 class="ssr-section-heading">${esc(HOME_STARTING_POINTS.heading)}</h2>
         <div class="ssr-grid-2">
-${HOME_STARTING_POINTS.cards.map((card) => `          <div class="ssr-card" style="border-top:3px solid #071D57;">
-            <div class="ssr-card-title">${esc(card.title)}</div>
+${HOME_STARTING_POINTS.cards.map((card) => `          <div class="ssr-card ssr-card-accent">
+            <h3 class="ssr-card-title">${esc(card.title)}</h3>
             <div class="ssr-card-text">${esc(card.body)}</div>
-            <p style="margin-top:1rem;"><a href="${card.href}" class="ssr-btn-dark">${esc(card.ctaLabel)}</a></p>
-            <div class="ssr-card-text" style="margin-top:0.75rem;">${esc(card.note)}</div>
+            <p class="ssr-card-action"><a href="${card.href}" class="ssr-btn-dark">${esc(card.ctaLabel)}</a></p>
+            <div class="ssr-card-text">${esc(card.note)}</div>
           </div>`).join("\n")}
         </div>
       </div>
-    </section>
+    </section>`,
 
-    <section class="ssr-section ssr-section-dark">
+  founder: () => `
+    <section class="ssr-section" data-home-section="founder">
       <div class="ssr-section-inner">
-        <div class="ssr-cta-section">
-          <h2>Ready to Stop Overpaying for Payment Processing?</h2>
-          <p>Upload your statement and we'll show you exactly what you're paying and exactly what you should be paying. Takes 30 seconds to start. No commitment required.</p>
-          <div class="ssr-cta-buttons">
-            <a href="/upload-statement" class="ssr-btn-primary">📤 Upload Statement — Free Review</a>
-            <a href="tel:9542668214" class="ssr-btn-outline">📞 Call (954) 266-8214</a>
-          </div>
+        <div class="ssr-founder">
+          <h2 class="ssr-section-heading ssr-left">${esc(HOME_FOUNDER.heading)}</h2>
+          <p class="ssr-section-subheading ssr-left">${esc(HOME_FOUNDER.body)}</p>
+          <a href="${HOME_FOUNDER.cta.href}" class="ssr-btn-dark">${esc(HOME_FOUNDER.cta.label)}</a>
         </div>
       </div>
-    </section>
-  `;
+    </section>`,
 
+  process: () => `
+    <section class="ssr-section ssr-section-muted" data-home-section="process">
+      <div class="ssr-section-inner">
+        <h2 class="ssr-section-heading">${esc(HOME_PROCESS.heading)}</h2>
+        <div class="ssr-grid-2">
+          <ol class="ssr-steps">
+${HOME_PROCESS.steps.map((step, i) => `            <li class="ssr-card">
+              <span class="ssr-step-num" aria-hidden="true">${i + 1}</span>
+              <div>
+                <h3 class="ssr-card-title">${esc(step.title)}</h3>
+                <div class="ssr-card-text">${esc(step.body)}</div>
+              </div>
+            </li>`).join("\n")}
+          </ol>
+          <figure class="ssr-card ssr-worksheet" aria-label="Statement review layout (illustrative, no results shown)">
+            <dl>
+${HOME_SAMPLE_REVIEW.rows.map((row) => `              <div class="ssr-worksheet-row"><div><dt>${esc(row.label)}</dt><dd>${esc(row.note)}</dd></div><span aria-hidden="true">&mdash;</span></div>`).join("\n")}
+            </dl>
+            <figcaption>${esc(HOME_SAMPLE_REVIEW.label)}</figcaption>
+          </figure>
+        </div>
+        <p class="ssr-center-link">${HOME_PROCESS.links.map((link) => `<a href="${link.href}">${esc(link.label)}</a>`).join(" &nbsp;&middot;&nbsp; ")}</p>
+      </div>
+    </section>`,
+
+  faq: () => `
+    <section class="ssr-section" data-home-section="faq">
+      <div class="ssr-section-inner">
+        <h2 class="ssr-section-heading">${esc(HOME_FAQ.heading)}</h2>
+        <div class="ssr-faq-wrapper">
+${HOME_FAQ.items.map((item) => `          <div class="ssr-faq-item">
+            <h3 class="ssr-faq-q">${esc(item.question)}</h3>
+            <p class="ssr-faq-a">${esc(item.answer)}${item.link ? ` <a href="${item.link.href}" style="text-decoration:underline;">${esc(item.link.label)}</a>` : ""}</p>
+          </div>`).join("\n")}
+        </div>
+      </div>
+    </section>`,
+
+  final: () => `
+    <section class="ssr-section ssr-section-dark" data-home-section="final">
+      <div class="ssr-section-inner">
+        <div class="ssr-cta-section">
+          <p class="ssr-final-eyebrow">${esc(HOME_FINAL.eyebrow)}</p>
+          <h2>${esc(HOME_FINAL.heading)}</h2>
+          <p>${esc(HOME_FINAL.body)}</p>
+          <div class="ssr-cta-buttons">
+${HOME_FINAL.actions.map((action, i) => `            <a href="${action.href}" class="${i === 0 ? "ssr-btn-primary" : "ssr-btn-outline"}">${esc(action.label)}</a>`).join("\n")}
+          </div>
+          <ul class="ssr-final-channels">
+${HOME_FINAL.channels.map((channel) => `            <li><a href="${esc(channel.href)}">${esc(channel.label)}</a></li>`).join("\n")}
+          </ul>
+          <p class="ssr-final-note">${esc(HOME_FINAL.disclosure)}</p>
+          <p class="ssr-final-note"><a href="${HOME_FINAL.callback.fallbackHref}" style="text-decoration:underline;">${esc(HOME_FINAL.callback.fallbackLabel)}</a></p>
+        </div>
+      </div>
+    </section>`,
+};
+
+export function getHomeHtml(): string {
+  const body = HOME_SECTION_ORDER.map((id) => sections[id]()).join("\n");
   return ssrHtmlShell({
-    title: "Merchant Payment Processing | Liberty Bancard",
-    description: "Liberty Bancard offers transparent interchange-plus payment processing, a free statement review, cash discount and surcharging reviews, and merchant support.",
+    title: HOME_META.title,
+    description: HOME_META.description,
     canonical: "/",
     // Logo card sized for iOS/social square crops; the generated card is the fallback for other pages.
-    ogImage: "https://libertybancard.com/og-home-logo-card.jpg",
-    keywords: "merchant payment processing, interchange plus pricing, credit card processing, payment processor, merchant services, 0 percent processing, free statement review",
-    schemaJsons: [orgSchema, localBusinessSchema, webSiteSchema],
+    ogImage: HOME_META.ogImage,
+    keywords: HOME_META.keywords,
+    schemaJsons: [HOME_ORGANIZATION_SCHEMA, HOME_LOCAL_BUSINESS_SCHEMA, webSiteSchema],
     body,
   });
 }

@@ -12,7 +12,7 @@ import { trackStatementUploadCtaClick } from "@/lib/tracking";
  */
 export function HomeStartingPoints() {
   return (
-    <PublicSection tone="light" labelledBy="home-starting-points-heading" data-testid="section-starting-points">
+    <PublicSection tone="light" data-home-section="starting-points" labelledBy="home-starting-points-heading" data-testid="section-starting-points">
       <PublicSectionHeader id="home-starting-points-heading" title={HOME_STARTING_POINTS.heading} titleTestId="text-starting-points-heading" />
       <ul className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6" data-testid="grid-starting-points">
         {HOME_STARTING_POINTS.cards.map((card) => (

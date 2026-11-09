@@ -12,16 +12,19 @@ export interface PublicSectionProps {
   containerClassName?: string;
   children: ReactNode;
   "data-testid"?: string;
+  /** Home section identity; the server-rendered Home emits the same attribute so section order can be compared. */
+  "data-home-section"?: string;
 }
 
 /** Page band: vertical rhythm, background tone and the 1200px content container from the public contract. */
-export function PublicSection({ tone = "canvas", labelledBy, id, className, containerClassName, children, "data-testid": testId }: PublicSectionProps) {
+export function PublicSection({ tone = "canvas", labelledBy, id, className, containerClassName, children, "data-testid": testId, "data-home-section": homeSection }: PublicSectionProps) {
   return (
     <section
       id={id}
       aria-labelledby={labelledBy}
       className={cn("public-section", `public-section--${tone}`, className)}
       data-testid={testId}
+      data-home-section={homeSection}
     >
       <div className={cn("public-container", containerClassName)}>{children}</div>
     </section>

@@ -14,6 +14,9 @@ import { FSR_META } from "./free-statement-review-content";
 import { ZP_META } from "./zero-percent-content";
 import { INTEGRATIONS_META } from "./integrations-content";
 import { INDUSTRIES_HUB } from "./public-industries";
+import { HOME_META } from "./public-home-content";
+import { ABOUT_CONTACT_META } from "./public-contact-content";
+import { PAYMENT_PROCESSING_PAGE, PRICING_AND_PROGRAMS_PAGE } from "./public-overview-pages";
 import { FST_TITLE_FULL, FST_DESCRIPTION, FST_KEYWORDS } from "./free-smart-terminal-content";
 import { COMPARE_ENTRIES, RATES_PAGE, BEAT_SQUARE_STRIPE } from "./compare-content";
 
@@ -27,7 +30,9 @@ export interface SeoRouteDefault {
 }
 
 export const SEO_ROUTE_DEFAULTS: Record<string, SeoRouteDefault> = {
-  "/": { title: "Merchant Payment Processing | Liberty Bancard", description: "Liberty Bancard offers transparent interchange-plus payment processing. Free statement review, 0% processing programs, and dedicated merchant support.", keywords: "payment processing, merchant services, credit card processing, interchange-plus pricing", ogTemplate: "default", inSitemap: true },
+  "/": { title: HOME_META.title, description: HOME_META.description, keywords: HOME_META.keywords, ogTemplate: "default", inSitemap: true },
+  "/payment-processing": { title: PAYMENT_PROCESSING_PAGE.title, description: PAYMENT_PROCESSING_PAGE.description, keywords: PAYMENT_PROCESSING_PAGE.keywords, ogTemplate: "service", inSitemap: true },
+  "/pricing-and-programs": { title: PRICING_AND_PROGRAMS_PAGE.title, description: PRICING_AND_PROGRAMS_PAGE.description, keywords: PRICING_AND_PROGRAMS_PAGE.keywords, ogTemplate: "service", inSitemap: true },
   "/get-started": { title: "Get Started With Liberty Bancard", description: "Start your merchant account application or get a free processing review. Three quick paths: upload, calculate, or talk to a human.", ogTemplate: "default", inSitemap: true },
   "/upload-statement": { title: FSR_META.title, description: FSR_META.description, ogTemplate: "service", inSitemap: true },
   "/free-analysis": { title: "Free Payment Processing Analysis | Liberty Bancard", description: "Get a free payment processing analysis from Liberty Bancard. Identify hidden fees, compare programs, and get a personalized savings forecast. No obligation.", ogTemplate: "service", inSitemap: true },
@@ -35,7 +40,7 @@ export const SEO_ROUTE_DEFAULTS: Record<string, SeoRouteDefault> = {
   "/0-percent-processing": { title: `${ZP_META.title} | Liberty Bancard`, description: ZP_META.description, ogTemplate: "service", inSitemap: true },
   "/beat-square-stripe": { title: `${BEAT_SQUARE_STRIPE.title} | Liberty Bancard`, description: BEAT_SQUARE_STRIPE.description, ogTemplate: "compare", inSitemap: true },
   "/industries": { title: `${INDUSTRIES_HUB.title} | Liberty Bancard`, description: INDUSTRIES_HUB.description, keywords: INDUSTRIES_HUB.keywords, ogTemplate: "industry", inSitemap: true },
-  "/about-contact": { title: "About Us & Contact | Liberty Bancard", description: "Learn about Liberty Bancard approach to merchant payment processing. Direct support and transparent pricing, with terms stated in writing before you decide.", ogTemplate: "default", inSitemap: true },
+  "/about-contact": { title: ABOUT_CONTACT_META.title, description: ABOUT_CONTACT_META.description, ogTemplate: "default", inSitemap: true },
   "/estimate": { title: "Free Effective Rate Estimate | Liberty Bancard", description: "Get a quick processing cost estimate. Provide your monthly volume and current fees for a preliminary analysis and next steps.", ogTemplate: "service", inSitemap: true },
   "/support": { title: "Contact Support | Liberty Bancard", description: "Submit a support request to Liberty Bancard. We respond within 4 hours during business hours. Emergency support available 24/7.", ogTemplate: "default", inSitemap: true },
   "/savings-calculator": { title: "Payment Processing Cost Calculator", description: "Estimate your credit card processing cost. Enter monthly volume and current fees for a preliminary estimate; a statement review gives the actual figures.", ogTemplate: "service", inSitemap: true },

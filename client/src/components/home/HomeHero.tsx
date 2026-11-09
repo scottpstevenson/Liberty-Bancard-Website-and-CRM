@@ -3,7 +3,6 @@ import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PublicImage } from "@/components/public/PublicImage";
 import { HOME_HERO } from "@shared/public-home-content";
-import { COMPLIANCE_LINE } from "./home-content";
 
 /**
  * Section 1: evergreen hero. One headline, one sentence on what Liberty helps with, and two actions:
@@ -15,7 +14,7 @@ import { COMPLIANCE_LINE } from "./home-content";
  */
 export function HomeHero() {
   return (
-    <section className="marketing-surface relative border-b border-border bg-background" data-testid="section-hero">
+    <section className="marketing-surface relative border-b border-border bg-background" data-home-section="hero" data-testid="section-hero">
       <div className="public-container pt-6 pb-8 lg:py-16">
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[11fr_9fr] lg:items-center lg:gap-x-14">
           <div>
@@ -38,7 +37,7 @@ export function HomeHero() {
               </Button>
             </div>
             <p className="public-caption public-secondary mt-4 max-w-md" data-testid="text-hero-compliance">
-              {COMPLIANCE_LINE}
+              {HOME_HERO.compliance}
             </p>
           </div>
 

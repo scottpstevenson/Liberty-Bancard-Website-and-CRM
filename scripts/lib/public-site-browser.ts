@@ -431,9 +431,13 @@ export const PAGE_AUDIT=String.raw`(()=>{
   };
 })()`;
 
-/** The 27 public routes inspected for Task 2140 (shared by the public-site checks). */
+/**
+ * The public routes inspected by the public-site checks: the 27 routes of Task 2140 plus the W-B pages
+ * (the two overview pages and the glossary hub and a term page on the shared shell).
+ */
 export const INSPECTED_ROUTES=[
-  "/","/free-analysis","/upload-statement","/estimate","/get-started",
+  "/","/payment-processing","/pricing-and-programs","/learn","/learn/interchange-plus-pricing",
+  "/free-analysis","/upload-statement","/estimate","/get-started",
   "/0-percent-processing","/free-smart-terminal","/shop",
   "/about-contact","/why-liberty-bancard","/case-studies",
   "/faq","/support","/help","/blog",

@@ -6,6 +6,10 @@ import { getLocationHtml, getCityHubHtml } from "../ssr/locations";
 import { isValidLocationCombination } from "../ssr/location-html";
 import { getHomeHtml } from "../ssr/home";
 import { getIndustriesHubHtml } from "../ssr/industries-hub";
+import { getOverviewPageHtml } from "../ssr/overview-pages";
+import { getAboutContactHtml } from "../ssr/about-contact";
+import { PAYMENT_PROCESSING_PAGE, PRICING_AND_PROGRAMS_PAGE } from "../../shared/public-overview-pages";
+import { ABOUT_CONTACT_PATH } from "../../shared/public-contact-content";
 import {
   getUploadStatementHtml,
   getFreeAnalysisHtml,
@@ -138,6 +142,20 @@ export function registerSsrRoutes(app: Express) {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", SSR_CACHE);
     res.send(html);
+  });
+
+  for (const page of [PAYMENT_PROCESSING_PAGE, PRICING_AND_PROGRAMS_PAGE]) {
+    app.get(page.path, (_req, res) => {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", PAGE_CACHE);
+      res.send(getOverviewPageHtml(page));
+    });
+  }
+
+  app.get(ABOUT_CONTACT_PATH, (_req, res) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", PAGE_CACHE);
+    res.send(getAboutContactHtml());
   });
 
   app.get("/industries", (_req, res) => {

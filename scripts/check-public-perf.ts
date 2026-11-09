@@ -1,6 +1,7 @@
 import {mkdir,readFile,writeFile} from "node:fs/promises";
 import path from "node:path";
 import {launchBrowser} from "./lib/public-site-browser";
+import {CLS_BUDGET,LCP_BUDGET_MS,PERF_OBSERVER_SOURCE,PERF_READINESS_SOURCE,classifySample,summarizeRoute,type SampleVerdict} from "./lib/public-perf-validity";
 
 /**
  * Public-site mobile performance check (Chromium only, lab measurement).
@@ -17,6 +18,9 @@ import {launchBrowser} from "./lib/public-site-browser";
  * The thresholds from the audit are LCP <= 2.5 s and CLS <= 0.1. They are only meaningful
  * against a production build (the Vite dev server serves hundreds of unbundled modules), so
  * `--enforce` should be used with the isolated production preview, never the dev server.
+ * A sample counts only when it is valid (scripts/lib/public-perf-validity.ts): LCP finite and above 0,
+ * CLS finite, the document ready with a rendered h1, no navigation timeout. A route with any invalid
+ * sample is reported INVALID and fails the check whether or not `--enforce` is set.
  * Read-only: it never submits a form, books, uploads or messages anyone. A lab run is not a
  * field measurement and not a Safari/WebKit or real-iPhone result.
  */
@@ -28,17 +32,10 @@ const arg=(name:string,fallback:string)=>{
 const flag=(name:string)=>process.argv.includes(`--${name}`);
 
 const PERF_ROUTES=[
-  "/","/upload-statement","/faq","/0-percent-processing",
+  "/","/payment-processing","/pricing-and-programs","/about-contact","/industries",
+  "/upload-statement","/faq","/0-percent-processing",
   "/industries/restaurant-payment-processing","/industries/retail-payment-processing",
 ];
-const LCP_BUDGET_MS=2500;
-const CLS_BUDGET=0.1;
-
-const OBSERVERS=String.raw`(()=>{
-  window.__perf={lcp:0,cls:0};
-  try{new PerformanceObserver(l=>{for(const e of l.getEntries())window.__perf.lcp=e.startTime;}).observe({type:"largest-contentful-paint",buffered:true});}catch(e){}
-  try{new PerformanceObserver(l=>{for(const e of l.getEntries())if(!e.hadRecentInput)window.__perf.cls+=e.value;}).observe({type:"layout-shift",buffered:true});}catch(e){}
-})();`;
 
 const median=(values:number[])=>{
   const sorted=[...values].sort((a,b)=>a-b);
@@ -46,7 +43,8 @@ const median=(values:number[])=>{
   return sorted.length%2?sorted[mid]:(sorted[mid-1]+sorted[mid])/2;
 };
 
-interface RouteResult{route:string;lcpMs:number;cls:number;totalBytes:number;imageBytes:number;imageRequests:number;runs:number}
+type RouteStatus="within budget"|"over budget"|"invalid";
+interface RouteResult{route:string;status:RouteStatus;lcpMs:number|null;cls:number|null;totalBytes:number;imageBytes:number;imageRequests:number;runs:number;invalidReasons:string[]}
 
 async function main(){
   const base=arg("base","http://127.0.0.1:6000").replace(/\/$/,"");
@@ -60,36 +58,44 @@ async function main(){
   const results:RouteResult[]=[];
   try{
     for(const route of routes){
-      const samples:Omit<RouteResult,"route"|"runs">[]=[];
+      const verdicts:SampleVerdict[]=[];
+      const transfer:{totalBytes:number;imageBytes:number;imageRequests:number}[]=[];
       for(let i=0;i<runs;i++){
         const session=await browser.newSession({width:390,height:844,mobile:true,deviceScaleFactor:2,colorScheme:"light",
           blockUrlParts:["leadconnectorhq.com","google-analytics","googletagmanager","facebook.net"],
           localStorage:{lb_cookie_consent:"essential",lb_cookie_prefs:JSON.stringify({necessary:true,analytics:false,marketing:false,functional:false})}});
-        await session.cdp("Network.enable");
-        await session.cdp("Network.setCacheDisabled",{cacheDisabled:true});
-        await session.cdp("Network.emulateNetworkConditions",{offline:false,latency:150,downloadThroughput:(1.6*1024*1024)/8,uploadThroughput:(750*1024)/8});
-        await session.cdp("Emulation.setCPUThrottlingRate",{rate:4});
-        await session.cdp("Page.addScriptToEvaluateOnNewDocument",{source:OBSERVERS});
-        await session.goto(`${base}${route}`,{settleMs:4000});
-        const perf=await session.evaluate<{lcp:number;cls:number}>("window.__perf");
-        const requests=session.requests();
-        const images=requests.filter(r=>r.type==="Image"||/^image\//.test(r.mime??""));
-        samples.push({
-          lcpMs:Math.round(perf.lcp),
-          cls:Number(perf.cls.toFixed(4)),
-          totalBytes:requests.reduce((sum,r)=>sum+(r.encodedBytes??0),0),
-          imageBytes:images.reduce((sum,r)=>sum+(r.encodedBytes??0),0),
-          imageRequests:images.length,
-        });
-        await session.close();
+        try{
+          await session.cdp("Network.enable");
+          await session.cdp("Network.setCacheDisabled",{cacheDisabled:true});
+          await session.cdp("Network.emulateNetworkConditions",{offline:false,latency:150,downloadThroughput:(1.6*1024*1024)/8,uploadThroughput:(750*1024)/8});
+          await session.cdp("Emulation.setCPUThrottlingRate",{rate:4});
+          await session.cdp("Page.addScriptToEvaluateOnNewDocument",{source:PERF_OBSERVER_SOURCE});
+          let timedOut=false;
+          try{await session.goto(`${base}${route}`,{settleMs:4000});}catch{timedOut=true;}
+          const perf=timedOut?{lcp:null,cls:0,clsObserved:true}:await session.evaluate<{lcp:unknown;cls:unknown;clsObserved:unknown}>("window.__perf");
+          const readiness=timedOut?{ready:false}:await session.evaluate<{ready:boolean}>(PERF_READINESS_SOURCE);
+          verdicts.push(classifySample({lcp:perf.lcp,cls:perf.cls,clsObserved:perf.clsObserved,ready:readiness.ready,navigationTimedOut:timedOut}));
+          const requests=session.requests();
+          const images=requests.filter(r=>r.type==="Image"||/^image\//.test(r.mime??""));
+          transfer.push({
+            totalBytes:requests.reduce((sum,r)=>sum+(r.encodedBytes??0),0),
+            imageBytes:images.reduce((sum,r)=>sum+(r.encodedBytes??0),0),
+            imageRequests:images.length,
+          });
+        }finally{
+          await session.close();
+        }
       }
+      const summary=summarizeRoute(verdicts,runs);
       results.push({
         route,runs,
-        lcpMs:Math.round(median(samples.map(s=>s.lcpMs))),
-        cls:Number(median(samples.map(s=>s.cls)).toFixed(4)),
-        totalBytes:Math.round(median(samples.map(s=>s.totalBytes))),
-        imageBytes:Math.round(median(samples.map(s=>s.imageBytes))),
-        imageRequests:Math.round(median(samples.map(s=>s.imageRequests))),
+        status:summary.status,
+        lcpMs:summary.lcpMs,
+        cls:summary.cls,
+        totalBytes:Math.round(median(transfer.map(t=>t.totalBytes))),
+        imageBytes:Math.round(median(transfer.map(t=>t.imageBytes))),
+        imageRequests:Math.round(median(transfer.map(t=>t.imageRequests))),
+        invalidReasons:summary.invalidReasons,
       });
     }
   }finally{
@@ -104,15 +110,20 @@ async function main(){
     for(const r of prior.results as RouteResult[])previous[r.route]=r;
   }
   let over=0;
+  let invalid=0;
   const kb=(n:number)=>`${Math.round(n/1024)}KB`;
   for(const r of results){
     const before=previous[r.route];
-    const verdict=r.lcpMs>LCP_BUDGET_MS||r.cls>CLS_BUDGET?"OVER BUDGET":"within budget";
-    if(verdict==="OVER BUDGET")over++;
-    const delta=before?` | before LCP ${before.lcpMs}ms CLS ${before.cls} total ${kb(before.totalBytes)} images ${kb(before.imageBytes)}`:"";
-    console.log(`${r.route.padEnd(52)} LCP ${String(r.lcpMs).padStart(5)}ms CLS ${r.cls} total ${kb(r.totalBytes)} images ${kb(r.imageBytes)} (${r.imageRequests}) ${verdict}${delta}`);
+    if(r.status==="over budget")over++;
+    if(r.status==="invalid")invalid++;
+    const delta=before&&before.lcpMs!==null?` | before LCP ${before.lcpMs}ms CLS ${before.cls} total ${kb(before.totalBytes)} images ${kb(before.imageBytes)}`:"";
+    const lcp=r.lcpMs===null?"  n/a":String(r.lcpMs).padStart(5);
+    console.log(`${r.route.padEnd(52)} LCP ${lcp}ms CLS ${r.cls===null?"n/a":r.cls} total ${kb(r.totalBytes)} images ${kb(r.imageBytes)} (${r.imageRequests}) ${r.status.toUpperCase()}${delta}`);
+    for(const reason of r.invalidReasons)console.log(`    invalid sample: ${reason}`);
   }
-  console.log(`\n${results.length} routes, ${over} over budget. Report: ${file}`);
+  console.log(`\n${results.length} routes, ${over} over budget, ${invalid} invalid. Report: ${file}`);
+  // An invalid measurement is a failed check, never a pass, with or without --enforce.
+  if(invalid)process.exit(1);
   if(enforce&&over)process.exit(1);
 }
 

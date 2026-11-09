@@ -16,6 +16,12 @@ import manifest from "./public-imagery.manifest.json";
  * Replacing an image with a licensed or commissioned photo means adding the source
  * to build-public-images.ts and updating its record here; no page code changes.
  *
+ * Field and home services has no registered photograph. The only committed candidates show a phone-repair
+ * bench (case-home-services.jpg) or restroom fixtures (vertical-home-services.jpg), neither of which depicts
+ * on-site service work or a payment, so that slot renders a native icon tile (Home) or a text-led hero
+ * (industry page) until a licensed photograph is supplied. Adding one means a new entry in
+ * build-public-images.ts and a record here.
+ *
  * Excluded on purpose (see the mobile audit's imagery table): hero-merchant.jpg
  * (grocery aisle with foreign-language price tags), merchant-owner.jpg,
  * vertical-auto.jpg, vertical-retail.jpg (shopping carts), vertical-home-services.jpg
@@ -28,7 +34,6 @@ export type PublicImageId =
   | "industry-healthcare"
   | "industry-automotive"
   | "industry-retail"
-  | "industry-home-services"
   | "how-statement-review"
   | "product-clover-flex-3"
   | "product-pax-a920"
@@ -93,14 +98,6 @@ export const PUBLIC_IMAGE_RECORDS: Record<PublicImageId, PublicImageRecord> = {
     usage: "illustrative",
     provenance: "unverified",
     note: "Boutique shelving. No readable brand marks at card size.",
-  },
-  "industry-home-services": {
-    id: "industry-home-services",
-    alt: "A technician repairing a phone at a workbench with a magnifier.",
-    label: "Home and field services",
-    usage: "illustrative",
-    provenance: "unverified",
-    note: "Repair bench. Closest committed image to on-site service work.",
   },
   "how-statement-review": {
     id: "how-statement-review",
