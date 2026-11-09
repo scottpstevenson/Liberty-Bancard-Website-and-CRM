@@ -196,7 +196,5 @@
 - [Website email lifecycle lane](website-email-lifecycle-lane.md) — warm Gmail lane is default closed; marked-enrollment readers must filter; provider CHECK, migration-proof and fixture-egress traps.
 - [Statement-upload queue capability](statement-upload-queue-capability.md) — 503 root cause was a missing producer queue in the published profile; narrow group + truthful deferred handoff; owner Publish required.
 - [Receipt milestone gating](ack-milestone-gating-cutoffs.md) — receipts wait for the internal handoff; per-class cutoffs are monotonic and a re-save must not move them.
-- [Website intake](website-intake-review-surfaces.md) / [cert harness](website-intake-cert-harness-lessons.md) — existing surfaces only; /api/health sha check; dialog autofocus.
-- [Public claims preflight lessons](public-claims-preflight-lessons.md) — register suites in both rosters; xlsx via python zipfile; React and SSR copy are separate emitters.
-
-- [Public shell and hubs lessons](public-shell-hubs-lessons.md) — server-only glossary links must be native anchors; static pages need own fonts; hover-then-click toggles the dropdown.
+- [Website intake](website-intake-review-surfaces.md) / [cert harness](website-intake-cert-harness-lessons.md) / [W-C source & operator truth](public-intake-source-policy-and-operator-truth.md) — new modes stay outside warm lane.
+- [Public site lessons](public-claims-preflight-lessons.md) / [shell & hubs](public-shell-hubs-lessons.md) — register suites in both rosters; React and SSR copy are separate emitters; server-only links need native anchors.
