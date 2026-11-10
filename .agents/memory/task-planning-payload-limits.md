@@ -11,6 +11,8 @@ Observed tool limits are 262,144 UTF-8 bytes per task plan and 32 MiB of retaine
 
 Filter large task callbacks within a local function and retain only the summary needed for later calls. Do not print or persist complete task payloads repeatedly. After a parallel update fails, inspect which updates actually persisted before retrying; a failed block does not undo successful task updates.
 
+Plan-mode shell redirects into the workspace are refused (only `/tmp` is writable by shell, and the file-write tool refuses `/tmp` in Plan mode). To append a large attachment verbatim to a plan file, write the head with the file-write tool, then read both files and write the combined text with the code-execution file callbacks; confirm the tail with `cmp` or sha256 afterwards.
+
 Plan-mode shell protection can reject ostensibly read-only Git inspection with a `.git/index.lock` error, including calls with `GIT_OPTIONAL_LOCKS=0`.
 
 **Why:** Planning-document checks succeeded, but subsequent Git inspection in the same shell call was rejected; disabling optional Git locks did not avoid the protection.

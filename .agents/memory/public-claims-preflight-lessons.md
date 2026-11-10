@@ -14,6 +14,9 @@ description: Tooling and roster quirks found while preflighting the public truth
 - The C1 preview script on a new port makes the platform add a `[[ports]]` mapping to `.replit`; remove it afterward by writing a full TOML to a temp file and calling verifyAndReplaceDotReplit (direct edits are refused), then confirm `git diff .replit` is empty.
 - Fonts check on `/industries/retail-payment-processing` flaps (CLS ~0.23 single shift at ~4.7s) with the HEAD page too: baseline. `/integrations`, `/beat-square-stripe` small tap targets and `/merchant-application` stepper contrast are baseline; the mobile gate route list excludes them.
 
+- Why Liberty is `/why-liberty-bancard` (`/why-liberty` is only an app-shell route); `shared/seo-routes.ts` is a third claim emitter beside React pages and `server/ssr/pages.ts`, so scan all three.
+- `server/ssr/home.ts` emits no image markup (text only), so Home imagery needs a server-side picture helper, not just `PublicImage`. The testimonial table has no permission/evidence column: `approved`+`publish` is not proof authority.
+
 **Why:** these cost extra rounds during the preflight and are not visible from reading one file.
 **How to apply:** when planning or building any public-content change, check both renderers, register suites in both rosters, and treat the legal pages (Terms, Privacy) as read-only evidence.
 - SEO audit measures raw HTML title length, so `&amp;` costs five characters; keep titles under the limit after escaping and write contrast-sensitive CSS colors as shared tokens (light-blue #3b82f6 on white is 3.7:1, below AA).
