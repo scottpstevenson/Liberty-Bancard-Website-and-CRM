@@ -96,6 +96,8 @@ import { getHomeHtml } from "../server/ssr/home";
 import { getAboutContactHtml } from "../server/ssr/about-contact";
 import { getOverviewPageHtml } from "../server/ssr/overview-pages";
 import { getIndustryHtml } from "../server/ssr/industries";
+import { INDUSTRY_CONTENT } from "../shared/public-industry-content";
+import { getAreasServedHtml } from "../server/ssr/areas-served";
 import { getIndustriesHubHtml } from "../server/ssr/industries-hub";
 import {
   PUBLIC_NAV_CTA,
@@ -242,7 +244,8 @@ for (const slug of getAvailableCompetitorSlugs()) {
   OWNED_HTML[`/alternatives/${slug}`] = renderAlternativesHtml(slug);
   OWNED_HTML[`/switch-from/${slug}`] = renderSwitchFromHtml(slug);
 }
-OWNED_HTML["/industries/restaurant-payment-processing"] = getIndustryHtml("restaurant-payment-processing") ?? "";
+for (const entry of INDUSTRY_CONTENT) OWNED_HTML[`/industries/${entry.slug}`] = getIndustryHtml(entry.slug) ?? "";
+OWNED_HTML["/areas-served"] = getAreasServedHtml();
 
 const OWNED_ROUTES_META = [
   "/upload-statement",
@@ -350,6 +353,8 @@ const CONSUMER_SOURCES: readonly string[] = [
   "client/src/components/home/HomeStartingPoints.tsx",
   "client/src/components/home/HomeIndustries.tsx",
   "client/src/components/home/SampleReviewCard.tsx",
+  "client/src/components/home/HomePaymentContexts.tsx",
+  "shared/public-home-visuals.ts",
   "client/src/pages/Industries.tsx",
   "shared/public-home-content.ts",
   "shared/public-navigation.ts",
@@ -371,6 +376,24 @@ const CONSUMER_SOURCES: readonly string[] = [
   "server/ssr/compare.ts",
   "server/ssr/competitor-ssr.ts",
   "server/ssr/industries.ts",
+  "shared/public-industry-content.ts",
+  "shared/public-locations.ts",
+  "server/ssr/locations.ts",
+  "server/ssr/areas-served.ts",
+  "client/src/pages/LocationIndustryPage.tsx",
+  "client/src/pages/LocationHubPage.tsx",
+  "client/src/pages/AreasServed.tsx",
+  "shared/public-proof.ts",
+  "shared/public-why-liberty.ts",
+  "shared/public-free-analysis.ts",
+  "shared/public-cost-calculator.ts",
+  "server/data/public-proof-register.ts",
+  "client/src/components/public/ProofPageView.tsx",
+  "client/src/pages/CaseStudies.tsx",
+  "client/src/pages/Testimonials.tsx",
+  "client/src/pages/WhyLiberty.tsx",
+  "client/src/pages/SavingsCalculator.tsx",
+  "client/src/pages/FreeAnalysisGuaranteed.tsx",
 ];
 
 /**
@@ -389,12 +412,6 @@ const ALLOWLIST: readonly { file: string; pattern: string; contains: string; rea
     pattern: "eliminate-processing-fees",
     contains: "completely eliminated my credit card fees",
     reason: "Customer testimonial quote on the Free Analysis page. Testimonials, their outcomes and their consent are the W-D proof work (OE-08) and remain a documented handoff; Liberty-voice copy on the page is clean.",
-  },
-  {
-    file: "client/src/pages/IndustryPage.tsx",
-    pattern: "savings-range",
-    contains: "orthodontics can run",
-    reason: "Dental ticket-size example in an industry narrative; a transaction amount, not a savings or Liberty cost claim.",
   },
 ];
 
@@ -563,7 +580,7 @@ family("renderer-parity", () => {
   const ssrImports = [
     { file: "server/ssr/pages.ts", modules: ["free-smart-terminal-content", "free-statement-review-content", "zero-percent-content", "integrations-content", "compare-content"] },
     { file: "server/ssr/compare.ts", modules: ["compare-content", "competitor-pricing"] },
-    { file: "server/ssr/competitor-ssr.ts", modules: ["compare-content", "competitor-pricing", "public-disclosures"] },
+    { file: "server/ssr/competitor-ssr.ts", modules: ["compare-content", "public-disclosures"] },
     { file: "server/ssrShared.ts", modules: ["public-disclosures"] },
   ];
   for (const { file, modules } of ssrImports) {
@@ -1142,7 +1159,9 @@ family("w-b-design-consumers", () => {
 
   // ── Home: both emitters render the shared content ──────────────────────────
   const assertHomeParity = (html: string): void => {
-    ensure(new RegExp(`<h1>${HOME_HERO.heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</h1>`).test(html), "Home h1 is not the shared heading");
+    const h1 = html.match(/<h1>([\s\S]*?)<\/h1>/)?.[1];
+    ensure(!!h1 && h1.replace(/<[^>]+>/g, "") === HOME_HERO.heading.replace(/&/g, "&amp;"), "Home h1 is not the shared heading (color spans around its two phrases are allowed)");
+    ensure(html.match(/<h1\b/g)?.length === 1, "Home does not have exactly one h1");
     ensure(html.includes(HOME_HERO.body), "Home hero body is not the shared body");
     ensure(html.includes(`href="${HOME_HERO.primary.href}"`) && html.includes(HOME_HERO.primary.label), "Home primary action missing");
     ensure(html.includes(`href="${HOME_HERO.secondary.href}"`) && html.includes(HOME_HERO.secondary.label), "Home secondary action missing");
@@ -1155,7 +1174,7 @@ family("w-b-design-consumers", () => {
     ensure(html.includes('href="/industries"'), "Home has no All industries link");
   };
   passes("server Home renders the shared hero, solutions, founder and starting points", () => assertHomeParity(homeHtml));
-  negative("Home with a different heading", () => assertHomeParity(homeHtml.replace(HOME_HERO.heading, "Credit Card Processing Without the Rate Games")));
+  negative("Home with a different heading", () => assertHomeParity(homeHtml.replace(HOME_HERO.headingFirst, "Credit Card Processing Without the Rate Games")));
   negative("Home without the #solutions target", () => assertHomeParity(homeHtml.replace(`id="${HOME_SOLUTIONS_ANCHOR}"`, "")));
   negative("Home without its process section", () => assertHomeParity(homeHtml.replace('data-home-section="process"', "")));
   negative("Home starting point with a hardcoded terminal promotion", () =>
@@ -1179,8 +1198,8 @@ family("w-b-design-consumers", () => {
   passes("founder section is text only (no approved portrait asset)", () => assertNoPortraitInvented(homeFounder));
   negative("founder section with a stock person image", () => assertNoPortraitInvented(`${homeFounder}\n<img src="/stock-man.jpg" />`));
 
-  const assertReviewWorksheet = (rows: readonly { label: string; note: string }[], card: string): void => {
-    ensure(rows.every((r) => !/[\d$%]/.test(r.label + r.note)), "review layout shows a figure");
+  const assertReviewWorksheet = (rows: readonly { label: string; note: string; heading?: string }[], card: string): void => {
+    ensure(rows.every((r) => !/[\d$%]/.test(r.label + r.note + (r.heading ?? ""))), "review layout shows a figure");
     ensure(!/\$\s?\d|\d\s?%/.test(stripComments(card)), "review card source renders a currency or percent value");
     ensure(/Illustrative/i.test(HOME_SAMPLE_REVIEW.label), "review layout is not labelled illustrative");
   };

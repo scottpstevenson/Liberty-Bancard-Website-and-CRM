@@ -1,0 +1,17 @@
+{
+  "masters": 13,
+  "photoMasters": 10,
+  "editableSVGs": 2,
+  "terminalAlpha": true,
+  "allImageFilesDecode": true,
+  "galleryReferencesExist": true,
+  "SVGEmbeddedImage": "PNG; rendered successfully",
+  "manifestHashesMatch": true,
+  "homepageVisualPlacements": 8,
+  "mobile640WebPBytes": {
+    "min": 21410,
+    "max": 77112
+  },
+  "liveInstallation": false,
+  "browserAcceptance": "not run; gallery reference validation and rendered artwork inspection only"
+}

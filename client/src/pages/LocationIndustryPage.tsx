@@ -2,312 +2,64 @@ import { SEO, getFAQSchema } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
+import { LocationActions } from "@/components/public/LocationActions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Link, useParams } from "wouter";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import {
-  Upload,
-  ArrowRight,
-  CheckCircle2,
-  MapPin,
-  Phone,
-  FileText,
-  Calendar,
-} from "lucide-react";
-import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
-import { trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
-import { trackPhoneCallClick } from "@/lib/analytics";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { CheckCircle2, MapPin } from "lucide-react";
+import { buildLocationDetail, locationDocumentTitle } from "@shared/public-locations";
+import NotFound from "@/pages/not-found";
 
-interface LocationIndustryData {
-  citySlug: string;
-  cityName: string;
-  cityState: string;
-  cityStateName: string;
-  industrySlug: string;
-  industryName: string;
-  metaTitle: string;
-  metaDescription: string;
-  keywords: string;
-  heroTitle: string;
-  heroSubtitle: string;
-  localStats: { value: string; label: string }[];
-  benefits: { title: string; description: string }[];
-  faqs: { question: string; answer: string }[];
-}
-
-export const cities = [
-  { slug: "miami", name: "Miami", state: "FL" },
-  { slug: "fort-lauderdale", name: "Fort Lauderdale", state: "FL" },
-  { slug: "tampa", name: "Tampa", state: "FL" },
-  { slug: "orlando", name: "Orlando", state: "FL" },
-  { slug: "jacksonville", name: "Jacksonville", state: "FL" },
-  { slug: "gainesville", name: "Gainesville", state: "FL" },
-  { slug: "pensacola", name: "Pensacola", state: "FL" },
-  { slug: "houston", name: "Houston", state: "TX" },
-  { slug: "dallas", name: "Dallas", state: "TX" },
-  { slug: "atlanta", name: "Atlanta", state: "GA" },
-  { slug: "las-vegas", name: "Las Vegas", state: "NV" },
-  { slug: "phoenix", name: "Phoenix", state: "AZ" },
-  { slug: "nashville", name: "Nashville", state: "TN" },
-  { slug: "charlotte", name: "Charlotte", state: "NC" },
-  { slug: "denver", name: "Denver", state: "CO" },
-  { slug: "austin", name: "Austin", state: "TX" },
-  { slug: "chicago", name: "Chicago", state: "IL" },
-];
-
-export const topVerticals = [
-  { slug: "restaurant", name: "Restaurant", industryPageSlug: "restaurant-payment-processing" },
-  { slug: "auto-repair", name: "Auto Repair", industryPageSlug: "auto-repair-payment-processing" },
-  { slug: "healthcare", name: "Healthcare", industryPageSlug: "healthcare-payment-processing" },
-  { slug: "salon", name: "Salon & Spa", industryPageSlug: "salon-spa-payment-processing" },
-  { slug: "retail", name: "Retail", industryPageSlug: "retail-payment-processing" },
-];
-
-const STATE_NAMES: Record<string, string> = {
-  FL: "Florida",
-  TX: "Texas",
-  GA: "Georgia",
-  NV: "Nevada",
-  AZ: "Arizona",
-  TN: "Tennessee",
-  NC: "North Carolina",
-  CO: "Colorado",
-  IL: "Illinois",
-};
-
-function generateLocationData(city: typeof cities[0], vertical: typeof topVerticals[0]): LocationIndustryData {
-  const stateName = STATE_NAMES[city.state] ?? city.state;
-  const isFL = city.state === "FL";
-
-  const cityPopData: Record<string, { businesses: string; metro: string }> = {
-    miami: { businesses: "12,000+", metro: "6.1 million" },
-    "fort-lauderdale": { businesses: "8,500+", metro: "1.9 million" },
-    tampa: { businesses: "9,200+", metro: "3.2 million" },
-    orlando: { businesses: "10,800+", metro: "2.7 million" },
-    jacksonville: { businesses: "7,600+", metro: "1.6 million" },
-    gainesville: { businesses: "3,500+", metro: "400,000" },
-    pensacola: { businesses: "4,200+", metro: "500,000" },
-    houston: { businesses: "85,000+", metro: "7.3 million" },
-    dallas: { businesses: "65,000+", metro: "7.7 million" },
-    atlanta: { businesses: "55,000+", metro: "6.2 million" },
-    "las-vegas": { businesses: "35,000+", metro: "2.3 million" },
-    phoenix: { businesses: "75,000+", metro: "5.0 million" },
-    nashville: { businesses: "30,000+", metro: "2.0 million" },
-    charlotte: { businesses: "40,000+", metro: "2.7 million" },
-    denver: { businesses: "45,000+", metro: "2.9 million" },
-    austin: { businesses: "55,000+", metro: "2.3 million" },
-    chicago: { businesses: "120,000+", metro: "9.5 million" },
-  };
-
-  const verticalData: Record<string, {
-    benefits: { title: string; description: string }[];
-    faqs: { question: string; answer: string }[];
-    avgRate: string;
-    avgSavings: string;
-    localStat: string;
-  }> = {
-    restaurant: {
-      avgRate: "2.4%",
-      avgSavings: "$3,200",
-      localStat: isFL ? "Florida's restaurant industry generates over $67 billion in annual sales" : "The US restaurant industry generates over $1 trillion in annual sales",
-      benefits: [
-        { title: "Interchange-plus pricing for restaurants", description: `${city.name} restaurants process high volumes of card transactions daily. Interchange-plus pricing reveals your true costs and saves on every swipe, dip, and tap.` },
-        { title: "Next-day funding for restaurants", description: `Keep your cash flow moving with next-day deposits. Buy ingredients, pay staff, and manage daily operations without waiting days for your money.` },
-        { title: "Tip adjustment optimization", description: `Tip adjustments inflate processing costs for restaurants. We configure your terminals to minimize the interchange impact of gratuity adjustments.` },
-        { title: "Local support when you need it", description: `Our team understands the ${city.name} restaurant scene and provides responsive support during your busiest hours.` },
-      ],
-      faqs: [
-        { question: `What is the best payment processor for restaurants in ${city.name}?`, answer: `The best processor for ${city.name} restaurants is one that offers interchange-plus pricing, understands tip adjustments, and provides next-day funding. Liberty Bancard specializes in restaurant payment processing with transparent pricing and dedicated support.` },
-        { question: `How much can ${city.name} restaurants save on processing fees?`, answer: `We typically identify $3,200 or more in annual savings for restaurants in the ${city.name} area. Your actual savings depend on your volume, average ticket, and current pricing structure — which we'll identify in your free statement review.` },
-        { question: "Do you serve restaurants throughout the metro area?", answer: `Yes. We serve restaurants across the greater ${city.name} metropolitan area, including all surrounding neighborhoods and suburbs.` },
-        { question: "Can I keep my current POS system?", answer: "In most cases, yes. We integrate with major restaurant POS systems and aren't tied to any single platform. We'll confirm compatibility during your statement review." },
-      ],
-    },
-    "auto-repair": {
-      avgRate: "3.0%",
-      avgSavings: "$4,800",
-      localStat: isFL ? "Florida has over 15,000 auto repair and service establishments" : "The US has over 160,000 auto repair and service establishments",
-      benefits: [
-        { title: "High-ticket transaction optimization", description: `${city.name} auto shops process large repair invoices. Interchange-plus pricing saves significantly more on $1,000+ transactions than flat-rate pricing.` },
-        { title: "Keyed-entry rate management", description: "Phone orders and fleet account payments get competitive keyed-entry rates, reducing the premium you pay on manually entered transactions." },
-        { title: "Fast deposits for parts purchasing", description: `Auto shops need cash flow for parts. Qualified ${city.name} shops receive next-day deposits to keep your parts purchasing on schedule.` },
-        { title: "Fleet and commercial card acceptance", description: "Accept Level II commercial and fleet cards at reduced interchange rates, saving your shop and fleet customers money." },
-      ],
-      faqs: [
-        { question: `What is the cheapest credit card processing for auto shops in ${city.name}?`, answer: `The cheapest processing for ${city.name} auto shops is typically interchange-plus pricing, which saves the most on high-ticket transactions like engine work, transmission repairs, and body work. Upload your statement for a free comparison.` },
-        { question: `How much can auto repair shops in ${city.name} save?`, answer: `We identify an average of $4,800 in annual savings for auto repair shops. Shops with higher average tickets or significant fleet card volume often save even more.` },
-        { question: "Can I accept fleet cards at lower rates?", answer: "Yes. We configure your terminal for Level II processing, which qualifies fleet and commercial card transactions for lower interchange rates." },
-        { question: "Will my large invoices be held?", answer: "We set appropriate processing limits during onboarding so legitimate large repair bills aren't flagged. This prevents unnecessary deposit delays." },
-      ],
-    },
-    healthcare: {
-      avgRate: "2.6%",
-      avgSavings: "$4,100",
-      localStat: isFL ? "Florida's healthcare sector employs over 1.2 million workers" : "Healthcare is one of the largest and fastest-growing employment sectors in the US",
-      benefits: [
-        { title: "Optimized pricing for patient payments", description: `${city.name} medical practices handle co-pays, procedure payments, and balances of varying sizes. Interchange-plus pricing optimizes costs across all transaction types.` },
-        { title: "PCI-compliant payment solutions", description: "Secure, encrypted terminals and PCI-compliant processing infrastructure to protect patient payment data." },
-        { title: "Patient payment plans", description: "Set up recurring billing for patient payment plans with secure card-on-file storage and automated charges." },
-        { title: "Clear reporting for billing teams", description: `Help your ${city.name} practice billing team reconcile payments easily with detailed, exportable transaction reports.` },
-      ],
-      faqs: [
-        { question: `What payment processing do ${city.name} medical practices use?`, answer: `${city.name} medical practices benefit from interchange-plus pricing with PCI-compliant terminals and detailed reporting. Liberty Bancard provides HIPAA-aware processing solutions designed for healthcare workflows.` },
-        { question: "Is your processing HIPAA compliant?", answer: "Our payment processing is PCI DSS compliant. Payment data is handled separately from protected health information. We design solutions to support your overall compliance posture." },
-        { question: "Can patients pay bills online?", answer: "Yes. We offer secure online payment links that patients can use to pay balances from any device, reducing collection calls." },
-        { question: "Do you support recurring patient payment plans?", answer: "Yes. Secure card-on-file and recurring billing allow you to set up payment plans with automatic monthly charges." },
-      ],
-    },
-    salon: {
-      avgRate: "2.8%",
-      avgSavings: "$2,400",
-      localStat: isFL ? "Florida's beauty and personal care industry serves millions of residents and tourists" : "The US beauty and personal care industry serves over 300 million consumers nationwide",
-      benefits: [
-        { title: "Tip-optimized processing", description: `${city.name} salons and spas process tips on nearly every transaction. We configure terminals to minimize the interchange cost of tip adjustments.` },
-        { title: "Card-on-file for no-shows", description: "Protect your schedule with secure card-on-file storage for appointment deposits and no-show fee collection." },
-        { title: "Software-agnostic integration", description: `Use your preferred salon management software without being locked into overpriced bundled processing rates.` },
-        { title: "Next-day funding", description: `Qualified ${city.name} salons receive deposits by the next business day, keeping cash flow aligned with daily operations.` },
-      ],
-      faqs: [
-        { question: `What is the best payment processing for salons in ${city.name}?`, answer: `The best processing for ${city.name} salons offers tip optimization, card-on-file for no-shows, and works with your existing scheduling software. Liberty Bancard provides all of these with transparent interchange-plus pricing.` },
-        { question: "Can I charge no-show fees?", answer: "Yes. With secure card-on-file tokenization, you can store client cards and charge cancellation or no-show fees according to your salon's policy." },
-        { question: "How do tip adjustments affect my costs?", answer: "Each tip adjustment can trigger higher interchange rates. We configure your terminal to prompt for tips at the point of sale, reducing post-authorization adjustments." },
-        { question: "Do you work with salon booking software?", answer: "We work alongside your existing salon management software. Our processing integrates separately, so you're not locked into bundled rates." },
-      ],
-    },
-    retail: {
-      avgRate: "2.3%",
-      avgSavings: "$2,800",
-      localStat: isFL ? "Florida retail sales exceed $300 billion annually" : "US retail sales exceed $7 trillion annually",
-      benefits: [
-        { title: "True interchange-plus for retail", description: `${city.name} retailers save significantly on debit card transactions with interchange-plus pricing versus flat-rate processors.` },
-        { title: "Terminal purchase options", description: "Own your equipment outright instead of paying inflated lease costs. Modern EMV and NFC terminals at competitive prices." },
-        { title: "Multi-location management", description: `Manage multiple ${city.name} area locations with consolidated reporting and consistent pricing from a single point of contact.` },
-        { title: "Chargeback support and prevention", description: "Guidance on chargeback responses and best practices to reduce disputes and protect your revenue." },
-      ],
-      faqs: [
-        { question: `What is the cheapest credit card processing for retail in ${city.name}?`, answer: `For ${city.name} retail stores processing over $10,000/month, interchange-plus pricing consistently costs less than flat-rate processors like Square or Stripe. Upload your statement for a free comparison.` },
-        { question: "Can I use my existing terminals?", answer: "Many existing terminals can be reprogrammed. We'll assess your equipment during onboarding and advise on compatibility." },
-        { question: "Do you support contactless payments?", answer: "Yes. All terminals we provide support EMV chip, contactless/NFC, Apple Pay, and Google Pay." },
-        { question: `Do you support multiple store locations in ${city.name}?`, answer: `Yes. We set up consolidated reporting across all your ${city.name} area locations with consistent pricing and one dedicated contact.` },
-      ],
-    },
-  };
-
-  const pop = cityPopData[city.slug] || { businesses: "5,000+", metro: "1 million" };
-  const vd = verticalData[vertical.slug];
-
-  return {
-    citySlug: city.slug,
-    cityName: city.name,
-    cityState: city.state,
-    cityStateName: stateName,
-    industrySlug: vertical.slug,
-    industryName: vertical.name,
-    metaTitle: `${vertical.name} Payment Processing in ${city.name}, ${city.state}`,
-    metaDescription: `${city.name} ${vertical.name.toLowerCase()} businesses save on processing fees with Liberty Bancard's interchange-plus pricing. Free statement review, no obligation.`,
-    keywords: `${vertical.name.toLowerCase()} payment processing ${city.name}, ${city.name} ${vertical.name.toLowerCase()} credit card processing, ${vertical.name.toLowerCase()} merchant services ${city.name} ${city.state}, payment processing ${city.name} ${stateName}`,
-    heroTitle: `${vertical.name} Payment Processing in ${city.name}, ${city.state}`,
-    heroSubtitle: `Serving ${pop.businesses} ${vertical.name.toLowerCase()} businesses in the greater ${city.name} metro area (population ${pop.metro}). Local support, transparent pricing, and real savings on every transaction.`,
-    localStats: [
-      { value: vd.avgRate, label: `Average effective rate on ${city.name} ${vertical.name.toLowerCase()} statements` },
-      { value: vd.avgSavings, label: `Average annual savings identified per ${city.name} location` },
-      { value: isFL ? "FL-Based" : "US-Based", label: isFL ? "Local Fort Lauderdale headquarters with Florida support team" : "Dedicated support team serving businesses nationwide" },
-    ],
-    benefits: vd.benefits,
-    faqs: vd.faqs,
-  };
-}
-
-const locationIndustryLookup: Record<string, LocationIndustryData> = {};
-for (const city of cities) {
-  for (const vertical of topVerticals) {
-    const key = `${city.slug}/${vertical.slug}`;
-    locationIndustryLookup[key] = generateLocationData(city, vertical);
-  }
-}
-
-export const locationIndustryRoutes = Object.keys(locationIndustryLookup);
-
-export const locationIndustryLinks = Object.entries(locationIndustryLookup).map(([key, data]) => ({
-  city: data.cityName,
-  industry: data.industryName,
-  href: `/locations/${key}`,
-}));
+// One page for all 300 city and industry combinations. The words come from shared/public-locations.ts,
+// the same module that builds the server document, so this page cannot add a local count, rate, office
+// or promise that the first HTML does not carry. An unknown city or industry renders the 404 page.
 
 export default function LocationIndustryPage() {
   const params = useParams<{ city: string; industry: string }>();
-  const key = `${params.city}/${params.industry}`;
-  const data = locationIndustryLookup[key];
+  const content = buildLocationDetail(params.city, params.industry);
 
-  if (!data) {
-    return (
-      <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
-        <Navbar />
-        <main className="flex-grow public-main-offset flex items-center justify-center">
-          <div className="text-center">
-            <h1 className="text-2xl font-bold text-foreground mb-4" data-testid="text-location-not-found">Page Not Found</h1>
-            <Button asChild>
-              <Link href="/" data-testid="link-back-home">Back to Home</Link>
-            </Button>
-          </div>
-        </main>
-        <Footer />
-      </div>
-    );
-  }
+  if (!content) return <NotFound />;
 
-  const vertical = topVerticals.find((v) => v.slug === data.industrySlug);
-
-  const faqStructuredData = getFAQSchema(data.faqs);
+  const faqStructuredData = getFAQSchema(content.faqs.map((faq) => ({ question: faq.question, answer: faq.answer })));
 
   const breadcrumbStructuredData = {
     "@context": "https://schema.org" as const,
     "@type": "BreadcrumbList" as const,
     itemListElement: [
       { "@type": "ListItem", position: 1, name: "Home", item: "https://libertybancard.com/" },
-      { "@type": "ListItem", position: 2, name: `${data.industryName} Processing`, item: `https://libertybancard.com/industries/${vertical?.industryPageSlug || ""}` },
-      { "@type": "ListItem", position: 3, name: `${data.cityName}, ${data.cityState}`, item: `https://libertybancard.com/locations/${key}` },
+      { "@type": "ListItem", position: 2, name: `${content.verticalName} Processing`, item: `https://libertybancard.com${content.industryHref}` },
+      { "@type": "ListItem", position: 3, name: `${content.cityName}, ${content.state}`, item: `https://libertybancard.com${content.canonicalPath}` },
     ],
   };
 
-  const localBusinessData = {
+  const serviceStructuredData = {
     "@context": "https://schema.org" as const,
-    "@type": "LocalBusiness" as const,
-    name: "Liberty Bancard",
-    description: data.metaDescription,
-    url: `https://libertybancard.com/locations/${key}`,
-    telephone: "+1-954-266-8214",
+    "@type": "Service" as const,
+    name: content.title,
+    description: content.metaDescription,
+    url: `https://libertybancard.com${content.canonicalPath}`,
+    serviceType: "Payment processing",
+    provider: { "@type": "Organization", name: "Liberty Bancard", url: "https://libertybancard.com" },
     areaServed: {
       "@type": "City",
-      name: data.cityName,
-      containedInPlace: {
-        "@type": "State",
-        name: data.cityStateName,
-      },
-    },
-    address: {
-      "@type": "PostalAddress",
-      addressLocality: "Fort Lauderdale",
-      addressRegion: "FL",
-      addressCountry: "US",
+      name: content.cityName,
+      containedInPlace: { "@type": "State", name: content.stateName },
     },
   };
+
+  const trackPage = content.canonicalPath;
 
   return (
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
-        title={data.metaTitle}
-        description={data.metaDescription}
-        path={`/locations/${key}`}
-        keywords={data.keywords}
+        title={content.title}
+        brandSuffix={locationDocumentTitle(content.title) !== content.title}
+        description={content.metaDescription}
+        path={content.canonicalPath}
+        keywords={content.keywords}
         ogType="website"
-        structuredData={[breadcrumbStructuredData, faqStructuredData, localBusinessData]}
+        structuredData={[breadcrumbStructuredData, faqStructuredData, serviceStructuredData]}
       />
       <Navbar />
 
@@ -317,83 +69,63 @@ export default function LocationIndustryPage() {
             <div className="accent-rule pt-5">
               <Breadcrumbs
                 items={[
-                  { name: `${data.industryName} Processing`, path: `/industries/${vertical?.industryPageSlug || ""}` },
-                  { name: `${data.cityName}, ${data.cityState}`, path: `/locations/${data.citySlug}` },
+                  { name: `${content.verticalName} Processing`, path: content.industryHref },
+                  { name: `${content.cityName}, ${content.state}`, path: content.hubHref },
+                  { name: content.verticalName, path: content.canonicalPath },
                 ]}
                 className="mb-4"
               />
               <div className="flex items-center gap-2 text-accent mb-4">
                 <MapPin className="w-5 h-5" />
-                <span className="text-sm font-medium" data-testid="text-location-badge">{data.cityName}, {data.cityStateName}</span>
+                <span className="text-sm font-medium" data-testid="text-location-badge">{content.badge}</span>
               </div>
               <h1 className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-foreground mb-6 max-w-3xl leading-tight" data-testid="text-location-hero-title">
-                {data.heroTitle}
+                {content.h1}
               </h1>
               <p className="text-muted-foreground text-lg max-w-2xl mb-8 leading-relaxed" data-testid="text-location-hero-subtitle">
-                {data.heroSubtitle}
+                {content.lead}
               </p>
-              <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
-                <Button size="lg" className="gap-2" asChild>
-                  <Link href={`/upload-statement?offer=${data.industrySlug}`} data-testid="link-location-upload" onClick={() => trackStatementUploadCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Get My Free Analysis", city: data.citySlug, industry: data.industrySlug })}>
-                    <Upload className="w-4 h-4" />
-                    Get My Free Analysis
-                  </Link>
-                </Button>
-                <Button size="lg" variant="outline" className="gap-2" asChild>
-                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-location-book" onClick={() => trackBookingCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Book a review call", ctaLocation: "hero", city: data.citySlug, industry: data.industrySlug })}>
-                    <Calendar className="w-4 h-4" />
-                    Book a review call
-                  </a>
-                </Button>
-                <Button size="lg" variant="ghost" className="gap-2" asChild>
-                  <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-location-hero-phone" onClick={() => trackPhoneCallClick({})}>
-                    <Phone className="w-4 h-4" />
-                    {PHONE_NUMBER}
-                  </a>
-                </Button>
-              </div>
+              <LocationActions
+                primary={content.primaryAction}
+                secondary={content.secondaryAction}
+                page={trackPage}
+                city={content.citySlug}
+                industry={content.verticalSlug}
+                location="hero"
+              />
             </div>
           </div>
         </section>
 
-        <section className="py-16 bg-muted/30" data-testid="section-location-stats">
+        <section className="py-16 bg-muted/30" data-testid="section-location-benefits">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {data.localStats.map((stat, i) => (
-                <Card key={i} data-testid={`card-stat-${i}`}>
-                  <CardContent className="p-6 text-center">
-                    <div className="text-3xl font-display font-bold text-primary mb-2">{stat.value}</div>
-                    <div className="text-sm text-muted-foreground">{stat.label}</div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="py-16" data-testid="section-location-benefits">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-4" data-testid="text-benefits-heading">
-              Why {data.cityName} {data.industryName} Businesses Choose Liberty Bancard
+            <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-4" data-testid="text-workflow-heading">
+              {content.workflowHeading}
             </h2>
-            <p className="text-center text-muted-foreground mb-10 max-w-2xl mx-auto">
-              We review your actual statement and build a solution around your real numbers — not estimates.
+            <p className="text-center text-muted-foreground mb-10 max-w-2xl mx-auto" data-testid="text-location-workflow">
+              {content.workflow}
             </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {data.benefits.map((benefit, i) => (
-                <Card key={i} data-testid={`card-benefit-${i}`}>
+            <h3 className="text-xl font-display font-bold text-foreground text-center mb-6" data-testid="text-benefits-heading">
+              {content.topicsHeading}
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {content.topics.map((topic, i) => (
+                <Card key={topic.title} data-testid={`card-benefit-${i}`}>
                   <CardContent className="p-5">
                     <div className="flex items-start gap-3">
                       <CheckCircle2 className="w-5 h-5 text-emerald-500 mt-0.5 shrink-0" />
                       <div>
-                        <h3 className="font-semibold text-foreground mb-1">{benefit.title}</h3>
-                        <p className="text-sm text-muted-foreground leading-relaxed">{benefit.description}</p>
+                        <h4 className="font-semibold text-foreground mb-1">{topic.title}</h4>
+                        <p className="text-sm text-muted-foreground leading-relaxed">{topic.description}</p>
                       </div>
                     </div>
                   </CardContent>
                 </Card>
               ))}
             </div>
+            <p className="text-center text-sm text-muted-foreground mt-10 max-w-2xl mx-auto" data-testid="text-location-coverage-note">
+              {content.coverageNote}
+            </p>
           </div>
         </section>
 
@@ -401,11 +133,11 @@ export default function LocationIndustryPage() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl mx-auto">
               <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-4" data-testid="text-faq-heading">
-                {data.industryName} Payment Processing in {data.cityName}: FAQ
+                {content.faqHeading}
               </h2>
               <Accordion type="single" collapsible className="space-y-2">
-                {data.faqs.map((faq, i) => (
-                  <AccordionItem key={i} value={`faq-${i}`} className="border rounded-md px-4" data-testid={`accordion-faq-${i}`}>
+                {content.faqs.map((faq, i) => (
+                  <AccordionItem key={faq.question} value={`faq-${i}`} className="border rounded-md px-4" data-testid={`accordion-faq-${i}`}>
                     <AccordionTrigger className="text-left text-foreground font-medium py-4" data-testid={`trigger-faq-${i}`}>
                       {faq.question}
                     </AccordionTrigger>
@@ -422,30 +154,21 @@ export default function LocationIndustryPage() {
         <section className="relative overflow-hidden bg-primary text-primary-foreground py-20" data-testid="section-location-cta">
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h2 className="text-2xl md:text-3xl font-display font-bold text-white mb-4" data-testid="text-cta-heading">
-              {data.cityName} {data.industryName} Owners: See What You're Really Paying
+              {content.ctaHeading}
             </h2>
             <p className="text-white/70 mb-8 max-w-xl mx-auto" data-testid="text-cta-body">
-              Upload your most recent processing statement. We'll break it down line-by-line and show you exactly where your money goes. Keep the analysis even if you don't switch.
+              {content.ctaBody}
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <Button size="lg" className="gap-2 bg-accent hover:bg-accent border-accent text-white" asChild>
-                <Link href="/upload-statement" data-testid="link-cta-upload" onClick={() => trackStatementUploadCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Upload Statement — Free Review", city: data.cityName, industry: data.industryName })}>
-                  <Upload className="w-4 h-4" />
-                  Upload Statement — Free Review
-                </Link>
-              </Button>
-              <Button size="lg" variant="outline" className="gap-2 bg-transparent border-white/30 text-white hover:bg-white/10" asChild>
-                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-cta-book" onClick={() => trackBookingCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Book a review call", ctaLocation: "final_cta", city: data.cityName, industry: data.industryName })}>
-                  <Calendar className="w-4 h-4" />
-                  Book a review call
-                </a>
-              </Button>
-              <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20" asChild>
-                <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-cta-call" onClick={() => trackPhoneCallClick({})}>
-                  <Phone className="w-4 h-4" />
-                  {PHONE_NUMBER}
-                </a>
-              </Button>
+            <div className="flex justify-center">
+              <LocationActions
+                primary={content.primaryAction}
+                secondary={content.secondaryAction}
+                page={trackPage}
+                city={content.citySlug}
+                industry={content.verticalSlug}
+                location="final_cta"
+                inverse
+              />
             </div>
           </div>
         </section>
@@ -453,31 +176,27 @@ export default function LocationIndustryPage() {
         <section className="bg-background py-12" data-testid="section-location-crosslinks">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h3 className="text-lg font-display font-bold text-foreground text-center mb-4" data-testid="text-crosslinks-heading">
-              More {data.industryName} Processing Locations We Serve
+              {content.citiesHeading}
             </h3>
             <div className="flex flex-wrap justify-center gap-3 mb-8">
-              {cities
-                .filter((c) => c.slug !== data.citySlug)
-                .map((c) => (
-                  <Button key={c.slug} variant="outline" className="gap-2" asChild>
-                    <Link href={`/locations/${c.slug}/${data.industrySlug}`} data-testid={`link-city-${c.slug}`}>
-                      <MapPin className="w-4 h-4" />
-                      {c.name}
-                    </Link>
-                  </Button>
-                ))}
+              {content.relatedCities.map((link) => (
+                <Button key={link.href} variant="outline" className="gap-2" asChild>
+                  <Link href={link.href} data-testid={`link-city-${link.href.split("/")[2]}`}>
+                    <MapPin className="w-4 h-4" />
+                    {link.label}
+                  </Link>
+                </Button>
+              ))}
             </div>
             <h3 className="text-lg font-display font-bold text-foreground text-center mb-4" data-testid="text-industries-heading">
-              Other Industries in {data.cityName}
+              {content.verticalsHeading}
             </h3>
             <div className="flex flex-wrap justify-center gap-3">
-              {topVerticals
-                .filter((v) => v.slug !== data.industrySlug)
-                .map((v) => (
-                  <Button key={v.slug} variant="outline" asChild>
-                    <Link href={`/locations/${data.citySlug}/${v.slug}`} data-testid={`link-industry-${v.slug}`}>{v.name}</Link>
-                  </Button>
-                ))}
+              {content.relatedVerticals.map((link) => (
+                <Button key={link.href} variant="outline" asChild>
+                  <Link href={link.href} data-testid={`link-industry-${link.href.split("/")[3]}`}>{link.label}</Link>
+                </Button>
+              ))}
             </div>
           </div>
         </section>

@@ -39,6 +39,8 @@ import { applyConsentCommand } from "../services/consent-authority";
 // StatementChainTracker removed — not exported from statement-upload-chain
 import { resolveReferralAttribution } from "../services/attribution";
 import { serverError } from "../utils/server-error";
+import { publicProofFor } from "../data/public-proof-register";
+import { isProofSurface } from "@shared/public-proof";
 import { recordAnalyticsEvent } from "../services/analytics-events";
 import { FORM_SUBMITTED, DEAL_CREATED } from "@shared/analytics-events";
 import {
@@ -1679,24 +1681,15 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
     }
   });
 
-  app.get("/api/public/testimonials/approved", async (_req, res) => {
+  // Public proof. An approved, published submission row is not proof by itself: it carries no recorded
+  // permission, reporting period or calculation. Only entries in the proof register that pass the shared
+  // projection are returned, and only their redacted public fields. Surface defaults to testimonials.
+  app.get("/api/public/testimonials/approved", async (req, res) => {
     try {
-      const submissions = await storage.getPublishedTestimonialSubmissions();
-      const sanitized = submissions.map((s) => {
-        const firstName = (s.name || "").split(" ")[0] || "Anonymous";
-        const lastInitial = ((s.name || "").split(" ")[1] || "").charAt(0);
-        return {
-          id: s.id,
-          displayName: lastInitial ? `${firstName} ${lastInitial}.` : firstName,
-          businessName: s.businessName,
-          industry: s.industry,
-          videoLink: s.videoLink,
-          savingsAmount: s.savingsAmount,
-          story: s.story,
-          createdAt: s.createdAt,
-        };
-      });
-      res.json(sanitized);
+      const requested = req.query.surface === undefined ? "testimonials" : req.query.surface;
+      if (!isProofSurface(requested)) return res.status(400).json({ error: "INVALID_SURFACE" });
+      const published = await storage.getPublishedTestimonialSubmissions();
+      res.json(publicProofFor(requested, new Set(published.map((row) => row.id))));
     } catch (err: any) {
       serverError(res, err);
     }

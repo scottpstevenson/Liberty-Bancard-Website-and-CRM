@@ -16,19 +16,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import {
-  Upload,
-  CheckCircle2,
-  BarChart3,
-  ShieldCheck,
-  DollarSign,
-  Calculator,
-  BadgeCheck,
-  Users,
-  Zap,
-  Link2,
-  Check,
-} from "lucide-react";
+import { Upload, CheckCircle2, BarChart3, DollarSign, Calculator, BadgeCheck, Link2, Check } from "lucide-react";
 import {
   COMPARE_METHOD_NOTE,
   COMPARE_NEEDS,
@@ -120,11 +108,7 @@ export default function RateComparison() {
         <div className="bg-muted/50 border-b border-border py-3" data-testid="section-trust-strip">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1.5 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> PCI DSS Level 1 Certified</span>
               <span className="flex items-center gap-1.5"><BadgeCheck className="w-3.5 h-3.5 text-sky-500" /> Registered ISO/MSP</span>
-              <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5 text-primary" /> 5,000+ Merchants Served</span>
-              <span className="flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5 text-primary" /> $2B+ Annual Volume</span>
-              <span className="flex items-center gap-1.5"><Zap className="w-3.5 h-3.5 text-amber-500" /> 10+ Years in Payments</span>
             </div>
           </div>
         </div>

@@ -19,6 +19,13 @@ import { ABOUT_CONTACT_META } from "./public-contact-content";
 import { PAYMENT_PROCESSING_PAGE, PRICING_AND_PROGRAMS_PAGE } from "./public-overview-pages";
 import { FST_TITLE_FULL, FST_DESCRIPTION, FST_KEYWORDS } from "./free-smart-terminal-content";
 import { COMPARE_ENTRIES, RATES_PAGE, BEAT_SQUARE_STRIPE } from "./compare-content";
+import { proofOverviewPage, TESTIMONIAL_SUBMIT_COPY } from "./public-proof";
+import { WHY_LIBERTY_PAGE } from "./public-why-liberty";
+import { FREE_ANALYSIS_PAGE, FREE_ANALYSIS_QUIZ_PAGE } from "./public-free-analysis";
+import { CALC_COPY } from "./public-cost-calculator";
+
+const CASE_STUDIES_PAGE = proofOverviewPage("case-studies");
+const TESTIMONIALS_PAGE = proofOverviewPage("testimonials");
 
 export interface SeoRouteDefault {
   title: string;
@@ -35,24 +42,24 @@ export const SEO_ROUTE_DEFAULTS: Record<string, SeoRouteDefault> = {
   "/pricing-and-programs": { title: PRICING_AND_PROGRAMS_PAGE.title, description: PRICING_AND_PROGRAMS_PAGE.description, keywords: PRICING_AND_PROGRAMS_PAGE.keywords, ogTemplate: "service", inSitemap: true },
   "/get-started": { title: "Get Started With Liberty Bancard", description: "Start your merchant account application or get a free processing review. Three quick paths: upload, calculate, or talk to a human.", ogTemplate: "default", inSitemap: true },
   "/upload-statement": { title: FSR_META.title, description: FSR_META.description, ogTemplate: "service", inSitemap: true },
-  "/free-analysis": { title: "Free Payment Processing Analysis | Liberty Bancard", description: "Get a free payment processing analysis from Liberty Bancard. Identify hidden fees, compare programs, and get a personalized savings forecast. No obligation.", ogTemplate: "service", inSitemap: true },
-  "/free-analysis-guaranteed": { title: "Free Statement Analysis — Guaranteed Savings | Liberty Bancard", description: "Upload your statement and we'll find hidden fees, benchmark against 3,200+ statements, and show what you should pay. No savings? We'll send you a $50 gift card.", keywords: "free merchant statement analysis, guaranteed savings, payment processing review, hidden fees, merchant services benchmark", ogTemplate: "service", inSitemap: true },
+  "/free-analysis": { title: FREE_ANALYSIS_QUIZ_PAGE.title, description: FREE_ANALYSIS_QUIZ_PAGE.description, keywords: FREE_ANALYSIS_QUIZ_PAGE.keywords, ogTemplate: "service", inSitemap: true },
+  "/free-analysis-guaranteed": { title: FREE_ANALYSIS_PAGE.title, description: FREE_ANALYSIS_PAGE.description, keywords: FREE_ANALYSIS_PAGE.keywords, ogTemplate: "service", inSitemap: true },
   "/0-percent-processing": { title: `${ZP_META.title} | Liberty Bancard`, description: ZP_META.description, ogTemplate: "service", inSitemap: true },
   "/beat-square-stripe": { title: `${BEAT_SQUARE_STRIPE.title} | Liberty Bancard`, description: BEAT_SQUARE_STRIPE.description, ogTemplate: "compare", inSitemap: true },
   "/industries": { title: `${INDUSTRIES_HUB.title} | Liberty Bancard`, description: INDUSTRIES_HUB.description, keywords: INDUSTRIES_HUB.keywords, ogTemplate: "industry", inSitemap: true },
   "/about-contact": { title: ABOUT_CONTACT_META.title, description: ABOUT_CONTACT_META.description, ogTemplate: "default", inSitemap: true },
   "/estimate": { title: "Free Effective Rate Estimate | Liberty Bancard", description: "Get a quick processing cost estimate. Provide your monthly volume and current fees for a preliminary analysis and next steps.", ogTemplate: "service", inSitemap: true },
   "/support": { title: "Contact Support | Liberty Bancard", description: "Existing merchants can send a support request about deposits, terminals, chargebacks or PCI, or call 954-266-8214 or email support@libertybancard.com.", ogTemplate: "default", inSitemap: true },
-  "/savings-calculator": { title: "Payment Processing Cost Calculator", description: "Estimate your credit card processing cost. Enter monthly volume and current fees for a preliminary estimate; a statement review gives the actual figures.", ogTemplate: "service", inSitemap: true },
+  "/savings-calculator": { title: `${CALC_COPY.title} | Liberty Bancard`, description: CALC_COPY.description, keywords: CALC_COPY.keywords, ogTemplate: "service", inSitemap: true },
   "/compare-rates": { title: `${RATES_PAGE.title} | Liberty Bancard`, description: RATES_PAGE.description, ogTemplate: "compare", inSitemap: true },
   "/blog": { title: "Payment Processing Insights | Liberty Bancard", description: "Free guides on processing fees, interchange, PCI, statements, and switching processors — written for business owners.", ogTemplate: "default", inSitemap: true },
   "/faq": { title: "Payment Processing FAQ | Liberty Bancard", description: "30+ answers on interchange-plus pricing, cash discount, PCI compliance, switching processors, equipment, and more.", ogTemplate: "default", inSitemap: true },
   "/affiliate": { title: "Affiliate Program | Liberty Bancard", description: "Refer businesses to Liberty Bancard and earn ongoing residual commissions. Tiered payouts, transparent reporting, real-time dashboard.", ogTemplate: "default", inSitemap: true },
-  "/why-liberty-bancard": { title: "Why Liberty Bancard — About Us & Mission | Liberty Bancard", description: "5,000+ merchants trust Liberty Bancard. PCI Level 1 certified, registered ISO, 10+ years in payments. Transparent pricing, real support, free statement review.", ogTemplate: "default", inSitemap: true },
+  "/why-liberty-bancard": { title: WHY_LIBERTY_PAGE.title, description: WHY_LIBERTY_PAGE.description, keywords: WHY_LIBERTY_PAGE.keywords, ogTemplate: "default", inSitemap: true },
   "/shop": { title: "POS Terminals & Equipment | Liberty Bancard", description: "Clover, Dejavoo, PAX, and Valor terminals plus virtual terminal access. Equipment terms are set by your written agreement and confirmed before you decide.", ogTemplate: "default", inSitemap: true },
-  "/case-studies": { title: "Payment Processing Case Studies | Liberty Bancard", description: "See how restaurants, retail stores, and healthcare practices saved thousands by switching to Liberty Bancard. Real numbers from real statement reviews.", ogTemplate: "default", inSitemap: true },
-  "/testimonials": { title: "Merchant Video Testimonials | Real Results | Liberty Bancard", description: "Watch testimonials from restaurant owners, retailers, healthcare practices, and more who saved thousands per year switching to Liberty Bancard. Filter by industry.", ogTemplate: "default", inSitemap: true },
-  "/testimonials/submit": { title: "Submit Your Merchant Testimonial | Liberty Bancard", description: "Share your Liberty Bancard success story. Tell us your savings and we will feature your testimonial to help merchants learn about transparent payment processing.", ogTemplate: "default", inSitemap: true },
+  "/case-studies": { title: CASE_STUDIES_PAGE.title, description: CASE_STUDIES_PAGE.description, keywords: CASE_STUDIES_PAGE.keywords, ogTemplate: "default", inSitemap: true },
+  "/testimonials": { title: TESTIMONIALS_PAGE.title, description: TESTIMONIALS_PAGE.description, keywords: TESTIMONIALS_PAGE.keywords, ogTemplate: "default", inSitemap: true },
+  "/testimonials/submit": { title: `${TESTIMONIAL_SUBMIT_COPY.title} | Liberty Bancard`, description: TESTIMONIAL_SUBMIT_COPY.description, ogTemplate: "default", inSitemap: true },
   "/integrations": { title: INTEGRATIONS_META.title, description: INTEGRATIONS_META.description, ogTemplate: "default", inSitemap: true },
   "/compare/square": { title: COMPARE_ENTRIES["square"].metaTitle, description: COMPARE_ENTRIES["square"].metaDescription, ogTemplate: "compare", inSitemap: true },
   "/compare/stripe": { title: COMPARE_ENTRIES["stripe"].metaTitle, description: COMPARE_ENTRIES["stripe"].metaDescription, ogTemplate: "compare", inSitemap: true },

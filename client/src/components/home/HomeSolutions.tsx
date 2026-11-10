@@ -3,11 +3,13 @@ import { ArrowRight } from "lucide-react";
 import { PublicSection, PublicSectionHeader } from "@/components/public/PublicSection";
 import { HOME_SOLUTIONS, HOME_SOLUTIONS_ANCHOR } from "@shared/public-home-content";
 import { isHomeAnchor } from "@shared/public-navigation";
+import { HomePaymentContexts } from "./HomePaymentContexts";
 
 /**
  * Section 2 (#solutions): three starting points, one per way a merchant begins. Stacked on phones, three
  * columns from md; no carousel. Entries that point at a section of this page use a native anchor so the
- * browser scrolls to it; the rest are client-side links to existing pages.
+ * browser scrolls to it; the rest are client-side links to existing pages. Below the cards, the
+ * payment-setup block explains Countertop, Mobile and Online (live text, one terminal illustration).
  */
 export function HomeSolutions() {
   return (
@@ -37,6 +39,7 @@ export function HomeSolutions() {
           );
         })}
       </ul>
+      <HomePaymentContexts />
     </PublicSection>
   );
 }

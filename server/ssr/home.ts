@@ -3,10 +3,12 @@ import {
   HOME_FINAL,
   HOME_FOUNDER,
   HOME_HERO,
+  HOME_HERO_IMAGE,
   HOME_INDUSTRIES_SECTION,
   HOME_LOCAL_BUSINESS_SCHEMA,
   HOME_META,
   HOME_ORGANIZATION_SCHEMA,
+  HOME_PAYMENT_CONTEXTS,
   HOME_PROCESS,
   HOME_SAMPLE_REVIEW,
   HOME_SECTION_ORDER,
@@ -16,7 +18,10 @@ import {
   type HomeSectionId,
 } from "@shared/public-home-content";
 import { industryHref } from "@shared/public-industries";
+import { HOME_VISUAL_BROWSER_SVG, HOME_VISUAL_PHONE_SVG } from "@shared/public-home-visuals";
+import type { PublicImageId } from "../../client/src/lib/public-imagery";
 import { ssrHtmlShell } from "../ssrShared";
+import { pictureHtml } from "./picture";
 
 const esc = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -32,6 +37,34 @@ const webSiteSchema = {
   },
 };
 
+function paymentContextsHtml(): string {
+  const { terminalImage } = HOME_PAYMENT_CONTEXTS;
+  const visual = (kind: (typeof HOME_PAYMENT_CONTEXTS.contexts)[number]["visual"]): string =>
+    kind === "terminal"
+      ? `<div class="ssr-ctx-term">${pictureHtml({ id: terminalImage.id, variant: terminalImage.variant, sizes: terminalImage.sizes })}</div>`
+      : `<span aria-hidden="true">${kind === "phone" ? HOME_VISUAL_PHONE_SVG : HOME_VISUAL_BROWSER_SVG}</span>`;
+  return `        <div class="ssr-contexts" role="group" aria-labelledby="home-payment-contexts-heading" aria-describedby="home-payment-contexts-description">
+          <p class="ssr-eyebrow">${esc(HOME_PAYMENT_CONTEXTS.eyebrow)}</p>
+          <h3 id="home-payment-contexts-heading">${esc(HOME_PAYMENT_CONTEXTS.heading)}</h3>
+          <p class="ssr-section-subheading ssr-left">${esc(HOME_PAYMENT_CONTEXTS.intro)}</p>
+          <span id="home-payment-contexts-description" class="ssr-sr-only">${esc(HOME_PAYMENT_CONTEXTS.description)}</span>
+          <ul class="ssr-ctx-grid">
+${HOME_PAYMENT_CONTEXTS.contexts
+  .map(
+    (context) => `            <li class="ssr-ctx-card">
+              <div class="ssr-ctx-visual">${visual(context.visual)}</div>
+              <div class="ssr-ctx-body">
+                <h4 class="ssr-card-title">${esc(context.title)}</h4>
+                <div class="ssr-card-text">${esc(context.body)}</div>
+              </div>
+            </li>`,
+  )
+  .join("\n")}
+          </ul>
+          <p class="ssr-note">${esc(HOME_PAYMENT_CONTEXTS.caption)}</p>
+        </div>`;
+}
+
 /**
  * Server-rendered Home. Each section is emitted in HOME_SECTION_ORDER and tagged with the same
  * data-home-section value as the hydrated page, so the document a crawler or a slow connection receives
@@ -40,18 +73,30 @@ const webSiteSchema = {
  */
 const sections: Record<HomeSectionId, () => string> = {
   hero: () => `
-    <section class="ssr-hero ssr-hero--light" data-home-section="hero">
+    <section class="ssr-hero ssr-hero--light ssr-hero--home" data-home-section="hero">
       <div class="ssr-hero-inner">
-        <div class="ssr-hero-badge">${esc(HOME_HERO.eyebrow)}</div>
-        <h1>${esc(HOME_HERO.heading)}</h1>
-        <p class="ssr-hero-subtitle">
-          ${esc(HOME_HERO.body)}
-        </p>
-        <div class="ssr-hero-buttons">
-          <a href="${HOME_HERO.primary.href}" class="ssr-btn-dark">${esc(HOME_HERO.primary.label)}</a>
-          <a href="${HOME_HERO.secondary.href}" class="ssr-btn-outline">${esc(HOME_HERO.secondary.label)}</a>
+        <div class="ssr-hero-copy">
+          <div class="ssr-hero-badge">${esc(HOME_HERO.eyebrow)}</div>
+          <h1><span class="ssr-h1-first">${esc(HOME_HERO.headingFirst)}</span> <span class="ssr-h1-second">${esc(HOME_HERO.headingSecond)}</span></h1>
+          <p class="ssr-hero-subtitle">
+            ${esc(HOME_HERO.body)}
+          </p>
+          <div class="ssr-hero-buttons">
+            <a href="${HOME_HERO.primary.href}" class="ssr-btn-dark">${esc(HOME_HERO.primary.label)}</a>
+            <a href="${HOME_HERO.secondary.href}" class="ssr-btn-outline">${esc(HOME_HERO.secondary.label)}</a>
+          </div>
+          <p class="ssr-hero-helper ssr-md-only">${esc(HOME_HERO.desktopHelper)}</p>
+          <p class="ssr-hero-qual ssr-md-only">${esc(HOME_HERO.desktopQualification)}</p>
         </div>
-        <p class="ssr-hero-note">${esc(HOME_HERO.compliance)}</p>
+        <div class="ssr-hero-media">
+          <div class="ssr-frame">${pictureHtml({
+            id: HOME_HERO_IMAGE.id,
+            variant: HOME_HERO_IMAGE.mobile.variant,
+            sizes: HOME_HERO_IMAGE.mobile.sizes,
+            artDirection: [HOME_HERO_IMAGE.desktop],
+            priority: true,
+          })}</div>
+        </div>
       </div>
     </section>`,
 
@@ -66,6 +111,7 @@ ${HOME_SOLUTIONS.cards.map((card) => `          <a href="${card.href}" class="ss
             <div class="ssr-card-cta">${esc(card.linkLabel)}</div>
           </a>`).join("\n")}
         </div>
+${paymentContextsHtml()}
       </div>
     </section>`,
 
@@ -74,13 +120,17 @@ ${HOME_SOLUTIONS.cards.map((card) => `          <a href="${card.href}" class="ss
       <div class="ssr-section-inner">
         <h2 class="ssr-section-heading">${esc(HOME_INDUSTRIES_SECTION.heading)}</h2>
         <p class="ssr-section-subheading">${esc(HOME_INDUSTRIES_SECTION.description)}</p>
-        <div class="ssr-grid-3">
-${HOME_INDUSTRIES_SECTION.entries.map((entry) => `          <a href="${industryHref(entry.slug)}" class="ssr-card ssr-card-link">
-            <div class="ssr-card-title">${esc(entry.title)}</div>
-            <div class="ssr-card-text">Best for: ${esc(entry.bestFor)}</div>
-          </a>`).join("\n")}
-        </div>
+        <ul class="ssr-ind-grid">
+${HOME_INDUSTRIES_SECTION.entries.map((entry) => `          <li><a href="${industryHref(entry.slug)}" class="ssr-ind-card">
+            <div class="ssr-frame">${pictureHtml({ id: entry.image as PublicImageId, variant: HOME_INDUSTRIES_SECTION.cardImage.variant, sizes: HOME_INDUSTRIES_SECTION.cardImage.sizes })}</div>
+            <div class="ssr-ind-card-body">
+              <h3 class="ssr-card-title">${esc(entry.title)}</h3>
+              <div class="ssr-card-text">Best for: ${esc(entry.bestFor)}</div>
+            </div>
+          </a></li>`).join("\n")}
+        </ul>
         <p class="ssr-center-link"><a href="${HOME_INDUSTRIES_SECTION.allHref}">${esc(HOME_INDUSTRIES_SECTION.allLabel)}</a></p>
+        <p class="ssr-note">${esc(HOME_INDUSTRIES_SECTION.illustrativeNote)}</p>
       </div>
     </section>`,
 
@@ -125,9 +175,19 @@ ${HOME_PROCESS.steps.map((step, i) => `            <li class="ssr-card">
             </li>`).join("\n")}
           </ol>
           <figure class="ssr-card ssr-worksheet" aria-label="Statement review layout (illustrative, no results shown)">
+            <div class="ssr-ws-head">
+              <p class="ssr-ws-eyebrow">${esc(HOME_SAMPLE_REVIEW.eyebrow)}</p>
+              <h3>${esc(HOME_SAMPLE_REVIEW.heading)}</h3>
+              <p>${esc(HOME_SAMPLE_REVIEW.intro)}</p>
+            </div>
+            <div class="ssr-ws-doc">
+              <div><strong>${esc(HOME_SAMPLE_REVIEW.documentLabel)}</strong><small>${esc(HOME_SAMPLE_REVIEW.documentNote)}</small></div>
+              <span class="ssr-ws-stamp">${esc(HOME_SAMPLE_REVIEW.stamp)}</span>
+            </div>
             <dl>
-${HOME_SAMPLE_REVIEW.rows.map((row) => `              <div class="ssr-worksheet-row"><div><dt>${esc(row.label)}</dt><dd>${esc(row.note)}</dd></div><span aria-hidden="true">&mdash;</span></div>`).join("\n")}
+${HOME_SAMPLE_REVIEW.rows.map((row, i) => `              <div class="ssr-worksheet-row"><span class="ssr-ws-num" aria-hidden="true">${String(i + 1).padStart(2, "0")}</span><div class="ssr-ws-body"><dt>${esc(row.label)}</dt><dd><strong>${esc(row.heading)}</strong> ${esc(row.note)}</dd></div><span aria-hidden="true">&mdash;</span></div>`).join("\n")}
             </dl>
+            <p class="ssr-ws-foot">${esc(HOME_SAMPLE_REVIEW.footnote)}</p>
             <figcaption>${esc(HOME_SAMPLE_REVIEW.label)}</figcaption>
           </figure>
         </div>

@@ -7,147 +7,147 @@
   },
   "entries": [
     {
-      "id": "hero-terminal-tap",
-      "source": "client/src/assets/images/liberty-terminal-tap.png",
-      "sourceSha256": "7811a703a99c7004e65bae6f733ec34202e74ae26fd52e588d29e94cec27c7bd",
+      "id": "home-hero-merchant",
+      "source": "client/src/assets/images/w-d/01-home-merchant-hero.png",
+      "sourceSha256": "04fdea12ab44289e0c359ad536aca034f1e4ea891cc64685c9b4feeeae2b19ec",
       "variants": [
         {
           "name": "mobile",
-          "width": 1195,
-          "height": 896,
+          "width": 1365,
+          "height": 1024,
           "files": [
             {
               "format": "avif",
-              "file": "hero-terminal-tap-mobile-480.avif",
+              "file": "home-hero-merchant-mobile-480.avif",
               "width": 480,
               "height": 360,
-              "bytes": 8556
+              "bytes": 24625
             },
             {
               "format": "webp",
-              "file": "hero-terminal-tap-mobile-480.webp",
+              "file": "home-hero-merchant-mobile-480.webp",
               "width": 480,
               "height": 360,
-              "bytes": 13216
+              "bytes": 39560
             },
             {
               "format": "jpg",
-              "file": "hero-terminal-tap-mobile-480.jpg",
+              "file": "home-hero-merchant-mobile-480.jpg",
               "width": 480,
               "height": 360,
-              "bytes": 19625
+              "bytes": 40436
             },
             {
               "format": "avif",
-              "file": "hero-terminal-tap-mobile-720.avif",
+              "file": "home-hero-merchant-mobile-720.avif",
               "width": 720,
               "height": 540,
-              "bytes": 13896
+              "bytes": 46736
             },
             {
               "format": "webp",
-              "file": "hero-terminal-tap-mobile-720.webp",
+              "file": "home-hero-merchant-mobile-720.webp",
               "width": 720,
               "height": 540,
-              "bytes": 21520
+              "bytes": 72360
             },
             {
               "format": "jpg",
-              "file": "hero-terminal-tap-mobile-720.jpg",
+              "file": "home-hero-merchant-mobile-720.jpg",
               "width": 720,
               "height": 540,
-              "bytes": 34169
+              "bytes": 80129
             },
             {
               "format": "avif",
-              "file": "hero-terminal-tap-mobile-960.avif",
+              "file": "home-hero-merchant-mobile-960.avif",
               "width": 960,
               "height": 720,
-              "bytes": 20192
+              "bytes": 70878
             },
             {
               "format": "webp",
-              "file": "hero-terminal-tap-mobile-960.webp",
+              "file": "home-hero-merchant-mobile-960.webp",
               "width": 960,
               "height": 720,
-              "bytes": 30616
+              "bytes": 107262
             },
             {
               "format": "jpg",
-              "file": "hero-terminal-tap-mobile-960.jpg",
+              "file": "home-hero-merchant-mobile-960.jpg",
               "width": 960,
               "height": 720,
-              "bytes": 50459
+              "bytes": 127515
             }
           ]
         },
         {
           "name": "desktop",
-          "width": 1060,
-          "height": 896,
+          "width": 1536,
+          "height": 1024,
           "files": [
             {
               "format": "avif",
-              "file": "hero-terminal-tap-desktop-520.avif",
+              "file": "home-hero-merchant-desktop-520.avif",
               "width": 520,
-              "height": 440,
-              "bytes": 10180
+              "height": 347,
+              "bytes": 27123
             },
             {
               "format": "webp",
-              "file": "hero-terminal-tap-desktop-520.webp",
+              "file": "home-hero-merchant-desktop-520.webp",
               "width": 520,
-              "height": 440,
-              "bytes": 15506
+              "height": 347,
+              "bytes": 42928
             },
             {
               "format": "jpg",
-              "file": "hero-terminal-tap-desktop-520.jpg",
+              "file": "home-hero-merchant-desktop-520.jpg",
               "width": 520,
-              "height": 440,
-              "bytes": 23529
+              "height": 347,
+              "bytes": 43655
             },
             {
               "format": "avif",
-              "file": "hero-terminal-tap-desktop-780.avif",
+              "file": "home-hero-merchant-desktop-780.avif",
               "width": 780,
-              "height": 659,
-              "bytes": 16479
+              "height": 520,
+              "bytes": 50628
             },
             {
               "format": "webp",
-              "file": "hero-terminal-tap-desktop-780.webp",
+              "file": "home-hero-merchant-desktop-780.webp",
               "width": 780,
-              "height": 659,
-              "bytes": 25606
+              "height": 520,
+              "bytes": 78892
             },
             {
               "format": "jpg",
-              "file": "hero-terminal-tap-desktop-780.jpg",
+              "file": "home-hero-merchant-desktop-780.jpg",
               "width": 780,
-              "height": 659,
-              "bytes": 41150
+              "height": 520,
+              "bytes": 86061
             },
             {
               "format": "avif",
-              "file": "hero-terminal-tap-desktop-1060.avif",
-              "width": 1060,
-              "height": 896,
-              "bytes": 24962
+              "file": "home-hero-merchant-desktop-1040.avif",
+              "width": 1040,
+              "height": 693,
+              "bytes": 77451
             },
             {
               "format": "webp",
-              "file": "hero-terminal-tap-desktop-1060.webp",
-              "width": 1060,
-              "height": 896,
-              "bytes": 37200
+              "file": "home-hero-merchant-desktop-1040.webp",
+              "width": 1040,
+              "height": 693,
+              "bytes": 118600
             },
             {
               "format": "jpg",
-              "file": "hero-terminal-tap-desktop-1060.jpg",
-              "width": 1060,
-              "height": 896,
-              "bytes": 62475
+              "file": "home-hero-merchant-desktop-1040.jpg",
+              "width": 1040,
+              "height": 693,
+              "bytes": 137618
             }
           ]
         }
@@ -155,153 +155,293 @@
     },
     {
       "id": "industry-restaurant",
-      "source": "client/src/assets/images/case-restaurant.jpg",
-      "sourceSha256": "38d8cc85b4579516f92b450dcc18d423fcb932cedbbc5ac5124d9d0da22d2f1f",
+      "source": "client/src/assets/images/w-d/02-restaurant-service.png",
+      "sourceSha256": "ed5f7c9c592e3fe96c7d579cd380dafad24ce248e966db42a694e6506a530822",
       "variants": [
         {
           "name": "card",
-          "width": 1137,
-          "height": 853,
+          "width": 1365,
+          "height": 1024,
           "files": [
             {
               "format": "avif",
               "file": "industry-restaurant-card-320.avif",
               "width": 320,
               "height": 240,
-              "bytes": 8820
+              "bytes": 11156
             },
             {
               "format": "webp",
               "file": "industry-restaurant-card-320.webp",
               "width": 320,
               "height": 240,
-              "bytes": 12844
+              "bytes": 16904
             },
             {
               "format": "jpg",
               "file": "industry-restaurant-card-320.jpg",
               "width": 320,
               "height": 240,
-              "bytes": 15146
+              "bytes": 17840
             },
             {
               "format": "avif",
               "file": "industry-restaurant-card-480.avif",
               "width": 480,
               "height": 360,
-              "bytes": 15076
+              "bytes": 21116
             },
             {
               "format": "webp",
               "file": "industry-restaurant-card-480.webp",
               "width": 480,
               "height": 360,
-              "bytes": 22060
+              "bytes": 31696
             },
             {
               "format": "jpg",
               "file": "industry-restaurant-card-480.jpg",
               "width": 480,
               "height": 360,
-              "bytes": 27853
+              "bytes": 35309
             },
             {
               "format": "avif",
               "file": "industry-restaurant-card-640.avif",
               "width": 640,
               "height": 480,
-              "bytes": 21451
+              "bytes": 32295
             },
             {
               "format": "webp",
               "file": "industry-restaurant-card-640.webp",
               "width": 640,
               "height": 480,
-              "bytes": 31576
+              "bytes": 47380
             },
             {
               "format": "jpg",
               "file": "industry-restaurant-card-640.jpg",
               "width": 640,
               "height": 480,
-              "bytes": 42491
+              "bytes": 55278
+            },
+            {
+              "format": "avif",
+              "file": "industry-restaurant-card-800.avif",
+              "width": 800,
+              "height": 600,
+              "bytes": 44556
+            },
+            {
+              "format": "webp",
+              "file": "industry-restaurant-card-800.webp",
+              "width": 800,
+              "height": 600,
+              "bytes": 63114
+            },
+            {
+              "format": "jpg",
+              "file": "industry-restaurant-card-800.jpg",
+              "width": 800,
+              "height": 600,
+              "bytes": 78808
             }
           ]
         }
       ]
     },
     {
-      "id": "industry-healthcare",
-      "source": "client/src/assets/images/vertical-medical.jpg",
-      "sourceSha256": "430a0bbe13bb97b73e3f67c4d992e3aef410c50c1679768176b9ac12e48711e2",
+      "id": "industry-dental",
+      "source": "client/src/assets/images/w-d/03-dental-front-desk.png",
+      "sourceSha256": "bdb339323411164a9c66c2844832bab42d7bc1e615e53dd4e4735ecebce77a7e",
       "variants": [
         {
           "name": "card",
-          "width": 960,
-          "height": 720,
+          "width": 1365,
+          "height": 1024,
           "files": [
             {
               "format": "avif",
-              "file": "industry-healthcare-card-320.avif",
+              "file": "industry-dental-card-320.avif",
               "width": 320,
               "height": 240,
-              "bytes": 5693
+              "bytes": 7052
             },
             {
               "format": "webp",
-              "file": "industry-healthcare-card-320.webp",
+              "file": "industry-dental-card-320.webp",
               "width": 320,
               "height": 240,
-              "bytes": 8028
+              "bytes": 9228
             },
             {
               "format": "jpg",
-              "file": "industry-healthcare-card-320.jpg",
+              "file": "industry-dental-card-320.jpg",
               "width": 320,
               "height": 240,
-              "bytes": 10488
+              "bytes": 11804
             },
             {
               "format": "avif",
-              "file": "industry-healthcare-card-480.avif",
+              "file": "industry-dental-card-480.avif",
               "width": 480,
               "height": 360,
-              "bytes": 10684
+              "bytes": 12365
             },
             {
               "format": "webp",
-              "file": "industry-healthcare-card-480.webp",
+              "file": "industry-dental-card-480.webp",
               "width": 480,
               "height": 360,
-              "bytes": 14986
+              "bytes": 16470
             },
             {
               "format": "jpg",
-              "file": "industry-healthcare-card-480.jpg",
+              "file": "industry-dental-card-480.jpg",
               "width": 480,
               "height": 360,
-              "bytes": 20274
+              "bytes": 22232
             },
             {
               "format": "avif",
-              "file": "industry-healthcare-card-640.avif",
+              "file": "industry-dental-card-640.avif",
               "width": 640,
               "height": 480,
-              "bytes": 17729
+              "bytes": 18593
             },
             {
               "format": "webp",
-              "file": "industry-healthcare-card-640.webp",
+              "file": "industry-dental-card-640.webp",
               "width": 640,
               "height": 480,
-              "bytes": 24358
+              "bytes": 24004
             },
             {
               "format": "jpg",
-              "file": "industry-healthcare-card-640.jpg",
+              "file": "industry-dental-card-640.jpg",
               "width": 640,
               "height": 480,
-              "bytes": 33132
+              "bytes": 34114
+            },
+            {
+              "format": "avif",
+              "file": "industry-dental-card-800.avif",
+              "width": 800,
+              "height": 600,
+              "bytes": 26098
+            },
+            {
+              "format": "webp",
+              "file": "industry-dental-card-800.webp",
+              "width": 800,
+              "height": 600,
+              "bytes": 32640
+            },
+            {
+              "format": "jpg",
+              "file": "industry-dental-card-800.jpg",
+              "width": 800,
+              "height": 600,
+              "bytes": 48270
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "industry-med-spa",
+      "source": "client/src/assets/images/w-d/04-medspa-consultation.png",
+      "sourceSha256": "7f19a843e89d7556a8e2a5a548d72b9e938edaca2343b91ab0e1a71db24a77b2",
+      "variants": [
+        {
+          "name": "card",
+          "width": 1365,
+          "height": 1024,
+          "files": [
+            {
+              "format": "avif",
+              "file": "industry-med-spa-card-320.avif",
+              "width": 320,
+              "height": 240,
+              "bytes": 6674
+            },
+            {
+              "format": "webp",
+              "file": "industry-med-spa-card-320.webp",
+              "width": 320,
+              "height": 240,
+              "bytes": 8858
+            },
+            {
+              "format": "jpg",
+              "file": "industry-med-spa-card-320.jpg",
+              "width": 320,
+              "height": 240,
+              "bytes": 11854
+            },
+            {
+              "format": "avif",
+              "file": "industry-med-spa-card-480.avif",
+              "width": 480,
+              "height": 360,
+              "bytes": 12199
+            },
+            {
+              "format": "webp",
+              "file": "industry-med-spa-card-480.webp",
+              "width": 480,
+              "height": 360,
+              "bytes": 16306
+            },
+            {
+              "format": "jpg",
+              "file": "industry-med-spa-card-480.jpg",
+              "width": 480,
+              "height": 360,
+              "bytes": 22827
+            },
+            {
+              "format": "avif",
+              "file": "industry-med-spa-card-640.avif",
+              "width": 640,
+              "height": 480,
+              "bytes": 18970
+            },
+            {
+              "format": "webp",
+              "file": "industry-med-spa-card-640.webp",
+              "width": 640,
+              "height": 480,
+              "bytes": 24770
+            },
+            {
+              "format": "jpg",
+              "file": "industry-med-spa-card-640.jpg",
+              "width": 640,
+              "height": 480,
+              "bytes": 35526
+            },
+            {
+              "format": "avif",
+              "file": "industry-med-spa-card-800.avif",
+              "width": 800,
+              "height": 600,
+              "bytes": 26376
+            },
+            {
+              "format": "webp",
+              "file": "industry-med-spa-card-800.webp",
+              "width": 800,
+              "height": 600,
+              "bytes": 34660
+            },
+            {
+              "format": "jpg",
+              "file": "industry-med-spa-card-800.jpg",
+              "width": 800,
+              "height": 600,
+              "bytes": 51211
             }
           ]
         }
@@ -309,76 +449,97 @@
     },
     {
       "id": "industry-automotive",
-      "source": "client/src/assets/images/case-auto.jpg",
-      "sourceSha256": "9415d5b5cfa8eb5445dd33c324551ed1ad37554041018f7722e0cba1f2532d3c",
+      "source": "client/src/assets/images/w-d/05-automotive-workshop.png",
+      "sourceSha256": "a3f2a6a8a72771fd25ddf73b675a676b20167519b01774e32daf098f71512e2c",
       "variants": [
         {
           "name": "card",
-          "width": 1137,
-          "height": 853,
+          "width": 1365,
+          "height": 1024,
           "files": [
             {
               "format": "avif",
               "file": "industry-automotive-card-320.avif",
               "width": 320,
               "height": 240,
-              "bytes": 8675
+              "bytes": 9691
             },
             {
               "format": "webp",
               "file": "industry-automotive-card-320.webp",
               "width": 320,
               "height": 240,
-              "bytes": 13634
+              "bytes": 14052
             },
             {
               "format": "jpg",
               "file": "industry-automotive-card-320.jpg",
               "width": 320,
               "height": 240,
-              "bytes": 14189
+              "bytes": 15557
             },
             {
               "format": "avif",
               "file": "industry-automotive-card-480.avif",
               "width": 480,
               "height": 360,
-              "bytes": 16352
+              "bytes": 17947
             },
             {
               "format": "webp",
               "file": "industry-automotive-card-480.webp",
               "width": 480,
               "height": 360,
-              "bytes": 26206
+              "bytes": 26740
             },
             {
               "format": "jpg",
               "file": "industry-automotive-card-480.jpg",
               "width": 480,
               "height": 360,
-              "bytes": 28081
+              "bytes": 30587
             },
             {
               "format": "avif",
               "file": "industry-automotive-card-640.avif",
               "width": 640,
               "height": 480,
-              "bytes": 25185
+              "bytes": 27850
             },
             {
               "format": "webp",
               "file": "industry-automotive-card-640.webp",
               "width": 640,
               "height": 480,
-              "bytes": 41682
+              "bytes": 40394
             },
             {
               "format": "jpg",
               "file": "industry-automotive-card-640.jpg",
               "width": 640,
               "height": 480,
-              "bytes": 45797
+              "bytes": 48912
+            },
+            {
+              "format": "avif",
+              "file": "industry-automotive-card-800.avif",
+              "width": 800,
+              "height": 600,
+              "bytes": 39416
+            },
+            {
+              "format": "webp",
+              "file": "industry-automotive-card-800.webp",
+              "width": 800,
+              "height": 600,
+              "bytes": 56272
+            },
+            {
+              "format": "jpg",
+              "file": "industry-automotive-card-800.jpg",
+              "width": 800,
+              "height": 600,
+              "bytes": 70283
             }
           ]
         }
@@ -386,153 +547,524 @@
     },
     {
       "id": "industry-retail",
-      "source": "client/src/assets/images/case-retail.jpg",
-      "sourceSha256": "3d5b4a8c355d9a20854530396f28bce05fef97bd77bcf32798c9741a3595c524",
+      "source": "client/src/assets/images/w-d/06-retail-record-shop.png",
+      "sourceSha256": "2884c8ecb6f4eb310eb01ba891b9792d688925042d46627568e51d1bb6c42cbc",
       "variants": [
         {
           "name": "card",
-          "width": 1179,
-          "height": 884,
+          "width": 1365,
+          "height": 1024,
           "files": [
             {
               "format": "avif",
               "file": "industry-retail-card-320.avif",
               "width": 320,
               "height": 240,
-              "bytes": 7566
+              "bytes": 9352
             },
             {
               "format": "webp",
               "file": "industry-retail-card-320.webp",
               "width": 320,
               "height": 240,
-              "bytes": 11132
+              "bytes": 14570
             },
             {
               "format": "jpg",
               "file": "industry-retail-card-320.jpg",
               "width": 320,
               "height": 240,
-              "bytes": 14739
+              "bytes": 16146
             },
             {
               "format": "avif",
               "file": "industry-retail-card-480.avif",
               "width": 480,
               "height": 360,
-              "bytes": 13406
+              "bytes": 17742
             },
             {
               "format": "webp",
               "file": "industry-retail-card-480.webp",
               "width": 480,
               "height": 360,
-              "bytes": 19592
+              "bytes": 27486
             },
             {
               "format": "jpg",
               "file": "industry-retail-card-480.jpg",
               "width": 480,
               "height": 360,
-              "bytes": 27628
+              "bytes": 31834
             },
             {
               "format": "avif",
               "file": "industry-retail-card-640.avif",
               "width": 640,
               "height": 480,
-              "bytes": 19450
+              "bytes": 27390
             },
             {
               "format": "webp",
               "file": "industry-retail-card-640.webp",
               "width": 640,
               "height": 480,
-              "bytes": 28250
+              "bytes": 42068
             },
             {
               "format": "jpg",
               "file": "industry-retail-card-640.jpg",
               "width": 640,
               "height": 480,
-              "bytes": 43018
+              "bytes": 50302
+            },
+            {
+              "format": "avif",
+              "file": "industry-retail-card-800.avif",
+              "width": 800,
+              "height": 600,
+              "bytes": 39042
+            },
+            {
+              "format": "webp",
+              "file": "industry-retail-card-800.webp",
+              "width": 800,
+              "height": 600,
+              "bytes": 58120
+            },
+            {
+              "format": "jpg",
+              "file": "industry-retail-card-800.jpg",
+              "width": 800,
+              "height": 600,
+              "bytes": 72297
             }
           ]
         }
       ]
     },
     {
-      "id": "how-statement-review",
-      "source": "client/src/assets/images/statement-review.jpg",
-      "sourceSha256": "cb27ee6aafbde3b2655071990c5368cb73bb87adb816dd6e08d1c05cf888bd47",
+      "id": "industry-field-services",
+      "source": "client/src/assets/images/w-d/07-field-services.png",
+      "sourceSha256": "107f6ae89d55fc97ee10c800a043d2930d8cb4fe34875a6fb2c7c8674b67b540",
       "variants": [
         {
-          "name": "wide",
-          "width": 1280,
-          "height": 720,
+          "name": "card",
+          "width": 1365,
+          "height": 1024,
           "files": [
             {
               "format": "avif",
-              "file": "how-statement-review-wide-480.avif",
-              "width": 480,
-              "height": 270,
-              "bytes": 11417
+              "file": "industry-field-services-card-320.avif",
+              "width": 320,
+              "height": 240,
+              "bytes": 10799
             },
             {
               "format": "webp",
-              "file": "how-statement-review-wide-480.webp",
-              "width": 480,
-              "height": 270,
-              "bytes": 16612
+              "file": "industry-field-services-card-320.webp",
+              "width": 320,
+              "height": 240,
+              "bytes": 16338
             },
             {
               "format": "jpg",
-              "file": "how-statement-review-wide-480.jpg",
-              "width": 480,
-              "height": 270,
-              "bytes": 18830
+              "file": "industry-field-services-card-320.jpg",
+              "width": 320,
+              "height": 240,
+              "bytes": 16467
             },
             {
               "format": "avif",
-              "file": "how-statement-review-wide-800.avif",
-              "width": 800,
-              "height": 450,
-              "bytes": 30610
+              "file": "industry-field-services-card-480.avif",
+              "width": 480,
+              "height": 360,
+              "bytes": 22792
             },
             {
               "format": "webp",
-              "file": "how-statement-review-wide-800.webp",
-              "width": 800,
-              "height": 450,
-              "bytes": 46290
+              "file": "industry-field-services-card-480.webp",
+              "width": 480,
+              "height": 360,
+              "bytes": 35322
             },
             {
               "format": "jpg",
-              "file": "how-statement-review-wide-800.jpg",
-              "width": 800,
-              "height": 450,
-              "bytes": 49860
+              "file": "industry-field-services-card-480.jpg",
+              "width": 480,
+              "height": 360,
+              "bytes": 35196
             },
             {
               "format": "avif",
-              "file": "how-statement-review-wide-1200.avif",
-              "width": 1200,
-              "height": 675,
-              "bytes": 71397
+              "file": "industry-field-services-card-640.avif",
+              "width": 640,
+              "height": 480,
+              "bytes": 38006
             },
             {
               "format": "webp",
-              "file": "how-statement-review-wide-1200.webp",
-              "width": 1200,
-              "height": 675,
-              "bytes": 109806
+              "file": "industry-field-services-card-640.webp",
+              "width": 640,
+              "height": 480,
+              "bytes": 58670
             },
             {
               "format": "jpg",
-              "file": "how-statement-review-wide-1200.jpg",
+              "file": "industry-field-services-card-640.jpg",
+              "width": 640,
+              "height": 480,
+              "bytes": 59410
+            },
+            {
+              "format": "avif",
+              "file": "industry-field-services-card-800.avif",
+              "width": 800,
+              "height": 600,
+              "bytes": 56460
+            },
+            {
+              "format": "webp",
+              "file": "industry-field-services-card-800.webp",
+              "width": 800,
+              "height": 600,
+              "bytes": 86518
+            },
+            {
+              "format": "jpg",
+              "file": "industry-field-services-card-800.jpg",
+              "width": 800,
+              "height": 600,
+              "bytes": 89705
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "industry-ecommerce",
+      "source": "client/src/assets/images/w-d/08-ecommerce-packing.png",
+      "sourceSha256": "36cb78a57fe1b7cb7d5ba69afe6265ecd4cbc1d7a01dae9cbd708ed967075731",
+      "variants": [
+        {
+          "name": "card",
+          "width": 1365,
+          "height": 1024,
+          "files": [
+            {
+              "format": "avif",
+              "file": "industry-ecommerce-card-320.avif",
+              "width": 320,
+              "height": 240,
+              "bytes": 8683
+            },
+            {
+              "format": "webp",
+              "file": "industry-ecommerce-card-320.webp",
+              "width": 320,
+              "height": 240,
+              "bytes": 13254
+            },
+            {
+              "format": "jpg",
+              "file": "industry-ecommerce-card-320.jpg",
+              "width": 320,
+              "height": 240,
+              "bytes": 15006
+            },
+            {
+              "format": "avif",
+              "file": "industry-ecommerce-card-480.avif",
+              "width": 480,
+              "height": 360,
+              "bytes": 16646
+            },
+            {
+              "format": "webp",
+              "file": "industry-ecommerce-card-480.webp",
+              "width": 480,
+              "height": 360,
+              "bytes": 24544
+            },
+            {
+              "format": "jpg",
+              "file": "industry-ecommerce-card-480.jpg",
+              "width": 480,
+              "height": 360,
+              "bytes": 29153
+            },
+            {
+              "format": "avif",
+              "file": "industry-ecommerce-card-640.avif",
+              "width": 640,
+              "height": 480,
+              "bytes": 25552
+            },
+            {
+              "format": "webp",
+              "file": "industry-ecommerce-card-640.webp",
+              "width": 640,
+              "height": 480,
+              "bytes": 36632
+            },
+            {
+              "format": "jpg",
+              "file": "industry-ecommerce-card-640.jpg",
+              "width": 640,
+              "height": 480,
+              "bytes": 46170
+            },
+            {
+              "format": "avif",
+              "file": "industry-ecommerce-card-800.avif",
+              "width": 800,
+              "height": 600,
+              "bytes": 36011
+            },
+            {
+              "format": "webp",
+              "file": "industry-ecommerce-card-800.webp",
+              "width": 800,
+              "height": 600,
+              "bytes": 51326
+            },
+            {
+              "format": "jpg",
+              "file": "industry-ecommerce-card-800.jpg",
+              "width": 800,
+              "height": 600,
+              "bytes": 65979
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "industry-professional-services",
+      "source": "client/src/assets/images/w-d/09-professional-services.png",
+      "sourceSha256": "033cf26c35aa0429f37e05fb33da0dfed5a0181dc0a2493e0b858f016668490a",
+      "variants": [
+        {
+          "name": "card",
+          "width": 1365,
+          "height": 1024,
+          "files": [
+            {
+              "format": "avif",
+              "file": "industry-professional-services-card-320.avif",
+              "width": 320,
+              "height": 240,
+              "bytes": 9745
+            },
+            {
+              "format": "webp",
+              "file": "industry-professional-services-card-320.webp",
+              "width": 320,
+              "height": 240,
+              "bytes": 14880
+            },
+            {
+              "format": "jpg",
+              "file": "industry-professional-services-card-320.jpg",
+              "width": 320,
+              "height": 240,
+              "bytes": 16698
+            },
+            {
+              "format": "avif",
+              "file": "industry-professional-services-card-480.avif",
+              "width": 480,
+              "height": 360,
+              "bytes": 18894
+            },
+            {
+              "format": "webp",
+              "file": "industry-professional-services-card-480.webp",
+              "width": 480,
+              "height": 360,
+              "bytes": 28644
+            },
+            {
+              "format": "jpg",
+              "file": "industry-professional-services-card-480.jpg",
+              "width": 480,
+              "height": 360,
+              "bytes": 33187
+            },
+            {
+              "format": "avif",
+              "file": "industry-professional-services-card-640.avif",
+              "width": 640,
+              "height": 480,
+              "bytes": 29099
+            },
+            {
+              "format": "webp",
+              "file": "industry-professional-services-card-640.webp",
+              "width": 640,
+              "height": 480,
+              "bytes": 43960
+            },
+            {
+              "format": "jpg",
+              "file": "industry-professional-services-card-640.jpg",
+              "width": 640,
+              "height": 480,
+              "bytes": 53057
+            },
+            {
+              "format": "avif",
+              "file": "industry-professional-services-card-800.avif",
+              "width": 800,
+              "height": 600,
+              "bytes": 41170
+            },
+            {
+              "format": "webp",
+              "file": "industry-professional-services-card-800.webp",
+              "width": 800,
+              "height": 600,
+              "bytes": 61240
+            },
+            {
+              "format": "jpg",
+              "file": "industry-professional-services-card-800.jpg",
+              "width": 800,
+              "height": 600,
+              "bytes": 76378
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "process-review-hands",
+      "source": "client/src/assets/images/w-d/10-review-process.png",
+      "sourceSha256": "ed4c4f415769dddd5e341c97174bca7db4c7ec20c2fc623d3ca035b06673d817",
+      "variants": [
+        {
+          "name": "wide",
+          "width": 1536,
+          "height": 1024,
+          "files": [
+            {
+              "format": "avif",
+              "file": "process-review-hands-wide-480.avif",
+              "width": 480,
+              "height": 320,
+              "bytes": 6927
+            },
+            {
+              "format": "webp",
+              "file": "process-review-hands-wide-480.webp",
+              "width": 480,
+              "height": 320,
+              "bytes": 11126
+            },
+            {
+              "format": "jpg",
+              "file": "process-review-hands-wide-480.jpg",
+              "width": 480,
+              "height": 320,
+              "bytes": 15290
+            },
+            {
+              "format": "avif",
+              "file": "process-review-hands-wide-800.avif",
+              "width": 800,
+              "height": 533,
+              "bytes": 14308
+            },
+            {
+              "format": "webp",
+              "file": "process-review-hands-wide-800.webp",
+              "width": 800,
+              "height": 533,
+              "bytes": 22508
+            },
+            {
+              "format": "jpg",
+              "file": "process-review-hands-wide-800.jpg",
+              "width": 800,
+              "height": 533,
+              "bytes": 33062
+            },
+            {
+              "format": "avif",
+              "file": "process-review-hands-wide-1200.avif",
               "width": 1200,
-              "height": 675,
-              "bytes": 113837
+              "height": 800,
+              "bytes": 25844
+            },
+            {
+              "format": "webp",
+              "file": "process-review-hands-wide-1200.webp",
+              "width": 1200,
+              "height": 800,
+              "bytes": 39466
+            },
+            {
+              "format": "jpg",
+              "file": "process-review-hands-wide-1200.jpg",
+              "width": 1200,
+              "height": 800,
+              "bytes": 61194
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment-concept-terminal-upright",
+      "source": "client/src/assets/images/w-d/13-terminal-upright.png",
+      "sourceSha256": "dd64a457b97347d5a9fa5684dbd6fcee23f8a4d31e7773407e81f574656bd74b",
+      "variants": [
+        {
+          "name": "product",
+          "width": 1024,
+          "height": 1536,
+          "files": [
+            {
+              "format": "avif",
+              "file": "equipment-concept-terminal-upright-product-220.avif",
+              "width": 220,
+              "height": 330,
+              "bytes": 3124
+            },
+            {
+              "format": "webp",
+              "file": "equipment-concept-terminal-upright-product-220.webp",
+              "width": 220,
+              "height": 330,
+              "bytes": 6770
+            },
+            {
+              "format": "jpg",
+              "file": "equipment-concept-terminal-upright-product-220.jpg",
+              "width": 220,
+              "height": 330,
+              "bytes": 6013
+            },
+            {
+              "format": "avif",
+              "file": "equipment-concept-terminal-upright-product-440.avif",
+              "width": 440,
+              "height": 660,
+              "bytes": 6851
+            },
+            {
+              "format": "webp",
+              "file": "equipment-concept-terminal-upright-product-440.webp",
+              "width": 440,
+              "height": 660,
+              "bytes": 15814
+            },
+            {
+              "format": "jpg",
+              "file": "equipment-concept-terminal-upright-product-440.jpg",
+              "width": 440,
+              "height": 660,
+              "bytes": 16155
             }
           ]
         }

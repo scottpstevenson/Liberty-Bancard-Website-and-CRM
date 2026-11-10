@@ -10,17 +10,31 @@ import { PAYMENT_PROCESSING_PATH } from "./public-overview-pages";
 
 export const HOME_SOLUTIONS_ANCHOR = "solutions";
 
-/** Disclosure shown under the hero actions in both emitters. */
-export const HOME_COMPLIANCE_LINE =
-  "Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.";
+/**
+ * Home hero photograph (the page's only eager image and its LCP candidate). Phones get the 4:3 "mobile"
+ * crop below the actions; from lg the full-frame "desktop" crop is inset beside the copy at roughly half
+ * the hero width. scripts/lib/public-image-budget.ts measures this exact id/variant, so the byte budget
+ * can never point at an image the page no longer renders.
+ */
+export const HOME_HERO_IMAGE = {
+  id: "home-hero-merchant",
+  mobile: { variant: "mobile", sizes: "calc(100vw - 32px)" },
+  desktop: { variant: "desktop", media: "(min-width: 1024px)", sizes: "(min-width: 1280px) 560px, 46vw" },
+} as const;
 
 export const HOME_HERO = {
-  eyebrow: "PAYMENT SOLUTIONS FOR YOUR BUSINESS",
-  heading: "Payments that fit the way your business works.",
-  body: "Explore processing options, terminal equipment and integrations with Liberty Bancard. Start with how you take payments, the systems you use and what you want to improve.",
-  primary: { label: "Explore payment solutions", href: `/#${HOME_SOLUTIONS_ANCHOR}` },
-  secondary: { label: PUBLIC_NAV_CTA.label, href: PUBLIC_NAV_CTA.href },
-  compliance: HOME_COMPLIANCE_LINE,
+  eyebrow: "PAYMENTS FOR YOUR BUSINESS",
+  /** Two thoughts; the first is set in navy and the second in blue. One h1, never split into two headings. */
+  headingFirst: "Know what you\u2019re paying.",
+  headingSecond: "See your options.",
+  heading: "Know what you\u2019re paying. See your options.",
+  body: "Understand your processing costs, compare payment options, and get personal guidance for your business.",
+  primary: { label: "Get a free statement review", href: "/upload-statement#statement-review-form" },
+  /** The existing general inquiry (Equipment / A new business). It needs no statement and no query prefill. */
+  secondary: { label: "Find the right payment setup", href: "/about-contact#inquiry" },
+  /** Desktop only: omitted from the phone layout in both emitters. Wording is read from claim records. */
+  desktopHelper: claimText("offer.review.hero-helper", "home"),
+  desktopQualification: claimText("offer.review.hero-qualification", "home"),
 } as const;
 
 export interface HomeSolutionCard {
@@ -56,6 +70,31 @@ export const HOME_SOLUTIONS = {
       href: "/integrations",
     },
   ] as readonly HomeSolutionCard[],
+} as const;
+
+/**
+ * Payment-setup explanation shown in the solutions section (supplied artwork 12, rebuilt as live text so it
+ * stays readable at 390 px). Three contexts; no equipment, software, integration or availability claim.
+ * The upright terminal concept (asset 13) appears only inside the Countertop context.
+ */
+export const HOME_PAYMENT_CONTEXTS = {
+  eyebrow: "FIND THE RIGHT PAYMENT SETUP",
+  heading: "Different ways to take a payment.",
+  intro: "Start with how your business works.",
+  label: "Countertop, mobile and online payment options",
+  description:
+    "Three illustrative payment contexts. Equipment, software, integrations and eligibility are confirmed for each business; this is not a compatibility or availability claim.",
+  contexts: [
+    { id: "countertop", title: "Countertop", body: "At a fixed checkout or reception desk.", visual: "terminal" },
+    { id: "mobile", title: "Mobile", body: "Away from the counter or at the job site.", visual: "phone" },
+    { id: "online", title: "Online", body: "When the customer pays remotely.", visual: "browser" },
+  ],
+  caption: "Illustrative setups. Equipment, software, integrations and eligibility are confirmed during review.",
+  terminalImage: {
+    id: "equipment-concept-terminal-upright",
+    variant: "product",
+    sizes: "80px",
+  },
 } as const;
 
 /**
@@ -105,14 +144,26 @@ export const HOME_STARTING_POINTS = {
   ] as readonly HomeStartingPoint[],
 } as const;
 
-/** Sample review layout (illustrative worksheet). It carries no figures, results or customer data. */
+/**
+ * Statement-anatomy explanation shown in the process section (supplied artwork 11, rebuilt as live text).
+ * It shows how a statement is organised, with a dash where a figure would be: no result, rate, fee amount or
+ * saving appears. Fee scope matches the review taxonomy claim (interchange, network assessments, processor
+ * and service charges, plus equipment and recurring fees listed separately).
+ */
 export const HOME_SAMPLE_REVIEW = {
-  label: "Illustrative review layout. No customer results shown.",
+  eyebrow: "THE STATEMENT REVIEW",
+  heading: "Understand what goes into the cost.",
+  intro: "A clear starting point for a conversation about your processing.",
+  documentLabel: "YOUR PROCESSING STATEMENT",
+  documentNote: "Illustrative layout \u00b7 no customer figures",
+  stamp: "Illustrative",
+  label: "Illustrative explanation. Your actual statement and applicable terms determine the review.",
+  footnote: "Questions and unknown fees stay visible.",
   rows: [
-    { label: "Effective cost", note: "Fees included divided by matching card volume" },
-    { label: "Fee categories", note: "Interchange, network, processor and service charges" },
-    { label: "Equipment & terms", note: "Listed separately from processing fees" },
-    { label: "Comparison questions", note: "What to confirm before any change" },
+    { label: "Interchange", heading: "Card-issuer fees", note: "Identify the interchange entries." },
+    { label: "Network assessments", heading: "Network charges", note: "Separate the assessment entries." },
+    { label: "Processor charges", heading: "Provider charges", note: "Clarify processor and service fees." },
+    { label: "Equipment & recurring fees", heading: "Equipment & other costs", note: "Review recurring fees and terms." },
   ],
 } as const;
 
@@ -140,7 +191,12 @@ export const HOME_SECTION_ORDER = [
 ] as const;
 export type HomeSectionId = (typeof HOME_SECTION_ORDER)[number];
 
-/** Industry entrances on Home. Every slug is an existing /industries/:slug template. */
+/**
+ * Industry entrances on Home: five compact image cards. Every slug is an existing /industries/:slug
+ * template. Healthcare and contractors/field services stay reachable through the industries hub and the
+ * navigation; this display choice does not change any vertical classification. `image` is a public
+ * imagery registry id (client/src/lib/public-imagery.ts).
+ */
 export const HOME_INDUSTRIES_SECTION = {
   eyebrow: "Businesses we serve",
   heading: "Payment solutions for the way your industry works.",
@@ -148,12 +204,14 @@ export const HOME_INDUSTRIES_SECTION = {
   allLabel: "All industries",
   allHref: "/industries",
   illustrativeNote: "Photos are illustrative and do not show Liberty customers.",
+  /** Crop and `sizes` for every card photograph, read by both emitters so they request the same width. */
+  cardImage: { variant: "card", sizes: "(min-width: 1024px) 230px, (min-width: 768px) 33vw, 96px" },
   entries: [
-    { slug: "restaurant-payment-processing", title: "Restaurants", bestFor: "Tip adjustment and weekend volume" },
-    { slug: "healthcare-payment-processing", title: "Medical, dental and medspa", bestFor: "Front-desk speed and clean deposits" },
-    { slug: "auto-repair-payment-processing", title: "Automotive", bestFor: "High-ticket sales and chargeback handling" },
-    { slug: "retail-payment-processing", title: "Retail", bestFor: "Fast lines and contactless payments" },
-    { slug: "construction-payment-processing", title: "Contractors and field services", bestFor: "Payments at the job site" },
+    { slug: "restaurant-payment-processing", title: "Restaurant", bestFor: "Tip adjustment and weekend volume", image: "industry-restaurant" },
+    { slug: "dental-payment-processing", title: "Dental", bestFor: "Practice payments and patient balances", image: "industry-dental" },
+    { slug: "med-spa-payment-processing", title: "Med spa", bestFor: "Treatment packages and recurring payments", image: "industry-med-spa" },
+    { slug: "auto-repair-payment-processing", title: "Automotive", bestFor: "High-ticket sales and chargeback handling", image: "industry-automotive" },
+    { slug: "retail-payment-processing", title: "Retail", bestFor: "Fast lines and contactless payments", image: "industry-retail" },
   ],
 } as const;
 

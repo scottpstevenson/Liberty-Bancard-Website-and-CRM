@@ -37,29 +37,12 @@ interface ProductSchemaInput {
     availability?: string;
     url?: string;
   };
-  aggregateRating?: {
-    ratingValue: number;
-    reviewCount: number;
-    bestRating?: number;
-  };
-}
-
-interface ReviewSchemaInput {
-  itemName: string;
-  itemPath: string;
-  ratingValue: number;
-  bestRating?: number;
-  reviewCount?: number;
-  reviews?: Array<{
-    author: string;
-    rating: number;
-    body: string;
-    date?: string;
-  }>;
 }
 
 interface SEOProps {
   title: string;
+  /** False when the caller passes a title that already fits the length budget without the site name. */
+  brandSuffix?: boolean;
   description: string;
   path?: string;
   keywords?: string;
@@ -136,41 +119,10 @@ export function getWebSiteSchema(): StructuredData {
   };
 }
 
-export function getLocalBusinessSchema(): StructuredData {
-  return {
-    "@context": "https://schema.org",
-    "@type": "LocalBusiness",
-    name: "Liberty Bancard",
-    url: BASE_URL,
-    logo: `${BASE_URL}/favicon.png`,
-    image: `${BASE_URL}/favicon.png`,
-    telephone: "+1-954-266-8214",
-    description: "Transparent payment processing with statement-based pricing. Serving restaurants, retail, medical, automotive, and more.",
-    address: {
-      "@type": "PostalAddress",
-      addressLocality: "Fort Lauderdale",
-      addressRegion: "FL",
-      addressCountry: "US",
-    },
-    hasOfferCatalog: {
-      "@type": "OfferCatalog",
-      name: "Payment Processing Services",
-      itemListElement: [
-        { "@type": "Offer", itemOffered: { "@type": "Service", name: "Statement Review & Analysis" } },
-        { "@type": "Offer", itemOffered: { "@type": "Service", name: "Wholesale Interchange-Plus Pricing" } },
-        { "@type": "Offer", itemOffered: { "@type": "Service", name: "Cash Discount / 0% Processing Programs" } },
-        { "@type": "Offer", itemOffered: { "@type": "Service", name: "Funding Options" } },
-        { "@type": "Offer", itemOffered: { "@type": "Service", name: "POS Terminal Equipment" } },
-      ],
-    },
-  };
-}
-
 export function getServiceSchema(
   name: string,
   description: string,
   servicePath: string,
-  options?: { ratingValue?: number; reviewCount?: number },
 ): StructuredData {
   const schema: StructuredData = {
     "@context": "https://schema.org",
@@ -188,15 +140,6 @@ export function getServiceSchema(
       name: "United States",
     },
   };
-  if (options?.ratingValue !== undefined && options?.reviewCount !== undefined) {
-    schema.aggregateRating = {
-      "@type": "AggregateRating",
-      ratingValue: options.ratingValue,
-      reviewCount: options.reviewCount,
-      bestRating: 5,
-      worstRating: 1,
-    };
-  }
   return schema;
 }
 
@@ -290,51 +233,13 @@ export function getProductSchema(input: ProductSchemaInput): StructuredData {
           },
         }
       : {}),
-    ...(input.aggregateRating
-      ? {
-          aggregateRating: {
-            "@type": "AggregateRating",
-            ratingValue: input.aggregateRating.ratingValue,
-            reviewCount: input.aggregateRating.reviewCount,
-            bestRating: input.aggregateRating.bestRating || 5,
-          },
-        }
-      : {}),
   };
 }
 
-export function getReviewSchema(input: ReviewSchemaInput): StructuredData {
-  return {
-    "@context": "https://schema.org",
-    "@type": "Product",
-    name: input.itemName,
-    url: `${BASE_URL}${input.itemPath}`,
-    aggregateRating: {
-      "@type": "AggregateRating",
-      ratingValue: input.ratingValue,
-      bestRating: input.bestRating || 5,
-      reviewCount: input.reviewCount || (input.reviews ? input.reviews.length : 1),
-    },
-    ...(input.reviews && input.reviews.length
-      ? {
-          review: input.reviews.map((r) => ({
-            "@type": "Review",
-            author: { "@type": "Person", name: r.author },
-            reviewRating: {
-              "@type": "Rating",
-              ratingValue: r.rating,
-              bestRating: input.bestRating || 5,
-            },
-            reviewBody: r.body,
-            ...(r.date ? { datePublished: r.date } : {}),
-          })),
-        }
-      : {}),
-  };
-}
 
 export function SEO({
   title,
+  brandSuffix = true,
   description,
   path,
   keywords,
@@ -349,7 +254,7 @@ export function SEO({
   ogTemplate,
   article,
 }: SEOProps) {
-  const fullTitle = `${title} | Liberty Bancard`;
+  const fullTitle = brandSuffix ? `${title} | Liberty Bancard` : title;
   const url = path ? `${BASE_URL}${path}` : undefined;
   const canonicalUrl = canonical || url;
 

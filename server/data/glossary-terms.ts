@@ -1,3 +1,27 @@
+import { claimText } from "../../shared/public-claims";
+
+/**
+ * Liberty-specific closing section for a glossary term. Only approved public
+ * claims are used, so the glossary never states pricing, funding, approval,
+ * security, equipment or registration facts that the claim registry has not
+ * approved.
+ */
+type LibertyTopic = "review" | "program" | "funding" | "account" | "pci" | "equipment" | "integration";
+
+const LIBERTY_TOPIC_CLAIMS: Record<LibertyTopic, string[]> = {
+  review: ["review.taxonomy.summary", "review.cost.free"],
+  program: ["program.overview", "program.remaining-costs"],
+  funding: ["funding.availability", "offer.review.short"],
+  account: ["timing.staged-process", "offer.review.short"],
+  pci: ["program.remaining-costs", "offer.review.short"],
+  equipment: ["equipment.options.summary", "equipment.agreement.summary"],
+  integration: ["compat.inquiry", "offer.review.short"],
+};
+
+function liberty(topic: LibertyTopic): string {
+  return LIBERTY_TOPIC_CLAIMS[topic].map((id) => claimText(id)).join("\n\n");
+}
+
 export interface GlossaryFAQ {
   question: string;
   answer: string;
@@ -44,7 +68,7 @@ This stands in sharp contrast to flat-rate pricing (used by Square and Stripe) o
 Interchange plus pricing became widely available to small and mid-sized businesses starting in the 2010s as processor competition intensified. Today, it is considered the gold standard for cost-effective payment processing. Businesses with a mix of credit card types (rewards cards, corporate cards, debit cards) typically benefit most from interchange plus because they naturally receive lower rates on lower-cost card types — something flat-rate pricing completely ignores.
 
 To get the best interchange plus rates, merchants should: (1) accept cards correctly to avoid downgrades, (2) batch transactions daily, (3) provide level 2/3 data for B2B transactions, and (4) understand which card types their customers use most.`,
-    merchantImpact: `Interchange plus pricing directly affects how much of every dollar you keep. A restaurant processing $80,000/month that switches from a 2.6% flat rate to interchange plus at actual cost (averaging 1.8%) plus a 0.25% markup saves approximately $440 per month — over $5,000 per year.
+    merchantImpact: `Interchange plus pricing directly affects how much of every dollar you keep. As an illustration with assumed figures only, a restaurant processing $80,000/month on a 2.6% flat rate pays about $2,080; at an assumed 1.8% average interchange plus a 0.25% markup it would pay about $1,640, a difference of about $440 a month. Your own card mix and written quote decide the real figure.
 
 The key merchant advantage is predictability. When card network fees change (which happens twice per year, in April and October), you see exactly what changed. With flat-rate pricing, you'd never know if your processor passed savings along or kept them.
 
@@ -73,7 +97,7 @@ Savings on this single transaction: $1.20. Over a month of similar transactions,
       },
       {
         question: "Can I switch from flat rate to interchange plus without changing processors?",
-        answer: "Sometimes. Square and Stripe do not offer interchange plus. If you're with a traditional ISO or bank-referred processor, ask to reprice to interchange plus — many will accommodate this to retain your business.",
+        answer: "Sometimes. Providers' published flat-rate plans are not interchange plus, so ask each provider what pricing it offers for your volume. If you are on a tiered or interchange-plus agreement, ask what it says about repricing.",
       },
     ],
     relatedTerms: ["merchant-discount-rate", "interchange-fees", "flat-rate-pricing", "tiered-pricing", "effective-rate", "processor-markup", "passthrough-pricing"],
@@ -81,11 +105,7 @@ Savings on this single transaction: $1.20. Over a month of similar transactions,
       { label: "Compare Your Current Rate", href: "/compare-rates" },
       { label: "Upload Your Statement for a Free Analysis", href: "/upload-statement" },
     ],
-    libertySection: `Liberty Bancard exclusively offers interchange plus pricing to all merchants — no tiered pricing, no flat-rate bundles, no surprises. We show you a line-by-line breakdown of what you're paying today and what you'd pay with us before you sign anything.
-
-Our typical markup is 0.20%–0.35% depending on volume, well below industry averages. And because we're an ISO with direct access to wholesale rates, we can pass savings along that bank-referred processors can't.
-
-Upload your most recent processing statement and we'll show you your exact interchange plus savings in 24 hours — no obligation.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "merchant-discount-rate",
@@ -136,9 +156,7 @@ The MDR also affects your cash flow: some processors quote low MDRs but charge h
       { label: "See What Your Real Rate Is", href: "/upload-statement" },
       { label: "Compare Processing Rates", href: "/compare-rates" },
     ],
-    libertySection: `At Liberty Bancard, we don't just quote you a merchant discount rate — we show you every component. When you upload your current statement, we break down your interchange costs, assessment fees, and processor markup separately so you know exactly where your money goes.
-
-Our merchants typically see their effective MDR drop 0.40%–0.80% after switching. Get a free statement analysis to see your real savings potential.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "interchange-fees",
@@ -187,9 +205,7 @@ Across dozens of corporate card transactions monthly, these savings add up quick
       { label: "Get Interchange-Transparent Pricing", href: "/compare-rates" },
       { label: "Upload Statement for Free Analysis", href: "/upload-statement" },
     ],
-    libertySection: `Liberty Bancard passes interchange fees directly to you at cost — no markup on the interchange itself. Our only compensation is our fixed processor markup, which we disclose on every statement. This interchange transparency is what saves our merchants an average of $300–$800/month.
-
-See your current interchange costs broken down in our free statement analysis.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "flat-rate-pricing",
@@ -206,7 +222,7 @@ The significant downside is cost. Flat rate processors set their rates above the
 For businesses processing over $10,000-$15,000 per month with a diverse card mix, interchange plus pricing almost always saves money. The crossover point depends on your transaction mix and average ticket size.
 
 Major flat rate providers include Square, Stripe, PayPal, and Shopify Payments. These companies built their businesses on ease of use and are excellent for startups, but become expensive as volume grows.`,
-    merchantImpact: `Flat rate pricing is rarely the cheapest option for established businesses. A restaurant processing $60,000/month on Square (2.6%) pays $1,560 in fees. The same volume under interchange plus pricing at an effective rate of 1.9% costs $1,140 — saving $420/month or $5,040/year.
+    merchantImpact: `Flat rate pricing is rarely the cheapest option for established businesses. A restaurant processing $60,000/month on an illustrative 2.6% flat rate pays $1,560 in fees. The same volume under interchange plus pricing at an effective rate of 1.9% costs $1,140 — saving $420/month or $5,040/year.
 
 The key question: how much do you value simplicity over savings? For very small businesses, the management overhead of understanding interchange may not be worth the savings. For businesses grossing over $500,000/year, optimizing your payment processing is a meaningful financial lever.`,
     example: `A coffee shop processes $25,000/month. Customer mix: 40% debit cards, 60% credit cards.
@@ -224,11 +240,11 @@ The key question: how much do you value simplicity over savings? For very small 
       },
       {
         question: "Why do flat-rate processors charge more than interchange on some cards?",
-        answer: "Square charges a premium for simplicity, instant setup, no monthly fees, and no merchant account underwriting. They profit on the difference between actual interchange costs (which average around 1.7-1.9% for credit) and their flat rate. For high-volume merchants, this premium becomes significant.",
+        answer: "A flat rate bundles interchange, network assessments and the provider's own charge into one percentage, and many plans pair it with quick setup and no monthly fee. The same percentage applies to every card, while the interchange on a given card can be lower or higher. At higher volumes, compare the flat rate with your effective cost on an interchange-plus statement.",
       },
       {
-        question: "Can I negotiate my flat rate with Square or Stripe?",
-        answer: "Large-volume merchants (over $250,000/year) may be able to negotiate custom rates with Square or Stripe. However, these platforms are not designed for custom interchange plus pricing, so negotiations are limited.",
+        question: "Can I negotiate a flat rate?",
+        answer: "Some providers offer custom pricing at higher volumes. Ask the provider what applies to your volume, and compare any offer against your own statement.",
       },
       {
         question: "When should I switch from flat rate to interchange plus?",
@@ -237,12 +253,10 @@ The key question: how much do you value simplicity over savings? For very small 
     ],
     relatedTerms: ["interchange-plus-pricing", "tiered-pricing", "effective-rate", "merchant-discount-rate", "interchange-fees", "processor-markup"],
     commercialLinks: [
-      { label: "See If You'd Save vs. Square or Stripe", href: "/beat-square-stripe" },
+      { label: "Compare Your Costs", href: "/beat-square-stripe" },
       { label: "Compare Your Rate", href: "/compare-rates" },
     ],
-    libertySection: `If you're currently on Square or Stripe, Liberty Bancard can show you exactly what you'd save with interchange plus pricing — before you switch. We do a free side-by-side comparison using your actual statements.
-
-Most merchants who switch from flat rate to Liberty Bancard save between $300–$1,000+ per month depending on volume and card mix.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "tiered-pricing",
@@ -292,7 +306,7 @@ Merchants on tiered pricing typically pay 20-40% more than they would on interch
       { label: "Upload Statement to Check if You're on Tiered Pricing", href: "/upload-statement" },
       { label: "Compare Interchange Plus vs. Tiered Pricing", href: "/compare-rates" },
     ],
-    libertySection: `We never put merchants on tiered pricing. Liberty Bancard uses interchange plus exclusively — every rate, every fee, every transaction category is visible on your statement. If you're currently on tiered pricing, upload your statement and we'll show you what interchange plus would have cost you last month.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "effective-rate",
@@ -310,7 +324,7 @@ The effective rate is the most honest way to compare payment processors because 
 
 Calculating your effective rate monthly gives you a baseline for comparison and lets you detect fee creep — when processors gradually add or increase fees over time.
 
-Industry benchmarks for effective rates:
+Illustrative effective-rate ranges (a general guide, not a published benchmark):
 - Excellent: Under 1.8% (primarily debit, high volume)
 - Good: 1.8%–2.2% (typical credit card mix)
 - Average: 2.2%–2.6%
@@ -353,9 +367,7 @@ Compare this to the 2.09% transaction rate advertised. The effective rate is wha
       { label: "Calculate Your True Effective Rate", href: "/upload-statement" },
       { label: "Compare Your Rate vs. Industry Benchmarks", href: "/compare-rates" },
     ],
-    libertySection: `Liberty Bancard shows you your exact effective rate on every statement — and we benchmark it against industry averages for your business type. When we do a free statement analysis, we calculate your current effective rate and project what it would be with us.
-
-Our merchants' average effective rate: 1.95%. The national average for similar-sized merchants: 2.6%.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "basis-points",
@@ -403,7 +415,7 @@ A 10 basis point difference in markup seems small but adds up. At $100,000 month
       { label: "See Our Exact Markup in Basis Points", href: "/compare-rates" },
       { label: "Free Statement Analysis", href: "/upload-statement" },
     ],
-    libertySection: `Liberty Bancard quotes all markups in basis points for full transparency. Our current standard markup ranges from 20–35 basis points over interchange depending on volume. We'll show you the exact number before you sign anything.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "processor-markup",
@@ -445,15 +457,15 @@ Annual savings from negotiating markup: $5,400`,
       },
       {
         question: "Can I negotiate my processor markup?",
-        answer: "Yes, absolutely. Processors expect negotiation. Volume, industry risk, processing history, and competition all affect what markup you can negotiate. Most merchants who ask for a reduction get one.",
+        answer: "Yes, absolutely. Processors expect negotiation. Volume, industry risk, processing history, and competition all affect what markup you can negotiate. Whether a reduction is available depends on your volume, industry risk and processing history.",
       },
     ],
     relatedTerms: ["interchange-plus-pricing", "interchange-fees", "assessment-fees", "effective-rate", "basis-points", "merchant-discount-rate"],
     commercialLinks: [
-      { label: "See Liberty Bancard's Exact Markup", href: "/compare-rates" },
+      { label: "See How Providers Compare", href: "/compare-rates" },
       { label: "Get a Free Statement Analysis", href: "/upload-statement" },
     ],
-    libertySection: `At Liberty Bancard, our processor markup is disclosed on every statement — no hidden fees. We make our money on a fair, negotiated markup, not by hiding costs in tiered pricing or surprise fees. Contact us to see what markup we'd offer your business based on volume and card mix.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "assessment-fees",
@@ -501,7 +513,7 @@ What matters is that your processor passes assessment fees through at actual cos
       { label: "See All Fees Broken Down", href: "/upload-statement" },
       { label: "Compare Processing Costs", href: "/compare-rates" },
     ],
-    libertySection: `Liberty Bancard passes all assessment fees through at actual card network cost — zero markup. On your statement, you'll see Visa and Mastercard fees listed separately and at published rates. We never use assessment fees as a hidden profit center.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "cash-discount-program",
@@ -511,7 +523,7 @@ What matters is that your processor passes assessment fees through at actual cos
     searchVolume: "1,600/mo",
     fullDefinition: `A cash discount program is a pricing strategy where a merchant lists all prices at their credit card price (higher price) and offers a discount to customers who pay with cash. This program is compliant under Visa, Mastercard, and federal law — as long as it is implemented correctly.
 
-The key distinction between a cash discount and credit card surcharging is the framing: with cash discount, you're reducing the price for cash payers; with surcharging, you're adding a fee for card payers. Cash discounts are legal in all 50 states. Surcharging has restrictions in some states.
+The key distinction between a cash discount and credit card surcharging is the framing: with cash discount, you're reducing the price for cash payers; with surcharging, you're adding a fee for card payers. The rules for each depend on your state and on card brand and acquirer rules, and surcharging has restrictions in some states.
 
 Cash discount programs are typically implemented through software that displays two prices on the receipt: the standard price (with card) and the discounted cash price. Many point-of-sale systems support this automatically. The "standard" price includes a margin to cover processing costs — typically 3-4% — and cash customers receive that percentage back as a discount.
 
@@ -522,7 +534,7 @@ For cash discount to work properly:
 - The cash discount must be clearly disclosed to customers before purchase
 - The program must be registered with card networks through your processor
 - Receipts must show both the card price and the cash discount amount`,
-    merchantImpact: `A successful cash discount program can reduce your processing costs to near zero. A restaurant processing $80,000/month and paying $2,000 in processing fees could eliminate those fees entirely.
+    merchantImpact: `A cash discount program is designed to offset part of your processing costs. How much it offsets depends on how many customers pay by card, how the program is priced, and what your state and the card networks allow. Ask for the full cost of the program in writing.
 
 However, cash discount programs affect customer experience. Some customers object to paying more with a card, especially where prices seem to have been artificially inflated. Industries with high card usage and price-sensitive customers (restaurants, retail, automotive) need to consider how customers will respond.
 
@@ -532,17 +544,17 @@ Cash discount programs work best in: gas stations, small retail, service busines
 - Cash discount (4%): $52 × 4% = $2.08
 - Cash price: $49.92 (rounded to $50)
 
-Customer pays with card → salon pays ~4% in processing fees but collected $52 → effective cost: $0
-Customer pays with cash → salon collects $50 → zero processing cost
-Salon's revenue is the same either way; processing costs are covered`,
+Customer pays with card → salon collects $52, which is intended to offset the processing fee on that sale
+Customer pays with cash → salon collects $50 and there is no card processing fee on that sale
+This example is illustrative. Debit processing, equipment and monthly fees can remain, and results depend on your agreement.`,
     faqs: [
       {
         question: "Is a cash discount program legal?",
-        answer: "Yes, cash discount programs are legal in all 50 states. The Durbin Amendment (2011) explicitly permits cash discounts. The key is proper disclosure and implementation — prices must be listed at the card price, with a clear discount offered for cash.",
+        answer: "It depends on your state and on card brand and acquirer rules, and this is not legal advice. The key is proper disclosure and implementation — prices must be listed at the card price, with a clear discount offered for cash.",
       },
       {
         question: "What is the difference between cash discount and surcharging?",
-        answer: "Cash discount reduces the price for cash payers (legal everywhere). Surcharging adds a fee for card payers (prohibited or restricted in some states). The math may be similar, but the legal and customer-perception implications differ significantly.",
+        answer: "Cash discount reduces the price for cash payers (treated differently from surcharging). Surcharging adds a fee for card payers (prohibited or restricted in some states). The math may be similar, but the legal and customer-perception implications differ significantly.",
       },
       {
         question: "Do I need special equipment for a cash discount program?",
@@ -555,12 +567,10 @@ Salon's revenue is the same either way; processing costs are covered`,
     ],
     relatedTerms: ["surcharging", "dual-pricing", "interchange-fees", "merchant-discount-rate", "flat-rate-pricing"],
     commercialLinks: [
-      { label: "Learn About Our 0% Processing Program", href: "/0-percent-processing" },
+      { label: "Learn About Cash Discount Programs", href: "/0-percent-processing" },
       { label: "Get Started with Cash Discount", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard offers fully compliant cash discount programs that can eliminate your processing fees. We handle the setup, card network registration, terminal programming, and compliance requirements. Our cash discount merchants pay $0 in processing fees — legally and transparently.
-
-See our 0% processing program page for full details and eligibility requirements.`,
+    libertySection: liberty("program"),
   },
   {
     slug: "surcharging",
@@ -585,9 +595,9 @@ The key compliance requirements for surcharging:
 2. Post notices at the store entrance and point of sale
 3. The surcharge must appear as a separate line item on the receipt
 4. Cannot exceed actual processing cost`,
-    merchantImpact: `When implemented correctly, surcharging shifts the cost of credit card acceptance to the customers who choose to pay by credit card. This can completely eliminate credit card processing costs for merchants.
+    merchantImpact: `When implemented correctly, surcharging shifts the cost of credit card acceptance to the customers who choose to pay by credit card. How much of the cost it offsets depends on your volume, your customers and the rules that apply to you.
 
-Customer acceptance varies. Surveys show roughly 30-40% of consumers have encountered surcharges, and while some object, most pay without significant complaint — particularly in industries like healthcare, utilities, and professional services where card payments are expected to have fees.
+Customer acceptance varies. Customer acceptance depends on the industry, how clearly the surcharge is disclosed, and what alternatives customers have.
 
 Businesses with loyal customer bases and where alternatives to paying in-store are limited (service businesses, healthcare) tend to implement surcharging most successfully.`,
     example: `A law firm processes a $5,000 retainer payment by credit card:
@@ -616,10 +626,10 @@ Businesses with loyal customer bases and where alternatives to paying in-store a
     ],
     relatedTerms: ["cash-discount-program", "dual-pricing", "interchange-fees", "merchant-discount-rate", "pci-compliance"],
     commercialLinks: [
-      { label: "Learn About 0% Processing Options", href: "/0-percent-processing" },
+      { label: "Learn About Cash Discount Options", href: "/0-percent-processing" },
       { label: "Get Started", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard helps merchants implement fully compliant surcharging programs — including registration with card networks, proper signage, and compliant receipt formatting. We ensure you meet all federal and state requirements. Contact us to evaluate whether surcharging or cash discount is the right fit for your business.`,
+    libertySection: liberty("program"),
   },
   {
     slug: "dual-pricing",
@@ -636,13 +646,13 @@ The legal framework for dual pricing is well-established. Card networks permit d
 Dual pricing is especially common at gas stations (which have displayed cash and credit prices for decades), convenience stores, and small retail businesses. The restaurant industry has seen growing adoption as processing costs have increased.
 
 Benefits of dual pricing:
-- Zero processing costs on card transactions (card price covers fees)
+- Card prices are intended to offset processing fees on card transactions
 - Maximum price transparency for customers
-- Legal in all 50 states
+- Rules vary by state and by card brand and acquirer rules
 - No hidden fees or surprises at checkout`,
-    merchantImpact: `Dual pricing effectively eliminates credit card processing costs while providing customers with clear pricing information. Merchants using dual pricing typically see their effective processing cost drop to near zero.
+    merchantImpact: `Dual pricing is intended to offset credit card processing costs while providing customers with clear pricing information. Results depend on card mix, debit volume and the other fees in your agreement.
 
-The main consideration is customer experience and implementation. Menu items, shelf tags, and digital displays all need to show both prices. This requires upfront work but pays off immediately in eliminated processing fees.
+The main consideration is customer experience and implementation. Menu items, shelf tags, and digital displays all need to show both prices. This requires upfront work but pays off where the program fits your business.
 
 Customer acceptance is generally higher with dual pricing than with surcharging because the pricing is clear and disclosed upfront — customers choose their payment method knowing the costs.`,
     example: `A convenience store implements dual pricing:
@@ -662,15 +672,15 @@ Customer choosing to pay cash saves 3.5-4% on their purchase. Customer paying by
       },
       {
         question: "Is dual pricing legal in all states?",
-        answer: "Yes. Dual pricing (showing separate cash and card prices) is legal in all 50 states, unlike surcharging which has restrictions in some states.",
+        answer: "Yes. Dual pricing (showing separate cash and card prices) is treated differently from surcharging, which has restrictions in some states. State, card brand and acquirer rules still apply.",
       },
     ],
     relatedTerms: ["cash-discount-program", "surcharging", "interchange-fees", "merchant-discount-rate"],
     commercialLinks: [
-      { label: "Explore 0% Processing Options", href: "/0-percent-processing" },
+      { label: "Explore Dual Pricing Options", href: "/0-percent-processing" },
       { label: "Get Started with Dual Pricing", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard sets up and programs dual pricing systems for merchants across industries. We handle the POS configuration, card network compliance, and signage requirements. Ask us about dual pricing at your next free consultation.`,
+    libertySection: liberty("program"),
   },
   {
     slug: "authorization",
@@ -723,7 +733,7 @@ Failed authorizations are immediate — customers see a declined message. Common
       { label: "Get a Free Statement Review", href: "/upload-statement" },
       { label: "Learn About Our Processing Solutions", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard's processing infrastructure is built for reliable authorization — with 99.9%+ uptime and connections to multiple card networks to prevent authorization failures during peak periods. Contact us to learn about our payment reliability guarantees.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "capture",
@@ -765,7 +775,7 @@ Capture triggers settlement: once you capture, the transaction enters your batch
     commercialLinks: [
       { label: "Optimize Your Payment Processing", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard's payment systems support both simultaneous and delayed capture workflows. If you're running a restaurant, hotel, or e-commerce store with complex authorization patterns, our team can configure your system to minimize downgrades and settlement delays.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "settlement",
@@ -790,7 +800,7 @@ Settlement timing varies by processor and agreement:
 Understanding settlement helps merchants manage cash flow. Delays in settlement can create cash flow problems, especially for small businesses. Next-day funding, while sometimes more expensive, can significantly improve cash flow predictability.`,
     merchantImpact: `Settlement timing directly affects your cash flow. A restaurant that batches on Saturday night expects funds by Monday or Tuesday. If your processor has 3-day settlement, you might not see funds until Wednesday — which matters when making payroll or paying suppliers.
 
-Next-day funding is worth considering for high-volume businesses. The additional cost (typically 0.10%–0.30% of volume) may be offset by reduced reliance on a line of credit or avoided overdraft fees.
+Next-day funding is worth considering for high-volume businesses. Any additional cost may be offset by reduced reliance on a line of credit or avoided overdraft fees.
 
 Always understand your settlement timeline before signing with a processor. "Next-day funding" is sometimes conditional on batching before a specific cutoff time (e.g., 9:00 PM EST).`,
     example: `A retail store batches transactions every night at 8 PM:
@@ -815,10 +825,10 @@ Always understand your settlement timeline before signing with a processor. "Nex
     ],
     relatedTerms: ["batch-settlement", "capture", "authorization", "refund", "reserve-account", "rolling-reserve"],
     commercialLinks: [
-      { label: "Ask About Next-Day Funding", href: "/get-started" },
+      { label: "Ask About Funding Timing", href: "/get-started" },
       { label: "Get a Free Consultation", href: "/upload-statement" },
     ],
-    libertySection: `Liberty Bancard offers next-day funding for qualified merchants at no additional fee. Our standard settlement is 1-2 business days, and we don't hold funds without cause. Contact us to understand exactly when you'd receive funds after batching.`,
+    libertySection: liberty("funding"),
   },
   {
     slug: "batch-settlement",
@@ -858,7 +868,7 @@ Confirm with your processor: (1) what time your batch automatically closes, (2) 
     commercialLinks: [
       { label: "Optimize Your Processing Setup", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard configures your batch close time during setup to optimize for your business hours and next-day funding eligibility. We also monitor for delayed batches that could trigger interchange downgrades. It's part of our proactive account management.`,
+    libertySection: liberty("funding"),
   },
   {
     slug: "void",
@@ -908,7 +918,7 @@ Train your staff to void rather than refund for same-day errors. The savings are
     commercialLinks: [
       { label: "Get a Free Statement Analysis", href: "/upload-statement" },
     ],
-    libertySection: `Liberty Bancard's terminal programming and POS setups make voiding easy and intuitive for staff. We train your team on the void process during onboarding to ensure no unnecessary refund fees.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "refund",
@@ -959,7 +969,7 @@ High refund rates (over 1-2% of transactions) can also flag your account for ris
     commercialLinks: [
       { label: "Get a Free Statement Analysis", href: "/upload-statement" },
     ],
-    libertySection: `Liberty Bancard provides clear documentation on refund procedures and timelines. Our merchant portal gives you full visibility into refund status and transaction history. Contact our support team if a refund isn't appearing as expected.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "chargeback",
@@ -1021,7 +1031,7 @@ If you're a high-risk merchant (travel, supplements, MOTO), expect a higher char
       { label: "Chargeback Help for Healthcare Merchants", href: "/industries/healthcare-payment-processing" },
       { label: "Get Started with Better Protection", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard provides chargeback management support for all merchants. We help you build chargeback prevention protocols, respond to disputes with proper documentation, and monitor your chargeback ratio. High-risk merchants get dedicated chargeback management as part of their account.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "chargeback-ratio",
@@ -1074,7 +1084,7 @@ Industries with naturally higher chargeback rates (travel, nutraceuticals, onlin
     commercialLinks: [
       { label: "Get Chargeback Management Support", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard monitors chargeback ratios for all merchant accounts and alerts you when your ratio approaches warning levels. We provide chargeback prevention consulting and can help you implement the systems needed to keep your ratio in the healthy range.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "retrieval-request",
@@ -1121,7 +1131,7 @@ Respond to every retrieval request promptly with complete documentation. If the 
     commercialLinks: [
       { label: "Get a Free Consultation", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard notifies merchants of retrieval requests and helps compile the necessary documentation for an effective response. Our dispute management support is included for all accounts.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "merchant-account",
@@ -1137,31 +1147,31 @@ The merchant account application process involves underwriting: the acquiring ba
 
 There are two types of merchant accounts:
 1. **Dedicated merchant account**: Your business gets its own unique merchant account number. You deal with the underwriting process upfront, but you get stable pricing, direct relationships, and more control.
-2. **Aggregated merchant account**: Services like Square, Stripe, and PayPal aggregate many merchants under a single merchant account. Easy to set up, but higher rates and less stability — your account can be frozen or terminated with little notice.
+2. **Aggregated merchant account**: Services like Square, Stripe, and PayPal aggregate many merchants under a single merchant account. Easy to set up. Compare their rates, and what each agreement says about account review and termination, with a dedicated account.
 
 A true merchant account (dedicated) typically includes: a Merchant Identification Number (MID), direct pricing negotiation, a dedicated account manager, and more processing stability.`,
-    merchantImpact: `The type of merchant account you have significantly affects your costs, stability, and support options. Aggregated accounts (Square, Stripe, PayPal) are fast to set up but come with higher rates and account instability risk — these platforms hold funds and freeze accounts more frequently than dedicated merchant account providers.
+    merchantImpact: `The type of merchant account you have significantly affects your costs, stability, and support options. Aggregated accounts (Square, Stripe, PayPal) are fast to set up and usually publish flat rates. Compare the terms in each agreement, including what it says about account review and fund availability.
 
-For businesses processing over $10,000/month, a dedicated merchant account typically offers better rates, more stability, and direct support. The underwriting process takes longer but the long-term relationship is more secure.`,
+For businesses processing over $10,000/month, a dedicated merchant account can be priced on interchange plus, and underwriting takes longer. Compare quotes against your own statement.`,
     example: `Two coffee shops accepting card payments:
-- Shop A: Uses Square (aggregated account)
+- Shop A: Uses an aggregated account on a flat-rate plan
   - Instant setup, no application process
   - Pays 2.6% flat rate
-  - Risk: Account could be frozen if Square flags unusual activity
+  - Review the agreement's account-review and fund-availability terms
   
-- Shop B: Has a dedicated merchant account through Liberty Bancard
+- Shop B: Has a dedicated merchant account
   - Took 3 days to set up after underwriting
   - Pays interchange + 0.30% (effective rate ~1.9%)
-  - Stable, dedicated account, direct processor relationship
-  - Monthly savings vs. Square: ~$440 on $60,000 volume`,
+  - Its own merchant account number
+  - Illustrative monthly difference: ~$440 on $60,000 volume, under the stated rates`,
     faqs: [
       {
         question: "Do I need a merchant account to accept credit cards?",
-        answer: "Yes, you need some form of merchant account. Options range from aggregated accounts (Square, Stripe — instant setup) to dedicated merchant accounts (traditional processors — require underwriting). Dedicated accounts offer better rates and stability for established businesses.",
+        answer: "Yes, you need some form of merchant account. Options range from aggregated accounts (Square, Stripe — instant setup) to dedicated merchant accounts (traditional processors — require underwriting). Compare the rates and terms of each option against your own statement.",
       },
       {
         question: "How long does it take to get a merchant account?",
-        answer: "Standard merchant accounts take 1-5 business days. High-risk merchants may take 1-3 weeks. Aggregated account providers (Square, Stripe) offer instant or same-day setup but with different terms and higher rates.",
+        answer: "Standard merchant accounts take 1-5 business days. High-risk merchants may take 1-3 weeks. Aggregated account providers (Square, Stripe) offer quick setup but with different terms.",
       },
       {
         question: "Can my merchant account be terminated?",
@@ -1173,7 +1183,7 @@ For businesses processing over $10,000/month, a dedicated merchant account typic
       { label: "Apply for a Merchant Account", href: "/merchant-application" },
       { label: "Get Started", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard provides dedicated merchant accounts with fast underwriting — most approvals within 24-48 hours. We specialize in challenging businesses that other processors turn away, including high-risk industries and merchants with processing history issues.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "payment-processor",
@@ -1192,7 +1202,7 @@ The payment processor handles:
 
 There are two models:
 1. **Processor-direct**: The merchant contracts directly with a large processing company (TSYS, First Data/Fiserv, Global Payments, Worldpay). Often requires volume minimums.
-2. **Through an ISO**: Independent Sales Organizations (ISOs) like Liberty Bancard resell processing services from larger processors under their own pricing structures. ISOs provide personalized service and can often negotiate better rates for their merchants.
+2. **Through an ISO**: Independent Sales Organizations (ISOs) resell processing services from larger processors under their own pricing structures. Service and pricing vary by ISO, so compare written quotes.
 
 Major payment processors include: Fiserv (formerly First Data), Global Payments, TSYS (now part of Global), Worldpay (FIS), Chase Merchant Services, and Stripe.
 
@@ -1201,8 +1211,8 @@ Processors earn money on the markup portion of interchange plus pricing — the 
 
 Don't focus only on the per-transaction rate — evaluate the full relationship including support quality, contract terms, and cancellation fees.`,
     example: `When a customer swipes their Visa card at a restaurant:
-1. Restaurant terminal sends transaction to Liberty Bancard (ISO/processor)
-2. Liberty Bancard forwards to their acquiring bank partner
+1. Restaurant terminal sends the transaction to the ISO or processor
+2. The ISO or processor forwards it to the acquiring bank
 3. Acquiring bank routes to Visa network
 4. Visa routes to customer's issuing bank (Chase, BoA, etc.)
 5. Issuing bank approves → response travels back through chain in under 2 seconds
@@ -1222,7 +1232,7 @@ Don't focus only on the per-transaction rate — evaluate the full relationship 
       { label: "Compare Liberty Bancard to Other Processors", href: "/compare-rates" },
       { label: "Upload Statement for a Free Analysis", href: "/upload-statement" },
     ],
-    libertySection: `Liberty Bancard is a registered ISO that partners with top-tier acquiring banks to provide merchant accounts and payment processing. We're not a middleman adding fees — we're a direct channel with the purchasing power of our processing portfolio behind your rates.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "acquiring-bank",
@@ -1241,13 +1251,13 @@ The acquiring bank bears real financial risk — they are responsible to the car
 
 Major acquiring banks include: Bank of America Merchant Services, Chase Paymentech, Wells Fargo Merchant Services, Citibank, and many regional banks. Most small merchants don't deal directly with their acquiring bank — they interact through payment processors and ISOs who have sponsorship agreements with acquiring banks.
 
-ISOs like Liberty Bancard are sponsored by acquiring banks to sell processing services. The ISO handles merchant relationships while the acquiring bank handles the underlying financial infrastructure.`,
+ISOs are sponsored by acquiring banks to sell processing services. The ISO handles merchant relationships while the acquiring bank handles the underlying financial infrastructure.`,
     merchantImpact: `You may never interact directly with your acquiring bank, but they're the entity that ultimately approves your merchant account, holds your funds, and is responsible to card networks for your processing activity.
 
 Understanding your acquiring bank matters when: applying for a high-risk merchant account (the acquirer must approve), responding to chargebacks (the acquirer sends the dispute notice), or when your processor is acquired or changes banking partners.`,
-    example: `Liberty Bancard is sponsored by First National Bank of America as their acquiring bank partner. A merchant signing with Liberty Bancard gets:
-- A merchant account held at First National Bank of America
-- Processing through Liberty Bancard's systems
+    example: `A merchant who signs with an ISO typically gets:
+- A merchant account held at the acquiring bank that sponsors the ISO
+- Processing through the ISO's or its processor's systems
 - Settlement deposited to their business checking account`,
     faqs: [
       {
@@ -1263,7 +1273,7 @@ Understanding your acquiring bank matters when: applying for a high-risk merchan
     commercialLinks: [
       { label: "Get Started with a Merchant Account", href: "/merchant-application" },
     ],
-    libertySection: `Liberty Bancard is sponsored by regulated acquiring bank partners who provide financial stability and card network compliance. Our merchants get the stability of a bank-backed merchant account with the personalized service of an ISO.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "issuing-bank",
@@ -1307,7 +1317,7 @@ This is why some merchants prefer cash discount or surcharging programs: to neut
     commercialLinks: [
       { label: "Compare Your Interchange Costs", href: "/upload-statement" },
     ],
-    libertySection: `Liberty Bancard helps merchants understand how their card mix affects costs. Our statement analysis breaks down interchange costs by card type so you can see exactly how much premium rewards cards cost you — and evaluate whether a cash discount or surcharging program makes sense.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "payment-gateway",
@@ -1338,9 +1348,9 @@ When choosing a payment gateway, consider:
 Many merchants unknowingly pay for both a gateway and a processor when some providers include both. Understand what you're paying for: a standalone gateway fee ($25-$50/month) plus a per-transaction fee ($0.05-$0.10) can add up quickly for high-volume merchants.`,
     example: `An online boutique needs payment processing:
 - They use Shopify for their store
-- Shopify Payments (Stripe-powered) is the easiest gateway integration but charges 2.9% + $0.30
-- Alternative: Liberty Bancard's preferred gateway (NMI or Authorize.net) + their own merchant account
-  - Gateway fee: $25/month + $0.05/transaction
+- Shopify Payments (Stripe-powered) is the easiest gateway integration; its rates vary by plan
+- Alternative: a separate gateway (such as NMI or Authorize.net) plus their own merchant account
+  - Gateway fee (example figure): $25/month + $0.05/transaction
   - Processing: interchange + 0.25%
   - On $50,000/month at 2% effective rate = $1,000 processing + $30 gateway = $1,030 vs. $1,450 (2.9%)`,
     faqs: [
@@ -1362,7 +1372,7 @@ Many merchants unknowingly pay for both a gateway and a processor when some prov
       { label: "Ask About Our Gateway Options", href: "/get-started" },
       { label: "Free Consultation", href: "/upload-statement" },
     ],
-    libertySection: `Liberty Bancard supports multiple payment gateway options including NMI, Authorize.net, and USAePay. We integrate with your existing e-commerce platform and configure the gateway for optimal security and pricing. Ask about our all-in gateway pricing.`,
+    libertySection: liberty("integration"),
   },
   {
     slug: "iso-msp",
@@ -1388,7 +1398,7 @@ ISOs earn revenue on the markup above interchange — typically 0.10%–0.40% of
     merchantImpact: `Working with an ISO versus a bank-direct processor or an aggregator has tradeoffs. ISOs typically offer more personalized service and competitive pricing for established merchants. They may also be more flexible in underwriting non-standard businesses.
 
 Verify any ISO you work with is properly registered with Visa and Mastercard. Registered ISO status is publicly verifiable through the card networks.`,
-    example: `Liberty Bancard is a registered ISO/MSP with Visa and Mastercard:
+    example: `An ISO/MSP registered with Visa and Mastercard typically works like this:
 - Sponsored by an acquiring bank partner
 - Signs merchant agreements on behalf of the acquirer
 - Sets pricing within parameters approved by the acquirer
@@ -1409,7 +1419,7 @@ Verify any ISO you work with is properly registered with Visa and Mastercard. Re
       { label: "Learn About Liberty Bancard", href: "/about-contact" },
       { label: "Get a Free Consultation", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard is a registered ISO/MSP with Visa and Mastercard. Our registration status means we're accountable to card networks and sponsoring banks for the quality and compliance of our merchant accounts. We don't operate in gray areas.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "registered-iso",
@@ -1454,7 +1464,7 @@ Ask any ISO you work with whether they are directly registered with Visa and Mas
     commercialLinks: [
       { label: "About Liberty Bancard", href: "/about-contact" },
     ],
-    libertySection: `Liberty Bancard maintains registered ISO status with both Visa and Mastercard. Our registration is kept current and our merchant agreements reflect our direct ISO relationship. Ask us for our registration credentials at any time.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "payment-facilitator",
@@ -1478,16 +1488,16 @@ The advantages of using a payfac:
 - Simple, user-friendly interfaces
 
 The disadvantages:
-- Higher rates (the payfac charges a premium for the ease and risk management)
-- Account instability (your sub-merchant account can be suspended or terminated quickly)
-- Less negotiating power
-- One-size-fits-all pricing doesn't favor high-volume or diverse merchants
-- Customer service issues are common at scale`,
+- Flat rates can cost more than interchange plus at higher volumes
+- Account terms (check how the agreement handles account review, suspension and termination)
+- Custom pricing may be limited
+- One flat rate across all cards may not suit high-volume or diverse merchants
+- Support options vary by provider`,
     merchantImpact: `Payment facilitators are excellent for startup businesses and those with very low volume. As your processing volume grows, the premium you pay for instant setup and simplicity becomes increasingly expensive.
 
-The biggest operational risk with payfacs: account freezes. Square and Stripe are known to freeze accounts without notice when their algorithms flag unusual activity. For an established business, a processing freeze can be catastrophic.`,
-    example: `Two e-commerce businesses, both processing $100,000/month:
-- Business using Stripe (payfac): 2.9% + $0.30 = $2,900 + $600 = $3,500/month in fees
+A pause in processing is costly for an established business. Whichever provider you use, read what the agreement says about account review, holds and fund availability before you sign.`,
+    example: `Two e-commerce businesses, both processing $100,000/month (illustrative figures):
+- Business on a flat-rate plan (payfac): 2.9% + $0.30 = $2,900 + $600 = $3,500/month in fees
 - Business with dedicated merchant account (interchange plus + 0.30%): ~1.9% effective = $1,900/month
 - Monthly savings from dedicated account: $1,600
 - Annual savings: $19,200`,
@@ -1506,7 +1516,7 @@ The biggest operational risk with payfacs: account freezes. Square and Stripe ar
       { label: "Get a Dedicated Merchant Account", href: "/merchant-application" },
       { label: "See How We Compare to Stripe/Square", href: "/beat-square-stripe" },
     ],
-    libertySection: `If you're currently using Square, Stripe, or PayPal and processing over $30,000/month, switching to a Liberty Bancard dedicated merchant account will almost certainly save you money — and give you more account stability. We can show you the math before you switch.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "payfac-vs-iso",
@@ -1526,7 +1536,7 @@ The biggest operational risk with payfacs: account freezes. Square and Stripe ar
 - Best for: Startups, very low volume, or businesses testing card acceptance
 
 **ISO (Independent Sales Organization)**:
-- Example companies: Liberty Bancard, North American Bancard, First Data agents
+- Example: independent sales organizations that resell processing
 - Setup: 1-7 business days for underwriting and approval
 - Pricing: Interchange plus (negotiated markup over actual interchange)
 - Account type: Dedicated merchant account
@@ -1541,8 +1551,8 @@ The fundamental economic difference: payfacs make money by charging a flat rate 
 - Over $15,000/month: ISO with interchange plus will typically save 0.5%–1.0% in effective rate
 - Over $50,000/month: ISO is almost always significantly cheaper`,
     example: `Annual comparison at $300,000 in processing:
-- Payfac (Square at 2.6%): $7,800/year in fees
-- ISO (Interchange plus at 1.95% effective): $5,850/year in fees
+- Payfac (flat rate at an illustrative 2.6%): $7,800/year in fees
+- ISO (interchange plus at an illustrative 1.95% effective): $5,850/year in fees
 - Annual savings with ISO: $1,950`,
     faqs: [
       {
@@ -1559,7 +1569,7 @@ The fundamental economic difference: payfacs make money by charging a flat rate 
       { label: "See How Liberty Bancard Compares", href: "/beat-square-stripe" },
       { label: "Get a Free Rate Comparison", href: "/compare-rates" },
     ],
-    libertySection: `Liberty Bancard is an ISO — not a payfac. That means dedicated merchant accounts, negotiated interchange plus pricing, and personalized service. If you've outgrown Square or Stripe, we can show you exactly what you'd save by switching.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "pci-dss",
@@ -1620,7 +1630,7 @@ The good news: for most small merchants using modern payment terminals and not s
       { label: "PCI Compliance Support", href: "/security-compliance" },
       { label: "Get a Free Consultation", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard provides PCI compliance guidance and tools to all merchants. Our annual PCI compliance fee covers your SAQ support, compliance monitoring, and breach assistance. We make PCI compliance straightforward for merchants without in-house IT.`,
+    libertySection: liberty("pci"),
   },
   {
     slug: "pci-compliance",
@@ -1669,7 +1679,7 @@ Check your processing statement: if you're paying a "non-compliance fee" it mean
       { label: "Our Security & Compliance Commitment", href: "/security-compliance" },
       { label: "Get PCI Compliance Help", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard supports merchants through the entire PCI compliance process. Our compliance team walks you through your SAQ, answers security questions, and helps you achieve and maintain compliant status. PCI support is included in our merchant services.`,
+    libertySection: liberty("pci"),
   },
   {
     slug: "high-risk-merchant",
@@ -1735,7 +1745,7 @@ Despite these challenges, many high-risk merchants operate profitably with the r
       { label: "High-Risk Merchant Accounts", href: "/merchant-application" },
       { label: "Get a Free Consultation", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard specializes in merchant accounts for businesses that standard processors decline. We work with a network of high-risk acquiring banks and can structure accounts for challenging industries. Contact us to discuss your specific situation.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "reserve-account",
@@ -1783,7 +1793,7 @@ Understanding your reserve requirements before signing a merchant agreement is c
       { label: "Get a Free Consultation", href: "/get-started" },
       { label: "Apply for a Merchant Account", href: "/merchant-application" },
     ],
-    libertySection: `Liberty Bancard structures reserve requirements based on actual risk — not arbitrary policies. We work with merchants to minimize reserves through financial documentation, personal guarantees, and processing history. Contact us to discuss reserve options for your specific situation.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "rolling-reserve",
@@ -1829,7 +1839,7 @@ When evaluating processor terms, consider the reserve percentage, holding period
     commercialLinks: [
       { label: "Discuss Reserve Terms", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard structures rolling reserves at the minimum level required by our acquiring banks for each merchant category. We review and reduce reserves proactively for merchants who demonstrate clean processing history. Ask us about our reserve reduction milestones.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "underwriting",
@@ -1860,10 +1870,10 @@ For standard merchants, underwriting may take 24-48 hours. For high-risk busines
     merchantImpact: `The underwriting process isn't something to dread — it's an opportunity to present your business favorably. Prepare your application with: a professional website, clear business description, accurate anticipated volume, processing history if available, and financial statements if requested.
 
 Misrepresentation on merchant applications is fraud and can result in account termination, card network fines, and legal liability. Be accurate about your business model and volume projections.`,
-    example: `Underwriting comparison:
-- New restaurant: 1-2 day approval, standard risk, no reserve, interchange + 0.30%
-- New online supplement company: 1-2 week review, high-risk, 10% rolling reserve, interchange + 1.5%
-- Established restaurant (5 years, clean history): Same-day approval, negotiated rate, no reserve
+    example: `Underwriting comparison (illustrative):
+- New restaurant: standard risk review, usually no reserve
+- New online supplement company: longer review, higher-risk category, a rolling reserve may be required
+- Established restaurant with a clean history: often a shorter review and no reserve
 The difference in terms reflects the processor's assessment of expected chargeback risk and account sustainability.`,
     faqs: [
       {
@@ -1884,7 +1894,7 @@ The difference in terms reflects the processor's assessment of expected chargeba
       { label: "Apply for a Merchant Account", href: "/merchant-application" },
       { label: "High-Risk Account Consultation", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard's underwriting team reviews applications quickly — typically 24-48 hours for standard merchants. We provide clear feedback if additional documentation is needed and work with merchants to structure accounts that meet our approval criteria. Contact us to pre-qualify before submitting a formal application.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "match-list",
@@ -1937,7 +1947,7 @@ Prevention is critical. Monitor your chargeback ratio, respond to all disputes, 
       { label: "High-Risk Merchant Account Help", href: "/merchant-application" },
       { label: "Consult with Our Team", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard helps merchants understand their MATCH status and options. If you've been MATCH listed, we can help evaluate specialized processing options and work with you on a plan to address the underlying issues that led to the listing.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "velocity-limits",
@@ -1983,7 +1993,7 @@ If you regularly hit limits, work with your processor to document your legitimat
     commercialLinks: [
       { label: "Get the Right Processing Limits", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard proactively reviews velocity limits with merchants seasonally and after significant business growth. We ensure your processing limits match your actual business needs so you never lose a sale due to an arbitrary cap.`,
+    libertySection: liberty("account"),
   },
   {
     slug: "emv-chip",
@@ -2043,7 +2053,7 @@ Ensure your terminals require chip insertion, not just magnetic stripe acceptanc
       { label: "Shop EMV-Compliant Terminals", href: "/shop" },
       { label: "Get a Free Terminal", href: "/get-started" },
     ],
-    libertySection: `All terminal equipment provided by Liberty Bancard is fully EMV-compliant and NFC-enabled. We don't place merchants on outdated hardware. New merchants receive a free EMV/NFC terminal with an approved merchant account.`,
+    libertySection: liberty("equipment"),
   },
   {
     slug: "nfc-contactless",
@@ -2098,7 +2108,7 @@ There is no surcharge difference for contactless vs. chip transactions — the p
       { label: "Shop NFC-Enabled Terminals", href: "/shop" },
       { label: "Get a Free Contactless Terminal", href: "/get-started" },
     ],
-    libertySection: `Every Liberty Bancard terminal is NFC-enabled and supports Apple Pay, Google Pay, Samsung Pay, and all contactless-enabled cards. Contactless payment is standard on all our equipment at no extra charge.`,
+    libertySection: liberty("equipment"),
   },
   {
     slug: "pos-system",
@@ -2133,11 +2143,11 @@ Cloud-based POS systems store data online for real-time access from anywhere, ea
 
 Many POS systems (especially Square and Toast) bundle in payment processing at flat-rate pricing. This simplifies setup but may cost more than a separate POS + dedicated merchant account.`,
     example: `A restaurant evaluating POS options:
-- Toast (with built-in processing): $110/month software + 2.49% + $0.15 processing
+- Option A, software bundled with processing (illustrative figures): $110/month software + 2.49% + $0.15 processing
   - On $80,000/month: $110 software + $2,006 processing = $2,116/month
-- Clover (with Liberty Bancard processing at 1.95% effective):
+- Option B, separate software with its own processing agreement (illustrative figures, 1.95% effective):
   - $90/month software + $1,560 processing = $1,650/month
-  - Annual savings: $5,592`,
+  - Difference under these assumptions: $5,592 per year`,
     faqs: [
       {
         question: "Do I have to use my POS system's payment processing?",
@@ -2153,7 +2163,7 @@ Many POS systems (especially Square and Toast) bundle in payment processing at f
       { label: "Shop POS Systems & Terminals", href: "/shop" },
       { label: "Get Started with the Right POS", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard supports Clover, PAX, Dejavoo, and other major POS platforms. We don't lock you into proprietary hardware — we work with the system that fits your business. Free terminal placement available for qualified merchants.`,
+    libertySection: liberty("equipment"),
   },
   {
     slug: "virtual-terminal",
@@ -2209,7 +2219,7 @@ To minimize costs with virtual terminal payments, always collect AVS (address ve
     commercialLinks: [
       { label: "Get Virtual Terminal Access", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard provides virtual terminal access to all merchants at no additional monthly fee. Our virtual terminal supports recurring billing, stored cards with tokenization, and level 2/3 data entry for B2B transactions.`,
+    libertySection: liberty("equipment"),
   },
   {
     slug: "payment-terminal",
@@ -2236,14 +2246,13 @@ Key features to look for in a payment terminal:
 Terminal pricing: Terminals range from $50 (basic mobile readers) to $1,200+ (full POS systems). Many processors offer free terminal placement with processing agreements or lease terminals (which is generally not recommended — you often pay 2-3x the purchase price over the lease term).`,
     merchantImpact: `Your terminal choice affects security, customer experience, and your processing costs. An older terminal that doesn't support EMV chip creates fraud liability. A terminal without NFC means slower checkout for tap-to-pay customers.
 
-Avoid terminal leases — they're generally poor value. A $400 terminal leased at $40/month over 48 months costs $1,920. Buy or request a free terminal from your processor instead.`,
+Compare the total cost of a leased terminal with buying one, and read what the agreement says about ending it. A $400 terminal leased at $40/month over 48 months costs $1,920.`,
     example: `Terminal selection for a busy diner:
-- Need: Fast, durable, supports chip and tap, works with Liberty Bancard
+- Need: Fast, durable, supports chip and tap, works with your processor
 - Option 1: Clover Flex ($599 retail) — handheld, table-side payments, NFC, EMV
 - Option 2: PAX A920 ($350 retail) — similar features, slightly lower cost
-- Option 3: Free Dejavoo Z11 with Liberty Bancard processing agreement
-  - No upfront cost, full EMV/NFC support, included with account
-  - Best choice for most restaurants`,
+- Option 3: A terminal offered with a processing agreement
+  - Availability, fees and terms are confirmed in your quote and written agreement`,
     faqs: [
       {
         question: "Should I buy or lease a payment terminal?",
@@ -2263,7 +2272,7 @@ Avoid terminal leases — they're generally poor value. A $400 terminal leased a
       { label: "Shop Payment Terminals", href: "/shop" },
       { label: "Get a Free Terminal with Your Account", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard offers free terminal placement on Clover, PAX, and Dejavoo equipment for qualified merchants. All terminals are fully programmed, EMV/NFC-enabled, and shipped ready to process. No lease agreements — ever.`,
+    libertySection: liberty("equipment"),
   },
   {
     slug: "card-reader",
@@ -2283,21 +2292,20 @@ Popular mobile card reader options:
 - Clover Go: ~$49
 - PayPal Zettle: ~$29
 - Stripe Reader M2: ~$59
-- Liberty Bancard with NMI mobile: Various options
 
 Important limitation: Mobile card readers typically require cellular data or Wi-Fi to process transactions. Some offer offline mode with limited capability.
 
-Cost consideration: Mobile readers from payfacs (Square, PayPal) come with flat-rate pricing. Mobile readers from traditional processors offer interchange plus pricing and often lower effective rates.`,
+Cost consideration: Mobile readers from payfacs (Square, PayPal) come with flat-rate pricing. Mobile readers from traditional processors may be priced on interchange plus, so compare them against your own statement.`,
     merchantImpact: `Mobile card readers enable businesses to accept payments anywhere with cellular or Wi-Fi connectivity. For the right business type (food trucks, farmers markets, contractors, event vendors), they're essential tools.
 
 The main cost consideration: mobile processing through payfacs like Square is priced at a published flat rate per transaction. Whether interchange plus pricing costs less depends on your card mix, ticket size and monthly volume.`,
     example: `A mobile pet groomer processes $12,000/month via card reader:
-- Using Square Reader (2.6% + $0.10, avg. $75 ticket, ~160 transactions):
+- Using a flat-rate plan (illustrative 2.6% + $0.10, avg. $75 ticket, ~160 transactions):
   - Processing cost: $312 + $16 = $328/month
-- Using Liberty Bancard mobile processing (interchange plus, ~2.0% effective):
+- Using an interchange-plus plan (illustrative ~2.0% effective):
   - Processing cost: ~$240/month
-  - Monthly savings: $88
-  - Annual savings: $1,056`,
+  - Monthly difference under these assumptions: $88
+  - Annual difference: $1,056`,
     faqs: [
       {
         question: "What is the best mobile card reader for small business?",
@@ -2317,7 +2325,7 @@ The main cost consideration: mobile processing through payfacs like Square is pr
       { label: "Shop Mobile Card Readers", href: "/shop" },
       { label: "Get Started with Mobile Processing", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard offers mobile card readers compatible with our interchange plus processing. Unlike Square or PayPal, our mobile solutions give you the same transparent pricing as your countertop terminal. Ask about our mobile processing setup.`,
+    libertySection: liberty("equipment"),
   },
   {
     slug: "tokenization",
@@ -2370,7 +2378,7 @@ Network tokenization has an additional benefit: if a customer's card is lost/sto
       { label: "Our Security Commitment", href: "/security-compliance" },
       { label: "Get Started Securely", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard's payment infrastructure uses tokenization at every point of card data handling. Our merchants never store raw card numbers — only tokens. This reduces your PCI scope and protects your customers' data.`,
+    libertySection: liberty("integration"),
   },
   {
     slug: "encryption",
@@ -2419,7 +2427,7 @@ For e-commerce, using a PCI-compliant payment gateway that handles card data on 
       { label: "Our Security Commitment", href: "/security-compliance" },
       { label: "Get Secure Processing", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard deploys P2PE-capable terminals that encrypt card data from the moment of card interaction. Your network and systems never see raw card data — significantly reducing your security risk and PCI compliance burden.`,
+    libertySection: liberty("integration"),
   },
   {
     slug: "qualified-rate",
@@ -2470,7 +2478,7 @@ A restaurant with mostly consumer credit card customers might see 60-70% qualify
       { label: "Switch from Tiered to Interchange Plus", href: "/compare-rates" },
       { label: "Get a Free Statement Analysis", href: "/upload-statement" },
     ],
-    libertySection: `Liberty Bancard doesn't use qualified/mid-qualified/non-qualified tiered pricing. We pass through actual interchange rates transparently. Upload your statement to see how much you're losing to non-qualified rate downgrades.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "mid-qualified-rate",
@@ -2513,7 +2521,7 @@ If you're on tiered pricing, request a detailed breakdown of what percentage of 
       { label: "Get Interchange Plus Pricing", href: "/compare-rates" },
       { label: "Free Statement Analysis", href: "/upload-statement" },
     ],
-    libertySection: `Liberty Bancard eliminates mid-qualified rates entirely. Every transaction pays its actual interchange cost — no tiered bundling, no arbitrary surcharges. See the difference in a free statement analysis.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "non-qualified-rate",
@@ -2564,7 +2572,7 @@ Example: An HVAC company that bills corporate clients to company credit cards mi
       { label: "Stop Paying Non-Qualified Rates", href: "/compare-rates" },
       { label: "Free Statement Analysis", href: "/upload-statement" },
     ],
-    libertySection: `Liberty Bancard doesn't have a non-qualified rate bucket. Under interchange plus pricing, your corporate card transactions pay actual commercial interchange rates — not an inflated non-qualified tier. Upload your statement to see exactly how much you're losing to non-qualified surcharges.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "interchange-downgrade",
@@ -2614,7 +2622,7 @@ Audit your interchange downgrades by reviewing your processing statement's inter
       { label: "Get a Downgrade Audit", href: "/upload-statement" },
       { label: "Optimize Your Processing", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard proactively monitors for interchange downgrades and alerts merchants when we see patterns. Our account management team works with you to identify and eliminate downgrade causes — saving you money without requiring you to change your business operations.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "card-present",
@@ -2672,7 +2680,7 @@ For businesses that primarily take phone orders but could potentially implement 
       { label: "Get Card-Present Hardware", href: "/shop" },
       { label: "Compare Card Present vs. Phone Order Costs", href: "/compare-rates" },
     ],
-    libertySection: `Liberty Bancard helps merchants understand when switching to card-present acceptance can save money. Our sales team analyzes your transaction mix and identifies opportunities to reduce rates through better transaction environments.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "card-not-present",
@@ -2722,7 +2730,7 @@ Some online merchants implement 3D Secure for high-risk transactions (large orde
       { label: "E-Commerce Payment Processing", href: "/get-started" },
       { label: "Get a Free Consultation", href: "/upload-statement" },
     ],
-    libertySection: `Liberty Bancard supports e-commerce merchants with full CNP processing infrastructure including AVS, CVV, 3D Secure, and fraud screening tools. Our interchange plus pricing ensures you see the actual cost of each transaction type in your e-commerce stack.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "keyed-entry",
@@ -2782,7 +2790,7 @@ For businesses that legitimately operate in a phone/mail order environment, keye
       { label: "Get a Working Terminal", href: "/shop" },
       { label: "Virtual Terminal for Phone Orders", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard helps merchants identify unnecessary keyed-entry charges in statement analysis. We provide properly functioning terminal equipment and train staff on correct card acceptance procedures to eliminate avoidable interchange downgrades.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "tip-adjustment",
@@ -2835,7 +2843,7 @@ Disputes over tip amounts are a common chargeback reason in restaurants. The bes
       { label: "Restaurant Payment Processing", href: "/industries/restaurant-payment-processing" },
       { label: "Get Started", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard provides restaurant-specific POS systems with built-in tip management — including electronic tip capture on the terminal and automated batch close with tip adjustments included. Contact us to see our restaurant payment solutions.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "recurring-billing",
@@ -2888,7 +2896,7 @@ Build your recurring billing system with: clear consent at signup, pre-billing n
     commercialLinks: [
       { label: "Set Up Recurring Billing", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard supports recurring billing with secure tokenization, account updater integration, and retry logic. Our virtual terminal and gateway support subscription businesses with compliant recurring transaction processing. Contact us to configure your recurring billing setup.`,
+    libertySection: liberty("integration"),
   },
   {
     slug: "card-on-file",
@@ -2941,7 +2949,7 @@ Ensure your card-on-file program uses proper tokenization — storing actual car
     commercialLinks: [
       { label: "Set Up Card on File Processing", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard supports card-on-file processing with full tokenization through our gateway partners. Merchants can store customer cards securely for recurring billing, post-service charging, or one-click checkout. All card-on-file storage is tokenized — never raw card numbers.`,
+    libertySection: liberty("integration"),
   },
   {
     slug: "level-2-level-3-data",
@@ -2994,7 +3002,7 @@ The challenge: many B2B merchants don't know to request this, their software doe
       { label: "B2B Payment Processing", href: "/get-started" },
       { label: "Get a Free Statement Analysis", href: "/upload-statement" },
     ],
-    libertySection: `Liberty Bancard configures Level 2 and Level 3 data capture for all B2B merchants. Our interchange plus pricing model means all Level 2/3 savings pass directly to you. If you accept corporate or government cards and aren't providing enhanced data, you're almost certainly overpaying. Let us audit your statement.`,
+    libertySection: liberty("review"),
   },
   {
     slug: "ach-payment",
@@ -3057,7 +3065,7 @@ For recurring billing businesses (subscriptions, memberships, utilities), ACH is
       { label: "Ask About ACH Processing", href: "/get-started" },
       { label: "B2B Payment Solutions", href: "/upload-statement" },
     ],
-    libertySection: `Liberty Bancard offers ACH payment processing as part of our comprehensive merchant services. ACH is ideal for B2B merchants, subscription businesses, and any merchant looking to reduce processing costs on recurring or high-ticket transactions. Ask us about our ACH pricing.`,
+    libertySection: liberty("integration"),
   },
   {
     slug: "nacha",
@@ -3109,7 +3117,7 @@ Monitor your ACH return rates monthly. High return rates for "unauthorized" reas
     commercialLinks: [
       { label: "ACH Payment Solutions", href: "/get-started" },
     ],
-    libertySection: `Liberty Bancard's ACH processing platform is NACHA-compliant with built-in return monitoring and authorization management. We help merchants maintain proper authorization workflows and monitor return rates to stay in compliance with NACHA rules.`,
+    libertySection: liberty("integration"),
   },
   {
     slug: "passthrough-pricing",
@@ -3157,7 +3165,7 @@ Every dollar is visible, every recipient is identified.`,
       { label: "Get Passthrough Pricing", href: "/compare-rates" },
       { label: "Upload Statement for a Free Analysis", href: "/upload-statement" },
     ],
-    libertySection: `Liberty Bancard operates exclusively on passthrough pricing — we pass through all interchange and assessment fees at network cost and charge only our disclosed markup. No bundling, no tiered rate games, no hidden markup on interchange. Request our rate sheet to see exact passthrough markup.`,
+    libertySection: liberty("review"),
   },
 ];
 

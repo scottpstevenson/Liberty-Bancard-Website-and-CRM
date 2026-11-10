@@ -313,10 +313,11 @@ family("imagery", () => {
   };
   passes("no field-services photo is registered, built or in the manifest", () => assertNoUnlicensedFieldServicesImage([registry, builder, manifest, homeContent]));
   negative("field-services image re-registered", () => assertNoUnlicensedFieldServicesImage([registry, builder, manifest, `${homeContent}\nconst x = "industry-home-services";`]));
-  ok(/construction[^\n]*null/.test(homeContent), "Home maps the contractors entry to no photograph");
-  ok(/icon-vertical-/.test(industries), "Home renders a native icon tile when an industry has no photograph");
+  ok(/PUBLIC_IMAGE_RECORDS/.test(homeContent), "Home resolves every card photograph through the imagery registry");
+  ok(!/icon-vertical-|HardHat/.test(industries), "Home renders a registered photograph on every industry card, with no icon-tile branch");
   ok(!fs.existsSync(path.join(ROOT, "client/src/assets/images/public")) || !fs.readdirSync(path.join(ROOT, "client/src/assets/images/public")).some((f) => /industry-home-services/.test(f)), "no derivative files for the removed image remain");
-  ok(/unverified/.test(registry), "remaining image provenance is still recorded as unverified until the owner supplies licence evidence");
+  ok(/unverified/.test(registry), "remaining product-image provenance is still recorded as unverified until the owner supplies licence evidence");
+  ok(/generated/.test(registry) && /owner-review-pending/.test(registry), "supplied generated artwork is recorded as generated and owner-review-pending, never licensed");
 });
 
 // ── Inquiry anchor (W-C mount point) ─────────────────────────────────────────

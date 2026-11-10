@@ -1,18 +1,7 @@
 import { cn } from "@/lib/utils";
-import { getPublicImage, type PublicImageId } from "@/lib/public-imagery";
+import { describePicture, type PictureArgs } from "@/lib/public-imagery";
 
-export interface PublicImageProps {
-  id: PublicImageId;
-  /** Crop variant defined in scripts/build-public-images.ts (e.g. "card", "mobile"). */
-  variant: string;
-  /** `sizes` attribute describing the rendered width at each breakpoint. */
-  sizes: string;
-  /** Only the principal above-the-fold image of a page may be eager. */
-  priority?: boolean;
-  /** Art-direction sources (e.g. a wider desktop crop) tried before the default variant. */
-  artDirection?: { variant: string; media: string; sizes: string }[];
-  /** Overrides the registry alt text; pass "" for a purely decorative repeat. */
-  alt?: string;
+export interface PublicImageProps extends PictureArgs {
   className?: string;
   imgClassName?: string;
   "data-testid"?: string;
@@ -24,30 +13,29 @@ export interface PublicImageProps {
  * arrives and the page cannot shift), lazy loading by default, and `fetchpriority`
  * high only for the one image marked `priority`. Inside a `.public-frame--fill` frame
  * the frame owns the aspect ratio, which is how art-directed crops stay shift-free.
+ * React 18 does not know the camel-case `fetchPriority` prop (it warns in development and emits a
+ * mixed-case attribute), so the lowercase HTML attribute is passed through, which is what the server emits.
+ * The markup is described once by describePicture() and rendered identically by the
+ * server (server/ssr/picture.ts).
  */
-export function PublicImage({ id, variant, sizes, priority = false, artDirection = [], alt, className, imgClassName, "data-testid": testId }: PublicImageProps) {
-  const image = getPublicImage(id, variant);
-  const [avif, webp, jpg] = image.sources;
+export function PublicImage({ className, imgClassName, "data-testid": testId, ...args }: PublicImageProps) {
+  const model = describePicture(args);
+  const { img } = model;
   return (
     <picture className={className} data-testid={testId}>
-      {artDirection.flatMap((art) => {
-        const [aAvif, aWebp, aJpg] = getPublicImage(id, art.variant).sources;
-        return [aAvif, aWebp, aJpg].map((source) => (
-          <source key={`${art.variant}-${source.type}`} media={art.media} type={source.type} srcSet={source.srcSet} sizes={art.sizes} />
-        ));
-      })}
-      <source type={avif.type} srcSet={avif.srcSet} sizes={sizes} />
-      <source type={webp.type} srcSet={webp.srcSet} sizes={sizes} />
+      {model.sources.map((source) => (
+        <source key={`${source.media ?? "default"}-${source.type}`} media={source.media} type={source.type} srcSet={source.srcSet} sizes={source.sizes} />
+      ))}
       <img
-        src={image.src}
-        srcSet={jpg.srcSet}
-        sizes={sizes}
-        width={image.width}
-        height={image.height}
-        alt={alt ?? image.record.alt}
-        loading={priority ? "eager" : "lazy"}
-        decoding="async"
-        {...(priority ? { fetchPriority: "high" as const } : {})}
+        src={img.src}
+        srcSet={img.srcSet}
+        sizes={img.sizes}
+        width={img.width}
+        height={img.height}
+        alt={img.alt}
+        loading={img.loading}
+        decoding={img.decoding}
+        {...(img.fetchPriority ? { fetchpriority: img.fetchPriority } : {})}
         className={cn("h-auto w-full", imgClassName)}
       />
     </picture>

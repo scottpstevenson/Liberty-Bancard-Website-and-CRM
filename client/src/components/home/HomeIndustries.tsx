@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { ArrowRight, HardHat } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { PublicSection, PublicSectionHeader } from "@/components/public/PublicSection";
 import { PublicImage } from "@/components/public/PublicImage";
 import { cn } from "@/lib/utils";
@@ -9,9 +9,10 @@ import { HOME_INDUSTRIES } from "./home-content";
 /**
  * Section 3: businesses we serve. Compact photo rows on phones, an image-led grid from md
  * (three plus two at tablet width, one row of five on desktop).
- * Every entry is one link to its existing /industries/:slug template; the images come from the
- * public imagery dataset and are illustrative, never a named customer. An entry with no registered
- * photograph (field services) shows a native icon tile instead of a mismatched picture.
+ * Every entry is one link to its existing /industries/:slug template; the five images (restaurant,
+ * dental, med spa, automotive, retail) come from the public imagery registry, load lazily, and are
+ * illustrative, never a named customer. Healthcare and contractors stay reachable through the industries
+ * hub and the navigation.
  */
 export function HomeIndustries() {
   return (
@@ -26,13 +27,7 @@ export function HomeIndustries() {
               data-testid={`card-vertical-${i}`}
             >
               <div className="public-frame w-24 shrink-0 rounded-lg md:w-full md:rounded-none">
-                {item.image ? (
-                  <PublicImage id={item.image} variant="card" sizes="(min-width: 1024px) 230px, (min-width: 768px) 33vw, 96px" imgClassName="aspect-[4/3] object-cover md:aspect-[16/10] lg:aspect-[4/3]" />
-                ) : (
-                  <div className="flex aspect-[4/3] items-center justify-center bg-muted text-primary md:aspect-[16/10] lg:aspect-[4/3]" data-testid={`icon-vertical-${i}`} aria-hidden="true">
-                    <HardHat className="h-8 w-8 md:h-10 md:w-10" />
-                  </div>
-                )}
+                <PublicImage id={item.image} variant={HOME_INDUSTRIES_SECTION.cardImage.variant} sizes={HOME_INDUSTRIES_SECTION.cardImage.sizes} imgClassName="aspect-[4/3] object-cover md:aspect-[16/10] lg:aspect-[4/3]" />
               </div>
               <div className="min-w-0 flex-1 py-1 pr-2 md:p-4">
                 <h3 className="public-card-title text-foreground">{item.title}</h3>

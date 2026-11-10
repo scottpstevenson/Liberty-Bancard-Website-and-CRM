@@ -1,5 +1,18 @@
 import { ssrHtmlShell } from "../ssrShared";
-import { CITIES, VERTICALS, getCityData, getVerticalData } from "./location-data";
+import {
+  buildLocationDetail,
+  buildLocationHub,
+  locationDocumentTitle,
+  type LocationDetailContent,
+  type LocationHubContent,
+} from "../../shared/public-locations";
+
+// Server documents for /locations/:city and /locations/:city/:industry. Every word comes from the shared
+// location contract (shared/public-locations.ts), which the client routes also render, so the first HTML
+// and the hydrated page say the same thing and neither can carry a local count, rate, office or promise.
+
+const BASE_URL = "https://libertybancard.com";
+const BRAND = "Liberty Bancard";
 
 function esc(str: string): string {
   return str
@@ -10,24 +23,37 @@ function esc(str: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function renderLocationHtml(citySlug: string, verticalSlug: string): string | null {
-  const city = getCityData(citySlug);
-  const vertical = getVerticalData(verticalSlug);
-  if (!city || !vertical) return null;
+function serviceSchema(content: { title: string; metaDescription: string; canonicalPath: string; cityName: string; stateName: string }) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Service",
+    name: content.title,
+    description: content.metaDescription,
+    url: `${BASE_URL}${content.canonicalPath}`,
+    serviceType: "Payment processing",
+    provider: { "@type": "Organization", name: BRAND, url: BASE_URL },
+    areaServed: {
+      "@type": "City",
+      name: content.cityName,
+      containedInPlace: { "@type": "State", name: content.stateName },
+    },
+  };
+}
 
-  const canonical = `/locations/${city.slug}/${vertical.slug}`;
-  const vName = vertical.name.replace(/\s*&\s*/g, " and ");
-  const title = `${vName} Payment Processing in ${city.name}, ${city.state}`;
-  const description = `${city.name} ${vName.toLowerCase()} businesses: reduce processing fees with Liberty Bancard interchange-plus pricing. Free statement review, no obligation.`;
-  const keywords = `${vertical.name.toLowerCase()} payment processing ${city.name}, ${city.name} ${vertical.name.toLowerCase()} credit card processing, merchant services ${city.name} ${city.state}`;
+function actionsHtml(primary: { label: string; href: string }, secondary: { label: string; href: string }): string {
+  return `<a href="${esc(primary.href)}" class="ssr-btn-primary">${esc(primary.label)}</a>
+          <a href="${esc(secondary.href)}" class="ssr-btn-outline">${esc(secondary.label)}</a>
+          <a href="tel:9542668214" class="ssr-btn-outline" aria-label="Call Liberty Bancard at 954-266-8214">954-266-8214</a>`;
+}
 
+function renderDetail(content: LocationDetailContent): string {
   const faqSchema = {
     "@context": "https://schema.org",
     "@type": "FAQPage",
-    mainEntity: vertical.faqs.map((faq) => ({
+    mainEntity: content.faqs.map((faq) => ({
       "@type": "Question",
-      name: faq.q,
-      acceptedAnswer: { "@type": "Answer", text: faq.a },
+      name: faq.question,
+      acceptedAnswer: { "@type": "Answer", text: faq.answer },
     })),
   };
 
@@ -35,127 +61,71 @@ function renderLocationHtml(citySlug: string, verticalSlug: string): string | nu
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     itemListElement: [
-      { "@type": "ListItem", position: 1, name: "Home", item: "https://libertybancard.com/" },
-      { "@type": "ListItem", position: 2, name: `${vertical.name} Processing`, item: `https://libertybancard.com/industries/${vertical.industryPageSlug}` },
-      { "@type": "ListItem", position: 3, name: `${city.name}, ${city.state}`, item: `https://libertybancard.com${canonical}` },
+      { "@type": "ListItem", position: 1, name: "Home", item: `${BASE_URL}/` },
+      { "@type": "ListItem", position: 2, name: `${content.verticalName} Processing`, item: `${BASE_URL}${content.industryHref}` },
+      { "@type": "ListItem", position: 3, name: `${content.cityName}, ${content.state}`, item: `${BASE_URL}${content.canonicalPath}` },
     ],
   };
 
-  const localBusinessSchema = {
-    "@context": "https://schema.org",
-    "@type": "LocalBusiness",
-    name: "Liberty Bancard",
-    description,
-    url: `https://libertybancard.com${canonical}`,
-    telephone: "+1-954-266-8214",
-    areaServed: {
-      "@type": "City",
-      name: city.name,
-      containedInPlace: { "@type": "State", name: city.stateFullName },
-    },
-    address: {
-      "@type": "PostalAddress",
-      addressLocality: "Fort Lauderdale",
-      addressRegion: "FL",
-      addressCountry: "US",
-    },
-  };
-
-  const statsHtml = [
-    { value: vertical.avgRate, label: `Typical effective rate on ${city.name} ${vertical.name.toLowerCase()} statements` },
-    { value: vertical.avgSavings, label: `Average annual savings identified per ${city.name} ${vertical.name.toLowerCase()} location` },
-    { value: city.population, label: `${city.name} population — ${city.businessCount} businesses in our service area` },
-  ]
+  const topicsHtml = content.topics
     .map(
-      (s) => `<div class="ssr-card" style="text-align:center;">
-      <div class="ssr-stat-value">${esc(s.value)}</div>
-      <div class="ssr-stat-label">${esc(s.label)}</div>
-    </div>`
-    )
-    .join("");
-
-  const benefitsHtml = [
-    ...vertical.painPoints.map((p) => ({
-      icon: "✗",
-      color: "#ef4444",
-      title: "Pain point",
-      text: p,
-    })),
-    ...vertical.solutions.map((s) => ({
-      icon: "✓",
-      color: "#22c55e",
-      title: "Solution",
-      text: s,
-    })),
-  ]
-    .map(
-      (b) => `<div class="ssr-card ssr-pain-item">
-      <div class="ssr-solution-icon" style="color:${b.color}">${b.icon}</div>
+      (topic) => `<div class="ssr-card ssr-pain-item">
+      <div class="ssr-solution-icon">✓</div>
       <div>
-        <div class="ssr-item-text">${esc(b.text)}</div>
+        <div class="ssr-item-title">${esc(topic.title)}</div>
+        <div class="ssr-item-text">${esc(topic.description)}</div>
       </div>
-    </div>`
+    </div>`,
     )
     .join("");
 
-  const faqsHtml = vertical.faqs
+  const faqsHtml = content.faqs
     .map(
-      (f) => `<div class="ssr-faq-item">
-      <div class="ssr-faq-q">${esc(f.q)}</div>
-      <div class="ssr-faq-a">${esc(f.a)}</div>
-    </div>`
+      (faq) => `<div class="ssr-faq-item">
+      <div class="ssr-faq-q">${esc(faq.question)}</div>
+      <div class="ssr-faq-a">${esc(faq.answer)}</div>
+    </div>`,
     )
     .join("");
 
-  const relatedCities = CITIES.filter((c) => c.slug !== city.slug).slice(0, 10);
-  const relatedVerticals = VERTICALS.filter((v) => v.slug !== vertical.slug).slice(0, 6);
-
-  const otherCities = relatedCities
-    .map((c) => `<a href="/locations/${c.slug}/${vertical.slug}" class="ssr-crosslink-btn">📍 ${esc(c.name)}, ${esc(c.state)}</a>`)
+  const cityLinks = content.relatedCities
+    .map((link) => `<a href="${esc(link.href)}" class="ssr-crosslink-btn">${esc(link.label)}</a>`)
     .join("");
-
-  const otherVerticals = relatedVerticals
-    .map((v) => `<a href="/locations/${city.slug}/${v.slug}" class="ssr-crosslink-btn">📍 ${esc(v.name)} in ${esc(city.name)}</a>`)
+  const verticalLinks = content.relatedVerticals
+    .map((link) => `<a href="${esc(link.href)}" class="ssr-crosslink-btn">${esc(link.label)}</a>`)
     .join("");
-
-  const openingParagraph = `${city.name} has ${city.businessCount} businesses. ${city.description}. If you run a ${vertical.name.toLowerCase()} in ${city.name}, here's what you're likely paying to process cards — and what you could be paying instead.`;
 
   const body = `
     <div class="ssr-hero" style="padding-top: 2rem;">
       <div class="ssr-hero-inner">
-        <div class="ssr-hero-badge">📍 ${esc(city.name)}, ${esc(city.stateFullName)}</div>
+        <div class="ssr-hero-badge">${esc(content.badge)}</div>
         <div class="ssr-breadcrumb">
           <a href="/">Home</a><span>/</span>
-          <a href="/industries/${esc(vertical.industryPageSlug)}">${esc(vertical.name)} Processing</a><span>/</span>
-          <a href="/locations/${esc(city.slug)}">${esc(city.name)}, ${esc(city.state)}</a><span>/</span>
-          <span>${esc(vertical.name)}</span>
+          <a href="${esc(content.industryHref)}">${esc(content.verticalName)} Processing</a><span>/</span>
+          <a href="${esc(content.hubHref)}">${esc(content.cityName)}, ${esc(content.state)}</a><span>/</span>
+          <span>${esc(content.verticalName)}</span>
         </div>
-        <h1>${esc(title)}</h1>
-        <p class="ssr-hero-subtitle">${esc(openingParagraph)}</p>
+        <h1>${esc(content.h1)}</h1>
+        <p class="ssr-hero-subtitle">${esc(content.lead)}</p>
         <div class="ssr-hero-buttons">
-          <a href="/upload-statement" class="ssr-btn-primary">📤 Free Statement Review</a>
-          <a href="/industries/${esc(vertical.industryPageSlug)}" class="ssr-btn-outline">Learn More About ${esc(vertical.name)} Processing</a>
+          ${actionsHtml(content.primaryAction, content.secondaryAction)}
         </div>
       </div>
     </div>
 
     <section class="ssr-section ssr-section-muted">
       <div class="ssr-section-inner">
-        <div class="ssr-grid-3">${statsHtml}</div>
+        <h2 class="ssr-section-heading">${esc(content.workflowHeading)}</h2>
+        <p class="ssr-section-subheading">${esc(content.workflow)}</p>
+        <h3 class="ssr-section-heading" style="font-size:1.25rem;">${esc(content.topicsHeading)}</h3>
+        <div class="ssr-grid-2">${topicsHtml}</div>
+        <p class="ssr-section-subheading">${esc(content.coverageNote)}</p>
       </div>
     </section>
 
     <section class="ssr-section">
       <div class="ssr-section-inner">
-        <h2 class="ssr-section-heading">Pain Points &amp; Solutions for ${esc(city.name)} ${esc(vertical.name)} Businesses</h2>
-        <p class="ssr-section-subheading">Common issues we identify when reviewing statements from ${esc(city.name)}-area ${esc(vertical.name.toLowerCase())} businesses — and how Liberty Bancard solves them.</p>
-        <div class="ssr-grid-2">${benefitsHtml}</div>
-      </div>
-    </section>
-
-    <section class="ssr-section ssr-section-muted">
-      <div class="ssr-section-inner">
-        <h2 class="ssr-section-heading">${esc(vertical.name)} Payment Processing in ${esc(city.name)}: FAQ</h2>
+        <h2 class="ssr-section-heading">${esc(content.faqHeading)}</h2>
         <div class="ssr-faq-wrapper">${faqsHtml}</div>
       </div>
     </section>
@@ -163,11 +133,10 @@ function renderLocationHtml(citySlug: string, verticalSlug: string): string | nu
     <section class="ssr-section ssr-section-dark">
       <div class="ssr-section-inner">
         <div class="ssr-cta-section">
-          <h2>${esc(city.name)} ${esc(vertical.name)} Owners: See What You're Really Paying</h2>
-          <p>Upload your most recent processing statement. We'll break it down line-by-line and show you exactly where your money goes. Keep the analysis even if you don't switch.</p>
+          <h2>${esc(content.ctaHeading)}</h2>
+          <p>${esc(content.ctaBody)}</p>
           <div class="ssr-cta-buttons">
-            <a href="/upload-statement" class="ssr-btn-primary">📤 Upload Statement — Free Review</a>
-            <a href="tel:9542668214" class="ssr-btn-outline">📞 Call (954) 266-8214</a>
+            ${actionsHtml(content.primaryAction, content.secondaryAction)}
           </div>
         </div>
       </div>
@@ -175,118 +144,79 @@ function renderLocationHtml(citySlug: string, verticalSlug: string): string | nu
 
     <section class="ssr-section">
       <div class="ssr-section-inner">
-        <h3 style="font-family:'IBM Plex Sans',system-ui,sans-serif;font-weight:700;text-align:center;margin-bottom:1rem;font-size:1.125rem;">
-          More ${esc(vertical.name)} Processing Locations
-        </h3>
-        <div class="ssr-crosslinks">${otherCities}</div>
-
-        <h3 style="font-family:'IBM Plex Sans',system-ui,sans-serif;font-weight:700;text-align:center;margin:2rem 0 1rem;font-size:1.125rem;">
-          Other Industries in ${esc(city.name)}
-        </h3>
-        <div class="ssr-crosslinks">${otherVerticals}</div>
+        <h3 style="font-weight:700;text-align:center;margin-bottom:1rem;font-size:1.125rem;">${esc(content.citiesHeading)}</h3>
+        <div class="ssr-crosslinks">${cityLinks}</div>
+        <h3 style="font-weight:700;text-align:center;margin:2rem 0 1rem;font-size:1.125rem;">${esc(content.verticalsHeading)}</h3>
+        <div class="ssr-crosslinks">${verticalLinks}</div>
       </div>
     </section>
   `;
 
   return ssrHtmlShell({
-    title,
-    description,
-    canonical,
-    keywords,
-    schemaJsons: [faqSchema, breadcrumbSchema, localBusinessSchema],
+    title: locationDocumentTitle(content.title),
+    description: content.metaDescription,
+    canonical: content.canonicalPath,
+    keywords: content.keywords,
+    schemaJsons: [faqSchema, breadcrumbSchema, serviceSchema(content)],
     body,
   });
 }
 
-export function getLocationHtml(citySlug: string, industrySlug: string): string | null {
-  return renderLocationHtml(citySlug, industrySlug);
-}
-
-export function getCityHubHtml(citySlug: string): string | null {
-  const city = getCityData(citySlug);
-  if (!city) return null;
-
-  const canonical = `/locations/${city.slug}`;
-  const title = `Payment Processing in ${city.name}, ${city.state} | Liberty Bancard`;
-  const description = `${city.name} businesses save on credit card processing with Liberty Bancard interchange-plus pricing. Free statement review for ${city.name}, ${city.state} merchants.`;
-
+function renderHub(content: LocationHubContent): string {
   const breadcrumbSchema = {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     itemListElement: [
-      { "@type": "ListItem", position: 1, name: "Home", item: "https://libertybancard.com/" },
-      { "@type": "ListItem", position: 2, name: `${city.name}, ${city.state}`, item: `https://libertybancard.com${canonical}` },
+      { "@type": "ListItem", position: 1, name: "Home", item: `${BASE_URL}/` },
+      { "@type": "ListItem", position: 2, name: `${content.cityName}, ${content.state}`, item: `${BASE_URL}${content.canonicalPath}` },
     ],
   };
 
-  const localBusinessSchema = {
-    "@context": "https://schema.org",
-    "@type": "LocalBusiness",
-    name: "Liberty Bancard",
-    description,
-    url: `https://libertybancard.com${canonical}`,
-    telephone: "+1-954-266-8214",
-    areaServed: {
-      "@type": "City",
-      name: city.name,
-      containedInPlace: { "@type": "State", name: city.stateFullName },
-    },
-    address: {
-      "@type": "PostalAddress",
-      addressLocality: "Fort Lauderdale",
-      addressRegion: "FL",
-      addressCountry: "US",
-    },
-  };
-
-  const verticalCardsHtml = VERTICALS.map(
-    (v) => `
+  const verticalCardsHtml = content.verticals
+    .map(
+      (v) => `
     <div class="ssr-card">
-      <a href="/locations/${esc(city.slug)}/${esc(v.slug)}" style="text-decoration:none;color:inherit;display:block;">
+      <a href="${esc(v.href)}" style="text-decoration:none;color:inherit;display:block;">
         <div class="ssr-item-title" style="margin-bottom:4px;">${esc(v.name)} Payment Processing</div>
-        <div class="ssr-item-text" style="margin-bottom:8px;">Typical savings: ${esc(v.avgSavings)}/year · Avg rate: ${esc(v.avgRate)}</div>
-        <div style="color:#0ea5e9;font-size:13px;font-weight:500;">View ${esc(city.name)} ${esc(v.name)} solutions →</div>
+        <div class="ssr-item-text" style="margin-bottom:8px;">${esc(v.summary)}</div>
+        <div style="color:#0369a1;font-size:13px;font-weight:500;">${esc(v.name)} in ${esc(content.cityName)}</div>
       </a>
-    </div>`
-  ).join("");
+    </div>`,
+    )
+    .join("");
 
   const body = `
     <div class="ssr-hero" style="padding-top: 2rem;">
       <div class="ssr-hero-inner">
-        <div class="ssr-hero-badge">📍 ${esc(city.name)}, ${esc(city.stateFullName)}</div>
+        <div class="ssr-hero-badge">${esc(content.badge)}</div>
         <div class="ssr-breadcrumb">
           <a href="/">Home</a><span>/</span>
-          <span>${esc(city.name)}, ${esc(city.state)}</span>
+          <span>${esc(content.cityName)}, ${esc(content.state)}</span>
         </div>
-        <h1>Payment Processing in ${esc(city.name)}, ${esc(city.state)}</h1>
-        <p class="ssr-hero-subtitle">${esc(city.description)}. Liberty Bancard serves ${esc(city.businessCount)} businesses across ${esc(city.name)} with transparent, interchange-plus payment processing.</p>
+        <h1>${esc(content.h1)}</h1>
+        <p class="ssr-hero-subtitle">${esc(content.lead)}</p>
         <div class="ssr-hero-buttons">
-          <a href="/upload-statement" class="ssr-btn-primary">📤 Free Statement Review</a>
+          ${actionsHtml(content.primaryAction, content.secondaryAction)}
         </div>
       </div>
     </div>
 
     <section class="ssr-section ssr-section-muted">
       <div class="ssr-section-inner">
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px;">
-          <span style="background:#e0f2fe;color:#0369a1;border-radius:6px;padding:6px 12px;font-size:13px;">📍 ${esc(city.name)}, ${esc(city.stateFullName)}</span>
-          <span style="background:#e0f2fe;color:#0369a1;border-radius:6px;padding:6px 12px;font-size:13px;">👥 Population: ${esc(city.population)}</span>
-          <span style="background:#e0f2fe;color:#0369a1;border-radius:6px;padding:6px 12px;font-size:13px;">🏪 ${esc(city.businessCount)} businesses</span>
-        </div>
-        <h2 class="ssr-section-heading">Industry-Specific Payment Processing in ${esc(city.name)}</h2>
-        <p class="ssr-section-subheading">Select your industry below for tailored payment processing solutions, typical rates, and industry-specific savings information for ${esc(city.name)}-area businesses.</p>
+        <h2 class="ssr-section-heading">${esc(content.verticalsHeading)}</h2>
+        <p class="ssr-section-subheading">${esc(content.verticalsIntro)}</p>
         <div class="ssr-grid-2">${verticalCardsHtml}</div>
+        <p class="ssr-section-subheading">${esc(content.coverageNote)}</p>
       </div>
     </section>
 
     <section class="ssr-section ssr-section-dark">
       <div class="ssr-section-inner">
         <div class="ssr-cta-section">
-          <h2>${esc(city.name)} Business Owners: See What You're Really Paying</h2>
-          <p>Upload your most recent processing statement. We'll break it down line-by-line and show you exactly where your money goes — no obligation.</p>
+          <h2>${esc(content.ctaHeading)}</h2>
+          <p>${esc(content.ctaBody)}</p>
           <div class="ssr-cta-buttons">
-            <a href="/upload-statement" class="ssr-btn-primary">📤 Upload Statement — Free Review</a>
-            <a href="tel:9542668214" class="ssr-btn-outline">📞 Call (954) 266-8214</a>
+            ${actionsHtml(content.primaryAction, content.secondaryAction)}
           </div>
         </div>
       </div>
@@ -294,11 +224,21 @@ export function getCityHubHtml(citySlug: string): string | null {
   `;
 
   return ssrHtmlShell({
-    title,
-    description,
-    canonical,
-    keywords: `payment processing ${city.name}, merchant services ${city.name} ${city.state}, credit card processing ${city.name}`,
-    schemaJsons: [breadcrumbSchema, localBusinessSchema],
+    title: locationDocumentTitle(content.title),
+    description: content.metaDescription,
+    canonical: content.canonicalPath,
+    keywords: content.keywords,
+    schemaJsons: [breadcrumbSchema, serviceSchema(content)],
     body,
   });
+}
+
+export function getLocationHtml(citySlug: string, industrySlug: string): string | null {
+  const content = buildLocationDetail(citySlug, industrySlug);
+  return content ? renderDetail(content) : null;
+}
+
+export function getCityHubHtml(citySlug: string): string | null {
+  const content = buildLocationHub(citySlug);
+  return content ? renderHub(content) : null;
 }

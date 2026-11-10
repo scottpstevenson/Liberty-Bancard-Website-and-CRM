@@ -191,6 +191,15 @@ export const PUBLIC_CLAIM_RECORDS: readonly PublicClaimRecord[] = [
     EV_CONTRACT,
     ["page", "home"],
   ),
+  // Home hero helper lines (desktop only). Owner-supplied wording for the hero; shown nowhere else.
+  approved("offer.review.hero-helper", "review", "Free review. No obligation to switch.", EV_CONTRACT, ["home"]),
+  approved(
+    "offer.review.hero-qualification",
+    "review",
+    "Pricing, equipment and eligibility are confirmed during review.",
+    EV_CONTRACT,
+    ["home"],
+  ),
   held("offer.free-processing", "review", "retired", "offer.review.inquiry"),
   held("offer.eliminate-processing-fees", "review", "retired", "offer.review.inquiry"),
 

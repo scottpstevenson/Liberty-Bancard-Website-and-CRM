@@ -177,7 +177,7 @@ check("free analysis owns authority before mutation and returns opaque persisted
 
 check("free analysis browser retries reuse one key and treat receipts as opaque", () => {
   const submitStart = freeAnalysisUi.indexOf("const handleSubmit = async () =>");
-  const submitEnd = freeAnalysisUi.indexOf("\n  const results =", submitStart);
+  const submitEnd = freeAnalysisUi.indexOf("\n  const focusLines =", submitStart);
   assert.notEqual(submitStart, -1, "free analysis submit handler is missing");
   assert.notEqual(submitEnd, -1, "cannot determine free analysis submit handler boundary");
   const submit = freeAnalysisUi.slice(submitStart, submitEnd);

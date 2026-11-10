@@ -373,6 +373,7 @@ export const PRIVATE_CASE_REVIEWS: readonly PrivateCaseReview[] = [
 // ── Image, logo and device source-and-rights register ───────────────────────
 
 export type AssetRightsDisposition =
+  | "generated-owner-review-pending"
   | "unverified-illustrative-only"
   | "owner-brand-asset-unconfirmed"
   | "third-party-device-image-rights-unconfirmed"
@@ -386,13 +387,13 @@ export interface AssetRightsEntry {
 }
 
 export const ASSET_RIGHTS_REGISTER: readonly AssetRightsEntry[] = [
-  { asset: "hero-terminal-tap", kind: "photo", disposition: "unverified-illustrative-only", note: "Rendered payment moment; no licence record." },
-  { asset: "industry-restaurant", kind: "photo", disposition: "unverified-illustrative-only", note: "No licence record." },
-  { asset: "industry-healthcare", kind: "photo", disposition: "unverified-illustrative-only", note: "No licence record." },
-  { asset: "industry-automotive", kind: "photo", disposition: "unverified-illustrative-only", note: "No licence record." },
-  { asset: "industry-retail", kind: "photo", disposition: "unverified-illustrative-only", note: "No licence record." },
-  { asset: "industry-home-services", kind: "photo", disposition: "unverified-illustrative-only", note: "No licence record." },
-  { asset: "how-statement-review", kind: "photo", disposition: "unverified-illustrative-only", note: "No licence record." },
+  { asset: "home-hero-merchant (asset 01)", kind: "photo", disposition: "generated-owner-review-pending", note: "AI-generated editorial image from the W-D pack; not a photograph of a Liberty customer or merchant. Public adoption follows owner review and Publish." },
+  { asset: "industry-restaurant, industry-dental, industry-med-spa, industry-automotive, industry-retail (assets 02-06)", kind: "photo", disposition: "generated-owner-review-pending", note: "AI-generated illustrative scenes from the W-D pack; no real people, customers or businesses are depicted. Owner review pending." },
+  { asset: "industry-field-services, industry-ecommerce, industry-professional-services (assets 07-09)", kind: "photo", disposition: "generated-owner-review-pending", note: "AI-generated illustrative scenes from the W-D pack, used on industry pages only; owner review pending." },
+  { asset: "process-review-hands (asset 10)", kind: "photo", disposition: "generated-owner-review-pending", note: "AI-generated process image; does not show Liberty staff or a customer. Owner review pending." },
+  { asset: "equipment-concept-terminal-upright (asset 13)", kind: "device", disposition: "generated-owner-review-pending", note: "AI-redrawn illustrative hardware with a manufacturer-derived reference chain; not exact-model product photography and not proof of compatibility or installed software." },
+  { asset: "statement-review and payment-options illustrations (assets 11, 12)", kind: "photo", disposition: "generated-owner-review-pending", note: "Authored SVG artwork rebuilt as live text on Home; masters kept source-only." },
+  { asset: "industry-healthcare, industry-home-services, hero-terminal-tap, how-statement-review (retired registry ids)", kind: "photo", disposition: "excluded", note: "Replaced by the W-D generated set; no longer registered. Files may remain on disk for older pages." },
   { asset: "terminal-clover-flex-3.png", kind: "device", disposition: "third-party-device-image-rights-unconfirmed", note: "Manufacturer or reseller marketing image; permission not evidenced." },
   { asset: "terminal-pax-a920.png", kind: "device", disposition: "third-party-device-image-rights-unconfirmed", note: "Manufacturer or reseller marketing image; permission not evidenced." },
   { asset: "Dejavoo QD4 image (terminal shop page)", kind: "device", disposition: "third-party-device-image-rights-unconfirmed", note: "File name and artwork are not rights evidence." },

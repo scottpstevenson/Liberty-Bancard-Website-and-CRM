@@ -20,9 +20,7 @@ import {
   CheckCircle,
   DollarSign,
   CreditCard,
-  TrendingDown,
   AlertTriangle,
-  Percent,
   Monitor,
   Upload,
   Phone,
@@ -34,7 +32,6 @@ import {
   ShoppingCart,
   MoreHorizontal,
   Zap,
-  Shield,
   ShieldCheck,
   Clock,
   FileText,
@@ -42,18 +39,10 @@ import {
   BadgeCheck,
   Loader2,
   Calendar,
-  Copy,
-  Share2,
-  Mail,
-  MessageSquare,
-  Facebook,
   UserCheck,
-  Star,
   ChevronDown,
   ChevronUp,
-  MapPin,
   TrendingUp,
-  Lock,
   Headphones,
   AlertCircle,
 } from "lucide-react";
@@ -61,6 +50,8 @@ import { PromoBanner } from "@/components/PromoBanner";
 import { REVIEW_OFFER } from "@shared/public-offers";
 import logoBlue from "@/assets/logo-blue.png";
 import { claimText } from "@shared/public-claims";
+import { FSR_PROCESS } from "@shared/free-statement-review-content";
+import { FREE_ANALYSIS_QUIZ_PAGE } from "@shared/public-free-analysis";
 
 function encodeResults(data: { industry: string; volume: string; processor: string; painPoints: string[] }): string {
   return btoa(JSON.stringify(data));
@@ -81,15 +72,15 @@ function decodeResults(encoded: string): { industry: string; volume: string; pro
 const faqItems = [
   {
     q: "Is this really free? What's the catch?",
-    a: "100% free, no credit card required. We make money when merchants switch to our processing — not from the quiz. Even if you don't switch, you keep the savings breakdown.",
+    a: `${claimText("review.cost.free")} There is no obligation to switch.`,
   },
   {
-    q: "How accurate are the savings estimates?",
-    a: "The quiz provides an estimate based on industry averages for your business type and volume. For exact savings, upload your most recent processing statement and we'll do a free line-by-line analysis.",
+    q: "Does the quiz give me a savings number?",
+    a: "No. The quiz collects the basics so a statement review can start in the right place. Your costs depend on your current pricing and your transaction mix, which only your statement shows.",
   },
   {
-    q: "Will you sell my information?",
-    a: "Never. Your data is encrypted with 256-bit SSL and used only to calculate your estimate and, with your permission, contact you about your results. Read our Privacy Policy for details.",
+    q: "How is my information used?",
+    a: "Your answers and contact details are used to respond to your request and, with your permission, to contact you about it. Read our Privacy Policy for details.",
   },
   {
     q: "Am I locked into a contract if I switch?",
@@ -101,7 +92,7 @@ const faqItems = [
   },
   {
     q: "What types of businesses do you work with?",
-    a: "We serve restaurants, retail, healthcare, salons, auto repair, professional services, e-commerce, construction, and more — nationwide. If you accept card payments, we can help.",
+    a: FSR_PROCESS.support,
   },
 ];
 
@@ -153,20 +144,20 @@ const industryOptions = [
 ];
 
 const volumeOptions = [
-  { value: "under-5k", label: "Under $5,000", monthlyMid: 2500, sub: "Starter volume" },
-  { value: "5k-15k", label: "$5,000 - $15,000", monthlyMid: 10000, sub: "Growing business" },
-  { value: "15k-50k", label: "$15,000 - $50,000", monthlyMid: 32500, sub: "Established operator" },
-  { value: "50k-150k", label: "$50,000 - $150,000", monthlyMid: 100000, sub: "High volume" },
-  { value: "150k-plus", label: "$150,000+", monthlyMid: 200000, sub: "Enterprise volume" },
+  { value: "under-5k", label: "Under $5,000", sub: "Starter volume" },
+  { value: "5k-15k", label: "$5,000 - $15,000", sub: "Growing business" },
+  { value: "15k-50k", label: "$15,000 - $50,000", sub: "Established operator" },
+  { value: "50k-150k", label: "$50,000 - $150,000", sub: "High volume" },
+  { value: "150k-plus", label: "$150,000+", sub: "Enterprise volume" },
 ];
 
 const processorOptions = [
-  { value: "square", label: "Square", rate: 2.6 },
-  { value: "stripe", label: "Stripe", rate: 2.9 },
-  { value: "clover", label: "Clover", rate: 2.3 },
-  { value: "toast", label: "Toast", rate: 2.49 },
-  { value: "bank-processor", label: "Bank / Traditional Processor", rate: 2.5 },
-  { value: "other", label: "Other / Not Sure", rate: 2.75 },
+  { value: "square", label: "Square" },
+  { value: "stripe", label: "Stripe" },
+  { value: "clover", label: "Clover" },
+  { value: "toast", label: "Toast" },
+  { value: "bank-processor", label: "Bank / Traditional Processor" },
+  { value: "other", label: "Other / Not Sure" },
 ];
 
 const painPointOptions = [
@@ -178,90 +169,19 @@ const painPointOptions = [
   { value: "no-transparency", label: "No pricing transparency", icon: FileText },
 ];
 
-interface QuizResults {
-  estimatedMonthlySavings: number;
-  estimatedAnnualSavings: number;
-  recommendedProgram: string;
-  programDescription: string;
-  recommendedTerminal: string;
-  terminalDescription: string;
-  currentRate: number;
-  targetRate: number;
-}
+/** What the statement review would look at for each concern the visitor chose. No figure, saving or product is implied. */
+const REVIEW_FOCUS: Record<string, string> = {
+  "high-fees": "Your effective cost: the fees included divided by the card volume they apply to.",
+  "hidden-charges": "Each fee on the statement: what it is and who charges it.",
+  "slow-deposits": "Funding and deposit terms, which depend on your account and your agreement.",
+  "bad-support": "What your current agreement says about support, and who to contact.",
+  "outdated-equipment": "Equipment, gateway and other charges, listed separately from processing fees.",
+  "no-transparency": "The pricing model on your statement and what each line means.",
+};
 
-function calculateSavings(
-  industry: string,
-  volume: string,
-  processor: string,
-  painPoints: string[]
-): QuizResults {
-  const volumeData = volumeOptions.find((v) => v.value === volume);
-  const processorData = processorOptions.find((p) => p.value === processor);
-
-  const monthlyVolume = volumeData?.monthlyMid || 25000;
-  const currentRate = processorData?.rate || 2.75;
-
-  const isFlatRate = ["square", "stripe"].includes(processor);
-  const isHighVolume = monthlyVolume >= 50000;
-  const isCashDiscountFriendly =
-    ["restaurant", "automotive", "home-services", "retail"].includes(industry);
-
-  let targetRate: number;
-  let recommendedProgram: string;
-  let programDescription: string;
-
-  if (isCashDiscountFriendly && isHighVolume) {
-    targetRate = 0;
-    recommendedProgram = "Cash Discount / Dual Pricing";
-    programDescription =
-      `Based on your industry and volume, a cash discount program may be worth reviewing. ${claimText("program.overview")} ${claimText("program.remaining-costs")}`;
-  } else if (isFlatRate || isHighVolume || currentRate > 2.5) {
-    targetRate = isHighVolume ? 1.6 : 1.85;
-    recommendedProgram = "Interchange-Plus Pricing";
-    programDescription =
-      "You're likely overpaying with bundled or flat-rate pricing. Interchange-plus gives you the actual card brand cost plus a small, transparent markup. Most merchants in your volume range save 20-40%.";
-  } else {
-    targetRate = 1.95;
-    recommendedProgram = "Interchange-Plus Pricing";
-    programDescription =
-      "Even at your current rate, there may be hidden fees inflating your effective cost. Interchange-plus pricing eliminates the guesswork and shows you exactly what you're paying.";
-  }
-
-  const currentMonthlyCost = (monthlyVolume * currentRate) / 100;
-  const targetMonthlyCost = (monthlyVolume * targetRate) / 100;
-  const monthlySavings = Math.max(0, currentMonthlyCost - targetMonthlyCost);
-  const annualSavings = monthlySavings * 12;
-
-  let recommendedTerminal: string;
-  let terminalDescription: string;
-
-  if (industry === "restaurant") {
-    recommendedTerminal = "Clover Flex 3";
-    terminalDescription = "Handheld POS with built-in printer, perfect for tableside service.";
-  } else if (industry === "retail" || industry === "ecommerce") {
-    recommendedTerminal = "Clover Station Duo";
-    terminalDescription = "Full POS system with dual screens and inventory management.";
-  } else if (industry === "home-services" || industry === "automotive") {
-    recommendedTerminal = "Dejavoo QD4";
-    terminalDescription = "Rugged mobile terminal with all-day battery and 4G LTE.";
-  } else if (industry === "healthcare") {
-    recommendedTerminal = "Clover Mini 3";
-    terminalDescription = "Compact countertop terminal ideal for co-pay collection.";
-  } else {
-    recommendedTerminal = "PAX A920";
-    terminalDescription = "Versatile smart terminal with support for all payment types.";
-  }
-
-  return {
-    estimatedMonthlySavings: Math.round(monthlySavings),
-    estimatedAnnualSavings: Math.round(annualSavings),
-    recommendedProgram,
-    programDescription,
-    recommendedTerminal,
-    terminalDescription,
-    currentRate,
-    targetRate,
-  };
+function reviewFocusFor(painPoints: string[]): string[] {
+  const focus = painPoints.map((value) => REVIEW_FOCUS[value]).filter((line): line is string => Boolean(line));
+  return focus.length > 0 ? focus : [REVIEW_FOCUS["high-fees"]];
 }
 
 export default function FreeAnalysis() {
@@ -278,6 +198,7 @@ export default function FreeAnalysis() {
   const [emailMarketing, setEmailMarketing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [requestSaved, setRequestSaved] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [refCode, setRefCode] = useState<string | null>(null);
   const [promoCode, setPromoCode] = useState<string | null>(null);
@@ -418,10 +339,12 @@ export default function FreeAnalysis() {
       const consentNotice = emailConsentNotice(consentState, emailMarketing);
       if (consentNotice) toast({ title: "Request saved", description: consentNotice });
       setSubmitted(true);
+      setRequestSaved(true);
+      // No financial value is sent: the quiz computes none.
       trackQuizComplete();
-      trackFormSubmission("free_analysis_quiz", results?.estimatedAnnualSavings);
-      trackConversion("free_analysis_quiz", results?.estimatedAnnualSavings);
-      trackConversionV2("free_analysis_quiz", { value: results?.estimatedAnnualSavings });
+      trackFormSubmission("free_analysis_quiz");
+      trackConversion("free_analysis_quiz");
+      trackConversionV2("free_analysis_quiz");
     } catch (error: any) {
       setSubmitError(getFormErrorMessage(error));
     } finally {
@@ -429,49 +352,17 @@ export default function FreeAnalysis() {
     }
   };
 
-  const results = calculateSavings(industry, volume, processor, painPoints);
-
-  const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
-
-  const getShareableUrl = () => {
-    const encoded = encodeResults({ industry, volume, processor, painPoints });
-    const url = new URL(`${baseUrl}/free-analysis`);
-    url.searchParams.set("results", encoded);
-    if (refCode) url.searchParams.set("ref", refCode);
-    return url.toString();
-  };
-
-  const copyShareLink = () => {
-    navigator.clipboard.writeText(getShareableUrl());
-    toast({ title: "Link copied to clipboard" });
-  };
-
-  const shareToFacebook = () => {
-    const url = encodeURIComponent(getShareableUrl());
-    window.open(`https://www.facebook.com/sharer/sharer.php?u=${url}`, "_blank", "width=600,height=400");
-  };
-
-  const shareViaEmail = () => {
-    const subject = encodeURIComponent(`See how much you could save on payment processing`);
-    const body = encodeURIComponent(
-      `I just found out I could save $${results.estimatedAnnualSavings.toLocaleString()}/year on payment processing with Liberty Bancard.\n\nTake the free 60-second quiz to see your savings estimate:\n${getShareableUrl()}`
-    );
-    window.open(`mailto:?subject=${subject}&body=${body}`);
-  };
-
-  const shareViaSms = () => {
-    const body = encodeURIComponent(
-      `Check out how much you could save on credit card processing! Free 60-second quiz: ${getShareableUrl()}`
-    );
-    window.open(`sms:?body=${body}`);
-  };
+  const focusLines = reviewFocusFor(painPoints);
+  const industryLabel = industryOptions.find((o) => o.value === industry)?.label;
+  const volumeLabel = volumeOptions.find((o) => o.value === volume)?.label;
+  const processorLabel = processorOptions.find((o) => o.value === processor)?.label;
 
   if (submitted) {
     return (
       <div className="marketing-surface min-h-screen flex flex-col font-body bg-background">
         <SEO
-          title="Your Free Savings Analysis Results"
-          description="See your personalized payment processing savings estimate."
+          title="Your Free Statement Review Request"
+          description="What a free statement review would look at, based on your answers."
           path="/free-analysis"
           noindex={true}
         />
@@ -497,163 +388,74 @@ export default function FreeAnalysis() {
               className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-foreground mb-2"
               data-testid="text-results-heading"
             >
-              Your Savings Estimate Is Ready
+              {requestSaved ? "We've received your request" : "What a statement review would look at"}
             </h1>
             <p className="text-muted-foreground">
-              {firstName ? `${firstName}, based` : "Based"} on your answers, here's what we found.
+              {firstName ? `${firstName}, here` : "Here"} is what a review would look at, based on your answers. {claimText("timing.staged-process")}
             </p>
           </div>
         </section>
 
         <section className="bg-muted/30 py-10 flex-grow" data-testid="section-results">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-              <Card data-testid="card-savings-monthly">
-                <CardContent className="p-5 text-center">
-                  <TrendingDown className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-                  <p className="text-2xl font-display font-bold text-foreground" data-testid="text-monthly-savings">
-                    ${results.estimatedMonthlySavings.toLocaleString()}
-                  </p>
-                  <p className="text-sm text-muted-foreground">Est. monthly savings</p>
-                </CardContent>
-              </Card>
-              <Card data-testid="card-savings-annual">
-                <CardContent className="p-5 text-center">
-                  <DollarSign className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-                  <p className="text-2xl font-display font-bold text-foreground" data-testid="text-annual-savings">
-                    ${results.estimatedAnnualSavings.toLocaleString()}
-                  </p>
-                  <p className="text-sm text-muted-foreground">Est. annual savings</p>
-                </CardContent>
-              </Card>
-              <Card data-testid="card-rate-comparison">
-                <CardContent className="p-5 text-center">
-                  <Percent className="w-8 h-8 text-primary mx-auto mb-2" />
-                  <p className="text-2xl font-display font-bold text-foreground" data-testid="text-rate-comparison">
-                    {results.currentRate}% → {results.targetRate}%
-                  </p>
-                  <p className="text-sm text-muted-foreground">Current vs. target rate</p>
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card className="mb-6" data-testid="card-recommended-program">
+            <Card className="mb-6" data-testid="card-your-answers">
               <CardContent className="p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
-                    {results.recommendedProgram.includes("Cash") ? (
-                      <Percent className="w-6 h-6 text-primary" />
-                    ) : (
-                      <Shield className="w-6 h-6 text-primary" />
-                    )}
+                <h2 className="text-lg font-display font-bold text-foreground mb-3">Your answers</h2>
+                <dl className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Business type</dt>
+                    <dd className="font-medium text-foreground" data-testid="text-answer-industry">{industryLabel ?? "Not provided"}</dd>
                   </div>
                   <div>
-                    <div className="text-xs font-medium text-primary uppercase tracking-wider">
-                      Recommended Program
-                    </div>
-                    <h2
-                      className="text-xl font-display font-bold text-foreground"
-                      data-testid="text-recommended-program"
-                    >
-                      {results.recommendedProgram}
-                    </h2>
+                    <dt className="text-xs text-muted-foreground">Monthly card volume</dt>
+                    <dd className="font-medium text-foreground" data-testid="text-answer-volume">{volumeLabel ?? "Not provided"}</dd>
                   </div>
-                </div>
-                <p className="text-muted-foreground leading-relaxed mb-4" data-testid="text-program-description">
-                  {results.programDescription}
-                </p>
-                <div className="bg-primary/5 rounded-md p-3 space-y-2">
-                  <div className="flex items-start gap-2">
-                    <Zap className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-                    <p className="text-sm text-foreground font-medium" data-testid="text-urgency-message">
-                      {claimText("timing.staged-process")}
-                    </p>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Current provider</dt>
+                    <dd className="font-medium text-foreground" data-testid="text-answer-processor">{processorLabel ?? "Not provided"}</dd>
                   </div>
-                </div>
-                <PromoBanner variant="inline" promoId={REVIEW_OFFER.id} dismissible={false} className="mt-4" />
+                </dl>
               </CardContent>
             </Card>
 
-            <Card className="mb-6" data-testid="card-recommended-terminal">
+            <Card className="mb-6" data-testid="card-review-focus">
               <CardContent className="p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
-                    <Monitor className="w-6 h-6 text-primary" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-medium text-primary uppercase tracking-wider">
-                      Recommended Terminal
-                    </div>
-                    <h2
-                      className="text-xl font-display font-bold text-foreground"
-                      data-testid="text-recommended-terminal"
-                    >
-                      {results.recommendedTerminal}
-                    </h2>
-                  </div>
-                </div>
-                <p className="text-muted-foreground leading-relaxed" data-testid="text-terminal-description">
-                  {results.terminalDescription}
+                <h2 className="text-lg font-display font-bold text-foreground mb-3">What the review would look at</h2>
+                <ul className="space-y-2 text-sm text-muted-foreground leading-relaxed" data-testid="list-review-focus">
+                  {focusLines.map((line) => (
+                    <li key={line} className="flex items-start gap-2">
+                      <CheckCircle className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                      <span>{line}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-sm text-muted-foreground leading-relaxed mt-4" data-testid="text-no-estimate">
+                  No savings figure is shown here. Your costs depend on your current pricing and transaction mix, and your statement is what shows them.
                 </p>
+                <PromoBanner variant="inline" promoId={REVIEW_OFFER.id} dismissible={false} className="mt-4" />
               </CardContent>
             </Card>
 
             <Card className="mb-6" data-testid="card-next-steps">
               <CardContent className="p-6">
                 <h3 className="text-lg font-display font-bold text-foreground mb-2">
-                  What's Next?
+                  What's next?
                 </h3>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Upload your most recent processing statement for a free, line-by-line analysis. We'll confirm your exact savings.
+                  {claimText("review.process.summary")}
                 </p>
                 <div className="flex flex-col sm:flex-row gap-3">
                   <Button size="lg" className="public-cta gap-2 w-full" asChild>
                     <Link href="/upload-statement" data-testid="link-results-upload">
                       <Upload className="w-4 h-4" />
-                      Check My Savings
+                      Get a free statement review
                     </Link>
                   </Button>
                   <Button size="lg" variant="outline" className="public-cta gap-2 w-full" asChild>
                     <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-results-book">
                       <Calendar className="w-4 h-4" />
-                      Book a review call
+                      Book a processing conversation
                     </a>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="mb-8" data-testid="card-share-results">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
-                    <Share2 className="w-5 h-5 text-primary" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-display font-bold text-foreground">
-                      Share These Results
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                      Know a business owner who could save too?
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" className="gap-2" onClick={copyShareLink} data-testid="button-share-copy">
-                    <Copy className="w-4 h-4" />
-                    Copy Link
-                  </Button>
-                  <Button variant="outline" className="gap-2" onClick={shareToFacebook} data-testid="button-share-facebook">
-                    <Facebook className="w-4 h-4" />
-                    Facebook
-                  </Button>
-                  <Button variant="outline" className="gap-2" onClick={shareViaEmail} data-testid="button-share-email">
-                    <Mail className="w-4 h-4" />
-                    Email
-                  </Button>
-                  <Button variant="outline" className="gap-2" onClick={shareViaSms} data-testid="button-share-sms">
-                    <MessageSquare className="w-4 h-4" />
-                    Text
                   </Button>
                 </div>
               </CardContent>
@@ -663,28 +465,28 @@ export default function FreeAnalysis() {
               <Card data-testid="card-trust-1">
                 <CardContent className="p-4 text-center">
                   <ShieldCheck className="w-8 h-8 text-primary mx-auto mb-2" />
-                  <p className="text-sm font-medium text-foreground">No Obligation</p>
-                  <p className="text-xs text-muted-foreground">Free, no-obligation review</p>
+                  <p className="text-sm font-medium text-foreground">No obligation</p>
+                  <p className="text-xs text-muted-foreground">There is no obligation to switch</p>
                 </CardContent>
               </Card>
               <Card data-testid="card-trust-2">
                 <CardContent className="p-4 text-center">
                   <FileText className="w-8 h-8 text-primary mx-auto mb-2" />
-                  <p className="text-sm font-medium text-foreground">Keep the Breakdown</p>
-                  <p className="text-xs text-muted-foreground">Even if you don't switch</p>
+                  <p className="text-sm font-medium text-foreground">Keep the breakdown</p>
+                  <p className="text-xs text-muted-foreground">Keep it either way</p>
                 </CardContent>
               </Card>
               <Card data-testid="card-trust-3">
                 <CardContent className="p-4 text-center">
                   <Phone className="w-8 h-8 text-primary mx-auto mb-2" />
-                  <p className="text-sm font-medium text-foreground">Real Human Support</p>
+                  <p className="text-sm font-medium text-foreground">Questions?</p>
                   <p className="text-xs text-muted-foreground">{PHONE_NUMBER}</p>
                 </CardContent>
               </Card>
             </div>
 
             <p className="text-xs text-muted-foreground text-center" data-testid="text-results-disclaimer">
-              Estimates are based on industry averages and the information you provided. Actual savings depend on your statement details, card mix, and eligibility. Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
+              Eligibility, underwriting, card brand rules and applicable laws apply. No savings are promised without a statement review.
             </p>
           </div>
         </section>
@@ -714,16 +516,16 @@ export default function FreeAnalysis() {
   const stepEncouragement: Record<number, string> = {
     3: "Great progress! Just 2 more quick questions.",
     4: "Almost there! One more step after this.",
-    5: "Final step! Your personalized savings estimate is seconds away.",
+    5: "Final step! Tell us how to reach you.",
   };
 
   return (
     <div className="marketing-surface min-h-screen flex flex-col font-body bg-background">
       <SEO
-        title="Free Savings Analysis - See How Much You Could Save"
-        description="Take our 60-second quiz to get a personalized processing savings estimate. Free analysis, no obligation. Trusted by 5,000+ merchants nationwide."
+        title={FREE_ANALYSIS_QUIZ_PAGE.shortTitle}
+        description={FREE_ANALYSIS_QUIZ_PAGE.description}
         path="/free-analysis"
-        keywords="free statement analysis, payment processing savings, credit card processing, merchant services, rate comparison"
+        keywords={FREE_ANALYSIS_QUIZ_PAGE.keywords}
       />
 
       <PromoBanner variant="bar" promoId={REVIEW_OFFER.id} />
@@ -736,16 +538,16 @@ export default function FreeAnalysis() {
           </Link>
           <Badge variant="secondary" className="mb-4" data-testid="badge-quiz-time">
             <Clock className="w-3 h-3 mr-1" />
-            60-Second Free Analysis
+            5 quick questions
           </Badge>
           <h1
             className="public-h1 public-h1--page font-display font-bold text-foreground mb-2"
             data-testid="text-quiz-heading"
           >
-            See How Much You Could <span className="text-accent">Save</span> on Processing
+            Tell us about your <span className="text-accent">processing</span>
           </h1>
           <p className="text-muted-foreground mb-3" data-testid="text-quiz-subheadline">
-            Answer 5 quick questions. Get a personalized savings estimate in seconds.
+            Answer 5 quick questions so a statement review starts in the right place. Your statement is what shows your actual costs.
           </p>
           {affiliateName && (
             <div className="flex items-center justify-center gap-2 mb-3" data-testid="badge-quiz-affiliate-branding">
@@ -766,7 +568,7 @@ export default function FreeAnalysis() {
           <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span className="flex items-center gap-1" data-testid="text-social-proof-1">
               <Users className="w-3 h-3" />
-              5,000+ merchants served
+              Free statement review
             </span>
             <span className="flex items-center gap-1" data-testid="text-social-proof-2">
               <ShieldCheck className="w-3 h-3" />
@@ -774,7 +576,7 @@ export default function FreeAnalysis() {
             </span>
             <span className="flex items-center gap-1" data-testid="text-social-proof-3">
               <BadgeCheck className="w-3 h-3" />
-              Free to keep
+              Keep the breakdown
             </span>
           </div>
         </div>
@@ -988,7 +790,7 @@ export default function FreeAnalysis() {
               {step === TOTAL_STEPS && (
                 <div className="mt-4 mb-2 flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2" data-testid="text-guarantee-oneliner">
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
-                  If we can't beat your rate, we'll tell you upfront. No pressure, no obligation — you keep the breakdown either way.
+                  There is no obligation to switch, and you keep the breakdown either way.
                 </div>
               )}
 
@@ -1030,11 +832,11 @@ export default function FreeAnalysis() {
                     {submitting ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        Analyzing...
+                        Sending…
                       </>
                     ) : (
                       <>
-                        Check My Savings
+                        Request my review
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
@@ -1046,37 +848,10 @@ export default function FreeAnalysis() {
 
           <div className="mt-6 space-y-2">
             <div className="flex flex-wrap justify-center gap-4 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1" data-testid="text-trust-lock">
-                <Lock className="w-3 h-3" />
-                256-bit SSL encrypted
-              </span>
               <span className="flex items-center gap-1" data-testid="text-trust-no-cc">
                 <CreditCard className="w-3 h-3" />
                 No credit card required
               </span>
-              <span className="flex items-center gap-1" data-testid="text-trust-time">
-                <Clock className="w-3 h-3" />
-                Takes under 60 seconds
-              </span>
-            </div>
-          </div>
-
-          <div className="mt-10 grid grid-cols-2 sm:grid-cols-4 gap-4" data-testid="section-stats-bar">
-            <div className="text-center">
-              <p className="text-2xl font-display font-bold text-foreground" data-testid="text-stat-merchants">5,000+</p>
-              <p className="text-xs text-muted-foreground">Merchants Served Nationwide</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-display font-bold text-emerald-700" data-testid="text-stat-avg-savings">$4,200</p>
-              <p className="text-xs text-muted-foreground">Avg. Annual Savings</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-display font-bold text-foreground" data-testid="text-stat-reviews">48hrs</p>
-              <p className="text-xs text-muted-foreground">Avg. Statement Review</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-display font-bold text-foreground" data-testid="text-stat-rating">4.9/5</p>
-              <p className="text-xs text-muted-foreground">Merchant Satisfaction</p>
             </div>
           </div>
 
@@ -1088,8 +863,8 @@ export default function FreeAnalysis() {
                   <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
                     <span className="text-primary font-bold">1</span>
                   </div>
-                  <p className="text-sm font-semibold text-foreground mb-1">Answer 5 Questions</p>
-                  <p className="text-xs text-muted-foreground">Tell us about your business, volume, and current processor. Takes 60 seconds.</p>
+                  <p className="text-sm font-semibold text-foreground mb-1">Answer 5 questions</p>
+                  <p className="text-xs text-muted-foreground">Tell us about your business, volume and current provider.</p>
                 </CardContent>
               </Card>
               <Card data-testid="card-how-step-2">
@@ -1097,8 +872,8 @@ export default function FreeAnalysis() {
                   <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
                     <span className="text-primary font-bold">2</span>
                   </div>
-                  <p className="text-sm font-semibold text-foreground mb-1">Get Your Estimate</p>
-                  <p className="text-xs text-muted-foreground">We instantly calculate your estimated savings based on industry benchmarks.</p>
+                  <p className="text-sm font-semibold text-foreground mb-1">Send a statement</p>
+                  <p className="text-xs text-muted-foreground">Share a recent statement through the secure upload form.</p>
                 </CardContent>
               </Card>
               <Card data-testid="card-how-step-3">
@@ -1106,105 +881,15 @@ export default function FreeAnalysis() {
                   <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
                     <span className="text-primary font-bold">3</span>
                   </div>
-                  <p className="text-sm font-semibold text-foreground mb-1">Confirm Exact Savings</p>
-                  <p className="text-xs text-muted-foreground">Upload your statement for a free line-by-line analysis. No obligation to switch.</p>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-
-          <div className="mt-10" data-testid="section-testimonials">
-            <h3 className="text-lg font-display font-bold text-foreground text-center mb-6">What Business Owners Are Saying</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Card data-testid="card-testimonial-1">
-                <CardContent className="p-5">
-                  <div className="flex items-center gap-1 mb-2">
-                    {[1,2,3,4,5].map(i => <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />)}
-                  </div>
-                  <p className="text-sm text-foreground italic leading-relaxed mb-3">
-                    "We had no idea we were overpaying by $400/month until Liberty reviewed our statement. The switch took 2 days and we've saved over $5,000 this year."
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                      <UtensilsCrossed className="w-4 h-4 text-primary" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-foreground">Marco T.</p>
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <MapPin className="w-3 h-3" /> Restaurant Owner, Fort Lauderdale
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card data-testid="card-testimonial-2">
-                <CardContent className="p-5">
-                  <div className="flex items-center gap-1 mb-2">
-                    {[1,2,3,4,5].map(i => <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />)}
-                  </div>
-                  <p className="text-sm text-foreground italic leading-relaxed mb-3">
-                    "I was skeptical, but the quiz showed I was paying 3.4% effective rate. Liberty got me to 2.1%. That's $800/month back in my pocket."
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                      <Store className="w-4 h-4 text-primary" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-foreground">Jennifer R.</p>
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <MapPin className="w-3 h-3" /> Retail Store Owner, Miami
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card data-testid="card-testimonial-3">
-                <CardContent className="p-5">
-                  <div className="flex items-center gap-1 mb-2">
-                    {[1,2,3,4,5].map(i => <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />)}
-                  </div>
-                  <p className="text-sm text-foreground italic leading-relaxed mb-3">
-                    "The 0% processing program completely eliminated my credit card fees. My customers don't mind the small surcharge and I keep 100% of my margins."
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                      <Wrench className="w-4 h-4 text-primary" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-foreground">Carlos M.</p>
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <MapPin className="w-3 h-3" /> Auto Repair Shop, Tampa
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card data-testid="card-testimonial-4">
-                <CardContent className="p-5">
-                  <div className="flex items-center gap-1 mb-2">
-                    {[1,2,3,4,5].map(i => <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />)}
-                  </div>
-                  <p className="text-sm text-foreground italic leading-relaxed mb-3">
-                    "Our dental practice was paying hidden fees we never knew about. Liberty found $6,200/year in savings and the onboarding was seamless."
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                      <Stethoscope className="w-4 h-4 text-primary" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-foreground">Dr. Sarah K.</p>
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <MapPin className="w-3 h-3" /> Dental Practice, Orlando
-                      </p>
-                    </div>
-                  </div>
+                  <p className="text-sm font-semibold text-foreground mb-1">We walk you through it</p>
+                  <p className="text-xs text-muted-foreground">We review the charges and walk you through the findings. No obligation to switch.</p>
                 </CardContent>
               </Card>
             </div>
           </div>
 
           <div className="mt-10" data-testid="section-trust-badges">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Card data-testid="card-badge-no-contract">
                 <CardContent className="p-4 text-center">
                   <ShieldCheck className="w-7 h-7 text-primary mx-auto mb-2" />
@@ -1212,17 +897,10 @@ export default function FreeAnalysis() {
                   <p className="text-[10px] text-muted-foreground">Terms set in your agreement</p>
                 </CardContent>
               </Card>
-              <Card data-testid="card-badge-pci">
-                <CardContent className="p-4 text-center">
-                  <Shield className="w-7 h-7 text-primary mx-auto mb-2" />
-                  <p className="text-xs font-semibold text-foreground">PCI Compliant</p>
-                  <p className="text-[10px] text-muted-foreground">Level 1 certified</p>
-                </CardContent>
-              </Card>
               <Card data-testid="card-badge-support">
                 <CardContent className="p-4 text-center">
                   <Headphones className="w-7 h-7 text-primary mx-auto mb-2" />
-                  <p className="text-xs font-semibold text-foreground">Real Human Support</p>
+                  <p className="text-xs font-semibold text-foreground">Questions? Call us</p>
                   <p className="text-[10px] text-muted-foreground">{PHONE_NUMBER}</p>
                 </CardContent>
               </Card>
@@ -1256,7 +934,7 @@ export default function FreeAnalysis() {
             <Link href="/terms" className="underline" data-testid="link-footer-terms">Terms</Link>
           </p>
           <p className="text-xs text-muted-foreground mt-2" data-testid="text-footer-disclaimer">
-            Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
+            Eligibility, underwriting, card brand rules, and applicable laws apply. No savings are promised without a statement review.
           </p>
         </div>
       </footer>

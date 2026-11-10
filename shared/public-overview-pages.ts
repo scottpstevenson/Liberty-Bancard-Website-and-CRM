@@ -38,6 +38,17 @@ export interface OverviewSection {
   items: readonly OverviewItem[];
   /** Small-print note under the section (disclosure wording only). */
   footnote?: string;
+  /** Optional illustrative image beside the section's list (public imagery registry id). Lazy, never a hero. */
+  media?: OverviewMedia;
+}
+
+export interface OverviewMedia {
+  /** Public imagery registry id (client/src/lib/public-imagery.ts). */
+  imageId: string;
+  variant: string;
+  sizes: string;
+  /** Visible caption stating what the image is and is not. */
+  caption: string;
 }
 
 export interface OverviewPage {

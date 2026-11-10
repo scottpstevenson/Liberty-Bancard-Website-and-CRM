@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { isValidReturnUrl } from "../client/src/lib/crm-return-context";
+import { PUBLIC_INDUSTRIES } from "../shared/public-industries";
+import { getIndustryHtml } from "../server/ssr/industries";
 
 let checks = 0;
 const check = (value: unknown, label: string) => { assert.ok(value, label); checks++; console.log(`✓ ${label}`); };
@@ -95,5 +97,11 @@ check(/aria-label=\{`Email \$\{partner\.email\}`\}/.test(read("client/src/pages/
 check(/aria-label=\{`Archive source /.test(read("client/src/pages/dashboard/KnowledgeAdmin.tsx")), "Knowledge source archive icon button has an accessible name");
 const ssr = read("server/routes/ssr-routes.ts");
 check(/if \(getCompareHtml\(slug\)\) xml \+= `[^`]*\/compare\//.test(ssr), "Compare sitemap lists only comparison pages that exist (no sitemap URL answers 404)");
-check(/INDUSTRY_SLUGS as readonly string\[\]\)\.includes\(req\.params\.slug\)\) return next\(\)/.test(ssr), "Listed industry pages without server rendering fall through to the client app instead of an empty 404");
+{
+  // W-D: all 14 listed industries have server content (shared/public-industry-content.ts), so no listed page may
+  // fall through to the client app; only an unknown slug is a real 404.
+  const industryRoute = ssr.slice(ssr.indexOf('app.get("/industries/:slug"'), ssr.indexOf('app.get("/industries/:slug"') + 500);
+  check(/if \(!html\) return res\.status\(404\)\.end\(\)/.test(industryRoute) && !/INDUSTRY_SLUGS|return next\(\)/.test(industryRoute), "Every listed industry page is server-rendered; only an unknown industry slug answers 404 (no fall-through to the client app)");
+  check(PUBLIC_INDUSTRIES.every(i => getIndustryHtml(i.slug)) && !getIndustryHtml("not-an-industry"), "All 14 listed industries return server HTML and an unknown slug returns none");
+}
 console.log(`PASS Stage 3 D-R2 contracts: ${checks} checks`);

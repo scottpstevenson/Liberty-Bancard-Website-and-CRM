@@ -2,7 +2,9 @@ import { Link } from "wouter";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PublicSection, PublicSectionHeader } from "@/components/public/PublicSection";
-import type { OverviewItem, OverviewPage, OverviewSection } from "@shared/public-overview-pages";
+import { PublicImage } from "@/components/public/PublicImage";
+import { PUBLIC_IMAGE_RECORDS, type PublicImageId } from "@/lib/public-imagery";
+import type { OverviewItem, OverviewMedia, OverviewPage, OverviewSection } from "@shared/public-overview-pages";
 
 function ItemBody({ item }: { item: OverviewItem }) {
   return (
@@ -32,6 +34,18 @@ function ItemBody({ item }: { item: OverviewItem }) {
   );
 }
 
+function SectionMedia({ media }: { media: OverviewMedia }) {
+  if (!(media.imageId in PUBLIC_IMAGE_RECORDS)) throw new Error(`Overview media names unregistered image ${media.imageId}`);
+  return (
+    <figure className="m-0" data-testid="figure-overview-media">
+      <div className="public-frame public-frame--fill aspect-[3/2]">
+        <PublicImage id={media.imageId as PublicImageId} variant={media.variant} sizes={media.sizes} data-testid="img-overview-media" />
+      </div>
+      <figcaption className="public-caption public-secondary mt-2">{media.caption}</figcaption>
+    </figure>
+  );
+}
+
 function SectionView({ page, section, index }: { page: OverviewPage; section: OverviewSection; index: number }) {
   const headingId = `${section.id}-heading`;
   return (
@@ -42,8 +56,9 @@ function SectionView({ page, section, index }: { page: OverviewPage; section: Ov
       data-testid={`section-${page.path.slice(1)}-${section.id}`}
     >
       <PublicSectionHeader id={headingId} title={section.heading} description={section.intro} />
+      <div className={section.media ? "grid gap-6 lg:grid-cols-[minmax(0,1fr)_440px] lg:items-start lg:gap-10" : undefined}>
       {section.layout === "steps" ? (
-        <ol className="grid gap-4 md:grid-cols-2" data-testid={`list-${section.id}`}>
+        <ol className={section.media ? "grid gap-4" : "grid gap-4 md:grid-cols-2"} data-testid={`list-${section.id}`}>
           {section.items.map((item, i) => (
             <li key={item.title} className="public-card flex items-start gap-4 p-5">
               <span className="num flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-base font-bold text-primary-foreground" aria-hidden="true">{i + 1}</span>
@@ -63,6 +78,8 @@ function SectionView({ page, section, index }: { page: OverviewPage; section: Ov
           ))}
         </ul>
       )}
+      {section.media && <SectionMedia media={section.media} />}
+      </div>
       {section.footnote && <p className="public-caption public-secondary mt-6 max-w-3xl">{section.footnote}</p>}
     </PublicSection>
   );

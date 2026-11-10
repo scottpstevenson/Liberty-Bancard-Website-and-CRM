@@ -113,6 +113,7 @@ const HelpArticle = lazy(() => import("@/pages/HelpArticle"));
 const IndustriesHub = lazy(() => import("@/pages/Industries"));
 const IndustryPage = lazy(() => import("@/pages/IndustryPage"));
 const LocationIndustryPage = lazy(() => import("@/pages/LocationIndustryPage"));
+const LocationHubPage = lazy(() => import("@/pages/LocationHubPage"));
 const TerminalShop = lazy(() => import("@/pages/TerminalShop"));
 
 // ─── Sales Tools (hidden) ─────────────────────────────────────────────────────
@@ -585,6 +586,7 @@ function Router() {
 
         {/* Location × Industry Pages */}
         <Route path="/locations/:city/:industry" component={LocationIndustryPage} />
+        <Route path="/locations/:city" component={LocationHubPage} />
 
         {/* Asset Library & Packet Routes */}
         <Route path="/assets/:a/:b" component={AssetPage} />

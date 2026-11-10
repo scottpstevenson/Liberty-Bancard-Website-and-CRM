@@ -1,6 +1,7 @@
 import { useParams } from "wouter";
 import { Link } from "wouter";
 import { CALENDAR_URL } from "@/lib/constants";
+import { claimText } from "@shared/public-claims";
 import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -16,7 +17,6 @@ import {
   DollarSign,
   Shield,
   Clock,
-  Zap,
   CreditCard,
   UtensilsCrossed,
   Store,
@@ -26,7 +26,6 @@ import {
   Receipt,
   HeartPulse,
   Users,
-  TrendingUp,
   Globe,
   ShoppingCart,
   RefreshCw,
@@ -66,11 +65,6 @@ interface PricingItem {
   detail: string;
 }
 
-interface SuccessStory {
-  industry: string;
-  result: string;
-}
-
 interface OnePagerData {
   slug: string;
   industry: string;
@@ -85,545 +79,252 @@ interface OnePagerData {
   pricing: PricingItem[];
   ctaHeadline: string;
   ctaSubline: string;
-  successStories?: SuccessStory[];
   complianceNotes?: string[];
+}
+
+/** Pricing and agreement rows shared by every one-pager. Each states a rule or a source-backed claim, never a rate or saving. */
+function commonPricing(extra?: PricingItem): PricingItem[] {
+  const rows: PricingItem[] = [
+    { label: "Pricing models", detail: "Interchange-plus, flat-rate and cash discount programs are priced differently. A statement review compares them using your own numbers." },
+    { label: "Funding", detail: claimText("funding.availability") },
+    { label: "Equipment", detail: claimText("equipment.options.summary") },
+    { label: "Agreement", detail: claimText("equipment.agreement.summary") },
+  ];
+  return extra ? [extra, ...rows.slice(0, 3)] : rows;
 }
 
 export const salesOnePagerData: Record<string, OnePagerData> = {
   restaurant: {
     slug: "restaurant",
     industry: "Restaurant",
-    heroTitle: "Payment Processing Built for Restaurants",
-    heroSubtitle: "Tableside payments, tip adjustment optimization, kitchen integration, and POS bundles designed to keep your margins healthy — especially for high-tip businesses.",
+    heroTitle: "Payment Processing Questions for Restaurants",
+    heroSubtitle: "Tableside payments, tip adjustment, POS compatibility and equipment questions for restaurants, plus a statement review that shows what you pay today.",
     heroImage: verticalRestaurant,
     heroIcon: UtensilsCrossed,
     painPoints: [
-      {
-        icon: DollarSign,
-        title: "Tip adjustments inflating your rate",
-        description: "Every tip adjustment triggers a separate authorization, silently increasing your interchange costs well beyond your quoted rate.",
-      },
-      {
-        icon: Clock,
-        title: "Slow deposits hurting cash flow",
-        description: "Waiting 3-5 days for deposits means you're using working capital to cover food costs and payroll instead of growing your business.",
-      },
-      {
-        icon: AlertTriangle,
-        title: "POS lock-in with hidden markups",
-        description: "Many POS companies bundle processing at inflated rates, making it nearly impossible to see what you're actually paying per transaction.",
-      },
-      {
-        icon: Phone,
-        title: "No support during peak hours",
-        description: "When your terminal goes down during Friday dinner rush, you need someone who answers immediately — not a call center queue.",
-      },
+      { icon: DollarSign, title: "Tip adjustments and authorizations", description: "Ask how tip adjustments are processed and whether they change the fees on your statement." },
+      { icon: Clock, title: "Deposit timing", description: "Funding timing depends on the account and its agreement. Ask what applies to yours." },
+      { icon: AlertTriangle, title: "POS bundles and processing", description: "Some POS providers bundle processing. Ask for each fee to be itemized so you can see what you pay per transaction." },
+      { icon: Phone, title: "Support during service", description: "Ask what support your current agreement includes and how to reach it during peak hours." },
     ],
-    solutionPitch: "Liberty Bancard understands the restaurant business. We optimize tip handling, offer next-day funding, and provide POS-agnostic integration so you're never locked in. Cash discount programs can eliminate your processing fees entirely on high-tip transactions.",
+    solutionPitch: claimText("review.process.summary"),
     solutions: [
-      {
-        title: "Tableside Payment Terminals",
-        description: "Clover Flex 3 and wireless terminals let servers process payments tableside — faster turns, better tips, and reduced walkouts.",
-      },
-      {
-        title: "Tip Adjustment Optimization",
-        description: "We configure your terminal to prompt for tip at the point of sale, reducing interchange costs compared to post-authorization adjustments.",
-      },
-      {
-        title: "Kitchen & POS Integration",
-        description: "Work with your preferred POS system without being locked into overpriced bundled processing. We integrate with Toast, Clover, and more.",
-      },
-      {
-        title: "Cash Discount for High-Tip Businesses",
-        description: "Compliant cash discount programs let you pass processing costs to card users. Especially effective for restaurants with high average tips.",
-      },
+      { title: "Tableside payment terminals", description: "Handheld and wireless terminals allow payment at the table. Availability and agreement terms depend on the account." },
+      { title: "Tip adjustment", description: "Ask how the terminal prompts for tips and how adjustments are settled." },
+      { title: "POS compatibility", description: "Confirm compatibility with your preferred POS before choosing equipment." },
+      { title: "Cash discount and surcharge programs", description: "Card brand rules and state law apply, and eligibility varies. A statement review is the place to start." },
     ],
     equipment: [
-      {
-        name: "Clover Flex 3",
-        description: "Handheld, wireless, built-in printer. Perfect for tableside service and line-busting.",
-      },
-      {
-        name: "Clover Station Duo",
-        description: "Full POS with dual screens, cash drawer, and complete restaurant management suite.",
-      },
-      {
-        name: "Dejavoo QD4",
-        description: "Rugged smart terminal with all-day battery. Great for food trucks and outdoor dining.",
-      },
+      { name: "Clover Flex 3", description: "Handheld terminal for tableside service." },
+      { name: "Clover Station Duo", description: "Countertop POS with two screens." },
+      { name: "Dejavoo QD4", description: "Portable smart terminal." },
     ],
-    pricing: [
-      { label: "Interchange Plus", detail: "Actual card cost + small fixed markup. Most transparent option." },
-      { label: "Cash Discount / Dual Pricing", detail: "Eliminate up to 100% of processing fees. Card users pay a small service fee." },
-      { label: "Next-Day Funding", detail: "Qualified restaurants receive deposits by the next business day." },
-      { label: "No Equipment Leases", detail: "Own your terminal outright. No inflated lease costs." },
-    ],
-    ctaHeadline: "See How Much Your Restaurant Is Overpaying",
-    ctaSubline: "Upload your current processing statement for a free, line-by-line analysis. We'll show you exactly where you're losing money.",
+    pricing: commonPricing(),
+    ctaHeadline: "See what your restaurant pays today",
+    ctaSubline: "Upload your current processing statement for a free review. We walk you through the fees on it.",
   },
   retail: {
     slug: "retail",
     industry: "Retail",
-    heroTitle: "Payment Processing Designed for Retail",
-    heroSubtitle: "Inventory POS integration, barcode scanning, e-commerce sync, next-day funding, and interchange-plus savings that give you back your margins.",
+    heroTitle: "Payment Processing Questions for Retail",
+    heroSubtitle: "POS and inventory compatibility, e-commerce sync and a statement review that shows how debit and credit are billed.",
     heroImage: verticalRetail,
     heroIcon: Store,
     painPoints: [
-      {
-        icon: DollarSign,
-        title: "Flat-rate pricing eating your margins",
-        description: "Flat-rate processors charge the same percentage whether a customer uses a debit card or a premium rewards card — you overpay on every debit transaction.",
-      },
-      {
-        icon: AlertTriangle,
-        title: "Equipment leases costing thousands",
-        description: "Terminal leases can cost 3-5x the purchase price over the lease term, and you don't even own the equipment at the end.",
-      },
-      {
-        icon: Clock,
-        title: "No e-commerce sync",
-        description: "Running separate systems for in-store and online sales creates inventory mismatches, reconciliation headaches, and double the work.",
-      },
-      {
-        icon: Shield,
-        title: "Chargebacks with no guidance",
-        description: "When a customer disputes a charge, you need a partner who helps you respond effectively — not one who just deducts from your account.",
-      },
+      { icon: DollarSign, title: "Flat-rate and card mix", description: "Flat-rate plans charge one published rate by plan and channel. Whether that costs more or less than another model depends on your card mix and fees outside the rate." },
+      { icon: AlertTriangle, title: "Equipment charges", description: "Ask whether equipment is leased, rented or purchased, and what the agreement says if you leave." },
+      { icon: Clock, title: "In-store and online sales", description: "Running separate systems for in-store and online sales can mean separate reports. Ask how each is reconciled." },
+      { icon: Shield, title: "Chargebacks", description: "Ask what support your current agreement includes when a customer disputes a charge." },
     ],
-    solutionPitch: "Liberty Bancard gives retail businesses interchange-plus pricing that saves 20-40% over flat-rate processors. We pair that with modern POS terminals that handle barcode scanning, inventory tracking, and e-commerce integration — all without equipment leases.",
+    solutionPitch: claimText("review.process.summary"),
     solutions: [
-      {
-        title: "Inventory POS Integration",
-        description: "Clover Station Duo and Mini 3 provide full inventory management, barcode scanning, and real-time stock tracking across locations.",
-      },
-      {
-        title: "Barcode Scanning & Catalog",
-        description: "Built-in cameras and scanners on Clover devices let you manage your product catalog, track SKUs, and speed up checkout.",
-      },
-      {
-        title: "E-Commerce Sync",
-        description: "Unified reporting across in-store and online sales. One dashboard, one inventory system, one processor.",
-      },
-      {
-        title: "Interchange-Plus Savings",
-        description: "Pay the actual card network cost plus a small, transparent markup. Save significantly on debit and standard credit card transactions.",
-      },
+      { title: "POS and inventory compatibility", description: "Confirm that your POS and inventory tools work with the terminal and gateway before choosing equipment." },
+      { title: "Catalog and checkout", description: "Ask which devices support barcode scanning and catalog management." },
+      { title: "In-store and online reporting", description: "Ask whether in-store and online sales can be reported together." },
+      { title: "Pricing models", description: "A statement review shows how debit and credit transactions are billed today and what other models would change." },
     ],
     equipment: [
-      {
-        name: "Clover Station Duo",
-        description: "Full register experience with dual screens, cash drawer, receipt printer, and barcode scanner.",
-      },
-      {
-        name: "Clover Mini 3",
-        description: "Compact countertop POS with 8-inch touchscreen. Ideal for smaller retail spaces.",
-      },
-      {
-        name: "SwipeSimple",
-        description: "Mobile reader for pop-up shops, markets, and mobile retail. Works with any smartphone.",
-      },
+      { name: "Clover Station Duo", description: "Countertop register with two screens." },
+      { name: "Clover Mini 3", description: "Compact countertop POS." },
+      { name: "SwipeSimple", description: "Mobile reader for pop-up shops and markets." },
     ],
-    pricing: [
-      { label: "Interchange Plus", detail: "Save 20-40% vs flat-rate processors like Square or Stripe." },
-      { label: "Next-Day Funding", detail: "Deposits available by the next business day for qualified merchants." },
-      { label: "No Equipment Leases", detail: "Purchase your terminal outright. Own it from day one." },
-      { label: "Multi-Location Pricing", detail: "Consistent pricing and consolidated reporting across all stores." },
-    ],
-    ctaHeadline: "Find Out What You're Really Paying",
-    ctaSubline: "Upload your current processing statement and we'll show you a side-by-side comparison with interchange-plus pricing.",
+    pricing: commonPricing(),
+    ctaHeadline: "Find out what you pay today",
+    ctaSubline: "Upload your current processing statement for a free review of the fees on it.",
   },
   healthcare: {
     slug: "healthcare",
     industry: "Healthcare",
-    heroTitle: "Payment Processing for Healthcare Providers",
-    heroSubtitle: "HIPAA-aware compliance, patient payment plans, co-pay collection, FSA/HSA acceptance, and secure terminals built for medical and dental practices.",
+    heroTitle: "Payment Processing Questions for Healthcare Providers",
+    heroSubtitle: "Patient payments, payment plans and front-desk terminals for medical and dental practices, plus a statement review of how they are billed.",
     heroImage: verticalMedical,
     heroIcon: Stethoscope,
     painPoints: [
-      {
-        icon: DollarSign,
-        title: "High per-transaction costs on large balances",
-        description: "Patient payments are often larger amounts. Your processor's per-transaction fees may be costing you significantly more on these higher-dollar charges.",
-      },
-      {
-        icon: Shield,
-        title: "Compliance concerns with payment data",
-        description: "Healthcare providers must protect patient information. Your payment solution should support — not complicate — your HIPAA compliance obligations.",
-      },
-      {
-        icon: Clock,
-        title: "Reconciliation headaches",
-        description: "Matching patient payments to accounts is time-consuming when your processor doesn't provide clear, detailed reporting.",
-      },
-      {
-        icon: HeartPulse,
-        title: "No FSA/HSA acceptance",
-        description: "Patients expect to pay with health savings accounts and flexible spending accounts. Not all processors handle these card types correctly.",
-      },
+      { icon: DollarSign, title: "Larger balances", description: "Patient payments are often larger amounts. Ask how higher-ticket payments are priced on your statement." },
+      { icon: Shield, title: "Payment data and privacy", description: "Practices have their own privacy and compliance obligations. Ask your processor and your compliance advisor what applies to payment data." },
+      { icon: Clock, title: "Reconciliation", description: "Matching patient payments to accounts is easier when reporting is clear. Ask what reports your current provider supplies." },
+      { icon: HeartPulse, title: "FSA and HSA cards", description: "Ask how your current setup handles FSA and HSA cards." },
     ],
-    solutionPitch: "Liberty Bancard provides PCI-compliant, HIPAA-aware payment processing for medical and dental practices. We support patient payment plans, co-pay collection, and FSA/HSA card acceptance — all with transparent pricing optimized for high-value healthcare transactions.",
+    solutionPitch: claimText("review.process.summary"),
     solutions: [
-      {
-        title: "HIPAA-Aware Compliance",
-        description: "PCI DSS compliant terminals with point-to-point encryption. Designed to support your overall compliance posture without complicating PHI handling.",
-      },
-      {
-        title: "Patient Payment Plans",
-        description: "Secure card-on-file and recurring billing capabilities let you set up patient payment plans with automatic charges on a defined schedule.",
-      },
-      {
-        title: "Co-Pay Collection",
-        description: "Streamlined checkout with terminals that support co-pay amounts, balance payments, and insurance-verified amounts at the front desk.",
-      },
-      {
-        title: "FSA/HSA Card Acceptance",
-        description: "Properly configured terminals accept FSA, HSA, and HRA cards with correct merchant category codes for auto-substantiation.",
-      },
+      { title: "Statement review", description: "We list the fees on your statement and explain what each one is." },
+      { title: "Patient payment plans", description: "Ask how recurring billing and card-on-file payments are charged and stored." },
+      { title: "Front-desk checkout", description: "Ask which terminals suit co-pay and balance collection at the front desk." },
+      { title: "Cash discount and surcharge programs", description: "Card brand rules and state law apply, and eligibility varies by account." },
     ],
     equipment: [
-      {
-        name: "Clover Mini 3",
-        description: "Compact countertop terminal with fingerprint login. Ideal for front-desk co-pay collection.",
-      },
-      {
-        name: "PAX A920",
-        description: "Smart Android terminal with all-day battery. Great for bedside or mobile payment collection.",
-      },
-      {
-        name: "Virtual Terminal",
-        description: "Accept payments over the phone or via emailed payment links for patient balances and recurring bills.",
-      },
+      { name: "Clover Mini 3", description: "Compact countertop terminal for the front desk." },
+      { name: "PAX A920", description: "Portable smart terminal." },
+      { name: "Virtual Terminal", description: "Accept payments by phone or payment link." },
     ],
-    pricing: [
-      { label: "Interchange Plus", detail: "Optimized for high-value healthcare transactions. Bigger savings on larger payments." },
-      { label: "Recurring Billing", detail: "Automated patient payment plans with secure card-on-file tokenization." },
-      { label: "PCI Compliance Support", detail: "Guidance on maintaining PCI DSS compliance for your practice." },
-      { label: "99.9% Uptime SLA", detail: "Reliable processing so patient payments never disrupt your practice." },
-    ],
-    ctaHeadline: "See What Your Practice Is Really Paying",
-    ctaSubline: "Upload your current processing statement for a free analysis. We'll identify savings opportunities specific to healthcare transactions.",
+    pricing: commonPricing(),
+    ctaHeadline: "See what your practice pays today",
+    ctaSubline: "Upload your current processing statement for a free review of the fees on it.",
   },
   "home-services": {
     slug: "home-services",
     industry: "Home Services",
-    heroTitle: "Get Paid in the Field — No Hassle, No Contracts",
-    heroSubtitle: "Plumbers, electricians, HVAC techs, landscapers, and contractors need payments that work where they work. Accept cards on-site, send invoices, and set up recurring billing — all from your phone or a portable terminal.",
+    heroTitle: "Payment Processing Questions for Field Service Businesses",
+    heroSubtitle: "On-site payments, invoicing and recurring billing for contractors, plus a statement review of how field and keyed payments are billed.",
     heroImage: verticalHomeServices,
     heroIcon: Truck,
     painPoints: [
-      {
-        icon: Smartphone,
-        title: "No way to accept cards on-site",
-        description: "Chasing checks and cash slows down collections. Customers expect to tap or swipe at the door — not mail a check later.",
-      },
-      {
-        icon: Receipt,
-        title: "Manual invoicing wastes hours",
-        description: "Writing up invoices by hand or through clunky software means delayed payments and accounting headaches every month.",
-      },
-      {
-        icon: RefreshCw,
-        title: "No recurring billing for service contracts",
-        description: "Maintenance plans and subscription services need automatic billing — not monthly phone calls to collect payment.",
-      },
-      {
-        icon: Lock,
-        title: "Locked into long-term equipment leases",
-        description: "Many processors trap you in 3-4 year terminal leases with early termination fees that cost more than the equipment itself.",
-      },
+      { icon: Smartphone, title: "Taking cards on-site", description: "Ask what mobile terminal or reader options are available and how mobile payments are billed." },
+      { icon: Receipt, title: "Invoicing", description: "Ask how invoices and payment links are charged compared with card-present payments." },
+      { icon: RefreshCw, title: "Recurring billing", description: "Maintenance plans need automatic billing. Ask how recurring charges are priced." },
+      { icon: Lock, title: "Equipment terms", description: "Ask whether equipment is leased, rented or purchased, and what the agreement says about leaving." },
     ],
-    solutionPitch: "Liberty Bancard gives home service businesses the tools to get paid on the spot. Mobile terminals, built-in invoicing, recurring billing, and month-to-month flexibility — no contracts, no leases, no nonsense.",
+    solutionPitch: claimText("review.process.summary"),
     solutions: [
-      {
-        title: "Mobile Payments Anywhere You Work",
-        description: "Accept chip, tap, and swipe payments on-site with a portable terminal or your smartphone. Works on Wi-Fi or cellular data.",
-      },
-      {
-        title: "Built-In Invoicing & Estimates",
-        description: "Send professional invoices via text or email. Customers pay with a link — no app download required. Track payments in real time.",
-      },
-      {
-        title: "Recurring Billing for Service Plans",
-        description: "Set up automatic monthly or quarterly charges for maintenance contracts. Card-on-file securely stored and PCI compliant.",
-      },
-      {
-        title: "No-Contract Flexibility",
-        description: "Month-to-month processing with no early termination fees. Keep your equipment if you leave. We earn your business every month.",
-      },
+      { title: "Mobile payments", description: "Portable terminals and readers allow payment on-site. Connectivity options vary by model." },
+      { title: "Invoices and payment links", description: "Ask which invoicing tools are included and how those payments are billed." },
+      { title: "Recurring billing", description: "Ask how card-on-file billing is set up and charged." },
+      { title: "Agreement terms", description: claimText("equipment.agreement.summary") },
     ],
     equipment: [
-      {
-        name: "SwipeSimple Mobile Reader",
-        description: "Bluetooth reader pairs with your phone. Accept chip, tap, and swipe. Send digital receipts instantly.",
-      },
-      {
-        name: "Dejavoo QD4",
-        description: "Rugged portable terminal with built-in printer. 4G + Wi-Fi. All-day battery for jobs that run long.",
-      },
-      {
-        name: "PAX A920",
-        description: "Sleek smart terminal with 5-inch screen. Fast processing, built-in printer, all-day battery life.",
-      },
+      { name: "SwipeSimple Mobile Reader", description: "Reader that pairs with a phone." },
+      { name: "Dejavoo QD4", description: "Portable terminal with a built-in printer." },
+      { name: "PAX A920", description: "Portable smart terminal." },
     ],
-    pricing: [
-      { label: "Cash Discount Program", detail: "0% processing — customer covers the card fee. Keep 100% of your revenue." },
-      { label: "Interchange Plus", detail: "Wholesale rates + small fixed markup. Most transparent option for field businesses." },
-      { label: "No Equipment Leases", detail: "Buy or use a free terminal with your program. No 3-year lease traps." },
-      { label: "Month-to-Month", detail: "Cancel anytime. No early termination fees. No auto-renewal surprises." },
-    ],
-    ctaHeadline: "Ready to Get Paid Faster in the Field?",
-    ctaSubline: "Upload your current processing statement for a free savings analysis, or book a quick call to discuss your setup.",
+    pricing: commonPricing(),
+    ctaHeadline: "See what your business pays today",
+    ctaSubline: "Upload your current processing statement for a free review, or book a call to discuss your setup.",
   },
   ecommerce: {
     slug: "ecommerce",
     industry: "E-Commerce",
-    heroTitle: "Secure Payments for Your Online Store",
-    heroSubtitle: "Whether you sell on Shopify, WooCommerce, or a custom platform, your payment gateway should be fast, secure, and affordable. Stop overpaying for online transactions.",
+    heroTitle: "Payment Processing Questions for Online Stores",
+    heroSubtitle: "Gateway, platform and recurring-billing questions for online sellers, plus a statement review of what online transactions cost today.",
     heroImage: heroAnalytics,
     heroIcon: Globe,
     painPoints: [
-      {
-        icon: Shield,
-        title: "Fraud and chargebacks eating into margins",
-        description: "Online transactions carry higher risk. Without proper fraud tools, chargebacks can cost you the sale plus penalty fees on top.",
-      },
-      {
-        icon: ShoppingCart,
-        title: "Cart abandonment from clunky checkout",
-        description: "A slow or complicated checkout flow kills conversions. Every extra step in the process loses 10-15% of customers.",
-      },
-      {
-        icon: Globe,
-        title: "No international payment support",
-        description: "Turning away international customers means leaving money on the table. Multi-currency support opens entirely new markets.",
-      },
-      {
-        icon: DollarSign,
-        title: "Flat-rate pricing inflating costs at scale",
-        description: "Services like Stripe and Square charge the same rate on every transaction. As volume grows, you overpay significantly vs. interchange-plus.",
-      },
+      { icon: Shield, title: "Fraud and chargebacks", description: "Online transactions carry more dispute risk. Ask what fraud tools and dispute support your current setup includes." },
+      { icon: ShoppingCart, title: "Checkout and platform", description: "Confirm which platforms and checkout options your gateway supports." },
+      { icon: Globe, title: "International payments", description: "Ask whether your current setup accepts international cards and what it charges." },
+      { icon: DollarSign, title: "Pricing models at scale", description: "Flat-rate and interchange-plus pricing compare differently as volume and average ticket change. A statement review shows it on your numbers." },
     ],
-    solutionPitch: "Liberty Bancard provides e-commerce businesses with a secure payment gateway, built-in fraud protection, and interchange-plus pricing that saves significantly over flat-rate processors. We integrate with all major platforms and support subscription billing out of the box.",
+    solutionPitch: claimText("review.process.summary"),
     solutions: [
-      {
-        title: "Gateway with Built-In Fraud Protection",
-        description: "Advanced fraud screening with AVS, CVV verification, velocity checks, and 3D Secure authentication. Reduce chargebacks before they happen.",
-      },
-      {
-        title: "Seamless Cart Integration",
-        description: "Pre-built plugins for Shopify, WooCommerce, Magento, BigCommerce, and custom APIs. One-click checkout support for higher conversions.",
-      },
-      {
-        title: "Subscription & Recurring Billing",
-        description: "Built-in tools for membership sites, SaaS products, and subscription boxes. Automatic retry on failed payments with smart dunning management.",
-      },
-      {
-        title: "International Payment Acceptance",
-        description: "Accept payments in 130+ currencies. Automatic currency conversion with transparent exchange rates. Expand your market globally.",
-      },
+      { title: "Gateway and platform fit", description: "Confirm that the gateway works with your shopping platform before choosing it." },
+      { title: "Subscription billing", description: "Ask how recurring charges, failed payments and retries are handled." },
+      { title: "Dispute support", description: "Ask what tools and support are available when a customer disputes a charge." },
+      { title: "Pricing review", description: "We list the fees on your gateway or processing statement and explain what each one is." },
     ],
     equipment: [
-      {
-        name: "Payment Gateway",
-        description: "Secure hosted payment page or embedded checkout. PCI Level 1 compliant. Tokenization for returning customers.",
-      },
-      {
-        name: "Virtual Terminal",
-        description: "Accept phone and mail orders through a web-based terminal. No hardware needed. Keyed-entry with recurring billing built in.",
-      },
-      {
-        name: "Mobile + Online Bundle",
-        description: "Combine your online gateway with a SwipeSimple reader for pop-ups, events, or hybrid omnichannel retail.",
-      },
+      { name: "Payment Gateway", description: "Hosted payment page or embedded checkout." },
+      { name: "Virtual Terminal", description: "Web-based terminal for phone and mail orders." },
+      { name: "Mobile + Online", description: "Combine an online gateway with a mobile reader for events or pop-ups." },
     ],
-    pricing: [
-      { label: "Online Transactions", detail: "Interchange + fixed markup per transaction. Saves 20-40% vs flat-rate at scale." },
-      { label: "Gateway Fee", detail: "Competitive monthly rate with no per-transaction gateway surcharges." },
-      { label: "PCI Compliance", detail: "Included at no additional cost. No annual PCI compliance fees." },
-      { label: "Setup Fee", detail: "$0 — free integration support and onboarding assistance." },
-    ],
-    ctaHeadline: "Selling Online? Let Us Cut Your Processing Costs.",
-    ctaSubline: "Upload your current gateway statement for a free comparison, or schedule a call to discuss integration with your platform.",
+    pricing: commonPricing(),
+    ctaHeadline: "Selling online? See what you pay today",
+    ctaSubline: "Upload your current gateway or processing statement for a free review, or schedule a call to discuss your platform.",
   },
   "cash-discount": {
     slug: "cash-discount",
     industry: "Cash Discount",
-    heroTitle: "Pay 0% in Processing Fees — Legally and Compliantly",
-    heroSubtitle: "Cash discount (also called dual pricing) lets you pass the cost of card acceptance to the cardholder while offering a discount for cash payments. It's legal in all 50 states when implemented correctly.",
+    heroTitle: "Cash Discount and Surcharge Programs Have Rules",
+    heroSubtitle: "Cash discount (also called dual pricing) and surcharging are different programs. Both are governed by card brand rules and state law, and eligibility varies.",
     heroImage: zeroPercent,
     heroIcon: DollarSign,
     painPoints: [
-      {
-        icon: DollarSign,
-        title: "Processing fees consuming 2-4% of revenue",
-        description: "On $500K in annual card sales, you're paying $10,000-$20,000 in processing fees. That's profit you could keep entirely.",
-      },
-      {
-        icon: AlertTriangle,
-        title: "Confusion about surcharging vs. cash discount",
-        description: "Surcharging and cash discounting are different programs with different rules. Getting it wrong can mean fines or account termination.",
-      },
-      {
-        icon: Users,
-        title: "Worry about customer pushback",
-        description: "Merchants fear losing customers. In practice, 95%+ of customers pay with a card anyway — the service fee is minimal and well-received when presented properly.",
-      },
-      {
-        icon: FileText,
-        title: "Non-compliant signage and implementation",
-        description: "Proper signage at the entrance, point of sale, and on receipts is required. Many processors skip this, putting you at risk.",
-      },
+      { icon: DollarSign, title: "Processing costs", description: "Processing fees are a cost on every card sale. A statement review shows what they are for your business today." },
+      { icon: AlertTriangle, title: "Surcharge versus cash discount", description: "Surcharging and cash discounting are different programs with different rules. Getting it wrong can mean fines or account termination." },
+      { icon: Users, title: "Customer reaction", description: "Merchants worry about customer pushback. Clear signage and receipts matter, and results vary by business." },
+      { icon: FileText, title: "Signage and receipts", description: "Signage at the entrance and point of sale and receipt line items are part of a compliant implementation." },
     ],
-    solutionPitch: "Liberty Bancard sets up fully compliant cash discount programs that eliminate your processing fees. We handle the signage, program your terminal, and ensure every receipt line item meets card brand requirements. You pay $0 in processing — guaranteed.",
+    solutionPitch: "Whether a cash discount or surcharge program fits depends on the state, the card mix and the account. A statement review is where to start, and eligibility, underwriting, card brand rules and applicable laws apply.",
     solutions: [
-      {
-        title: "How Cash Discount Works",
-        description: "Your listed prices include a small service fee (typically 3.99%). Customers paying cash receive a discount equal to that fee. Card-paying customers pay the listed price. You pay $0 in processing.",
-      },
-      {
-        title: "Full Compliance Setup",
-        description: "We provide compliant signage for your entrance and register, program your terminal to automatically apply and display the fee, and ensure receipts show correct line items.",
-      },
-      {
-        title: "The Savings Math",
-        description: "A business processing $30,000/month in cards at 3% effective rate pays $900/month ($10,800/year). With cash discount: $0. That's $10,800 back in your pocket annually.",
-      },
-      {
-        title: "Seamless Customer Experience",
-        description: "Modern terminals display the cash price and card price clearly. Customers see the fee before they tap. No surprises, no complaints, no friction.",
-      },
+      { title: "How cash discount works", description: "Listed prices reflect the card price and cash customers receive a discount. The program must offer a genuine discount for cash." },
+      { title: "Compliance setup", description: "Signage, terminal configuration and receipt line items all need to meet card brand and state requirements." },
+      { title: "Costs that remain", description: claimText("program.remaining-costs") },
+      { title: "Customer experience", description: "Terminals can display the cash price and card price before the customer pays." },
     ],
     equipment: [
-      {
-        name: "Clover Flex 3",
-        description: "Handheld POS with cash discount built into the software. Shows dual pricing on screen. Built-in printer for compliant receipts.",
-      },
-      {
-        name: "Dejavoo QD4",
-        description: "Cash discount-ready out of the box. Rugged design for field use. Automatic fee calculation and receipt formatting.",
-      },
-      {
-        name: "PAX A920",
-        description: "Smart terminal with cash discount program pre-loaded. Dual pricing display. Fast processing with all-day battery.",
-      },
+      { name: "Clover Flex 3", description: "Handheld terminal." },
+      { name: "Dejavoo QD4", description: "Portable terminal." },
+      { name: "PAX A920", description: "Portable smart terminal." },
     ],
-    pricing: [
-      { label: "Your Processing Cost", detail: "0% — zero processing fees. You keep every dollar of every sale." },
-      { label: "Service Fee to Cardholder", detail: "Typically 3.99% (adjustable). Clearly displayed before payment." },
-      { label: "Equipment", detail: "Free terminal placement with qualifying cash discount program." },
-      { label: "Signage Kit", detail: "Included — entrance sign, register sign, and compliant receipt formatting." },
-    ],
-    ctaHeadline: "Ready to Eliminate Your Processing Fees?",
-    ctaSubline: "Upload your current statement and we'll show you exactly how much you'll save with a compliant cash discount program.",
-    successStories: [
-      { industry: "Pizza Restaurant", result: "Saved $14,400/year on $40K monthly volume" },
-      { industry: "Auto Repair Shop", result: "Saved $9,600/year — zero customer complaints" },
-      { industry: "Hair Salon", result: "Saved $6,000/year with dual pricing on Clover" },
-      { industry: "Convenience Store", result: "Saved $18,000/year on $50K monthly card sales" },
-    ],
+    pricing: commonPricing(),
+    ctaHeadline: "See whether a program fits your business",
+    ctaSubline: "Upload your current statement for a free review of the fees on it and what a program would and would not change.",
     complianceNotes: [
-      "Cash discount is legal in all 50 states under federal law",
-      "Proper signage must be displayed at entrance and point of sale",
-      "Receipts must clearly show the service fee as a separate line item",
-      "The program must offer a genuine discount for cash — not a surcharge for cards",
-      "Terminal must be programmed to automatically calculate and display the fee",
-      "We handle all compliance setup and provide ongoing support",
+      "Rules differ for cash discount and surcharge programs",
+      "Signage must be displayed at the entrance and point of sale",
+      "Receipts must show any service fee as a separate line item",
+      "The program must offer a genuine discount for cash, not a hidden card penalty",
+      "State law may restrict or prohibit surcharging",
+      "Confirm eligibility for your state and account before launching",
     ],
   },
   switch: {
     slug: "switch",
     industry: "Switching Processors",
-    heroTitle: "Switching Processors Is Easier Than You Think",
-    heroSubtitle: "Most merchants stay with overpriced processors because switching feels hard. It's not. We handle everything — and guarantee zero downtime during the transition.",
+    heroTitle: "Questions to Ask Before Switching Processors",
+    heroSubtitle: "A free statement review shows what you pay today. Switching is your decision, and there is no obligation to switch.",
     heroImage: compareRates,
     heroIcon: ArrowLeftRight,
     painPoints: [
-      {
-        icon: DollarSign,
-        title: "You're overpaying and you know it",
-        description: "If you haven't had your statement reviewed in 12+ months, you're almost certainly paying more than you should. Rate creep, hidden fees, and bundled pricing add up fast.",
-      },
-      {
-        icon: Lock,
-        title: "Locked into a contract you didn't read",
-        description: "Many processors bury early termination fees, equipment lease obligations, and auto-renewal clauses in the fine print. We'll review your contract and find your exit.",
-      },
-      {
-        icon: Clock,
-        title: "Support that doesn't support",
-        description: "Hold times, overseas call centers, and ticket systems that never resolve. When your terminal goes down, you need a real person who picks up the phone.",
-      },
-      {
-        icon: AlertTriangle,
-        title: "Fear of downtime during the switch",
-        description: "The #1 reason merchants don't switch: they're afraid of missing sales. Our parallel deployment ensures you're never without the ability to accept cards.",
-      },
+      { icon: DollarSign, title: "Not sure what you pay", description: "If your statement has not been reviewed recently, a review shows each fee and what it is." },
+      { icon: Lock, title: "Your current agreement", description: "Agreements may include early termination fees, equipment obligations and renewal terms. Read yours before you decide." },
+      { icon: Clock, title: "Support", description: "Ask what support your current agreement includes and how to reach it when a terminal goes down." },
+      { icon: AlertTriangle, title: "Continuity during a switch", description: "Ask how the change would be staged so you can keep accepting cards. Account approval, equipment and activation are separate steps." },
     ],
-    solutionPitch: "Liberty Bancard makes switching painless. We analyze your current statement, handle the cancellation, deploy your new terminal in parallel, and guarantee zero downtime. Most merchants are live within 48 hours.",
+    solutionPitch: claimText("timing.staged-process"),
     solutions: [
-      {
-        title: "Free Statement Analysis",
-        description: "Upload your current statement and we'll break it down line by line. We show you exactly where you're overpaying and what fair pricing looks like for your volume and industry.",
-      },
-      {
-        title: "We Handle the Cancellation",
-        description: "We'll review your current contract, identify any termination fees, and in many cases negotiate or cover the cost of switching. You don't have to make uncomfortable calls.",
-      },
-      {
-        title: "Parallel Deployment — Zero Downtime",
-        description: "We set up and test your new terminal while your current one is still active. Once everything is verified working, we make the switch. You never miss a single transaction.",
-      },
-      {
-        title: "Onboarding in 48 Hours or Less",
-        description: "From signed application to live terminal, most merchants are up and running within 48 hours. We pre-program your equipment and ship it ready to plug in and process.",
-      },
+      { title: "Free statement review", description: "Upload your current statement and we walk you through the fees on it." },
+      { title: "Read your agreement", description: "Check your current agreement for termination fees, equipment terms and renewal clauses before deciding." },
+      { title: "Staged changeover", description: "Approval, equipment and activation are separate steps, so timing depends on the account." },
+      { title: "Your decision", description: "There is no obligation to switch after the review." },
     ],
     equipment: [
-      {
-        name: "Your Current Terminal",
-        description: "In many cases, we can reprogram your existing terminal to work with our processing. No new hardware needed.",
-      },
-      {
-        name: "Free Terminal Placement",
-        description: "Qualifying merchants receive a brand-new terminal at no cost. Pre-programmed and ready to process out of the box.",
-      },
-      {
-        name: "Full POS Migration",
-        description: "Switching from a bundled POS? We help migrate your menu, inventory, and settings to a new system with better processing rates.",
-      },
+      { name: "Your current terminal", description: "Ask whether your existing terminal can work with a different provider." },
+      { name: "New equipment", description: claimText("equipment.options.summary") },
+      { name: "POS migration", description: "If you use a bundled POS, ask what moving menus, inventory and settings would involve." },
     ],
     pricing: [
-      { label: "Statement Review", detail: "Free — no obligation. We analyze your current rates and show you what's possible." },
-      { label: "Setup Fee", detail: "$0. No activation fees, no application fees, no hidden charges." },
-      { label: "Early Termination Coverage", detail: "Up to $500 for qualifying merchants to cover your existing processor's cancellation fee." },
-      { label: "Contract", detail: "Month-to-month — we earn your business every month. No auto-renewal traps." },
+      { label: "Statement review", detail: claimText("review.cost.free") },
+      { label: "Funding", detail: claimText("funding.availability") },
+      { label: "Equipment", detail: claimText("equipment.options.summary") },
+      { label: "Agreement", detail: claimText("equipment.agreement.summary") },
     ],
-    ctaHeadline: "See What You're Really Paying — in 60 Seconds",
-    ctaSubline: "Upload your latest processing statement and get a side-by-side comparison within 24 hours. No commitment, no pressure.",
-    successStories: [
-      { industry: "Medical Practice", result: "Switched from Square — saved 38% on monthly processing" },
-      { industry: "Restaurant Group (3 locations)", result: "Left bundled POS processor — saved $2,400/month" },
-      { industry: "Auto Dealership", result: "Moved from tiered pricing — cut effective rate from 3.2% to 1.9%" },
-      { industry: "Retail Boutique", result: "Switched to cash discount — now pays $0 in processing" },
-    ],
+    ctaHeadline: "See what you pay today",
+    ctaSubline: "Upload your latest processing statement for a free review. No commitment.",
     complianceNotes: [
-      "We never charge hidden fees or surprise rate increases",
-      "All pricing is disclosed upfront before you sign anything",
-      "Month-to-month agreements with no auto-renewal traps",
-      "Your merchant ID and transaction history transfer seamlessly",
-      "PCI compliance assistance included at no additional cost",
+      "Eligibility, underwriting, card brand rules and applicable laws apply",
+      "Account approval, equipment availability and activation are separate steps",
+      "Review the terms of any agreement before signing",
     ],
   },
 };
 
 const industryIndex = [
-  { slug: "restaurant", label: "Restaurant & Food Service", description: "Tip handling, next-day funding, and POS-agnostic integration." },
-  { slug: "retail", label: "Retail & Brick & Mortar", description: "Inventory tools, dual-screen POS, and loyalty integration." },
-  { slug: "healthcare", label: "Healthcare & Medical", description: "HIPAA-conscious co-pay processing and secure card-on-file." },
-  { slug: "home-services", label: "Home Services & Contractors", description: "Mobile acceptance, field invoicing, and instant deposits." },
-  { slug: "ecommerce", label: "E-Commerce & Online", description: "Fraud prevention, chargeback protection, and gateway integrations." },
-  { slug: "cash-discount", label: "Cash Discount Programs", description: "Eliminate processing fees with compliant dual-pricing programs." },
-  { slug: "switch", label: "Switching Processors", description: "Low-friction switch process with rate guarantee and free analysis." },
+  { slug: "restaurant", label: "Restaurant & Food Service", description: "Tip adjustment, POS compatibility and equipment questions." },
+  { slug: "retail", label: "Retail & Brick & Mortar", description: "POS, inventory and card-mix questions." },
+  { slug: "healthcare", label: "Healthcare & Medical", description: "Patient payments, payment plans and front-desk terminals." },
+  { slug: "home-services", label: "Home Services & Contractors", description: "On-site payments, invoicing and recurring billing." },
+  { slug: "ecommerce", label: "E-Commerce & Online", description: "Gateway, platform and dispute-support questions." },
+  { slug: "cash-discount", label: "Cash Discount Programs", description: "Rules for cash discount and surcharge programs." },
+  { slug: "switch", label: "Switching Processors", description: "Questions to ask before switching, and a free statement review." },
 ];
 
 export default function SalesOnePager() {
@@ -635,7 +336,7 @@ export default function SalesOnePager() {
       <div className="min-h-screen flex flex-col font-body">
         <SEO
           title="Industry One-Pagers — Liberty Bancard"
-          description="Sales resources tailored by vertical. Choose your merchant's industry for a customized payment processing one-pager."
+          description="Payment processing questions by industry. Choose an industry for a one-pager."
           noindex={true}
         />
         <Navbar />
@@ -643,12 +344,12 @@ export default function SalesOnePager() {
           <section className="relative overflow-hidden" data-testid="section-onepager-index-hero">
             <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
             <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-14 lg:py-18">
-              <Badge className="mb-4 bg-white/10 text-white border-white/20" data-testid="badge-sales-internal">Agent Resource — Not Public</Badge>
+              <Badge className="mb-4 bg-white/10 text-white border-white/20" data-testid="badge-sales-internal">Conversation guide</Badge>
               <h1 className="text-3xl md:text-4xl font-display font-bold text-white mb-3" data-testid="text-onepager-index-heading">
                 Industry One-Pagers
               </h1>
               <p className="text-white/70 max-w-xl">
-                Choose an industry below to open a tailored one-pager for that merchant segment. Designed to share during discovery calls or leave behind after meetings.
+                Choose an industry to open a one-pager of questions for that merchant segment.
               </p>
             </div>
           </section>
@@ -731,7 +432,7 @@ export default function SalesOnePager() {
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28">
             <div className="max-w-2xl">
               <Badge variant="secondary" className="mb-4" data-testid="badge-sales-internal">
-                Sales Team Resource — Not Public
+                Conversation guide
               </Badge>
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center">
@@ -760,10 +461,10 @@ export default function SalesOnePager() {
         <section className="py-16 bg-muted/30">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2 className="text-2xl font-display font-bold text-foreground mb-2" data-testid="text-painpoints-heading">
-              Pain Points We Solve
+              What to check
             </h2>
             <p className="text-muted-foreground mb-8">
-              Common challenges {data.industry.toLowerCase()} businesses face with payment processing.
+              Questions {data.industry.toLowerCase()} businesses can ask about payment processing.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {data.painPoints.map((point, i) => {
@@ -791,7 +492,7 @@ export default function SalesOnePager() {
         <section className="py-16">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2 className="text-2xl font-display font-bold text-foreground mb-2" data-testid="text-solution-heading">
-              Our Solution for {data.industry}
+              How a statement review helps
             </h2>
             <p className="text-muted-foreground mb-8 max-w-3xl leading-relaxed">
               {data.solutionPitch}
@@ -815,10 +516,10 @@ export default function SalesOnePager() {
         <section className="py-16 bg-muted/30">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2 className="text-2xl font-display font-bold text-foreground mb-2" data-testid="text-equipment-heading">
-              Recommended Equipment
+              Equipment to ask about
             </h2>
             <p className="text-muted-foreground mb-8">
-              Terminals and devices best suited for {data.industry.toLowerCase()} businesses.
+              Devices commonly used by {data.industry.toLowerCase()} businesses. Availability and terms depend on the account.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {data.equipment.map((eq, i) => (
@@ -839,10 +540,10 @@ export default function SalesOnePager() {
         <section className="py-16">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2 className="text-2xl font-display font-bold text-foreground mb-2" data-testid="text-pricing-heading">
-              Pricing Overview
+              Pricing and agreement questions
             </h2>
             <p className="text-muted-foreground mb-8">
-              Transparent pricing options for {data.industry.toLowerCase()} businesses.
+              What to ask about pricing, funding, equipment and the agreement.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {data.pricing.map((item, i) => (
@@ -864,29 +565,6 @@ export default function SalesOnePager() {
           </div>
         </section>
 
-        {data.successStories && data.successStories.length > 0 && (
-          <section className="py-16 bg-muted/30">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <h2 className="text-2xl font-display font-bold text-foreground mb-2" data-testid="text-success-heading">
-                Success Stories
-              </h2>
-              <p className="text-muted-foreground mb-8">
-                Real results from real merchants.
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {data.successStories.map((story, i) => (
-                  <Card key={i} data-testid={`card-success-${i}`}>
-                    <CardContent className="p-4">
-                      <p className="text-sm font-semibold text-foreground mb-1">{story.industry}</p>
-                      <p className="text-sm text-muted-foreground">{story.result}</p>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
-
         {data.complianceNotes && data.complianceNotes.length > 0 && (
           <section className="py-16">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -894,7 +572,7 @@ export default function SalesOnePager() {
                 Compliance Notes
               </h2>
               <p className="text-muted-foreground mb-8">
-                Important details for a compliant implementation.
+                Points to confirm before you decide.
               </p>
               <Card>
                 <CardContent className="p-6">
@@ -933,12 +611,12 @@ export default function SalesOnePager() {
               <Button variant="outline" className="gap-2 bg-white/10 border-white/20 text-white backdrop-blur-sm" asChild>
                 <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="button-cta-call">
                   <Phone className="w-4 h-4" />
-                  Get My Free Analysis
+                  Book a call
                 </a>
               </Button>
             </div>
             <p className="text-primary-foreground/70 text-xs mt-6" data-testid="text-cta-disclaimer">
-              All savings estimates require a statement review. Eligibility, underwriting, and card brand rules apply.
+              No savings are promised without a statement review. Eligibility, underwriting, card brand rules and applicable laws apply.
             </p>
           </div>
         </section>

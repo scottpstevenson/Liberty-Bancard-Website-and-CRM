@@ -224,7 +224,9 @@ async function main(): Promise<void> {
 
   const publicHtmlProducers = [
     "server/routes/glossary.ts",
-    "server/ssr/location-html.ts",
+    "server/ssr/locations.ts",
+    "server/ssr/areas-served.ts",
+    "server/ssr/industries.ts",
     "server/ssr/competitor-ssr.ts",
     "server/routes/widget.ts",
     "server/routes/public.ts",

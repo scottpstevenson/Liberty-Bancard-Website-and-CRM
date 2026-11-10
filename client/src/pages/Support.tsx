@@ -37,7 +37,6 @@ import {
   Phone,
   AlertCircle,
 } from "lucide-react";
-import heroSupport from "@/assets/images/hero-support.jpg";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 
 const supportSchema = z.object({
@@ -138,14 +137,11 @@ export default function Support() {
 
       <main className="flex-grow public-main-offset" ref={containerRef}>
         <section className="relative overflow-hidden" data-testid="section-support-hero">
-          <div className="absolute inset-0">
-            <img src={heroSupport} alt="Liberty Bancard customer support team ready to help" className="w-full h-full object-cover" width="1408" height="792" />
-            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222_47%_6%/0.97)] via-[hsl(222_47%_6%/0.93)] to-[hsl(222_47%_6%/0.85)]" />
-          </div>
+          <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222_47%_6%)] via-[hsl(222_47%_7%)] to-[hsl(222_47%_9%)]" aria-hidden="true" />
           <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
           <div className="glow-blob glow-blob-2 w-48 h-48 bg-blue-600 bottom-10 left-1/6" />
           <div className="public-container relative py-10 lg:py-20">
-            <div className="max-w-3xl mx-auto text-center reveal">
+            <div className="max-w-3xl mx-auto text-center">
               <h1
                 className="public-h1 public-h1--page font-bold text-white mb-4"
                 data-testid="text-support-heading"
@@ -153,7 +149,7 @@ export default function Support() {
                 Get Help From a <span className="text-sky-400">Real Person</span>
               </h1>
               <p
-                className="text-lg text-white/70 max-w-xl mx-auto reveal reveal-delay-1"
+                className="text-lg text-white/70 max-w-xl mx-auto"
                 data-testid="text-support-subheadline"
               >
                 Terminal issues, deposit questions, chargeback deadlines, PCI compliance - we're here.

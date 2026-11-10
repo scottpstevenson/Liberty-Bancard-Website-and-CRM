@@ -1,3 +1,5 @@
+import { claimText } from "@shared/public-claims";
+
 export interface HelpArticle {
   slug: string;
   title: string;
@@ -61,7 +63,7 @@ export const helpArticles: HelpArticle[] = [
     title: "Setting Up Your Merchant Account",
     category: "Getting Started",
     categorySlug: "getting-started",
-    summary: "Step-by-step guide to getting your Liberty Bancard merchant account approved and activated.",
+    summary: "What to gather and what to expect when you apply for a merchant account.",
     keywords: "merchant account setup, application, onboarding, activation",
     content: `<h2>Before You Apply</h2>
 <p>Before submitting your merchant application, gather the following documents:</p>
@@ -74,20 +76,20 @@ export const helpArticles: HelpArticle[] = [
 </ul>
 
 <h2>The Application Process</h2>
-<p>Our application is streamlined and typically takes less than 10 minutes to complete online. Here's what to expect:</p>
+<p>Here is what the process generally involves:</p>
 <ol>
 <li><strong>Submit your application</strong> - Fill out the online form with your business details, ownership information, and banking credentials.</li>
-<li><strong>Underwriting review</strong> - Our team reviews your application. Most merchants are approved within 24-48 hours. High-risk or high-volume accounts may require additional documentation.</li>
-<li><strong>Account activation</strong> - Once approved, you'll receive your Merchant ID (MID) and gateway credentials via email.</li>
-<li><strong>Equipment setup</strong> - If you ordered a terminal or POS device, it typically ships within 1-2 business days after approval.</li>
-<li><strong>First transaction</strong> - Run a test transaction to confirm everything is working. Our support team is available to walk you through it.</li>
+<li><strong>Underwriting review</strong> - Your application is reviewed. Review time depends on your business and the information provided, and some accounts require additional documentation.</li>
+<li><strong>Account activation</strong> - Once approved, your Merchant ID (MID) and any gateway credentials are provided to you.</li>
+<li><strong>Equipment setup</strong> - If you ordered a terminal or POS device, availability, shipping and activation are separate from account approval and are confirmed in your quote.</li>
+<li><strong>First transaction</strong> - Run a test transaction to confirm everything is working.</li>
 </ol>
 
 <h2>What Affects Approval?</h2>
 <p>Underwriting considers several factors including your business type, processing history, credit profile, and anticipated monthly volume. Businesses in certain industries may face additional scrutiny due to card brand regulations.</p>
 
 <h2>Timeline</h2>
-<p>Most standard retail and restaurant merchants are approved and processing within 3-5 business days from application submission. Rush processing is available for urgent needs.</p>`,
+<p>Timing depends on the review, your documentation and equipment availability. ${claimText("timing.staged-process")}</p>`,
   },
   {
     slug: "running-your-first-transaction",
@@ -135,36 +137,35 @@ export const helpArticles: HelpArticle[] = [
     title: "Connecting Your POS System",
     category: "Getting Started",
     categorySlug: "getting-started",
-    summary: "How to integrate Liberty Bancard processing with popular POS platforms.",
+    summary: "How POS systems connect to a payment terminal or gateway.",
     keywords: "POS integration, point of sale, Clover, Square alternative, POS setup",
     content: `<h2>Supported POS Systems</h2>
-<p>Liberty Bancard integrates with a wide range of POS platforms including:</p>
+<p>Compatibility depends on your platform, product or version, and current setup. Platforms commonly used with payment terminals include:</p>
 <ul>
 <li>Clover (Flex, Mini, Station)</li>
 <li>Dejavoo terminals</li>
 <li>PAX Technology terminals</li>
 <li>Valor PayTech</li>
-<li>Most USB and IP-connected terminals</li>
 </ul>
 
 <h2>Integration Methods</h2>
-<p>There are two primary ways to connect your POS with our processing:</p>
+<p>There are two primary ways to connect a POS with payment processing:</p>
 <h3>Semi-Integrated</h3>
 <p>Your POS sends the transaction amount to the terminal, the customer pays on the terminal, and the approval is sent back to the POS. This is the most common and secure method because card data never touches your POS software.</p>
 <h3>Fully Integrated</h3>
-<p>Card data flows through your POS software to our gateway. This requires PCI-validated software and is typically used with custom or enterprise POS systems.</p>
+<p>Card data flows through your POS software to the gateway. This requires PCI-validated software and is typically used with custom or enterprise POS systems.</p>
 
 <h2>Setup Steps</h2>
 <ol>
-<li>Confirm your POS platform and version with our onboarding team.</li>
-<li>We'll provision your terminal or gateway credentials for that platform.</li>
+<li>Confirm your POS platform and version, and what it supports, before changing anything.</li>
+<li>Obtain the terminal or gateway credentials for that platform.</li>
 <li>Install or configure the payment module in your POS software.</li>
 <li>Enter the terminal IP address or serial number in your POS settings.</li>
 <li>Run a test transaction to verify the connection.</li>
 </ol>
 
 <h2>Need Help?</h2>
-<p>If you're using a POS system not listed above, contact our integration team. We support most platforms that use standard payment protocols and can often configure custom integrations within a few business days.</p>`,
+<p>If you're using a POS system not listed above, ${claimText("compat.inquiry")}</p>`,
   },
   {
     slug: "understanding-your-pricing",
@@ -174,42 +175,43 @@ export const helpArticles: HelpArticle[] = [
     summary: "A clear explanation of interchange-plus pricing and how your rates are structured.",
     keywords: "interchange plus, pricing, processing rates, markup, fees explained",
     content: `<h2>Interchange-Plus Pricing Explained</h2>
-<p>Liberty Bancard uses interchange-plus (also called "cost-plus") pricing, which is the most transparent pricing model in the payments industry. Here's how it works:</p>
+<p>Interchange-plus (also called "cost-plus") pricing separates the card brands' costs from the processor's charge. Your written processing agreement sets which pricing model and fees apply to you. Here's how interchange-plus works:</p>
 <ul>
 <li><strong>Interchange</strong> - This is the base cost set by Visa, Mastercard, Discover, and American Express. It varies by card type, industry, and how the card is accepted.</li>
-<li><strong>Plus (Markup)</strong> - This is Liberty Bancard's fee on top of interchange. It's a fixed percentage and/or per-transaction amount that doesn't change.</li>
+<li><strong>Plus (Markup)</strong> - This is the processor's charge on top of interchange, usually a percentage and/or a per-transaction amount set in your agreement.</li>
 </ul>
 
-<h2>Why Interchange-Plus Is Better</h2>
-<p>Unlike flat-rate or tiered pricing, interchange-plus shows you exactly what the card brands charge and exactly what your processor charges. There's no bundling or hiding of costs.</p>
+<h2>Why Interchange-Plus Can Be Easier to Read</h2>
+<p>Unlike flat-rate or tiered pricing, interchange-plus shows what the card brands charge and what your processor charges separately. Whether it costs less than another model depends on your card mix, ticket size and volume.</p>
 
-<h2>Common Fee Categories</h2>
+<h2>Fee Categories That Can Appear</h2>
+<p>Which of these apply depends on your agreement.</p>
 <ul>
 <li><strong>Transaction fees</strong> - Per-swipe or per-authorization charges</li>
 <li><strong>Monthly account fee</strong> - A small fixed monthly fee for account maintenance</li>
-<li><strong>PCI compliance fee</strong> - Covers your annual PCI DSS validation</li>
+<li><strong>PCI compliance fee</strong> - A charge some accounts carry for PCI DSS validation support</li>
 <li><strong>Batch fee</strong> - A small fee each time you settle your daily transactions</li>
 <li><strong>Statement fee</strong> - Covers monthly statement generation and delivery</li>
 </ul>
 
-<h2>What We Don't Charge</h2>
-<p>Liberty Bancard does not charge application fees, setup fees, or annual fees. We also don't pad interchange rates or add hidden surcharges to your monthly statement.</p>
+<h2>Where Your Fees Are Set</h2>
+<p>${claimText("equipment.agreement.summary")} Compare each line on your statement with it, and ask about any charge you cannot match.</p>
 
 <h2>Reading Your Effective Rate</h2>
-<p>Your effective rate is your total processing cost divided by your total sales volume. This single number tells you more about your true cost than any quoted rate. We help you calculate and monitor your effective rate monthly.</p>`,
+<p>Your effective rate is your total processing cost divided by your total sales volume. This single number tells you more about your true cost than any quoted rate.</p>`,
   },
   {
     slug: "next-day-funding-setup",
     title: "Setting Up Next-Day Funding",
     category: "Getting Started",
     categorySlug: "getting-started",
-    summary: "How to enable and optimize next-day deposit of your processed funds.",
+    summary: "How batch timing and funding schedules work.",
     keywords: "next day funding, fast deposits, settlement, batch time, funding speed",
     content: `<h2>What Is Next-Day Funding?</h2>
 <p>Next-day funding means the money from your credit card transactions is deposited into your bank account the following business day. This is significantly faster than the standard 2-3 day settlement offered by many processors.</p>
 
 <h2>Eligibility</h2>
-<p>Most merchants approved through Liberty Bancard qualify for next-day funding. Requirements include:</p>
+<p>${claimText("funding.availability")} Factors that commonly matter include:</p>
 <ul>
 <li>A verified business checking account at a major US bank</li>
 <li>No active holds or reserves on your account</li>
@@ -219,22 +221,22 @@ export const helpArticles: HelpArticle[] = [
 <h2>Setting Your Batch Time</h2>
 <p>Your batch time is when your terminal or gateway automatically sends the day's transactions for settlement. For next-day funding:</p>
 <ol>
-<li>Set your batch time to before 9:00 PM Eastern.</li>
+<li>Set your batch time to run before the funding cutoff for your account, which is confirmed in your agreement or setup.</li>
 <li>Transactions batched after the cutoff will fund the following business day.</li>
 <li>Weekend and holiday transactions fund on the next business day.</li>
 </ol>
 
 <h2>How to Enable</h2>
-<p>Next-day funding is enabled by default for qualifying merchants. If you're not receiving funds the next day:</p>
+<p>If a deposit arrives later than you expected:</p>
 <ul>
 <li>Verify your batch time is set correctly on your terminal.</li>
-<li>Confirm your bank account information is accurate in our system.</li>
+<li>Confirm your bank account information is accurate on your account.</li>
 <li>Check for any account holds or risk reviews that may delay settlement.</li>
 <li>Contact our support team to verify your funding schedule.</li>
 </ul>
 
 <h2>Same-Day Funding</h2>
-<p>Same-day funding is available for select merchants with higher volume. Contact your account representative to learn about eligibility and any associated fees.</p>`,
+<p>Same-day funding, where offered, usually has an earlier cutoff and may carry a fee. Ask what applies to your account.</p>`,
   },
 
   // ── Billing & Statements ──
@@ -259,7 +261,7 @@ export const helpArticles: HelpArticle[] = [
 <p>Breaks down the interchange fees charged by Visa, Mastercard, Discover, and Amex. Each card type and transaction method has a different interchange rate. This section shows the actual cost passed through from the card brands.</p>
 
 <h3>Processor Fees</h3>
-<p>Shows Liberty Bancard's markup fees including per-transaction charges, monthly account fees, and any applicable service fees. These should match your signed agreement.</p>
+<p>Shows the processor's markup fees including per-transaction charges, monthly account fees, and any applicable service fees. These should match your signed agreement.</p>
 
 <h3>Assessments & Dues</h3>
 <p>Card brand assessment fees (Visa, MC, Discover, Amex) are small percentage-based fees charged by the networks themselves. These are separate from interchange.</p>
@@ -271,7 +273,7 @@ export const helpArticles: HelpArticle[] = [
 <p>Divide your total fees by your total sales volume. For example, if you processed $50,000 and paid $1,250 in total fees, your effective rate is 2.50%. This number is the most meaningful metric for comparing processors.</p>
 
 <h2>Questions About Your Statement?</h2>
-<p>Upload your statement through our free review tool and we'll provide a line-by-line analysis at no cost.</p>`,
+<p>Upload your statement for a review. ${claimText("review.process.summary")} ${claimText("review.cost.free")}</p>`,
   },
   {
     slug: "understanding-processing-fees",
@@ -296,7 +298,7 @@ export const helpArticles: HelpArticle[] = [
 <p>Card brand assessments are small fees (typically 0.13%-0.15%) charged by the card networks on all transactions. These are non-negotiable and the same regardless of your processor.</p>
 
 <h2>Processor Markup Fees</h2>
-<p>These are the fees your processor (Liberty Bancard) charges for providing the service. Common markup fees include:</p>
+<p>These are the fees your processor charges for providing the service. Common markup fees include:</p>
 <ul>
 <li><strong>Per-transaction fee</strong> - A fixed amount (e.g., $0.08) per authorization</li>
 <li><strong>Monthly account fee</strong> - Typically $5-$15/month for account maintenance</li>
@@ -305,8 +307,8 @@ export const helpArticles: HelpArticle[] = [
 <li><strong>PCI compliance fee</strong> - $5-$10/month or annually for compliance program</li>
 </ul>
 
-<h2>Fees We Never Charge</h2>
-<p>Liberty Bancard does not charge: application fees, setup fees, annual fees, cancellation fees (on month-to-month agreements), minimum processing fees, or IRS reporting fees.</p>`,
+<h2>Check Your Agreement</h2>
+<p>Fees, minimum processing requirements and cancellation terms vary by agreement. Ask for them in writing before you sign, and confirm that each one appears in your written processing agreement.</p>`,
   },
   {
     slug: "disputing-a-charge-on-your-statement",
@@ -329,7 +331,7 @@ export const helpArticles: HelpArticle[] = [
 <li><strong>Document the issue</strong> - Note the specific line item, amount, and why you believe it's incorrect.</li>
 <li><strong>Contact support</strong> - Reach out to our support team via phone, email, or the support form on our website.</li>
 <li><strong>Provide evidence</strong> - Upload your statement highlighting the disputed charge, along with your signed agreement if relevant.</li>
-<li><strong>Review timeline</strong> - We investigate all billing disputes within 5 business days and provide a written response.</li>
+<li><strong>Follow up</strong> - Ask when you can expect a response, and keep a record of your request.</li>
 </ol>
 
 <h2>Common Statement Errors</h2>
@@ -341,7 +343,7 @@ export const helpArticles: HelpArticle[] = [
 </ul>
 
 <h2>Resolution Process</h2>
-<p>If we confirm an error, credits are applied to your next month's statement or refunded directly to your bank account. We maintain a transparent dispute log accessible through your merchant portal.</p>
+<p>If an error is confirmed, ask how and when the correction will be applied to your statement or account.</p>
 
 <h2>Prevention</h2>
 <p>Keep a copy of your signed merchant agreement and rate schedule. Compare your first statement against this agreement to establish a baseline for future reviews.</p>`,
@@ -438,7 +440,7 @@ export const helpArticles: HelpArticle[] = [
 <li>Check that the power adapter is firmly connected to both the terminal and the outlet.</li>
 <li>Try a different power outlet to rule out an outlet issue.</li>
 <li>If using a charging base, ensure the terminal is properly seated.</li>
-<li>If the terminal still won't power on after 5 minutes of charging, contact support for a replacement.</li>
+<li>If the terminal still won't power on after 5 minutes of charging, contact support.</li>
 </ul>
 
 <h2>Terminal Shows "No Connection" or "Communication Error"</h2>
@@ -487,7 +489,7 @@ export const helpArticles: HelpArticle[] = [
 <p>A payment gateway securely transmits transaction data between your website, POS, or virtual terminal and the payment processor. It encrypts sensitive card data and communicates with the card networks to authorize transactions.</p>
 
 <h2>Gateway Login and Dashboard</h2>
-<p>After account activation, you'll receive gateway login credentials via email. The gateway dashboard provides:</p>
+<p>Your gateway dashboard may provide, depending on your gateway and plan:</p>
 <ul>
 <li>Virtual terminal for keyed-in transactions</li>
 <li>Transaction search and reporting</li>
@@ -548,11 +550,11 @@ export const helpArticles: HelpArticle[] = [
 <h3>Missing Deposit</h3>
 <p>If you closed a batch but don't see the deposit in your bank account:</p>
 <ul>
-<li>Allow 1-2 business days for standard funding or 1 business day for next-day funding.</li>
+<li>Allow the funding time that applies to your account, commonly one to three business days.</li>
 <li>Verify the batch actually closed by checking the batch report on your terminal.</li>
 <li>Confirm the bank account number on file is correct.</li>
 <li>Check with your bank for any incoming ACH credits that may not have posted yet.</li>
-<li>Contact support if the deposit hasn't appeared after 3 business days.</li>
+<li>Contact support if the deposit hasn't appeared within the time that applies to your account.</li>
 </ul>
 
 <h3>Deposit Amount Doesn't Match</h3>
@@ -563,7 +565,7 @@ export const helpArticles: HelpArticle[] = [
 <li>Set auto-batch for a consistent time after your business closes each day.</li>
 <li>Reconcile your batch reports against bank deposits weekly.</li>
 <li>Keep your terminal powered on and connected 24/7 if possible.</li>
-<li>Review your funding schedule in your merchant portal for weekends and holidays.</li>
+<li>Review your funding schedule for weekends and holidays.</li>
 </ul>`,
   },
   {
@@ -675,7 +677,7 @@ export const helpArticles: HelpArticle[] = [
 <li>Contact our support team via phone, email, or the support form.</li>
 <li>Provide your Merchant ID (MID) and the specific changes needed.</li>
 <li>For name changes or ownership changes, additional documentation may be required (e.g., new business license, articles of amendment).</li>
-<li>Changes are typically processed within 1-3 business days.</li>
+<li>Ask support how long a change will take; it depends on what is changing.</li>
 </ol>
 
 <h2>Bank Account Changes</h2>
@@ -683,12 +685,12 @@ export const helpArticles: HelpArticle[] = [
 <ul>
 <li>Submit a voided check or bank letter for the new account.</li>
 <li>The new account must be in the same business name.</li>
-<li>Allow 3-5 business days for verification and activation.</li>
-<li>A brief hold on deposits may occur during the transition for security purposes.</li>
+<li>Verification and activation take additional time.</li>
+<li>Deposit timing may be affected during the transition; ask support what to expect.</li>
 </ul>
 
 <h2>Ownership Changes</h2>
-<p>Changes in business ownership (adding or removing owners with 25% or more ownership) require a new underwriting review. This includes:</p>
+<p>Changes in business ownership (adding or removing owners) may require a new underwriting review. This can include:</p>
 <ul>
 <li>Updated ownership documentation</li>
 <li>Personal guarantor information for new owners</li>
@@ -696,7 +698,7 @@ export const helpArticles: HelpArticle[] = [
 </ul>
 
 <h2>Descriptor Changes</h2>
-<p>Your payment descriptor is what appears on your customer's card statement. To change it, contact support with your preferred descriptor (up to 22 characters). Allow 2-5 business days for the change to take effect across all card brands.</p>`,
+<p>Your payment descriptor is what appears on your customer's card statement. To change it, contact support with your preferred descriptor (up to 22 characters). Changes can take several business days to appear across all card brands.</p>`,
   },
   {
     slug: "adding-users-and-permissions",
@@ -706,7 +708,7 @@ export const helpArticles: HelpArticle[] = [
     summary: "How to add team members to your merchant account and set appropriate access levels.",
     keywords: "add user, permissions, team access, admin, manager, employee access",
     content: `<h2>User Roles</h2>
-<p>Liberty Bancard supports multiple user roles to control access to your account:</p>
+<p>Merchant portals and gateways commonly offer user roles to control access. Exact roles and names depend on your platform. Typical roles include:</p>
 <ul>
 <li><strong>Owner / Admin</strong> - Full access to all features, settings, and reports. Can add and remove other users.</li>
 <li><strong>Manager</strong> - Can process transactions, view reports, and manage daily operations. Cannot change account settings or bank information.</li>
@@ -793,7 +795,7 @@ export const helpArticles: HelpArticle[] = [
 </ol>
 
 <h2>Currency and Language</h2>
-<p>Configure display language (English or Spanish) and currency (USD) in Settings > Display. These settings affect customer-facing prompts and receipts.</p>`,
+<p>Configure display language and currency in Settings > Display, where your terminal supports it. These settings affect customer-facing prompts and receipts.</p>`,
   },
   {
     slug: "adding-a-new-location",
@@ -815,9 +817,9 @@ export const helpArticles: HelpArticle[] = [
 <ol>
 <li>Contact your account representative or submit a support request.</li>
 <li>Provide the new location's address, phone number, and expected monthly volume.</li>
-<li>Complete a brief supplemental application (much shorter than the original).</li>
-<li>We'll provision a new MID and ship equipment to the new location.</li>
-<li>Setup typically takes 2-3 business days.</li>
+<li>Complete any supplemental application that is required.</li>
+<li>A new MID is provisioned, and equipment is arranged for the new location.</li>
+<li>Account approval, equipment availability, shipping and activation are separate steps.</li>
 </ol>
 
 <h2>Centralized Reporting</h2>
@@ -832,7 +834,7 @@ export const helpArticles: HelpArticle[] = [
 </ul>
 
 <h2>Pricing</h2>
-<p>New locations under the same business entity typically qualify for the same negotiated rates. High-volume multi-location businesses may qualify for additional volume discounts.</p>`,
+<p>Pricing for a new location is set in the agreement for that location. Ask what applies before you add it.</p>`,
   },
   {
     slug: "closing-or-pausing-your-account",
@@ -845,9 +847,9 @@ export const helpArticles: HelpArticle[] = [
 <p>If your business is seasonal or you need to temporarily stop processing:</p>
 <ul>
 <li>Contact support to place your account on seasonal hold.</li>
-<li>During hold, no monthly fees are charged (equipment lease fees may still apply if applicable).</li>
+<li>Ask support which fees continue during a hold. Equipment lease fees and other agreement terms may still apply.</li>
 <li>Your account and settings are preserved for reactivation.</li>
-<li>Reactivation typically takes 1-2 business days with a simple phone call.</li>
+<li>Ask support what reactivation involves.</li>
 </ul>
 
 <h2>Closing Your Account</h2>
@@ -856,7 +858,7 @@ export const helpArticles: HelpArticle[] = [
 <li>Contact our support team by phone or email.</li>
 <li>Confirm there are no outstanding chargebacks, holds, or pending transactions.</li>
 <li>Return any leased equipment (if applicable) to avoid ongoing charges.</li>
-<li>We process the closure within 3-5 business days.</li>
+<li>Ask support when the closure will take effect.</li>
 <li>Final statement and any remaining deposits are processed within the normal cycle.</li>
 </ol>
 
@@ -870,11 +872,11 @@ export const helpArticles: HelpArticle[] = [
 <li>Verify no chargeback disputes are pending (these may take 45-120 days to resolve).</li>
 </ul>
 
-<h2>No Cancellation Fees</h2>
-<p>Liberty Bancard month-to-month agreements do not carry early termination fees. If you have a term agreement, check your contract for any applicable fees.</p>
+<h2>Cancellation Terms</h2>
+<p>${claimText("equipment.agreement.summary")} Check your written agreement for any cancellation fee before you close.</p>
 
 <h2>Reactivation</h2>
-<p>Closed accounts can often be reactivated within 6 months without a full reapplication. After 6 months, a new application is required but previous account history is considered.</p>`,
+<p>Whether a closed account can be reactivated, and what that involves, depends on the account and the agreement. Ask support.</p>`,
   },
 
   // ── Compliance & Security ──
@@ -898,7 +900,7 @@ export const helpArticles: HelpArticle[] = [
 </ul>
 
 <h2>Your Compliance Requirements</h2>
-<p>Most Liberty Bancard merchants are Level 4 and must:</p>
+<p>Most small businesses are Level 4 and typically must:</p>
 <ol>
 <li>Complete the appropriate Self-Assessment Questionnaire (SAQ) annually.</li>
 <li>Run quarterly network vulnerability scans if you have external-facing IP addresses.</li>
@@ -918,12 +920,12 @@ export const helpArticles: HelpArticle[] = [
 <ul>
 <li>Monthly PCI non-compliance fees (typically $19.95-$49.95/month)</li>
 <li>Increased liability in the event of a data breach</li>
-<li>Potential fines from card brands ranging from $5,000 to $100,000 per month</li>
+<li>Potential fines from card brands (amounts vary)</li>
 <li>Account termination by the acquiring bank</li>
 </ul>
 
-<h2>How We Help</h2>
-<p>Liberty Bancard provides access to a PCI compliance portal where you can complete your SAQ online, schedule network scans, and download your compliance certificate. Our support team can guide you through the process.</p>`,
+<h2>Getting Help</h2>
+<p>Where your account includes a PCI program, a compliance portal may let you complete your SAQ online and schedule scans. Ask what the PCI program covers and what PCI fee applies to your account.</p>`,
   },
   {
     slug: "protecting-customer-data",
@@ -946,7 +948,7 @@ export const helpArticles: HelpArticle[] = [
 <p>Modern payment processing uses two key technologies to protect data:</p>
 <ul>
 <li><strong>Point-to-point encryption (P2PE)</strong> - Encrypts card data at the moment of swipe, dip, or tap. The encrypted data can only be decrypted by the payment processor, never by your terminal or POS system.</li>
-<li><strong>Tokenization</strong> - Replaces the actual card number with a random token for storage and recurring billing. The token is useless if stolen because it can only be used within our processing system.</li>
+<li><strong>Tokenization</strong> - Replaces the actual card number with a random token for storage and recurring billing. A token is typically of little use outside the system that issued it.</li>
 </ul>
 
 <h2>Physical Security</h2>
@@ -1018,7 +1020,7 @@ export const helpArticles: HelpArticle[] = [
 <li>Do not confront the customer directly if you suspect in-person fraud.</li>
 <li>Decline the transaction if possible, citing a "system issue."</li>
 <li>Note any details about the individual or transaction.</li>
-<li>Contact our fraud team and your local law enforcement.</li>
+<li>Contact your processor's support or risk team and your local law enforcement.</li>
 <li>Preserve any evidence (receipts, camera footage, order details).</li>
 </ol>`,
   },
@@ -1033,7 +1035,7 @@ export const helpArticles: HelpArticle[] = [
 <p>If you suspect or confirm that payment card data has been compromised:</p>
 <ol>
 <li><strong>Contain the breach</strong> - Disconnect compromised systems from the network. Do not turn off or wipe any devices as forensic evidence may be lost.</li>
-<li><strong>Contact Liberty Bancard</strong> - Call our security team immediately. We'll initiate the card brand notification process and guide you through the required steps.</li>
+<li><strong>Contact your processor and acquiring bank</strong> - Notify them immediately, using the contact details in your agreement. Card brand notification requirements follow from that report.</li>
 <li><strong>Document everything</strong> - Record the date and time the breach was discovered, how it was detected, which systems are affected, and what data may have been exposed.</li>
 <li><strong>Preserve evidence</strong> - Do not attempt to investigate or remediate on your own. A PCI Forensic Investigator (PFI) may need to examine the systems.</li>
 </ol>
@@ -1044,7 +1046,7 @@ export const helpArticles: HelpArticle[] = [
 <li>A PFI firm conducts a forensic investigation to determine the scope of the breach.</li>
 <li>Card brands may require compromised card numbers to be identified and reported.</li>
 <li>You'll receive a list of remediation requirements based on the investigation findings.</li>
-<li>The investigation typically takes 2-4 weeks.</li>
+<li>Investigation length varies with the scope of the incident.</li>
 </ul>
 
 <h2>Notification Requirements</h2>
@@ -1099,7 +1101,7 @@ export const helpArticles: HelpArticle[] = [
 <p>Contactless (tap) transactions also use EMV technology and provide the same liability protection as chip-dip transactions. Encouraging customers to tap is faster and equally secure.</p>
 
 <h2>Check Your Terminal</h2>
-<p>If your terminal does not have a chip reader slot, contact Liberty Bancard to upgrade. We provide EMV-capable terminals to all merchants.</p>`,
+<p>If your terminal does not have a chip reader slot, ask your processor about EMV-capable equipment. Availability and terms are confirmed in your quote and written agreement.</p>`,
   },
 
   // ── General FAQ ──
@@ -1123,7 +1125,7 @@ export const helpArticles: HelpArticle[] = [
 <h2>Who's Involved?</h2>
 <ul>
 <li><strong>Merchant (you)</strong> - Accepts the payment</li>
-<li><strong>Payment processor (Liberty Bancard)</strong> - Facilitates the transaction</li>
+<li><strong>Payment processor</strong> - Facilitates the transaction</li>
 <li><strong>Acquiring bank</strong> - The bank that holds your merchant account</li>
 <li><strong>Card network</strong> - Visa, Mastercard, Discover, or Amex</li>
 <li><strong>Issuing bank</strong> - The customer's bank that issued their card</li>
@@ -1140,13 +1142,13 @@ export const helpArticles: HelpArticle[] = [
     summary: "Timeline expectations for merchant account application and approval.",
     keywords: "approval time, application timeline, how long to get approved, underwriting time",
     content: `<h2>Standard Timeline</h2>
-<p>Most merchant applications are reviewed and approved within 24-48 hours of submission. The complete timeline from application to first transaction is typically 3-5 business days:</p>
-<ul>
-<li><strong>Day 1</strong> - Application submitted with required documents</li>
-<li><strong>Day 1-2</strong> - Underwriting review and approval</li>
-<li><strong>Day 2-3</strong> - Account provisioning and equipment shipping</li>
-<li><strong>Day 3-5</strong> - Equipment arrives, setup, and first transaction</li>
-</ul>
+<p>Approval timing depends on your business, the information provided and the review. ${claimText("timing.staged-process")} The usual sequence is:</p>
+<ol>
+<li>Application submitted with required documents</li>
+<li>Underwriting review and decision</li>
+<li>Account provisioning and equipment arrangement</li>
+<li>Equipment arrives, setup, and first transaction</li>
+</ol>
 
 <h2>What Can Delay Approval?</h2>
 <ul>
@@ -1157,8 +1159,8 @@ export const helpArticles: HelpArticle[] = [
 <li>Unusually high requested processing volume without history</li>
 </ul>
 
-<h2>Rush Processing</h2>
-<p>If you need to process payments urgently, let your account representative know. We can often expedite the underwriting process and arrange overnight equipment shipping for an additional fee.</p>
+<h2>Urgent Needs</h2>
+<p>If you need to process payments urgently, tell the team reviewing your request. Whether anything can be expedited, and at what cost, is confirmed during review.</p>
 
 <h2>What You Can Do to Speed Things Up</h2>
 <ul>
@@ -1181,7 +1183,7 @@ export const helpArticles: HelpArticle[] = [
 <h2>How Much Are They?</h2>
 <p>Interchange rates vary widely based on several factors:</p>
 <ul>
-<li><strong>Card type</strong> - Basic debit cards have the lowest rates (0.05% + $0.21 for regulated debit). Premium rewards cards have the highest rates (2.0%+ for some Amex cards).</li>
+<li><strong>Card type</strong> - Debit cards from the largest issuers are regulated and have among the lowest rates. Premium rewards cards have higher rates.</li>
 <li><strong>Transaction type</strong> - Card-present (swiped/dipped/tapped) rates are lower than card-not-present (keyed/online) rates because there's less fraud risk.</li>
 <li><strong>Industry</strong> - Supermarkets, utilities, and some service industries have lower interchange categories.</li>
 <li><strong>Transaction data</strong> - Providing additional data (Level 2 or Level 3) can qualify B2B transactions for lower rates.</li>
@@ -1207,28 +1209,23 @@ export const helpArticles: HelpArticle[] = [
     summary: "Information about contract terms, month-to-month options, and cancellation policies.",
     keywords: "contract, month to month, no contract, cancellation, early termination fee",
     content: `<h2>Month-to-Month Processing</h2>
-<p>Liberty Bancard offers month-to-month processing agreements with no early termination fees. You can close your account at any time without penalty, giving you the flexibility to stay because you want to, not because you're locked in.</p>
+<p>Contract terms vary by provider and by agreement. ${claimText("equipment.agreement.summary")} Read these before you sign.</p>
 
 <h2>Why Some Processors Require Contracts</h2>
-<p>Many processors use long-term contracts (2-3 years) with early termination fees ($295-$595 or based on remaining months) to lock merchants in. This practice often means:</p>
-<ul>
-<li>They know their rates aren't competitive enough to retain merchants voluntarily.</li>
-<li>They plan to raise rates after the initial period.</li>
-<li>They profit from cancellation fees when merchants discover hidden costs.</li>
-</ul>
+<p>Some processors use multi-year contracts with early termination fees. The fee, and what triggers it, varies widely, so ask for the exact figure and its calculation in writing.</p>
 
-<h2>Our Approach</h2>
-<p>We believe our pricing and service should earn your business every month. Our month-to-month agreement includes:</p>
+<h2>What to Look For</h2>
+<p>Before you sign, check the agreement for:</p>
 <ul>
-<li>No setup fees or application fees</li>
-<li>No annual fees</li>
-<li>No early termination fees</li>
-<li>30-day notice for rate changes</li>
-<li>Equipment return within 30 days of closure (for placed equipment)</li>
+<li>Setup or application fees</li>
+<li>Annual fees</li>
+<li>Early termination fees</li>
+<li>Notice required for rate changes</li>
+<li>Equipment return requirements</li>
 </ul>
 
 <h2>Equipment Considerations</h2>
-<p>If you receive a free terminal placement, the equipment remains the property of Liberty Bancard and must be returned if you close your account. Purchased equipment is yours to keep.</p>
+<p>${claimText("equipment.agreement.summary")} Whether equipment is purchased, leased or placed determines who owns it and what happens if you close the account.</p>
 
 <h2>Reading the Fine Print</h2>
 <p>Before signing with any processor, carefully review: termination clauses, rate escalation provisions, equipment lease terms (which may have separate cancellation fees), and minimum processing requirements.</p>`,
@@ -1284,30 +1281,27 @@ export const helpArticles: HelpArticle[] = [
     summary: "How American Express acceptance works and what it costs compared to Visa and Mastercard.",
     keywords: "American Express, Amex, accept Amex, Amex rates, OptBlue",
     content: `<h2>Yes, You Can Accept Amex</h2>
-<p>All Liberty Bancard merchants can accept American Express through the OptBlue program. This means Amex transactions are processed through us along with your Visa, Mastercard, and Discover transactions, with one combined statement and one deposit.</p>
+<p>Small businesses commonly accept American Express through the OptBlue program, where Amex transactions are processed by your processor along with your other card brands. Whether Amex acceptance is available for your account, and on what terms, is confirmed during review.</p>
 
 <h2>OptBlue Pricing</h2>
 <p>Under the OptBlue program, Amex pricing works similarly to Visa and Mastercard:</p>
 <ul>
-<li>Interchange-plus pricing applies</li>
-<li>Rates are significantly lower than Amex's direct merchant program</li>
-<li>Amex rates have become much more competitive in recent years</li>
-<li>For most merchants, the average Amex rate is only 0.3%-0.5% higher than Visa/Mastercard</li>
+<li>Amex pricing differs from Visa and Mastercard pricing</li>
+<li>Your agreement sets the Amex rates that apply to you</li>
+<li>Compare the Amex lines on your statement with your other cards</li>
 </ul>
 
 <h2>Why Accept Amex?</h2>
 <ul>
-<li>Amex cardholders tend to spend 2-3x more per transaction than Visa/MC cardholders.</li>
-<li>Refusing Amex may cause you to lose high-value customers entirely.</li>
-<li>The OptBlue program has made Amex rates competitive with premium Visa/MC cards.</li>
-<li>Amex provides fraud protection and dispute resolution comparable to other card brands.</li>
+<li>Some customers prefer to pay with Amex, and declining it may lose those sales.</li>
+<li>Compare the cost with the other premium cards on your statement.</li>
 </ul>
 
 <h2>Do I Have to Accept Amex?</h2>
-<p>Amex acceptance is optional. You can choose to accept only Visa, Mastercard, and Discover if you prefer. However, we recommend accepting all major card brands to maximize your sales opportunities.</p>
+<p>Amex acceptance is optional. You can choose to accept only Visa, Mastercard, and Discover if you prefer.</p>
 
 <h2>Setup</h2>
-<p>Amex acceptance is typically enabled by default when your merchant account is approved. If it's not enabled, contact support to add it. There's no additional application or setup fee.</p>`,
+<p>Ask whether Amex acceptance is included in your application and what, if anything, it adds in fees.</p>`,
   },
   {
     slug: "what-is-a-cash-discount-program",
@@ -1315,20 +1309,20 @@ export const helpArticles: HelpArticle[] = [
     category: "General FAQ",
     categorySlug: "general-faq",
     summary: "How cash discount programs work and whether your business qualifies.",
-    keywords: "cash discount, zero cost processing, 0 percent processing, eliminate processing fees",
+    keywords: "cash discount, dual pricing, service fee, processing costs",
     content: `<h2>Cash Discount Explained</h2>
-<p>A cash discount program allows you to offer a discount to customers who pay with cash while charging a service fee to those who pay with a credit or debit card. This effectively transfers processing costs to the cardholder, resulting in zero or near-zero processing fees for your business.</p>
+<p>A cash discount program allows you to offer a discount to customers who pay with cash while charging a service fee to those who pay with a credit or debit card. The business can still have costs, such as equipment, software, gateway, PCI and other account fees.</p>
 
 <h2>How It Works</h2>
 <ol>
-<li>Your posted prices include a small service fee (typically 3.5%-4%).</li>
+<li>Your posted prices include a service fee.</li>
 <li>Customers who pay with cash receive a discount equal to the service fee.</li>
 <li>Customers who pay with a card pay the posted price, which includes the fee.</li>
-<li>The service fee collected from card transactions covers your processing costs.</li>
+<li>The service fee collected from card transactions offsets part of your processing costs.</li>
 </ol>
 
 <h2>Is It Legal?</h2>
-<p>Cash discount programs are legal in all 50 states when properly structured. The key distinction is between a cash discount (legal everywhere) and a credit card surcharge (restricted in some states). Our program is structured as a compliant cash discount.</p>
+<p>${claimText("program.overview")} This is not legal advice; confirm the requirements for your business before enrolling.</p>
 
 <h2>Equipment and Signage</h2>
 <p>Cash discount programs require:</p>
@@ -1336,7 +1330,7 @@ export const helpArticles: HelpArticle[] = [
 <li>A terminal or POS system programmed to automatically apply and remove the service fee.</li>
 <li>Proper signage at the entrance and point of sale clearly disclosing the program.</li>
 <li>Receipts that itemize the service fee separately.</li>
-<li>We provide all required signage and program the terminal at no additional cost.</li>
+<li>${claimText("program.requirements")}</li>
 </ul>
 
 <h2>Who Is It Best For?</h2>
@@ -1348,7 +1342,7 @@ export const helpArticles: HelpArticle[] = [
 </ul>
 
 <h2>Customer Response</h2>
-<p>Most customers are already accustomed to cash discounts at gas stations and other businesses. When implemented with clear signage and professional communication, the vast majority of customers accept the program without issue.</p>`,
+<p>Customer response varies. Clear signage and plain communication help.</p>`,
   },
   {
     slug: "how-to-read-your-rate",
@@ -1375,34 +1369,28 @@ export const helpArticles: HelpArticle[] = [
 </ul>
 
 <h2>What's a Good Effective Rate?</h2>
-<p>Effective rates vary by industry, average ticket size, and card mix, but general benchmarks are:</p>
-<ul>
-<li><strong>Retail (card-present)</strong> - 1.8% - 2.5%</li>
-<li><strong>Restaurant</strong> - 1.9% - 2.6%</li>
-<li><strong>E-commerce (card-not-present)</strong> - 2.3% - 3.0%</li>
-<li><strong>B2B with Level 2/3 data</strong> - 1.5% - 2.2%</li>
-</ul>
+<p>There is no single good number. Effective rates vary with industry, average ticket size, card mix and pricing model. Calculate your own effective rate, then compare it with written quotes based on your own statement.</p>
 
-<h2>How We Help</h2>
-<p>Upload your current processing statement and we'll calculate your effective rate for free. We'll show you exactly where your money is going and identify specific savings opportunities.</p>`,
+<h2>Getting a Statement Review</h2>
+<p>${claimText("review.effective-cost.definition")} ${claimText("review.process.summary")} ${claimText("review.cost.free")}</p>`,
   },
   {
     slug: "what-is-next-day-funding",
     title: "What Is Next-Day Funding?",
     category: "General FAQ",
     categorySlug: "general-faq",
-    summary: "How next-day deposits work and how to qualify for faster funding.",
+    summary: "How next-day deposits work and what affects funding timing.",
     keywords: "next day funding, fast funding, same day funding, deposit speed, settlement time",
     content: `<h2>Standard vs Next-Day Funding</h2>
-<p>Standard funding typically takes 2-3 business days from batch settlement to bank deposit. Next-day funding reduces this to 1 business day, meaning yesterday's sales are in your bank account the next morning.</p>
+<p>Standard funding often takes two to three business days from batch settlement to bank deposit. Next-day funding, where available, aims for the next business day instead. The schedule that applies to you is set by your account.</p>
 
 <h2>How to Qualify</h2>
-<p>Most Liberty Bancard merchants qualify for next-day funding. Requirements include:</p>
+<p>${claimText("funding.availability")} Factors that commonly matter include:</p>
 <ul>
 <li>An approved merchant account in good standing</li>
 <li>A verified business checking account at a major US bank</li>
 <li>No active account holds, reserves, or risk reviews</li>
-<li>Batching before the daily cutoff time (typically 9:00 PM Eastern)</li>
+<li>Batching before the daily cutoff time that applies to your account</li>
 </ul>
 
 <h2>Important Notes</h2>
@@ -1414,7 +1402,7 @@ export const helpArticles: HelpArticle[] = [
 </ul>
 
 <h2>Same-Day Funding</h2>
-<p>Same-day funding is available for qualifying high-volume merchants. Transactions batched before the morning cutoff are deposited the same business day. Contact your account representative for eligibility and pricing.</p>
+<p>Same-day funding, where offered, usually has an earlier cutoff and may carry a fee. Ask what applies to your account.</p>
 
 <h2>Tracking Your Deposits</h2>
 <p>Monitor your deposits through the merchant portal, which shows batch totals, expected funding dates, and actual deposit confirmations. Set up email or text alerts for deposit notifications.</p>`,
@@ -1424,40 +1412,40 @@ export const helpArticles: HelpArticle[] = [
     title: "How to Switch Payment Processors",
     category: "General FAQ",
     categorySlug: "general-faq",
-    summary: "A step-by-step guide to switching from your current processor to Liberty Bancard.",
+    summary: "A step-by-step guide to switching from your current processor.",
     keywords: "switch processor, change processor, cancel processor, transfer merchant account, migrate",
     content: `<h2>Before You Switch</h2>
 <p>Switching payment processors is simpler than most merchants think. Here's what to prepare:</p>
 <ul>
-<li>A copy of your current processing statement (so we can guarantee savings)</li>
+<li>A copy of your current processing statement (so your costs can be reviewed)</li>
 <li>Your current contract terms (check for early termination fees)</li>
 <li>A list of any integrations (POS, website, recurring billing) that reference your current processor</li>
 </ul>
 
 <h2>The Switching Process</h2>
 <ol>
-<li><strong>Statement review</strong> - Upload your current statement. We'll provide a detailed comparison showing your projected savings.</li>
-<li><strong>Application</strong> - Complete our simple application (10 minutes).</li>
-<li><strong>Approval</strong> - Typical approval in 24-48 hours.</li>
-<li><strong>Equipment</strong> - We ship and configure your new terminal or POS integration.</li>
+<li><strong>Statement review</strong> - Upload your current statement. ${claimText("review.process.summary")}</li>
+<li><strong>Application</strong> - Complete the application.</li>
+<li><strong>Approval</strong> - Timing depends on the review.</li>
+<li><strong>Equipment</strong> - Availability and terms are confirmed in your quote; shipping and activation are separate.</li>
 <li><strong>Go live</strong> - Process your first transaction on the new account.</li>
-<li><strong>Cancel old account</strong> - Once you've confirmed the new account works, cancel your old processor. We can help you navigate the cancellation process.</li>
+<li><strong>Cancel old account</strong> - Once you've confirmed the new account works, cancel your old processor, following the notice and fee terms in your old agreement.</li>
 </ol>
 
 <h2>What About My Existing Equipment?</h2>
-<p>If you own your current terminal outright, it may be reprogrammable to work with our processing. If you're leasing equipment, check your lease terms for cancellation provisions. We provide replacement equipment at no additional charge for qualifying merchants.</p>
+<p>If you own your current terminal outright, confirm whether it is compatible before assuming it can be reused. If you're leasing equipment, check your lease terms for cancellation provisions. ${claimText("equipment.lease.existing")}</p>
 
 <h2>Recurring Billing Migration</h2>
 <p>If you have customers on recurring billing or card-on-file:</p>
 <ul>
-<li>We can help migrate your customer vault data to our gateway.</li>
+<li>Ask whether your customer vault data can be migrated to a new gateway.</li>
 <li>Some stored card data (tokens) may not transfer between processors.</li>
 <li>In some cases, customers will need to re-enter their card information.</li>
-<li>We'll help you plan the migration to minimize disruption.</li>
+<li>Plan the migration to minimize disruption.</li>
 </ul>
 
 <h2>Zero Downtime</h2>
-<p>We recommend keeping your old account active until your new account is fully operational and tested. This ensures no gap in your ability to accept payments. Most merchants complete the full switch within 5-7 business days.</p>`,
+<p>We recommend keeping your old account active until your new account is fully operational and tested. This ensures no gap in your ability to accept payments.</p>`,
   },
   {
     slug: "what-is-pci-compliance",
@@ -1478,7 +1466,7 @@ export const helpArticles: HelpArticle[] = [
 </ol>
 
 <h2>How Long Does It Take?</h2>
-<p>For a typical retail merchant using a standalone terminal, the SAQ takes about 15-20 minutes to complete online. We provide access to a compliance portal that walks you through each question.</p>
+<p>For a typical retail merchant using a standalone terminal, the SAQ takes about 15-20 minutes to complete online. Where your account includes a compliance portal, it can walk you through each question.</p>
 
 <h2>What Happens If I'm Not Compliant?</h2>
 <ul>
@@ -1487,8 +1475,8 @@ export const helpArticles: HelpArticle[] = [
 <li>Card brands can levy fines against your acquiring bank, which passes them to you.</li>
 </ul>
 
-<h2>Our Support</h2>
-<p>Liberty Bancard includes PCI compliance support with every merchant account. We provide the compliance portal, guide you through the SAQ, and help you maintain compliance year after year.</p>`,
+<h2>Getting Help</h2>
+<p>Ask what PCI support and fees apply to your account. ${claimText("program.remaining-costs")}</p>`,
   },
 ];
 

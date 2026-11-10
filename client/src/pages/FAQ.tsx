@@ -51,7 +51,7 @@ const faqCategories: FAQCategory[] = [
       {
         question: "What is the best payment processor for small businesses?",
         answer:
-          "Liberty Bancard quotes transparent interchange-plus pricing from your own statement and pairs it with dedicated human support. The best processor for your business depends on your volume, card mix, ticket size and the equipment and services you need, so we compare costs line by line from your statement before you decide.",
+          "The best processor for your business depends on your volume, card mix, ticket size and the equipment and services you need, so we compare costs line by line from your statement before you decide.",
       },
       {
         question: "How do I open a merchant account with Liberty Bancard?",
@@ -83,7 +83,7 @@ const faqCategories: FAQCategory[] = [
       {
         question: "How much does credit card processing cost?",
         answer:
-          "Credit card processing costs consist of three components: interchange fees set by Visa and Mastercard (typically 1.5% to 2.5%), card brand assessments (about 0.13% to 0.15%), and the processor's markup. Liberty Bancard's interchange-plus pricing keeps our markup transparent and competitive, resulting in effective rates significantly lower than flat-rate processors.",
+          "Credit card processing costs consist of three components: interchange fees set by Visa and Mastercard (typically 1.5% to 2.5%), card brand assessments (about 0.13% to 0.15%), and the processor's markup. Pricing models differ: with interchange-plus the markup is listed separately from card costs, and your written quote and processing agreement set which model and markup apply to you.",
       },
       {
         question: "What is interchange-plus pricing?",
@@ -98,7 +98,7 @@ const faqCategories: FAQCategory[] = [
       {
         question: "What is an effective rate and how do I calculate it?",
         answer:
-          "Your effective rate is your total processing fees divided by your total sales volume. For example, if you processed $50,000 and paid $1,250 in total fees, your effective rate is 2.50%. This single number is the most reliable way to compare processors. Liberty Bancard helps you calculate and monitor your effective rate monthly.",
+          "Your effective rate is your total processing fees divided by your total sales volume. For example, if you processed $50,000 and paid $1,250 in total fees, your effective rate is 2.50%. This single number is the most reliable way to compare processors.",
       },
       {
         question: "Why is flat-rate pricing more expensive than interchange-plus?",
@@ -152,7 +152,7 @@ const faqCategories: FAQCategory[] = [
       {
         question: "What POS terminals does Liberty Bancard support?",
         answer:
-          "Liberty Bancard supports a wide range of terminals and POS systems including Clover (Flex, Mini, Station), Dejavoo, PAX Technology, Valor PayTech, and most USB and IP-connected devices. We also support virtual terminals for phone and mail-order transactions and mobile card readers for businesses on the go.",
+          `Compatibility depends on your terminal or POS platform, product or version, and current setup. ${claimText("compat.inquiry")}`,
       },
       {
         question: "Can I use my existing terminal with Liberty Bancard?",
@@ -162,7 +162,7 @@ const faqCategories: FAQCategory[] = [
       {
         question: "What is tap-to-pay and do your terminals support it?",
         answer:
-          "Tap-to-pay, also known as contactless payment, allows customers to hold their card or smartphone near the terminal to complete a transaction using NFC technology. All Liberty Bancard terminals support tap-to-pay for Visa, Mastercard, American Express, Apple Pay, Google Pay, and Samsung Pay.",
+          "Tap-to-pay, also known as contactless payment, allows customers to hold their card or smartphone near the terminal to complete a transaction using NFC technology. Whether a given terminal supports contactless, and which cards and wallets it accepts, depends on the model and its configuration.",
       },
       {
         question: "Do I have to lease equipment from Liberty Bancard?",
@@ -216,7 +216,7 @@ const faqCategories: FAQCategory[] = [
       {
         question: "What is PCI compliance and do I need it?",
         answer:
-          "PCI DSS (Payment Card Industry Data Security Standard) is a set of security requirements that every business accepting credit cards must follow. Compliance protects cardholder data from breaches and fraud. Liberty Bancard provides a PCI compliance portal, guided Self-Assessment Questionnaires, and support to help you achieve and maintain compliance with minimal effort.",
+          "PCI DSS (Payment Card Industry Data Security Standard) is a set of security requirements that every business accepting credit cards must follow. Compliance protects cardholder data from breaches and fraud. Where your account includes a PCI program, a compliance portal may guide you through the Self-Assessment Questionnaire. Ask what the PCI program covers and what PCI fee applies to your account.",
       },
       {
         question: "How do I become PCI compliant?",
@@ -231,12 +231,12 @@ const faqCategories: FAQCategory[] = [
       {
         question: "Does Liberty Bancard offer fraud protection?",
         answer:
-          "Yes. Liberty Bancard provides multiple layers of fraud protection including EMV chip technology, tokenization, point-to-point encryption (P2PE), address verification (AVS), and CVV matching. Our monitoring systems flag suspicious activity in real time, and our support team is available to help you respond to fraud attempts quickly.",
+          "Fraud protection depends on the equipment, gateway and services on your account. Common tools include EMV chip technology, tokenization, point-to-point encryption (P2PE), address verification (AVS), and CVV matching. Which of them apply to your account is confirmed in your written quote and processing agreement.",
       },
       {
         question: "Can I accept American Express with Liberty Bancard?",
         answer:
-          "Yes. All Liberty Bancard merchants can accept American Express through the OptBlue program. OptBlue provides competitive interchange-plus pricing on Amex transactions, which is significantly cheaper than American Express's traditional direct program. Acceptance is included automatically with your merchant account.",
+          "American Express is commonly accepted through the OptBlue program. Whether it is available for your account, and on what terms, is confirmed during review.",
       },
     ],
   },
@@ -299,7 +299,7 @@ export default function FAQ() {
           className="relative overflow-hidden bg-background border-b border-border py-10"
           data-testid="section-faq-hero"
         >
-          <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
+          <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <HelpCircle className="w-12 h-12 mx-auto mb-4 text-accent" />
             <h1
               className="public-h1 public-h1--page font-bold mb-4 text-foreground"
@@ -519,8 +519,8 @@ export default function FAQ() {
               className="text-primary-foreground/70 mb-6"
               data-testid="text-faq-cta-body"
             >
-              Our team responds within 4 business hours. Talk to a real person who
-              understands payment processing.
+              Send us a request and a person on our team will follow up. Talk to
+              someone who understands payment processing.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-3">
               <Link href="/support" data-testid="link-faq-contact-support">

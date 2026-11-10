@@ -60,7 +60,7 @@ export default function HelpCenter() {
     { question: "Do I need a long-term contract?", answer: claimText("equipment.agreement.summary") },
     { question: "When do card sales reach my bank account?", answer: claimText("funding.availability") },
     { question: "What is PCI compliance?", answer: "PCI DSS is a set of security requirements to protect cardholder data. Every business that accepts credit cards must comply, typically by completing an annual Self-Assessment Questionnaire." },
-    { question: "Can I accept American Express?", answer: "Yes, all Liberty Bancard merchants can accept American Express through the OptBlue program with competitive interchange-plus pricing." },
+    { question: "Can I accept American Express?", answer: "American Express is commonly accepted through the OptBlue program. Whether it is available for your account, and on what terms, is confirmed during review." },
     { question: "What is a cash discount program?", answer: `A cash discount program offers a discount to customers who pay with cash and posts a standard card price. ${claimText("program.overview")}` },
   ];
 
@@ -86,7 +86,7 @@ export default function HelpCenter() {
           />
         </div>
         <section className="bg-primary text-primary-foreground py-10 mt-4" data-testid="section-help-hero">
-          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <BookOpen className="w-12 h-12 mx-auto mb-4 opacity-80" />
             <h1
               className="public-h1 public-h1--page font-bold mb-4"
@@ -245,7 +245,7 @@ export default function HelpCenter() {
               Still need help?
             </h2>
             <p className="text-primary-foreground/70 mb-8 text-lg" data-testid="text-help-cta-body">
-              Our support team responds within 4 business hours. Submit a request and a real person will follow up.
+              Submit a support request and a person on our team will follow up.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <Link href="/support" data-testid="link-help-contact-support">

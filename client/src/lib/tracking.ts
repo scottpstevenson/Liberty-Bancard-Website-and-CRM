@@ -522,26 +522,16 @@ export function trackStatementUploadCompleted(params?: { page?: string; ctaLocat
   }
 }
 
-export function trackSavingsCalculatorCompleted(params: {
-  estimatedSavingsRange: string;
-  monthlyVolumeRange: string;
-  vertical?: string;
-}) {
+/** Completion is recorded without any amount, volume, rate or industry. */
+export function trackSavingsCalculatorCompleted() {
   if (GA_ID) {
     gtagEvent("event", "savings_calculator_completed", {
       event_category: "engagement",
       event_label: "savings_calculator_completed",
-      estimated_savings_range: params.estimatedSavingsRange,
-      monthly_volume_range: params.monthlyVolumeRange,
-      vertical: params.vertical,
     });
   }
   if (FB_PIXEL_ID) {
-    fbqEvent("trackCustom", "SavingsCalculatorCompleted", {
-      estimated_savings_range: params.estimatedSavingsRange,
-      monthly_volume_range: params.monthlyVolumeRange,
-      vertical: params.vertical,
-    });
+    fbqEvent("trackCustom", "SavingsCalculatorCompleted", {});
   }
 }
 

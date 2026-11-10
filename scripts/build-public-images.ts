@@ -17,6 +17,8 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync, existsSync, statSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
+import { HERO_MOBILE_BUDGET, budgetProblems, heroSelectorProblems } from "./lib/public-image-budget";
+import { HOME_HERO_IMAGE } from "../shared/public-home-content";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const SRC_DIR = path.join(ROOT, "client/src/assets/images");
@@ -39,42 +41,51 @@ interface Source {
   variants: Variant[];
 }
 
-/** Crops are in source pixels. 4:3 card crops keep the focal subject; see public-imagery.ts for notes. */
+/**
+ * 4:3 card crop of a 1536x1024 W-D master: full height, 1365 px wide, centred on the supplied focal
+ * x (docs/media/w-d-asset-pack-2026-11-10/asset-manifest.json) and clamped to the frame.
+ */
+const W_D_FRAME = { width: 1536, height: 1024 } as const;
+function cardCrop(focalX: number): Crop {
+  const width = Math.round((W_D_FRAME.height * 4) / 3);
+  const left = Math.min(W_D_FRAME.width - width, Math.max(0, Math.round(W_D_FRAME.width * focalX - width / 2)));
+  return { left, top: 0, width, height: W_D_FRAME.height };
+}
+const CARD_WIDTHS = [320, 480, 640, 800];
+function wdPhoto(id: string, file: string, focalX: number): Source {
+  return { id, file: `w-d/${file}`, variants: [{ name: "card", crop: cardCrop(focalX), widths: CARD_WIDTHS }] };
+}
+
+/** Crops are in source pixels. Focal notes live with each master in docs/media/w-d-asset-pack-2026-11-10. */
 const SOURCES: Source[] = [
   {
-    id: "hero-terminal-tap",
-    file: "liberty-terminal-tap.png", // 1280x896
+    // Home hero (LCP). Phones get an intentional 4:3 crop below the actions; from lg the full 3:2 frame is inset beside the copy.
+    id: "home-hero-merchant",
+    file: "w-d/01-home-merchant-hero.png", // 1536x1024, focal 50% 50%
     variants: [
-      { name: "mobile", crop: { left: 85, top: 0, width: 1195, height: 896 }, widths: [480, 720, 960] }, // 4:3, whole payment moment
-      { name: "desktop", crop: { left: 220, top: 0, width: 1060, height: 896 }, widths: [520, 780, 1060] }, // ~1.18
+      { name: "mobile", crop: cardCrop(0.5), widths: [480, 720, 960] },
+      { name: "desktop", crop: { left: 0, top: 0, width: 1536, height: 1024 }, widths: [520, 780, 1040] },
     ],
   },
+  wdPhoto("industry-restaurant", "02-restaurant-service.png", 0.55),
+  wdPhoto("industry-dental", "03-dental-front-desk.png", 0.52),
+  wdPhoto("industry-med-spa", "04-medspa-consultation.png", 0.5),
+  wdPhoto("industry-automotive", "05-automotive-workshop.png", 0.52),
+  wdPhoto("industry-retail", "06-retail-record-shop.png", 0.5),
+  wdPhoto("industry-field-services", "07-field-services.png", 0.48),
+  wdPhoto("industry-ecommerce", "08-ecommerce-packing.png", 0.5),
+  wdPhoto("industry-professional-services", "09-professional-services.png", 0.52),
   {
-    id: "industry-restaurant",
-    file: "case-restaurant.jpg", // 1280x853
-    variants: [{ name: "card", crop: { left: 0, top: 0, width: 1137, height: 853 }, widths: [320, 480, 640] }],
+    // Why Liberty process inset: full 3:2 frame (the overhead composition keeps its breathing space).
+    id: "process-review-hands",
+    file: "w-d/10-review-process.png", // 1536x1024
+    variants: [{ name: "wide", crop: { left: 0, top: 0, width: 1536, height: 1024 }, widths: [480, 800, 1200] }],
   },
   {
-    id: "industry-healthcare",
-    file: "vertical-medical.jpg", // 1280x720
-    variants: [{ name: "card", crop: { left: 320, top: 0, width: 960, height: 720 }, widths: [320, 480, 640] }],
-  },
-  {
-    id: "industry-automotive",
-    file: "case-auto.jpg", // 1280x853
-    variants: [{ name: "card", crop: { left: 100, top: 0, width: 1137, height: 853 }, widths: [320, 480, 640] }],
-  },
-  {
-    id: "industry-retail",
-    file: "case-retail.jpg", // 1280x884
-    variants: [{ name: "card", crop: { left: 50, top: 0, width: 1179, height: 884 }, widths: [320, 480, 640] }],
-  },
-  {
-    id: "how-statement-review",
-    file: "statement-review.jpg", // 1280x848
-    variants: [
-      { name: "wide", crop: { left: 0, top: 64, width: 1280, height: 720 }, widths: [480, 800, 1200] }, // 16:9
-    ],
+    // Upright terminal concept with real alpha: AVIF/WebP keep it, the JPEG fallback is flattened on the white card it sits on.
+    id: "equipment-concept-terminal-upright",
+    file: "w-d/13-terminal-upright.png", // 1024x1536
+    variants: [{ name: "product", crop: { left: 0, top: 0, width: 1024, height: 1536 }, widths: [220, 440], flattenJpegOn: "#ffffff" }],
   },
   // Terminal product shots (transparent cut-outs). Full frame, two widths: the originals were served at
   // 0.7-1.1 MB each on the terminal, program, comparison, quiz and shop pages.
@@ -114,9 +125,6 @@ const FORMATS = ["avif", "webp", "jpg"] as const;
 type Format = (typeof FORMATS)[number];
 /** Encoder quality per format, tuned for photography at these sizes. */
 const QUALITY: Record<Format, number> = { avif: 52, webp: 74, jpg: 76 };
-/** Budget for the principal above-the-fold mobile derivative (audit: roughly 70-120 KB). */
-const HERO_MOBILE_BUDGET = { file: "hero-terminal-tap-mobile-720.webp", maxBytes: 120 * 1024 };
-
 interface ManifestFile { format: Format; file: string; width: number; height: number; bytes: number }
 interface ManifestVariant { name: string; width: number; height: number; files: ManifestFile[] }
 interface ManifestEntry { id: string; source: string; sourceSha256: string; variants: ManifestVariant[] }
@@ -160,21 +168,11 @@ async function build(): Promise<ManifestEntry[]> {
   return entries;
 }
 
-function budgetProblems(entries: ManifestEntry[]): string[] {
-  const problems: string[] = [];
-  const all = entries.flatMap((e) => e.variants.flatMap((v) => v.files));
-  const hero = all.find((f) => f.file === HERO_MOBILE_BUDGET.file);
-  if (!hero) problems.push(`budget file ${HERO_MOBILE_BUDGET.file} missing`);
-  else if (hero.bytes > HERO_MOBILE_BUDGET.maxBytes) problems.push(`${hero.file} is ${hero.bytes} bytes (> ${HERO_MOBILE_BUDGET.maxBytes})`);
-  for (const f of all) if (f.bytes > 260 * 1024) problems.push(`${f.file} is ${f.bytes} bytes (> 260 KB)`);
-  return problems;
-}
-
 (async () => {
   const check = process.argv.includes("--check") || process.env.PUBLIC_IMAGES_CHECK === "1";
   if (check) {
     const manifest = JSON.parse(readFileSync(MANIFEST, "utf8")) as { entries: ManifestEntry[] };
-    const problems = budgetProblems(manifest.entries);
+    const problems = [...budgetProblems(manifest.entries), ...heroSelectorProblems(HERO_MOBILE_BUDGET, { id: HOME_HERO_IMAGE.id, mobileVariant: HOME_HERO_IMAGE.mobile.variant })];
     for (const e of manifest.entries) {
       const src = path.join(ROOT, e.source);
       if (!existsSync(src)) problems.push(`${e.id}: source ${e.source} missing`);
@@ -190,7 +188,7 @@ function budgetProblems(entries: ManifestEntry[]): string[] {
     return;
   }
   const entries = await build();
-  const problems = budgetProblems(entries);
+  const problems = [...budgetProblems(entries), ...heroSelectorProblems(HERO_MOBILE_BUDGET, { id: HOME_HERO_IMAGE.id, mobileVariant: HOME_HERO_IMAGE.mobile.variant })];
   writeFileSync(MANIFEST, JSON.stringify({ generatedBy: "scripts/build-public-images.ts", quality: QUALITY, entries }, null, 2) + "\n");
   const bytes = entries.flatMap((e) => e.variants.flatMap((v) => v.files)).reduce((n, f) => n + f.bytes, 0);
   console.log(`wrote ${entries.length} sources, ${(bytes / 1024).toFixed(0)} KB total`);

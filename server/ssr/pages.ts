@@ -1,5 +1,11 @@
 import { ssrHtmlShell } from "../ssrShared";
+import { getOverviewPageHtml } from "./overview-pages";
+import { publicProofFor } from "../data/public-proof-register";
+import { proofOverviewPage, TESTIMONIAL_SUBMIT_COPY } from "@shared/public-proof";
+import { WHY_LIBERTY_PAGE } from "@shared/public-why-liberty";
+import { FREE_ANALYSIS_PAGE, FREE_ANALYSIS_QUIZ_PAGE } from "@shared/public-free-analysis";
 import { claimText } from "@shared/public-claims";
+import { CALC_COPY, CALC_PATH, CALC_STRUCTURED_DATA } from "@shared/public-cost-calculator";
 import { TIMING_NOTE } from "@shared/public-disclosures";
 import {
   BEAT_SQUARE_STRIPE,
@@ -237,165 +243,11 @@ export function getUploadStatementHtml(): string {
 }
 
 export function getFreeAnalysisHtml(): string {
-  const schema = {
-    "@context": "https://schema.org",
-    "@type": "Service",
-    name: "Free Payment Processing Analysis",
-    description: "Free merchant services analysis to identify savings opportunities in your current payment processing setup.",
-    provider: { "@type": "Organization", name: "Liberty Bancard", url: BASE_URL },
-    url: `${BASE_URL}/free-analysis`,
-    offers: { "@type": "Offer", price: "0", priceCurrency: "USD", description: "Free consultation and statement review" },
-  };
-  const body = `
-  <div class="ssr-hero">
-    <div class="ssr-hero-inner">
-      <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Free Analysis</span></div>
-      <div class="ssr-hero-badge">💼 Free Consultation</div>
-      <h1>Free Payment Processing Analysis for Your Business</h1>
-      <p class="ssr-hero-subtitle">Discover hidden fees, compare pricing models, and see how much your business could save. No cost, no pressure, no obligation.</p>
-      <div class="ssr-hero-buttons">
-        <a href="/upload-statement" class="ssr-btn-primary">📤 Start Free Analysis</a>
-        <a href="/savings-calculator" class="ssr-btn-outline">🧮 Quick Estimate First</a>
-      </div>
-    </div>
-  </div>
-
-  <section class="ssr-section ssr-section-muted">
-    <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">What's Included in Your Free Analysis</h2>
-      <div class="ssr-grid-3">
-        <div class="ssr-card">
-          <div class="ssr-card-title">📋 Current Rate Audit</div>
-          <div class="ssr-card-text">We identify your effective rate, markups above interchange, and any junk fees that inflate your costs without adding value.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">🔄 Program Comparison</div>
-          <div class="ssr-card-text">Side-by-side comparison of interchange-plus, flat-rate, and 0% processing programs for your business type and volume.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">📈 Savings Forecast</div>
-          <div class="ssr-card-text">12-month savings projection based on your actual transaction mix — not a generic estimate.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">💳 Equipment Review</div>
-          <div class="ssr-card-text">Check whether your current terminals support the most cost-effective transaction types for your business.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">🛡️ Risk &amp; Compliance Check</div>
-          <div class="ssr-card-text">Quick review of your current setup's PCI compliance posture and any avoidable risk exposures.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">🗓️ Implementation Timeline</div>
-          <div class="ssr-card-text">If you decide to switch, we outline what happens next. Account approval, equipment availability, shipping and activation are separate steps.</div>
-        </div>
-      </div>
-    </div>
-  </section>
-  ${ctaSection("Get Your Free Analysis Today", "Takes a few minutes to submit. Our team will review your request and follow up about next steps.")}`;
-
-  return ssrHtmlShell({
-    title: "Free Payment Processing Analysis | See Your Savings | Liberty Bancard",
-    description: "Get a free payment processing analysis from Liberty Bancard. Identify hidden fees, compare programs, and get a personalized savings forecast. No obligation.",
-    canonical: "/free-analysis",
-    keywords: "free payment processing analysis, merchant services analysis, processing fee audit, payment processing review, merchant account review",
-    schemaJsons: [schema],
-    body,
-  });
+  return getOverviewPageHtml(FREE_ANALYSIS_QUIZ_PAGE);
 }
 
 export function getWhyLibertyHtml(): string {
-  const schema = {
-    "@context": "https://schema.org",
-    "@type": "AboutPage",
-    name: "Why Liberty Bancard | Transparent Merchant Services",
-    description: "Learn why 5,000+ businesses trust Liberty Bancard for payment processing. PCI certified, dedicated reps, and interchange-plus pricing with no surprises.",
-    url: `${BASE_URL}/why-liberty-bancard`,
-  };
-  const body = `
-  <div class="ssr-hero">
-    <div class="ssr-hero-inner">
-      <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Why Liberty Bancard</span></div>
-      <div class="ssr-hero-badge">🏆 Trusted by 5,000+ Businesses</div>
-      <h1>Why Businesses Choose Liberty Bancard</h1>
-      <p class="ssr-hero-subtitle">Transparency, dedicated support, and pricing that actually favors your business. No surprises — ever.</p>
-      <div class="ssr-hero-buttons">
-        <a href="/upload-statement" class="ssr-btn-primary">📤 Get Free Statement Review</a>
-        <a href="/case-studies" class="ssr-btn-outline">📖 Read Case Studies</a>
-      </div>
-    </div>
-  </div>
-
-  <section class="ssr-section ssr-section-muted">
-    <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">The Liberty Bancard Difference</h2>
-      <div class="ssr-grid-3">
-        <div class="ssr-card">
-          <div class="ssr-card-title">🔍 Transparent Pricing</div>
-          <div class="ssr-card-text">Interchange-plus pricing shows you the exact cost of every transaction. We don't bundle fees or hide markups.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">👤 Dedicated Account Rep</div>
-          <div class="ssr-card-text">You get a real person who knows your account. Call, text, or email your rep directly — not a support queue.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">💳 0% Processing Option</div>
-          <div class="ssr-card-text">${claimText("program.overview")} ${claimText("program.remaining-costs")}</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">🏅 PCI DSS Level 1 Certified</div>
-          <div class="ssr-card-text">We maintain the highest level of payment security compliance, protecting every transaction you process.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">⚡ Next-Day Funding</div>
-          <div class="ssr-card-text">Qualified merchants receive deposits the next business day. Your cash flow stays healthy and predictable.*</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">📊 Free Statement Review</div>
-          <div class="ssr-card-text">We analyze your current statement before you make any decisions. See your exact savings potential with no obligation.</div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="ssr-section">
-    <div class="ssr-section-inner">
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:1.5rem;max-width:48rem;margin:0 auto 3rem;" class="ssr-grid-2">
-        <div class="ssr-card" style="text-align:center;">
-          <div class="ssr-stat-value">10+</div>
-          <div class="ssr-stat-label">Years in Payments</div>
-        </div>
-        <div class="ssr-card" style="text-align:center;">
-          <div class="ssr-stat-value">5,000+</div>
-          <div class="ssr-stat-label">Merchants Served</div>
-        </div>
-        <div class="ssr-card" style="text-align:center;">
-          <div class="ssr-stat-value">$2B+</div>
-          <div class="ssr-stat-label">Annual Volume Processed</div>
-        </div>
-        <div class="ssr-card" style="text-align:center;">
-          <div class="ssr-stat-value">99.9%</div>
-          <div class="ssr-stat-label">Platform Uptime</div>
-        </div>
-      </div>
-      <h2 class="ssr-section-heading">Certifications &amp; Compliance</h2>
-      <div class="ssr-grid-2" style="max-width:48rem;margin:0 auto;">
-        <div class="ssr-card"><div class="ssr-card-title">🛡️ PCI DSS Level 1 Certified</div><div class="ssr-card-text">The highest level of payment card industry data security compliance for every merchant we serve.</div></div>
-        <div class="ssr-card"><div class="ssr-card-title">🏦 Registered ISO/MSP</div><div class="ssr-card-text">Registered Independent Sales Organization with acquiring bank partnerships for institutional-grade processing.</div></div>
-        <div class="ssr-card"><div class="ssr-card-title">📱 EMV &amp; Contactless Ready</div><div class="ssr-card-text">All terminals support chip, tap, and mobile wallets including Apple Pay, Google Pay, and Samsung Pay.</div></div>
-        <div class="ssr-card"><div class="ssr-card-title">🔒 PCI P2PE Validated</div><div class="ssr-card-text">Point-to-point encryption on supported terminals reduces your PCI scope and protects cardholder data.</div></div>
-      </div>
-    </div>
-  </section>
-  ${ctaSection("Ready to Experience the Difference?", "See how Liberty Bancard compares to your current processor. Free statement review, no obligation.")}`;
-
-  return ssrHtmlShell({
-    title: "Why Liberty Bancard | Transparent Processing & Support",
-    description: "Learn why 5,000+ businesses trust Liberty Bancard. PCI certified, dedicated account reps, interchange-plus pricing, and 0% processing options. Free statement review.",
-    canonical: "/why-liberty-bancard",
-    keywords: "why liberty bancard, merchant services provider, transparent payment processing, interchange plus pricing, dedicated merchant support",
-    schemaJsons: [schema],
-    body,
-  });
+  return getOverviewPageHtml(WHY_LIBERTY_PAGE);
 }
 
 export function getZeroPercentHtml(): string {
@@ -504,206 +356,130 @@ export function getZeroPercentHtml(): string {
 }
 
 export function getCaseStudiesHtml(): string {
-  const schema = {
-    "@context": "https://schema.org",
-    "@type": "CollectionPage",
-    name: "Merchant Case Studies | Liberty Bancard",
-    description: "Real savings stories from Liberty Bancard merchants across restaurants, retail, healthcare, and more.",
-    url: `${BASE_URL}/case-studies`,
-  };
-  const body = `
-  <div class="ssr-hero">
-    <div class="ssr-hero-inner">
-      <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Case Studies</span></div>
-      <div class="ssr-hero-badge">📖 Real Merchant Savings</div>
-      <h1>How Liberty Bancard Saves Real Businesses Real Money</h1>
-      <p class="ssr-hero-subtitle">These aren't estimates — they're actual results from merchants who compared their statements and made the switch.</p>
-      <div class="ssr-hero-buttons">
-        <a href="/upload-statement" class="ssr-btn-primary">📤 Get My Statement Review</a>
-        <a href="/savings-calculator" class="ssr-btn-outline">🧮 Estimate My Savings</a>
-      </div>
-    </div>
-  </div>
-
-  <section class="ssr-section ssr-section-muted">
-    <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">Merchant Savings Snapshots</h2>
-      <div class="ssr-grid-3">
-        <div class="ssr-card">
-          <div class="ssr-hero-badge" style="margin-bottom:0.75rem;background:#eff6ff;color:#1e3a5f;border-color:#bfdbfe;">🍽️ Restaurant — Miami, FL</div>
-          <div class="ssr-stat-value">$4,800/yr</div>
-          <div class="ssr-stat-label" style="margin-bottom:0.75rem;">Saved switching from Square</div>
-          <div class="ssr-card-text">High-volume lunch spot processing $35,000/month. Switched from Square 2.6% flat rate to interchange-plus. Also deployed compliant surcharging for dine-in credit transactions.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-hero-badge" style="margin-bottom:0.75rem;background:#f0fdf4;color:#065f46;border-color:#bbf7d0;">🏥 Medical Practice — Fort Lauderdale</div>
-          <div class="ssr-stat-value">$3,200/yr</div>
-          <div class="ssr-stat-label" style="margin-bottom:0.75rem;">Saved switching from Stripe</div>
-          <div class="ssr-card-text">Multi-physician practice processing $28,000/month in copays and self-pay. Stripe's 2.9% online rate was billing the practice on keyed transactions. Moved to interchange-plus with proper MCC coding.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-hero-badge" style="margin-bottom:0.75rem;background:#fef3c7;color:#92400e;border-color:#fde68a;">🏪 Retail Shop — Boca Raton</div>
-          <div class="ssr-stat-value">$2,100/yr</div>
-          <div class="ssr-stat-label" style="margin-bottom:0.75rem;">Saved eliminating junk fees</div>
-          <div class="ssr-card-text">Boutique retail processing $18,000/month on a tiered plan. After statement review, discovered $175/month in avoidable fees. Moved to interchange-plus and deployed cash discount program.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-hero-badge" style="margin-bottom:0.75rem;background:#fdf4ff;color:#6b21a8;border-color:#e9d5ff;">💅 Salon &amp; Spa — Aventura</div>
-          <div class="ssr-stat-value">$1,900/yr</div>
-          <div class="ssr-stat-label" style="margin-bottom:0.75rem;">Saved with 0% processing</div>
-          <div class="ssr-card-text">Full-service salon processing $15,000/month. Implemented compliant cash discount program — most service clients opted for card but appreciated transparency. Net processing cost dropped to near zero.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-hero-badge" style="margin-bottom:0.75rem;background:#fff7ed;color:#9a3412;border-color:#fed7aa;">🔧 Auto Repair — Pompano Beach</div>
-          <div class="ssr-stat-value">$2,600/yr</div>
-          <div class="ssr-stat-label" style="margin-bottom:0.75rem;">Saved switching from Clover</div>
-          <div class="ssr-card-text">Auto shop processing $22,000/month. Clover's bundled plan was billing 2.49%+. Moved to interchange-plus and deployed surcharging on credit transactions — large average tickets made this highly effective.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-hero-badge" style="margin-bottom:0.75rem;background:#f0f9ff;color:#0c4a6e;border-color:#bae6fd;">🏗️ Construction — West Palm Beach</div>
-          <div class="ssr-stat-value">$5,400/yr</div>
-          <div class="ssr-stat-label" style="margin-bottom:0.75rem;">Saved with proper B2B coding</div>
-          <div class="ssr-card-text">General contractor processing $45,000/month in progress payments via card. Previous processor wasn't qualifying B2B transactions for Level 2/3 interchange. Proper coding reduced rates significantly.</div>
-        </div>
-      </div>
-    </div>
-  </section>
-  ${ctaSection("What Could You Save?", "Upload your statement and we'll build a personalized savings analysis — just like these merchants received before switching.")}`;
-
-  return ssrHtmlShell({
-    title: "Merchant Case Studies | Real Savings Stories | Liberty Bancard",
-    description: "See how real businesses saved $1,900–$5,400/year by switching to Liberty Bancard. Case studies from restaurants, retail, healthcare, auto repair, and more.",
-    canonical: "/case-studies",
-    keywords: "payment processing savings, merchant savings case studies, credit card processing savings, interchange plus savings, switch payment processor",
-    schemaJsons: [schema],
-    body,
-  });
+  return getOverviewPageHtml(proofOverviewPage("case-studies", publicProofFor("case-studies")));
 }
 
 export function getEstimateHtml(): string {
   const schema = {
     "@context": "https://schema.org",
-    "@type": "WebApplication",
-    name: "Payment Processing Cost Estimator | Liberty Bancard",
-    description: "Estimate your credit card processing costs under different pricing models. See your current fees vs interchange-plus pricing.",
+    "@type": "WebPage",
+    name: "Free Effective Rate Estimate | Liberty Bancard",
+    description: "Share monthly volume and total fees for a preliminary effective rate estimate and next steps.",
     url: `${BASE_URL}/estimate`,
-    applicationCategory: "FinanceApplication",
-    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
   };
   const body = `
   <div class="ssr-hero">
     <div class="ssr-hero-inner">
       <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Get an Estimate</span></div>
-      <div class="ssr-hero-badge">🧮 Quick Cost Estimate</div>
-      <h1>Estimate Your Payment Processing Costs</h1>
-      <p class="ssr-hero-subtitle">Answer a few quick questions and get an instant cost comparison between your current plan and Liberty Bancard's interchange-plus pricing.</p>
+      <div class="ssr-hero-badge">Effective rate estimate</div>
+      <h1>Get a Fast Effective Rate Estimate</h1>
+      <p class="ssr-hero-subtitle">Share monthly volume and total fees. We'll estimate your effective rate and recommend next steps. For a definitive comparison, upload a statement anytime.</p>
       <div class="ssr-hero-buttons">
-        <a href="/estimate#tool" class="ssr-btn-primary">🧮 Start Estimate Tool</a>
-        <a href="/upload-statement" class="ssr-btn-outline">📤 Get Exact Analysis</a>
+        <a href="/estimate#tool" class="ssr-btn-primary">Request my estimate</a>
+        <a href="/upload-statement" class="ssr-btn-outline">Upload a statement instead</a>
       </div>
     </div>
   </div>
 
   <section class="ssr-section ssr-section-muted">
     <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">What You'll Learn</h2>
-      <div class="ssr-grid-3">
-        <div class="ssr-card">
-          <div class="ssr-card-title">💰 Current Processing Cost</div>
-          <div class="ssr-card-text">Estimate what you're paying today based on your pricing model and monthly volume. Most merchants are surprised how much they're spending.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">📉 Interchange-Plus Estimate</div>
-          <div class="ssr-card-text">See what your costs would look like under Liberty Bancard's interchange-plus pricing — the most transparent model available.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">💵 Annual Savings Potential</div>
-          <div class="ssr-card-text">Get an estimated annual savings figure. For exact numbers, upload your actual statement for a precise analysis.</div>
-        </div>
+      <h2 class="ssr-section-heading">What is an effective rate?</h2>
+      <div class="ssr-card">
+        <div class="ssr-card-title">Effective rate = total fees &divide; total volume</div>
+        <div class="ssr-card-text">Example: $450 in fees on $18,000 of card volume is a 2.5% effective rate. The arithmetic is only an example; your own statement shows your figures.</div>
       </div>
+      <p class="ssr-section-subheading">${claimText("review.effective-cost.definition")}</p>
     </div>
   </section>
 
   <section class="ssr-section">
-    <div class="ssr-section-inner" style="text-align:center;">
-      <h2 class="ssr-section-heading">Typical Savings by Business Type</h2>
-      <p class="ssr-section-subheading">Based on businesses that submitted statements and switched to Liberty Bancard*</p>
-      <div class="ssr-grid-3" style="max-width:56rem;margin:0 auto;">
-        <div class="ssr-card"><div class="ssr-stat-value">$3,000–$6,000</div><div class="ssr-stat-label">Restaurants ($30K–$50K/mo)</div></div>
-        <div class="ssr-card"><div class="ssr-stat-value">$1,500–$3,000</div><div class="ssr-stat-label">Retail ($15K–$25K/mo)</div></div>
-        <div class="ssr-card"><div class="ssr-stat-value">$2,000–$4,500</div><div class="ssr-stat-label">Healthcare ($20K–$40K/mo)</div></div>
-        <div class="ssr-card"><div class="ssr-stat-value">$1,200–$2,500</div><div class="ssr-stat-label">Salons &amp; Spas ($12K–$20K/mo)</div></div>
-        <div class="ssr-card"><div class="ssr-stat-value">$2,500–$5,000</div><div class="ssr-stat-label">Auto Repair ($25K–$45K/mo)</div></div>
-        <div class="ssr-card"><div class="ssr-stat-value">$3,500–$7,000</div><div class="ssr-stat-label">Construction ($40K+/mo)</div></div>
-      </div>
-      <p style="font-size:0.75rem;color:#94a3b8;margin-top:1rem;">*Estimates only. Actual savings depend on transaction mix, card types, and current pricing. Upload your statement for exact figures.</p>
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">What happens after you send it</h2>
+      <p class="ssr-section-subheading">${claimText("review.process.summary")}</p>
+      <p class="ssr-section-subheading">${claimText("review.cost.free")}</p>
     </div>
   </section>
-  ${ctaSection("Get Your Exact Savings Number", "The estimate tool gives you a range. Your statement gives us the exact numbers. Upload it free — no obligation.")}`;
+  ${ctaSection("Want exact figures?", "An estimate works from two numbers. A statement review works from the fees on your statement.")}`;
 
   return ssrHtmlShell({
-    title: "Payment Processing Cost Estimator | Liberty Bancard",
-    description: "Estimate your credit card processing costs and potential savings. Compare current fees vs interchange-plus pricing. Get exact numbers with a free statement review.",
+    title: "Free Effective Rate Estimate | Liberty Bancard",
+    description: "Get a quick processing cost estimate. Provide your monthly volume and current fees for a preliminary analysis and next steps.",
     canonical: "/estimate",
-    keywords: "payment processing estimate, credit card processing cost calculator, processing fee estimator, merchant services estimate, interchange plus estimate",
+    keywords: "effective rate estimate, payment processing cost estimate, merchant services estimate, processing fee estimate",
     schemaJsons: [schema],
     body,
   });
 }
 
 export function getSavingsCalculatorHtml(): string {
-  const schema = {
-    "@context": "https://schema.org",
-    "@type": "WebApplication",
-    name: "Savings Calculator | Liberty Bancard",
-    description: "Calculate how much you could save by switching to interchange-plus payment processing with Liberty Bancard.",
-    url: `${BASE_URL}/savings-calculator`,
-    applicationCategory: "FinanceApplication",
-    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-  };
+  const schema = { ...CALC_STRUCTURED_DATA, url: `${BASE_URL}${CALC_PATH}` };
+  const stepsHtml = CALC_COPY.steps
+    .map(
+      (step, i) => `<div class="ssr-card">
+          <div class="ssr-card-title">${i + 1}. ${step.title}</div>
+          <div class="ssr-card-text">${step.text}</div>
+        </div>`,
+    )
+    .join("");
+  const whyHtml = CALC_COPY.why
+    .map((item) => `<div class="ssr-card"><div class="ssr-card-title">${item.title}</div><div class="ssr-card-text">${item.text}</div></div>`)
+    .join("");
+  const helpHtml = CALC_COPY.help
+    .map((item) => `<div class="ssr-card"><div class="ssr-card-title">${item.title}</div><div class="ssr-card-text">${item.text}</div></div>`)
+    .join("");
+  const faqHtml = CALC_COPY.faq
+    .map((f) => `<div class="ssr-faq-item"><div class="ssr-faq-q">${f.question}</div><div class="ssr-faq-a">${f.answer}</div></div>`)
+    .join("");
   const body = `
   <div class="ssr-hero">
     <div class="ssr-hero-inner">
-      <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Savings Calculator</span></div>
-      <div class="ssr-hero-badge">💰 Free Savings Calculator</div>
-      <h1>Calculate Your Payment Processing Savings</h1>
-      <p class="ssr-hero-subtitle">Enter your monthly processing volume and current rate to see how much you could save by switching to Liberty Bancard's interchange-plus pricing.</p>
+      <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>${CALC_COPY.breadcrumbLabel}</span></div>
+      <div class="ssr-hero-badge">${CALC_COPY.badge}</div>
+      <h1>${CALC_COPY.h1}</h1>
+      <p class="ssr-hero-subtitle">${CALC_COPY.subtitle}</p>
       <div class="ssr-hero-buttons">
-        <a href="/savings-calculator#calc" class="ssr-btn-primary">💰 Open Calculator</a>
-        <a href="/upload-statement" class="ssr-btn-outline">📤 Get Exact Savings Analysis</a>
+        <a href="${CALC_PATH}#calc" class="ssr-btn-primary">Open the calculator</a>
+        <a href="/upload-statement" class="ssr-btn-outline">Get a free statement review</a>
       </div>
+      <p class="ssr-hero-subtitle" style="font-size:0.8125rem;margin-top:1rem;">${CALC_COPY.disclaimer}</p>
     </div>
   </div>
 
   <section class="ssr-section ssr-section-muted">
     <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">How the Calculator Works</h2>
-      <div class="ssr-grid-3">
-        <div class="ssr-card" style="text-align:center;">
-          <div style="font-size:2rem;margin-bottom:0.75rem;">1️⃣</div>
-          <div class="ssr-card-title">Enter Your Volume</div>
-          <div class="ssr-card-text">Input your monthly credit card processing volume. You can find this on your merchant statement.</div>
-        </div>
-        <div class="ssr-card" style="text-align:center;">
-          <div style="font-size:2rem;margin-bottom:0.75rem;">2️⃣</div>
-          <div class="ssr-card-title">Select Your Pricing Model</div>
-          <div class="ssr-card-text">Choose flat-rate, tiered, or interchange-plus. If you're not sure, use flat-rate for a conservative estimate.</div>
-        </div>
-        <div class="ssr-card" style="text-align:center;">
-          <div style="font-size:2rem;margin-bottom:0.75rem;">3️⃣</div>
-          <div class="ssr-card-title">See Your Savings</div>
-          <div class="ssr-card-text">Get an estimated monthly and annual savings projection based on Liberty Bancard's typical interchange-plus markup.</div>
-        </div>
-      </div>
+      <h2 class="ssr-section-heading">How it works</h2>
+      <div class="ssr-grid-3">${stepsHtml}</div>
     </div>
   </section>
-  ${ctaSection("Ready for Your Exact Number?", "The calculator gives you a strong estimate. A free statement review gives you the precise amount — down to the dollar.")}`;
+
+  <section class="ssr-section">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">${CALC_COPY.whyHeading}</h2>
+      <p class="ssr-section-subheading">${CALC_COPY.whyIntro}</p>
+      <div class="ssr-grid-3">${whyHtml}</div>
+    </div>
+  </section>
+
+  <section class="ssr-section ssr-section-muted">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">${CALC_COPY.helpHeading}</h2>
+      <div class="ssr-grid-2">${helpHtml}</div>
+    </div>
+  </section>
+
+  <section class="ssr-section">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">${CALC_COPY.faqHeading}</h2>
+      ${faqHtml}
+    </div>
+  </section>
+  ${ctaSection(CALC_COPY.finalHeading, CALC_COPY.finalText)}`;
 
   return ssrHtmlShell({
-    title: "Payment Processing Savings Calculator | Free Tool | Liberty Bancard",
-    description: "Calculate how much you could save on credit card processing fees. Enter your monthly volume and current rate to get an instant savings estimate. Free tool.",
-    canonical: "/savings-calculator",
-    keywords: "payment processing savings calculator, credit card processing savings, merchant savings calculator, processing fee calculator, how much can I save processing",
+    title: `${CALC_COPY.title} | Liberty Bancard`,
+    description: CALC_COPY.description,
+    canonical: CALC_PATH,
+    keywords: CALC_COPY.keywords,
     schemaJsons: [schema],
     body,
   });
@@ -1038,116 +814,22 @@ export function getAffiliateProgramHtml(): string {
 }
 
 export function getTestimonialsHtml(): string {
-  const videoObjectSchema = (name: string, desc: string, savings: string) => ({
-    "@context": "https://schema.org",
-    "@type": "VideoObject",
-    name: `${name} — Merchant Testimonial | Liberty Bancard`,
-    description: desc,
-    thumbnailUrl: `${BASE_URL}/favicon.png`,
-    uploadDate: "2025-01-15",
-    duration: "PT2M30S",
-    publisher: { "@type": "Organization", name: "Liberty Bancard", logo: { "@type": "ImageObject", url: `${BASE_URL}/favicon.png` } },
-  });
-  const reviewSchema = (name: string, business: string, desc: string) => ({
-    "@context": "https://schema.org",
-    "@type": "Review",
-    reviewBody: desc,
-    author: { "@type": "Person", name, jobTitle: business },
-    itemReviewed: { "@type": "Organization", name: "Liberty Bancard", url: BASE_URL },
-    reviewRating: { "@type": "Rating", ratingValue: "5", bestRating: "5" },
-  });
-  const schemas = [
-    videoObjectSchema("Maria R.", "Our processing cost dropped to nearly zero after switching.", "$4,200"),
-    videoObjectSchema("Tony M.", "They found $127 a month in fees I never agreed to.", "$2,900"),
-    videoObjectSchema("David K.", "The savings were immediate once we saw the real interchange cost.", "$3,800"),
-    reviewSchema("Maria R.", "Full-Service Restaurant", "Our processing cost dropped to nearly zero after switching to Liberty Bancard's cash discount program."),
-    reviewSchema("Tony M.", "Auto Repair Shop Owner", "They found $127 a month in fees I never agreed to. Liberty Bancard cleaned everything up."),
-    reviewSchema("David K.", "Retail Store Owner", "The savings were immediate once we saw the real interchange cost. Switching from Stripe was seamless."),
-  ];
-  const testimonialCards = [
-    { name: "Maria R.", business: "Full-Service Restaurant", city: "South Miami, FL", quote: "Our processing cost dropped to nearly zero after switching to Liberty Bancard's cash discount program. That freed up cash we put right back into our kitchen.", savings: "$4,200/year saved", industry: "Restaurant" },
-    { name: "Tony M.", business: "Auto Repair Shop", city: "Broward County, FL", quote: "I was on tiered pricing and didn't realize half my transactions were at non-qualified rates. Liberty Bancard cleaned everything up and I'm saving almost $250 a month.", savings: "$2,900/year saved", industry: "Auto Repair" },
-    { name: "David K.", business: "Multi-Location Retail", city: "Boca Raton, FL", quote: "Stripe was easy to set up, but we had no idea how much we were overpaying. Liberty Bancard showed us our actual interchange costs and the markup we were paying on top.", savings: "$3,800/year saved", industry: "Retail" },
-    { name: "Dr. Sarah L.", business: "Medical Practice", city: "Tampa, FL", quote: "Our bank had us on tiered pricing for years. The Level 2 processing alone saved us a significant amount on commercial insurance card payments.", savings: "$6,100/year saved", industry: "Healthcare" },
-    { name: "James W.", business: "HVAC Contractor", city: "Palm Beach County, FL", quote: "Liberty Bancard set me up with a mobile reader and cash discount program. Now I process everything through one system and my processing cost is basically zero.", savings: "$1,800/year saved", industry: "Home Services" },
-    { name: "Rachel T.", business: "Online Specialty Retailer", city: "Remote / Online", quote: "We thought Shopify Payments was our only option. Liberty Bancard integrated a gateway and our costs dropped by over $5,000 a year. The integration was seamless.", savings: "$5,400/year saved", industry: "E-Commerce" },
-  ].map(t => `
-    <div class="ssr-card" style="display:flex;flex-direction:column;">
-      <div style="background:linear-gradient(135deg,#1e3a5f 0%,#1a5276 100%);border-radius:8px;padding:2.5rem 1.5rem;text-align:center;margin-bottom:1rem;">
-        <div style="font-size:2.5rem;font-weight:700;color:#38bdf8;">${t.savings}</div>
-        <div style="font-size:0.75rem;color:rgba(255,255,255,0.7);margin-top:0.25rem;text-transform:uppercase;letter-spacing:0.05em;">Video coming soon</div>
-      </div>
-      <div style="display:flex;gap:0.25rem;margin-bottom:0.75rem;">★★★★★</div>
-      <p style="font-style:italic;font-size:0.9rem;color:#374151;flex-grow:1;line-height:1.6;">"${t.quote}"</p>
-      <div style="border-top:1px solid #e5e7eb;padding-top:0.75rem;margin-top:1rem;display:flex;justify-content:space-between;align-items:center;">
-        <div>
-          <div style="font-size:0.875rem;font-weight:600;">${t.name}</div>
-          <div style="font-size:0.75rem;color:#6b7280;">${t.business} · ${t.city}</div>
-        </div>
-        <span style="font-size:0.7rem;background:#f1f5f9;color:#64748b;padding:0.2rem 0.6rem;border-radius:20px;">${t.industry}</span>
-      </div>
-    </div>`).join("");
-
-  const body = `
-  <div class="ssr-hero">
-    <div class="ssr-hero-inner">
-      <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Testimonials</span></div>
-      <div class="ssr-hero-badge">🎬 Merchant Stories</div>
-      <h1>Real Merchants. Real Numbers.</h1>
-      <p class="ssr-hero-subtitle">Watch real business owners share their payment processing transformation — specific savings, before-and-after numbers, and what switching to Liberty Bancard actually meant for their bottom line.</p>
-      <div class="ssr-hero-buttons">
-        <a href="/upload-statement" class="ssr-btn-primary">📤 Get Your Free Analysis</a>
-        <a href="/testimonials/submit" class="ssr-btn-outline">🎥 Share Your Story</a>
-      </div>
-    </div>
-  </div>
-
-  <section class="ssr-section ssr-section-muted">
-    <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">Merchant Video Testimonials</h2>
-      <p class="ssr-section-subheading">Filter by industry or browse all. Every merchant below started with a free statement review.</p>
-      <div class="ssr-grid-3" style="gap:1.5rem;">
-        ${testimonialCards}
-      </div>
-    </div>
-  </section>
-
-  <section class="ssr-section">
-    <div class="ssr-section-inner" style="text-align:center;max-width:700px;margin:0 auto;">
-      <h2>Want to Share Your Story?</h2>
-      <p>If you're a Liberty Bancard merchant with a success story to tell, we'd love to feature you. Submit your video or write a few lines — we handle the rest.</p>
-      <div class="ssr-cta-buttons" style="margin-top:1.5rem;">
-        <a href="/testimonials/submit" class="ssr-btn-primary">🎥 Submit Your Story</a>
-        <a href="/case-studies" class="ssr-btn-outline">📖 Read Full Case Studies</a>
-      </div>
-    </div>
-  </section>
-
-  ${ctaSection("Your Statement Tells the Truth. Let's Read It Together.", "Every merchant on this page started with a free statement review. Upload yours and see your real numbers.")}`;
-
-  return ssrHtmlShell({
-    title: "Merchant Video Testimonials — Real Results | Liberty Bancard",
-    description: "Watch merchant testimonials from restaurant owners, retailers, and healthcare practices who saved thousands switching to Liberty Bancard. Filter by industry.",
-    canonical: "/testimonials",
-    keywords: "merchant testimonials, payment processing reviews, Liberty Bancard reviews, merchant video testimonials, credit card processing success stories",
-    schemaJsons: schemas,
-    body,
-  });
+  return getOverviewPageHtml(proofOverviewPage("testimonials", publicProofFor("testimonials")));
 }
 
 export function getTestimonialsSubmitHtml(): string {
   const schema = {
     "@context": "https://schema.org",
     "@type": "WebPage",
-    name: "Submit Your Merchant Story | Liberty Bancard",
-    description: "Share your payment processing success story with Liberty Bancard. Submit a video link or written testimonial and we'll feature your business on our merchant testimonials page.",
+    name: `${TESTIMONIAL_SUBMIT_COPY.title} | Liberty Bancard`,
+    description: TESTIMONIAL_SUBMIT_COPY.description,
     url: `${BASE_URL}/testimonials/submit`,
     breadcrumb: {
       "@type": "BreadcrumbList",
       itemListElement: [
         { "@type": "ListItem", position: 1, name: "Home", item: BASE_URL },
         { "@type": "ListItem", position: 2, name: "Testimonials", item: `${BASE_URL}/testimonials` },
-        { "@type": "ListItem", position: 3, name: "Submit Your Story", item: `${BASE_URL}/testimonials/submit` },
+        { "@type": "ListItem", position: 3, name: TESTIMONIAL_SUBMIT_COPY.title, item: `${BASE_URL}/testimonials/submit` },
       ],
     },
   };
@@ -1158,11 +840,11 @@ export function getTestimonialsSubmitHtml(): string {
       <div class="ssr-breadcrumb" style="color:rgba(255,255,255,0.7);">
         <a href="/" style="color:rgba(255,255,255,0.7);">Home</a><span>/</span>
         <a href="/testimonials" style="color:rgba(255,255,255,0.7);">Testimonials</a><span>/</span>
-        <span style="color:#fff;">Submit Your Story</span>
+        <span style="color:#fff;">${TESTIMONIAL_SUBMIT_COPY.title}</span>
       </div>
-      <div class="ssr-hero-badge">🎬 Merchant Stories</div>
-      <h1 style="color:#fff;">Submit Your Story</h1>
-      <p class="ssr-hero-subtitle" style="color:rgba(255,255,255,0.85);">We'd love to feature you on our testimonials page. Share what you were paying, what changed, and what the savings meant for your business.</p>
+      <div class="ssr-hero-badge">Your experience</div>
+      <h1 style="color:#fff;">${TESTIMONIAL_SUBMIT_COPY.title}</h1>
+      <p class="ssr-hero-subtitle" style="color:rgba(255,255,255,0.85);">${TESTIMONIAL_SUBMIT_COPY.intro}</p>
     </div>
   </div>
 
@@ -1210,20 +892,20 @@ export function getTestimonialsSubmitHtml(): string {
           <label style="font-size:0.875rem;font-weight:600;display:block;margin-bottom:0.4rem;">Your Story *</label>
           <div style="border:1px solid #e2e8f0;border-radius:6px;padding:0.875rem;background:#f8fafc;color:#94a3b8;font-size:0.875rem;height:120px;">Tell us what you were paying before, what changed after switching, and what the savings meant for your business...</div>
         </div>
-        <p style="font-size:0.75rem;color:#64748b;margin-bottom:1rem;">By submitting, you agree that Liberty Bancard may feature your story (with your permission) on our website and marketing materials.</p>
-        <a href="/testimonials/submit" class="ssr-btn-primary" style="display:inline-block;width:100%;text-align:center;">Submit My Story →</a>
+        <p style="font-size:0.75rem;color:#64748b;margin-bottom:1rem;">${TESTIMONIAL_SUBMIT_COPY.usage}</p>
+        <a href="/testimonials/submit" class="ssr-btn-primary" style="display:inline-block;width:100%;text-align:center;">Send my experience →</a>
       </div>
       <div style="text-align:center;margin-top:1.5rem;">
-        <a href="/testimonials" style="font-size:0.875rem;color:#64748b;">← Back to all testimonials</a>
+        <a href="/testimonials" style="font-size:0.875rem;color:#64748b;">← Back to testimonials</a>
       </div>
     </div>
   </section>`;
 
   return ssrHtmlShell({
-    title: "Submit Your Merchant Story | Liberty Bancard",
-    description: "Share your payment processing success story with Liberty Bancard. Submit a testimonial and we will feature your business on our merchant testimonials page.",
+    title: `${TESTIMONIAL_SUBMIT_COPY.title} | Liberty Bancard`,
+    description: TESTIMONIAL_SUBMIT_COPY.description,
     canonical: "/testimonials/submit",
-    keywords: "merchant testimonial submission, share payment processing story, Liberty Bancard merchant review",
+    keywords: "share your experience, Liberty Bancard merchant feedback",
     schemaJsons: [schema],
     body,
   });
@@ -1384,163 +1066,7 @@ export function getFaqHtml(): string {
 }
 
 export function getFreeAnalysisGuaranteedHtml(): string {
-  const faqItems = [
-    { q: "What exactly is the $50 guarantee?", a: "If we review your statement and cannot identify at least one verifiable savings opportunity, we'll send you a $50 Amazon gift card — no questions asked. We've reviewed 3,200+ statements and have only paid out a handful of gift cards. Most merchants save significantly more." },
-    { q: "Is there any obligation to switch processors?", a: "None. You get the full written analysis and benchmark report regardless of what you decide. We show you the numbers — you decide what to do with them. We earn your business by proving value, not by locking you in." },
-    { q: "Do I need to schedule a sales call?", a: "No sales call required. Upload your statement, we analyze it, and we send you the written report. If you want to talk through the numbers, we're available — but it's never a requirement." },
-    { q: "What information do you need from my statement?", a: "We only need the fee and volume totals — not your merchant account number or banking info. You can redact any sensitive numbers before uploading. A PDF or photo of your statement works perfectly." },
-    { q: "How long does the analysis take?", a: "We deliver your written savings summary within 24 business hours. Most analyses are completed the same day during business hours (Monday–Friday, 9am–6pm ET)." },
-  ];
-
-  const faqSchema = {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    mainEntity: faqItems.map((item) => ({
-      "@type": "Question",
-      name: item.q,
-      acceptedAnswer: { "@type": "Answer", text: item.a },
-    })),
-  };
-
-  const serviceSchema = {
-    "@context": "https://schema.org",
-    "@type": "Service",
-    name: "Free Merchant Statement Analysis — Guaranteed Savings",
-    description: "Upload your merchant processing statement and we'll find your hidden fees, benchmark you against 3,200+ statements, and show you exactly what you should be paying. If we can't find you savings, we send you a $50 gift card.",
-    provider: { "@type": "Organization", name: "Liberty Bancard", url: BASE_URL },
-    offers: { "@type": "Offer", price: "0", priceCurrency: "USD", description: "Free statement analysis — $50 gift card guarantee if no savings found" },
-  };
-
-  const faqHtml = faqItems
-    .map(
-      (item) => `
-    <div class="ssr-faq-item">
-      <div class="ssr-faq-q">✅ ${item.q}</div>
-      <div class="ssr-faq-a">${item.a}</div>
-    </div>`
-    )
-    .join("");
-
-  const body = `
-  <div class="ssr-hero">
-    <div class="ssr-hero-inner">
-      <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Guarantee Analysis</span></div>
-      <div class="ssr-hero-badge">🎁 100% Risk-Free Guarantee</div>
-      <h1>If We Can't Save You Money, We'll Pay You $50</h1>
-      <p class="ssr-hero-subtitle">Upload your processing statement and we'll find your hidden fees, benchmark you against 3,200+ real merchant statements, and deliver a written savings report within 24 hours. No sales call required. No obligation.</p>
-      <div class="ssr-hero-buttons">
-        <a href="/upload-statement" class="ssr-btn-primary">📤 Get My Free Analysis</a>
-        <a href="tel:9542668214" class="ssr-btn-outline">📞 Call 954-266-8214</a>
-      </div>
-    </div>
-  </div>
-
-  <section class="ssr-section ssr-section-muted">
-    <div class="ssr-section-inner">
-      <div style="max-width:48rem;margin:0 auto;border:2px solid #10b981;border-radius:0.75rem;background:#f0fdf4;padding:2rem;">
-        <div style="display:flex;align-items:flex-start;gap:1.25rem;">
-          <div style="width:3.5rem;height:3.5rem;border-radius:50%;background:#10b981;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1.5rem;">🎁</div>
-          <div>
-            <h2 style="font-family:'Source Serif 4',Georgia,'Times New Roman',serif;font-size:1.25rem;font-weight:700;color:#0f172a;margin-bottom:0.5rem;">Our Savings Guarantee</h2>
-            <p style="font-size:0.875rem;color:#475569;line-height:1.7;margin-bottom:1rem;">We've reviewed over 3,200 merchant statements. Every single one had at least one identifiable savings opportunity. But if we review yours and genuinely cannot find a way to save you money, we'll send you a <strong>$50 Amazon gift card</strong> — just for your time.</p>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
-              <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;color:#0f172a;">✅ Find savings in 24 hours or $50 gift card</div>
-              <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;color:#0f172a;">✅ No sales call required</div>
-              <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;color:#0f172a;">✅ No obligation to switch</div>
-              <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;color:#0f172a;">✅ No credit card needed</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="ssr-section ssr-section-dark">
-    <div class="ssr-section-inner" style="text-align:center;">
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2rem;max-width:36rem;margin:0 auto;">
-        <div><div class="ssr-stat-value" style="color:#34d399;font-size:2.5rem;">3,200+</div><div class="ssr-stat-label" style="color:rgba(255,255,255,0.65);">Statements Reviewed</div></div>
-        <div><div class="ssr-stat-value" style="color:#34d399;font-size:2.5rem;">$2,847</div><div class="ssr-stat-label" style="color:rgba(255,255,255,0.65);">Avg. Monthly Savings</div></div>
-        <div><div class="ssr-stat-value" style="color:#34d399;font-size:2.5rem;">4.9/5</div><div class="ssr-stat-label" style="color:rgba(255,255,255,0.65);">Merchant Rating</div></div>
-      </div>
-    </div>
-  </section>
-
-  <section class="ssr-section">
-    <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">What You Get</h2>
-      <p class="ssr-section-subheading">Not a vague consultation — a real deliverable you keep, regardless of what you decide.</p>
-      <div class="ssr-grid-3">
-        <div class="ssr-card">
-          <div class="ssr-card-title">📋 Full Statement Breakdown in Plain English</div>
-          <div class="ssr-card-text">We decode every line: interchange costs, processor markup, assessment fees, and any junk fees you're being charged. Written so your accountant can read it.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">📊 Benchmark Against 3,200+ Statements</div>
-          <div class="ssr-card-text">We compare your effective rate and fee structure against businesses in your industry and volume tier. See exactly where you stand versus the best-in-class merchants in your category.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">📈 Written Savings Summary You Can Share</div>
-          <div class="ssr-card-text">A clear, one-page savings summary with your current rate, your target rate, and estimated annual savings — formatted so you can share with your accountant, business partner, or board.</div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="ssr-section ssr-section-muted">
-    <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">How It Works</h2>
-      <p class="ssr-section-subheading">Three steps. Under 5 minutes on your end.</p>
-      <div class="ssr-grid-3">
-        <div class="ssr-card" style="text-align:center;">
-          <div style="font-size:2.5rem;margin-bottom:0.75rem;">1️⃣</div>
-          <div class="ssr-card-title">Upload Your Statement</div>
-          <div class="ssr-card-text">Securely upload your most recent processing statement — PDF or photo. Redact account numbers if you prefer. We only need the fee and volume totals.</div>
-        </div>
-        <div class="ssr-card" style="text-align:center;">
-          <div style="font-size:2.5rem;margin-bottom:0.75rem;">2️⃣</div>
-          <div class="ssr-card-title">We Analyze in 24 Hours</div>
-          <div class="ssr-card-text">Our team reviews every line item, benchmarks your costs against industry peers, and builds your personalized written savings report.</div>
-        </div>
-        <div class="ssr-card" style="text-align:center;">
-          <div style="font-size:2.5rem;margin-bottom:0.75rem;">3️⃣</div>
-          <div class="ssr-card-title">Receive Your Report</div>
-          <div class="ssr-card-text">You receive a written savings summary via email — with your current rate, your target rate, and estimated annual savings. No strings attached.</div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="ssr-section">
-    <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">Industry Standards We Uphold</h2>
-      <div class="ssr-grid-2" style="max-width:40rem;margin:0 auto;">
-        <div class="ssr-card" style="text-align:center;"><div style="font-size:1.5rem;margin-bottom:0.5rem;">🛡️</div><div class="ssr-card-title">PCI DSS Compliant</div><div class="ssr-card-text">Level 1 certified</div></div>
-        <div class="ssr-card" style="text-align:center;"><div style="font-size:1.5rem;margin-bottom:0.5rem;">🔒</div><div class="ssr-card-title">SSL Encrypted</div><div class="ssr-card-text">256-bit encryption</div></div>
-        <div class="ssr-card" style="text-align:center;"><div style="font-size:1.5rem;margin-bottom:0.5rem;">🏅</div><div class="ssr-card-title">BBB Accredited</div><div class="ssr-card-text">A+ rating</div></div>
-        <div class="ssr-card" style="text-align:center;"><div style="font-size:1.5rem;margin-bottom:0.5rem;">⚡</div><div class="ssr-card-title">No Contract Required</div><div class="ssr-card-text">Month-to-month</div></div>
-      </div>
-    </div>
-  </section>
-
-  <section class="ssr-section ssr-section-muted">
-    <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">Frequently Asked Questions</h2>
-      <div class="ssr-faq-wrapper">
-        ${faqHtml}
-      </div>
-    </div>
-  </section>
-
-  ${ctaSection("Not Signing Up Feels Irrational", "Either we find you savings — or we pay you $50. There is no scenario where you lose.")}`;
-
-  return ssrHtmlShell({
-    title: "Free Statement Analysis — Guaranteed Savings | Liberty Bancard",
-    description: "Upload your statement and we'll find hidden fees, benchmark against 3,200+ statements, and show what you should pay. No savings? We'll send you a $50 gift card.",
-    canonical: "/free-analysis-guaranteed",
-    keywords: "free merchant statement analysis, guaranteed savings, payment processing review, hidden fees, merchant services benchmark",
-    schemaJsons: [faqSchema, serviceSchema],
-    body,
-  });
+  return getOverviewPageHtml(FREE_ANALYSIS_PAGE);
 }
 
 export function getFreeSmartTerminalHtml(): string {

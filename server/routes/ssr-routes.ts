@@ -1,9 +1,8 @@
 import type { Express } from "express";
 import { getIndustryHtml } from "../ssr/industries";
-import { INDUSTRY_SLUGS } from "../../shared/blog-slugs";
 import { getCompareHtml } from "../ssr/compare";
 import { getLocationHtml, getCityHubHtml } from "../ssr/locations";
-import { isValidLocationCombination } from "../ssr/location-html";
+import { getAreasServedHtml } from "../ssr/areas-served";
 import { getHomeHtml } from "../ssr/home";
 import { getIndustriesHubHtml } from "../ssr/industries-hub";
 import { getOverviewPageHtml } from "../ssr/overview-pages";
@@ -29,7 +28,7 @@ import {
   getIntegrationsHtml,
   getFreeSmartTerminalHtml,
 } from "../ssr/pages";
-import { CITIES, VERTICALS } from "../ssr/location-data";
+import { CITIES, VERTICALS, isValidLocationCombination } from "../ssr/location-data";
 import { storage } from "../storage";
 import { renderBlogPostHtml, renderBlogHubHtml } from "../ssr/blog-ssr-data";
 import { renderAlternativesHtml, renderSwitchFromHtml, getAvailableCompetitorSlugs } from "../ssr/competitor-ssr";
@@ -164,10 +163,9 @@ export function registerSsrRoutes(app: Express) {
     res.send(getIndustriesHubHtml());
   });
 
-  app.get("/industries/:slug", (req, res, next) => {
+  app.get("/industries/:slug", (req, res) => {
+    // All 14 listed industries have server content (shared/public-industry-content.ts); an unknown slug is a real 404.
     const html = getIndustryHtml(req.params.slug);
-    // Listed industries without a server-rendered page are client-rendered pages: serve the app, not an empty 404.
-    if (!html && (INDUSTRY_SLUGS as readonly string[]).includes(req.params.slug)) return next();
     if (!html) return res.status(404).end();
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", PAGE_CACHE);
@@ -180,6 +178,12 @@ export function registerSsrRoutes(app: Express) {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(html);
+  });
+
+  app.get("/areas-served", (_req, res) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", PAGE_CACHE);
+    res.send(getAreasServedHtml());
   });
 
   app.get("/locations/:city/:industry", (req, res) => {
@@ -426,7 +430,7 @@ export function registerSsrRoutes(app: Express) {
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
     xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
-    xml += `  <url><loc>${baseUrl}/blog</loc><lastmod>${date}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>\n`;
+    // The /blog index is listed once, in sitemap-core.xml (from shared/seo-routes.ts); this file lists posts only.
     for (const post of posts) {
       const lastmod = post.modifiedISO ? post.modifiedISO.split("T")[0] : date;
       xml += `  <url><loc>${baseUrl}/blog/${post.slug}</loc><lastmod>${lastmod}</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>\n`;

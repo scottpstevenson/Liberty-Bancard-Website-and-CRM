@@ -11,6 +11,7 @@ import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { trackConversion } from "@/lib/analytics";
+import { TESTIMONIAL_SUBMIT_COPY } from "@shared/public-proof";
 import {
   Video,
   CheckCircle,
@@ -81,8 +82,8 @@ export default function TestimonialsSubmit() {
   return (
     <>
       <SEO
-        title="Submit Your Merchant Testimonial"
-        description="Share your Liberty Bancard success story. Tell us your savings and we will feature your testimonial to help other merchants learn about transparent payment processing."
+        title={TESTIMONIAL_SUBMIT_COPY.title}
+        description={TESTIMONIAL_SUBMIT_COPY.description}
         path="/testimonials/submit"
         keywords="submit testimonial, merchant story, payment processing review, Liberty Bancard feedback"
         breadcrumbs={[
@@ -106,19 +107,19 @@ export default function TestimonialsSubmit() {
             </Link>
 
             <Badge variant="secondary" className="mb-4" data-testid="badge-submit">
-              Merchant Stories
+              Your experience
             </Badge>
             <h1
               className="text-3xl sm:text-4xl font-bold tracking-tight mb-4"
               data-testid="text-submit-title"
             >
-              Submit Your Story
+              {TESTIMONIAL_SUBMIT_COPY.title}
             </h1>
             <p
               className="text-muted-foreground leading-relaxed"
               data-testid="text-submit-subtitle"
             >
-              We'd love to feature you on our testimonials page. Share what you were paying, what changed, and what the savings meant for your business.
+              {TESTIMONIAL_SUBMIT_COPY.intro}
             </p>
           </div>
 
@@ -136,7 +137,7 @@ export default function TestimonialsSubmit() {
                   Thank You!
                 </h2>
                 <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-                  We've received your submission. Our team will review it and reach out within 2 business days to talk through the details and get your story featured.
+                  {TESTIMONIAL_SUBMIT_COPY.received}
                 </p>
                 <div className="flex flex-wrap gap-3 justify-center">
                   <Button variant="outline" className="gap-2" asChild>
@@ -314,7 +315,7 @@ export default function TestimonialsSubmit() {
                       />
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Have a video on YouTube, Vimeo, or another platform? Paste the link here. No video? No problem — we can help you record one.
+                      {TESTIMONIAL_SUBMIT_COPY.videoHelp}
                     </p>
                   </div>
                 </CardContent>
@@ -326,10 +327,10 @@ export default function TestimonialsSubmit() {
                     <Star className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
                     <div>
                       <p className="text-sm font-medium text-foreground mb-1">
-                        How We Use Your Story
+                        {TESTIMONIAL_SUBMIT_COPY.usageHeading}
                       </p>
                       <p className="text-xs text-muted-foreground leading-relaxed">
-                        By submitting, you give Liberty Bancard permission to feature your testimonial on our website, social media, and marketing materials. We'll always use your first name and general location only (e.g., "Maria R. — South Miami, FL"). We'll reach out before publishing anything.
+                        {TESTIMONIAL_SUBMIT_COPY.usage}
                       </p>
                     </div>
                   </div>
@@ -349,7 +350,7 @@ export default function TestimonialsSubmit() {
                   ) : (
                     <Upload className="w-4 h-4" />
                   )}
-                  Submit My Story
+                  Send my experience
                 </Button>
                 <Button size="lg" variant="outline" className="w-full sm:w-auto gap-2" asChild>
                   <Link href="/testimonials" data-testid="link-cancel-submit">

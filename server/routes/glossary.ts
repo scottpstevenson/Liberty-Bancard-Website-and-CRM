@@ -109,7 +109,7 @@ function buildTermPageHtml(term: GlossaryTerm, relatedTerms: GlossaryTerm[]): st
       <div class="ssr-gl-chips">${relatedTerms.map((rt) => `<a href="/learn/${escapeHtml(rt.slug)}" class="ssr-gl-chip">${escapeHtml(rt.name)}</a>`).join("")}</div>
 
       <section class="ssr-gl-cta">
-        <h2>How Liberty Bancard Handles ${escapeHtml(term.name)}</h2>
+        <h2>Reviewing ${escapeHtml(term.name)} With Liberty Bancard</h2>
         ${paragraphs(term.libertySection)}
         <div class="ssr-gl-cta-links">${term.commercialLinks.map((cl) => `<a href="${escapeHtml(cl.href)}">${escapeHtml(cl.label)}</a>`).join("")}</div>
       </section>

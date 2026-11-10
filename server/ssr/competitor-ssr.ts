@@ -1,24 +1,18 @@
 import { ssrNavbar, ssrFooter, SSR_CHROME_CSS } from "../ssrShared";
 import { serializeJsonLd } from "../../shared/json-ld";
 import { TIMING_NOTE } from "../../shared/public-disclosures";
-import { COMPARE_ENTRIES, describeRecord } from "../../shared/compare-content";
-import { PRICE_CHECKED_ON, formatCheckedDate } from "../../shared/competitor-pricing";
+import { COMPARE_ENTRIES } from "../../shared/compare-content";
 import { claimText } from "../../shared/public-claims";
 
-const EQUIPMENT_LINE =
-  "Equipment options are reviewed with you; availability and terms are confirmed during review";
-const CONTRACT_LINE = "Contract, term and cancellation terms are stated in your written processing agreement";
-const PROGRAM_LINE = "Cash discount and surcharging programs are reviewed where they fit*";
-
-/** Published list rates for a provider, read from the dated price records. */
-function published(slug: string): string {
-  const entry = COMPARE_ENTRIES[slug];
-  if (!entry || entry.records.length === 0) {
-    return `${entry?.name ?? slug} does not publish a single processing rate; pricing is quoted`;
-  }
-  return `Published list rates (checked ${formatCheckedDate(PRICE_CHECKED_ON)}): ${entry.records.map(describeRecord).join("; ")}`;
-}
-
+// Three pages answer three different questions about a provider, so they do not repeat one another:
+//   /compare/<slug>      dated, sourced list prices and a side-by-side table (server/ssr/compare.ts)
+//   /alternatives/<slug> what to weigh when choosing another provider (this file)
+//   /switch-from/<slug>  which questions to answer from your own agreement before changing (this file)
+//
+// Nothing here states what a named provider charges, how long its contracts run, what it holds, or how its
+// support performs; none of that has a source in this repository. Provider-specific lines are questions to
+// check against the visitor's own agreement and statements, or facts already carried by the dated price
+// records and the approved claim registry.
 
 function escHtml(str: string): string {
   return str
@@ -34,11 +28,52 @@ interface CompetitorInfo {
   fullName: string;
   slug: string;
   category: string;
-  whyMerchantsLeave: string[];
-  whatLibertySolves: string[];
+  /** Extra comparison questions that only make sense for this kind of provider. */
+  fitExtras: string[];
+  /** Extra agreement questions that only make sense for this kind of provider. */
+  agreementExtras: string[];
   relatedIndustries: { name: string; slug: string }[];
   relatedGlossary: { name: string; slug: string }[];
 }
+
+/** What to weigh whichever provider is being replaced. */
+const COMMON_FIT_CRITERIA: string[] = [
+  "Total monthly cost on your own statement, not only the headline rate: add every percentage, per-transaction and monthly line.",
+  "Your card mix (debit, credit, rewards, keyed or online) and your average ticket, because both change what each pricing model costs you.",
+  "How the provider is paid: one flat rate, interchange plus a markup, tiered categories, or a cash discount or surcharging program.",
+  "How quickly funds reach your bank, and what the agreement says about reserves and account review.",
+  "Which equipment you need, and whether it is leased, financed, rented or purchased.",
+  "Which software or point-of-sale system you must keep, and whether it works with a different processor.",
+  "How you would reach someone about a deposit or a chargeback.",
+];
+
+/** Pricing-model note by provider category. These describe the model, not the named provider's conduct. */
+const CATEGORY_NOTES: Record<string, string> = {
+  "Flat-Rate Processor":
+    "A flat-rate plan quotes one percentage, often with a per-transaction amount, that covers interchange, network assessments and the processor's charge together. To compare it, set it beside the three groups of charges on an interchange-plus statement.",
+  "Developer Payment Platform":
+    "A developer platform is built around its software interface. Decide which in-person acceptance, terminals and reporting you need, and confirm with each provider what it supports.",
+  "Bundled POS and Processing":
+    "When point-of-sale software and processing are sold together, the agreement may tie the two. Check what it says about using a different processor.",
+  "Restaurant POS and Processing":
+    "When restaurant software and processing are sold together, the agreement may tie the two. Check what it says about using a different processor, and list the software features your kitchen and front of house rely on.",
+  "Consumer Payment Platform":
+    "A consumer payment platform may also be used as a checkout option alongside processing. Decide whether you want to keep it for customers who prefer it while you review how everything else is processed.",
+  "Interchange-Plus Processor":
+    "Interchange-plus pricing separates the card networks' charges from the processor's markup. Compare the markup, per-transaction fees and monthly fees in each written quote on the same monthly volume.",
+  "Payment Gateway":
+    "A gateway connects your checkout to a processor. Depending on the plan, processing may be priced under a separate merchant account agreement, so compare the gateway fee and the processing fees together.",
+  "Platform-Bundled Processing":
+    "When processing comes with an e-commerce platform plan, check what the plan says about using a third-party processor, including any additional platform fee.",
+  "Large Merchant Processor":
+    "Compare the term, renewal and notice provisions with any early termination fee, and compare tiered or bundled pricing with a line-by-line breakdown of your statement.",
+  "Enterprise Payment Processor":
+    "Compare the term, renewal and notice provisions with any early termination fee, and ask for pricing in a form you can compare line by line.",
+  "Large Payment Processor":
+    "Compare the processing agreement and any separate equipment agreement, and ask for pricing in a form you can compare line by line.",
+  "Flat-Fee Processor":
+    "A flat monthly fee model and a percentage markup cost different amounts at different volumes. Work out both at your own monthly volume.",
+};
 
 const competitorInfo: Record<string, CompetitorInfo> = {
   square: {
@@ -46,20 +81,8 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     fullName: "Square (Block, Inc.)",
     slug: "square",
     category: "Flat-Rate Processor",
-    whyMerchantsLeave: [
-      published("square"),
-      "No interchange-plus pricing — paying more on every transaction",
-      "No dedicated account representative when issues arise",
-      "Account holds and fund stability concerns at higher volumes",
-      PROGRAM_LINE,
-    ],
-    whatLibertySolves: [
-      "Interchange-plus pricing quoted from your own statement review",
-      "Dedicated account rep available by phone — knows your business personally",
-      "Stable merchant account underwritten specifically for your business",
-      PROGRAM_LINE,
-      EQUIPMENT_LINE,
-    ],
+    fitExtras: ["If you use Square hardware or software, list which of it would keep working with a different processor and which would be replaced."],
+    agreementExtras: ["Which Square products, such as hardware, invoices or online checkout, are attached to the account you would change?"],
     relatedIndustries: [
       { name: "Restaurant Payment Processing", slug: "restaurant-payment-processing" },
       { name: "Retail Payment Processing", slug: "retail-payment-processing" },
@@ -74,20 +97,8 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     fullName: "Stripe, Inc.",
     slug: "stripe",
     category: "Developer Payment Platform",
-    whyMerchantsLeave: [
-      published("stripe"),
-      "Built for developers and SaaS — not optimized for brick-and-mortar businesses",
-      "No dedicated account representative, email support only",
-      "Limited in-person payment hardware and support",
-      "No cash discount or dual pricing programs",
-    ],
-    whatLibertySolves: [
-      "Interchange-plus pricing lets you compare card-present costs line by line",
-      "Purpose-built for in-person businesses with full terminal support",
-      "Dedicated account rep available directly",
-      PROGRAM_LINE,
-      EQUIPMENT_LINE,
-    ],
+    fitExtras: ["If your website, invoices or subscriptions connect to Stripe, list each connection; each would need to move or stay."],
+    agreementExtras: ["Which subscriptions, payment links or stored customer payment details sit in the account, and where would they go?"],
     relatedIndustries: [
       { name: "Professional Services Payment Processing", slug: "professional-services-payment-processing" },
       { name: "E-Commerce Payment Processing", slug: "ecommerce-payment-processing" },
@@ -102,20 +113,8 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     fullName: "Clover Network (Fiserv)",
     slug: "clover",
     category: "Bundled POS and Processing",
-    whyMerchantsLeave: [
-      "3-year contracts with early termination fees up to $500",
-      published("clover"),
-      "Equipment is often leased, not owned — you pay for years for hardware you don't own",
-      "PCI compliance fees added as a separate monthly charge",
-      "Rate increases are common after the promotional period",
-    ],
-    whatLibertySolves: [
-      CONTRACT_LINE,
-      "Interchange-plus pricing transparent from day one",
-      EQUIPMENT_LINE,
-      "PCI and other recurring fees are stated in your written quote",
-      "Dedicated account rep for proactive support",
-    ],
+    fitExtras: ["If your Clover equipment came with a lease or financing, find that agreement and read what it says about ending it."],
+    agreementExtras: ["Which agreement covers the Clover hardware and software, and is it separate from the processing agreement?"],
     relatedIndustries: [
       { name: "Restaurant Payment Processing", slug: "restaurant-payment-processing" },
       { name: "Retail Payment Processing", slug: "retail-payment-processing" },
@@ -130,23 +129,9 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     fullName: "Toast, Inc.",
     slug: "toast",
     category: "Restaurant POS and Processing",
-    whyMerchantsLeave: [
-      published("toast"),
-      "24–36 month contracts with early termination fees that can exceed $10,000",
-      "Must use Toast processing — no flexibility to switch processors",
-      "Equipment financing creates another long-term financial obligation",
-      "Monthly software fees increase as you add features",
-    ],
-    whatLibertySolves: [
-      "Interchange-plus pricing quoted from your own statement review",
-      CONTRACT_LINE,
-      "Point-of-sale compatibility is confirmed during review before you change anything",
-      PROGRAM_LINE,
-      "Dedicated rep who understands restaurant operations",
-    ],
-    relatedIndustries: [
-      { name: "Restaurant Payment Processing", slug: "restaurant-payment-processing" },
-    ],
+    fitExtras: ["Ask whether your Toast agreement ties the software to its processing, and what changing either one would involve."],
+    agreementExtras: ["Does the agreement cover software, hardware and processing together, and what does it say about each if one changes?"],
+    relatedIndustries: [{ name: "Restaurant Payment Processing", slug: "restaurant-payment-processing" }],
     relatedGlossary: [
       { name: "Interchange-Plus Pricing", slug: "interchange-plus-pricing" },
       { name: "Cash Discount Program", slug: "cash-discount-program" },
@@ -157,20 +142,8 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     fullName: "PayPal Holdings, Inc.",
     slug: "paypal",
     category: "Consumer Payment Platform",
-    whyMerchantsLeave: [
-      published("paypal"),
-      "Account holds and fund freezes cause cash flow disruption",
-      "No dedicated merchant account representative",
-      "No interchange passthrough pricing",
-      "Not designed for high-volume brick-and-mortar businesses",
-    ],
-    whatLibertySolves: [
-      "Interchange-plus pricing lets you compare card-present costs line by line",
-      "Account terms are stated in your written agreement",
-      "Dedicated account rep who knows your business",
-      PROGRAM_LINE,
-      "Funding availability and timing are confirmed during review",
-    ],
+    fitExtras: ["If customers pay through PayPal buttons, invoices or payment links, decide which of those you want to keep."],
+    agreementExtras: ["What balance, open disputes or recurring payments are in the account today?"],
     relatedIndustries: [
       { name: "Retail Payment Processing", slug: "retail-payment-processing" },
       { name: "E-Commerce Payment Processing", slug: "ecommerce-payment-processing" },
@@ -185,45 +158,23 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     fullName: "Helcim Inc.",
     slug: "helcim",
     category: "Interchange-Plus Processor",
-    whyMerchantsLeave: [
-      "Fully self-service — no dedicated account representative",
-      "Limited phone support and slow response times",
-      "No cash discount or dual pricing programs",
-      "Terminal and equipment costs are set by Helcim; compare them with your own costs",
-      "Smaller processor with less coverage for complex account types",
-    ],
-    whatLibertySolves: [
-      "Dedicated account rep who answers the phone and knows your account",
-      PROGRAM_LINE,
-      EQUIPMENT_LINE,
-      "Guided onboarding with personal go-live support",
-      "Interchange-plus markup quoted from your own statement review",
-    ],
-    relatedIndustries: [
-      { name: "Retail Payment Processing", slug: "retail-payment-processing" },
-    ],
-    relatedGlossary: [
-      { name: "Interchange-Plus Pricing", slug: "interchange-plus-pricing" },
-    ],
+    fitExtras: ["Ask each provider for the markup, per-transaction fee, monthly fees and equipment charges in writing so the quotes line up."],
+    agreementExtras: ["Which terminals or software came from the provider, and who is billing you for them?"],
+    relatedIndustries: [{ name: "Retail Payment Processing", slug: "retail-payment-processing" }],
+    relatedGlossary: [{ name: "Interchange-Plus Pricing", slug: "interchange-plus-pricing" }],
   },
   "authorize-net": {
     name: "Authorize.net",
     fullName: "Authorize.net (a Visa solution)",
     slug: "authorize-net",
     category: "Payment Gateway",
-    whyMerchantsLeave: [
-      published("authorize-net"),
-      "On the Gateway Only plan the merchant account is separate, so processing is priced under a second agreement",
-      "Older platform — less modern UX and integration options than newer alternatives",
-      "No dedicated account representative",
-      "Not optimized for in-person payment processing",
-    ],
-    whatLibertySolves: [
+    fitExtras: [
       claimText("compat.inquiry"),
-      "Interchange-plus markup quoted from your own statement review",
-      "Dedicated account rep for all payment questions",
-      "Terminal support for in-person payments",
-      "Free statement review to show your current costs",
+      "On the Gateway Only plan the merchant account is separate, so processing is priced under a second agreement.",
+    ],
+    agreementExtras: [
+      "Authorize.net's All-in-One plan includes the merchant account and gateway. On the Gateway Only plan the merchant account is separate, so check each agreement that bills you.",
+      "Which websites, shopping carts or point-of-sale systems connect to the gateway today?",
     ],
     relatedIndustries: [
       { name: "E-Commerce Payment Processing", slug: "ecommerce-payment-processing" },
@@ -239,130 +190,61 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     fullName: "Shopify Payments (Shopify Inc.)",
     slug: "shopify-payments",
     category: "Platform-Bundled Processing",
-    whyMerchantsLeave: [
-      "Processing pricing is set by your Shopify plan and agreement; compare it with your own statement",
-      "Processing is tied to your Shopify subscription — lose Shopify, lose payments",
-      "Shopify may charge an additional fee when a third-party processor is used at checkout; check your plan",
-      "Not optimized for in-person high-volume processing",
-      "No cash discount or dual pricing programs",
-    ],
-    whatLibertySolves: [
-      "Interchange-plus pricing not tied to any platform subscription",
-      "Fully optimized for in-person payment processing",
-      PROGRAM_LINE,
-      "Platform compatibility is confirmed before you change anything",
-      EQUIPMENT_LINE,
-    ],
+    fitExtras: ["Check your Shopify plan for what it says about using a third-party processor, including any additional platform fee."],
+    agreementExtras: ["Which Shopify plan are you on, and what does it say about payments from another processor?"],
     relatedIndustries: [
       { name: "Retail Payment Processing", slug: "retail-payment-processing" },
       { name: "E-Commerce Payment Processing", slug: "ecommerce-payment-processing" },
     ],
-    relatedGlossary: [
-      { name: "Interchange-Plus Pricing", slug: "interchange-plus-pricing" },
-    ],
+    relatedGlossary: [{ name: "Interchange-Plus Pricing", slug: "interchange-plus-pricing" }],
   },
   heartland: {
     name: "Heartland",
     fullName: "Heartland Payment Systems",
     slug: "heartland",
     category: "Large Merchant Processor",
-    whyMerchantsLeave: [
-      "3-year contracts with termination fees are standard",
-      "Monthly and recurring fees vary by agreement; your statement shows what you pay",
-      "Tiered pricing obscures true cost for many merchants",
-      "Equipment is frequently leased rather than sold",
-      "Rate increase clauses buried in contracts",
-    ],
-    whatLibertySolves: [
-      CONTRACT_LINE,
-      "Transparent interchange-plus pricing from the start",
-      "Recurring fees are stated in your written quote",
-      EQUIPMENT_LINE,
-      "Individual dedicated rep for personalized service",
-    ],
+    fitExtras: ["If your statement groups transactions into categories, ask which category each of your typical sales falls into."],
+    agreementExtras: ["Does the agreement allow rate changes during the term, and how must you be told?"],
     relatedIndustries: [
       { name: "Restaurant Payment Processing", slug: "restaurant-payment-processing" },
       { name: "Retail Payment Processing", slug: "retail-payment-processing" },
     ],
-    relatedGlossary: [
-      { name: "Interchange-Plus Pricing", slug: "interchange-plus-pricing" },
-    ],
+    relatedGlossary: [{ name: "Interchange-Plus Pricing", slug: "interchange-plus-pricing" }],
   },
   worldpay: {
     name: "Worldpay",
     fullName: "Worldpay (FIS Global)",
     slug: "worldpay",
     category: "Enterprise Payment Processor",
-    whyMerchantsLeave: [
-      "2–3 year contracts with significant termination fees",
-      "Complex, opaque pricing with many fee layers",
-      "Enterprise focus — small businesses feel underserved",
-      "Slow to resolve issues for individual accounts",
-      "Pricing difficult to understand or compare",
-    ],
-    whatLibertySolves: [
-      CONTRACT_LINE,
-      "Transparent interchange-plus statements you can read and verify",
-      "Focused on small and mid-sized merchants — you are not an afterthought",
-      "Dedicated rep who knows your account and responds quickly",
-      "Free statement review before any commitment",
-    ],
+    fitExtras: ["Ask for the full list of fee lines on your statement and what each one pays for."],
+    agreementExtras: ["Does the agreement renew automatically, and by what date must notice be given?"],
     relatedIndustries: [
       { name: "Professional Services Payment Processing", slug: "professional-services-payment-processing" },
       { name: "Retail Payment Processing", slug: "retail-payment-processing" },
     ],
-    relatedGlossary: [
-      { name: "Interchange-Plus Pricing", slug: "interchange-plus-pricing" },
-    ],
+    relatedGlossary: [{ name: "Interchange-Plus Pricing", slug: "interchange-plus-pricing" }],
   },
   fiserv: {
     name: "Fiserv",
     fullName: "Fiserv (First Data)",
     slug: "fiserv",
     category: "Large Payment Processor",
-    whyMerchantsLeave: [
-      "Three-year contracts with early termination fees of $500+",
-      "Complex statements with many hard-to-understand fee lines",
-      "Equipment leases add another long-term financial obligation",
-      "Rate increases are common after the initial contract term",
-      "Difficult to reach knowledgeable support for individual accounts",
-    ],
-    whatLibertySolves: [
-      CONTRACT_LINE,
-      "Transparent interchange-plus statements that are straightforward to read",
-      EQUIPMENT_LINE,
-      "Dedicated rep for individual account attention",
-      "Pricing and any change terms are stated in writing",
-    ],
+    fitExtras: ["If a separate equipment agreement exists, read it next to the processing agreement and total both."],
+    agreementExtras: ["Is there a processing agreement and a separate equipment agreement, and does each state its own term and notice?"],
     relatedIndustries: [
       { name: "Retail Payment Processing", slug: "retail-payment-processing" },
       { name: "Restaurant Payment Processing", slug: "restaurant-payment-processing" },
     ],
-    relatedGlossary: [
-      { name: "Interchange-Plus Pricing", slug: "interchange-plus-pricing" },
-    ],
+    relatedGlossary: [{ name: "Interchange-Plus Pricing", slug: "interchange-plus-pricing" }],
   },
   "gravity-payments": {
     name: "Gravity Payments",
     fullName: "Gravity Payments",
     slug: "gravity-payments",
     category: "Flat-Fee Processor",
-    whyMerchantsLeave: [
-      "Flat monthly fee model may cost more than percentage markup at certain volumes",
-      "No cash discount or dual pricing programs",
-      "Primarily Pacific Northwest focused — limited national coverage",
-      "Fewer program options than full-service national providers",
-    ],
-    whatLibertySolves: [
-      "Pure interchange-plus markup with no flat-fee layer",
-      PROGRAM_LINE,
-      "National coverage with local-level dedicated support",
-      EQUIPMENT_LINE,
-      "Full range of merchant program options",
-    ],
-    relatedIndustries: [
-      { name: "Retail Payment Processing", slug: "retail-payment-processing" },
-    ],
+    fitExtras: ["Divide your monthly flat fee by your monthly card volume and compare the result with a percentage markup."],
+    agreementExtras: ["What does the agreement say about ending service, and are any fees owed on closing?"],
+    relatedIndustries: [{ name: "Retail Payment Processing", slug: "retail-payment-processing" }],
     relatedGlossary: [
       { name: "Interchange-Plus Pricing", slug: "interchange-plus-pricing" },
       { name: "Cash Discount Program", slug: "cash-discount-program" },
@@ -370,322 +252,130 @@ const competitorInfo: Record<string, CompetitorInfo> = {
   },
 };
 
-interface SwitchFromStep {
-  title: string;
-  detail: string;
+/** What to answer from your own agreement before changing, whichever provider you have. */
+const COMMON_AGREEMENT_QUESTIONS: string[] = [
+  "What is the term, and does the agreement renew automatically?",
+  "How is notice given, to whom, and how far ahead of the renewal date?",
+  "Is there an early termination fee, and how is it calculated?",
+  "Is any equipment leased, financed or rented, and which agreement covers it?",
+  "Are recurring charges, subscriptions or stored customer payment details attached to the account?",
+  "Can you export your sales and customer records, and in what format?",
+  "What happens to pending settlements, chargebacks and disputes after the account closes?",
+];
+
+function listHtml(items: string[], className = "reason-list"): string {
+  return `<ul class="${className}">${items.map((item) => `<li>${escHtml(item)}</li>`).join("\n")}</ul>`;
 }
 
-interface SwitchFromInfo {
-  howToCancel: SwitchFromStep[];
-  whatToExpect: string;
-  libertyHandles: string;
-  timeline: string;
-  whatYouNeed: string[];
-}
-
-const switchFromInfo: Record<string, SwitchFromInfo> = {
-  square: {
-    howToCancel: [
-      { title: "Log into your Square Dashboard", detail: "Go to Account & Settings > Account > Deactivate Account. Square does not require advance written notice." },
-      { title: "Download your data", detail: "Export your sales history, customer data, and item catalog from Square before deactivating. Go to Reports > Sales Summary > Export." },
-      { title: "Return or keep Square hardware", detail: "Square hardware (readers, terminals) is not returned. Square Reader (free) can be discarded. Purchased Square Terminal/Stand are yours to keep or sell." },
-      { title: "Notify your staff", detail: "Let employees know about the transition date and any new POS or terminal workflow changes." },
-      { title: "Process your last Square batch", detail: "Make sure all transactions have been settled before deactivating. Check pending payouts and wait for final deposits." },
-    ],
-    whatToExpect: "Many merchants keep Square active for existing transactions while a new account is set up. Account approval, equipment availability, shipping and activation are separate steps.",
-    libertyHandles: "Liberty Bancard handles the application, underwriting, equipment arrangements where offered, terminal setup, and activation support. You do not need to contact Square about your new processor — simply stop using Square once your Liberty Bancard account is active.",
-    timeline: TIMING_NOTE,
-    whatYouNeed: [
-      "Last 3 months of Square processing statements",
-      "Business bank account information (for deposits)",
-      "Business license or legal formation documents",
-      "Social Security Number or EIN for underwriting",
-      "Voided check or bank letter for funding setup",
-    ],
-  },
-  stripe: {
-    howToCancel: [
-      { title: "Ensure all payouts are complete", detail: "Check your Stripe Dashboard for any pending payouts, open disputes, or unsettled transactions. Allow all funds to settle before closing." },
-      { title: "Cancel active subscriptions or payment links", detail: "If you have Stripe Billing subscriptions, payment links, or recurring charges set up, migrate these to your new processor or cancel them in Stripe before closing." },
-      { title: "Export your data", detail: "Download customer data, payment history, and any invoice records from Stripe. Go to Dashboard > Balance > Download CSV." },
-      { title: "Close your Stripe account", detail: "In the Stripe Dashboard, go to Settings > Account > Close Account. You'll need to confirm the closure." },
-    ],
-    whatToExpect: "Stripe closure requires ensuring no pending funds remain. Because Stripe is often used for online transactions, migration includes updating payment integrations on your website or POS. Liberty Bancard will advise on gateway alternatives for any online processing needs.",
-    libertyHandles: "Liberty Bancard manages in-person terminal setup, merchant account underwriting, and funding configuration. For online transaction migration, we advise on gateway options and connection methods. Your dedicated rep coordinates the transition to minimize downtime.",
-    timeline: TIMING_NOTE,
-    whatYouNeed: [
-      "Last 3 months of Stripe processing statements (CSV export)",
-      "Business bank account information",
-      "Business documentation for underwriting",
-      "Current website platform (if online processing needed)",
-      "Social Security Number or EIN",
-    ],
-  },
-  clover: {
-    howToCancel: [
-      { title: "Review your contract for notice requirements", detail: "Clover contracts typically require 30–90 days written notice of non-renewal, sent to your reseller or directly to Clover. Check Section 2 of your merchant agreement for the exact timeline." },
-      { title: "Calculate your termination cost", detail: "If mid-contract, calculate the early termination fee (usually $250–$500) plus any remaining equipment lease obligations. Determine whether savings from switching exceed these costs." },
-      { title: "Determine equipment ownership", detail: "If you purchased Clover hardware, it may be reprogrammable (Clover devices are locked to Clover's network). In most cases, you will need new terminal hardware. Equipment options are reviewed with you during the application." },
-      { title: "Send written cancellation notice", detail: "Send written notice to your Clover reseller via certified mail or email with read receipt. Keep documentation of when notice was sent." },
-      { title: "Confirm cancellation acknowledgment", detail: "Follow up to confirm your notice was received and the contract end date. Get confirmation in writing." },
-    ],
-    whatToExpect: "Because Clover devices are network-locked, you will need new terminal hardware when switching. Equipment options are reviewed with you, and availability, shipping and activation are separate steps.",
-    libertyHandles: "Liberty Bancard reviews your contract to identify the right transition timing, reviews equipment options with you, handles underwriting and account setup, and provides activation support. We help you compare any termination costs with your expected costs once the review is complete.",
-    timeline: TIMING_NOTE,
-    whatYouNeed: [
-      "Last 3 months of Clover processing statements",
-      "Your merchant agreement (to review termination terms)",
-      "Business bank account information",
-      "Business documentation for underwriting",
-      "Physical address for terminal delivery",
-    ],
-  },
-  toast: {
-    howToCancel: [
-      { title: "Review your Toast contract termination terms", detail: "Toast contracts typically run 24–36 months with early termination fees that can exceed $10,000. Review Section 8 (or your contract's termination section) carefully before proceeding." },
-      { title: "Assess equipment financing obligations", detail: "If you financed Toast hardware, those payments continue independently of your processing contract. Calculate total financial obligations before your transition decision." },
-      { title: "Plan your POS transition", detail: "Because Toast bundles POS and processing, switching processors means transitioning your POS system simultaneously. Liberty Bancard can advise on compatible restaurant POS alternatives." },
-      { title: "Send written notice of non-renewal", detail: "If your contract is near renewal, send written notice (certified mail) at least 30–90 days before the renewal date to avoid auto-renewal." },
-      { title: "Coordinate go-live timing", detail: "For restaurants, plan the transition for a slow business period — typically a Monday or Tuesday morning during an off-peak week." },
-    ],
-    whatToExpect: "The Toast transition is more complex than simpler processor switches because it involves both processing and POS. The transition includes POS selection, installation and training, and each is a separate step. Minimize disruption by planning the live date on a low-volume day.",
-    libertyHandles: "Liberty Bancard reviews your Toast contract, helps identify the most cost-effective exit strategy, advises on restaurant POS alternatives, provides terminal and integration setup, and supports your team through the go-live process. We schedule go-live for your lowest-volume period.",
-    timeline: TIMING_NOTE,
-    whatYouNeed: [
-      "Last 3 months of Toast processing statements",
-      "Toast merchant agreement (for termination review)",
-      "Equipment financing agreements (if applicable)",
-      "Business bank account information",
-      "Restaurant layout/station count for hardware planning",
-    ],
-  },
-  paypal: {
-    howToCancel: [
-      { title: "Ensure all transactions are settled", detail: "Check your PayPal balance for any pending payments, disputes in progress, or open cases. Allow all funds to disburse before closing." },
-      { title: "Transfer your balance", detail: "Withdraw any remaining balance from your PayPal Business account to your bank account before initiating closure." },
-      { title: "Cancel recurring transactions", detail: "If you have recurring billing or subscription payments set up in PayPal, migrate these to your new processor first." },
-      { title: "Close your PayPal Business account", detail: "In the PayPal app or web: Settings > Account > Account Type > Close Account. You must have a zero balance to close." },
-    ],
-    whatToExpect: "PayPal account closure is straightforward once your balance is zero and disputes are resolved. Because PayPal is often used as a checkout option (not just processing), some businesses keep PayPal as a customer-facing option while switching their primary card processing to Liberty Bancard.",
-    libertyHandles: "Liberty Bancard sets up your primary card processing account — in-person terminals, and if needed, online gateway connections. You can continue to offer PayPal as a supplementary checkout option for customers who prefer it while using Liberty Bancard for all traditional card processing.",
-    timeline: TIMING_NOTE,
-    whatYouNeed: [
-      "Last 3 months of PayPal transaction reports",
-      "Business bank account information",
-      "Business documentation for underwriting",
-      "Physical address for terminal delivery (if in-person)",
-      "Social Security Number or EIN",
-    ],
-  },
-  helcim: {
-    howToCancel: [
-      { title: "Confirm no outstanding balance or disputes", detail: "Review your Helcim account for any unresolved chargebacks or pending transactions." },
-      { title: "Contact Helcim support to close the account", detail: "Helcim does not have long-term contracts. Email or message support to initiate account closure. There are no termination fees." },
-      { title: "Download your account data", detail: "Export transaction history and any customer records before closing." },
-    ],
-    whatToExpect: "Helcim has no long-term contracts, so switching is straightforward. The primary transition work is equipment — if you use Helcim-compatible hardware, Liberty Bancard will confirm compatibility or review replacement options with you.",
-    libertyHandles: "Liberty Bancard sets up your account, confirms terminal compatibility or reviews replacement options, and provides a dedicated account rep going forward.",
-    timeline: TIMING_NOTE,
-    whatYouNeed: [
-      "Last 3 months of Helcim processing statements",
-      "Business bank account information",
-      "Business documentation for underwriting",
-    ],
-  },
-  "authorize-net": {
-    howToCancel: [
-      { title: "Check which plan and processor you use", detail: "Authorize.net's All-in-One plan includes the merchant account and gateway. On the Gateway Only plan the merchant account is separate, so check your agreements and contact each provider that bills you." },
-      { title: "Update your website or POS integration", detail: "If Authorize.net is connected to your website's shopping cart, you will need to update the payment gateway integration when switching. Coordinate this update with your web developer." },
-      { title: "Cancel your Authorize.net account", detail: "Contact Authorize.net customer support to cancel. There is a monthly fee that will stop billing once the account is closed." },
-      { title: "Export transaction data", detail: "Download your transaction history and customer profiles before closing the account." },
-    ],
-    whatToExpect: "Switching from Authorize.net involves a technical update to any website or POS that used it as a gateway. Liberty Bancard will advise on alternative gateway connections and coordinate the migration with minimal downtime.",
-    libertyHandles: "Liberty Bancard handles the processing account setup and advises on gateway alternatives for online integrations. Your dedicated rep coordinates the technical migration support with your team.",
-    timeline: TIMING_NOTE,
-    whatYouNeed: [
-      "Last 3 months of processing statements (from your merchant account provider)",
-      "Current website platform and shopping cart information",
-      "Business bank account information",
-      "Business documentation for underwriting",
-    ],
-  },
-  "shopify-payments": {
-    howToCancel: [
-      { title: "Add a third-party processor before removing Shopify Payments", detail: "Set up your new Liberty Bancard account first. Once approved, you can add it to Shopify as a third-party processor (note the additional Shopify fee applies unless you change plans)." },
-      { title: "Disable Shopify Payments in your dashboard", detail: "In Shopify Admin > Settings > Payments, select your third-party processor and remove Shopify Payments from active status." },
-      { title: "Update any in-person POS", detail: "If using Shopify POS hardware, you may need to replace it with Liberty Bancard-compatible terminals." },
-      { title: "Verify checkout is working on the new processor", detail: "Place a test transaction before going fully live to confirm the new payment connection is working." },
-    ],
-    whatToExpect: "Shopify may charge an additional fee when a third-party processor is used at its online checkout; check your Shopify plan for the current terms. Compare your total cost from your own statement.",
-    libertyHandles: "Liberty Bancard handles in-person terminal setup and all processing account configuration. For online checkout, we advise on the most cost-effective integration approach given your Shopify plan and transaction volume.",
-    timeline: TIMING_NOTE,
-    whatYouNeed: [
-      "Last 3 months of Shopify Payments reports",
-      "Shopify plan level (for third-party fee calculation)",
-      "Business bank account information",
-      "Business documentation for underwriting",
-    ],
-  },
-  heartland: {
-    howToCancel: [
-      { title: "Review your contract for notice requirements", detail: "Heartland contracts typically run 3 years with written notice required 30–90 days before renewal. Check your merchant agreement for the exact notice period and send via certified mail." },
-      { title: "Calculate termination costs", detail: "If mid-contract, early termination fees are typically $250–$500 plus any remaining equipment lease obligations. Calculate total cost versus ongoing savings." },
-      { title: "Determine equipment status", detail: "Whether you own or lease your terminals. Owned equipment can be reprogrammed or replaced. Leased equipment obligations continue separately." },
-      { title: "Send formal written notice", detail: "Send your cancellation notice to the address specified in your agreement via certified mail with return receipt. Keep all documentation." },
-    ],
-    whatToExpect: "Heartland transitions vary by contract terms. For merchants near renewal, the switch is simpler. Mid-contract switches require termination fee analysis to confirm the math favors switching despite the fee.",
-    libertyHandles: "Liberty Bancard reviews your Heartland contract, compares termination costs with your expected costs, reviews equipment options, handles underwriting and account setup, and provides activation support.",
-    timeline: TIMING_NOTE,
-    whatYouNeed: [
-      "Last 3 months of Heartland processing statements",
-      "Heartland merchant agreement",
-      "Business bank account information",
-      "Business documentation for underwriting",
-      "Physical address for terminal delivery if needed",
-    ],
-  },
-  worldpay: {
-    howToCancel: [
-      { title: "Review contract notice requirements", detail: "Worldpay contracts require written notice (typically 30–90 days) before the renewal date. Review your agreement for the exact requirement and note the auto-renewal date." },
-      { title: "Send written cancellation notice", detail: "Send your notice via certified mail to the address in your merchant agreement. Include your merchant ID and requested closure date." },
-      { title: "Resolve any open disputes or chargebacks", detail: "Ensure all chargebacks and disputes are resolved before closing. Worldpay can hold funds post-closure for dispute resolution." },
-      { title: "Confirm closure confirmation in writing", detail: "Follow up until you receive written confirmation of account closure and the final statement." },
-    ],
-    whatToExpect: "Worldpay transitions are clean once the notice period is satisfied. Equipment compatibility should be verified — some Worldpay terminals can be reprogrammed; others need replacement. Liberty Bancard reviews equipment options with you.",
-    libertyHandles: "Liberty Bancard manages the full transition: contract review, application, underwriting, equipment, and go-live support. Your dedicated rep is your single point of contact from day one.",
-    timeline: TIMING_NOTE,
-    whatYouNeed: [
-      "Last 3 months of Worldpay processing statements",
-      "Worldpay merchant agreement",
-      "Business bank account information",
-      "Business documentation for underwriting",
-    ],
-  },
-  fiserv: {
-    howToCancel: [
-      { title: "Locate your merchant agreement and equipment lease", detail: "Fiserv often involves both a processing agreement AND a separate equipment lease — two distinct contracts. Review both for termination terms." },
-      { title: "Send written notice of non-renewal or cancellation", detail: "Fiserv processing agreements require written notice typically 30–90 days before renewal. Equipment leases have separate notice requirements. Send both via certified mail." },
-      { title: "Return or address leased equipment", detail: "If you have leased equipment, the lease continues even if you cancel processing. Review options: returning equipment, paying off the lease, or continuing lease payments while using new equipment." },
-      { title: "Confirm final billing and closure", detail: "Request written confirmation of your account closure date and final statement to ensure no additional fees are charged." },
-    ],
-    whatToExpect: "Fiserv transitions can be complex due to the multi-contract structure (processing + equipment lease). Liberty Bancard helps you navigate both contracts and reviews equipment options with you.",
-    libertyHandles: "Liberty Bancard reviews both your processing contract and equipment lease, helps you calculate the full cost of switching (including any lease obligations), reviews equipment options with you, and handles all account setup with dedicated onboarding support.",
-    timeline: TIMING_NOTE,
-    whatYouNeed: [
-      "Last 3 months of Fiserv processing statements",
-      "Fiserv merchant processing agreement",
-      "Equipment lease agreement (if applicable)",
-      "Business bank account information",
-      "Business documentation for underwriting",
-    ],
-  },
-  "gravity-payments": {
-    howToCancel: [
-      { title: "Confirm no outstanding obligations", detail: "Gravity Payments operates without long-term contracts, so cancellation is straightforward. Confirm no pending transactions or disputes." },
-      { title: "Contact Gravity Payments to close account", detail: "Notify Gravity Payments support of your intention to close. There are no early termination fees." },
-      { title: "Export your data", detail: "Download transaction history before closing." },
-    ],
-    whatToExpect: "Because Gravity Payments has no long-term contracts, the transition is simple. Account approval, equipment availability, shipping and activation are separate steps with Liberty Bancard.",
-    libertyHandles: "Liberty Bancard handles account setup, equipment options reviewed with you, and provides a dedicated account rep — addressing the primary reason merchants leave Gravity for a more full-service provider.",
-    timeline: TIMING_NOTE,
-    whatYouNeed: [
-      "Last 3 months of Gravity Payments statements",
-      "Business bank account information",
-      "Business documentation for underwriting",
-    ],
-  },
-};
-
-export function renderAlternativesHtml(competitorSlug: string): string {
-  const info = competitorInfo[competitorSlug];
-  if (!info) return "";
-
-  const breadcrumbSchema = {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    "itemListElement": [
-      { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://libertybancard.com" },
-      { "@type": "ListItem", "position": 2, "name": `${info.name} Alternatives`, "item": `https://libertybancard.com/alternatives/${info.slug}` }
-    ]
-  };
-
-  const faqSchema = {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    "mainEntity": [
-      {
-        "@type": "Question",
-        "name": `What is the best alternative to ${info.name} for businesses?`,
-        "acceptedAnswer": { "@type": "Answer", "text": `Liberty Bancard is a leading alternative to ${info.name}, offering interchange-plus pricing, dedicated account representation, and cash discount programs that ${info.name} does not provide. A statement review shows how your current costs compare before you decide to change.` }
-      },
-      {
-        "@type": "Question",
-        "name": `Why do merchants leave ${info.name}?`,
-        "acceptedAnswer": { "@type": "Answer", "text": info.whyMerchantsLeave.join(" ") }
-      }
-    ]
-  };
-
-  const whyLeaveHtml = info.whyMerchantsLeave.map(r => `<li>${escHtml(r)}</li>`).join("\n");
-  const whatLibertySolvesHtml = info.whatLibertySolves.map(r => `<li>${escHtml(r)}</li>`).join("\n");
-  const industryLinksHtml = info.relatedIndustries.map(i => `<a href="/industries/${escHtml(i.slug)}" class="internal-link">${escHtml(i.name)}</a>`).join(" | ");
-  const glossaryLinksHtml = info.relatedGlossary.map(g => `<a href="/learn/${escHtml(g.slug)}" class="internal-link">${escHtml(g.name)}</a>`).join(" | ");
-
+function pageHead(opts: { title: string; description: string; path: string; schemas: unknown[]; extraStyle?: string }): string {
+  const url = `https://libertybancard.com${opts.path}`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${escHtml(info.name)} Alternatives for Merchants | Liberty Bancard</title>
-<meta name="description" content="Researching alternatives to ${escHtml(info.name)}? See why merchants switch to Liberty Bancard — transparent interchange-plus pricing, dedicated support, and cash discount programs.">
-<meta property="og:title" content="${escHtml(info.name)} Alternatives for Merchants | Liberty Bancard">
-<meta property="og:description" content="See why merchants choose Liberty Bancard as their ${escHtml(info.name)} alternative. Transparent pricing, dedicated support, and better costs.">
-<meta property="og:url" content="https://libertybancard.com/alternatives/${info.slug}">
-<link rel="canonical" href="https://libertybancard.com/alternatives/${info.slug}">
-<script type="application/ld+json">${serializeJsonLd(breadcrumbSchema)}</script>
-<script type="application/ld+json">${serializeJsonLd(faqSchema)}</script>
+<title>${escHtml(opts.title)}</title>
+<meta name="description" content="${escHtml(opts.description)}">
+<meta property="og:title" content="${escHtml(opts.title)}">
+<meta property="og:description" content="${escHtml(opts.description)}">
+<meta property="og:url" content="${url}">
+<link rel="canonical" href="${url}">
+${opts.schemas.map((schema) => `<script type="application/ld+json">${serializeJsonLd(schema)}</script>`).join("\n")}
 ${sharedStyles()}
-</head>
+${opts.extraStyle ?? ""}
+</head>`;
+}
+
+export function renderAlternativesHtml(competitorSlug: string): string {
+  const info = competitorInfo[competitorSlug];
+  if (!info) return "";
+
+  const name = info.name;
+  const hasPublishedRates = (COMPARE_ENTRIES[info.slug]?.records.length ?? 0) > 0;
+  const criteria = [...COMMON_FIT_CRITERIA, ...info.fitExtras];
+  const categoryNote = CATEGORY_NOTES[info.category] ?? "";
+
+  const faq = [
+    {
+      question: `What should I compare before choosing an alternative to ${name}?`,
+      answer: `Compare total monthly cost on your own statement, your card mix and average ticket, how each provider is paid, funding timing, equipment, the software you must keep and how you would reach support. ${claimText("review.process.summary")}`,
+    },
+    {
+      question: "Does a statement review cost anything?",
+      answer: claimText("review.cost.free"),
+    },
+  ];
+
+  const breadcrumbSchema = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: "https://libertybancard.com" },
+      { "@type": "ListItem", position: 2, name: `${name} alternatives`, item: `https://libertybancard.com/alternatives/${info.slug}` },
+    ],
+  };
+  const faqSchema = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faq.map((f) => ({ "@type": "Question", name: f.question, acceptedAnswer: { "@type": "Answer", text: f.answer } })),
+  };
+
+  const industryLinksHtml = info.relatedIndustries.map((i) => `<a href="/industries/${escHtml(i.slug)}" class="internal-link">${escHtml(i.name)}</a>`).join(" | ");
+  const glossaryLinksHtml = info.relatedGlossary.map((g) => `<a href="/learn/${escHtml(g.slug)}" class="internal-link">${escHtml(g.name)}</a>`).join(" | ");
+  const faqHtml = faq.map((f) => `<h3>${escHtml(f.question)}</h3>\n<p>${escHtml(f.answer)}</p>`).join("\n");
+
+  return `${pageHead({
+    title: `Alternatives to ${name}: What to Compare | Liberty Bancard`,
+    description: `A checklist for choosing an alternative to ${name}: total cost, pricing model, equipment, funding and support. A statement review shows what you pay today.`,
+    path: `/alternatives/${info.slug}`,
+    schemas: [breadcrumbSchema, faqSchema],
+  })}
 <body>
 ${ssrNavbar()}
-<nav class="breadcrumb"><a href="/">Home</a><span>›</span>${escHtml(info.name)} Alternatives</nav>
+<nav class="breadcrumb"><a href="/">Home</a><span>›</span>${escHtml(name)} alternatives</nav>
 <header class="page-header">
 <div class="page-header-inner">
-<div class="page-badge">Alternatives to ${escHtml(info.name)}</div>
-<h1>If ${escHtml(info.name)} Isn't Right for Your Business, Here Are Your Options</h1>
-<p class="page-subhead">Thousands of merchants research ${escHtml(info.name)} alternatives every month. This page explains why they look, what they find, and why so many choose Liberty Bancard.</p>
+<div class="page-badge">Choosing a processor</div>
+<h1>Choosing an Alternative to ${escHtml(name)}: What to Compare</h1>
+<p class="page-subhead">A checklist for weighing another provider against ${escHtml(name)}. It does not rank providers. Your own statement and agreement show what fits your business.</p>
 </div>
 </header>
 <main class="page-body">
 <section class="content-section">
-<h2>Why Merchants Research ${escHtml(info.name)} Alternatives</h2>
-<p>${escHtml(info.name)} (${escHtml(info.fullName)}) is a well-known name in payment processing. But knowing a brand doesn't mean it's the best fit for your business. Here are the most common reasons merchants start looking for alternatives:</p>
-<ul class="reason-list">${whyLeaveHtml}</ul>
+<h2>What to Compare</h2>
+<p>${escHtml(name)} (${escHtml(info.fullName)}) is a ${escHtml(info.category.toLowerCase())}. Whatever you are comparing it with, these are the points that decide the cost and the fit:</p>
+${listHtml(criteria)}
+${categoryNote ? `<p>${escHtml(categoryNote)}</p>` : ""}
 </section>
 
 <section class="content-section">
-<h2>What Liberty Bancard Solves</h2>
-<p>Liberty Bancard is built as a merchant-first alternative to processors like ${escHtml(info.name)}. Here's what changes when you switch:</p>
-<ul class="solution-list">${whatLibertySolvesHtml}</ul>
+<h2>How Liberty Bancard Fits Into the Comparison</h2>
+<p>${escHtml(claimText("review.process.summary"))}</p>
+<p>${escHtml(claimText("review.cost.free"))}</p>
+<p>${escHtml(claimText("equipment.options.summary"))}</p>
 </section>
 
 <section class="content-section compare-cta-section">
-<h2>See the Side-by-Side Comparison</h2>
-<p>We've built a complete comparison page showing Liberty Bancard vs ${escHtml(info.name)} across pricing, contracts, support, and programs.</p>
-<a href="/compare/${escHtml(info.slug)}" class="btn-primary">View Liberty Bancard vs ${escHtml(info.name)}</a>
+<h2>See Dated Prices and a Side-by-Side Table</h2>
+<p>${hasPublishedRates ? `The comparison page lists the ${escHtml(name)} prices it publishes, each with its source and the date it was checked, next to Liberty Bancard.` : `${escHtml(name)} does not publish a single processing rate, so the comparison page lays the two out feature by feature.`}</p>
+<a href="/compare/${escHtml(info.slug)}" class="btn-primary">Liberty Bancard vs ${escHtml(name)}</a>
 </section>
 
 <section class="content-section cta-section">
-<h2>The Most Important Step: Know Your Current Cost</h2>
-<p>Before comparing alternatives, you need to know what you actually pay — not just your quoted rate, but your effective rate including all fees. Upload your processing statement and get a free line-by-line analysis. We show you exactly what ${escHtml(info.name)} is charging and what you could be paying with Liberty Bancard.</p>
-<a href="/upload-statement" class="btn-primary">Get Your Free Statement Analysis</a>
-<a href="/compare/${escHtml(info.slug)}" class="btn-secondary">See Full ${escHtml(info.name)} Comparison</a>
+<h2>Start With Your Current Cost</h2>
+<p>Before comparing providers, find your effective rate: all the fees on your statement divided by your card volume. Upload a statement and we will review it with you.</p>
+<a href="/upload-statement" class="btn-primary">Upload a Statement</a>
 </section>
 
 <section class="content-section">
-<h2>Switching From ${escHtml(info.name)}</h2>
-<p>If you decide ${escHtml(info.name)} isn't right and you're ready to switch, we've put together a complete guide on how to approach the transition.</p>
-<a href="/switch-from/${escHtml(info.slug)}" class="internal-link">→ How to Switch From ${escHtml(info.name)}</a>
+<h2>Questions Merchants Ask</h2>
+${faqHtml}
+</section>
+
+<section class="content-section">
+<h2>If You Decide to Change</h2>
+<p>Read your agreement first. The list of questions to answer from it is on the switching page.</p>
+<a href="/switch-from/${escHtml(info.slug)}" class="internal-link">→ Before you switch from ${escHtml(name)}</a>
 </section>
 
 <section class="content-section">
@@ -703,89 +393,83 @@ ${ssrFooter()}
 
 export function renderSwitchFromHtml(competitorSlug: string): string {
   const info = competitorInfo[competitorSlug];
-  const switchInfo = switchFromInfo[competitorSlug];
-  if (!info || !switchInfo) return "";
+  if (!info) return "";
+
+  const name = info.name;
+  const questions = [...COMMON_AGREEMENT_QUESTIONS, ...info.agreementExtras];
 
   const breadcrumbSchema = {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
-    "itemListElement": [
-      { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://libertybancard.com" },
-      { "@type": "ListItem", "position": 2, "name": `Switch From ${info.name}`, "item": `https://libertybancard.com/switch-from/${info.slug}` }
-    ]
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: "https://libertybancard.com" },
+      { "@type": "ListItem", position: 2, name: `Before you switch from ${name}`, item: `https://libertybancard.com/switch-from/${info.slug}` },
+    ],
   };
 
-  const howToCancelHtml = switchInfo.howToCancel.map((step, i) =>
-    `<div class="step-item"><div class="step-number">${i + 1}</div><div class="step-content"><h3>${escHtml(step.title)}</h3><p>${escHtml(step.detail)}</p></div></div>`
-  ).join("\n");
+  const questionsHtml = questions
+    .map((q, i) => `<div class="step-item"><div class="step-number">${i + 1}</div><div class="step-content"><p>${escHtml(q)}</p></div></div>`)
+    .join("\n");
 
-  const whatYouNeedHtml = switchInfo.whatYouNeed.map(item => `<li>${escHtml(item)}</li>`).join("\n");
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>How to Switch From ${escHtml(info.name)} | Liberty Bancard</title>
-<meta name="description" content="Complete guide to switching from ${escHtml(info.name)} to Liberty Bancard. Step-by-step instructions for canceling your ${escHtml(info.name)} account and transitioning smoothly.">
-<meta property="og:title" content="How to Switch From ${escHtml(info.name)} | Liberty Bancard">
-<meta property="og:description" content="Step-by-step guide to canceling ${escHtml(info.name)} and switching to Liberty Bancard. We handle the transition for you.">
-<meta property="og:url" content="https://libertybancard.com/switch-from/${info.slug}">
-<link rel="canonical" href="https://libertybancard.com/switch-from/${info.slug}">
-<script type="application/ld+json">${serializeJsonLd(breadcrumbSchema)}</script>
-${sharedStyles()}
-<style>
-.step-item { display: flex; gap: 1rem; margin-bottom: 1.5rem; align-items: flex-start; }
+  return `${pageHead({
+    title: `Before You Switch From ${name}: Agreement Questions | Liberty Bancard`,
+    description: `Questions to answer from your ${name} agreement before changing processors: term, notice, early termination, equipment and your records.`,
+    path: `/switch-from/${info.slug}`,
+    schemas: [breadcrumbSchema],
+    extraStyle: `<style>
+.step-item { display: flex; gap: 1rem; margin-bottom: 1.25rem; align-items: flex-start; }
 .step-number { background: #071D57; color: #fff; width: 2rem; height: 2rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; font-size: 0.875rem; }
-.step-content h3 { font-size: 1.05rem; font-weight: 600; color: #0f172a; margin-bottom: 0.4rem; }
-.step-content p { color: #475569; font-size: 0.95rem; margin: 0; }
+.step-content p { color: #334155; font-size: 1rem; margin: 0.15rem 0 0; }
 .info-box { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 1.25rem; margin: 1.5rem 0; }
 .info-box h3 { color: #0369a1; font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; }
 .info-box p { color: #0c4a6e; margin: 0; font-size: 0.95rem; }
-</style>
-</head>
+</style>`,
+  })}
 <body>
 ${ssrNavbar()}
-<nav class="breadcrumb"><a href="/">Home</a><span>›</span>How to Switch From ${escHtml(info.name)}</nav>
+<nav class="breadcrumb"><a href="/">Home</a><span>›</span>Before you switch from ${escHtml(name)}</nav>
 <header class="page-header">
 <div class="page-header-inner">
-<div class="page-badge">Processor Migration Guide</div>
-<h1>How to Switch From ${escHtml(info.name)} to Liberty Bancard</h1>
-<p class="page-subhead">A practical, step-by-step guide for merchants who've already decided to leave ${escHtml(info.name)} — what to do, what to expect, and how Liberty Bancard handles the transition for you.</p>
+<div class="page-badge">Agreement review</div>
+<h1>Before You Switch From ${escHtml(name)}: Questions to Answer From Your Agreement</h1>
+<p class="page-subhead">Your agreement and statements state your terms. This page lists what to find in them before you change processors. It does not say what any agreement contains.</p>
 </div>
 </header>
 <main class="page-body">
 
 <section class="content-section">
-<h2>How to Cancel Your ${escHtml(info.name)} Account</h2>
-${howToCancelHtml}
+<h2>Questions to Answer From Your ${escHtml(name)} Agreement</h2>
+${questionsHtml}
 </section>
 
 <section class="content-section">
-<h2>What to Expect During the Transition</h2>
-<p>${escHtml(switchInfo.whatToExpect)}</p>
+<h2>Where to Find the Answers</h2>
+<p>The answers are in your merchant agreement, in any separate equipment or software agreement, and on your recent statements. The provider can confirm what a clause means. ${escHtml(claimText("equipment.agreement.summary"))}</p>
 </section>
 
 <div class="info-box">
-<h3>Timeline</h3>
-<p>${escHtml(switchInfo.timeline)}</p>
+<h3>Timing</h3>
+<p>${escHtml(TIMING_NOTE)}</p>
 </div>
 
 <section class="content-section">
-<h2>How Liberty Bancard Handles the Switch for You</h2>
-<p>${escHtml(switchInfo.libertyHandles)}</p>
-</section>
-
-<section class="content-section">
-<h2>What You Need to Get Started</h2>
-<ul class="reason-list">${whatYouNeedHtml}</ul>
+<h2>What a Statement Review Covers</h2>
+<p>${escHtml(claimText("review.process.summary"))}</p>
+<p>${escHtml(claimText("review.cost.free"))}</p>
+<p>${escHtml(claimText("equipment.options.summary"))}</p>
 </section>
 
 <section class="content-section cta-section">
-<h2>Ready to Start?</h2>
-<p>Upload your ${escHtml(info.name)} statement and we'll review it with you. ${escHtml(TIMING_NOTE)}</p>
-<a href="/upload-statement" class="btn-primary">Upload Your Statement to Start</a>
-<a href="/compare/${escHtml(info.slug)}" class="btn-secondary">See Liberty Bancard vs ${escHtml(info.name)}</a>
+<h2>Start With Your Statement</h2>
+<p>Upload your ${escHtml(name)} statement and we will review it with you. ${escHtml(TIMING_NOTE)}</p>
+<a href="/upload-statement" class="btn-primary">Upload a Statement</a>
+<a href="/compare/${escHtml(info.slug)}" class="btn-secondary">Liberty Bancard vs ${escHtml(name)}</a>
+</section>
+
+<section class="content-section">
+<h2>Still Choosing?</h2>
+<p>If you have not picked a provider yet, the comparison checklist covers cost, pricing model, equipment, funding and support.</p>
+<a href="/alternatives/${escHtml(info.slug)}" class="internal-link">→ What to compare when choosing an alternative to ${escHtml(name)}</a>
 </section>
 
 </main>

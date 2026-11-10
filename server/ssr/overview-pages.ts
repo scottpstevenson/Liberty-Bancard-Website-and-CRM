@@ -1,5 +1,7 @@
-import { OVERVIEW_PAGES, type OverviewItem, type OverviewPage, type OverviewSection } from "@shared/public-overview-pages";
+import { OVERVIEW_PAGES, type OverviewItem, type OverviewMedia, type OverviewPage, type OverviewSection } from "@shared/public-overview-pages";
+import type { PublicImageId } from "../../client/src/lib/public-imagery";
 import { ssrHtmlShell } from "../ssrShared";
+import { pictureHtml } from "./picture";
 
 const esc = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -20,6 +22,13 @@ function stepHtml(item: OverviewItem, index: number): string {
           </li>`;
 }
 
+function mediaHtml(media: OverviewMedia): string {
+  return `        <figure class="ssr-overview-media">
+          <div class="ssr-frame">${pictureHtml({ id: media.imageId as PublicImageId, variant: media.variant, sizes: media.sizes })}</div>
+          <figcaption class="ssr-note">${esc(media.caption)}</figcaption>
+        </figure>`;
+}
+
 function sectionHtml(section: OverviewSection, index: number): string {
   const tone = index % 2 === 0 ? "" : " ssr-section-muted";
   const list =
@@ -30,7 +39,7 @@ function sectionHtml(section: OverviewSection, index: number): string {
     <section class="ssr-section${tone}" id="${section.id}">
       <div class="ssr-section-inner">
         <h2 class="ssr-section-heading ssr-left">${esc(section.heading)}</h2>
-${section.intro ? `        <p class="ssr-section-subheading ssr-left">${esc(section.intro)}</p>\n` : ""}${list}
+${section.intro ? `        <p class="ssr-section-subheading ssr-left">${esc(section.intro)}</p>\n` : ""}${section.media ? `        <div class="ssr-overview-split">\n${list}\n${mediaHtml(section.media)}\n        </div>` : list}
 ${section.footnote ? `        <p class="ssr-section-footnote">${esc(section.footnote)}</p>\n` : ""}      </div>
     </section>`;
 }
