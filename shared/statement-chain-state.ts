@@ -78,6 +78,9 @@ export function analysisStepOutcome(steps: readonly StoredChainStep[] | null | u
   return "queued";
 }
 
+/** What the structured statement analyzer durably recorded for one retained document. */
+export type AnalysisDocumentOutcome = "completed" | "failed" | "none";
+
 export interface AnalysisEvidence {
   dealId: number | null;
   /** The deal's single, last-writer-wins analysis status. It describes this upload only through `ownsDealStatus`. */
@@ -87,8 +90,12 @@ export interface AnalysisEvidence {
   ownStep: AnalysisStepOutcome;
   /** This occurrence's queue attempt is the newest one on its deal that wrote the deal's analysis status. */
   ownsDealStatus: boolean;
-  /** A durable analysis-complete record names this occurrence's own retained document. */
-  analyzedThisDocument: boolean;
+  /**
+   * The newest durable structured-analysis record that names this occurrence's own retained document: `completed` (the analyzer
+   * recorded a result for that document), `failed` (the analyzer recorded a failure for that document) or `none`. The deal's
+   * status can never produce `completed`: it is also set when only the deal blueprint finished.
+   */
+  documentOutcome: AnalysisDocumentOutcome;
   /** The command finished but stored no steps (rows from before steps were recorded), so nothing ties analysis to it. */
   finishedWithoutSteps: boolean;
 }
@@ -98,10 +105,15 @@ export interface AnalysisEvidence {
  * on that deal, so it is read as this occurrence's status only when this occurrence queued the work and no later queue
  * attempt has taken the status over; a held or never-queued upload is never reported through an older upload's result,
  * and a failed enqueue is never reported as queued. With no deal there is nothing to analyse automatically.
+ *
+ * The deal status is set to complete when the deal BLUEPRINT finishes, before the structured statement analysis runs, and a
+ * structured-analysis failure does not revert it. So it can say that work is queued or has failed, but it can never say that
+ * this statement's analysis completed: only a result record naming this occurrence's own document can.
  */
 export function deriveAnalysisState(input: AnalysisEvidence): AnalysisState {
   if (!input.dealId) return "held";
-  if (input.analyzedThisDocument) return "completed";
+  if (input.documentOutcome === "completed") return "completed";
+  if (input.documentOutcome === "failed") return "failed";
   switch (input.ownStep) {
     case "held":
       return "held";
@@ -110,14 +122,12 @@ export function deriveAnalysisState(input: AnalysisEvidence): AnalysisState {
     case "queued": {
       if (!input.ownsDealStatus) return "not_recorded";
       switch (input.analysisStatus) {
-        case "complete":
-        case "completed":
-          return "completed";
         case "pending":
         case "processing":
           return "queued";
         case "failed":
           return "failed";
+        // "complete" is the blueprint's status, not a statement result: no completion is claimed without a document-bound record.
         default:
           return "not_recorded";
       }

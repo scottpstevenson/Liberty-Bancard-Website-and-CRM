@@ -4746,7 +4746,7 @@ export async function runFreeBusinessEnrichmentForBusiness(businessId: number): 
  * Transitions deal analysisStatus: pending → processing → complete/failed.
  * Re-throws on error so BullMQ can retry up to the configured attempt limit.
  */
-async function runStatementBlueprintJob(dealId: number): Promise<void> {
+export async function runStatementBlueprintJob(dealId: number): Promise<void> {
   await storage.updateDeal(dealId, { analysisStatus: "processing" }).catch(() => {});
   try {
     const { generateDealBlueprint } = await import("./deal-blueprint");
@@ -4754,9 +4754,12 @@ async function runStatementBlueprintJob(dealId: number): Promise<void> {
     await storage.updateDeal(dealId, { analysisStatus: "complete" }).catch(() => {});
     console.log(`[Queue:enrichment] Statement blueprint complete for deal #${dealId}`);
 
-    // NEW: structured analyzer runs after blueprint — non-fatal
+    // The deal status above records only that the BLUEPRINT finished. The structured analyzer runs after it and is non-fatal, and
+    // its outcome is recorded per document (result or failure audit rows that name the document), never by reverting that status.
+    let documentIdOf: (error: unknown) => number | null = () => null;
     try {
-      const { analyzeStatement } = await import("./statement-analyzer");
+      const { analyzeStatement, analysisErrorDocumentId } = await import("./statement-analyzer");
+      documentIdOf = analysisErrorDocumentId;
       await analyzeStatement(dealId);
 
       // Advance contact lifecycle to STATEMENT_ANALYZED and trigger NBA recompute
@@ -4769,12 +4772,13 @@ async function runStatementBlueprintJob(dealId: number): Promise<void> {
       }
     } catch (analyzeErr: any) {
       console.error(`[Queue:enrichment] Structured analysis failed for deal #${dealId} (non-fatal):`, analyzeErr.message);
-      storage.createAuditLog({
+      const failedDocumentId = documentIdOf(analyzeErr);
+      await storage.createAuditLog({
         action: "statement_analysis_failed",
         entityType: "deal",
         entityId: dealId,
         actorType: "system",
-        details: { error: analyzeErr.message, timestamp: new Date().toISOString() },
+        details: { error: analyzeErr.message, ...(failedDocumentId !== null ? { documentId: failedDocumentId } : {}), timestamp: new Date().toISOString() },
       }).catch(() => {});
     }
 

@@ -48,6 +48,10 @@ export function HomeCallbackForm() {
         {callbackIntake.state.phase === "saved" && callbackIntake.state.receipt && (
           <IntakeReceipt receipt={callbackIntake.state.receipt} testIdPrefix="callback-home" />
         )}
+        <Button type="button" variant="outline" className="mt-4" data-testid="callback-home-start-another"
+          onClick={() => { setCbName(""); setCbPhone(""); setCbPewcConsent(false); callbackIntake.acknowledgeSaved(); }}>
+          Send another request
+        </Button>
       </div>
     );
   }

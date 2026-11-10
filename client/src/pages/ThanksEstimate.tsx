@@ -7,11 +7,12 @@ import { Link } from "wouter";
 import { Upload, Calendar, AlertTriangle, ArrowRight, CheckCircle, FileText, Phone, TrendingUp, Star, MapPin, Wrench, Stethoscope, Clock } from "lucide-react";
 import { trackCalendarBooking, trackThankYouPageView } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
+import { claimThankYouView } from "@/lib/public-intake";
 import { CALENDAR_URL } from "@/lib/constants";
 import { useEffect } from "react";
 
 export default function ThanksEstimate() {
-  useEffect(() => { trackThankYouPageView("savings_estimate"); }, []);
+  useEffect(() => { if (claimThankYouView("estimate")) trackThankYouPageView("savings_estimate"); }, []);
 
   return (
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">

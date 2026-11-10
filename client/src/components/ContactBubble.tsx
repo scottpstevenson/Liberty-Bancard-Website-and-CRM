@@ -52,6 +52,10 @@ export function ContactBubble() {
                     : "A team member will follow up using the number you gave."}
                 </p>
                 {intake.state.phase === "saved" && intake.state.receipt && <IntakeReceipt receipt={intake.state.receipt} testIdPrefix="callback-bubble" />}
+                <Button type="button" size="sm" variant="outline" className="mt-3" data-testid="callback-bubble-start-another"
+                  onClick={() => { setName(""); setPhone(""); intake.acknowledgeSaved(); }}>
+                  Send another request
+                </Button>
               </div>
             ) : (
               <div className="space-y-3">

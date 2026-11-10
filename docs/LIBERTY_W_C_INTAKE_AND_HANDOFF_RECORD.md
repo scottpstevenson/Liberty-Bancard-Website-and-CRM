@@ -285,12 +285,104 @@ Corrected wording about support notifications: they carry no typed contact or ti
 
 W-C is **not** labelled fully closed. Open items:
 
-1. The five corrections are certified on the disposable stack but unpublished. After the owner's Publish: read `/api/health` and compare the commit with the candidate; `curl` the first HTML of `/get-started?offer=free-terminal` (terminal heading) and `/upload-statement` (both targets and the heading id); open both statement fragments cold and from the other pages in a real browser at 390 and 1440 px; read the new analysis wording for `269B66AF` and the other occurrences through Inbound Operations and the handoff panel; measure control heights on the four forms.
+1. The five corrections were later published as `87159c74cb4ca9bfb6ed88fc263e44fd09600dad` (read from `/api/health` on 2026-11-10, about 03:22 UTC). Read-only `curl` of the first HTML on that date confirmed the terminal heading for `/get-started?offer=free-terminal`, the generic heading for `/get-started`, and `id="upload-form"`, `id="statement-review-form"` and `id="statement-form-heading"` on `/upload-statement`; the real-browser, analysis-wording and control-height read-backs below were not repeated in the section 18 pass. As originally written, after the owner's Publish: read `/api/health` and compare the commit with the candidate; `curl` the first HTML of `/get-started?offer=free-terminal` (terminal heading) and `/upload-statement` (both targets and the heading id); open both statement fragments cold and from the other pages in a real browser at 390 and 1440 px; read the new analysis wording for `269B66AF` and the other occurrences through Inbound Operations and the handoff panel; measure control heights on the four forms.
 2. The audit's browser navigation bounce for the request reference is unreproduced and unexplained.
 3. No production statement row has a deal, so the occurrence-bound wording is not observable on live data.
 4. Not exercised: WebKit and real devices (Chromium only); the upload-hold fault simulates an in-flight transfer by never sending the bytes rather than aborting a real mid-transfer connection; production receipt delivery; native booking.
-5. An earlier-review observation outside WC-PV01 to WC-PV05 remains open: a direct, confirmed JSON-form save clears the stored intent, so a reload shows a blank form and an identical resubmission mints a new key. This pass did not change that behavior.
+5. Superseded by section 18: the confirmed direct-save behavior (reload showing a blank form, an identical resubmission minting a new key) is repaired there, and the remaining WC-PV04 completion fallback is closed there. The statement in 17.2 that the shared deal status counts for the upload that last queued work is also superseded by section 18.
 
 ### 17.7 Rollback
 
 Revert the 15 modified files and remove the two new files (section 17.1) to return to the serving commit's content. No schema, data, setting or dependency is involved. Never delete submissions, tasks, tickets, notifications, receipts or protected objects.
+
+## 18. Second closure correction (2026-11-10): WC-PV04 completion fallback and confirmed-save restoration
+
+Source of the work: `attached_assets/Liberty-W-C-Closure-Verification-2026-11-09_1794278816886.md`. WC-PV01, WC-PV02, WC-PV03 and WC-PV05 are kept as repaired in section 17 and were re-run (nothing in them was edited). Only two items were finished: (A) the remaining WC-PV04 blueprint-versus-statement completion fallback, and (B) the confirmed JSON-intake key and receipt restoration with an explicit new-request choice. #2150 and W-D are separate and untouched.
+
+### 18.1 Identity
+
+| Item | Value |
+| --- | --- |
+| Serving source (read from `/api/health` on 2026-11-10, about 03:22 UTC) | `87159c74cb4ca9bfb6ed88fc263e44fd09600dad`, built 2026-11-10T01:57:58.106Z, publish build `612af1d2-8f51-4dc9-b97e-c3e294d51c2d`. This is the build that carries section 17; it does **not** carry section 18 |
+| Base the work was made on | GitHub `main` / `HEAD` `b5c01724791bd403b8285d6054e13bef73e0233d`, tree `b84351eb32eb911cb7986599c3ce16fe79ba5633` |
+| Candidate | Working tree on top of the base, **not committed by this work** (the platform checkpoint makes the commit when the work closes, and a commit cannot name itself): 18 tracked source and test files modified and 1 new source file (`client/src/components/intake/SavedIntakeConfirmation.tsx`), plus this record, the ledger, spec and roadmap sections and an agent-memory note. No schema, migration, dependency, lockfile, `.replit`, setting or CSRF change |
+| Tested-tree digest | `59791cd576fa5315a3c0d38909b6d2b10903536a6ccdfecc3a1428666dc1a607` = SHA-256 of `git diff HEAD --binary -- client server shared scripts` followed, for each untracked file in those roots in sorted order, by a line `== <path>` and the file's bytes. It replaces the section 17.1 digest (`2cd4d65c...`), which described the earlier candidate. It was recomputed after the last suite run and did not change |
+| Eventual published identity | **Not yet known.** It exists only after the owner's Publish. Then read `/api/health`, record the commit and publish build here, and confirm the commit's tree contains the 19 files above (compare with the digest rule) before calling W-C closed |
+| Tested vs serving | Every suite below ran against the candidate tree after a fresh `npm run build`, not against the serving commit |
+| Production, providers | Read-only. No live submission, provider call, analysis enablement (`statement_auto_analysis_enabled` stays off), send, GHL or booking write, historical recovery, reclassification, schema or dependency change. Tests used disposable databases and Redis, loopback fake transports and denied egress |
+| Whole-project TypeScript check | Not run (standing instruction); language-server diagnostics were read for every changed file and are clean |
+
+### 18.2 Repair A: WC-PV04 blueprint-versus-statement completion fallback
+
+**Defect left after section 17.** The deal's analysis status is set to `complete` when the deal **blueprint** finishes, before the structured statement extraction runs, and an extraction failure does not revert it. Section 17 stopped the status from completing uploads that did not own it, but the upload that last queued work still read "Analysis completed" from it. So a structured-analysis failure after blueprint completion still showed as completed, and a retry, a second upload or an out-of-order completion could not be told apart.
+
+**Rule now.** Blueprint or deal completion never means this statement's analysis completed. Only an analyzer result record that names this upload's document does:
+
+- `statement_analysis_complete` audit rows carry the analysed document id (already true) and mark that upload completed;
+- `statement_analysis_failed` rows now also carry the document id (the analyzer's own failure rows and the worker's catch row; the worker learns the id from the error the analyzer throws, `analysisErrorDocumentId`) and mark that upload failed, even though the deal status stays `complete`;
+- the newest row per deal and document decides, so a retry that succeeds after a failure is completed and a later failure after a success is failed; the order of two uploads' completions on one deal does not matter because each reads only its own document's rows;
+- a failure row with no document (written before documents were named, or a deal-level fault) is not attributable to any upload and is not counted;
+- with no own record, a queued upload reads "Analysis result not recorded for this statement" whoever owns the deal status; held, failed-to-queue and still-pending-or-processing wording is unchanged.
+
+No stored row is rewritten and no historical row is reclassified. Existing completions, which already named their document, keep reading as completed.
+
+Files: `shared/statement-chain-state.ts` (the derivation), `server/services/statement-chain-read-model.ts` (reads document-bound outcomes), `server/services/statement-analyzer.ts` (names the document on failure rows and on the error), `server/services/queue-manager.ts` (the worker records the document on its failure row, awaits that write, and the blueprint job is exported for the cert).
+
+**Observed and intentionally unchanged** (outside the stated scope): `analyzeStatement` returns normally after recording a failure, so the worker still runs its post-analysis step; the analyzer builds its OpenAI client without an explicit base URL; the blueprint generator swallows errors and the worker still marks the deal `complete`. None of these can now make a statement read completed, because only a document-bound result record does.
+
+**Proof.** The API cert section "WC-PV04 worker-bound analysis" runs the real worker job (`runStatementBlueprintJob`) against the disposable database with a fake OpenAI endpoint on loopback that answers failure and success on demand. It covers: structured-analysis failure after blueprint completion in four ways (provider error, unparseable output, empty output, schema failure) with the deal left `complete` and the failure row naming the document, a blueprint that produced nothing, a thrown analyzer fault recorded once by the worker with its document, the newest outcome per document deciding (failed, completed after a retry, failed again), and two uploads on one deal where the older upload's job finishes late. A failure row with no document id is not attributed to any upload by the read-model query (it selects the document id from the row's details and ignores rows without one); that rule is read from source and has no dedicated certified case. The pure-derivation section covers each state. The browser suite word-checks both staff views for six cases: held, failed to queue, queued on a blueprint-complete deal with no record ("not recorded"), no recorded steps, queued with a result record for the document ("Analysis completed"), and a later document-bound failure ("Analysis failed").
+
+### 18.3 Repair B: confirmed JSON-intake restoration and explicit new request
+
+**Defect.** After a confirmed direct save, `submitPublicIntake()` cleared the stored intent. A reload showed a blank form with no reference, and an identical resubmission minted a new idempotency key and a duplicate occurrence.
+
+**Behavior now.** A confirmed save is retained in the tab's session storage as identity and state only: key, request fingerprint (a hash), receipt, whether the server reported it pending review, and two once-per-receipt claims (`tracked`, `thankYouTracked`). It never holds a name, email, phone, note, business name or file bytes. A reload, Back or Forward restores the original reference and the truthful pending-review wording (no response-time promise) instead of an empty form, and sends nothing. The same details replay under the same key. A failed replay of a saved request stays confirmed; a lost answer on a replay keeps the same key. Only the visitor's explicit **Send another** (`clearIntent`) starts a new request, and then the same details create exactly one new occurrence under a new key and a new reference. Unconfirmed states keep section 17's rules: the key is never rotated after an ambiguous answer, and changed details wait for an explicit new request.
+
+**Conversions.** Conversion events fire once per receipt: the submit path marks the receipt claimed and returns `fresh`, and callers record the conversion only when it is fresh; the support and estimate thank-you pages claim their page view once per saved receipt (`claimThankYouView`). A restore, a replay and a reload record nothing again. A request confirmed only through the status read still records no conversion (unchanged). With storage unavailable or no retained save, a thank-you page counts as it did before.
+
+**Callers.** One shared confirmation component (`SavedIntakeConfirmation`, no heading element, 8-character reference) serves Estimate, Get Started, Support and the callback widgets; the general and equipment inquiry forms use their existing confirmations with the same restore and start-another behavior; the home callback form restores its full receipt. Closing the floating callback bubble counts as acknowledging and clears its saved request. The help-center callback panel gets the same behavior. `MerchantApplication.tsx` is untouched.
+
+Files: `client/src/lib/public-intake.ts`, `client/src/hooks/use-public-intake.ts`, `client/src/components/intake/SavedIntakeConfirmation.tsx` (new), `GeneralInquiryForm.tsx`, `TerminalInquiryForm.tsx`, `client/src/pages/Support.tsx`, `Estimate.tsx`, `GetStarted.tsx`, `ThanksSupport.tsx`, `ThanksEstimate.tsx`, `client/src/components/home/HomeCallbackForm.tsx`, `ContactBubble.tsx`, `HelpCenter.tsx`.
+
+### 18.4 Isolated coverage added
+
+- **API/handler cert, section "WC-RESTORE confirmed-save restoration".** Imports the real client library under Node with an in-memory session store, a cookie shim and a wrapped `fetch` that records every POST path and idempotency key (and a mode that performs the real request, then throws, to model a lost answer), against the real handlers. For each of equipment inquiry, general inquiry, support, home callback, bubble callback and help-panel callback (each as a separate caller address, because the public lead limiter allows ten submissions per address): the first save is fresh and retained with key, receipt, claim and review state; the stored record holds identity and state only; an identical replay returns the same key and receipt, is not fresh and leaves one occurrence; a lost answer on replay stays saved and claimed; the status read keeps the same identity; clearing and resubmitting the same details gives exactly one new occurrence, a new key, a new receipt and a fresh conversion; a lost answer on that new request finishes under the same key with one fresh conversion and none afterwards. The support thank-you claim is checked once per receipt.
+- **Browser suite (Chromium, production build), step group "Confirmed save".** A recorder replaces `window.gtag` before the app loads (no analytics provider is contacted) and counts every public POST the tab sends. Real flows: general inquiry, equipment inquiry, support (including its `/thanks-support` page) and the home callback each save, reload, navigate away and use Back, Forward and Back again, then press Send another and send the same details. Asserted from outside the page code: the shown reference equals the stored occurrence's reference, the POST and conversion counts, the stored key, one notification per occurrence, stored tickets, and that the browser's stored record has no personal details. Estimate and Get Started restore a placed confirmed save with its reference and pending-review wording, send nothing, and leave only through Send another (the seeded record is a stand-in for a save made earlier in the tab; those two forms' own submission paths share the library flow proved by the API cert).
+- Because the production-mode browser reaches the app from one loopback address and the lead limiter allows ten submissions per address, the suite's fixture app takes a named caller address per step (a test-fixture middleware only; no product behavior changes).
+
+### 18.5 Failing-before and passing-after
+
+Failing before: the repaired client and server sources were replaced by the base versions (`git show HEAD:<path>`; the repaired files were saved to a tarball and restored with their checksums verified), rebuilt, and the **same new tests** were run.
+
+| Run | Before (base sources) | After (candidate) |
+| --- | --- | --- |
+| API cert, confirmed save | failed at its first check for the first form: the confirmed save is not reported as fresh and retained (the section stops at its first failed check) | 415 checks passed |
+| API cert, WC-PV04 worker-bound analysis | earlier run with the base analysis files restored: three failed sections (a negative control run before the client work; the failing section names were not retained in this record) | passes (included in the 415) |
+| Browser suite | six failed steps: general inquiry, equipment inquiry, support and home callback (the confirmed save was not retained: no stored key to read after the save), the Estimate / Get Started restore (the saved view was not restored), and the analysis wording (a queued upload on a blueprint-complete deal read "Analysis completed") | 440 checks passed |
+
+### 18.6 Final candidate results
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Production build | `npm run build` | succeeds (fresh, after the last source and script edit) |
+| W-C API/handler cert | `npx tsx scripts/run-sfp2060-predeploy-disposable.ts --only scripts/certification/test-public-wc-intake.ts` | **PASS, 415 checks** |
+| W-C browser acceptance (Chromium) | `NODE_ENV=production ... --only scripts/certification/test-public-wc-intake-browser.ts` | **PASS, 440 checks** |
+| Website intake handoff cert / browser | `... --only scripts/certification/test-website-intake-handoff.ts` and `...-browser.ts` | PASS, 116 / 140 checks |
+| Public claims contract | `npx tsx scripts/test-public-claims-contract.ts` | PASS, 960 assertions, 93 negative controls |
+| Shell, CRO-05A static, route validation, role guards | `test-public-shell-contract`, `test-cro05a-static`, `test-public-route-validation`, role-guard smoke through the disposable runner | PASS: 113 assertions and 21 negative controls, 21 checks, 13 checks, 1/1 |
+| Suite manifest | `npx tsx scripts/ci-suite-manifest.ts --check` | valid, 261 mandatory suites classified (no new suite file: the cases extend the two existing W-C suites) |
+| API coverage | `npx tsx scripts/check-api-coverage.ts` | 882 client endpoints against 1,807 handlers, no new gap |
+| SEO audit | `npx tsx scripts/seo-audit.ts` | PASSED |
+| Diff hygiene | `git diff --check`; `.replit`, `package.json`, `package-lock.json` | clean; unchanged |
+
+### 18.7 Evidence limits and status
+
+- W-C is **not** labelled fully closed. Closure needs the owner's Publish of this candidate and a read-back: `/api/health` commit and publish build recorded in 18.1; first HTML and the `/upload-statement`, `/get-started?offer=free-terminal` read-backs from section 17.6; and the staff wording for `269B66AF` and the other occurrences through Inbound Operations and the handoff panel. The restore behavior needs a real submission to observe live, which this pass is not authorized to make, so it stays proved on the disposable stack only until the owner chooses to submit one. No production statement row has a deal, so the deal-bound analysis wording is observable only on the disposable stack.
+- Not exercised: WebKit and real devices (Chromium only); the lost answer is simulated in the page by performing the real request and then failing the response, not by cutting a real connection; production receipt delivery; native booking. Real analysis with a live provider was not run and cannot be (no provider call, no enablement).
+- Not browser-tested: the help-center callback panel (signed-in dashboard only) and the floating callback bubble (the component exists but is not mounted on any page); both are covered through their own storage slots in the API cert and by source.
+- A request confirmed only through the status read records no conversion (unchanged); the retry path records exactly one.
+- The earlier unresolved observation (the audit's browser bounce to the login page for a request reference) and #2150 / W-D items are unchanged and separate.
+
+### 18.8 Rollback
+
+Revert the 18 modified files and remove `client/src/components/intake/SavedIntakeConfirmation.tsx` to return to `b5c01724` content. No schema, data, setting or dependency is involved. Rows written by the analyzer with a document id on failure records stay readable by the older build (extra detail key). Never delete submissions, tasks, tickets, notifications, receipts or protected objects.

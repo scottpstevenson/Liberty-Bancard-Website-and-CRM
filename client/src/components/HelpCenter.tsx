@@ -192,6 +192,10 @@ function CallbackPanel() {
             : "A team member will follow up using the number you gave."}
         </p>
         {intake.state.phase === "saved" && intake.state.receipt && <IntakeReceipt receipt={intake.state.receipt} testIdPrefix="callback-help" />}
+        <Button type="button" size="sm" variant="outline" className="mt-3" data-testid="callback-help-start-another"
+          onClick={() => { setName(""); setPhone(""); intake.acknowledgeSaved(); }}>
+          Send another request
+        </Button>
       </div>
     );
   }

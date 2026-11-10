@@ -76,10 +76,12 @@ export function TerminalInquiryForm({ offer }: { offer: "free-terminal" | null }
     const outcome = await intake.submit(buildPayload());
     if (outcome.kind === "saved") {
       setRecap({ volumeBand, currentlyLeasing, businessType });
-      // Conversion fires only after a confirmed save, never for a pending, unreadable or failed response.
-      trackFormSubmission("terminal_inquiry_submission");
-      trackConversion("terminal_inquiry_submission");
-      trackConversionV2("terminal_inquiry_submission");
+      // Conversion fires only after a confirmed save, never for a pending, unreadable or failed response, and once per saved request.
+      if (outcome.fresh !== false) {
+        trackFormSubmission("terminal_inquiry_submission");
+        trackConversion("terminal_inquiry_submission");
+        trackConversionV2("terminal_inquiry_submission");
+      }
     } else if (outcome.kind === "rejected") {
       if (outcome.fieldErrors) {
         setErrors(outcome.fieldErrors);

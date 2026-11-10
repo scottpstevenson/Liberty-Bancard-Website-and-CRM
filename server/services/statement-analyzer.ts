@@ -153,7 +153,11 @@ Return only valid JSON with no markdown, no explanation.`;
   }
 }
 
-async function markFailed(dealId: number, reason: string): Promise<void> {
+/**
+ * Records a failed structured analysis. When the failure belongs to one retained document the record names it, because that is
+ * the only thing that ties a failure to a statement upload (the deal's analysis status is shared and is set by the blueprint).
+ */
+async function markFailed(dealId: number, reason: string, documentId?: number): Promise<void> {
   // Concurrency-safe upsert: unique partial index on deal_id WHERE deal_id IS NOT NULL.
   // If the upload chain already created a draft row, flip it to failed; otherwise create it.
   await db.execute(sql`
@@ -173,8 +177,17 @@ async function markFailed(dealId: number, reason: string): Promise<void> {
     entityType: "deal",
     entityId: dealId,
     actorType: "system",
-    details: { reason, timestamp: new Date().toISOString() },
+    details: { reason, ...(typeof documentId === "number" ? { documentId } : {}), timestamp: new Date().toISOString() },
   }).catch(() => {});
+}
+
+/** Property carried on an error thrown while analysing one retained document, so the worker can record which one. */
+export const STATEMENT_ANALYSIS_DOCUMENT_ID = "statementDocumentId";
+
+/** The retained document an analysis error was thrown for, or null when it is not attributable to one. */
+export function analysisErrorDocumentId(error: unknown): number | null {
+  const value = error && typeof error === "object" ? (error as Record<string, unknown>)[STATEMENT_ANALYSIS_DOCUMENT_ID] : undefined;
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
 }
 
 export async function analyzeStatementBuffer(
@@ -309,6 +322,17 @@ export async function analyzeStatement(dealId: number): Promise<void> {
   const selectedDoc = statementDocs[0];
   console.log(`[StatementAnalyzer] Selected documentId=${selectedDoc.id} fileName=${selectedDoc.fileName} for deal #${dealId}`);
 
+  try {
+    await analyzeSelectedDocument(dealId, selectedDoc);
+  } catch (error) {
+    // Name the document on the error so the worker's failure record is bound to it, then let the worker handle it as before.
+    const tagged = error instanceof Error ? error : new Error(String(error));
+    (tagged as unknown as Record<string, unknown>)[STATEMENT_ANALYSIS_DOCUMENT_ID] = selectedDoc.id;
+    throw tagged;
+  }
+}
+
+async function analyzeSelectedDocument(dealId: number, selectedDoc: typeof documents.$inferSelect): Promise<void> {
   const statementText = await extractTextFromProtectedObject(
     selectedDoc.storageKey,
     selectedDoc.fileName,
@@ -317,7 +341,7 @@ export async function analyzeStatement(dealId: number): Promise<void> {
 
   if (!statementText) {
     console.warn(`[StatementAnalyzer] Could not extract text from document #${selectedDoc.id} for deal #${dealId}`);
-    await markFailed(dealId, `Could not extract readable text from document #${selectedDoc.id} (${selectedDoc.fileName}).`);
+    await markFailed(dealId, `Could not extract readable text from document #${selectedDoc.id} (${selectedDoc.fileName}).`, selectedDoc.id);
     return;
   }
 
@@ -326,13 +350,13 @@ export async function analyzeStatement(dealId: number): Promise<void> {
     rawExtraction = await callOpenAIExtraction(statementText);
   } catch (aiErr: any) {
     console.error(`[StatementAnalyzer] OpenAI call threw for deal #${dealId}:`, aiErr.message);
-    await markFailed(dealId, `AI extraction error: ${aiErr.message}`);
+    await markFailed(dealId, `AI extraction error: ${aiErr.message}`, selectedDoc.id);
     return;
   }
 
   if (!rawExtraction) {
     console.warn(`[StatementAnalyzer] OpenAI returned null or unparseable output for deal #${dealId}`);
-    await markFailed(dealId, "AI extraction returned no usable output — rep review required.");
+    await markFailed(dealId, "AI extraction returned no usable output — rep review required.", selectedDoc.id);
     return;
   }
 
@@ -343,6 +367,7 @@ export async function analyzeStatement(dealId: number): Promise<void> {
     await markFailed(
       dealId,
       `AI extraction failed schema validation: ${parseResult.error.issues.map(i => i.message).join("; ")}`,
+      selectedDoc.id,
     );
     return;
   }

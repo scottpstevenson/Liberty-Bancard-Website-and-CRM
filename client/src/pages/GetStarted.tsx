@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { PewcCheckbox } from "@/components/PewcCheckbox";
 import { EmailMarketingCheckbox, emailConsentNotice, emailConsentPayload } from "@/components/EmailMarketingCheckbox";
 import { usePublicIntake } from "@/hooks/use-public-intake";
+import { SavedIntakeConfirmation } from "@/components/intake/SavedIntakeConfirmation";
 import { PublicIntakeNotice } from "@/components/PublicIntakeNotice";
 import { getStoredUTMParams } from "@/lib/utm";
 import { useToast } from "@/hooks/use-toast";
@@ -243,12 +244,15 @@ function GetStartedQuiz() {
     // response keeps the same intent/key and shows the truthful pending notice instead.
     const outcome = await intake.submit(buildPayload());
     if (outcome.kind === "saved") {
-      const consentNotice = emailConsentNotice(outcome.emailConsent, emailMarketing);
-      if (consentNotice) toast({ title: "Request saved", description: consentNotice });
-      trackQuizComplete();
-      trackFormSubmission("get_started_submission");
-      trackConversion("get_started_submission");
-      trackConversionV2("get_started_submission");
+      // Recorded once per saved request: a replay of the same confirmed request is not a second conversion.
+      if (outcome.fresh !== false) {
+        const consentNotice = emailConsentNotice(outcome.emailConsent, emailMarketing);
+        if (consentNotice) toast({ title: "Request saved", description: consentNotice });
+        trackQuizComplete();
+        trackFormSubmission("get_started_submission");
+        trackConversion("get_started_submission");
+        trackConversionV2("get_started_submission");
+      }
       setSubmitted(true);
     } else if (outcome.kind === "rejected") {
       setSubmitError(outcome.message);
@@ -418,6 +422,21 @@ function GetStartedQuiz() {
         {/* scroll-mt-20 offsets the fixed navbar height so the quiz isn't obscured on fragment scroll */}
         <section className="bg-muted/30 py-10 scroll-mt-20" id="quiz-section" data-testid="section-get-started">
           <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
+            {intake.state.phase === "saved" ? (
+              // A reload, Back or Forward after a confirmed save: show the original reference, not an empty quiz that would send the same inquiry again.
+              <Card data-testid="card-get-started-saved">
+                <CardContent className="p-6 sm:p-8">
+                  <SavedIntakeConfirmation
+                    receipt={intake.state.receipt}
+                    pendingReview={intake.state.pendingReview}
+                    testIdPrefix="get-started"
+                    startLabel="Send another request"
+                    onStartNew={() => { setSubmitError(null); intake.acknowledgeSaved(); }}
+                  />
+                </CardContent>
+              </Card>
+            ) : (
+            <>
             <div className="flex items-center gap-1 mb-2" data-testid="progress-indicator">
               {Array.from({ length: TOTAL_STEPS }, (_, i) => (
                 <div
@@ -764,6 +783,8 @@ function GetStartedQuiz() {
                 </div>
               </CardContent>
             </Card>
+            </>
+            )}
 
             <p className="text-xs text-muted-foreground text-center mt-6" data-testid="text-quiz-disclaimer">
               Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.

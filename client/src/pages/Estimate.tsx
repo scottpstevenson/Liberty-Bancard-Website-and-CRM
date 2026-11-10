@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { usePublicIntake } from "@/hooks/use-public-intake";
+import { SavedIntakeConfirmation } from "@/components/intake/SavedIntakeConfirmation";
 import { PublicIntakeNotice } from "@/components/PublicIntakeNotice";
 import { useState } from "react";
 import { Loader2, Upload, ArrowRight, Calculator, TrendingDown, AlertCircle } from "lucide-react";
@@ -113,11 +114,14 @@ export default function Estimate() {
     // response keeps the same intent/key and shows the truthful pending notice instead.
     const outcome = await intake.submit(buildPayload(data));
     if (outcome.kind === "saved") {
-      const consentNotice = emailConsentNotice(outcome.emailConsent, data.emailMarketing === true);
-      if (consentNotice) toast({ title: "Request saved", description: consentNotice });
-      trackEstimateRequest();
-      trackFormSubmission("estimate_request");
-      trackConversionV2("estimate_request");
+      // Recorded once per saved request: a replay of the same confirmed request is not a second conversion.
+      if (outcome.fresh !== false) {
+        const consentNotice = emailConsentNotice(outcome.emailConsent, data.emailMarketing === true);
+        if (consentNotice) toast({ title: "Request saved", description: consentNotice });
+        trackEstimateRequest();
+        trackFormSubmission("estimate_request");
+        trackConversionV2("estimate_request");
+      }
       setLocation("/thanks-estimate");
     } else if (outcome.kind === "rejected") {
       setSubmitError(outcome.message);
@@ -168,6 +172,15 @@ export default function Estimate() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
+                {intake.state.phase === "saved" ? (
+                  <SavedIntakeConfirmation
+                    receipt={intake.state.receipt}
+                    pendingReview={intake.state.pendingReview}
+                    testIdPrefix="estimate"
+                    startLabel="Request another estimate"
+                    onStartNew={() => { form.reset(); setSubmitError(null); intake.acknowledgeSaved(); }}
+                  />
+                ) : (
                 <Form {...form}>
                   <form
                     onSubmit={form.handleSubmit(onSubmit)}
@@ -401,6 +414,7 @@ export default function Estimate() {
                     </Button>
                   </form>
                 </Form>
+                )}
               </CardContent>
             </Card>
           </div>

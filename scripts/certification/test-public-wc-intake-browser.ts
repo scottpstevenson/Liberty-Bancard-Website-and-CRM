@@ -25,7 +25,11 @@ const clientRoot = path.resolve("dist/public");
 await mkdir(dir, { recursive: true });
 
 process.env.APP_URL = "https://libertybancard.com";
+// The public lead limiter allows 10 submissions per caller address and this fixture's browser always arrives from loopback. The confirmed-save
+// steps run as separate visitors by naming a caller address here (null = the real socket address, as in every other step). Test fixture only.
+let callerAddress: string | null = null;
 const h = await stage3BHttpFixture(async (app) => {
+  app.use((req, _res, next) => { if (callerAddress) Object.defineProperty(req, "ip", { value: callerAddress, configurable: true }); next(); });
   (await import("../../server/routes/public")).registerPublicRoutes(app);
   (await import("../../server/routes/lead-ops")).registerLeadOpsRoutes(app);
   (await import("../../server/routes/boarding")).registerBoardingRoutes(app);
@@ -66,11 +70,16 @@ const tid = (id: string) => `[data-testid="${id}"]`;
 const FAULT_SCRIPT = `(() => {
   const realFetch = window.fetch.bind(window);
   const fault = () => sessionStorage.getItem('__wc_fault') || '';
+  // Evidence counters kept in the tab's session so they survive reloads: every public POST the page sends, and every conversion event it
+  // hands to gtag (a no-op recorder, so no analytics provider is ever contacted).
+  const bump = (name, value) => { try { const list = JSON.parse(sessionStorage.getItem(name) || '[]'); list.push(value); sessionStorage.setItem(name, JSON.stringify(list)); } catch (e) { /* storage unavailable */ } };
+  window.gtag = function () { const a = arguments; const p = a[2] || {}; bump('__wc_events', [String(a[0]), String(a[1]), String(p.form_name || p.event_label || '')]); };
   window.fetch = async (input, init) => {
     const mode = fault();
     const raw = typeof input === 'string' ? input : input.url;
     const pathname = new URL(raw, location.href).pathname;
     const method = String((init && init.method) || (typeof input !== 'string' && input.method) || 'GET').toUpperCase();
+    if (method === 'POST' && /\\/api\\/public\\//.test(pathname)) bump('__wc_posts', pathname);
     if (mode && method === 'POST' && /\\/api\\/public\\/(get-started|support)$/.test(pathname)) {
       if (mode === 'lose-post') { await realFetch(input, init); throw new TypeError('Failed to fetch'); }
       if (mode === 'mangle-post') {
@@ -512,6 +521,250 @@ try {
     await noPageOverflow("Support confirmation 390px");
   });
 
+  // ═══ WC-RESTORE: a confirmed direct save survives reload, Back and Forward; only an explicit choice starts a new request ═══
+  // Evidence is read from outside the page code: the database (occurrences), the tab's own record of every public POST it sent, and the
+  // conversion events handed to gtag (a no-op recorder installed before the app loads, so no analytics provider is contacted).
+  const wcPosts = async () => ((await b!.evaluate(`JSON.parse(sessionStorage.getItem('__wc_posts')||'[]')`)) as string[]).filter((p) => /\/api\/public\/(get-started|support|callback)$/.test(p)).length;
+  const wcLeads = async (formName: string) => ((await b!.evaluate(`JSON.parse(sessionStorage.getItem('__wc_events')||'[]')`)) as string[][]).filter((e) => e[1] === "generate_lead" && e[2] === formName).length;
+  const resetCounters = () => b!.evaluate(`sessionStorage.removeItem('__wc_posts');sessionStorage.removeItem('__wc_events')`);
+  const rawStored = (form: string) => b!.evaluate(`sessionStorage.getItem('lb:public-intake:${form}')||''`) as Promise<string>;
+  type Retained = { key: string; receipt: string | null; state: string; pendingReview?: boolean; tracked?: boolean; thankYouTracked?: boolean };
+  const retained = (form: string) => storedIntent(form) as Promise<Retained | null>;
+  const asVisitor = (n: number | null) => { callerAddress = n === null ? null : `203.0.113.${n}`; };
+  const onlyIdentity = (raw: string, secrets: string[]) => {
+    const keys = Object.keys(JSON.parse(raw));
+    return keys.every((k) => ["key", "fingerprint", "receipt", "state", "pendingReview", "tracked", "thankYouTracked"].includes(k)) && secrets.every((v) => !raw.includes(v));
+  };
+
+  await step("Confirmed save: general inquiry", async () => {
+    asVisitor(11);
+    try {
+      await view(1280);
+      const email = `wcb-${tag}-restore-general@example.com`;
+      const business = `Restore General Cafe ${tag}`;
+      const note = `Restore note ${tag}`;
+      const fill = async () => {
+        await b!.set("#inquiry-businessName", business);
+        await b!.set("#inquiry-name", "Rae Restore");
+        await b!.set("#inquiry-email", email);
+        await pick("inquiry-select-intent", "equipment");
+        await b!.set(tid("inquiry-input-note"), note);
+        await scrollTo(tid("button-inquiry-submit"));
+        await b!.click(tid("button-inquiry-submit"));
+        await until(async () => await present(tid("inquiry-success")), "general inquiry accepted", 120);
+      };
+      const shown = async () => (await text(tid("inquiry-success-reference"))).match(/[0-9A-F]{8}/)?.[0] ?? "";
+      await freshForm("/about-contact", "form-general-inquiry");
+      await resetCounters();
+      await fill();
+      const first = (await requestsFor(email))[0];
+      const ref1 = await shown();
+      const key1 = (await retained("general_inquiry"))!.key;
+      check(ref1 === shortRef(first.id) && await wcPosts() === 1 && await wcLeads("general_inquiry_submission") === 1, "General inquiry: one POST, one stored occurrence and one conversion event for the first confirmed save");
+      const kept = await retained("general_inquiry");
+      check(kept?.state === "saved" && kept.receipt === first.id && kept.tracked === true && typeof kept.pendingReview === "boolean", "General inquiry: the confirmed save is retained in the tab (state saved, original receipt, review state, conversion claimed)");
+      check(onlyIdentity(await rawStored("general_inquiry"), [email, business, "Rae Restore", note]), "General inquiry: the retained record holds identity and state only (no name, email, business or note)");
+
+      await reloadPage();
+      await until(async () => await present(tid("inquiry-success")), "saved general inquiry restored after reload");
+      check(await shown() === ref1 && !(await present(tid("button-inquiry-submit"))), "General inquiry: after a reload the ORIGINAL reference is shown and the form is not");
+      check(await wcPosts() === 1 && await wcLeads("general_inquiry_submission") === 1 && (await requestsFor(email)).length === 1 && (await retained("general_inquiry"))?.key === key1, "General inquiry: the reload sent no new POST, minted no new key, recorded no second conversion and created no second occurrence");
+
+      await b!.navigate("/support");
+      await until(async () => await present(tid("form-support")), "support page");
+      await b!.evaluate("history.back()");
+      await until(async () => await present(tid("inquiry-success")), "Back restores the saved general inquiry");
+      check(await shown() === ref1, "General inquiry: Back shows the original reference");
+      await b!.evaluate("history.forward()");
+      await until(async () => await present(tid("form-support")), "Forward to support");
+      await b!.evaluate("history.back()");
+      await until(async () => await present(tid("inquiry-success")), "Back again restores the saved general inquiry");
+      check(await shown() === ref1 && await wcPosts() === 1 && await wcLeads("general_inquiry_submission") === 1 && (await requestsFor(email)).length === 1 && (await retained("general_inquiry"))?.key === key1,
+        "General inquiry: Back, Forward and Back again keep the same reference, key and single occurrence, with no new POST or conversion");
+
+      // The deliberate choice: the same details become exactly one NEW request.
+      await b!.click(tid("inquiry-start-another"));
+      await until(async () => await present(tid("form-general-inquiry")), "empty form after Send another");
+      check(await retained("general_inquiry") === null && (await requestsFor(email)).length === 1, "General inquiry: 'Send another' shows an empty form, clears the retained save and sends nothing by itself");
+      await fill();
+      const rows = await requestsFor(email);
+      const second = rows[1];
+      const key2 = (await retained("general_inquiry"))?.key;
+      check(rows.length === 2 && second && second.id !== first.id && await shown() === shortRef(second.id) && key2 !== key1 && await wcPosts() === 2 && await wcLeads("general_inquiry_submission") === 2,
+        "General inquiry: a deliberate new request is exactly one new occurrence under a new key with a new reference, one more POST and one more conversion");
+      check(await count(`SELECT count(*) n FROM notifications WHERE inbound_request_id IN ($1,$2)`, [first.id, second.id]) === 2, "General inquiry: each of the two occurrences has exactly one internal notification");
+    } finally { asVisitor(null); }
+  });
+
+  await step("Confirmed save: equipment inquiry", async () => {
+    asVisitor(12);
+    try {
+      await view(1280);
+      const email = `wcb-${tag}-restore-terminal@example.com`;
+      const business = `Restore Terminal Cafe ${tag}`;
+      const fill = async () => {
+        await b!.set("#terminal-businessName", business);
+        await b!.set("#terminal-name", "Tess Restore");
+        await b!.set("#terminal-email", email);
+        await pick("terminal-select-businessType", "Restaurant");
+        await pick("terminal-select-volumeBand", "5000_24999");
+        await pick("terminal-select-currentlyLeasing", "no");
+        await scrollTo(tid("button-terminal-submit"));
+        await b!.click(tid("button-terminal-submit"));
+        await until(async () => await present(tid("terminal-success")), "terminal inquiry accepted", 120);
+      };
+      const shown = async () => (await text(tid("terminal-success-reference"))).match(/[0-9A-F]{8}/)?.[0] ?? "";
+      await freshForm("/get-started?offer=free-terminal", "form-terminal-inquiry");
+      await resetCounters();
+      await fill();
+      const first = (await requestsFor(email))[0];
+      const ref1 = await shown();
+      const key1 = (await retained("equipment_inquiry"))!.key;
+      check(ref1 === shortRef(first.id) && await wcPosts() === 1 && await wcLeads("terminal_inquiry_submission") === 1, "Equipment inquiry: one POST, one stored occurrence and one conversion event for the first confirmed save");
+      check((await retained("equipment_inquiry"))?.state === "saved" && onlyIdentity(await rawStored("equipment_inquiry"), [email, business, "Tess Restore"]), "Equipment inquiry: the confirmed save is retained as identity and state only");
+      await reloadPage();
+      await until(async () => await present(tid("terminal-success")), "saved equipment inquiry restored after reload");
+      check(await shown() === ref1 && await wcPosts() === 1 && await wcLeads("terminal_inquiry_submission") === 1 && (await requestsFor(email)).length === 1 && (await retained("equipment_inquiry"))?.key === key1,
+        "Equipment inquiry: after a reload the original reference is shown with no new POST, key, conversion or occurrence");
+      await b!.navigate("/about-contact");
+      await until(async () => await present(tid("form-general-inquiry")), "general page");
+      await b!.evaluate("history.back()");
+      await until(async () => await present(tid("terminal-success")), "Back restores the saved equipment inquiry");
+      check(await shown() === ref1 && await wcPosts() === 1 && (await requestsFor(email)).length === 1, "Equipment inquiry: Back shows the original reference and adds nothing");
+      await b!.click(tid("terminal-start-another"));
+      await until(async () => await present(tid("form-terminal-inquiry")), "empty equipment form");
+      await fill();
+      const rows = await requestsFor(email);
+      check(rows.length === 2 && rows[1].id !== first.id && await shown() === shortRef(rows[1].id) && (await retained("equipment_inquiry"))?.key !== key1 && await wcPosts() === 2 && await wcLeads("terminal_inquiry_submission") === 2,
+        "Equipment inquiry: a deliberate new request is exactly one new occurrence under a new key, with one more POST and one more conversion");
+    } finally { asVisitor(null); }
+  });
+
+  await step("Confirmed save: support request", async () => {
+    asVisitor(13);
+    try {
+      await view(1280);
+      const email = `wcb-${tag}-restore-support@example.com`;
+      const message = `Restore support message ${tag}`;
+      const fill = async () => {
+        await b!.set(tid("input-name"), "Sue Restore");
+        await b!.set(tid("input-business-name"), `Restore Support Cafe ${tag}`);
+        await b!.set(tid("input-email"), email);
+        await scrollTo(tid("select-issue-type"));
+        await b!.click(tid("select-issue-type"));
+        await until(async () => await present(tid("select-item-other")), "issue types");
+        await b!.click(tid("select-item-other"));
+        await b!.set(tid("textarea-message"), message);
+        await scrollTo(tid("button-support-submit"));
+        await b!.click(tid("button-support-submit"));
+        await until(async () => (await b!.evaluate("location.pathname")) === "/thanks-support", "support confirmation page", 120);
+        await until(async () => await present(tid("text-thanks-support-reference")), "reference on the confirmation page");
+      };
+      const thanksRef = async () => (await text(tid("text-thanks-support-reference"))).match(/[0-9A-F]{8}/)?.[0] ?? "";
+      const supportRequests = async () => (await h.pool.query(`SELECT r.id FROM inbound_requests r JOIN contacts c ON c.id=r.contact_id WHERE lower(c.email)=lower($1) AND r.source_type='support_form' ORDER BY r.created_at`, [email])).rows as Array<{ id: string }>;
+      await freshForm("/support", "form-support");
+      await resetCounters();
+      await fill();
+      const first = (await supportRequests())[0];
+      const ref1 = await thanksRef();
+      const contact = await contactByEmail(email);
+      const key1 = (await retained("support"))!.key;
+      check(ref1 === shortRef(first.id) && await wcPosts() === 1 && await wcLeads("support_request") === 1 && await count(`SELECT count(*) n FROM tickets WHERE contact_id=$1`, [contact.id]) === 1,
+        "Support: one POST, one occurrence, one ticket and one conversion event for the first confirmed save");
+      const kept = await retained("support");
+      check(kept?.state === "saved" && kept.receipt === first.id && kept.tracked === true && kept.thankYouTracked === true && onlyIdentity(await rawStored("support"), [email, message, "Sue Restore"]),
+        "Support: the retained save records that the confirmation view was counted, and holds identity and state only");
+
+      await reloadPage();
+      await until(async () => await present(tid("text-thanks-support-reference")), "confirmation page after reload");
+      check(await thanksRef() === ref1 && await wcPosts() === 1 && await wcLeads("support_request") === 1 && (await supportRequests()).length === 1 && (await retained("support"))?.key === key1,
+        "Support: reloading the confirmation page shows the same reference with no new POST, key, conversion or occurrence");
+      await b!.evaluate("history.back()");
+      await until(async () => await present(tid("support-saved")), "Back restores the saved support request", 120);
+      check((await text(tid("support-saved-reference"))).includes(ref1) && !(await present(tid("form-support"))) && await wcPosts() === 1 && (await supportRequests()).length === 1,
+        "Support: Back to the form shows the saved request and its original reference instead of an empty form");
+      await b!.evaluate("history.forward()");
+      await until(async () => (await b!.evaluate("location.pathname")) === "/thanks-support" && await present(tid("text-thanks-support-reference")), "Forward to the confirmation page");
+      check(await thanksRef() === ref1 && await wcPosts() === 1 && await wcLeads("support_request") === 1, "Support: Forward shows the same confirmation and adds no conversion");
+      await b!.evaluate("history.back()");
+      await until(async () => await present(tid("support-saved")), "Back again restores the saved support request", 120);
+      await b!.click(tid("support-start-another"));
+      await until(async () => await present(tid("form-support")), "empty support form");
+      check(await retained("support") === null && (await supportRequests()).length === 1, "Support: 'Send another' shows an empty form and sends nothing by itself");
+      await fill();
+      const rows = await supportRequests();
+      check(rows.length === 2 && rows[1].id !== first.id && await thanksRef() === shortRef(rows[1].id) && (await retained("support"))?.key !== key1 && await wcPosts() === 2 && await wcLeads("support_request") === 2
+        && await count(`SELECT count(*) n FROM tickets WHERE contact_id=$1`, [contact.id]) === 2, "Support: a deliberate new request is exactly one new occurrence and ticket under a new key, with one more POST and one more conversion");
+    } finally { asVisitor(null); }
+  });
+
+  await step("Confirmed save: home callback", async () => {
+    asVisitor(14);
+    try {
+      await view(1280);
+      const phone = `(305) ${200 + (Number.parseInt(tag.slice(0, 4), 16) % 700)}-${String(1000 + (Number.parseInt(tag.slice(4, 8), 16) % 8000))}`;
+      const digits = phone.replace(/\D/g, "");
+      const callbackReady = async () => until(async () => { await b!.evaluate("window.scrollTo(0, document.body.scrollHeight)"); return await present(tid("form-callback")); }, "home callback form");
+      const requestsForPhone = async () => (await h.pool.query(`SELECT r.id FROM inbound_requests r JOIN contacts c ON c.id=r.contact_id WHERE regexp_replace(c.phone,'[^0-9]','','g') LIKE $1 AND r.source_type='callback_form' ORDER BY r.created_at`, [`%${digits}`])).rows as Array<{ id: string }>;
+      const fill = async () => {
+        await b!.set(tid("input-callback-name"), "Cal Restore");
+        await b!.set(tid("input-callback-phone"), phone);
+        await scrollTo(tid("button-callback-submit"));
+        await b!.click(tid("button-callback-submit"));
+        await until(async () => await present(tid("text-callback-success")), "callback saved", 120);
+      };
+      await b!.navigate("/");
+      await b!.evaluate(`Object.keys(sessionStorage).filter(k=>k.startsWith('lb:public-intake:')).forEach(k=>sessionStorage.removeItem(k))`);
+      await b!.navigate("/");
+      await callbackReady();
+      await resetCounters();
+      await fill();
+      const first = (await requestsForPhone())[0];
+      const key1 = (await retained("callback_home"))!.key;
+      check(first && (await text(tid("callback-home-receipt"))).trim() === first.id && await wcPosts() === 1 && (await retained("callback_home"))?.state === "saved", "Home callback: the confirmed save shows the real receipt and is retained in the tab");
+      await reloadPage();
+      await until(async () => await present(tid("text-callback-success")), "saved callback restored after reload");
+      check((await text(tid("callback-home-receipt"))).trim() === first.id && await wcPosts() === 1 && (await requestsForPhone()).length === 1 && (await retained("callback_home"))?.key === key1 && !(await present(tid("button-callback-submit"))),
+        "Home callback: after a reload the original reference is shown and nothing is sent again");
+      await b!.click(tid("callback-home-start-another"));
+      await until(async () => await present(tid("form-callback")), "empty callback form");
+      check(await retained("callback_home") === null, "Home callback: 'Send another request' clears the retained save and shows an empty form");
+      await fill();
+      const rows = await requestsForPhone();
+      check(rows.length === 2 && rows[1].id !== first.id && (await text(tid("callback-home-receipt"))).trim() === rows[1].id && (await retained("callback_home"))?.key !== key1 && await wcPosts() === 2,
+        "Home callback: a deliberate new request is exactly one new occurrence under a new key");
+    } finally { asVisitor(null); }
+  });
+
+  await step("Confirmed save: other forms restore their reference", async () => {
+    await view(1280);
+    const seed = (form: string, receipt: string) => b!.evaluate(`sessionStorage.setItem('lb:public-intake:${form}', JSON.stringify({key: crypto.randomUUID(), fingerprint: 'seeded', receipt: '${receipt}', state: 'saved', pendingReview: true, tracked: true}))`);
+    const clearAll = () => b!.evaluate(`Object.keys(sessionStorage).filter(k=>k.startsWith('lb:public-intake:')).forEach(k=>sessionStorage.removeItem(k))`);
+    // These two forms share the same retained-save contract as the ones driven end to end above. A confirmed save is placed in the tab's
+    // session with a receipt, and the mounted page must restore that reference, send nothing, and leave only through "send another".
+    for (const spec of [
+      { label: "Estimate", route: "/estimate", form: "estimate", saved: "estimate-saved", ref: "estimate-saved-reference", another: "estimate-start-another", empty: "form-estimate" },
+      { label: "Get started", route: "/get-started", form: "get_started", saved: "card-get-started-saved", ref: "get-started-saved-reference", another: "get-started-start-another", empty: "progress-indicator" },
+    ]) {
+      await b!.navigate(spec.route);
+      await clearAll();
+      const receipt = randomUUID();
+      await seed(spec.form, receipt);
+      await resetCounters();
+      await b!.navigate(spec.route);
+      await until(async () => await present(tid(spec.saved)), `${spec.label}: saved view restored`);
+      check((await text(tid(spec.ref))).includes(shortRef(receipt)) && /pending review/i.test(await text(tid(spec.saved))) && !(await present(tid(spec.empty))) && await wcPosts() === 0,
+        `${spec.label}: a retained confirmed save restores the original reference and the truthful pending-review wording, with no form and no POST`);
+      await b!.click(tid(spec.another));
+      await until(async () => await present(tid(spec.empty)), `${spec.label}: empty form after send another`);
+      check(await retained(spec.form) === null && !(await present(tid(spec.saved))), `${spec.label}: 'send another' clears the retained save and shows the empty form`);
+      await b!.navigate(spec.route);
+      await until(async () => await present(tid(spec.empty)), `${spec.label}: still empty after a reload`);
+      check(!(await present(tid(spec.saved))), `${spec.label}: after starting another request a reload shows the empty form, not the old save`);
+    }
+    await clearAll();
+  });
+
   // ═══ Statement upload ═════════════════════════════════════════════════════════════════════════
   await step("Statement upload", async () => {
     await view(390);
@@ -936,8 +1189,11 @@ try {
   });
 
   // ═══ WC-PV04: both staff views word analysis from this upload's own evidence ═════════════════
-  // The statement fixture is linked to a deal whose shared analysis status says "complete" (an EARLIER upload's result), then its
-  // own recorded steps are varied. The fixture is restored afterwards.
+  // The statement fixture is linked to a deal whose shared analysis status says "complete". That value only records that the deal
+  // BLUEPRINT finished (it is set before the structured extraction runs and a later extraction failure does not revert it), so it can
+  // never complete a statement: only an analyzer result record that names this upload's document can. The upload's own recorded steps
+  // are varied, and result records are added in order (the newest record per deal and document decides). Rows added to the audit log
+  // name a deal that is deleted afterwards, so they cannot be read by anything else. The fixture is restored afterwards.
   await step("Analysis wording follows this upload's own evidence", async () => {
     await view(1280);
     const original = (await h.pool.query(`SELECT status, result FROM statement_upload_commands WHERE request_id=$1`, [refs.statementKey])).rows[0];
@@ -946,17 +1202,23 @@ try {
       { step: 4, name: "File attached", state: "done" },
       { step: 5, name: analysis === "queued" ? "AI analysis queued" : analysis === "held" ? "AI analysis held" : "AI analysis could not be queued", state: analysis === "queued" ? "done" : analysis },
     ] };
+    const record = (action: "statement_analysis_complete" | "statement_analysis_failed") => async () => {
+      await h.pool.query(`INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, details) VALUES ($1,'deal',$2,'system',$3::jsonb)`, [action, String(dealId), JSON.stringify({ documentId: statementDocumentId })]);
+    };
     const { ANALYSIS_LABEL } = await import("../../shared/statement-chain-state");
     // Inbound Operations words held and not-queued with a staff action; the handoff panel uses the shared short label.
-    const variants: Array<{ name: string; steps: ReturnType<typeof stepsOf>; inbound: string; handoff: string; forbidden: RegExp }> = [
+    const variants: Array<{ name: string; steps: ReturnType<typeof stepsOf>; before?: () => Promise<void>; inbound: string; handoff: string; forbidden: RegExp }> = [
       { name: "held step on a deal marked complete", steps: stepsOf("held"), inbound: "Automatic analysis held — review the statement manually", handoff: ANALYSIS_LABEL.held, forbidden: /completed|queued/i },
       { name: "failed enqueue on a deal marked complete", steps: stepsOf("failed"), inbound: "Analysis could not be queued — review the statement manually", handoff: ANALYSIS_LABEL.not_queued, forbidden: /completed|^queued/i },
-      { name: "queued step that owns the deal's complete status", steps: stepsOf("queued"), inbound: "Analysis completed", handoff: ANALYSIS_LABEL.completed, forbidden: /held|not /i },
+      { name: "queued step on a deal whose blueprint finished (status complete, no result record for this document)", steps: stepsOf("queued"), inbound: "Analysis result not recorded for this statement", handoff: ANALYSIS_LABEL.not_recorded, forbidden: /completed|queued|failed|held/i },
       { name: "finished command with no recorded steps", steps: stepsOf(null), inbound: "Analysis result not recorded for this statement", handoff: ANALYSIS_LABEL.not_recorded, forbidden: /completed|queued/i },
+      { name: "queued step with a result record that names this document", steps: stepsOf("queued"), before: record("statement_analysis_complete"), inbound: "Analysis completed", handoff: ANALYSIS_LABEL.completed, forbidden: /held|not /i },
+      { name: "later structured-analysis failure for this document after the deal blueprint completed", steps: stepsOf("queued"), before: record("statement_analysis_failed"), inbound: "Analysis failed", handoff: ANALYSIS_LABEL.failed, forbidden: /completed|queued|held|not /i },
     ];
     try {
       await h.pool.query(`UPDATE inbound_requests SET deal_id=$2 WHERE id=$1`, [statementRequest.id, dealId]);
       for (const variant of variants) {
+        if (variant.before) await variant.before();
         await h.pool.query(`UPDATE statement_upload_commands SET status='succeeded', result=$2::jsonb WHERE request_id=$1`, [refs.statementKey, variant.steps ? JSON.stringify(variant.steps) : null]);
         await b!.navigate(`/dashboard/lead-ops?tab=pipeline&ref=${refs.statement}`);
         await until(async () => await present(tid(`statement-analysis-${refs.statement}`)), `${variant.name}: the request row`);

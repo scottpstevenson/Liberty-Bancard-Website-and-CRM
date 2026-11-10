@@ -27,7 +27,8 @@ export type IntakeForm =
 export type UnresolvedReason = "unreadable" | "network" | "server" | "in_progress" | "rate_limited" | "mismatch" | "different_request_pending";
 
 export type IntakeOutcome =
-  | { kind: "saved"; receipt: string; pendingReview: boolean; emailConsent?: "recorded" | "not_recorded" | "unavailable"; reference?: string }
+  // `fresh` is false only when this exact receipt's conversions were already claimed (a replay of a confirmed save).
+  | { kind: "saved"; receipt: string; pendingReview: boolean; fresh?: boolean; emailConsent?: "recorded" | "not_recorded" | "unavailable"; reference?: string }
   | { kind: "recoverable"; receipt: string }
   | { kind: "unresolved"; receipt: string | null; reason: UnresolvedReason }
   | { kind: "rejected"; message: string; fieldErrors?: Record<string, string> };
@@ -37,6 +38,18 @@ interface StoredIntent {
   fingerprint: string;
   receipt: string | null;
   state: "pending" | "unresolved" | "recoverable" | "saved";
+  /**
+   * Confirmed saves only: the server said the request is saved but not yet assigned to a person, so a restored confirmation
+   * keeps the truthful "follow-up is pending review" wording.
+   */
+  pendingReview?: boolean;
+  /**
+   * Confirmed saves only: this receipt's conversion events were already handed to the caller. They fire once per receipt, so a
+   * reload, Back/Forward restore or same-key replay never records the conversion a second time.
+   */
+  tracked?: boolean;
+  /** Confirmed saves only: the thank-you page view for this receipt was already recorded, so reloading or revisiting it adds none. */
+  thankYouTracked?: boolean;
 }
 
 const STORAGE_PREFIX = "lb:public-intake:";
@@ -56,6 +69,19 @@ export function loadIntent(form: IntakeForm): StoredIntent | null {
 
 function saveIntent(form: IntakeForm, intent: StoredIntent) {
   try { storage()?.setItem(STORAGE_PREFIX + form, JSON.stringify(intent)); } catch { /* private mode: in-memory retry still works for this page */ }
+}
+
+/**
+ * Claims the thank-you page view that follows a confirmed save of `form`: true once per saved request, false on a reload,
+ * Back or Forward to the same thank-you page. With no confirmed save retained (a direct visit, or storage unavailable) there is
+ * nothing to count against, so the view is claimed exactly as it was before.
+ */
+export function claimThankYouView(form: IntakeForm): boolean {
+  const intent = loadIntent(form);
+  if (!intent || intent.state !== "saved") return true;
+  if (intent.thankYouTracked === true) return false;
+  saveIntent(form, { ...intent, thankYouTracked: true });
+  return true;
 }
 
 export function clearIntent(form: IntakeForm) {
@@ -148,9 +174,18 @@ export async function submitPublicIntake(form: IntakeForm, path: string, payload
     if (status === "429") outcome = { kind: "unresolved", receipt: intent.receipt, reason: "rate_limited" };
     else outcome = { kind: "unresolved", receipt: intent.receipt, reason: status ? "server" : "network" };
   }
-  if (outcome.kind === "saved" || outcome.kind === "rejected") clearIntent(form);
+  if (outcome.kind === "rejected") clearIntent(form);
+  else if (outcome.kind === "saved") {
+    // A confirmed save is RETAINED (key, fingerprint, receipt, review state: never the visitor's details) so a reload, Back or
+    // Forward restores the original reference instead of an empty form that would mint a second key for the same inquiry. The
+    // visitor leaves it only by explicitly starting another request (acknowledgeSaved / dismiss).
+    const alreadyClaimed = intent.tracked === true && intent.receipt === outcome.receipt;
+    saveIntent(form, { ...intent, receipt: outcome.receipt, state: "saved", pendingReview: outcome.pendingReview, tracked: true });
+    outcome = { ...outcome, fresh: !alreadyClaimed };
+  }
   else if (outcome.kind === "recoverable") saveIntent(form, { ...intent, receipt: outcome.receipt, state: "recoverable" });
-  else saveIntent(form, { ...intent, receipt: outcome.receipt ?? intent.receipt, state: "unresolved" });
+  // A confirmed save stays confirmed when a later replay of the same request cannot be read: the earlier confirmation still stands.
+  else if (intent.state !== "saved") saveIntent(form, { ...intent, receipt: outcome.receipt ?? intent.receipt, state: "unresolved" });
   return outcome;
 }
 
@@ -172,7 +207,8 @@ export async function checkIntakeStatus(form: IntakeForm): Promise<{ saved: bool
     if (typeof body?.status !== "string") return null;
     const recoverable = body.recoverable === true;
     const saved = !recoverable && ["accepted", "completed", "review_required"].includes(body.status);
-    if (saved) saveIntent(form, { ...intent, receipt, state: "saved" });
+    // `tracked` is deliberately left as it was: a status read is not a conversion claim.
+    if (saved) saveIntent(form, { ...intent, receipt, state: "saved", pendingReview: body.status === "review_required" });
     return { saved, recoverable, status: body.status, receipt };
   } catch {
     return null;

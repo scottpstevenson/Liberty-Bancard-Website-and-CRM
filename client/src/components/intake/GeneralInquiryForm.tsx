@@ -59,9 +59,12 @@ export function GeneralInquiryForm() {
     }
     const outcome = await intake.submit(buildPayload());
     if (outcome.kind === "saved") {
-      trackFormSubmission("general_inquiry_submission");
-      trackConversion("general_inquiry_submission");
-      trackConversionV2("general_inquiry_submission");
+      // Once per saved request: a replay of the same confirmed request is not a second conversion.
+      if (outcome.fresh !== false) {
+        trackFormSubmission("general_inquiry_submission");
+        trackConversion("general_inquiry_submission");
+        trackConversionV2("general_inquiry_submission");
+      }
     } else if (outcome.kind === "rejected") {
       if (outcome.fieldErrors) {
         setErrors(outcome.fieldErrors);

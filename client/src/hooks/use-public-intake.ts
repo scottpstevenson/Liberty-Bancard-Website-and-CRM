@@ -26,7 +26,7 @@ export function usePublicIntake(form: IntakeForm, path: string) {
   useEffect(() => {
     const stored = loadIntent(form);
     if (!stored) return;
-    if (stored.state === "saved" && stored.receipt) setState({ phase: "saved", receipt: stored.receipt, pendingReview: false });
+    if (stored.state === "saved" && stored.receipt) setState({ phase: "saved", receipt: stored.receipt, pendingReview: stored.pendingReview === true });
     else if (stored.state === "recoverable" && stored.receipt) setState({ phase: "recoverable", receipt: stored.receipt, restored: true });
     // A request that was in flight when the page went away (pending) is as ambiguous as an unresolved one: never silently dropped.
     else if (stored.state === "unresolved" || stored.state === "pending") setState({ phase: "unresolved", receipt: stored.receipt, restored: true, reason: "restored" });

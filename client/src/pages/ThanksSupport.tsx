@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
 import { Phone, FileText, CreditCard, Shield, CheckCircle, ArrowRight, MessageSquare } from "lucide-react";
 import { trackThankYouPageView } from "@/lib/tracking";
+import { claimThankYouView } from "@/lib/public-intake";
 import { trackPhoneCallClick } from "@/lib/analytics";
 import { useEffect } from "react";
 
@@ -17,7 +18,7 @@ function readReference(): string | null {
 }
 
 export default function ThanksSupport() {
-  useEffect(() => { trackThankYouPageView("support_request"); }, []);
+  useEffect(() => { if (claimThankYouView("support")) trackThankYouPageView("support_request"); }, []);
   const reference = readReference();
 
   return (

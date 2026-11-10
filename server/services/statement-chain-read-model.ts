@@ -1,10 +1,11 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { auditLogs, contacts, deals, inboundRequests, statementUploadCommands } from "@shared/schema";
 import {
   analysisStepOutcome,
   deriveAnalysisState,
   deriveOccurrenceStatus,
   sanitizeChainDetail,
+  type AnalysisDocumentOutcome,
   type AnalysisState,
   type AnalysisStepOutcome,
   type ChainStepState,
@@ -51,8 +52,9 @@ export interface StatementOccurrenceTruth {
   analysis: AnalysisState;
 }
 
-/** The audit action the statement analyzer writes, with the document it actually analysed, when an analysis finishes. */
+/** The audit actions the statement analyzer writes, naming the document it actually analysed, when an analysis finishes or fails. */
 const ANALYSIS_COMPLETE_ACTION = "statement_analysis_complete";
+const ANALYSIS_FAILED_ACTION = "statement_analysis_failed";
 
 /**
  * Durable, read-only truth for statement occurrences: the command's recorded steps and retained document, and an analysis
@@ -107,14 +109,27 @@ export async function readStatementOccurrenceTruth(
     statusOwnerByDeal.set(dealId, attempts[0].id);
   }
 
-  // Analysis-complete records name the document that was analysed, which is the only direct tie between a result and an upload.
+  // Structured-analysis records name the document that was analysed, which is the only direct tie between a result and an upload.
+  // The deal's own status is never that tie: it is set complete when the deal blueprint finishes, before (and regardless of) the
+  // structured extraction. The newest record per deal and document decides, so a retry that succeeds after a failure is completed
+  // and a later failure after a success is failed. A failure record without a document (written before documents were named, or
+  // for a deal-level fault) is not attributable to any upload and is not counted.
   const documentIds = new Set(commands.map((command) => command.documentId).filter((id): id is number => typeof id === "number"));
-  const analysedDocuments = new Set<string>();
+  const outcomeByDocument = new Map<string, AnalysisDocumentOutcome>();
   if (dealIds.length && documentIds.size) {
-    const records = await db.select({ dealId: auditLogs.entityId, documentId: sql<string | null>`${auditLogs.details}->>'documentId'` })
+    const records = await db.select({ action: auditLogs.action, dealId: auditLogs.entityId, documentId: sql<string | null>`${auditLogs.details}->>'documentId'` })
       .from(auditLogs)
-      .where(and(eq(auditLogs.action, ANALYSIS_COMPLETE_ACTION), eq(auditLogs.entityType, "deal"), inArray(auditLogs.entityId, dealIds)));
-    for (const record of records) if (record.dealId !== null && record.documentId) analysedDocuments.add(`${record.dealId}:${record.documentId}`);
+      .where(and(
+        inArray(auditLogs.action, [ANALYSIS_COMPLETE_ACTION, ANALYSIS_FAILED_ACTION]),
+        eq(auditLogs.entityType, "deal"),
+        inArray(auditLogs.entityId, dealIds),
+        sql`${auditLogs.details}->>'documentId' IS NOT NULL`,
+      ))
+      .orderBy(asc(auditLogs.id));
+    for (const record of records) {
+      if (record.dealId === null || !record.documentId) continue;
+      outcomeByDocument.set(`${record.dealId}:${record.documentId}`, record.action === ANALYSIS_COMPLETE_ACTION ? "completed" : "failed");
+    }
   }
 
   for (const request of requests) {
@@ -131,7 +146,7 @@ export async function readStatementOccurrenceTruth(
         autoAnalysisEnabled,
         ownStep: analysisStepOutcome(steps),
         ownsDealStatus: request.dealId !== null && statusOwnerByDeal.get(request.dealId) === request.id,
-        analyzedThisDocument: request.dealId !== null && documentId !== null && analysedDocuments.has(`${request.dealId}:${documentId}`),
+        documentOutcome: request.dealId !== null && documentId !== null ? outcomeByDocument.get(`${request.dealId}:${documentId}`) ?? "none" : "none",
         finishedWithoutSteps: command?.status === "succeeded" && steps.length === 0,
       }),
     });

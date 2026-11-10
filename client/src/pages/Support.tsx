@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/form";
 import { trackConversion } from "@/lib/analytics";
 import { usePublicIntake } from "@/hooks/use-public-intake";
+import { SavedIntakeConfirmation } from "@/components/intake/SavedIntakeConfirmation";
 import { PublicIntakeNotice } from "@/components/PublicIntakeNotice";
 import { isPlausibleInquiryPhone } from "@shared/public-inquiry";
 import { useState } from "react";
@@ -89,8 +90,9 @@ export default function Support() {
     setSubmitError(null);
     const outcome = await intake.submit(buildPayload(data));
     if (outcome.kind === "saved") {
-      // Conversion and the confirmation page follow ONLY a confirmed save (never a 202, an unreadable body or a failure).
-      trackConversion("support_request", { issue_type: data.issueType, priority: data.priority });
+      // Conversion and the confirmation page follow ONLY a confirmed save (never a 202, an unreadable body or a failure), and the
+      // conversion is recorded once per saved request: a replay of the same confirmed request is not a second conversion.
+      if (outcome.fresh !== false) trackConversion("support_request", { issue_type: data.issueType, priority: data.priority });
       const reference = outcome.receipt.replace(/-/g, "").slice(0, 8).toUpperCase();
       setLocation(`/thanks-support?ref=${reference}`);
     } else if (outcome.kind === "rejected") {
@@ -171,6 +173,15 @@ export default function Support() {
                   >
                     Submit a Support Request
                   </h2>
+                  {intake.state.phase === "saved" ? (
+                    <SavedIntakeConfirmation
+                      receipt={intake.state.receipt}
+                      pendingReview={intake.state.pendingReview}
+                      testIdPrefix="support"
+                      startLabel="Send another request"
+                      onStartNew={() => { form.reset(); setSubmitError(null); intake.acknowledgeSaved(); }}
+                    />
+                  ) : (
                   <Form {...form}>
                     <form
                       onSubmit={form.handleSubmit(onSubmit)}
@@ -382,6 +393,7 @@ export default function Support() {
                       </Button>
                     </form>
                   </Form>
+                  )}
                 </CardContent>
               </Card>
             </div>
