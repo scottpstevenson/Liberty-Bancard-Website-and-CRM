@@ -90,10 +90,16 @@ const FAULT_SCRIPT = `(() => {
     if (type === 'load' && fault() === 'lose-upload') {
       return realAdd.call(this, 'load', () => { this.dispatchEvent(new Event('error')); }, options);
     }
+    // hold-response: the real request completes on the server, but the page never sees the answer (it is still awaiting it).
+    if (type === 'load' && fault() === 'hold-response') {
+      return realAdd.call(this, 'load', () => {}, options);
+    }
     return realAdd.call(this, type, listener, options);
   };
   const realSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.send = function (body) {
+    // hold-upload: the bytes never leave the browser, so the page stays mid-transfer until it is reloaded.
+    if (fault() === 'hold-upload') return;
     if (fault() === 'fail-upload' || fault() === 'conflict-upload') {
       // The real request still runs and the server really saves; only the answer the page sees is replaced.
       const failing = fault() === 'fail-upload';
@@ -150,6 +156,15 @@ const activeId = () => b!.evaluate("document.activeElement?.id || document.activ
 const contactByEmail = async (email: string) => (await h.pool.query(`SELECT * FROM contacts WHERE lower(email)=lower($1)`, [email])).rows[0];
 const requestsFor = async (email: string) => (await h.pool.query(`SELECT r.* FROM inbound_requests r JOIN contacts c ON c.id=r.contact_id WHERE lower(c.email)=lower($1) ORDER BY r.created_at`, [email])).rows;
 const shortRef = (id: string) => id.replace(/-/g, "").slice(0, 8).toUpperCase();
+const reloadPage = async () => {
+  const origin = await b!.evaluate("performance.timeOrigin");
+  await b!.call("Page.reload", {});
+  for (let attempt = 0; attempt < 300; attempt++) {
+    try { if (await b!.evaluate(`performance.timeOrigin!==${JSON.stringify(origin)}&&document.readyState==="complete"`)) return; } catch { /* the execution context is replaced during a reload */ }
+    await settle(100);
+  }
+  throw new Error("The reload did not reach a new complete document");
+};
 
 const tag = randomUUID().replaceAll("-", "").slice(0, 8);
 const PDF = Buffer.concat([Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n"), Buffer.alloc(2048, 0x20)]);
@@ -214,6 +229,178 @@ try {
     check(await b!.evaluate(`document.querySelector('[data-testid="section-upload-form"]').getBoundingClientRect().top + window.scrollY < window.innerHeight * 2.2`), "Statement review at 390px: the form is reached within two screens (form first, not after the explainer)");
     check(await present(tid("input-mobile")) && /optional/i.test(await b!.evaluate(`document.querySelector('label[for="statement-mobile"]')?.innerText || ''`) as string), "Statement review: the phone field is labelled optional");
     await b!.screenshot("statement-390");
+  });
+
+  // ═══ WC-PV01: both statement deep links work on a lazily rendered page ═══════════════════════════
+  // The form region must sit under the fixed header (scroll-mt-24 = 96px), the page must actually be scrolled, and the form
+  // heading must hold focus. A cold entry, a reload, an in-app link from another page, Back/Forward and a same-page link all
+  // reach the same result, for both fragments.
+  type AnchorSnapshot = { found: boolean; top: number | null; margin: number; headerBottom: number; scrollY: number; active: string; hash: string; history: number };
+  const anchorState = () => b!.evaluate(`(()=>{const r=document.getElementById('statement-review-form');const a=document.activeElement;const fixedHeader=[...document.querySelectorAll('header,nav')].find((e)=>getComputedStyle(e).position==='fixed')||null;return {found:!!r,top:r?Math.round(r.getBoundingClientRect().top):null,margin:r?Math.round(parseFloat(getComputedStyle(r).scrollMarginTop)||0):0,headerBottom:fixedHeader?Math.round(fixedHeader.getBoundingClientRect().bottom):0,scrollY:Math.round(window.scrollY),active:a?(a.id||a.getAttribute('data-testid')||a.tagName):'',hash:location.hash,history:history.length}})()`) as Promise<AnchorSnapshot>;
+  // Aligned = the region sits at its own scroll margin, clear of the fixed header, the page really scrolled, and the heading has focus.
+  const anchored = (st: AnchorSnapshot) => st.found && st.top !== null && st.margin > 0 && Math.abs(st.top - st.margin) <= 6 && st.top >= st.headerBottom && st.scrollY > 0 && st.active === "statement-form-heading";
+  const settleAnchor = async (label: string) => {
+    await until(async () => anchored(await anchorState()), `${label}: the form is aligned under the header and its heading has focus`, 24);
+    await settle(1800);
+    const st = await anchorState();
+    check(anchored(st), `${label}: the form stays aligned (${st.top}px from the top, margin ${st.margin}px, header ${st.headerBottom}px) and its heading keeps focus after the page settles`);
+    return st;
+  };
+  const statementFormReady = async (label: string) => until(async () => await present(tid("form-upload-statement")), `${label}: the statement form is rendered`);
+
+  await step("Statement anchors: cold entry and reload", async () => {
+    for (const width of [1280, 390]) {
+      await view(width);
+      for (const alias of ["statement-review-form", "upload-form"]) {
+        await b!.navigate("/about-contact");
+        await until(async () => await present(tid("form-general-inquiry")), "general inquiry form");
+        await b!.navigate(`/upload-statement#${alias}`);
+        const historyAtLoad = (await b!.evaluate("history.length")) as number;
+        const entered = await settleAnchor(`Cold entry at /upload-statement#${alias}, ${width}px`);
+        check(entered.hash === `#${alias}` && entered.history === historyAtLoad, `Cold entry at #${alias}, ${width}px: the address keeps its fragment and the page added no history entry`);
+        await reloadPage();
+        const reloaded = await settleAnchor(`Reload on #${alias}, ${width}px`);
+        check(reloaded.hash === `#${alias}`, `Reload on #${alias}, ${width}px: the address keeps its fragment`);
+      }
+    }
+  });
+
+  await step("Statement anchors: links from other pages, Back and Forward", async () => {
+    await view(1280);
+    const links: Array<{ label: string; route: string; ready: string; selector: string; history: boolean }> = [
+      { label: "General inquiry link", route: "/about-contact", ready: "form-general-inquiry", selector: 'a[href="/upload-statement#statement-review-form"]', history: true },
+      { label: "Terminal inquiry link", route: "/get-started?offer=free-terminal", ready: "form-terminal-inquiry", selector: tid("link-terminal-statement-review"), history: true },
+      { label: "Support link (full page load)", route: "/support", ready: "form-support", selector: tid("link-support-statement-upload"), history: false },
+    ];
+    for (const link of links) {
+      await b!.navigate(link.route);
+      await until(async () => await present(tid(link.ready)), `${link.label}: the originating page`);
+      const before = (await b!.evaluate("history.length")) as number;
+      await b!.click(link.selector);
+      await statementFormReady(link.label);
+      const st = await settleAnchor(link.label);
+      check(st.hash === "#statement-review-form" && st.history === before + 1, `${link.label}: exactly one history entry was added and the fragment is kept`);
+      if (!link.history) continue;
+      await b!.evaluate("history.back()");
+      await until(async () => await present(tid(link.ready)) && !(await present(tid("form-upload-statement"))), `${link.label}: Back returns to the originating page`);
+      await b!.evaluate("history.forward()");
+      await statementFormReady(`${link.label} after Forward`);
+      const forward = await settleAnchor(`${link.label}: Forward re-enters the statement page`);
+      check(forward.hash === "#statement-review-form" && forward.history === st.history, `${link.label}: Forward restored the same fragment without adding an entry`);
+    }
+  });
+
+  await step("Statement anchors: same-page links and both fragments", async () => {
+    for (const width of [1280, 390]) {
+      await view(width);
+      await b!.navigate("/about-contact");
+      await b!.navigate("/upload-statement");
+      await statementFormReady(`Same-page links at ${width}px`);
+      const before = await anchorState();
+      check(before.hash === "", `Same-page links at ${width}px: the page starts without a fragment`);
+      await b!.click(tid("link-hero-scroll-cta"));
+      const clicked = await settleAnchor(`Hero link at ${width}px`);
+      check(clicked.hash === "#statement-review-form" && clicked.history === before.history + 1, `Hero link at ${width}px: the browser recorded one history entry for the fragment`);
+      // Back does not move focus by itself, so release it first: what is measured is whether the page pulls focus into the form.
+      await b!.evaluate("document.activeElement?.blur()");
+      await b!.evaluate("history.back()");
+      await until(async () => (await anchorState()).hash === "", `Back from the hero link at ${width}px removes the fragment`);
+      await settle(900);
+      check((await anchorState()).active !== "statement-form-heading", `Back to the page without a fragment at ${width}px does not pull focus into the form`);
+      await b!.evaluate("history.forward()");
+      await settleAnchor(`Forward to the fragment at ${width}px`);
+      // The fragment is already current: no hashchange fires, so the link itself must restore position and focus.
+      await b!.evaluate("document.activeElement?.blur();window.scrollTo(0,document.documentElement.scrollHeight)");
+      await settle(300);
+      await b!.click(tid("link-closing-cta"));
+      await settleAnchor(`Closing link with the fragment already current at ${width}px`);
+      await b!.evaluate("document.activeElement?.blur();window.scrollTo(0,0);location.hash='#upload-form'");
+      const alias = await settleAnchor(`Switching to #upload-form at ${width}px`);
+      check(alias.hash === "#upload-form", `Switching to #upload-form at ${width}px: the alias is kept in the address`);
+      await b!.evaluate("document.activeElement?.blur();window.scrollTo(0,0);location.hash='#statement-review-form'");
+      await settleAnchor(`Switching back to #statement-review-form at ${width}px`);
+    }
+  });
+
+  // A visitor who starts typing is never pulled back by the settling passes.
+  await step("Statement anchors: the visitor keeps control", async () => {
+    await view(1280);
+    await b!.navigate("/about-contact");
+    await b!.navigate("/upload-statement#statement-review-form");
+    await until(async () => (await anchorState()).active === "statement-form-heading", "Initial alignment");
+    await b!.click(tid("input-business-name"));
+    await b!.call("Input.insertText", { text: "Typing wins" });
+    await settle(2000);
+    check((await b!.evaluate("document.activeElement?.getAttribute('data-testid')||''")) === "input-business-name" && (await b!.evaluate(`document.querySelector(${JSON.stringify(tid("input-business-name"))}).value`)) === "Typing wins", "A visitor who has started typing keeps their field, focus and text while the page settles");
+  });
+
+  // ═══ WC-PV02 (hydrated side): the terminal entrance is the same page the first HTML described ═══
+  await step("Terminal entrance: hydrated page matches the first HTML", async () => {
+    await view(1280);
+    const shared = await import("../../shared/public-terminal-inquiry");
+    const page$ = shared.TERMINAL_INQUIRY_PAGE;
+    const meta = (selector: string, attribute: string) => `document.querySelector(${JSON.stringify(selector)})?.getAttribute(${JSON.stringify(attribute)}) ?? ''`;
+    for (const query of ["?offer=free-terminal", "?terminal=yes", "?offer=free-terminal&utm_source=cert&utm_campaign=terminal"]) {
+      await b!.navigate("/about-contact");
+      await b!.navigate(`/get-started${query}`);
+      await until(async () => await present(tid("form-terminal-inquiry")), `terminal entrance ${query}`);
+      const seen = (await b!.evaluate(`({ h1: document.querySelector('h1')?.innerText ?? '', h1Count: document.querySelectorAll('h1').length, body: document.querySelector('[data-testid="text-terminal-inquiry-body"]')?.innerText ?? '', title: document.title, descriptions: [...document.querySelectorAll('meta[name="description"]')].map((m) => m.getAttribute('content') ?? ''), canonical: ${meta('link[rel="canonical"]', "href")} })`)) as { h1: string; h1Count: number; body: string; title: string; descriptions: string[]; canonical: string };
+      check(seen.h1Count === 1 && seen.h1 === page$.heading && seen.body === page$.body, `/get-started${query.split("&")[0]}: the hydrated page shows the same heading and intro the first HTML carries`);
+      check(seen.title.startsWith(page$.title) && seen.descriptions.includes(page$.description) && seen.canonical.endsWith("/get-started"), `/get-started${query.split("&")[0]}: the hydrated title, description and canonical agree with the first HTML`);
+      check(!(await present(tid("section-get-started"))), `/get-started${query.split("&")[0]}: the goal quiz is not shown to a visitor who already chose the terminal`);
+    }
+    for (const query of ["", "?offer=unsupported", "?terminal=no"]) {
+      await b!.navigate("/about-contact");
+      await b!.navigate(`/get-started${query}`);
+      await until(async () => await present(tid("section-get-started")), `generic entrance ${query || "(none)"}`);
+      check(!(await present(tid("form-terminal-inquiry"))) && (await text("h1")) !== page$.heading, `/get-started${query || " (no query)"}: an unsupported entrance keeps the goal quiz and not the terminal inquiry`);
+    }
+  });
+
+  // ═══ WC-PV05: one agreed control size across every public form ═══════════════════════════════
+  // Fields and the choose-file control are 48px tall, primary actions 52px (the agreed public-form contract). Each control is
+  // reachable by a real pointer at every target width and in a short viewport (an on-screen keyboard), never covered.
+  const FIELD_SELECTOR = 'input:not([type]), input[type="text"], input[type="email"], input[type="tel"], select, [role="combobox"], [data-testid="button-choose-file"]';
+  const controlHeights = (formId: string) => b!.evaluate(`(()=>{const f=document.querySelector(${JSON.stringify(tid(formId))});const visible=(e)=>{const r=e.getBoundingClientRect();return e.getClientRects().length>0&&r.width>40&&r.height>10&&!e.closest('[aria-hidden="true"]')};const name=(e)=>e.getAttribute('data-testid')||e.id||e.getAttribute('name')||e.tagName;const pick=(sel)=>[...f.querySelectorAll(sel)].filter(visible).map(e=>({n:name(e),h:Math.round(e.getBoundingClientRect().height*10)/10}));return {fields:pick(${JSON.stringify(FIELD_SELECTOR)}),actions:pick('button[type="submit"]')}})()`) as Promise<{ fields: Array<{ n: string; h: number }>; actions: Array<{ n: string; h: number }> }>;
+  const reachable = (formId: string, selector: string) => b!.evaluate(`(()=>{const f=document.querySelector(${JSON.stringify(tid(formId))});const e=f&&[...f.querySelectorAll(${JSON.stringify(selector)})].find(x=>x.getClientRects().length>0);if(!e)return 'missing';e.scrollIntoView({block:'center',behavior:'instant'});const r=e.getBoundingClientRect();const bad=[0.1,0.5,0.9].filter(p=>{const hit=document.elementFromPoint(r.left+r.width*p,r.top+r.height/2);return !hit||!(hit===e||e.contains(hit)||(!!hit.closest('label')&&hit.closest('label')===e.closest('label')))});return bad.length?'covered':'ok'})()`) as Promise<string>;
+  const sizingPages: Array<[string, string, string, boolean]> = [
+    ["Terminal inquiry", "/get-started?offer=free-terminal", "form-terminal-inquiry", true],
+    ["General inquiry", "/about-contact", "form-general-inquiry", true],
+    ["Support", "/support", "form-support", false],
+    ["Statement review", "/upload-statement", "form-upload-statement", true],
+  ];
+  await step("Public form control sizing", async () => {
+    for (const width of [320, 390, 768, 1024, 1440]) {
+      await view(width);
+      for (const [label, route, formId] of sizingPages) {
+        await b!.navigate(route);
+        await until(async () => await present(tid(formId)), `${label} form at ${width}`);
+        await settle(250);
+        const sizes = await controlHeights(formId);
+        const offFields = sizes.fields.filter((f) => f.h < 47.5 || f.h > 52.5);
+        const offActions = sizes.actions.filter((a) => a.h < 51.5 || a.h > 52.5);
+        check(sizes.fields.length >= 5 && sizes.actions.length === 1, `${label} ${width}px: the form has its fields (${sizes.fields.length}) and one submit action to measure`);
+        check(offFields.length === 0, `${label} ${width}px: every field and the choose-file control is 48px tall (${sizes.fields.map((f) => `${f.n}=${f.h}`).join(", ")})`);
+        check(offActions.length === 0, `${label} ${width}px: the primary submit action is 52px tall (${sizes.actions.map((a) => `${a.n}=${a.h}`).join(", ")})`);
+        await noPageOverflow(`${label} control sizing ${width}px`);
+      }
+    }
+  });
+
+  await step("Public form control reach in a short viewport", async () => {
+    for (const [width, height] of [[390, 420], [320, 380], [1024, 460]] as const) {
+      await b!.call("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+      for (const [label, route, formId, hasConsent] of sizingPages) {
+        await b!.navigate(route);
+        await until(async () => await present(tid(formId)), `${label} form at ${width}x${height}`);
+        await settle(250);
+        const submit = await reachable(formId, 'button[type="submit"]');
+        const consent = hasConsent ? await reachable(formId, '[role="checkbox"], input[type="checkbox"]') : "ok";
+        const field = await reachable(formId, 'input:not([type]), input[type="email"]');
+        check(submit === "ok" && consent === "ok" && field === "ok", `${label} at ${width}x${height} (on-screen keyboard height): the submit action, the text-permission checkbox and a field are reachable and not covered (submit ${submit}, checkbox ${consent}, field ${field})`);
+      }
+    }
+    await view(390);
   });
 
   // ═══ Terminal inquiry: no statement, no phone, no generic quiz ═══════════════════════════════
@@ -593,6 +780,51 @@ try {
     check(rowsE.length === 1 && (await text(tid("text-upload-reference"))).trim() === shortRef(rowsE[0].id), "Retrying with the kept key replayed the one request instead of creating another");
   });
 
+  // ═══ WC-PV03: a reload while an upload is in flight restores the unconfirmed request, never a blank form ═══
+  // Two real interruptions: the bytes never left the browser (hold-upload), and the server saved the upload but the page never
+  // saw the answer (hold-response). Either way the reload must show an unconfirmed notice with the ORIGINAL idempotency key, send
+  // nothing on its own, and let the same details finish one request, one stored file and one command.
+  await step("Reload during an upload", async () => {
+    await view(390);
+    const storedObjects = () => count(`SELECT count(*) n FROM protected_objects`);
+    for (const mode of ["hold-upload", "hold-response"] as const) {
+      const delivered = mode === "hold-response";
+      const email = `wcb-${tag}-stmt-${mode}@example.com`;
+      const business = `Statement ${mode} ${tag}`;
+      await freshForm("/upload-statement", "form-upload-statement");
+      const objectsBefore = await storedObjects();
+      await fault(mode);
+      await fillStatement({ business, name: "Rae Reload", email });
+      await chooseFile(goodPath);
+      await scrollTo(tid("button-upload-submit"));
+      await b!.click(tid("button-upload-submit"));
+      await until(async () => (await storedIntent("statement_upload"))?.state === "pending", `${mode}: the pending intent is stored before the answer`);
+      const pending = await storedIntent("statement_upload");
+      if (delivered) await until(async () => (await requestsFor(email)).length === 1 && await storedObjects() - objectsBefore === 1, `${mode}: the server really saved the upload whose answer the page never saw`, 120);
+      else await settle(1200);
+      check(Boolean(pending?.key) && !(await present(tid("section-upload-success"))), `${mode}: the interrupted request holds a key and is not shown as received`);
+      check((await requestsFor(email)).length === (delivered ? 1 : 0), `${mode}: the server holds ${delivered ? "one occurrence" : "no occurrence"} while the page is still waiting`);
+      await fault(null);
+      await reloadPage();
+      await until(async () => await present(tid("alert-submit-error")), `${mode}: the reload restores an unconfirmed notice`);
+      const notice = await text(tid("text-submit-error"));
+      check(/may have been saved/.test(notice) && /will not create a duplicate/.test(notice) && /954-266-8214/.test(notice) && !(await present(tid("section-upload-success"))), `${mode}: the restored notice says the request may have been saved, promises no duplicate, and gives the phone number`);
+      const restored = await storedIntent("statement_upload");
+      check(restored?.key === pending!.key, `${mode}: the reload kept the original idempotency key`);
+      await settle(1500);
+      check((await requestsFor(email)).length === (delivered ? 1 : 0) && await storedObjects() - objectsBefore === (delivered ? 1 : 0), `${mode}: loading the page again sent nothing on its own`);
+      await fillStatement({ business, name: "Rae Reload", email });
+      await chooseFile(goodPath);
+      await scrollTo(tid("button-upload-submit"));
+      await b!.click(tid("button-upload-submit"));
+      await until(async () => await present(tid("section-upload-success")), `${mode}: the same details finish the request`, 120);
+      const rows = await requestsFor(email);
+      check(rows.length === 1 && (await text(tid("text-upload-reference"))).trim() === shortRef(rows[0].id), `${mode}: finishing it produced one request and its reference`);
+      check(await storedObjects() - objectsBefore === 1 && await count(`SELECT count(*) n FROM statement_upload_commands WHERE request_id=$1`, [pending!.key]) === 1, `${mode}: exactly one stored file and one command exist after the reload and the finish`);
+      check((await storedIntent("statement_upload"))?.key === pending!.key, `${mode}: the finished request is still bound to its original key`);
+    }
+  });
+
   // ═══ C0: the mobile menu returns focus to its trigger ═════════════════════════════════════════
   await step("Mobile menu focus", async () => {
     await view(390);
@@ -701,6 +933,45 @@ try {
     await b!.click(tid("button-chain-retry"));
     await until(async () => await present(tid("list-statement-chain")), "Retry recovers");
     check(true, "Retry loads the list again");
+  });
+
+  // ═══ WC-PV04: both staff views word analysis from this upload's own evidence ═════════════════
+  // The statement fixture is linked to a deal whose shared analysis status says "complete" (an EARLIER upload's result), then its
+  // own recorded steps are varied. The fixture is restored afterwards.
+  await step("Analysis wording follows this upload's own evidence", async () => {
+    await view(1280);
+    const original = (await h.pool.query(`SELECT status, result FROM statement_upload_commands WHERE request_id=$1`, [refs.statementKey])).rows[0];
+    const dealId = Number((await h.pool.query(`INSERT INTO deals (contact_id, pipeline, stage, analysis_status) VALUES ($1,'sales','New Lead','complete') RETURNING id`, [statementRequest.contact_id])).rows[0].id);
+    const stepsOf = (analysis: "queued" | "held" | "failed" | null) => analysis === null ? null : { steps: [
+      { step: 4, name: "File attached", state: "done" },
+      { step: 5, name: analysis === "queued" ? "AI analysis queued" : analysis === "held" ? "AI analysis held" : "AI analysis could not be queued", state: analysis === "queued" ? "done" : analysis },
+    ] };
+    const { ANALYSIS_LABEL } = await import("../../shared/statement-chain-state");
+    // Inbound Operations words held and not-queued with a staff action; the handoff panel uses the shared short label.
+    const variants: Array<{ name: string; steps: ReturnType<typeof stepsOf>; inbound: string; handoff: string; forbidden: RegExp }> = [
+      { name: "held step on a deal marked complete", steps: stepsOf("held"), inbound: "Automatic analysis held — review the statement manually", handoff: ANALYSIS_LABEL.held, forbidden: /completed|queued/i },
+      { name: "failed enqueue on a deal marked complete", steps: stepsOf("failed"), inbound: "Analysis could not be queued — review the statement manually", handoff: ANALYSIS_LABEL.not_queued, forbidden: /completed|^queued/i },
+      { name: "queued step that owns the deal's complete status", steps: stepsOf("queued"), inbound: "Analysis completed", handoff: ANALYSIS_LABEL.completed, forbidden: /held|not /i },
+      { name: "finished command with no recorded steps", steps: stepsOf(null), inbound: "Analysis result not recorded for this statement", handoff: ANALYSIS_LABEL.not_recorded, forbidden: /completed|queued/i },
+    ];
+    try {
+      await h.pool.query(`UPDATE inbound_requests SET deal_id=$2 WHERE id=$1`, [statementRequest.id, dealId]);
+      for (const variant of variants) {
+        await h.pool.query(`UPDATE statement_upload_commands SET status='succeeded', result=$2::jsonb WHERE request_id=$1`, [refs.statementKey, variant.steps ? JSON.stringify(variant.steps) : null]);
+        await b!.navigate(`/dashboard/lead-ops?tab=pipeline&ref=${refs.statement}`);
+        await until(async () => await present(tid(`statement-analysis-${refs.statement}`)), `${variant.name}: the request row`);
+        const inbound = (await text(tid(`statement-analysis-${refs.statement}`))).trim();
+        await b!.navigate("/dashboard/lead-ops?tab=pipeline");
+        await until(async () => await present(tid(`text-chain-analysis-${refs.statement}`)), `${variant.name}: the handoff row`);
+        const handoff = (await text(tid(`text-chain-analysis-${refs.statement}`))).trim();
+        check(inbound === variant.inbound && !variant.forbidden.test(inbound), `Inbound Operations, ${variant.name}: says "${variant.inbound}" (saw "${inbound}")`);
+        check(handoff === variant.handoff && !variant.forbidden.test(handoff), `Statement handoff, ${variant.name}: says "${variant.handoff}" (saw "${handoff}")`);
+      }
+    } finally {
+      await h.pool.query(`UPDATE inbound_requests SET deal_id=NULL WHERE id=$1`, [statementRequest.id]);
+      await h.pool.query(`UPDATE statement_upload_commands SET status=$2, result=$3::jsonb WHERE request_id=$1`, [refs.statementKey, original.status, original.result === null ? null : JSON.stringify(original.result)]);
+      await h.pool.query(`DELETE FROM deals WHERE id=$1`, [dealId]);
+    }
   });
 
   await open("manager");

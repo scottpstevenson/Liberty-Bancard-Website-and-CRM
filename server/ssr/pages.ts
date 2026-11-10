@@ -89,6 +89,8 @@ import {
   FSR_SSR_CTA,
 } from "@shared/free-statement-review-content";
 
+import { TERMINAL_INQUIRY_PAGE, TERMINAL_INQUIRY_PATH, readTerminalIntent } from "@shared/public-terminal-inquiry";
+
 const BASE_URL = "https://libertybancard.com";
 
 function ctaSection(headline: string, sub: string): string {
@@ -170,8 +172,9 @@ export function getUploadStatementHtml(): string {
   </div>
 
   <section class="ssr-section" id="statement-review-form">
+    <span id="upload-form"></span>
     <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">${FSR_FORM.heading}</h2>
+      <h2 class="ssr-section-heading" id="statement-form-heading" tabindex="-1">${FSR_FORM.heading}</h2>
       <p class="ssr-section-subheading">${FSR_FORM.intro}</p>
       <p class="ssr-card-text">${FSR_FORM.helper} <a href="${FSR_FORM.helperHref}">${FSR_FORM.helperLink}</a></p>
     </div>
@@ -803,7 +806,51 @@ export function getCompareRatesHtml(): string {
   });
 }
 
-export function getGetStartedHtml(): string {
+/**
+ * The terminal entrance of /get-started, rendered from the same shared intent contract and copy as the hydrated page. It is
+ * an inquiry, never the merchant-application prerequisite list, and nothing from the request is reflected into the markup.
+ */
+function getTerminalInquiryHtml(): string {
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: `${TERMINAL_INQUIRY_PAGE.title} | Liberty Bancard`,
+    description: TERMINAL_INQUIRY_PAGE.description,
+    url: `${BASE_URL}${TERMINAL_INQUIRY_PATH}`,
+  };
+  const body = `
+  <div class="ssr-hero">
+    <div class="ssr-hero-inner">
+      <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Get Started</span></div>
+      <h1>${TERMINAL_INQUIRY_PAGE.heading}</h1>
+      <p class="ssr-hero-subtitle">${TERMINAL_INQUIRY_PAGE.body}</p>
+    </div>
+  </div>
+
+  <section class="ssr-section">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">${TERMINAL_INQUIRY_PAGE.asksHeading}</h2>
+      <ul class="ssr-check-list" style="max-width:36rem;margin:0 auto;">
+        ${TERMINAL_INQUIRY_PAGE.asks.map((item) => `<li><span class="check-icon">✓</span>${item}</li>`).join("\n        ")}
+      </ul>
+      <p class="ssr-card-text" style="text-align:center;margin-top:1.5rem;">${TERMINAL_INQUIRY_PAGE.asksNote}</p>
+      <p class="ssr-card-text" style="text-align:center;">${TERMINAL_INQUIRY_PAGE.phoneLead} <a href="tel:9542668214">954-266-8214</a></p>
+    </div>
+  </section>`;
+
+  return ssrHtmlShell({
+    title: `${TERMINAL_INQUIRY_PAGE.title} | Liberty Bancard`,
+    description: TERMINAL_INQUIRY_PAGE.description,
+    canonical: TERMINAL_INQUIRY_PATH,
+    keywords: "terminal eligibility inquiry, equipment program review, merchant terminal options",
+    schemaJsons: [schema],
+    body,
+  });
+}
+
+/** `search` is the raw query string. It selects one of two allowlisted renderings and is never echoed. */
+export function getGetStartedHtml(search = ""): string {
+  if (readTerminalIntent(search).terminal) return getTerminalInquiryHtml();
   const schema = {
     "@context": "https://schema.org",
     "@type": "WebPage",

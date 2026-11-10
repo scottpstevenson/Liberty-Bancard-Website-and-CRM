@@ -22,6 +22,7 @@ import cookieParser from "cookie-parser";
 import bcrypt from "bcryptjs";
 import { assertDisposableTestInfrastructure } from "../test-infrastructure-guard";
 import { applyCertificationProviderDenyBoundary } from "../certification-provider-deny";
+import type { AnalysisEvidence } from "../../shared/statement-chain-state";
 
 await assertDisposableTestInfrastructure({ operation: "Public W-C intake certification" });
 applyCertificationProviderDenyBoundary({ fatal: true });
@@ -53,6 +54,19 @@ const check = (value: unknown, message: string) => {
   console.log(`✓ [WC-${String(checks).padStart(3, "0")}] ${message}`);
 };
 const tag = randomUUID().slice(0, 8);
+
+/**
+ * Closure-correction sections (the WC-PV01 to PV05 behaviours) report every failing section in one run instead of stopping at
+ * the first failed check, so a regression names each broken contract. Any failed section still fails the whole certification.
+ */
+const sectionFailures: string[] = [];
+const section = async (name: string, body: () => Promise<void>) => {
+  try { await body(); } catch (error) {
+    const message = (error instanceof Error ? error.message : String(error)).split("\n")[0].slice(0, 300);
+    sectionFailures.push(`${name}: ${message}`);
+    console.log(`✗ [${name}] ${message}`);
+  }
+};
 
 // Real pause state: the global outbound pause stays in force for the whole certification.
 {
@@ -171,11 +185,95 @@ const PDF = Buffer.concat([Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj
   check(status([]) === "unrecorded" && status(null) === "unrecorded", "A command with no recorded steps is 'not recorded', never 'complete'");
   check(status([done], { commandStatus: "in_progress" }) === "in_progress" && status([done], { commandStatus: null }) === "in_progress", "A command that has not finished is in progress");
   check(status([done], { lifecycleState: "review_required", terminalReason: "STATEMENT_PROCESSING_DEFERRED:STATEMENT_QUEUE_PRODUCER_UNAVAILABLE", commandStatus: "in_progress" }) === "manual_review", "A deferred handoff is a manual review");
-  const analysis = (dealId: number | null, analysisStatus: string | null, autoAnalysisEnabled: boolean) => s.deriveAnalysisState({ dealId, analysisStatus, autoAnalysisEnabled });
-  check(analysis(null, null, true) === "held" && analysis(5, "none", false) === "held" && analysis(5, null, false) === "held", "No deal, or automatic analysis off, is 'held' (never queued or complete)");
-  check(analysis(5, "complete", false) === "completed" && analysis(5, "processing", false) === "queued" && analysis(5, "failed", true) === "failed" && analysis(5, "none", true) === "not_started", "Analysis states come only from the deal's recorded status");
+  await section("WC-PV04 pure derivation", async () => {
+    // WC-PV04: analysis is read from this occurrence's OWN evidence. The deal's status is one shared, last-writer-wins value, so it
+    // describes an upload only where that upload queued the work and no later queue attempt has taken it over.
+    const analysis = (over: Partial<AnalysisEvidence> = {}) => s.deriveAnalysisState({
+      dealId: 5, analysisStatus: "none", autoAnalysisEnabled: false, ownStep: "none", ownsDealStatus: false, analyzedThisDocument: false, finishedWithoutSteps: false, ...over,
+    });
+    check(analysis({ dealId: null, ownStep: "queued", ownsDealStatus: true, analysisStatus: "complete" }) === "held" && analysis({ dealId: null, autoAnalysisEnabled: true }) === "held", "With no deal there is nothing to analyse: 'held' for manual review, whatever else is recorded");
+    check(analysis({ ownStep: "held", analysisStatus: "complete" }) === "held" && analysis({ ownStep: "held", analysisStatus: "complete", ownsDealStatus: true, autoAnalysisEnabled: true }) === "held",
+      "An upload whose own analysis step was held is 'held', even when the shared deal status says complete (an earlier upload's result is never its result)");
+    check(analysis({ ownStep: "failed", analysisStatus: "pending", ownsDealStatus: true }) === "not_queued" && analysis({ ownStep: "failed", analysisStatus: "processing", ownsDealStatus: true }) === "not_queued",
+      "A failed enqueue is 'not queued' even though the deal was left 'pending', never 'queued'");
+    check(analysis({ ownStep: "queued", ownsDealStatus: true, analysisStatus: "complete" }) === "completed" && analysis({ ownStep: "queued", ownsDealStatus: true, analysisStatus: "pending" }) === "queued"
+      && analysis({ ownStep: "queued", ownsDealStatus: true, analysisStatus: "processing" }) === "queued" && analysis({ ownStep: "queued", ownsDealStatus: true, analysisStatus: "failed" }) === "failed",
+      "An upload that queued the work and still owns the deal status reports that status (completed, queued or failed)");
+    check(analysis({ ownStep: "queued", ownsDealStatus: true, analysisStatus: "none" }) === "not_recorded" && analysis({ ownStep: "queued", ownsDealStatus: true, analysisStatus: null }) === "not_recorded",
+      "A queued upload whose deal status is blank or reset is 'not recorded', never guessed");
+    check(analysis({ ownStep: "queued", ownsDealStatus: false, analysisStatus: "complete" }) === "not_recorded" && analysis({ ownStep: "queued", ownsDealStatus: false, analysisStatus: "pending" }) === "not_recorded",
+      "A queued upload whose deal status was taken over by a later attempt is 'not recorded' (the status is no longer about it)");
+    check(analysis({ ownStep: "held", analyzedThisDocument: true }) === "completed" && analysis({ ownStep: "queued", ownsDealStatus: false, analyzedThisDocument: true }) === "completed",
+      "A durable analysis-complete record naming this upload's own document makes it 'completed', whoever owns the deal status now");
+    check(analysis({ finishedWithoutSteps: true, analysisStatus: "complete" }) === "not_recorded" && analysis({ finishedWithoutSteps: true, autoAnalysisEnabled: true }) === "not_recorded",
+      "A finished command with no recorded steps and no document-bound record is 'not recorded', even when the deal says complete");
+    check(analysis({ autoAnalysisEnabled: false }) === "held" && analysis({ autoAnalysisEnabled: true }) === "not_started" && analysis({ analysisStatus: "complete" }) === "held",
+      "With no recorded step, the owner switch alone decides held or not started, and the deal status is never borrowed");
+    const stepOf = (state: string) => s.analysisStepOutcome([{ step: 4, name: "File attached", state: "done" }, { step: 5, name: "AI analysis", state } as any]);
+    check(s.analysisStepOutcome([]) === "none" && s.analysisStepOutcome(null) === "none" && s.analysisStepOutcome([{ step: 4, name: "x", state: "done" }]) === "none" && stepOf("held") === "held" && stepOf("failed") === "failed" && stepOf("done") === "queued",
+      "Step 5 is read as held, failed, queued or not recorded");
+    check(JSON.stringify(Object.keys(s.ANALYSIS_LABEL).sort()) === JSON.stringify(["completed", "failed", "held", "not_queued", "not_recorded", "not_started", "queued"])
+      && Object.values(s.ANALYSIS_LABEL).every((label) => label.length > 10) && !/complete/i.test(s.ANALYSIS_LABEL.not_queued) && !/complete/i.test(s.ANALYSIS_LABEL.not_recorded),
+      "Every analysis state has its own label, and neither unqueued nor unrecorded analysis reads as complete");
+  });
   const parsed = readModel.parseStoredChainSteps({ steps: [{ step: 1, name: "ok", state: "done" }, { step: "2", name: "bad", state: "done" }, { step: 3, name: "worse", state: "great" }, null, "x"] });
   check(parsed.length === 1 && readModel.parseStoredChainSteps({}).length === 0 && readModel.parseStoredChainSteps(null).length === 0, "Only well-formed stored steps are read; anything else is 'no recorded steps', never guessed success");
+}
+
+// ── WC-PV02: the server-rendered /get-started says what the hydrated terminal page says ─────────────
+{
+  const { registerSsrRoutes } = await import("../../server/routes/ssr-routes");
+  const ssrApp = express();
+  registerSsrRoutes(ssrApp);
+  const ssrServer = await new Promise<ReturnType<typeof ssrApp.listen>>((resolve) => { const listening = ssrApp.listen(0, "127.0.0.1", () => resolve(listening)); });
+  const ssrBase = `http://127.0.0.1:${(ssrServer.address() as any).port}`;
+  const page = async (query: string) => { const response = await fetch(`${ssrBase}/get-started${query}`); return { status: response.status, html: await response.text(), cache: response.headers.get("cache-control") }; };
+  try {
+    // The behaviour a crawler, link preview or slow-hydration visitor sees, stated with the visitor-facing words only.
+    await section("WC-PV02 terminal first HTML behaviour", async () => {
+      for (const query of ["?offer=free-terminal", "?terminal=yes"]) {
+        const { html } = await page(query);
+        check(html.includes("Let’s review your terminal options.") && !html.includes("Start Accepting Payments with Liberty Bancard"), `The first HTML for /get-started${query} says the hydrated terminal heading, not the application-start heading`);
+        check(!/What You(?:'|&#39;|’)ll Need to Apply|\bEIN\/SSN\b|government-issued/.test(html), `The first HTML for /get-started${query} does not list application prerequisites (EIN/SSN, identity, bank account)`);
+      }
+      check((await page("")).html.includes("Start Accepting Payments with Liberty Bancard") && (await page("?offer=unsupported")).html.includes("Start Accepting Payments with Liberty Bancard"), "A plain or unsupported /get-started keeps the generic first HTML");
+    });
+    await section("WC-PV02 terminal first HTML contract", async () => {
+      const terminalPage = await import("../../shared/public-terminal-inquiry");
+      const page$ = terminalPage.TERMINAL_INQUIRY_PAGE;
+      const GENERIC_ONLY = /Start Accepting Payments with Liberty Bancard|What You(?:'|&#39;|’)ll Need to Apply|EIN\/SSN|Start Your Application/;
+      const intakeStatement = /\bEIN\b|\bSSN\b|government-issued|3 months of processing statements/;
+      for (const query of ["?offer=free-terminal", "?terminal=yes", "?offer=free-terminal&utm_source=cert&utm_campaign=terminal"]) {
+        const { status, html } = await page(query);
+        check(status === 200 && html.includes(`<h1>${page$.heading}</h1>`) && html.includes(page$.body), `The first HTML for /get-started${query.split("&")[0]} carries the terminal inquiry heading and intro`);
+        check(html.includes(`<title>${page$.title} | Liberty Bancard</title>`) && html.includes(page$.description) && html.includes('href="https://libertybancard.com/get-started"'), `/get-started${query.split("&")[0]}: the title, description and canonical agree with the hydrated page`);
+        check(page$.asks.every((ask) => html.includes(ask)) && html.includes(page$.asksNote) && html.includes('href="tel:9542668214"'), `/get-started${query.split("&")[0]}: the first HTML lists what the short inquiry asks, and offers the phone`);
+        check(!GENERIC_ONLY.test(html) && !intakeStatement.test(html.replace(page$.asksNote, "")), `/get-started${query.split("&")[0]}: the first HTML never shows the application-prerequisite list or statement and identity requirements`);
+      }
+      for (const query of ["", "?offer=unsupported", "?offer=free-terminal-evil", "?terminal=no", "?terminal=YES", "?offer="]) {
+        const { status, html } = await page(query);
+        check(status === 200 && html.includes("Start Accepting Payments with Liberty Bancard") && !html.includes(page$.heading) && !html.includes(page$.asksHeading), `/get-started${query || " (no query)"}: an unsupported or absent entrance keeps the generic first HTML`);
+      }
+      const reflected = await page("?terminal=yes&offer=%3Cscript%3Ealert(1)%3C%2Fscript%3E&x=%3Cimg%20src%3Dx%3E");
+      const plain = await page("?terminal=yes");
+      check(reflected.html === plain.html && !/alert\(1\)|<img src=x|%3Cscript/i.test(reflected.html), "Nothing from the query string is reflected into the terminal HTML (it is identical to the plain entrance)");
+      check(terminalPage.readTerminalIntent("?offer=free-terminal").terminal && terminalPage.readTerminalIntent("?terminal=yes").offer === null && !terminalPage.readTerminalIntent("?offer=nope").terminal && !terminalPage.readTerminalIntent("").terminal,
+        "The shared entrance contract selects the terminal inquiry only for the allowlisted offer and terminal=yes");
+      const fs = await import("node:fs");
+      const clientSource = fs.readFileSync(new URL("../../client/src/pages/GetStartedTerminal.tsx", import.meta.url), "utf8");
+      check(/@shared\/public-terminal-inquiry/.test(clientSource) && !clientSource.includes(page$.heading) && !clientSource.includes(page$.title) && !clientSource.includes(page$.body),
+        "The hydrated page takes its heading, title and intro from the same shared contract instead of its own copy");
+    });
+    // WC-PV01: both statement deep links exist in the first HTML, so a crawler, a link preview and the browser's own fragment
+    // resolution all find the form region and a focusable heading before any script runs.
+    await section("WC-PV01 statement anchors in the first HTML", async () => {
+      const html = await (await fetch(`${ssrBase}/upload-statement`)).text();
+      check(/id="statement-review-form"/.test(html) && /id="upload-form"/.test(html), "The first HTML of /upload-statement carries both deep-link targets (#statement-review-form and #upload-form)");
+      check(/<h2[^>]*id="statement-form-heading"[^>]*tabindex="-1"/.test(html), "The first HTML names the form heading and makes it programmatically focusable");
+    });
+  } finally {
+    ssrServer.close();
+  }
 }
 
 // ── Test app: the real public, Lead Ops and boarding routes with real local sign-in ───────────────
@@ -542,8 +640,112 @@ try {
     check(!/protected:\/\/|storage_key|storageKey|statement\.pdf/i.test(JSON.stringify(statementRows)), "The row exposes no storage reference or file name");
   }
 
+  // ── Isolated actors: signed-in people on the public forms, and merchant/partner/affiliate sessions on staff surfaces ───
+  // The public CSRF policy is NOT changed or relaxed here. Every case runs against the real session layer and the real
+  // csrfProtection (mounted by setupAuth), with each actor's own persisted session and token.
+  await section("Signed-in actors: public submissions, CSRF policy and staff-surface refusals", async () => {
+    const actors: Record<string, { cookie: string; id: string; token: string }> = {};
+    const csrfFor = async (cookie: string) => {
+      const response = await fetch(`${url}/api/csrf-token`, { headers: { cookie } });
+      const token = ((await response.json()) as { token: string }).token;
+      const jar = [...cookie.split("; "), ...response.headers.getSetCookie().map((v) => v.split(";")[0])];
+      return { token, cookie: jar.join("; ") };
+    };
+    for (const role of ["admin", "manager", "agent"]) actors[role] = { id: sessions[role].id, ...(await csrfFor(sessions[role].cookie)) };
+    for (const role of ["merchant", "partner", "affiliate"]) {
+      const email = `${randomUUID()}@example.invalid`, id = randomUUID();
+      await pool.query(`INSERT INTO users(id,email,password_hash,role) VALUES($1,$2,$3,$4)`, [id, email, hash, role]);
+      const login = await fetch(`${url}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password }) });
+      assert.equal(login.status, 200, `Real local ${role} sign-in must succeed`);
+      actors[role] = { id, ...(await csrfFor(login.headers.getSetCookie().map((v) => v.split(";")[0]).join("; "))) };
+    }
+    check(Object.keys(actors).length === 6 && new Set(Object.values(actors).map((a) => a.cookie)).size === 6, "Six distinct signed-in actors (admin, manager, agent, merchant, partner, affiliate) each hold their own session and token");
+
+    const signed = async (role: string, method: string, path: string, body: unknown, options: { key?: string; token?: "valid" | "none" | "wrong" } = {}) => {
+      const actor = actors[role];
+      const key = options.key ?? randomUUID();
+      const headers: Record<string, string> = { "content-type": "application/json", cookie: actor.cookie, "x-forwarded-for": ipFor(key), "idempotency-key": key };
+      if ((options.token ?? "valid") === "valid") headers["x-csrf-token"] = actor.token;
+      if (options.token === "wrong") headers["x-csrf-token"] = "0".repeat(actor.token.length);
+      const response = await fetch(`${url}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+      let json: any = null;
+      try { json = await response.json(); } catch { /* non-JSON */ }
+      return { status: response.status, body: json, key };
+    };
+
+    // The public form is a public surface: a person who happens to be signed in, with or without a token, submits exactly the
+    // same single, idempotent, source-labelled request an anonymous visitor does.
+    for (const role of Object.keys(actors)) {
+      for (const mode of ["none", "valid"] as const) {
+        const email = `wc-${tag}-${role}-${mode}@example.com`;
+        const body = { name: `Signed ${role}`, businessName: `Signed ${role} ${mode} ${tag}`, email, issueType: "Funding / Deposits", priority: "Normal", message: "Signed-in public submission." };
+        const sent = await signed(role, "POST", "/api/public/support", body, { token: mode });
+        const row = await requestFor(sent.key);
+        check(sent.status === 201 && /^[0-9A-F]{8}$/.test(sent.body?.reference ?? "") && row?.source_type === "support_form" && row.source_class === supportRequest.source_class && row.manifest_version === supportRequest.manifest_version,
+          `${role} (${mode === "none" ? "no CSRF token" : "valid CSRF token"}): a signed-in support submission is accepted and labelled exactly like an anonymous one`);
+        check(await count(`SELECT count(*) n FROM inbound_requests WHERE idempotency_key=$1`, [sent.key]) === 1
+          && await count(`SELECT count(*) n FROM tickets WHERE contact_id=(SELECT id FROM contacts WHERE lower(email)=lower($1))`, [email]) === 1
+          && await count(`SELECT count(*) n FROM notifications WHERE inbound_request_id=$1`, [row.id]) === 1,
+          `${role} (${mode}): one request, one ticket and one management notification — signing in does not multiply or hide the work`);
+        const replay = await signed(role, "POST", "/api/public/support", body, { key: sent.key, token: mode });
+        check(replay.status === 200 && replay.body?.replayed === true && replay.body?.requestReceipt === sent.body.requestReceipt, `${role} (${mode}): replaying the same key returns the same receipt`);
+        const changed = await signed(role, "POST", "/api/public/support", { ...body, message: "A different message." }, { key: sent.key, token: mode });
+        check(changed.status === 409 && await count(`SELECT count(*) n FROM inbound_requests WHERE idempotency_key=$1`, [sent.key]) === 1, `${role} (${mode}): the same key with a changed payload is still a conflict, never a second submission`);
+      }
+    }
+    const wrongToken = await signed("merchant", "POST", "/api/public/support", { name: "Wrong Token", businessName: `Wrong token ${tag}`, email: `wc-${tag}-wrong-token@example.com`, issueType: "Funding / Deposits", priority: "Normal", message: "A stale token on a public form." }, { token: "wrong" });
+    check(wrongToken.status === 201, "A stale or wrong token on the public form does not block a signed-in visitor (the public route stays outside CSRF)");
+
+    // Negative control: the CSRF layer is live and unchanged for every signed-in actor on a non-public mutation, so the cases
+    // above prove the public exemption rather than a missing middleware. The probe path has no handler; CSRF runs before routing.
+    for (const role of Object.keys(actors)) {
+      const missing = await signed(role, "POST", "/api/csrf-policy-probe", {}, { token: "none" });
+      const wrong = await signed(role, "POST", "/api/csrf-policy-probe", {}, { token: "wrong" });
+      const valid = await signed(role, "POST", "/api/csrf-policy-probe", {}, { token: "valid" });
+      check(missing.status === 403 && missing.body?.code === "csrf_missing" && wrong.status === 403 && wrong.body?.code === "csrf_mismatch" && valid.status === 404,
+        `${role}: a non-public mutation without a token (403 csrf_missing) or with a wrong one (403 csrf_mismatch) is refused, and a valid token passes the CSRF layer (404, no handler)`);
+    }
+    const anonymousProbe = await fetch(`${url}/api/csrf-policy-probe`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    check(anonymousProbe.status === 404, "With no session there is nothing to forge: the same probe is not blocked by CSRF (policy unchanged)");
+
+    // Merchant, partner and affiliate sessions are not staff: every handoff surface refuses them, with a valid token so the
+    // refusal is the role guard and not a CSRF refusal. Nothing is changed by any of these calls.
+    const staffReads = ["/api/lead-ops/inbound-requests", `/api/lead-ops/inbound-requests?ref=${equipment.body.reference}`, "/api/lead-ops/inbound-requests/summary", "/api/operator/statement-chain?limit=5"];
+    for (const role of ["merchant", "partner", "affiliate"]) {
+      const statuses: number[] = [];
+      for (const path of staffReads) statuses.push((await fetch(`${url}${path}`, { headers: { cookie: actors[role].cookie } })).status);
+      check(statuses.every((s) => s === 403), `${role}: the request list, a lookup by reference, the summary and the statement handoff are all refused (${statuses.join(",")})`);
+      const resume = await signed(role, "POST", `/api/lead-ops/inbound-requests/${equipment.body.requestReceipt}/resume`, {});
+      const recovery = await signed(role, "POST", `/api/lead-ops/inbound-requests/${statementA.body.requestReceipt}/statement-recovery`, {});
+      check(resume.status === 403 && recovery.status === 403 && resume.body?.code === undefined, `${role}: resume and statement recovery are refused by the role guard even with a valid token`);
+    }
+    const anonymous = await Promise.all(staffReads.map(async (path) => (await fetch(`${url}${path}`)).status));
+    check(anonymous.every((s) => s === 401), `Without a session every handoff read is refused as unauthenticated (${anonymous.join(",")})`);
+
+    // Management notifications are for admin/manager only: other signed-in people never see them, and the signed-in public
+    // submissions above are not visible to a merchant/partner/affiliate session either.
+    const refsNow = (await pool.query(`SELECT metadata->>'shortRef' AS ref FROM notifications WHERE inbound_request_id IS NOT NULL`)).rows.map((r) => r.ref as string).filter(Boolean);
+    check(refsNow.length >= 12, `The disposable database holds ${refsNow.length} request-bound management notifications to test visibility against`);
+    for (const role of ["agent", "merchant", "partner", "affiliate"]) {
+      const list = (await notificationAuthority.listActorNotifications({ userId: actors[role].id, limit: 300, offset: 0 })).data as any[];
+      check(!list.some((n: any) => refsNow.includes(n.metadata?.shortRef)), `${role}: none of the request-bound management notifications is visible`);
+    }
+    const adminSeen = (await notificationAuthority.listActorNotifications({ userId: actors.admin.id, limit: 300, offset: 0 })).data as any[];
+    check(refsNow.slice(0, 3).every((ref) => adminSeen.some((n: any) => n.metadata?.shortRef === ref)), "Negative control: an admin session does see the same notifications (the checks above can fail)");
+
+    // A session is not a read capability for a public status check: the receipt, the original key and the original caller are still required.
+    const readStatus = async (role: string, key: string | null, ip: string) => {
+      const headers: Record<string, string> = { cookie: actors[role].cookie, "x-forwarded-for": ip };
+      if (key) headers["idempotency-key"] = key;
+      return (await fetch(`${url}/api/public/inbound-requests/${statementA.body.requestReceipt}/status`, { headers })).status;
+    };
+    check(await readStatus("merchant", null, ipFor(stmtKey)) === 404 && await readStatus("partner", randomUUID(), ipFor(stmtKey)) === 404 && await readStatus("admin", stmtKey, "198.51.100.249") === 404,
+      "A merchant, partner or even admin session cannot read another visitor's public status without that visitor's key and caller");
+    check(await readStatus("admin", stmtKey, ipFor(stmtKey)) === 200, "Negative control: the original key from the original caller still reads the bounded status, whoever is signed in");
+  });
+
   // ── Statement handoff read model: fixtures for every state ───────────────
-  const seedStatement = async (label: string, shape: { lifecycle: string; terminal: string | null; command: string | null; steps: any[] | null; dealAnalysis?: string; withDocument?: boolean }) => {
+  const seedStatement = async (label: string, shape: { lifecycle: string; terminal: string | null; command: string | null; steps: any[] | null; dealAnalysis?: string; withDocument?: boolean; sharedDealId?: number; minutesAgo?: number }) => {
     const key = randomUUID();
     const response = await upload({ bytes: PDF, key, email: `wc-${tag}-chain-${label}@example.com`, business: `Chain ${label} ${tag}` });
     assert.equal(response.status, 202, `fixture ${label} accepted`);
@@ -556,30 +758,36 @@ try {
     await pool.query(`UPDATE inbound_requests SET lifecycle_state=$2, terminal_reason=$3 WHERE id=$1`, [request.id, shape.lifecycle, shape.terminal]);
     await pool.query(`UPDATE statement_upload_commands SET status=$2, result=$3::jsonb, document_id=$4 WHERE request_id=$1`,
       [key, shape.command ?? "in_progress", shape.steps === null ? null : JSON.stringify({ steps: shape.steps, allSuccess: !shape.steps.some((s) => s.state === "failed") }), documentId]);
-    if (shape.dealAnalysis) {
+    let dealId: number | null = shape.sharedDealId ?? null;
+    if (shape.dealAnalysis && dealId === null) {
       // The deferred upload has no deal (the chain never ran); the "chain ran" fixtures link one, as the chain would.
-      const dealId = (await pool.query(`INSERT INTO deals (contact_id, pipeline, stage, analysis_status) VALUES ($1,'sales','New Lead',$2) RETURNING id`, [request.contact_id, shape.dealAnalysis])).rows[0].id;
-      await pool.query(`UPDATE inbound_requests SET deal_id=$2 WHERE id=$1`, [request.id, dealId]);
+      dealId = (await pool.query(`INSERT INTO deals (contact_id, pipeline, stage, analysis_status) VALUES ($1,'sales','New Lead',$2) RETURNING id`, [request.contact_id, shape.dealAnalysis])).rows[0].id as number;
     }
-    return { key, request, shortRef: authority.inboundShortRef(request.id), documentId };
+    if (dealId !== null) await pool.query(`UPDATE inbound_requests SET deal_id=$2 WHERE id=$1`, [request.id, dealId]);
+    // Several uploads can share one deal, and which one queued work last decides who owns the deal's shared analysis status.
+    if (shape.minutesAgo !== undefined) await pool.query(`UPDATE inbound_requests SET created_at = now() - make_interval(mins => $2::int) WHERE id=$1`, [request.id, shape.minutesAgo]);
+    return { key, request, shortRef: authority.inboundShortRef(request.id), documentId, dealId };
   };
   const done = (step: number, name: string) => ({ step, name, state: "done" });
   const heldSteps = [done(4, "File attached"), { step: 5, name: "AI analysis held", state: "held", detail: "STATEMENT_AUTO_ANALYSIS_NOT_ENABLED" }, { step: 7, name: "Projection handoff recorded", state: "handed_off" }, { step: 11, name: "Follow-up sequence held", state: "held" }];
   const held = await seedStatement("held", { lifecycle: "accepted", terminal: null, command: "succeeded", steps: heldSteps, withDocument: true });
-  const complete = await seedStatement("complete", { lifecycle: "completed", terminal: null, command: "succeeded", steps: [done(4, "File attached"), done(6, "Rep notified")], dealAnalysis: "complete" });
+  const complete = await seedStatement("complete", { lifecycle: "completed", terminal: null, command: "succeeded", steps: [done(4, "File attached"), done(5, "AI analysis queued"), done(6, "Rep notified")], dealAnalysis: "complete" });
   const failed = await seedStatement("failed", { lifecycle: "accepted", terminal: null, command: "recoverable_failed", steps: [done(4, "File attached"), { step: 8, name: "Pipeline stage set", state: "failed", detail: "Stage change refused" }] });
   const unrecorded = await seedStatement("unrecorded", { lifecycle: "accepted", terminal: null, command: "succeeded", steps: null, dealAnalysis: "none" });
-  const running = await seedStatement("running", { lifecycle: "processing", terminal: null, command: "in_progress", steps: null });
+  const running = await seedStatement("running", { lifecycle: "processing", terminal: null, command: "in_progress", steps: null, dealAnalysis: "none" });
   const deferred = { shortRef: statementARequest ? authority.inboundShortRef(statementARequest.id) : "" };
 
   const model = await readModel.readStatementChain({ limit: 200 });
-  const byRef = new Map(model.rows.map((row) => [row.shortRef, row]));
+  const byRef = new Map<string, any>(model.rows.map((row) => [row.shortRef, row] as [string, any]));
   check(model.scope.limit === 200 && model.scope.returned === model.rows.length && typeof model.asOf === "string" && model.autoAnalysisEnabled === false, "The read model states its window, its as-of time and the analysis setting");
   check(byRef.get(held.shortRef)?.status === "held" && byRef.get(held.shortRef)?.analysis === "held", "A chain with held and handed-off steps is 'held', and analysis is held (never 'complete')");
   check(byRef.get(held.shortRef)?.steps.map((s) => s.state).join(",") === "done,held,handed_off,held" && byRef.get(held.shortRef)?.documentId === held.documentId, "Each step keeps its own state and the retained file is linked");
   check(byRef.get(complete.shortRef)?.status === "complete" && byRef.get(complete.shortRef)?.analysis === "completed", "A chain whose steps all ran, on a deal whose analysis is recorded complete, is 'complete'");
   check(byRef.get(failed.shortRef)?.status === "needs_attention", "A chain with a failed step needs attention");
   check(byRef.get(unrecorded.shortRef)?.status === "unrecorded" && byRef.get(unrecorded.shortRef)?.steps.length === 0, "A command with no recorded steps is 'not recorded', never 'complete'");
+  await section("WC-PV04 historical command", async () => {
+    check(byRef.get(unrecorded.shortRef)?.analysis === "not_recorded", "A historical command with no steps on a deal marked 'none' reports analysis as 'not recorded', not held or completed");
+  });
   check(byRef.get(running.shortRef)?.status === "in_progress", "An unfinished command is in progress");
   check(byRef.get(deferred.shortRef)?.status === "manual_review" && byRef.get(deferred.shortRef)?.diagnostics.terminalReason === "STATEMENT_PROCESSING_DEFERRED:STATEMENT_QUEUE_PRODUCER_UNAVAILABLE", "A deferred statement is a manual review with its sanitised reason");
   const onlyFailures = await readModel.readStatementChain({ limit: 200, failuresOnly: true });
@@ -596,7 +804,7 @@ try {
   await storage.setSystemSetting("statement_auto_analysis_enabled", "true");
   try {
     const plain = await readModel.readStatementChain({ limit: 200 });
-    check(plain.autoAnalysisEnabled === false && plain.rows.find((r) => r.shortRef === unrecorded.shortRef)?.analysis === "held",
+    check(plain.autoAnalysisEnabled === false && plain.rows.find((r) => r.shortRef === running.shortRef)?.analysis === "held",
       "A switch value the chain does not treat as enabled is reported as held, never as 'not started' or 'queued'");
   } finally {
     await storage.setSystemSetting("statement_auto_analysis_enabled", "false");
@@ -605,13 +813,75 @@ try {
   try {
     check(await storage.getSystemSetting("statement_auto_analysis_enabled") === "true", "Fixture: the switch is stored in the form the chain recognises as enabled");
     const enabled = await readModel.readStatementChain({ limit: 200 });
-    const row = enabled.rows.find((r) => r.shortRef === unrecorded.shortRef);
+    const row = enabled.rows.find((r) => r.shortRef === running.shortRef);
     check(enabled.autoAnalysisEnabled === true && row?.analysis === "not_started", "With the owner switch on and nothing recorded, analysis is 'not started' (still never 'complete')");
     check(enabled.rows.find((r) => r.shortRef === held.shortRef)?.analysis === "held" && enabled.rows.find((r) => r.shortRef === complete.shortRef)?.analysis === "completed",
       "With no deal to analyse a held-step chain stays 'held' even when the switch is on; a recorded completion stays 'completed'");
   } finally {
     await storage.setSystemSetting("statement_auto_analysis_enabled", "false");
   }
+
+  // ── WC-PV04: analysis truth is bound to the occurrence, not borrowed from the deal ──────────────────
+  await section("WC-PV04 occurrence-bound analysis", async () => {
+      const queuedSteps = [done(4, "File attached"), done(5, "AI analysis queued"), done(6, "Rep notified")];
+      const failedEnqueueSteps = [done(4, "File attached"), { step: 5, name: "AI analysis queued", state: "failed", detail: "STATEMENT_ANALYSIS_QUEUE_UNAVAILABLE" }, done(6, "Rep notified")];
+      const analysisOf = async (...refs: string[]) => {
+        const chain = await readModel.readStatementChain({ limit: 200 });
+        return Object.fromEntries(refs.map((ref) => [ref, chain.rows.find((row) => row.shortRef === ref)?.analysis]));
+      };
+
+      // Two uploads on one deal: the earlier one's analysis completed; the current one's analysis was held.
+      const earlier = await seedStatement("pv04-earlier", { lifecycle: "completed", terminal: null, command: "succeeded", steps: queuedSteps, dealAnalysis: "complete", withDocument: true, minutesAgo: 90 });
+      const current = await seedStatement("pv04-current", { lifecycle: "accepted", terminal: null, command: "succeeded", steps: heldSteps, withDocument: true, sharedDealId: earlier.dealId!, minutesAgo: 10 });
+      let state = await analysisOf(earlier.shortRef, current.shortRef);
+      check(state[earlier.shortRef] === "completed", "The earlier upload, which queued the work and still owns the deal status, is 'completed'");
+      check(state[current.shortRef] === "held", "The current upload, whose own analysis step was held, is 'held' even though its deal's status says complete");
+      // A completion record for the EARLIER document never makes the current upload's own document 'completed'.
+      await pool.query(`INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, details) VALUES ('statement_analysis_complete','deal',$1,'system',$2::jsonb)`,
+        [earlier.dealId, JSON.stringify({ documentId: earlier.documentId })]);
+      state = await analysisOf(earlier.shortRef, current.shortRef);
+      check(state[earlier.shortRef] === "completed" && state[current.shortRef] === "held", "A completion record naming the earlier document does not complete the current, held upload");
+
+      // The enqueue failed after the deal was set to 'pending': that upload is 'not queued', never 'queued', and it took over the status.
+      const wasQueued = await seedStatement("pv04-wasqueued", { lifecycle: "completed", terminal: null, command: "succeeded", steps: queuedSteps, dealAnalysis: "complete", withDocument: true, minutesAgo: 90 });
+      const unqueued = await seedStatement("pv04-unqueued", { lifecycle: "accepted", terminal: null, command: "recoverable_failed", steps: failedEnqueueSteps, withDocument: true, sharedDealId: wasQueued.dealId!, minutesAgo: 10 });
+      await pool.query(`UPDATE deals SET analysis_status='pending' WHERE id=$1`, [wasQueued.dealId]);
+      state = await analysisOf(wasQueued.shortRef, unqueued.shortRef);
+      check(state[unqueued.shortRef] === "not_queued", "An upload whose enqueue failed after the deal was set to 'pending' is 'not queued', never 'queued'");
+      check(state[wasQueued.shortRef] === "not_recorded", "The earlier upload, whose deal status a later queue attempt overwrote, is 'not recorded' rather than 'queued' or 'completed'");
+
+      // A document-bound completion is the only thing that completes a upload that no longer owns the deal status.
+      const first = await seedStatement("pv04-first", { lifecycle: "completed", terminal: null, command: "succeeded", steps: queuedSteps, dealAnalysis: "processing", withDocument: true, minutesAgo: 90 });
+      const second = await seedStatement("pv04-second", { lifecycle: "accepted", terminal: null, command: "succeeded", steps: queuedSteps, withDocument: true, sharedDealId: first.dealId!, minutesAgo: 30 });
+      const third = await seedStatement("pv04-third", { lifecycle: "accepted", terminal: null, command: "succeeded", steps: heldSteps, withDocument: true, sharedDealId: first.dealId!, minutesAgo: 5 });
+      state = await analysisOf(first.shortRef, second.shortRef, third.shortRef);
+      check(state[first.shortRef] === "not_recorded" && state[second.shortRef] === "queued" && state[third.shortRef] === "held",
+        "Without a completion record the older queued upload is 'not recorded', the newest queue attempt reports the live status, and the held upload stays 'held'");
+      await pool.query(`INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, details) VALUES ('statement_analysis_complete','deal',$1,'system',$2::jsonb)`,
+        [first.dealId, JSON.stringify({ documentId: first.documentId })]);
+      state = await analysisOf(first.shortRef, second.shortRef, third.shortRef);
+      check(state[first.shortRef] === "completed" && state[second.shortRef] === "queued" && state[third.shortRef] === "held",
+        "A completion record that names the first upload's document completes only that upload, not the newer queued or held ones");
+
+      // Historical or missing association: nothing ties any result to the upload, so none is claimed.
+      const historical = await seedStatement("pv04-historical", { lifecycle: "completed", terminal: null, command: "succeeded", steps: null, dealAnalysis: "complete", withDocument: true });
+      const reset = await seedStatement("pv04-reset", { lifecycle: "completed", terminal: null, command: "succeeded", steps: queuedSteps, dealAnalysis: "none", withDocument: true });
+      state = await analysisOf(historical.shortRef, reset.shortRef);
+      check(state[historical.shortRef] === "not_recorded", "A historical upload with no recorded steps on a deal marked complete is 'not recorded', never 'completed'");
+      check(state[reset.shortRef] === "not_recorded", "A queued upload whose deal status was reset to none is 'not recorded'");
+
+      // No deal: held for manual review, whatever the owner switch says.
+      const noDeal = await analysisOf(held.shortRef, deferred.shortRef);
+      check(noDeal[held.shortRef] === "held" && noDeal[deferred.shortRef] === "held", "Uploads with no deal are 'held' for manual review");
+
+      // Both staff consumers read the same per-occurrence answer and carry labels that do not read as complete.
+      for (const [ref, expected] of [[current.shortRef, "held"], [unqueued.shortRef, "not_queued"], [wasQueued.shortRef, "not_recorded"], [first.shortRef, "completed"], [historical.shortRef, "not_recorded"]] as const) {
+        const list = await (await get("admin", `/api/lead-ops/inbound-requests?ref=${ref}`)).json() as any[];
+        const operator = await (await get("admin", "/api/operator/statement-chain?limit=200")).json() as any;
+        check(list[0]?.statement?.available === true && list[0].statement.analysis === expected && operator.rows.find((row: any) => row.shortRef === ref)?.analysis === expected,
+          `Inbound Operations and the handoff view agree that ${ref} analysis is '${expected}'`);
+      }
+    });
 
   // Operator route and document access
   {
@@ -653,5 +923,10 @@ try {
   await pool.end().catch(() => {});
 }
 
+if (sectionFailures.length) {
+  console.error(`\nPublic W-C intake certification FAILED (${checks} checks passed before/around ${sectionFailures.length} failed section(s)):`);
+  for (const failure of sectionFailures) console.error(` - ${failure}`);
+  process.exit(1);
+}
 console.log(`\nPublic W-C intake certification: ${checks} checks passed`);
 process.exit(0);

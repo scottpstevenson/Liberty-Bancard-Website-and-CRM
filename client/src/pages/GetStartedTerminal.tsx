@@ -5,28 +5,24 @@ import { Phone } from "lucide-react";
 import { PHONE_NUMBER, PHONE_TEL } from "@/lib/constants";
 import { trackPhoneCallClick } from "@/lib/analytics";
 import { TerminalInquiryForm } from "@/components/intake/TerminalInquiryForm";
-import { resolveInquiryOffer } from "@shared/public-inquiry";
+import { TERMINAL_INQUIRY_PAGE, TERMINAL_INQUIRY_PATH, readTerminalIntent } from "@shared/public-terminal-inquiry";
 
 /**
  * Terminal-specific eligibility mode of /get-started. It replaces the six-question goal quiz when terminal intent is already
  * known (`?offer=free-terminal` or the compatible `?terminal=yes`). The offer is an allowlisted route value: it only selects a
- * server-owned offer record and is never echoed, stored as a destination, or used to navigate.
+ * server-owned offer record and is never echoed, stored as a destination, or used to navigate. The intent contract and the
+ * page copy live in a shared module so the server-rendered first response says the same thing.
  */
-export function readTerminalIntent(search: string): { terminal: boolean; offer: "free-terminal" | null } {
-  const params = new URLSearchParams(search);
-  const offer = resolveInquiryOffer(params.get("offer"));
-  const terminal = Boolean(offer) || params.get("terminal") === "yes";
-  return { terminal, offer: offer ? "free-terminal" : null };
-}
+export { readTerminalIntent };
 
 export default function GetStartedTerminal({ offer }: { offer: "free-terminal" | null }) {
   return (
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
-        title="Terminal Options for Qualified Merchants"
-        description="Tell us about your business so we can review equipment-program eligibility. Approved processing account required; processing fees and equipment program terms apply."
-        path="/get-started"
-        breadcrumbs={[{ name: "Get Started", path: "/get-started" }]}
+        title={TERMINAL_INQUIRY_PAGE.title}
+        description={TERMINAL_INQUIRY_PAGE.description}
+        path={TERMINAL_INQUIRY_PATH}
+        breadcrumbs={[{ name: "Get Started", path: TERMINAL_INQUIRY_PATH }]}
       />
       <Navbar />
       <main className="marketing-surface flex-grow public-main-offset" data-testid="page-get-started-terminal">
@@ -34,10 +30,10 @@ export default function GetStartedTerminal({ offer }: { offer: "free-terminal" |
           <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-14">
             <div className="accent-rule pt-5">
               <h1 className="public-h1 font-display font-bold text-foreground mb-4" data-testid="text-terminal-inquiry-heading">
-                Let’s review your terminal options.
+                {TERMINAL_INQUIRY_PAGE.heading}
               </h1>
               <p className="text-lg text-muted-foreground leading-relaxed" data-testid="text-terminal-inquiry-body">
-                Tell us about your business so we can review equipment-program eligibility.
+                {TERMINAL_INQUIRY_PAGE.body}
               </p>
             </div>
           </div>
@@ -46,7 +42,7 @@ export default function GetStartedTerminal({ offer }: { offer: "free-terminal" |
           <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
             <TerminalInquiryForm offer={offer} />
             <p className="mt-6 text-center text-sm text-muted-foreground">
-              Prefer to talk it through?{" "}
+              {TERMINAL_INQUIRY_PAGE.phoneLead}{" "}
               <a href={PHONE_TEL} className="inline-flex items-center gap-1 underline" data-testid="link-terminal-inquiry-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/get-started" })}>
                 <Phone className="h-3.5 w-3.5" aria-hidden="true" />
                 {PHONE_NUMBER}

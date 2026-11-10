@@ -186,6 +186,7 @@ export default function Support() {
                               <FormLabel>Your Name</FormLabel>
                               <FormControl>
                                 <Input
+                                  className="public-form-field"
                                   placeholder="Your full name"
                                   data-testid="input-name"
                                   {...field}
@@ -204,6 +205,7 @@ export default function Support() {
                               <FormLabel>Business Name</FormLabel>
                               <FormControl>
                                 <Input
+                                  className="public-form-field"
                                   placeholder="Your business name"
                                   data-testid="input-business-name"
                                   {...field}
@@ -222,6 +224,7 @@ export default function Support() {
                               <FormLabel>Email</FormLabel>
                               <FormControl>
                                 <Input
+                                  className="public-form-field"
                                   type="email"
                                   placeholder="you@business.com"
                                   data-testid="input-email"
@@ -241,6 +244,7 @@ export default function Support() {
                               <FormLabel>Phone (optional)</FormLabel>
                               <FormControl>
                                 <Input
+                                  className="public-form-field"
                                   type="tel"
                                   placeholder="(555) 123-4567"
                                   data-testid="input-mobile"
@@ -265,7 +269,7 @@ export default function Support() {
                                 defaultValue={field.value}
                               >
                                 <FormControl>
-                                  <SelectTrigger data-testid="select-issue-type">
+                                  <SelectTrigger className="public-form-field" data-testid="select-issue-type">
                                     <SelectValue placeholder="Select issue type" />
                                   </SelectTrigger>
                                 </FormControl>
@@ -297,7 +301,7 @@ export default function Support() {
                                 defaultValue={field.value}
                               >
                                 <FormControl>
-                                  <SelectTrigger data-testid="select-priority">
+                                  <SelectTrigger className="public-form-field" data-testid="select-priority">
                                     <SelectValue placeholder="Select priority" />
                                   </SelectTrigger>
                                 </FormControl>
@@ -363,7 +367,7 @@ export default function Support() {
 
                       <Button
                         type="submit"
-                        className="w-full"
+                        className="public-form-action w-full"
                         disabled={intake.submitting}
                         data-testid="button-support-submit"
                       >

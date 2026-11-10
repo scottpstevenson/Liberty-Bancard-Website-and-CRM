@@ -1,21 +1,16 @@
 ---
 name: Public-site verification lessons
-description: Environment limits and baseline failures hit while verifying public-site mobile work (browser ports, WebKit, clean-clone builds, lab perf noise).
+description: Durable environment limits for verifying public-site work here (browser ports, WebKit, clean-clone baselines, lab performance noise, isolated-preview side effects).
 ---
 
-- Chromium in this container cannot open port 6000 (shows connection refused, not an unsafe-port label), and the C1 isolated cloud preview defaults to 6000. Forward it (`node` TCP forwarder started with a background ShellExec, not a `&` subshell) or start the preview with another `--public-port` before any browser or perf evidence. Numbers from an unreachable port look absurdly fast.
-- WebKit/iPhone cannot be exercised here: WebKitGTK 2.50 (`MiniBrowser` + `WebKitWebDriver`) is in the nix store and X display :0 exists, but the web process aborts with `EGL_BAD_PARAMETER` (also with compositing off and Mesa swrast). Three configurations failed; do not spend more time, report NOT EXERCISED. WebKitGTK is not iOS Safari anyway.
-- A clean clone of the pre-change HEAD needs `attached_assets/` copied in before it builds (untracked imports). Use it for before/after baselines; compare suite failures against it before widening scope.
-- Lab LCP/CLS: use 5-run medians, never run builds or suites concurrently, and expect LCP to jump when the largest element changes from the server-streamed first paint to a hydrated image. Single runs vary by seconds under load.
-- Baseline failures unrelated to public-site work: `test-public-route-validation` (stale `GetStarted.tsx` assertions), `test-stage3-b-browser` (contact compose-email click), and a one-off `test-stage3-a-authority` terminal-recommendation flake (`0 !== null`, passes on rerun).
-- `pkill -f <name>` inside a ShellExec whose own command line contains `<name>` kills that shell (exit 143); use `pgrep -f "[n]ame"` style patterns or kill by task id.
+- Chromium in this container cannot open port 6000, and the isolated cloud preview defaults to it. Start the preview on another `--public-port` before collecting any browser or performance evidence; numbers from an unreachable port look absurdly fast.
+- WebKit/iPhone cannot be exercised here (WebKitGTK's web process aborts on EGL in every configuration tried, and it is not iOS Safari anyway). Report it as not exercised instead of retrying.
+- A clean clone of a prior commit needs `attached_assets/` (symlink it, with `node_modules`) before it builds. Use such a clone for before/after baselines and compare suite failures with it before widening scope.
+- Lab LCP/CLS: use 5-run medians, never run builds or suites at the same time, and treat routes that wait for hydration as unstable rather than as before/after evidence. Take the matched baseline/candidate pair back-to-back; later invalid reruns on both are environment, proven by loading the baseline the same way.
+- Server-only SSR routes can serve the SPA shell to non-crawler user agents; check with `curl` byte counts before trusting a browser run.
+- The isolated preview appends a port mapping to `.replit` while it runs. Restore `.replit` and re-read its diff afterward, then rebuild: candidate build identity covers config files, so a later browser suite fails with "inputs changed; rebuild required".
+- Background servers must be started as background tasks (a shell `&` subshell dies when the call returns), and `pkill -f <name>` inside a shell whose own command line contains `<name>` kills that shell; kill by task id instead.
+- Real browser zoom is `privateStage3Browser(..., { zoom })`; never also set device-metrics emulation in that session or the proof becomes emulation again.
 
-**Why:** each cost real time in the public-site mobile work; none is visible in the code.
-**How to apply:** before browser, perf or baseline work on public pages.
-- Isolated preview (`start-stage3-c1-cloud-preview.ts`) must be launched as a ShellExec background task; a `nohup ... &` subshell dies when the call returns. A `git archive` baseline needs `mkdir -p .local/tasks`, a `git init` commit, and symlinks (not copies) of `node_modules`/`attached_assets` (copying 2.3 GB took minutes). Run baseline and candidate on the same port one after the other so no new `.replit` port mapping is added.
-- SSR-only routes (`/alternatives/*`, `/switch-from/*`, some others) can serve the SPA shell to non-crawler user agents in the preview; check with curl byte counts before trusting a browser run. The perf harness reports ~3 KB for server pages because the logo was an inline data URI; check document size separately.
-- The brand logo originals are 3360x697 PNGs (75 KB each); the server shell used to inline both as base64 (~220 KB per server page). Public shells now use the 420 px derivatives (`logo-*-420.png`); keep the originals for emails and dashboards.
-- Lab LCP on routes that wait for hydration of the 560 KB bundle (`/faq`) swings between ~1 s and 12 s run to run on this host; compare baseline and candidate with single-load probes (first paint, LCP element list) before calling a regression, and record such routes as unstable rather than as before/after evidence.
-- The isolated preview appends a `[[ports]]` mapping (6100→3000) to `.replit` while it runs. Restore `.replit` to the base content afterward and re-read `git diff .replit`; then rebuild, because build identity covers `.replit`/config and a later browser suite fails with "inputs changed; rebuild required". A stray `&` start of the preview dies silently; use a background task and kill it by task id.
-- Perf runs that were valid early on the host (LCP ~1 s on hydrated SPA routes) can turn into "page not ready" for both baseline and candidate later (same host, nothing else running). Take the matched baseline/candidate pair back-to-back first, keep the JSON, and treat later invalid reruns as environment, proven by loading the baseline the same way. `/free-smart-terminal` is crawler-only SSR (humans get the SPA); `/support` LCP is over budget in the baseline too.
-- Real browser zoom: `privateStage3Browser(..., { zoom: 2 })` persists Chromium's default zoom (device pixel ratio 2, 720 CSS px with the default window). Never also set `Emulation.setDeviceMetricsOverride` in that session, or the proof is emulation again.
+**Why:** each cost real time and none is visible in the code.
+**How to apply:** before browser, performance or baseline work on public pages.

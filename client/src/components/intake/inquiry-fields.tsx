@@ -129,7 +129,7 @@ export function InquiryTextField({ prefix, name, label, value, onChange, error, 
   return (
     <FieldShell id={`${prefix}-${name}`} label={label} required={required} optional={optional} error={error} help={help}>
       {(aria) => (
-        <Input {...aria} name={name} type={type} value={value} autoComplete={autoComplete} maxLength={maxLength} data-testid={testId ?? `${prefix}-input-${name}`}
+        <Input {...aria} className="public-form-field" name={name} type={type} value={value} autoComplete={autoComplete} maxLength={maxLength} data-testid={testId ?? `${prefix}-input-${name}`}
           onChange={(event) => onChange(event.target.value)} />
       )}
     </FieldShell>
@@ -154,7 +154,7 @@ export function InquirySelectField({ prefix, name, label, value, onChange, optio
     <FieldShell id={`${prefix}-${name}`} label={label} required={required} error={error}>
       {(aria) => (
         <select {...aria} name={name} value={value} data-testid={`${prefix}-select-${name}`}
-          className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-base text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:text-sm"
+          className="public-form-field flex w-full rounded-md border border-input bg-background px-3 py-2 text-base text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:text-sm"
           onChange={(event) => onChange(event.target.value)}>
           <option value="">{placeholder}</option>
           {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}

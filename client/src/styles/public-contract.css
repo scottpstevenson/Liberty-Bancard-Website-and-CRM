@@ -65,6 +65,10 @@
 
   /* CTA height: 48 below the tablet breakpoint, 44 above */
   --public-cta-height: 3rem;
+
+  /* Conversion forms (W-C): primary fields 48, primary actions 52, at every width. Used only by .public-form-* below. */
+  --public-field-height: 3rem;
+  --public-action-height: 3.25rem;
 }
 
 @media (min-width: 640px) {
@@ -238,6 +242,16 @@ a.public-card--brand:hover,
   border-radius: var(--public-radius-control);
   font-size: var(--public-body-size);
   font-weight: 600;
+}
+/* Public conversion-form controls only. Scoped to the public shell so CRM inputs and the base controls stay compact. */
+.marketing-theme .public-form-field {
+  height: var(--public-field-height);
+  min-height: var(--public-field-height);
+}
+/* The doubled class lifts specificity above the phone-width touch-target floor in index.css (44px on .min-h-* buttons), which
+   would otherwise cap a 52px action at 44px below the desktop breakpoint. */
+.marketing-theme .public-form-action.public-form-action:is(button, a) {
+  min-height: var(--public-action-height);
 }
 .marketing-theme .public-cta:focus-visible,
 .marketing-theme a:focus-visible,

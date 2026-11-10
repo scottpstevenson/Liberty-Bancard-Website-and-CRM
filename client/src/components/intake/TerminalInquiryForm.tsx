@@ -151,7 +151,7 @@ export function TerminalInquiryForm({ offer }: { offer: "free-terminal" | null }
 
       {submitError ? <p role="alert" className="text-sm text-destructive" data-testid="terminal-submit-error">{submitError}</p> : null}
 
-      <Button type="submit" size="lg" className="public-cta w-full" disabled={intake.submitting} data-testid="button-terminal-submit">
+      <Button type="submit" size="lg" className="public-cta public-form-action w-full" disabled={intake.submitting} data-testid="button-terminal-submit">
         {intake.submitting ? "Sending your request…" : "Discuss my setup"}
       </Button>
       <p className="text-center text-sm text-muted-foreground">

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { trackStatementUploadStarted, trackStatementUploadFailed } from "@/lib/tracking";
 import { useFormAbandonment } from "@/hooks/use-form-abandonment";
 import { usePublicStatementUpload } from "@/hooks/use-public-intake";
+import { useAnchorTarget } from "@/hooks/use-anchor-target";
 import { STATEMENT_REJECTION_COPY } from "@/lib/public-intake";
 import { SEO, getServiceSchema } from "@/components/SEO";
 import { Link } from "wouter";
@@ -68,6 +69,8 @@ function SampleWorksheet({ testId }: { testId: string }) {
   );
 }
 
+const STATEMENT_FORM_ANCHORS = ["statement-review-form", "upload-form"] as const;
+
 export default function UploadStatement() {
   const containerRef = useScrollReveal();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -77,6 +80,9 @@ export default function UploadStatement() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   // One stable intent per submission: the server's answer (not a timer) decides what the visitor is told.
   const intake = usePublicStatementUpload();
+  // Both fragments mean the form. The page is lazy, so the browser's own fragment scroll misses it; this aligns the form
+  // under the fixed header and focuses its heading after mount, on hash changes and on Back/Forward.
+  const anchor = useAnchorTarget({ aliases: STATEMENT_FORM_ANCHORS, regionId: "statement-review-form", focusId: "statement-form-heading" });
   const uploadSucceeded = intake.state.phase === "saved";
   const isUploading = intake.busy;
   const trackedReceipt = useRef<string | null>(null);
@@ -214,7 +220,7 @@ export default function UploadStatement() {
   };
 
   const unresolvedMessage = (reason: string): string => {
-    if (reason === "restored") return "A previous request in this browser session was not confirmed. Choose your statement and press Request my review again to finish it. It will not create a duplicate.";
+    if (reason === "restored") return "A previous request in this browser session was not confirmed, and it may have been saved. Choose the same statement and press Request my review again to finish it. It will not create a duplicate. Prefer to check first? Call us at 954-266-8214.";
     if (reason === "different_request_pending") return "An earlier request from this session was not confirmed, and it may have been saved. Your changed details or file were not sent. Check the earlier request, call us at 954-266-8214, or start a new request on purpose.";
     if (reason === "mismatch") return "We could not match this browser to the earlier request, so we cannot say whether it was saved. Call us at 954-266-8214 to confirm, or start a new request on purpose.";
     if (reason === "rate_limited") return "Too many submissions — please wait a few minutes and try again.";
@@ -259,6 +265,7 @@ export default function UploadStatement() {
               <p className="mb-6 text-[15px] leading-relaxed text-white/75" data-testid="text-upload-subheadline">{FSR_HERO.sub}</p>
               <a
                 href="#statement-review-form"
+                onClick={anchor.onAnchorClick}
                 data-testid="link-hero-scroll-cta"
                 className="mb-4 flex h-14 w-full items-center justify-center gap-2.5 rounded-2xl bg-white text-base font-extrabold text-[#0d1b2e] shadow-xl transition-all hover:bg-white/95 active:scale-[0.98] sm:max-w-xs"
               >
@@ -282,7 +289,7 @@ export default function UploadStatement() {
                 <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
                   <CheckCircle2 className="h-9 w-9 text-green-600" aria-hidden="true" />
                 </div>
-                <h2 id="statement-form-heading" className="text-2xl font-bold text-gray-900" data-testid="text-success-heading">Request received</h2>
+                <h2 id="statement-form-heading" tabIndex={-1} className="text-2xl font-bold text-gray-900 focus:outline-none" data-testid="text-success-heading">Request received</h2>
                 {intake.state.phase === "saved" && (
                   <>
                     <p className="mx-auto max-w-md text-sm leading-relaxed text-gray-600" data-testid="text-success-body">{FSR_FORM.success}</p>
@@ -314,7 +321,7 @@ export default function UploadStatement() {
                 aria-labelledby="statement-form-heading"
               >
                 <div className="mb-2">
-                  <h2 id="statement-form-heading" className="text-2xl font-bold text-gray-900" data-testid="text-form-title">{FSR_FORM.heading}</h2>
+                  <h2 id="statement-form-heading" tabIndex={-1} className="text-2xl font-bold text-gray-900 focus:outline-none" data-testid="text-form-title">{FSR_FORM.heading}</h2>
                   <p className="mt-1 text-sm text-gray-600">{FSR_FORM.intro}</p>
                 </div>
 
@@ -348,7 +355,7 @@ export default function UploadStatement() {
                       id="statement-choose-file"
                       type="button"
                       variant="outline"
-                      className="min-h-11"
+                      className="public-form-field"
                       onClick={() => fileInputRef.current?.click()}
                       aria-describedby="statement-file-help"
                       data-testid="button-choose-file"
@@ -435,7 +442,7 @@ export default function UploadStatement() {
 
                 <Button
                   type="submit"
-                  className="h-14 w-full rounded-2xl bg-[#0d1b2e] text-base font-bold text-white shadow-lg shadow-gray-900/20 transition-all hover:bg-[#162840] active:scale-[0.98]"
+                  className="public-form-action w-full rounded-2xl bg-[#0d1b2e] text-base font-bold text-white shadow-lg shadow-gray-900/20 transition-all hover:bg-[#162840] active:scale-[0.98]"
                   disabled={isUploading}
                   data-testid="button-upload-submit"
                 >
@@ -540,6 +547,7 @@ export default function UploadStatement() {
             <h2 className="text-2xl font-extrabold leading-tight text-white">{FSR_HERO.heading}</h2>
             <a
               href="#statement-review-form"
+              onClick={anchor.onAnchorClick}
               className="mx-auto flex h-14 w-full max-w-xs items-center justify-center gap-2.5 rounded-2xl bg-white text-base font-extrabold text-[#0d1b2e] shadow-xl transition-all hover:bg-white/95 active:scale-[0.98]"
               data-testid="link-closing-cta"
             >

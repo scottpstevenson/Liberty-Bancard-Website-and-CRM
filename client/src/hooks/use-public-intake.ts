@@ -95,7 +95,10 @@ export function usePublicStatementUpload() {
     if (!stored) return;
     if (stored.state === "saved" && stored.receipt && stored.reference && stored.processing) {
       setState({ phase: "saved", receipt: stored.receipt, reference: stored.reference, processing: stored.processing, restored: true, fresh: false });
-    } else if (stored.state === "unresolved") {
+    } else if (stored.state === "unresolved" || stored.state === "pending") {
+      // A "pending" intent is written before the bytes leave the browser, so a reload during the transfer, or while the
+      // response is awaited, leaves exactly this. The server may or may not have recorded it: it is restored as
+      // unconfirmed, with its original key and any receipt, never discarded and never given a fresh key.
       setState({ phase: "unresolved", receipt: stored.receipt, reason: "restored", restored: true });
     }
   }, []);

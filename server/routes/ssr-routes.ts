@@ -286,10 +286,11 @@ export function registerSsrRoutes(app: Express) {
     res.send(getCompareRatesHtml());
   });
 
-  app.get("/get-started", (_req, res) => {
+  app.get("/get-started", (req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", PAGE_CACHE);
-    res.send(getGetStartedHtml());
+    // The terminal entrance varies by query string, so a shared cache must key on it (it does by default; Vary is not needed).
+    res.send(getGetStartedHtml(req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""));
   });
 
   app.get("/beat-square-stripe", (_req, res) => {

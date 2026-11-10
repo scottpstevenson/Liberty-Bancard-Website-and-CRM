@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { apiRequest, parseApiRequestError, queryClient } from "@/lib/queryClient";
 import { InboundResumeAction } from "@/components/lead-ops/InboundResumeAction";
+import type { AnalysisState } from "@shared/statement-chain-state";
 
 export interface InboundRequestRow {
   requestReceipt: string;
@@ -52,7 +53,7 @@ export interface InboundRequestRow {
   /** Statement rows only. `available: false` means the durable read failed, not that the analysis is held. */
   statement?: {
     available: boolean;
-    analysis: "completed" | "queued" | "failed" | "held" | "not_started" | null;
+    analysis: AnalysisState | null;
     documentId: number | null;
     documentHref: string | null;
     autoAnalysisEnabled: boolean | null;
@@ -247,12 +248,14 @@ function ReceiptLine({ row }: { row: InboundRequestRow }) {
   );
 }
 
-const ANALYSIS_TEXT: Record<string, string> = {
+const ANALYSIS_TEXT: Record<AnalysisState, string> = {
   completed: "Analysis completed",
   queued: "Analysis queued",
   failed: "Analysis failed",
   held: "Automatic analysis held — review the statement manually",
   not_started: "Analysis not started",
+  not_queued: "Analysis could not be queued — review the statement manually",
+  not_recorded: "Analysis result not recorded for this statement",
 };
 
 /** What the requester told us, and where the retained file can be opened. Authorized staff only; no figures are shown. */

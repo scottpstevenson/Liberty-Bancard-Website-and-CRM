@@ -60,24 +60,70 @@ export function toStoredChainSteps(steps: readonly RawChainStep[]): StoredChainS
   });
 }
 
-export type AnalysisState = "completed" | "queued" | "failed" | "held" | "not_started";
+/**
+ * `not_queued`: this upload's own attempt to queue analysis failed (the occurrence needs a person, and it was never queued).
+ * `not_recorded`: no durable evidence ties any analysis result to this upload, so none is claimed in either direction.
+ */
+export type AnalysisState = "completed" | "queued" | "failed" | "held" | "not_started" | "not_queued" | "not_recorded";
+
+/** What the upload chain's own analysis step (step 5) recorded for one occurrence. */
+export type AnalysisStepOutcome = "none" | "held" | "queued" | "failed";
+
+/** Step 5 is the analysis step: held on purpose, queued (done), or failed to queue. Anything else recorded is "none". */
+export function analysisStepOutcome(steps: readonly StoredChainStep[] | null | undefined): AnalysisStepOutcome {
+  const step = steps?.find((candidate) => candidate.step === 5);
+  if (!step) return "none";
+  if (step.state === "held") return "held";
+  if (step.state === "failed") return "failed";
+  return "queued";
+}
+
+export interface AnalysisEvidence {
+  dealId: number | null;
+  /** The deal's single, last-writer-wins analysis status. It describes this upload only through `ownsDealStatus`. */
+  analysisStatus: string | null | undefined;
+  autoAnalysisEnabled: boolean;
+  /** What this occurrence's own command recorded for the analysis step. */
+  ownStep: AnalysisStepOutcome;
+  /** This occurrence's queue attempt is the newest one on its deal that wrote the deal's analysis status. */
+  ownsDealStatus: boolean;
+  /** A durable analysis-complete record names this occurrence's own retained document. */
+  analyzedThisDocument: boolean;
+  /** The command finished but stored no steps (rows from before steps were recorded), so nothing ties analysis to it. */
+  finishedWithoutSteps: boolean;
+}
 
 /**
- * Analysis truth from durable state only: the deal's recorded analysis status and the owner setting. No deal means
- * there is nothing to analyse automatically, and an unset or false setting means automatic analysis is held.
+ * Analysis truth for ONE occurrence, from its own durable evidence. The deal's analysis status is shared by every upload
+ * on that deal, so it is read as this occurrence's status only when this occurrence queued the work and no later queue
+ * attempt has taken the status over; a held or never-queued upload is never reported through an older upload's result,
+ * and a failed enqueue is never reported as queued. With no deal there is nothing to analyse automatically.
  */
-export function deriveAnalysisState(input: { dealId: number | null; analysisStatus: string | null | undefined; autoAnalysisEnabled: boolean }): AnalysisState {
+export function deriveAnalysisState(input: AnalysisEvidence): AnalysisState {
   if (!input.dealId) return "held";
-  switch (input.analysisStatus) {
-    case "complete":
-    case "completed":
-      return "completed";
-    case "pending":
-    case "processing":
-      return "queued";
+  if (input.analyzedThisDocument) return "completed";
+  switch (input.ownStep) {
+    case "held":
+      return "held";
     case "failed":
-      return "failed";
+      return "not_queued";
+    case "queued": {
+      if (!input.ownsDealStatus) return "not_recorded";
+      switch (input.analysisStatus) {
+        case "complete":
+        case "completed":
+          return "completed";
+        case "pending":
+        case "processing":
+          return "queued";
+        case "failed":
+          return "failed";
+        default:
+          return "not_recorded";
+      }
+    }
     default:
+      if (input.finishedWithoutSteps) return "not_recorded";
       return input.autoAnalysisEnabled ? "not_started" : "held";
   }
 }
@@ -88,6 +134,8 @@ export const ANALYSIS_LABEL: Record<AnalysisState, string> = {
   failed: "Analysis failed",
   held: "Automatic analysis held — manual review",
   not_started: "Analysis not started",
+  not_queued: "Analysis could not be queued — manual review",
+  not_recorded: "Analysis result not recorded for this statement",
 };
 
 export type OccurrenceStatus = "in_progress" | "needs_attention" | "manual_review" | "held" | "complete" | "unrecorded";

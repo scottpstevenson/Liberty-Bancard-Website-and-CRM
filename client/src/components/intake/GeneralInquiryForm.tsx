@@ -123,7 +123,7 @@ export function GeneralInquiryForm() {
 
       {submitError ? <p role="alert" className="text-sm text-destructive" data-testid="inquiry-submit-error">{submitError}</p> : null}
 
-      <Button type="submit" size="lg" className="public-cta w-full" disabled={intake.submitting} data-testid="button-inquiry-submit">
+      <Button type="submit" size="lg" className="public-cta public-form-action w-full" disabled={intake.submitting} data-testid="button-inquiry-submit">
         {intake.submitting ? "Sending your inquiry…" : "Send inquiry"}
       </Button>
       <p className="text-center text-sm text-muted-foreground">
