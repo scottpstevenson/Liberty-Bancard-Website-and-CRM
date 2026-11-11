@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ArrowRight, Clock, User, Calendar, Upload } from "lucide-react";
 import { ShareButtons } from "@/components/ShareButtons";
+import { blogDocumentTitle } from "@shared/blog-document-titles";
 import { allBlogPosts, type BlogPost as BlogPostType, type GeneratedBlogPostResponse, dbPostToBlogPost } from "@/lib/all-blog-data";
 import { getFAQSchema, getArticleSchema, getBreadcrumbSchema } from "@/components/SEO";
 import type { BlogSection } from "@/lib/all-blog-data";
@@ -174,7 +175,7 @@ export default function BlogPost() {
   return (
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
-        title={post.title}
+        title={blogDocumentTitle(post.slug, post.title)}
         description={post.metaDescription}
         path={`/blog/${post.slug}`}
         keywords={post.keywords}

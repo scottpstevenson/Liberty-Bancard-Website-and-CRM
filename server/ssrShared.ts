@@ -97,6 +97,11 @@ interface SsrShellOptions {
    * on screen instead of being replaced by the app's not-found page.
    */
   hydrate?: boolean;
+  /**
+   * Robots meta value. Default "index, follow". A "noindex" value (the not-found document) also leaves out the canonical,
+   * hreflang and og:url lines, since a URL that does not exist has no canonical address.
+   */
+  robots?: string;
 }
 
 function escapeHtml(s: string): string {
@@ -195,7 +200,9 @@ export function ssrHtmlShell({
   schemaJsons,
   body,
   hydrate = true,
+  robots = "index, follow",
 }: SsrShellOptions): string {
+  const indexable = !/noindex/i.test(robots);
   const fullCanonical = `${BASE_URL}${canonical}`;
   // Derive a per-page OG image: callers pass an explicit URL, or we generate
   // a programmatic card from the /og/:template/:slug.png route.  Falling back
@@ -225,20 +232,20 @@ export function ssrHtmlShell({
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#071D57" />
-  <meta name="robots" content="index, follow" />
+  <meta name="robots" content="${escapeHtml(robots)}" />
   <title>${safeTitle}</title>
   <meta name="description" content="${safeDescription}" />
   ${keywords ? `<meta name="keywords" content="${escapeHtml(keywords)}" />` : ""}
-  <link rel="canonical" href="${fullCanonical}" />
+  ${indexable ? `<link rel="canonical" href="${fullCanonical}" />
   <link rel="alternate" hreflang="en-US" href="${fullCanonical}" />
-  <link rel="alternate" hreflang="x-default" href="${fullCanonical}" />
+  <link rel="alternate" hreflang="x-default" href="${fullCanonical}" />` : ""}
   <link rel="icon" type="image/png" href="/favicon.png" />
   ${verificationMeta}
 
   <meta property="og:title" content="${safeTitle}" />
   <meta property="og:description" content="${safeDescription}" />
   <meta property="og:type" content="${ogType}" />
-  <meta property="og:url" content="${fullCanonical}" />
+  ${indexable ? `<meta property="og:url" content="${fullCanonical}" />` : ""}
   <meta property="og:image" content="${ogImageUrl}" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
@@ -307,6 +314,23 @@ export function ssrHtmlShell({
     .ssr-hero--light .ssr-btn-outline:hover { background: #f4f6fa; }
     .ssr-hero--light .ssr-breadcrumb, .ssr-hero--light .ssr-breadcrumb a { color: #475569; }
     .ssr-hero-note { margin-top: 1rem; max-width: 28rem; font-size: 0.75rem; color: #475569; }
+
+    /* Not-found document (shared/public-not-found.ts): one centred card with recovery links */
+    .ssr-notfound { background: #f8fafc; padding: 3rem 0 4rem; }
+    .ssr-notfound-card { max-width: 36rem; margin: 0 auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 0.75rem; padding: 2rem 1.5rem; text-align: center; }
+    @media (min-width: 640px) { .ssr-notfound-card { padding: 2.5rem; } }
+    .ssr-notfound-code { font-size: 0.875rem; font-weight: 600; color: #071D57; margin-bottom: 0.5rem; }
+    .ssr-notfound h1 { font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif; font-size: 1.75rem; font-weight: 700; line-height: 1.2; margin-bottom: 0.75rem; }
+    @media (min-width: 640px) { .ssr-notfound h1 { font-size: 2rem; } }
+    .ssr-notfound-message { color: #475569; max-width: 28rem; margin: 0 auto 1.5rem; }
+    .ssr-notfound-home { display: flex; justify-content: center; margin-bottom: 1.75rem; }
+    .ssr-notfound-heading { border-top: 1px solid #e2e8f0; padding-top: 1.25rem; margin-bottom: 0.75rem; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: #475569; }
+    .ssr-notfound-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; list-style: none; }
+    @media (min-width: 640px) { .ssr-notfound-links { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    .ssr-notfound-links a { display: flex; align-items: center; justify-content: center; min-height: 2.75rem; padding: 0.25rem 0.5rem; border-radius: 0.375rem; font-size: 0.875rem; text-align: center; color: #334155; border: 1px solid #e2e8f0; }
+    .ssr-notfound-links a:hover { color: #071D57; background: #f4f6fa; }
+    .ssr-notfound-help { margin-top: 1.5rem; display: flex; flex-wrap: wrap; justify-content: center; gap: 0.25rem 1.25rem; font-size: 0.875rem; }
+    .ssr-notfound-help a { display: inline-flex; align-items: center; min-height: 2.75rem; color: #071D57; text-decoration: underline; }
 
     /* Sections */
     .ssr-section { padding: 4rem 0; }
@@ -384,12 +408,12 @@ export function ssrHtmlShell({
     .ssr-frame picture { position: absolute; inset: 0; display: block; }
     .ssr-frame img { display: block; width: 100%; height: 100%; object-fit: cover; }
     .ssr-hero--home .ssr-hero-inner { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
-    .ssr-hero--home h1 { max-width: 20ch; }
+    .ssr-hero--home h1 { max-width: 20ch; font-family: 'IBM Plex Sans', system-ui, sans-serif; }
     .ssr-h1-first { color: #071D57; }
     .ssr-h1-second { color: #1650b5; }
     .ssr-hero--home .ssr-hero-subtitle { margin-bottom: 1.5rem; }
     .ssr-hero--home .ssr-hero-buttons { flex-direction: column; gap: 0.75rem; max-width: 28rem; }
-    .ssr-hero--home .ssr-hero-buttons a { justify-content: center; width: 100%; }
+    .ssr-hero--home .ssr-hero-buttons a { justify-content: center; width: 100%; max-width: 100%; text-align: center; }
     .ssr-hero-media .ssr-frame { aspect-ratio: 4 / 3; max-width: 36rem; margin: 0 auto; }
     .ssr-md-only { display: none; }
     @media (min-width: 768px) { .ssr-md-only { display: block; } }
@@ -399,7 +423,7 @@ export function ssrHtmlShell({
       .ssr-hero--home { padding: 3.5rem 0; }
       .ssr-hero--home .ssr-hero-inner { grid-template-columns: 1fr 1fr; align-items: center; column-gap: 3.5rem; }
       .ssr-hero--home h1 { max-width: 16ch; }
-      .ssr-hero--home .ssr-hero-buttons { flex-direction: row; max-width: none; }
+      .ssr-hero--home .ssr-hero-buttons { flex-direction: row; flex-wrap: wrap; max-width: none; }
       .ssr-hero--home .ssr-hero-buttons a { width: auto; }
       .ssr-hero-media .ssr-frame { aspect-ratio: 3 / 2; max-width: none; }
     }

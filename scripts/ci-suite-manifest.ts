@@ -1332,10 +1332,10 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "none (HTTP role-gate testing only)",
   },
   {
-    name: "SEO Audit",
+    name: "SEO Audit (every sitemap URL: first HTML, hydrated metadata, crawler and browser representations)",
     script: "scripts/seo-audit.ts",
     capability: "server-required",
-    providerDenial: "none (HTML crawl only)",
+    providerDenial: "none (same-origin GETs of public pages and read-only Chromium navigation; vendor hosts blocked, no submit or provider call)",
   },
   {
     name: "Public Site Derivative Images (committed derivatives match originals, within weight budget)",
@@ -1368,10 +1368,16 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "read-only Chromium probes; vendor chat hosts blocked and never opened, no session created, no submit or provider call",
   },
   {
-    name: "Public Site Server/Hydrated Parity (same title and one h1 before and after hydration)",
+    name: "Public Site Server/Hydrated Parity (same title and one h1 before and after hydration, crawler and browser representations)",
     script: "scripts/check-public-server-hydrated-parity.ts",
     capability: "server-required",
     providerDenial: "read-only Chromium navigation and same-origin GETs of public pages; vendor hosts blocked, no submit or provider call",
+  },
+  {
+    name: "Public Site Visitor Corrections (hero CTA columns, calculator pricing model, application targets, branded 404)",
+    script: "scripts/check-wd-pv-browser.ts",
+    capability: "server-required",
+    providerDenial: "read-only Chromium navigation; types into local calculator and application fields only, never submits; vendor hosts blocked, no provider call",
   },
   {
     name: "Statement Acquisition",

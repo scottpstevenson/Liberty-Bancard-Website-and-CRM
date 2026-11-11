@@ -393,7 +393,7 @@ export const blogPosts7: BlogPost[] = [
     publishedISO: "2025-04-02T08:00:00Z",
     modifiedISO: "2025-04-02T08:00:00Z",
     keywords: "chargeback prevention restaurant, chargeback prevention retail, reduce chargebacks, restaurant chargebacks, retail chargebacks, dispute prevention",
-    metaDescription: "Chargeback prevention strategies for restaurants and retailers. Covers common dispute patterns, prevention tactics, and how to protect your revenue from friendly fraud.",
+    metaDescription: "Chargeback prevention strategies for restaurants and retailers. Covers common dispute patterns, prevention tactics, and protecting your revenue from friendly fraud.",
     content: [
       { type: "paragraph", text: "Chargebacks are a cost of doing business, but they are not an uncontrollable cost. Restaurants and retailers face predictable chargeback patterns, and targeted prevention strategies can significantly reduce dispute rates. This guide focuses on the specific scenarios most common in both industries and exactly what to do about them." },
       { type: "heading", level: 2, text: "Chargeback Patterns for Restaurants" },

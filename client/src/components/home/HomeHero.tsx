@@ -10,8 +10,11 @@ import { HOME_HERO, HOME_HERO_IMAGE } from "@shared/public-home-content";
  * payment-setup inquiry. The merchant photo follows the actions on phones (4:3 crop) and is inset at
  * roughly half the hero width from lg (full 3:2 frame). It is the page's only eager image and its frame
  * owns the aspect ratio at each breakpoint, so nothing shifts when it loads. The two helper lines under
- * the actions appear from md only. Hero copy and CTAs are never animated from opacity 0 (they are the LCP
- * candidate). Wording lives in shared/public-home-content.ts and is shared with the server-rendered Home.
+ * the actions appear from md only. The two actions sit in a wrapping row from lg, so when the copy column is
+ * narrower than both side by side (about 1024-1200 px) the second drops under the first inside the column
+ * instead of running under the photograph. The headline uses IBM Plex Sans (font-body) on purpose: the agreed
+ * hero treatment, overriding the serif that `.marketing-surface h1` gives other public page titles. Hero copy
+ * and CTAs are never animated from opacity 0 (they are the LCP candidate). Wording lives in shared/public-home-content.ts and is shared with the server-rendered Home.
  */
 export function HomeHero() {
   return (
@@ -20,21 +23,21 @@ export function HomeHero() {
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-center lg:gap-x-14">
           <div>
             <p className="public-eyebrow public-eyebrow--brand mb-3" data-testid="text-hero-badge">{HOME_HERO.eyebrow}</p>
-            <h1 className="public-h1 mb-4 max-w-[20ch] lg:max-w-[16ch]" data-testid="text-hero-heading">
+            <h1 className="public-h1 font-body mb-4 max-w-[20ch] lg:max-w-[16ch]" data-testid="text-hero-heading">
               <span className="text-[hsl(var(--liberty-navy))]">{HOME_HERO.headingFirst}</span>{" "}
               <span className="text-[hsl(var(--public-blue-ink))]">{HOME_HERO.headingSecond}</span>
             </h1>
             <p className="public-body public-secondary mb-6 max-w-xl lg:text-lg" data-testid="text-hero-subheadline">
               {HOME_HERO.body}
             </p>
-            <div className="flex flex-col gap-3 sm:max-w-md lg:max-w-none lg:flex-row" data-testid="hero-cta-block">
-              <Button asChild size="lg" className="public-cta public-cta--brand w-full gap-2 lg:w-auto" data-testid="link-hero-explore">
+            <div className="flex flex-col gap-3 sm:max-w-md lg:max-w-none lg:flex-row lg:flex-wrap" data-testid="hero-cta-block">
+              <Button asChild size="lg" className="public-cta public-cta--brand w-full max-w-full gap-2 whitespace-normal text-center lg:w-auto" data-testid="link-hero-explore">
                 <a href={HOME_HERO.primary.href}>
                   {HOME_HERO.primary.label}
                   <ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />
                 </a>
               </Button>
-              <Button asChild size="lg" variant="outline" className="public-cta w-full gap-2 border-border lg:w-auto" data-testid="link-hero-talk">
+              <Button asChild size="lg" variant="outline" className="public-cta w-full max-w-full gap-2 whitespace-normal border-border text-center lg:w-auto" data-testid="link-hero-talk">
                 <Link href={HOME_HERO.secondary.href}>{HOME_HERO.secondary.label}</Link>
               </Button>
             </div>

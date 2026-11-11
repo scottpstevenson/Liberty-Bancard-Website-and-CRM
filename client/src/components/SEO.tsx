@@ -254,7 +254,8 @@ export function SEO({
   ogTemplate,
   article,
 }: SEOProps) {
-  const fullTitle = brandSuffix ? `${title} | Liberty Bancard` : title;
+  // Never double the site name: a caller that already ended its title with it gets the title as written.
+  const fullTitle = brandSuffix && !/\|\s*Liberty Bancard\s*$/i.test(title) ? `${title} | Liberty Bancard` : title;
   const url = path ? `${BASE_URL}${path}` : undefined;
   const canonicalUrl = canonical || url;
 

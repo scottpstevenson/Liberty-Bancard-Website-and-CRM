@@ -7,7 +7,7 @@ import { trackPhoneCallClick } from "@/lib/analytics";
 export default function MerchantPolicies() {
   return (
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
-      <SEO title="Merchant Policies - Chargebacks, Refunds & Cancellation" description="Liberty Bancard merchant policies covering chargeback procedures, dispute resolution, refund policy, and account cancellation." path="/merchant-policies" />
+      <SEO title="Merchant Policies: Chargebacks and Refunds" description="Liberty Bancard merchant policies covering chargeback procedures, dispute resolution, refund policy, and account cancellation." path="/merchant-policies" />
       <Navbar />
       <main className="flex-grow pt-16">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">

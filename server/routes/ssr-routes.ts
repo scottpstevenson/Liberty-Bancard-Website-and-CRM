@@ -1,9 +1,10 @@
-import type { Express } from "express";
+import type { Express, Response } from "express";
 import { getIndustryHtml } from "../ssr/industries";
 import { getCompareHtml } from "../ssr/compare";
 import { getLocationHtml, getCityHubHtml } from "../ssr/locations";
 import { getAreasServedHtml } from "../ssr/areas-served";
 import { getHomeHtml } from "../ssr/home";
+import { getPublicNotFoundHtml } from "../ssr/not-found";
 import { getIndustriesHubHtml } from "../ssr/industries-hub";
 import { getOverviewPageHtml } from "../ssr/overview-pages";
 import { getAboutContactHtml } from "../ssr/about-contact";
@@ -75,8 +76,16 @@ async function getAllBlogPosts(): Promise<BlogPost[]> {
   return [...allBlogPostsServer, ...dbPosts];
 }
 
-function notFoundHtml(title: string, message: string): string {
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${title} | Liberty Bancard</title><style>body{font-family:sans-serif;text-align:center;padding:4rem 2rem;}a{color:#3b82f6;}</style></head><body><h1>${title}</h1><p>${message}</p><p><a href="/">Return Home</a></p></body></html>`;
+/**
+ * Unknown dynamic public URL: send the branded not-found document with a real 404 status. Never a 200 soft 404, never an
+ * empty body, never a redirect to an unrelated page, and the requested path is not echoed into the markup.
+ */
+function sendPublicNotFound(res: Response): void {
+  res.status(404);
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Robots-Tag", "noindex, follow");
+  res.send(getPublicNotFoundHtml());
 }
 
 const today = () => new Date().toISOString().split("T")[0];
@@ -166,7 +175,7 @@ export function registerSsrRoutes(app: Express) {
   app.get("/industries/:slug", (req, res) => {
     // All 14 listed industries have server content (shared/public-industry-content.ts); an unknown slug is a real 404.
     const html = getIndustryHtml(req.params.slug);
-    if (!html) return res.status(404).end();
+    if (!html) return sendPublicNotFound(res);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(html);
@@ -174,7 +183,7 @@ export function registerSsrRoutes(app: Express) {
 
   app.get("/compare/:competitor", (req, res) => {
     const html = getCompareHtml(req.params.competitor);
-    if (!html) return res.status(404).end();
+    if (!html) return sendPublicNotFound(res);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(html);
@@ -188,7 +197,7 @@ export function registerSsrRoutes(app: Express) {
 
   app.get("/locations/:city/:industry", (req, res) => {
     const html = getLocationHtml(req.params.city, req.params.industry);
-    if (!html) return res.status(404).end();
+    if (!html) return sendPublicNotFound(res);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", CITY_CACHE);
     res.send(html);
@@ -196,7 +205,7 @@ export function registerSsrRoutes(app: Express) {
 
   app.get("/locations/:city", (req, res) => {
     const html = getCityHubHtml(req.params.city);
-    if (!html) return res.status(404).end();
+    if (!html) return sendPublicNotFound(res);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(html);
@@ -316,6 +325,9 @@ export function registerSsrRoutes(app: Express) {
   });
 
   app.get("/free-smart-terminal", (req, res, next) => {
+    // The crawler document is publicly cacheable and the browser response is the React shell, so a shared cache must key on
+    // the user agent. res.vary() appends to any existing Vary (for example Origin) and covers the fall-through too.
+    res.vary("User-Agent");
     if (!isCrawler(req.headers["user-agent"])) return next();
     const html = getFreeSmartTerminalHtml();
     res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -354,6 +366,7 @@ export function registerSsrRoutes(app: Express) {
   };
 
   app.get("/blog", async (req, res, next) => {
+    res.vary("User-Agent"); // crawler HTML is publicly cacheable; browsers get the React shell (see /free-smart-terminal)
     if (!isCrawler(req.headers["user-agent"])) {
       return next();
     }
@@ -370,6 +383,7 @@ export function registerSsrRoutes(app: Express) {
   });
 
   app.get("/blog/:slug", async (req, res, next) => {
+    res.vary("User-Agent");
     if (!isCrawler(req.headers["user-agent"])) {
       return next();
     }
@@ -397,8 +411,7 @@ export function registerSsrRoutes(app: Express) {
     const availableSlugs = getAvailableCompetitorSlugs();
 
     if (!availableSlugs.includes(competitor)) {
-      res.status(404).setHeader("Content-Type", "text/html; charset=utf-8");
-      res.send(notFoundHtml("Alternatives Page Not Found", `We don't have an alternatives page for "${competitor}" yet.`));
+      sendPublicNotFound(res);
       return;
     }
 
@@ -413,8 +426,7 @@ export function registerSsrRoutes(app: Express) {
     const availableSlugs = getAvailableCompetitorSlugs();
 
     if (!availableSlugs.includes(competitor)) {
-      res.status(404).setHeader("Content-Type", "text/html; charset=utf-8");
-      res.send(notFoundHtml("Switch-From Page Not Found", `We don't have a switch-from guide for "${competitor}" yet.`));
+      sendPublicNotFound(res);
       return;
     }
 

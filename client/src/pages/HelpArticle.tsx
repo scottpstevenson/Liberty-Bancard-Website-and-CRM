@@ -13,6 +13,12 @@ import {
 } from "@/lib/help-center-data";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 
+/** "<name> - Help Center" with the site name stays within the 70-character title budget; a longer one drops the section label. */
+function helpDocumentTitle(name: string): string {
+  const labelled = `${name} - Help Center`;
+  return `${labelled} | Liberty Bancard`.length > 70 ? name : labelled;
+}
+
 export default function HelpArticle() {
   const params = useParams<{ category: string; slug: string }>();
   const containerRef = useScrollReveal();
@@ -46,7 +52,7 @@ export default function HelpArticle() {
     return (
       <div className="min-h-screen flex flex-col bg-background">
         <SEO
-          title={`${categoryInfo.name} - Help Center`}
+          title={helpDocumentTitle(categoryInfo.name)}
           description={categoryInfo.description}
           path={`/help/${category}`}
           keywords={`${categoryInfo.name.toLowerCase()}, help, support, payment processing`}
@@ -147,7 +153,7 @@ export default function HelpArticle() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <SEO
-        title={`${article.title} - Help Center`}
+        title={helpDocumentTitle(article.title)}
         description={article.summary}
         path={`/help/${category}/${slug}`}
         keywords={article.keywords}

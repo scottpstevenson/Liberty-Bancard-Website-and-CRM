@@ -218,7 +218,7 @@ export function buildTermPageHtml(term: GlossaryTerm, relatedTerms: GlossaryTerm
 }
 
 function buildHubPageHtml(): string {
-  const title = "Payment Processing Glossary — Terms Every Merchant Should Know | Liberty Bancard";
+  const title = "Payment Processing Glossary: Terms Merchants Need | Liberty Bancard";
   const description = `Payment processing glossary with ${glossaryTerms.length} key terms. Learn what interchange fees, chargebacks, merchant accounts and PCI compliance mean for your business.`;
   const canonicalUrl = `${BASE_URL}/learn`;
 

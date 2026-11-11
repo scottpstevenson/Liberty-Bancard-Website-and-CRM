@@ -33,10 +33,12 @@ import { fileURLToPath } from "url";
 import {
   CALC_COPY,
   CALC_LIMITS,
+  CALC_UNKNOWN_LABELS,
   CALC_STRUCTURED_DATA,
   EMPTY_CALC_INPUTS,
   calculateCosts,
   parseCalcField,
+  type CalcFieldId,
   type CalcInputs,
 } from "../shared/public-cost-calculator";
 import {
@@ -54,6 +56,11 @@ import { getAvailableCompetitorSlugs, renderAlternativesHtml, renderSwitchFromHt
 import { glossaryTerms as GLOSSARY_TERMS, getRelatedTerms } from "../server/data/glossary-terms";
 import { buildTermPageHtml, renderGlossaryText } from "../server/routes/glossary";
 import { helpArticles as HELP_ARTICLES } from "../client/src/lib/help-center-data";
+import { allBlogPostsServer } from "../server/ssr/all-blog-posts-server";
+import { allBlogPosts as CLIENT_BLOG_POSTS } from "../client/src/lib/all-blog-data";
+import { BLOG_SHORTER_TITLE_SLUGS, blogDocumentTitle } from "../shared/blog-document-titles";
+import { PUBLIC_NOT_FOUND } from "../shared/public-not-found";
+import { getPublicNotFoundHtml } from "../server/ssr/not-found";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), "utf8");
@@ -107,6 +114,7 @@ const FULL: Partial<CalcInputs> = {
   monthlyVolume: "10000",
   avgTicket: "50",
   currentRate: "3",
+  proposedBasis: "all_in",
   proposedRate: "2",
   proposedPerTransaction: "0.10",
   proposedMonthlyFees: "20",
@@ -135,8 +143,8 @@ passes("zero volume and zero ticket are rejected, zero proposed fee is allowed",
 
 passes("values above each limit are rejected", () => {
   for (const [field, limit] of Object.entries(CALC_LIMITS)) {
-    ensure(parseCalcField(field as keyof CalcInputs, String(limit.max + 1)).kind === "invalid", `${field} accepted above its limit`);
-    ensure(parseCalcField(field as keyof CalcInputs, String(limit.max)).kind === "ok", `${field} rejected at its limit`);
+    ensure(parseCalcField(field as CalcFieldId, String(limit.max + 1)).kind === "invalid", `${field} accepted above its limit`);
+    ensure(parseCalcField(field as CalcFieldId, String(limit.max)).kind === "ok", `${field} rejected at its limit`);
   }
 });
 
@@ -197,12 +205,12 @@ passes("a quote that costs more is reported as higher with a negative difference
 });
 
 passes("an equal quote is reported as the same", () => {
-  const r = calculateCosts(inputs({ monthlyVolume: "1000", avgTicket: "10", currentRate: "2", proposedRate: "2", proposedPerTransaction: "0", proposedMonthlyFees: "0", proposedEquipmentMonthly: "0" }));
+  const r = calculateCosts(inputs({ monthlyVolume: "1000", avgTicket: "10", currentRate: "2", proposedBasis: "all_in", proposedRate: "2", proposedPerTransaction: "0", proposedMonthlyFees: "0", proposedEquipmentMonthly: "0" }));
   ensure(r.status === "ok" && r.direction === "same" && r.monthlyDifferenceUsd === 0, "equal quote not reported as the same");
 });
 
 passes("results at the maximum inputs are finite or rejected, never NaN", () => {
-  const r = calculateCosts(inputs({ monthlyVolume: "1000000000", avgTicket: "0.01", currentRate: "100", proposedRate: "100", proposedPerTransaction: "1000", proposedMonthlyFees: "10000000", proposedEquipmentMonthly: "10000000" }));
+  const r = calculateCosts(inputs({ monthlyVolume: "1000000000", avgTicket: "0.01", currentRate: "100", proposedBasis: "all_in", proposedRate: "100", proposedPerTransaction: "1000", proposedMonthlyFees: "10000000", proposedEquipmentMonthly: "10000000" }));
   if (r.status === "ok") {
     for (const n of [r.currentMonthlyUsd, r.proposedMonthlyUsd, r.monthlyDifferenceUsd, r.annualDifferenceUsd]) ensure(n === null || Number.isFinite(n), "non-finite figure");
   } else {
@@ -229,6 +237,129 @@ passes("the calculator page renders from the shared copy, and /estimate stays a 
   ensure(/rel="canonical" href="https:\/\/libertybancard\.com\/estimate"/.test(estimate), "/estimate is not self-canonical");
   ensure(!estimate.includes(decode(CALC_COPY.h1)), "/estimate duplicates the calculator page");
   ensure((estimate.match(/<h1[\s>]/g) ?? []).length === 1, "/estimate does not have exactly one H1");
+});
+
+// WD-PV02: a quote is a complete cost only on a stated basis. The live defect: 10,000 volume, 50 ticket, 3% current,
+// "0.3% + $0.10" with no fees produced a $50 quote and a $3,000 annual reduction, because an interchange-plus MARKUP
+// was read as the whole cost. These cases are semantic: they fail if any route can total a markup without the
+// card-network costs, not merely if some arithmetic changes.
+const MARKUP_ONLY: Partial<CalcInputs> = {
+  monthlyVolume: "10000",
+  avgTicket: "50",
+  currentRate: "3",
+  proposedRate: "0.3",
+  proposedPerTransaction: "0.10",
+  proposedMonthlyFees: "0",
+  proposedEquipmentMonthly: "0",
+};
+const withheld = (r: ReturnType<typeof calculateCosts>, why: string): void => {
+  ensure(r.status === "ok", `${why}: not ok (${r.status})`);
+  if (r.status !== "ok") return;
+  ensure(
+    r.proposedMonthlyUsd === null && r.monthlyDifferenceUsd === null && r.annualDifferenceUsd === null && r.direction === null && r.proposedEffectiveRatePct === null,
+    `${why}: a total, difference or direction was shown`,
+  );
+};
+
+passes("a markup-only quote (0.3% + $0.10) with no basis chosen shows no total and names the missing basis", () => {
+  const r = calculateCosts(inputs(MARKUP_ONLY));
+  withheld(r, "basis not chosen");
+  if (r.status !== "ok") return;
+  ensure(r.basis === null, "a basis was assumed");
+  ensure(r.unknownLabels.includes(CALC_UNKNOWN_LABELS.basis), "missing basis not named as unknown");
+});
+
+passes("a markup quote with the card-network costs left blank is incomplete, never a $0 network cost", () => {
+  const r = calculateCosts(inputs({ ...MARKUP_ONLY, proposedBasis: "markup" }));
+  withheld(r, "markup without network costs");
+  if (r.status !== "ok") return;
+  ensure(r.basis === "markup", "basis not kept");
+  ensure(r.unknownLabels.length === 1 && r.unknownLabels[0] === CALC_UNKNOWN_LABELS.passThrough, `unknowns: ${r.unknownLabels.join("|")}`);
+  ensure(r.proposedIncludedUsd === 50, "the markup lines themselves are still shown");
+});
+
+passes("a typed zero network cost on a markup quote is rejected, not totalled", () => {
+  const r = calculateCosts(inputs({ ...MARKUP_ONLY, proposedBasis: "markup", proposedPassThrough: "0" }));
+  ensure(r.status === "invalid" && Boolean(r.errors.proposedPassThrough), "a zero network cost produced a result");
+});
+
+passes("a markup quote with the network costs entered totals them once", () => {
+  const r = calculateCosts(inputs({ ...MARKUP_ONLY, proposedBasis: "markup", proposedPassThrough: "180" }));
+  ensure(r.status === "ok", "not ok");
+  if (r.status !== "ok") return;
+  // 0.3% of 10000 = 30; 200 transactions x $0.10 = 20; network costs 180; fees 0; equipment 0 -> 230 against 300
+  ensure(r.proposedMonthlyUsd === 230, `proposed ${r.proposedMonthlyUsd}`);
+  ensure(r.monthlyDifferenceUsd === 70 && r.annualDifferenceUsd === 840, `difference ${r.monthlyDifferenceUsd}/${r.annualDifferenceUsd}`);
+  ensure(r.direction === "lower", "direction");
+});
+
+passes("network costs above the current cost are reported as higher, honestly", () => {
+  const r = calculateCosts(inputs({ ...MARKUP_ONLY, proposedBasis: "markup", proposedPassThrough: "290" }));
+  ensure(r.status === "ok" && r.direction === "higher" && (r.monthlyDifferenceUsd ?? 0) < 0, "a higher quote was hidden or mislabeled");
+});
+
+passes("an all-in rate ignores a stale network-cost entry (no double counting) and a stale invalid one cannot block it", () => {
+  const base = calculateCosts(inputs(FULL));
+  const stale = calculateCosts(inputs({ ...FULL, proposedPassThrough: "500" }));
+  const staleInvalid = calculateCosts(inputs({ ...FULL, proposedPassThrough: "-3" }));
+  ensure(base.status === "ok" && stale.status === "ok" && staleInvalid.status === "ok", "all-in with a stale entry did not calculate");
+  if (base.status !== "ok" || stale.status !== "ok" || staleInvalid.status !== "ok") return;
+  ensure(stale.proposedMonthlyUsd === base.proposedMonthlyUsd && stale.proposedMonthlyUsd === 240, "a network cost was added to an all-in rate");
+  ensure(!stale.proposedLines.some((l) => l.label === CALC_UNKNOWN_LABELS.passThrough), "network line shown for an all-in quote");
+});
+
+passes("tiered, per-category or unsure quotes are never totalled, even with every field typed", () => {
+  const r = calculateCosts(inputs({ ...FULL, proposedBasis: "unsure", proposedPassThrough: "180" }));
+  withheld(r, "unsure basis");
+  if (r.status !== "ok") return;
+  ensure(r.unknownLabels.includes(CALC_UNKNOWN_LABELS.unsure), "unsure basis not named as unknown");
+});
+
+passes("an unrecognized basis is invalid and names the field", () => {
+  const r = calculateCosts(inputs({ ...FULL, proposedBasis: "flat" }));
+  ensure(r.status === "invalid" && Boolean(r.errors.proposedBasis), "unrecognized basis produced a result");
+});
+
+passes("a complete flat-rate example still calculates, and the same numbers cannot skip the basis choice", () => {
+  const chosen = calculateCosts(inputs(FULL));
+  ensure(chosen.status === "ok" && chosen.monthlyDifferenceUsd === 60, "complete all-in example no longer calculates");
+  withheld(calculateCosts(inputs({ ...FULL, proposedBasis: "" })), "the same all-in numbers without a chosen basis");
+});
+
+passes("the shared copy and both renderers explain the markup/pass-through gap", () => {
+  const text = decode(JSON.stringify(CALC_COPY));
+  ensure(/interchange/i.test(text) && /markup/i.test(text) && /incomplete/i.test(text), "shared copy omits the markup, interchange or incomplete explanation");
+  ensure(CALC_COPY.faq.some((f) => /only a markup/i.test(f.question)), "no markup FAQ");
+  const html = decode(stripImages(pageFn("getSavingsCalculatorHtml")()));
+  const interchangeItem = CALC_COPY.why.find((item) => /interchange-plus/i.test(item.title));
+  ensure(Boolean(interchangeItem) && html.includes(decode(interchangeItem!.text)) && /passed through/i.test(html), "server document omits the interchange-plus explanation");
+  const markupFaq = CALC_COPY.faq.find((f) => /only a markup/i.test(f.question));
+  ensure(Boolean(markupFaq) && html.includes(decode(markupFaq!.answer)), "server document omits the markup FAQ answer");
+  const page = read("client/src/pages/SavingsCalculator.tsx");
+  ensure(/CALC_BASIS_COPY/.test(page) && /name="calc-basis"/.test(page) && /type="radio"/.test(page), "React calculator has no pricing-basis choice");
+  ensure(!/checked=\{true\}|defaultChecked/.test(page), "a pricing basis is preselected");
+  ensure(/CALC_BASIS_COPY\.incompleteHeading/.test(page), "React calculator has no comparison-incomplete state");
+});
+
+negative("a calculator that totals a markup quote without the card-network costs", () => {
+  // The defect: 0.3% + $0.10 and no other cost read as a $50 quote and a $3,000 annual reduction.
+  const r = calculateCosts(inputs({ ...MARKUP_ONLY, proposedBasis: "markup" }));
+  ensure(r.status === "ok" && r.annualDifferenceUsd === 3000, "annual $3,000 reduction shown");
+});
+negative("a calculator that totals the same numbers when no basis was chosen", () => {
+  const r = calculateCosts(inputs(MARKUP_ONLY));
+  ensure(r.status === "ok" && r.proposedMonthlyUsd === 50, "$50 quote shown");
+});
+negative("a calculator that preselects an all-in basis", () => {
+  ensure(EMPTY_CALC_INPUTS.proposedBasis === "all_in", "basis is empty");
+});
+negative("a calculator that adds a stale network cost to an all-in rate", () => {
+  const r = calculateCosts(inputs({ ...FULL, proposedPassThrough: "500" }));
+  ensure(r.status === "ok" && r.proposedMonthlyUsd === 740, "not double counted");
+});
+negative("a calculator that treats a typed zero network cost as a complete markup quote", () => {
+  const r = calculateCosts(inputs({ ...MARKUP_ONLY, proposedBasis: "markup", proposedPassThrough: "0" }));
+  ensure(r.status === "ok" && r.annualDifferenceUsd === 3000, "zero accepted");
 });
 
 negative("a calculator that treats blank as zero", () => {
@@ -729,6 +860,193 @@ passes("/blog is listed once: in the core sitemap, not in the blog sitemap", () 
 negative("a blog sitemap that lists /blog again", () => {
   const handler = "xml += `<url><loc>${baseUrl}/blog</loc></url>`;";
   ensure(!/<loc>\$\{baseUrl\}\/blog<\/loc>/.test(handler), "duplicate present");
+});
+
+// ── Provider identity and pricing-model copy (PV09) ──────────────────────────
+
+/** Stale or unsupported statements about the two providers the post-Publish audit named. */
+function providerIdentityProblems(slug: string, html: string, route: "alternatives" | "switch-from" = "alternatives"): string[] {
+  const problems: string[] = [];
+  const text = html.replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<script[\s\S]*?<\/script>/gi, " ");
+  if (slug === "worldpay") {
+    if (/\bFIS\b/.test(text)) problems.push("names FIS as the owner of Worldpay");
+    // The alternatives page states who the provider is; the switch-from page names it only as the provider being left.
+    if (route === "alternatives" && !/Global Payments/.test(text)) problems.push("does not state the current owner (Global Payments)");
+  }
+  if (slug === "gravity-payments") {
+    if (/flat[- ]fee processor/i.test(text)) problems.push("labels Gravity a flat-fee processor");
+    if (/flat monthly fee|monthly flat fee/i.test(text)) problems.push("assumes a monthly flat-fee model");
+    if (/divide your monthly/i.test(text)) problems.push("tells the reader to divide a monthly fee by volume");
+    if (route === "alternatives" && !/flat-rate plan or customized pricing/i.test(text)) problems.push("does not say the pricing model depends on the plan (flat-rate or customized)");
+  }
+  return problems;
+}
+
+passes("Worldpay and Gravity Payments pages state a current owner and a plan-dependent pricing model", () => {
+  for (const slug of ["worldpay", "gravity-payments"]) {
+    for (const [route, render] of [["alternatives", renderAlternativesHtml], ["switch-from", renderSwitchFromHtml]] as const) {
+      const problems = providerIdentityProblems(slug, render(slug), route);
+      ensure(problems.length === 0, `/${route}/${slug}: ${problems.join("; ")}`);
+    }
+  }
+});
+
+passes("the glossary no longer says Worldpay is part of FIS", () => {
+  ensure(!GLOSSARY_TERMS.some((t) => /Worldpay \(FIS\)/.test(`${t.fullDefinition} ${t.shortDefinition} ${t.merchantImpact}`)), "a glossary definition still says Worldpay (FIS)");
+});
+
+negative("a Worldpay page that still names FIS Global", () => {
+  ensure(providerIdentityProblems("worldpay", "<p>Worldpay (FIS Global) is an enterprise processor. Global Payments</p>").length === 0, "FIS present");
+});
+negative("a Worldpay page that omits the current owner", () => {
+  ensure(providerIdentityProblems("worldpay", "<p>Worldpay is an enterprise processor.</p>").length === 0, "owner missing");
+});
+negative("a Gravity page that calls it a flat-fee processor and divides a monthly fee", () => {
+  ensure(providerIdentityProblems("gravity-payments", "<p>Gravity is a flat-fee processor. Divide your monthly flat fee by your monthly card volume. flat-rate plan or customized pricing</p>").length === 0, "model assumption present");
+});
+negative("a Gravity page that never says the model depends on the plan", () => {
+  ensure(providerIdentityProblems("gravity-payments", "<p>Gravity Payments is a processor.</p>").length === 0, "plan qualification missing");
+});
+
+// ── Document titles and descriptions stay inside the SEO budget (PV07) ───────
+
+const TITLE_BUDGET = 70;
+const DESCRIPTION_BUDGET = { min: 100, max: 165 };
+const decodeEntities = (t: string): string => t.replace(/&amp;/g, "&").replace(/&#0*39;|&#x27;/gi, "'").replace(/&quot;/g, '"').replace(/\s+/g, " ").trim();
+const titleOf = (html: string): string => decodeEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "");
+const descriptionOf = (html: string): string => decodeEntities(html.match(/<meta\s+name="description"\s+content="([^"]*)"/i)?.[1] ?? "");
+
+passes("every alternatives and switch-from page has a title of at most 70 characters, brand included", () => {
+  const over: string[] = [];
+  for (const slug of getAvailableCompetitorSlugs()) {
+    for (const [route, render] of [["alternatives", renderAlternativesHtml], ["switch-from", renderSwitchFromHtml]] as const) {
+      const title = titleOf(render(slug));
+      if (title.length > TITLE_BUDGET || title.length < 30) over.push(`/${route}/${slug} (${title.length}) "${title}"`);
+    }
+  }
+  ensure(over.length === 0, over.join("; "));
+});
+
+passes("every alternatives and switch-from page carries a social image like the other server-rendered pages", () => {
+  const missing: string[] = [];
+  for (const slug of getAvailableCompetitorSlugs()) {
+    for (const [route, render] of [["alternatives", renderAlternativesHtml], ["switch-from", renderSwitchFromHtml]] as const) {
+      const html = render(slug);
+      if (!new RegExp(`property="og:image" content="https://libertybancard\\.com/og/default/${route}-${slug}\\.png"`).test(html)) missing.push(`/${route}/${slug}`);
+      if (!/name="twitter:image"/.test(html)) missing.push(`/${route}/${slug} (twitter:image)`);
+    }
+  }
+  ensure(missing.length === 0, missing.join("; "));
+});
+
+passes("every glossary term page and the hub fit the title and description budget", () => {
+  const problems: string[] = [];
+  for (const term of GLOSSARY_TERMS) {
+    const html = buildTermPageHtml(term as (typeof GLOSSARY_TERMS)[number], getRelatedTerms(term.slug));
+    const title = titleOf(html);
+    const description = descriptionOf(html);
+    if (title.length > TITLE_BUDGET) problems.push(`/learn/${term.slug} title ${title.length}`);
+    if (description.length < DESCRIPTION_BUDGET.min || description.length > DESCRIPTION_BUDGET.max) problems.push(`/learn/${term.slug} description ${description.length}`);
+  }
+  const hub = read("server/routes/glossary.ts").match(/function buildHubPageHtml\(\): string \{\s*const title = "([^"]+)"/)?.[1] ?? "";
+  if (hub.length === 0 || hub.length > TITLE_BUDGET) problems.push(`/learn hub title ${hub.length}`);
+  ensure(problems.length === 0, problems.join("; "));
+});
+
+passes("every blog post has a document title of at most 70 characters, and the server and the React page agree on it and on the headline", () => {
+  const problems: string[] = [];
+  const clientBySlug = new Map(CLIENT_BLOG_POSTS.map((p) => [p.slug, p]));
+  for (const post of allBlogPostsServer) {
+    const document = blogDocumentTitle(post.slug, post.title);
+    if (document.length > TITLE_BUDGET) problems.push(`${post.slug} document title ${document.length}`);
+    if (post.metaDescription.length > DESCRIPTION_BUDGET.max || post.metaDescription.length < DESCRIPTION_BUDGET.min) problems.push(`${post.slug} description ${post.metaDescription.length}`);
+    const client = clientBySlug.get(post.slug);
+    if (!client) problems.push(`${post.slug} has no React page data`);
+    else {
+      if (client.title !== post.title) problems.push(`${post.slug} headline differs: server "${post.title}" vs React "${client.title}"`);
+      if (client.metaDescription !== post.metaDescription) problems.push(`${post.slug} description differs between server and React`);
+    }
+  }
+  ensure(problems.length === 0, problems.join("; "));
+  const source = read("client/src/pages/BlogPost.tsx");
+  ensure(/blogDocumentTitle\(post\.slug, post\.title\)/.test(source), "the React blog page does not use the shared document title");
+  ensure(/blogDocumentTitle\(post\.slug, post\.title\)/.test(read("server/ssr/blog-ssr-data.ts")), "the server blog renderer does not use the shared document title");
+  ensure(BLOG_SHORTER_TITLE_SLUGS.length > 0, "no blog post has a shorter document title");
+});
+
+passes("the client SEO component never doubles the site name", () => {
+  ensure(/!\/\\\|\\s\*Liberty Bancard\\s\*\$\/i\.test\(title\)/.test(read("client/src/components/SEO.tsx")), "the doubled-suffix guard is missing from SEO.tsx");
+});
+
+negative("a competitor page whose title is 78 characters", () => {
+  ensure(titleOf(`<title>${"Before You Switch From Shopify Payments: Agreement Questions | Liberty Bancard"}</title>`).length <= TITLE_BUDGET, "title over budget");
+});
+negative("a blog post whose headline plus suffix is 92 characters and has no shorter document title", () => {
+  ensure(blogDocumentTitle("an-unlisted-slug", "Interchange Plus Pricing vs. Flat Rate: Which Is Better for Your Business?").length <= TITLE_BUDGET, "title over budget");
+});
+negative("a glossary description of 176 characters", () => {
+  ensure("x".repeat(176).length <= DESCRIPTION_BUDGET.max, "description over budget");
+});
+negative("a blog headline that differs between the server and the React page", () => {
+  ensure("How to Switch Payment Processors Without Disrupting Your Business" === "How to Switch Payment Processors Without Downtime", "headline differs");
+});
+negative("a competitor page with no social image", () => {
+  ensure(/property="og:image"/.test("<head><title>x</title></head>"), "og:image missing");
+});
+
+// ── Cached representations of the user-agent branched pages (PV05) ───────────
+
+passes("the pages that answer crawlers and browsers differently vary on User-Agent", () => {
+  const route = read("server/routes/ssr-routes.ts");
+  for (const pathName of ['app.get("/free-smart-terminal"', 'app.get("/blog"', 'app.get("/blog/:slug"']) {
+    const start = route.indexOf(pathName);
+    ensure(start > 0, `${pathName} handler not found`);
+    const handler = route.slice(start, route.indexOf("\n  });", start));
+    ensure(/res\.vary\("User-Agent"\)/.test(handler), `${pathName} does not call res.vary("User-Agent")`);
+    ensure(handler.indexOf('res.vary("User-Agent")') < handler.indexOf("isCrawler("), `${pathName} varies only after it has branched on the user agent`);
+  }
+  const branching = [...route.matchAll(/isCrawler\(req/g)].length;
+  ensure(branching === 3, `${branching} user-agent branches found (expected the three handlers above); a new one needs its own Vary`);
+});
+
+negative("a user-agent branched handler with no Vary header", () => {
+  const handler = 'app.get("/blog", async (req, res, next) => { if (!isCrawler(req.headers["user-agent"])) return next(); });';
+  ensure(/res\.vary\("User-Agent"\)/.test(handler), "Vary missing");
+});
+
+// ── Branded not-found page (PV06) ────────────────────────────────────────────
+
+passes("the unknown-URL document is a branded page with a heading, recovery links and no index, shared with the React page", () => {
+  const html = getPublicNotFoundHtml();
+  ensure((html.match(/<h1[\s>]/g) ?? []).length === 1, "the not-found document must have exactly one h1");
+  ensure(html.includes(PUBLIC_NOT_FOUND.title) || html.includes(PUBLIC_NOT_FOUND.title.replace(/'/g, "&#39;")), "the shared headline is not in the server document");
+  for (const link of PUBLIC_NOT_FOUND.links) ensure(html.includes(`href="${link.href}"`), `recovery link ${link.href} missing`);
+  ensure(/<meta name="robots" content="[^"]*noindex/i.test(html), "the not-found document is not noindex");
+  ensure(!/rel="canonical"/i.test(html), "a not-found document must not declare a canonical URL");
+  ensure(!/<script[^>]+type="module"/i.test(html) && !/<script[^>]+src="[^"]*\/(assets|src)\//i.test(html), "the not-found document must not load the React client bundle");
+  ensure(/ssr-navbar/.test(html) && /ssr-footer|<footer/.test(html), "the shared header and footer are missing");
+  ensure(/@shared\/public-not-found/.test(read("client/src/pages/not-found.tsx")), "the React not-found page does not read the shared copy");
+});
+
+passes("unknown dynamic public URLs answer with a real 404 through one helper, never an empty body, a redirect or a reflected path", () => {
+  const route = read("server/routes/ssr-routes.ts");
+  ensure(!/status\(404\)\.end\(\)/.test(route), 'a route still sends status(404).end()');
+  ensure(!/notFoundHtml\s*\(/.test(route), "the old reflected-path notFoundHtml helper is still present");
+  const helper = route.slice(route.indexOf("function sendPublicNotFound"), route.indexOf("const today"));
+  ensure(/res\.status\(404\)/.test(helper) && /no-store/.test(helper) && /noindex/.test(helper), "the helper does not send 404 + no-store + noindex");
+  ensure(!/req\.|path/.test(helper.replace(/Express|isn't/g, "")), "the helper reads the request path");
+  for (const marker of ['"/industries/:slug"', '"/compare/:competitor"', '"/alternatives/:competitor"', '"/switch-from/:competitor"']) {
+    const start = route.indexOf(`app.get(${marker}`);
+    ensure(start > 0, `${marker} handler not found`);
+    ensure(/sendPublicNotFound\(res\)/.test(route.slice(start, start + 900)), `${marker} does not use sendPublicNotFound`);
+  }
+});
+
+negative("a not-found document with a canonical URL and no noindex", () => {
+  ensure(!/rel="canonical"/.test('<link rel="canonical" href="https://libertybancard.com/x">') && /noindex/.test("<meta name=\"robots\" content=\"index\">"), "indexable");
+});
+negative("a handler that ends an unknown URL with an empty 404 body", () => {
+  ensure(!/status\(404\)\.end\(\)/.test("if (!ok) return res.status(404).end();"), "empty 404 present");
 });
 
 // ── Report ───────────────────────────────────────────────────────────────────

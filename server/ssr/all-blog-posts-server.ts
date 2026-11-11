@@ -45,7 +45,7 @@ const blogPosts: BlogPost[] = [
   },
   {
     slug: "how-to-switch-payment-processors",
-    title: "How to Switch Payment Processors Without Disrupting Your Business",
+    title: "How to Switch Payment Processors Without Downtime",
     excerpt: "Switching payment processors is simpler than most merchants think. Here's a step-by-step guide to making the switch safely, with minimal downtime and no revenue disruption.",
     category: "Education",
     author: "Liberty Bancard Team",
@@ -54,7 +54,7 @@ const blogPosts: BlogPost[] = [
     publishedISO: "2025-02-10T08:00:00Z",
     modifiedISO: "2025-02-10T08:00:00Z",
     keywords: "how to switch payment processors, change payment processor, switch merchant account, switching processing company",
-    metaDescription: "Learn how to switch payment processors safely and without business disruption. Step-by-step guide for merchants ready to reduce processing costs.",
+    metaDescription: "Step-by-step guide to switching payment processors without downtime. Learn about contracts, equipment, timelines, and how to ensure a smooth transition.",
     content: [
       { type: "paragraph", text: "Fear of disruption keeps many merchants stuck with processors who overcharge them. The reality: switching payment processors is a routine process that most businesses complete without a single missed transaction." },
       { type: "heading", level: 2, text: "Step 1: Know Your Current Contract" },
@@ -74,7 +74,7 @@ const blogPosts: BlogPost[] = [
   },
   {
     slug: "interchange-plus-vs-flat-rate",
-    title: "Interchange Plus vs Flat Rate Pricing: A Complete Guide",
+    title: "Interchange Plus vs Flat Rate: Which Saves More?",
     excerpt: "The pricing model you choose determines how much you pay on every transaction. Here is a plain-English explanation of interchange-plus vs flat-rate and which is right for your business.",
     category: "Pricing",
     author: "Liberty Bancard Team",
@@ -83,7 +83,7 @@ const blogPosts: BlogPost[] = [
     publishedISO: "2025-02-20T08:00:00Z",
     modifiedISO: "2025-02-20T08:00:00Z",
     keywords: "interchange plus vs flat rate, interchange plus pricing explained, flat rate processing, pricing model comparison",
-    metaDescription: "Interchange plus vs flat rate payment processing: understand both models, compare costs, and find out which saves your business more money.",
+    metaDescription: "Compare interchange-plus vs flat-rate payment processing. See real cost breakdowns by volume to find which pricing model saves your business the most.",
     content: [
       { type: "paragraph", text: "The two most common payment processing pricing models are interchange-plus and flat-rate. The model you choose has a bigger impact on your processing costs than almost any other decision." },
       { type: "heading", level: 2, text: "Flat-Rate Pricing" },
@@ -106,7 +106,7 @@ const blogPosts: BlogPost[] = [
     publishedISO: "2025-03-01T08:00:00Z",
     modifiedISO: "2025-03-01T08:00:00Z",
     keywords: "cash discount program, surcharging, cash discount vs surcharge, 0% processing program",
-    metaDescription: "Cash discount vs surcharging: understand the key differences, legal requirements, and which program is right for your business type.",
+    metaDescription: "Understand the difference between cash discount and surcharging programs. Learn which option is right for your business and the legal requirements for each.",
     content: [
       { type: "paragraph", text: "Cash discount programs and surcharging are two ways to offset credit card processing costs, but they work very differently and have different legal requirements." },
       { type: "heading", level: 2, text: "Cash Discount Programs" },
@@ -419,7 +419,7 @@ const blogPosts7: BlogPost[] = [
     publishedISO: "2025-04-02T08:00:00Z",
     modifiedISO: "2025-04-02T08:00:00Z",
     keywords: "chargeback prevention restaurant, chargeback prevention retail, reduce chargebacks, restaurant chargebacks",
-    metaDescription: "Chargeback prevention strategies for restaurants and retailers. Covers common dispute patterns, prevention tactics, and how to protect your revenue from friendly fraud.",
+    metaDescription: "Chargeback prevention strategies for restaurants and retailers. Covers common dispute patterns, prevention tactics, and protecting your revenue from friendly fraud.",
     content: [
       { type: "paragraph", text: "Chargebacks are a cost of doing business, but they are not uncontrollable. Restaurants and retailers face predictable patterns, and targeted prevention strategies can significantly reduce dispute rates." },
       { type: "heading", level: 2, text: "Restaurant Chargeback Patterns" },

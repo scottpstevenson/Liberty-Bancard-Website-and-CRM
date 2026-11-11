@@ -71,8 +71,8 @@ const CATEGORY_NOTES: Record<string, string> = {
     "Compare the term, renewal and notice provisions with any early termination fee, and ask for pricing in a form you can compare line by line.",
   "Large Payment Processor":
     "Compare the processing agreement and any separate equipment agreement, and ask for pricing in a form you can compare line by line.",
-  "Flat-Fee Processor":
-    "A flat monthly fee model and a percentage markup cost different amounts at different volumes. Work out both at your own monthly volume.",
+  "Flat-Rate or Custom-Priced Processor":
+    "Some providers offer a flat-rate plan or customized pricing, and which one applies depends on the plan you signed. Ask which model your agreement uses, then compare its written fee lines with the three groups of charges on an interchange-plus statement.",
 };
 
 const competitorInfo: Record<string, CompetitorInfo> = {
@@ -213,7 +213,7 @@ const competitorInfo: Record<string, CompetitorInfo> = {
   },
   worldpay: {
     name: "Worldpay",
-    fullName: "Worldpay (FIS Global)",
+    fullName: "Worldpay (a Global Payments company)",
     slug: "worldpay",
     category: "Enterprise Payment Processor",
     fitExtras: ["Ask for the full list of fee lines on your statement and what each one pays for."],
@@ -241,8 +241,8 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     name: "Gravity Payments",
     fullName: "Gravity Payments",
     slug: "gravity-payments",
-    category: "Flat-Fee Processor",
-    fitExtras: ["Divide your monthly flat fee by your monthly card volume and compare the result with a percentage markup."],
+    category: "Flat-Rate or Custom-Priced Processor",
+    fitExtras: ["Ask which pricing plan your agreement uses and which fee lines it lists, then total them at your own monthly volume before comparing."],
     agreementExtras: ["What does the agreement say about ending service, and are any fees owed on closing?"],
     relatedIndustries: [{ name: "Retail Payment Processing", slug: "retail-payment-processing" }],
     relatedGlossary: [
@@ -269,6 +269,8 @@ function listHtml(items: string[], className = "reason-list"): string {
 
 function pageHead(opts: { title: string; description: string; path: string; schemas: unknown[]; extraStyle?: string }): string {
   const url = `https://libertybancard.com${opts.path}`;
+  // Same programmatic social card the other server-rendered pages use (see ssrShared.ts): /og/default/<path-with-dashes>.png.
+  const ogImage = `https://libertybancard.com/og/default/${encodeURIComponent(opts.path.replace(/^\//, "").replace(/\//g, "-") || "home")}.png`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -278,7 +280,15 @@ function pageHead(opts: { title: string; description: string; path: string; sche
 <meta name="description" content="${escHtml(opts.description)}">
 <meta property="og:title" content="${escHtml(opts.title)}">
 <meta property="og:description" content="${escHtml(opts.description)}">
+<meta property="og:type" content="website">
 <meta property="og:url" content="${url}">
+<meta property="og:image" content="${ogImage}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${escHtml(opts.title)}">
+<meta name="twitter:description" content="${escHtml(opts.description)}">
+<meta name="twitter:image" content="${ogImage}">
 <link rel="canonical" href="${url}">
 ${opts.schemas.map((schema) => `<script type="application/ld+json">${serializeJsonLd(schema)}</script>`).join("\n")}
 ${sharedStyles()}
@@ -343,7 +353,7 @@ ${ssrNavbar()}
 <main class="page-body">
 <section class="content-section">
 <h2>What to Compare</h2>
-<p>${escHtml(name)} (${escHtml(info.fullName)}) is a ${escHtml(info.category.toLowerCase())}. Whatever you are comparing it with, these are the points that decide the cost and the fit:</p>
+<p>${escHtml(info.fullName.startsWith(name) ? info.fullName : `${name} (${info.fullName})`)}: ${escHtml(info.category)}. Whatever you are comparing it with, these are the points that decide the cost and the fit:</p>
 ${listHtml(criteria)}
 ${categoryNote ? `<p>${escHtml(categoryNote)}</p>` : ""}
 </section>
@@ -412,7 +422,7 @@ export function renderSwitchFromHtml(competitorSlug: string): string {
     .join("\n");
 
   return `${pageHead({
-    title: `Before You Switch From ${name}: Agreement Questions | Liberty Bancard`,
+    title: `Switching From ${name}: Agreement Questions | Liberty Bancard`,
     description: `Questions to answer from your ${name} agreement before changing processors: term, notice, early termination, equipment and your records.`,
     path: `/switch-from/${info.slug}`,
     schemas: [breadcrumbSchema],

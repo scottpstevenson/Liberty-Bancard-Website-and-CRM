@@ -1,4 +1,5 @@
 import { ssrHtmlShell } from "../ssrShared";
+import { blogDocumentTitle } from "../../shared/blog-document-titles";
 
 export interface BlogSection {
   type: "paragraph" | "heading" | "list" | "cta" | "quote";
@@ -151,7 +152,7 @@ ${faqsHtml}
   ${blogConversionCta()}`;
 
   return ssrHtmlShell({
-    title: `${post.title} | Liberty Bancard`,
+    title: blogDocumentTitle(post.slug, post.title),
     description: post.metaDescription,
     canonical: `/blog/${post.slug}`,
     keywords: post.keywords,
@@ -217,7 +218,8 @@ ${postCardsHtml}
   ${blogConversionCta()}`;
 
   return ssrHtmlShell({
-    title: "Payment Processing Blog | Liberty Bancard",
+    // Same title the React blog page sets (client/src/pages/Blog.tsx), so a crawler and a visitor see one title.
+    title: "Blog - Payment Processing Insights | Liberty Bancard",
     description: "Expert guides on credit card processing fees, interchange rates, chargebacks, and how to reduce your merchant processing costs.",
     canonical: "/blog",
     ogImage: "https://libertybancard.com/og/blog/index.svg",

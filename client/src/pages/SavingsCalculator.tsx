@@ -28,11 +28,14 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
+  CALC_BASIS_COPY,
   CALC_COPY,
   CALC_PATH,
   CALC_STRUCTURED_DATA,
   EMPTY_CALC_INPUTS,
   calculateCosts,
+  type CalcBasis,
+  type CalcErrors,
   type CalcFieldId,
   type CalcInputs,
 } from "@shared/public-cost-calculator";
@@ -55,12 +58,22 @@ const CURRENT_FIELDS: FieldSpec[] = [
   { id: "currentRate", label: "Current effective rate (%)", hint: "Total monthly fees divided by monthly card volume", placeholder: "e.g. 3.2", prefix: "%", step: "0.01" },
 ];
 
-const PROPOSED_FIELDS: FieldSpec[] = [
-  { id: "proposedRate", label: "Percentage rate (%)", hint: "The rate on the quote. Enter 0 if it states none", placeholder: "e.g. 2.4", prefix: "%", step: "0.01" },
-  { id: "proposedPerTransaction", label: "Per-transaction fee ($)", hint: "Per authorization or transaction. Enter 0 if none", placeholder: "e.g. 0.10", prefix: "$", step: "0.01" },
-  { id: "proposedMonthlyFees", label: "Monthly and recurring fees ($)", hint: "Statement, gateway, PCI and similar fees. Enter 0 if none", placeholder: "e.g. 25", prefix: "$" },
-  { id: "proposedEquipmentMonthly", label: "Equipment charges per month ($)", hint: "Lease or rental. Enter 0 if none", placeholder: "e.g. 0", prefix: "$" },
-];
+/** The quote fields change with the chosen basis; a markup quote also needs the card-network costs. */
+function proposedFields(basis: CalcBasis | ""): FieldSpec[] {
+  const wording = basis === "markup" ? "markup" : "all_in";
+  const fields: FieldSpec[] = [
+    { id: "proposedRate", ...CALC_BASIS_COPY.percentage[wording], placeholder: basis === "markup" ? "e.g. 0.3" : "e.g. 2.4", prefix: "%", step: "0.01" },
+    { id: "proposedPerTransaction", ...CALC_BASIS_COPY.perTransaction[wording], placeholder: "e.g. 0.10", prefix: "$", step: "0.01" },
+  ];
+  if (basis === "markup") {
+    fields.push({ id: "proposedPassThrough", ...CALC_BASIS_COPY.passThrough, placeholder: "e.g. 180", prefix: "$" });
+  }
+  fields.push(
+    { id: "proposedMonthlyFees", label: "Monthly and recurring fees ($)", hint: CALC_BASIS_COPY.monthlyFeesHint, placeholder: "e.g. 25", prefix: "$" },
+    { id: "proposedEquipmentMonthly", label: "Equipment charges per month ($)", hint: "Lease or rental. Enter 0 if none", placeholder: "e.g. 0", prefix: "$" },
+  );
+  return fields;
+}
 
 export default function SavingsCalculator() {
   const containerRef = useScrollReveal();
@@ -71,8 +84,10 @@ export default function SavingsCalculator() {
   const calculatorFiredRef = useRef(false);
 
   const setField = (id: CalcFieldId, value: string) => setInputs((prev) => ({ ...prev, [id]: value }));
+  const setBasis = (value: CalcBasis) => setInputs((prev) => ({ ...prev, proposedBasis: value }));
+  const basis = (inputs.proposedBasis as CalcBasis | "") ?? "";
   const result = useMemo(() => calculateCosts(inputs), [inputs]);
-  const errors = result.status === "invalid" ? result.errors : {};
+  const errors: CalcErrors = result.status === "invalid" ? result.errors : {};
 
   useEffect(() => {
     if (result.status === "ok" && result.monthlyDifferenceUsd !== null && !calculatorFiredRef.current) {
@@ -194,7 +209,39 @@ export default function SavingsCalculator() {
                   <p className="text-xs text-muted-foreground">
                     Enter the pricing from a written quote. A total appears only when every field below is entered.
                   </p>
-                  {PROPOSED_FIELDS.map(renderField)}
+                  <fieldset className="space-y-2" aria-describedby="calc-basis-hint" data-testid="fieldset-calc-basis">
+                    <legend className="text-sm font-medium leading-none text-foreground">{CALC_BASIS_COPY.legend}</legend>
+                    <p id="calc-basis-hint" className="text-xs text-muted-foreground" data-testid="hint-calc-basis">
+                      {errors.proposedBasis ?? CALC_BASIS_COPY.hint}
+                    </p>
+                    {CALC_BASIS_COPY.options.map((option) => (
+                      <label
+                        key={option.value}
+                        className="flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-border p-3 has-[:checked]:border-primary has-[:checked]:bg-muted/50"
+                      >
+                        <input
+                          type="radio"
+                          name="calc-basis"
+                          value={option.value}
+                          checked={basis === option.value}
+                          onChange={() => setBasis(option.value)}
+                          className="mt-1 h-4 w-4 shrink-0 accent-[hsl(var(--primary))]"
+                          data-testid={`radio-calc-basis-${option.value}`}
+                        />
+                        <span className="text-sm">
+                          <span className="block font-medium text-foreground">{option.label}</span>
+                          <span className="block text-xs text-muted-foreground">{option.detail}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </fieldset>
+                  {basis === "markup" && (
+                    <p className="text-xs text-muted-foreground" data-testid="note-calc-markup">{CALC_BASIS_COPY.markupNote}</p>
+                  )}
+                  {basis === "unsure" && (
+                    <p className="text-xs text-muted-foreground" data-testid="note-calc-unsure">{CALC_BASIS_COPY.unsureNote}</p>
+                  )}
+                  {proposedFields(basis).map(renderField)}
 
                   <div className="bg-muted/50 border border-border rounded-md p-3">
                     <p className="text-xs text-muted-foreground">
@@ -277,10 +324,15 @@ export default function SavingsCalculator() {
                           </div>
                         ) : (
                           <div className="bg-muted/50 border border-border rounded-md p-4" data-testid="result-difference-withheld">
-                            <p className="text-sm text-foreground font-medium mb-1">No difference is shown yet</p>
-                            <p className="text-xs text-muted-foreground">
-                              Still needed from the quote: {result.unknownLabels.join(", ")}.
+                            <p className="text-sm text-foreground font-medium mb-1" data-testid="text-comparison-incomplete">
+                              {CALC_BASIS_COPY.incompleteHeading}
                             </p>
+                            <p className="text-xs text-muted-foreground">{CALC_BASIS_COPY.incompleteIntro}</p>
+                            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-foreground" data-testid="list-unknown-costs">
+                              {result.unknownLabels.map((label) => (
+                                <li key={label}>{label}</li>
+                              ))}
+                            </ul>
                           </div>
                         )}
 

@@ -910,7 +910,7 @@ export default function MerchantApplication() {
 
   if (submitted) {
     return (
-      <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
+      <div className="public-application min-h-screen flex flex-col font-body overflow-x-hidden">
         <Navbar />
         <main className="flex-grow public-main-offset">
           <section className="relative overflow-hidden" data-testid="section-application-success-hero">
@@ -997,7 +997,7 @@ export default function MerchantApplication() {
                     </div>
                   </div>
                   <p className="text-muted-foreground mb-6">
-                    For questions, call us at <a href="tel:9542668214" className="text-primary font-medium" onClick={() => trackPhoneCallClick({ sourcePage: "/merchant-application" })}>954-266-8214</a>.
+                    For questions, call us at <a href="tel:9542668214" className="public-application-link text-primary font-medium" onClick={() => trackPhoneCallClick({ sourcePage: "/merchant-application" })}>954-266-8214</a>.
                   </p>
                   <p className="text-xs text-muted-foreground border-t pt-4" data-testid="text-success-disclaimer">
                     Liberty Bancard is a registered ISO of our acquiring bank partner(s). All applications are subject to underwriting approval.
@@ -1025,7 +1025,7 @@ export default function MerchantApplication() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
+    <div className="public-application min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="Apply for Merchant Payment Processing"
         description="Complete your merchant application for payment processing with Liberty Bancard. Fast approval, competitive rates, modern terminals."
@@ -1057,11 +1057,12 @@ export default function MerchantApplication() {
                 <div className="flex-1 min-w-0 text-sm text-foreground">
                   {pendingIntent && <p className="font-medium">A submission may already be saved for this draft.</p>}
                   {intentCheck.message && <p data-testid="text-saved-submission-result">{intentCheck.message}</p>}
-                  {recoveryWarning && <p className="text-xs text-muted-foreground" data-testid="text-recovery-warning">{recoveryWarning}</p>}
+                  {recoveryWarning && <p className="text-sm text-muted-foreground" data-testid="text-recovery-warning">{recoveryWarning}</p>}
                 </div>
                 {pendingIntent && (
                   <Button
                     size="sm"
+                    className="public-application-choice"
                     onClick={checkSavedSubmission}
                     disabled={intentCheck.state === "checking"}
                     data-testid="button-check-saved-submission"
@@ -1087,10 +1088,10 @@ export default function MerchantApplication() {
                   )}
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  <Button size="sm" onClick={restoreDraft} data-testid="button-restore-draft">
+                  <Button size="sm" className="public-application-choice" onClick={restoreDraft} data-testid="button-restore-draft">
                     Continue Draft
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={discardDraft} data-testid="button-discard-draft">
+                  <Button size="sm" variant="ghost" className="public-application-choice" onClick={discardDraft} data-testid="button-discard-draft">
                     Start Fresh
                   </Button>
                 </div>
@@ -1562,7 +1563,7 @@ export default function MerchantApplication() {
                         {CARD_TYPES.map((type) => (
                           <label
                             key={type}
-                            className="flex items-center gap-2 cursor-pointer"
+                            className="public-application-check flex items-center gap-2 cursor-pointer"
                             data-testid={`checkbox-card-type-${type.toLowerCase()}`}
                           >
                             <Checkbox
@@ -1585,6 +1586,7 @@ export default function MerchantApplication() {
                         <Button
                           variant={terminalNeeded === true ? "default" : "outline"}
                           onClick={() => setTerminalNeeded(true)}
+                          className="public-application-choice"
                           data-testid="button-terminal-yes"
                         >
                           Yes
@@ -1592,6 +1594,7 @@ export default function MerchantApplication() {
                         <Button
                           variant={terminalNeeded === false ? "default" : "outline"}
                           onClick={() => setTerminalNeeded(false)}
+                          className="public-application-choice"
                           data-testid="button-terminal-no"
                         >
                           No
@@ -1634,6 +1637,7 @@ export default function MerchantApplication() {
                         <Button
                           variant={ecommerceNeeded === true ? "default" : "outline"}
                           onClick={() => setEcommerceNeeded(true)}
+                          className="public-application-choice"
                           data-testid="button-ecommerce-yes"
                         >
                           Yes
@@ -1641,6 +1645,7 @@ export default function MerchantApplication() {
                         <Button
                           variant={ecommerceNeeded === false ? "default" : "outline"}
                           onClick={() => setEcommerceNeeded(false)}
+                          className="public-application-choice"
                           data-testid="button-ecommerce-no"
                         >
                           No
@@ -1729,7 +1734,7 @@ export default function MerchantApplication() {
                         Eligibility, underwriting, card brand rules, and applicable laws apply. By submitting this application, 
                         you consent to a background and credit check as part of the underwriting process.
                       </p>
-                      <label className="flex items-start gap-3 cursor-pointer" data-testid="checkbox-review-confirm">
+                      <label className="public-application-check flex items-start gap-3 cursor-pointer" data-testid="checkbox-review-confirm">
                         <Checkbox
                           checked={reviewConfirmed}
                           onCheckedChange={(checked) => setReviewConfirmed(checked === true)}
@@ -1740,7 +1745,7 @@ export default function MerchantApplication() {
                           Agreement will be sent to my email via GoHighLevel for electronic signature after submission.
                         </span>
                       </label>
-                      <label className="flex items-start gap-3 cursor-pointer" data-testid="checkbox-pewc-consent">
+                      <label className="public-application-check flex items-start gap-3 cursor-pointer" data-testid="checkbox-pewc-consent">
                         <Checkbox
                           checked={pewcConsent}
                           onCheckedChange={(checked) => setPewcConsent(checked === true)}
@@ -1761,7 +1766,7 @@ export default function MerchantApplication() {
                     <div className="mt-6 rounded-md border border-orange-300 bg-orange-50 dark:bg-orange-950/20 p-3 text-sm" role="status" aria-live="polite" data-testid="text-step-missing">
                       <p className="font-medium">Still needed to continue:</p>
                       <p className="text-muted-foreground">{gaps.map((g) => g.label).join(", ")}</p>
-                      <Button type="button" variant="outline" className="mt-2 min-h-11" onClick={() => focusField(gaps[0].id)} data-testid="button-focus-first-missing">
+                      <Button type="button" variant="outline" className="public-application-action mt-2 min-h-11" onClick={() => focusField(gaps[0].id)} data-testid="button-focus-first-missing">
                         Go to {gaps[0].label}
                       </Button>
                     </div>
@@ -1773,7 +1778,7 @@ export default function MerchantApplication() {
                     <Button
                       variant="outline"
                       onClick={handleBack}
-                      className="gap-2"
+                      className="public-application-action gap-2"
                       data-testid="button-back"
                     >
                       <ArrowLeft className="w-4 h-4" />
@@ -1787,7 +1792,7 @@ export default function MerchantApplication() {
                     <Button
                       onClick={handleNext}
                       disabled={!canProceed()}
-                      className="gap-2"
+                      className="public-application-action gap-2"
                       data-testid="button-next"
                     >
                       Next
@@ -1797,7 +1802,7 @@ export default function MerchantApplication() {
                     <Button
                       onClick={handleSubmit}
                       disabled={!canProceed() || submitting}
-                      className="gap-2"
+                      className="public-application-action gap-2"
                       data-testid="button-submit-application"
                     >
                       {submitting ? (

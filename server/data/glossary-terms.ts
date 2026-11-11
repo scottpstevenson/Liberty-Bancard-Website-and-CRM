@@ -1089,7 +1089,7 @@ Industries with naturally higher chargeback rates (travel, nutraceuticals, onlin
   {
     slug: "retrieval-request",
     name: "Retrieval Request",
-    shortDefinition: "A request from a cardholder's bank for transaction documentation before a chargeback — an early warning that allows merchants to resolve disputes without a full chargeback.",
+    shortDefinition: "A request from a cardholder's bank for transaction documentation before a chargeback — an early warning that lets a merchant resolve the dispute first.",
     category: "Transaction Flow Terms",
     searchVolume: "320/mo",
     fullDefinition: `A retrieval request (also called a "copy request" or "soft chargeback") is a request from the cardholder's issuing bank for documentation about a specific transaction. It typically precedes a chargeback — the bank or cardholder wants to review the transaction details before deciding whether to dispute it.
@@ -1204,7 +1204,7 @@ There are two models:
 1. **Processor-direct**: The merchant contracts directly with a large processing company (TSYS, First Data/Fiserv, Global Payments, Worldpay). Often requires volume minimums.
 2. **Through an ISO**: Independent Sales Organizations (ISOs) resell processing services from larger processors under their own pricing structures. Service and pricing vary by ISO, so compare written quotes.
 
-Major payment processors include: Fiserv (formerly First Data), Global Payments, TSYS (now part of Global), Worldpay (FIS), Chase Merchant Services, and Stripe.
+Major payment processors include: Fiserv (formerly First Data), Global Payments, TSYS (now part of Global), Worldpay (now part of Global Payments), Chase Merchant Services, and Stripe.
 
 Processors earn money on the markup portion of interchange plus pricing — the difference between what the card network charges and what the merchant pays.`,
     merchantImpact: `Choosing the right payment processor affects your rates, service quality, and account stability. Questions to ask any processor: What is your exact markup over interchange? What are all monthly fees? What is your chargeback support process? What is your next-day funding policy? What equipment do you support?
@@ -2685,7 +2685,7 @@ For businesses that primarily take phone orders but could potentially implement 
   {
     slug: "card-not-present",
     name: "Card Not Present",
-    shortDefinition: "Transactions where the physical card isn't used at the point of sale — including online, phone, and mail orders — carrying higher interchange rates due to increased fraud risk.",
+    shortDefinition: "Transactions where the physical card isn't used at the point of sale, such as online, phone and mail orders, with higher interchange rates due to fraud risk.",
     category: "Interchange Categories",
     searchVolume: "720/mo",
     fullDefinition: `Card not present (CNP) refers to transactions where the cardholder's physical card is not present at the point of sale. The most common card-not-present environments include e-commerce (online shopping), telephone orders, mail orders, and recurring billing.

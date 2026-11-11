@@ -1015,9 +1015,10 @@ export const MANDATORY_SUITES: Suite[] = [
     env: { BASE_URL },
   },
   {
-    name: "SEO Audit",
+    // Every sitemap URL (541), first HTML plus hydrated metadata of the client-rendered pages in private Chromium.
+    name: "SEO Audit (every sitemap URL: first HTML, hydrated metadata, crawler and browser representations)",
     script: "scripts/seo-audit.ts",
-    timeoutSecs: 60,
+    timeoutSecs: 900,
     requiresServer: true,
   },
   // Public-site mobile visibility and presentation (Chromium evidence only; not a WebKit/iPhone pass).
@@ -1055,10 +1056,17 @@ export const MANDATORY_SUITES: Suite[] = [
     requiresServer: true,
   },
   {
-    name: "Public Site Server/Hydrated Parity (same title and one h1 before and after hydration)",
+    name: "Public Site Server/Hydrated Parity (same title and one h1 before and after hydration, crawler and browser representations)",
     script: "scripts/check-public-server-hydrated-parity.ts",
     env: { PUBLIC_SITE_STRICT: "1" },
     timeoutSecs: 600,
+    requiresServer: true,
+  },
+  {
+    name: "Public Site Visitor Corrections (hero CTA columns, calculator pricing model, application targets, branded 404)",
+    script: "scripts/check-wd-pv-browser.ts",
+    env: { PUBLIC_SITE_STRICT: "1" },
+    timeoutSecs: 900,
     requiresServer: true,
   },
   {

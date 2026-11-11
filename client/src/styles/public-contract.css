@@ -253,6 +253,39 @@ a.public-card--brand:hover,
 .marketing-theme .public-form-action.public-form-action:is(button, a) {
   min-height: var(--public-action-height);
 }
+/* Public merchant application (/merchant-application). That route sits outside .marketing-theme, so these rules hang on the
+   page's own .public-application wrapper instead of the theme. Doubled class names lift specificity above the shared h-9
+   control sizes and the phone-width touch-target floor in index.css. Fields and select triggers are 48 px tall, the
+   Back/Next/Submit actions 52 px, Yes/No choices 48 px, and a checkbox row is at least 44 px with a 24 px box. The shared
+   Input, Select and Checkbox components are not changed, so CRM forms keep their compact controls. */
+.public-application {
+  --app-field-height: 3rem;
+  --app-action-height: 3.25rem;
+  --app-target-height: 2.75rem;
+}
+.public-application.public-application :is(input, textarea, [role="combobox"]):not([type="checkbox"], [type="radio"], [type="hidden"], [type="file"]) {
+  min-height: var(--app-field-height);
+}
+.public-application.public-application :is(button, a).public-application-action {
+  min-height: var(--app-action-height);
+}
+.public-application.public-application button.public-application-choice {
+  min-height: var(--app-field-height);
+}
+.public-application.public-application label.public-application-check {
+  min-height: var(--app-target-height);
+  padding-block: 0.25rem;
+}
+.public-application.public-application [role="checkbox"] {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+}
+.public-application.public-application a.public-application-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--app-target-height);
+}
 .marketing-theme .public-cta:focus-visible,
 .marketing-theme a:focus-visible,
 .marketing-theme button:focus-visible,
