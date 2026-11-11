@@ -12,3 +12,8 @@ description: Reproduction discipline, preview/.replit handling and verification 
 - A crawler-vs-browser split on the same URL needs `Vary: User-Agent` (res.vary appends); no repo CDN config exists, the app runs on the Reserved VM.
 - Glossary `example` blocks render in `<pre>` and keep authored hyphen lines; only definitions use the bold/list formatter, so a hyphen-line scan must skip `<pre>`.
 - A docs-only edit does not change the tested-tree digest; recompute it after any script edit, because `scripts/` is in the digest.
+- After the owner's Publish, the platform re-adds the 6100 `[[ports]]` mapping to `.replit` whenever a Chromium-based script starts (and it can reappear a few seconds after a restore). Run all browser checks first, then restore once at the very end and re-diff against the published commit's `.replit`.
+  **Why:** four restores in a row were undone by the next Chromium launch.
+- Publish commits the whole working tree (docs and memory included) as a normal commit. Prove the published tree equals the tested one by reproducing the digest from `git diff <base> HEAD --diff-filter=M` plus added files, not by trusting the commit message.
+- The SEO audit's hydrated-metadata stage can miss a lazily loaded route once (empty title/canonical at the settle time) while the page is fine. Reload it a few times with a longer settle and rerun the audit before calling it a defect; record the flake so a repeat is not read as new.
+- Deployed-lab Home LCP from this container is 0.7 to 0.9 s above the local isolated preview (network path); compare deployed-to-deployed baselines only.
