@@ -243,6 +243,8 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial:"Loads shared industry content and server industry builders; reads source files; no server, DB, network or provider I/O"},
   {name:"W-D Content Contract",script:"scripts/test-wd-content-contract.ts",capability:"deterministic-static",
     providerDenial:"Loads the cost calculator, proof projection and server HTML builders; reads source files; no server, DB, network or provider I/O"},
+  {name:"Partner Residual Calculator",script:"scripts/test-partner-residual-calculator.ts",capability:"deterministic-static",
+    providerDenial:"Loads the partner calculator arithmetic and renders the page component in-process; reads source files; no server, DB, network or provider I/O"},
   {name:"W-D Media Contract",script:"scripts/test-wd-media-contract.ts",capability:"deterministic-static",
     providerDenial:"Reads the committed masters, manifest and derivatives, renders React and server emitters in-process; no server, DB, network or provider I/O"},
   {name:"Public Shell Role-Flow Browser (sign-in utilities, markers, dark mode)",script:"scripts/test-public-shell-browser.mjs",

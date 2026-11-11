@@ -5,6 +5,7 @@ import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { PublicHero } from "@/components/public/PublicHero";
+import { PartnerResidualCalculator } from "@/components/public/PartnerResidualCalculator";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -138,100 +139,6 @@ const isoServiceJsonLd = {
   provider: { "@type": "Organization", name: "Liberty Bancard", url: "https://libertybancard.com" },
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD", description: "Free to join. No upfront cost. Residuals paid monthly." },
 };
-
-function ResidualCalculator() {
-  const [merchants, setMerchants] = useState(10);
-  const [avgVolume, setAvgVolume] = useState(30000);
-  const [splitPercent, setSplitPercent] = useState(40);
-
-  const estimatedMonthlyNetBps = 0.0030;
-  const monthlyResidual = merchants * avgVolume * estimatedMonthlyNetBps * (splitPercent / 100);
-  const annualResidual = monthlyResidual * 12;
-
-  return (
-    <div className="bg-primary/5 border border-primary/20 rounded-2xl p-6 md:p-8">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-          <Calculator className="w-5 h-5 text-primary" />
-        </div>
-        <div>
-          <h3 className="text-lg font-bold text-foreground">Partner Income Estimator</h3>
-          <p className="text-sm text-muted-foreground">Estimate your monthly residual income</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
-        <div>
-          <label htmlFor="partner-input-calc-merchants" className="block text-sm font-medium text-foreground mb-2">
-            Number of Merchants
-          </label>
-          <Input className="min-h-11" id="partner-input-calc-merchants"
-            type="number"
-            min={1}
-            max={500}
-            value={merchants}
-            onChange={e => setMerchants(Math.max(1, Number(e.target.value)))}
-            data-testid="input-calc-merchants"
-          />
-          <p className="text-xs text-muted-foreground mt-1">How many merchant accounts you refer</p>
-        </div>
-        <div>
-          <label htmlFor="partner-input-calc-volume" className="block text-sm font-medium text-foreground mb-2">
-            Avg Monthly Volume ($)
-          </label>
-          <Input className="min-h-11" id="partner-input-calc-volume"
-            type="number"
-            min={1000}
-            max={500000}
-            step={1000}
-            value={avgVolume}
-            onChange={e => setAvgVolume(Math.max(1000, Number(e.target.value)))}
-            data-testid="input-calc-volume"
-          />
-          <p className="text-xs text-muted-foreground mt-1">Per merchant, average monthly card sales</p>
-        </div>
-        <div>
-          <label htmlFor="partner-select-calc-split" className="block text-sm font-medium text-foreground mb-2">
-            Your Revenue Share (%)
-          </label>
-          <Select value={String(splitPercent)} onValueChange={v => setSplitPercent(Number(v))}>
-            <SelectTrigger className="min-h-11" id="partner-select-calc-split" data-testid="select-calc-split">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="10">10% — Referral Partner</SelectItem>
-              <SelectItem value="20">20% — Active Partner</SelectItem>
-              <SelectItem value="30">30% — ISO Partner</SelectItem>
-              <SelectItem value="40">40% — ISO Partner+</SelectItem>
-              <SelectItem value="50">50% — Senior ISO</SelectItem>
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground mt-1">Based on your partner tier</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="bg-background rounded-xl border border-border p-5 text-center">
-          <p className="text-sm text-muted-foreground mb-1">Estimated Monthly Residual</p>
-          <p className="text-3xl font-bold text-primary" data-testid="text-calc-monthly">
-            ${monthlyResidual.toLocaleString("en-US", { maximumFractionDigits: 0 })}
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">per month</p>
-        </div>
-        <div className="bg-background rounded-xl border border-border p-5 text-center">
-          <p className="text-sm text-muted-foreground mb-1">Estimated Annual Residual</p>
-          <p className="text-3xl font-bold text-green-700" data-testid="text-calc-annual">
-            ${annualResidual.toLocaleString("en-US", { maximumFractionDigits: 0 })}
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">per year</p>
-        </div>
-      </div>
-      <p className="text-xs text-muted-foreground mt-4 text-center">
-        Estimates based on ~30 bps net processing revenue. Actual results vary by merchant mix, volume, and partner tier. Contact us for a personalized income projection.
-      </p>
-    </div>
-  );
-}
 
 type FormView = "form" | "success";
 
@@ -481,10 +388,10 @@ export default function ISOPartnerProgram() {
                 Estimate Your Monthly Residual Income
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">
-                Adjust the sliders to see how your income scales with your merchant portfolio.
+                Adjust the portfolio inputs, residual basis points and partner type to see how income scales with your merchant portfolio.
               </p>
             </div>
-            <ResidualCalculator />
+            <PartnerResidualCalculator />
           </div>
         </section>
 

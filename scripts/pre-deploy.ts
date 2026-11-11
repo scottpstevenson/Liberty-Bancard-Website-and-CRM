@@ -290,6 +290,7 @@ export const MANDATORY_SUITES: Suite[] = [
   {name:"W-D Location Contract",script:"scripts/test-wd-locations-contract.ts",timeoutSecs:120},
   {name:"W-D Industry Contract",script:"scripts/test-wd-industries-contract.ts",timeoutSecs:120},
   {name:"W-D Content Contract",script:"scripts/test-wd-content-contract.ts",timeoutSecs:120},
+  {name:"Partner Residual Calculator",script:"scripts/test-partner-residual-calculator.ts",timeoutSecs:120},
   {name:"W-D Media Contract",script:"scripts/test-wd-media-contract.ts",timeoutSecs:180},
   {name:"Public Shell Role-Flow Browser (sign-in utilities, markers, dark mode)",script:"scripts/test-public-shell-browser.mjs",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
