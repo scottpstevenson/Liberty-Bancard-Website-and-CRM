@@ -18,6 +18,9 @@
  *    are absent from the emitters, the glossary, the Help Center and the blog;
  *  - the glossary Liberty section is written only from approved claims, and Why Liberty, the guaranteed
  *    analysis explainer and the free analysis read the shared modules the React pages read;
+ *  - the standalone glossary term pages render definition markup (bold, bullet and numbered lists) as real
+ *    elements, stay HTML-escaped and ship no client bundle: no term page's first HTML carries a literal "**"
+ *    or a paragraph that begins with a list marker;
  *  - /blog is listed once across the sitemaps.
  *
  * Every check family has a negative control.
@@ -48,7 +51,8 @@ import { PUBLIC_PROOF_CANDIDATES, publicProofFor } from "../server/data/public-p
 import { SEO_ROUTE_DEFAULTS } from "../shared/seo-routes";
 import * as pagesSsr from "../server/ssr/pages";
 import { getAvailableCompetitorSlugs, renderAlternativesHtml, renderSwitchFromHtml } from "../server/ssr/competitor-ssr";
-import { glossaryTerms as GLOSSARY_TERMS } from "../server/data/glossary-terms";
+import { glossaryTerms as GLOSSARY_TERMS, getRelatedTerms } from "../server/data/glossary-terms";
+import { buildTermPageHtml, renderGlossaryText } from "../server/routes/glossary";
 import { helpArticles as HELP_ARTICLES } from "../client/src/lib/help-center-data";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -609,6 +613,74 @@ passes("the glossary Liberty section is written only from approved claims", () =
   ensure(/claimText|publicClaims/.test(source), "glossary helper does not read the claim register");
   const route = read("server/routes/glossary.ts");
   ensure(!/legal in all 50|zero-cost|0% processing program/i.test(route), "glossary route carries a retired claim");
+});
+
+// A literal "**" or a paragraph (or line inside one) that begins with a list marker means a definition's
+// markup was escaped as plain text instead of rendered. Styles are removed first: CSS comments carry "/**".
+const GLOSSARY_MARKER_LINE = /<(?:p|br)\b[^>]*>\s*(?:[-\u2013\u2022*]|\d+[.)])\s/;
+function glossaryMarkupProblems(html: string): string[] {
+  const doc = html.replace(/<style[\s\S]*?<\/style>/g, "");
+  const problems: string[] = [];
+  if (doc.includes("**")) problems.push('a literal "**"');
+  if (GLOSSARY_MARKER_LINE.test(doc)) problems.push("a paragraph that begins with a list marker");
+  return problems;
+}
+
+passes("no glossary term page's first HTML shows a literal ** or a paragraph that begins with a list marker", () => {
+  const termPages = (GLOSSARY_TERMS as unknown as { slug: string }[]).map((term) => ({
+    term: term as (typeof GLOSSARY_TERMS)[number],
+    html: buildTermPageHtml(term as (typeof GLOSSARY_TERMS)[number], getRelatedTerms(term.slug)),
+  }));
+  ensure(termPages.length > 40, `only ${termPages.length} glossary term pages were built`);
+  let withBold = 0;
+  let withLists = 0;
+  for (const { term, html } of termPages) {
+    const problems = glossaryMarkupProblems(html);
+    ensure(problems.length === 0, `/learn/${term.slug} shows ${problems.join(" and ")}`);
+    const source = `${term.fullDefinition}\n\n${term.merchantImpact}`;
+    if (source.includes("**")) {
+      withBold++;
+      ensure(/<strong>[^<]+<\/strong>/.test(html), `/learn/${term.slug} has **bold** in its definition but no <strong> element`);
+    }
+    if (/(^|\n)\s*(- |\d+\. )/.test(source)) {
+      withLists++;
+      ensure(/<li>/.test(html), `/learn/${term.slug} has a list in its definition but no <li> element`);
+    }
+  }
+  ensure(withBold > 0 && withLists > 0, "no glossary definition uses bold or a list, so the render check proved nothing");
+});
+
+passes("glossary term pages stay HTML-escaped and ship no client bundle", () => {
+  const rendered = renderGlossaryText('<script>alert(1)</script> **<img src=x onerror=alert(1)>**\n- a & "b"\n  - <b>c</b>\n1. one\n\n2. two');
+  ensure(!/<(script|img|b)\b/i.test(rendered), "definition markup was not escaped");
+  ensure(rendered.includes("&lt;script&gt;alert(1)&lt;/script&gt;"), "script text was not escaped");
+  ensure(rendered.includes("<strong>&lt;img src=x onerror=alert(1)&gt;</strong>"), "bold text was not escaped inside <strong>");
+  ensure(rendered.includes("<ul><li>a &amp; &quot;b&quot;<ul><li>&lt;b&gt;c&lt;/b&gt;</li></ul></li></ul>"), `nested list rendered as ${rendered}`);
+  ensure(rendered.endsWith("<ol><li>one</li><li>two</li></ol>"), "numbered steps in separate paragraphs were not one list");
+  ensure(renderGlossaryText("Step:\n- one") === "<p>Step:</p><ul><li>one</li></ul>", "an intro line before a list was not split from it");
+  ensure(renderGlossaryText("1 basis point = 0.01%\n10 basis points = 0.10%") === "<p>1 basis point = 0.01%<br>10 basis points = 0.10%</p>", "plain lines starting with a number were treated as a list");
+  ensure(renderGlossaryText("2. one\n\n4. two").includes('<ol start="2">') && renderGlossaryText("2. one").includes('<ol start="2">'), "a numbered list lost its start number");
+  for (const term of GLOSSARY_TERMS as unknown as { slug: string }[]) {
+    const html = buildTermPageHtml(term as (typeof GLOSSARY_TERMS)[number], getRelatedTerms(term.slug));
+    ensure(!/<script\b[^>]*type="module"/i.test(html), `/learn/${term.slug} loads a module script`);
+    ensure(!/(src|href)="\/assets\//.test(html), `/learn/${term.slug} references the client bundle`);
+  }
+});
+
+negative("a term page that shows **bold** as plain text", () => {
+  ensure(glossaryMarkupProblems("<article><p>Typical <strong>x</strong> and **Visa**: 0.9%</p></article>").length === 0, "literal ** present");
+});
+negative("a term page paragraph that begins with a dash list marker", () => {
+  ensure(glossaryMarkupProblems("<article><p>- Excellent: Under 1.8%</p></article>").length === 0, "list marker present");
+});
+negative("a term page paragraph that begins with a numbered list marker", () => {
+  ensure(glossaryMarkupProblems("<article><p>1. Register with Visa and Mastercard</p></article>").length === 0, "list marker present");
+});
+negative("a term page paragraph whose list marker follows a line break", () => {
+  ensure(glossaryMarkupProblems("<article><p>Typical markups:<br>- Large merchants</p></article>").length === 0, "list marker present");
+});
+negative("a definition that injects raw HTML", () => {
+  ensure(!/<script\b/i.test("<p><script>alert(1)</script></p>"), "raw script present");
 });
 
 passes("the Help Center reads approved claims for Liberty commitments", () => {

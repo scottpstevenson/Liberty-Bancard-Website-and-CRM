@@ -340,6 +340,9 @@ export function ssrHtmlShell({
     .ssr-gl h1 { font-size: clamp(1.625rem, 4vw, 2.25rem); font-weight: 700; line-height: 1.2; color: #0f172a; margin-bottom: 1rem; }
     .ssr-gl h2 { font-size: 1.375rem; font-weight: 700; color: #0f172a; margin: 2.5rem 0 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #e2e8f0; }
     .ssr-gl p { color: #334155; line-height: 1.75; margin-bottom: 1rem; }
+    .ssr-gl ul, .ssr-gl ol { margin: 0 0 1rem 1.5rem; color: #334155; line-height: 1.75; }
+    .ssr-gl li { margin-bottom: 0.25rem; }
+    .ssr-gl li > ul, .ssr-gl li > ol { margin: 0.25rem 0 0.25rem 1.25rem; }
     .ssr-gl-shortdef { font-size: 1.125rem; color: #475569; background: #F4F6FA; border-left: 4px solid #071D57; padding: 1rem 1.25rem; border-radius: 0 0.5rem 0.5rem 0; margin-bottom: 2rem; }
     .ssr-gl-example { background: #F4F6FA; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 1.25rem; margin: 1rem 0 2rem; }
     .ssr-gl-example pre { white-space: pre-wrap; font-family: inherit; font-size: 0.875rem; color: #334155; line-height: 1.7; }
@@ -350,7 +353,7 @@ export function ssrHtmlShell({
     .ssr-gl-chip { display: inline-flex; align-items: center; min-height: 2.75rem; padding: 0.25rem 1rem; border-radius: 9999px; background: #F4F6FA; color: #071D57; font-size: 0.875rem; font-weight: 500; }
     .ssr-gl-cta { background: #071D57; color: #fff; border-radius: 0.75rem; padding: 2rem; margin: 3rem 0; }
     .ssr-gl-cta h2 { color: #fff; border-color: rgba(255,255,255,0.25); margin-top: 0; }
-    .ssr-gl-cta p { color: rgba(255,255,255,0.92); }
+    .ssr-gl-cta p, .ssr-gl-cta li { color: rgba(255,255,255,0.92); }
     .ssr-gl-cta-links { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1rem; }
     .ssr-gl-cta-links a { display: inline-flex; align-items: center; min-height: 2.75rem; padding: 0.5rem 1.25rem; border-radius: 0.5rem; background: #fff; color: #071D57; font-weight: 600; font-size: 0.9375rem; }
     .ssr-gl-note { margin-top: 2.5rem; padding: 1.5rem; background: #F4F6FA; border-radius: 0.5rem; }

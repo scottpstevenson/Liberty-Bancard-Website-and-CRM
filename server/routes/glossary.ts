@@ -20,7 +20,96 @@ function escapeHtml(str: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function buildTermPageHtml(term: GlossaryTerm, relatedTerms: GlossaryTerm[]): string {
+/**
+ * Glossary definitions are plain strings that use a small, fixed set of conventions: blank-line paragraph
+ * breaks, `**bold**`, `- ` bullets, `1. ` numbered items and indented sub-items. This renders them as
+ * paragraphs, bold text and lists. Every source character is HTML-escaped first; the only markup added is
+ * the paragraph and list structure and `<strong>` around a closed `**` pair, so a definition cannot inject
+ * HTML and the standalone document needs no client script.
+ */
+interface GlossaryListLine {
+  indent: number;
+  ordered: boolean;
+  number: number;
+  text: string;
+}
+
+type GlossaryBlock = { kind: "text"; lines: string[] } | { kind: "list"; lines: GlossaryListLine[] };
+
+const GLOSSARY_LIST_LINE = /^(\s*)(?:(-)|(\d+)\.)\s+(\S.*)$/;
+
+function renderGlossaryInline(text: string): string {
+  return escapeHtml(text.trim()).replace(/\*\*([^*]+?)\*\*/g, "<strong>$1</strong>");
+}
+
+function parseGlossaryBlocks(text: string): GlossaryBlock[] {
+  const blocks: GlossaryBlock[] = [];
+  for (const paragraph of text.split("\n\n")) {
+    let textRun: string[] | undefined;
+    let listRun: GlossaryListLine[] | undefined;
+    for (const rawLine of paragraph.split("\n")) {
+      if (rawLine.trim() === "") continue;
+      const match = GLOSSARY_LIST_LINE.exec(rawLine);
+      if (!match) {
+        listRun = undefined;
+        if (!textRun) {
+          textRun = [];
+          blocks.push({ kind: "text", lines: textRun });
+        }
+        textRun.push(rawLine);
+        continue;
+      }
+      const item: GlossaryListLine = {
+        indent: match[1].length,
+        ordered: match[3] !== undefined,
+        number: match[3] !== undefined ? Number(match[3]) : 0,
+        text: match[4],
+      };
+      textRun = undefined;
+      if (!listRun) {
+        // A numbered step written as its own paragraph continues the list that the previous paragraph ended.
+        const previous = blocks[blocks.length - 1];
+        const last = previous?.kind === "list" ? previous.lines[previous.lines.length - 1] : undefined;
+        if (previous?.kind === "list" && last && last.ordered && item.ordered && last.indent === item.indent && item.number === last.number + 1) {
+          listRun = previous.lines;
+        } else {
+          listRun = [];
+          blocks.push({ kind: "list", lines: listRun });
+        }
+      }
+      listRun.push(item);
+    }
+  }
+  return blocks;
+}
+
+function renderGlossaryList(lines: GlossaryListLine[]): string {
+  let pos = 0;
+  const build = (indent: number): string => {
+    const first = lines[pos];
+    const tag = first.ordered ? "ol" : "ul";
+    const start = first.ordered && first.number !== 1 ? ` start="${first.number}"` : "";
+    let html = `<${tag}${start}>`;
+    while (pos < lines.length && lines[pos].indent >= indent && lines[pos].ordered === first.ordered) {
+      const line = lines[pos++];
+      html += `<li>${renderGlossaryInline(line.text)}`;
+      while (pos < lines.length && lines[pos].indent > indent) html += build(lines[pos].indent);
+      html += "</li>";
+    }
+    return `${html}</${tag}>`;
+  };
+  let html = "";
+  while (pos < lines.length) html += build(lines[pos].indent);
+  return html;
+}
+
+export function renderGlossaryText(text: string): string {
+  return parseGlossaryBlocks(text)
+    .map((block) => (block.kind === "list" ? renderGlossaryList(block.lines) : `<p>${block.lines.map(renderGlossaryInline).join("<br>")}</p>`))
+    .join("");
+}
+
+export function buildTermPageHtml(term: GlossaryTerm, relatedTerms: GlossaryTerm[]): string {
   const title = `What Is ${term.name}? A Merchant's Guide | Liberty Bancard`;
   const description = term.shortDefinition;
   const canonicalUrl = `${BASE_URL}/learn/${term.slug}`;
@@ -78,12 +167,6 @@ function buildTermPageHtml(term: GlossaryTerm, relatedTerms: GlossaryTerm[]): st
     },
   };
 
-  const paragraphs = (text: string): string =>
-    text
-      .split("\n\n")
-      .map((para) => `<p>${escapeHtml(para.trim())}</p>`)
-      .join("");
-
   const body = `
     <nav class="ssr-gl-crumbs" aria-label="Breadcrumb"><a href="/">Home</a> &rsaquo; <a href="/learn">Learning Center</a> &rsaquo; ${escapeHtml(term.name)}</nav>
     <article class="ssr-gl">
@@ -92,10 +175,10 @@ function buildTermPageHtml(term: GlossaryTerm, relatedTerms: GlossaryTerm[]): st
       <p class="ssr-gl-shortdef">${escapeHtml(term.shortDefinition)}</p>
 
       <h2>The Complete Definition</h2>
-      ${paragraphs(term.fullDefinition)}
+      ${renderGlossaryText(term.fullDefinition)}
 
       <h2>How ${escapeHtml(term.name)} Affects Your Processing Costs</h2>
-      ${paragraphs(term.merchantImpact)}
+      ${renderGlossaryText(term.merchantImpact)}
 
       <h2>${escapeHtml(term.name)} Example</h2>
       <div class="ssr-gl-example"><pre>${escapeHtml(term.example)}</pre></div>
@@ -110,7 +193,7 @@ function buildTermPageHtml(term: GlossaryTerm, relatedTerms: GlossaryTerm[]): st
 
       <section class="ssr-gl-cta">
         <h2>Reviewing ${escapeHtml(term.name)} With Liberty Bancard</h2>
-        ${paragraphs(term.libertySection)}
+        ${renderGlossaryText(term.libertySection)}
         <div class="ssr-gl-cta-links">${term.commercialLinks.map((cl) => `<a href="${escapeHtml(cl.href)}">${escapeHtml(cl.label)}</a>`).join("")}</div>
       </section>
 
