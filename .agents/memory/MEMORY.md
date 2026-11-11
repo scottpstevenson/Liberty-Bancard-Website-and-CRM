@@ -167,7 +167,7 @@
 - [Contacts vs businesses counts](contact-vs-business-counts.md) — domain/location audit counts are contacts; always give distinct businesses separately; empty executeSql output means the query errored.
 - [Slow dashboard page causes](slow-page-causes.md) — Outreach Queue pre-filter, SFP count snapshot, health SWR; bounded-read/late-cancel patterns, inventory policy cost, staging claim settlement.
 - [Production audit baseline](production-audit-2026-10-21.md) — dated funnel snapshot, Serper budget exhaustion, status funnel unavailable; compare later audits against it.
-- [Validation legacyInFlight hold](validation-legacy-inflight-hold.md) — retryable unknown/risky ZB ops hold addresses forever; guard left as is (paid retries).
+- [ZB low usage](zerobounce-spend-gating.md) / [legacyInFlight hold](validation-legacy-inflight-hold.md) — spend gated by SFP preparation supply, not credits; held addresses stay held (owner decision).
 - [Serper discovery drop cause](serper-selector-exhaustion.md) — selector exhaustion not the counter; see [domain/location automation](domain-location-automation.md): closed-by-default worker.
 - [Domain/location tick resumability](domain-location-tick-resume.md) — budget-stopped windowed ticks must persist cursor to the last handled id; else progress stalls.
 - [Heading ownership claims](heading-ownership-claims.md) — one h1 per page via runtime claim; hubs embed children at h2; verify by settled-h1 crawl.

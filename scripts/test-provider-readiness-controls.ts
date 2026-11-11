@@ -62,4 +62,36 @@ assert.throws(
   "an approved caller and configured paid secret alone must not activate a provider",
 );
 
+// Recovery replay contract (source-level; this suite never opens a database or queue). recoverValidationIntents
+// selects intents whose worker died mid-claim ('processing' with an expired lease), so the enqueue step must accept
+// them, and it must not let a retained finished BullMQ job with the same id swallow the replay.
+{
+  const { readFileSync } = await import("node:fs");
+  const readiness = readFileSync("server/services/provider-readiness-control.ts", "utf8");
+  const start = readiness.indexOf("export async function enqueueValidationIntent");
+  const end = readiness.indexOf("export async function enqueueCurrentValidationIntent");
+  assert.ok(start > 0 && end > start, "enqueueValidationIntent must exist");
+  const enqueue = readiness.slice(start, end);
+  assert.match(
+    enqueue,
+    /state='pending' OR \(state='processing' AND lease_expires_at IS NOT NULL AND lease_expires_at<NOW\(\)\)/,
+    "an expired-lease processing intent must be enqueueable for recovery",
+  );
+  assert.doesNotMatch(
+    enqueue,
+    /state='processing' AND lease_expires_at IS NULL|state='processing'\)(?! AND lease)/,
+    "a processing intent with a live or missing lease must never be re-enqueued",
+  );
+  assert.match(enqueue, /queue\.getJob\(jobId\)/, "a retained job with the same id must be inspected before add");
+  assert.match(
+    enqueue,
+    /retainedState === "completed" \|\| retainedState === "failed"[\s\S]*?retained\.remove\(\)/,
+    "only a finished (completed/failed) retained job may be dropped",
+  );
+  assert.ok(
+    enqueue.indexOf("retained.remove()") < enqueue.indexOf('queue.add("validation-intent"'),
+    "the finished job must be removed before the replay is added",
+  );
+}
+
 console.log("Provider readiness controls: PASS");

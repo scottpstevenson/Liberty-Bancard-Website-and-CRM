@@ -188,8 +188,12 @@ export async function persistMarketingEligibilitySnapshot(
 
 /** Explicit queue ownership: a missing producer means a recoverable deferred intent. */
 export async function enqueueValidationIntent(intentId: string): Promise<boolean> {
+  // 'processing' with an expired lease is a worker that died mid-claim. recoverValidationIntents selects it for
+  // replay and processValidationIntent re-claims it only after the lease expires, so it must be enqueueable here
+  // too; otherwise those intents stay 'processing' forever and their addresses are never validated.
   const candidate = (await db.execute(sql`SELECT contact_id,normalized_email_token_hash
-    FROM validation_intents WHERE id=${intentId}::uuid AND state='pending'`) as any).rows?.[0];
+    FROM validation_intents WHERE id=${intentId}::uuid
+      AND (state='pending' OR (state='processing' AND lease_expires_at IS NOT NULL AND lease_expires_at<NOW()))`) as any).rows?.[0];
   if (!candidate || !await currentCanonicalValidationSelection(
     Number(candidate.contact_id),String(candidate.normalized_email_token_hash),
   )) return false;
@@ -207,8 +211,18 @@ export async function enqueueValidationIntent(intentId: string): Promise<boolean
         .where(eq(validationIntents.id, intentId));
       return false;
     }
+    const jobId = `validation-intent-${intentId}`;
+    // The queue retains finished jobs (last 100 completed / 200 failed) under their id, and BullMQ silently ignores
+    // a second add with an id it still holds. A retained finished job for this intent would therefore make a
+    // recovery replay a no-op while the row is marked 'enqueued'. A finished job is not running, so drop it first;
+    // waiting, delayed and active jobs are left alone (they will run or are running).
+    const retained = await queue.getJob(jobId);
+    if (retained) {
+      const retainedState = await retained.getState();
+      if (retainedState === "completed" || retainedState === "failed") await retained.remove();
+    }
     await queue.add("validation-intent", { intentId }, {
-      jobId: `validation-intent-${intentId}`,
+      jobId,
       attempts: 3,
       backoff: { type: "exponential", delay: 5_000 },
     });
