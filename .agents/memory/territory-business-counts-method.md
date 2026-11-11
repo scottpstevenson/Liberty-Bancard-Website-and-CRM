@@ -10,3 +10,8 @@ description: How to count canonical businesses by SFP county with vertical/email
 
 **Why:** answering "how many canonical businesses in the SFP counties have an email / vertical" needed all of this; none of it is visible from the schema.
 **How to apply:** reuse the bit-code + tsx evaluation recipe; keep temp scripts in a repo-local dir (node_modules resolution) and delete them afterwards.
+
+## Location-spelling gap and neighbouring-county yield (2026-11-11)
+- The city map is exact-match only: abbreviated/misspelled three-county cities ("W. Palm Beach", "Deerfield Bch", "Ft.Lauderdale", "N. Miami Beach") resolve as unknown, so at least ~1,300 canonical businesses that are really in territory count as unresolved; almost none have a vertical or email because classification and email search are geography-gated.
+- Canonical businesses in nearby counties are few (city-based estimate: Lee ~190, Collier ~140, St. Lucie ~90, Martin ~55, Indian River ~45, Monroe ~30, Okeechobee ~13, Hendry ~6; about 70 with both vertical and email), so territory expansion adds little without new discovery.
+**Why:** the user asked whether more counties should be included; the answer was driven by these counts, not by geography alone.
