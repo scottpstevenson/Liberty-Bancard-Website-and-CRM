@@ -171,6 +171,33 @@ console.log("page wiring");
   ok(!/Estimates based on ~30 bps/.test(page), "the previous ~30 bps footnote is gone");
   ok(component.includes("PARTNER_RESIDUAL_COPY.disclosure") && !/\{\s*result\s*&&[^}]*PARTNER_RESIDUAL_COPY\.disclosure/.test(component), "the disclosure is not conditional on a result");
   negative("old estimator would be flagged", () => ensure(!/estimatedMonthlyNetBps/.test("const estimatedMonthlyNetBps = 0.0030;"), "old estimator present"));
+
+  // The rest of the page must tell the same compensation story as the calculator.
+  const STALE_CLAIMS: [string, RegExp][] = [
+    ["30–50% share claim", /30[–-]50%/],
+    ["$200–$500 flat bonus claim", /\$200[–-]\$500|flat bonus/i],
+    ["fixed ~30 bps / 40% example", /~30 bps|40% partner split|~\$720|\$8,640/],
+    ["30% lifetime / monthly residual claim", /30% (lifetime|monthly)/],
+  ];
+  for (const [label, pattern] of STALE_CLAIMS) {
+    ok(!pattern.test(page), `the page no longer carries the ${label}`);
+  }
+  ok(
+    page.includes("calculatePartnerResidual(") && page.includes("partnerResidualSplitPercent(") && page.includes("PARTNER_RESIDUAL_BPS.default"),
+    "the worked example is computed with the calculator's own arithmetic, split and default bps",
+  );
+  const exampleAgent = calculatePartnerResidual({ merchants: 20, avgMonthlyVolume: 100_000, bps: PARTNER_RESIDUAL_BPS.default, splitPercent: partnerResidualSplitPercent("sales_agent") });
+  const exampleReferral = calculatePartnerResidual({ merchants: 20, avgMonthlyVolume: 100_000, bps: PARTNER_RESIDUAL_BPS.default, splitPercent: partnerResidualSplitPercent("referral_partner") });
+  ok(
+    formatPartnerResidualUsd(exampleAgent.monthly) === "$10,000" && formatPartnerResidualUsd(exampleAgent.annualized) === "$120,000" &&
+      formatPartnerResidualUsd(exampleReferral.monthly) === "$3,000" && formatPartnerResidualUsd(exampleReferral.annualized) === "$36,000",
+    "the worked example reads $10,000 / $120,000 at 50% and $3,000 / $36,000 at 15%",
+  );
+  const approvedTerms = (page.match(/subject to approved (compensation )?terms/g) ?? []).length;
+  ok(approvedTerms >= 5, "every compensation statement carries the approved-terms condition", String(approvedTerms));
+  ok(page.includes("Sales Agents are shown at 50% and Referral Partners at 15%"), "the page copy names the 50% and 15% splits");
+  ok(page.includes("${SALES_AGENT_SPLIT}% for Sales Agents") && page.includes("${REFERRAL_SPLIT}% for Referral Partners"), "the tier cards take their splits from the calculator's partner types");
+  negative("a stale 30–50% claim would be caught", () => ensure(!/30[–-]50%/.test("Earn 30–50% residual income"), "stale claim present"));
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

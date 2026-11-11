@@ -6,6 +6,12 @@ import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { PublicHero } from "@/components/public/PublicHero";
 import { PartnerResidualCalculator } from "@/components/public/PartnerResidualCalculator";
+import {
+  PARTNER_RESIDUAL_BPS,
+  calculatePartnerResidual,
+  formatPartnerResidualUsd,
+  partnerResidualSplitPercent,
+} from "@shared/partner-residual-calculator";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -60,13 +66,23 @@ const programSteps = [
   { num: "04", title: "Earn Residuals", desc: "When merchants activate, you earn a share of the processing revenue — every month, for the life of the account." },
 ];
 
+// Worked example shown above the calculator. It is computed with the calculator's own arithmetic and defaults so the
+// two can never disagree: 20 merchants x $100,000 a month x 100 bps x the partner split.
+const EXAMPLE_PORTFOLIO = { merchants: 20, avgMonthlyVolume: 100_000, bps: PARTNER_RESIDUAL_BPS.default } as const;
+const exampleResult = (partnerType: "sales_agent" | "referral_partner") =>
+  calculatePartnerResidual({ ...EXAMPLE_PORTFOLIO, splitPercent: partnerResidualSplitPercent(partnerType) });
+const SALES_AGENT_SPLIT = partnerResidualSplitPercent("sales_agent");
+const REFERRAL_SPLIT = partnerResidualSplitPercent("referral_partner");
+const salesAgentExample = exampleResult("sales_agent");
+const referralExample = exampleResult("referral_partner");
+
 const commissionStructure = [
   {
     tier: "Referral Partner",
     type: "referral",
     description: "Casual or occasional referrers",
-    earn: "Flat bonus per activated merchant",
-    example: "$200–$500 per merchant",
+    earn: "Share of the residual on each activated merchant",
+    example: `${REFERRAL_SPLIT}% for Referral Partners`,
     badge: "Entry Level",
     badgeColor: "secondary" as const,
   },
@@ -74,8 +90,8 @@ const commissionStructure = [
     tier: "ISO / Active Partner",
     type: "iso",
     description: "High-volume or dedicated referral partners",
-    earn: "Residual revenue share",
-    example: "30–50% of net processing revenue",
+    earn: "Share of the residual on each activated merchant",
+    example: `${SALES_AGENT_SPLIT}% for Sales Agents`,
     badge: "Most Popular",
     badgeColor: "default" as const,
   },
@@ -106,7 +122,7 @@ const isoFaqJsonLd = {
     {
       "@type": "Question",
       name: "How much can I earn as a Liberty Bancard ISO or referral partner?",
-      acceptedAnswer: { "@type": "Answer", text: "Referral partners earn $200–$500 flat bonuses per activated merchant. ISO and active partners earn 30–50% of net monthly processing revenue for the life of each account. White-label and strategic partners have custom residual structures negotiated individually." },
+      acceptedAnswer: { "@type": "Answer", text: "Sales Agents are shown at 50% and Referral Partners at 15% of the residual payable to Liberty after processor costs and the processor’s share, subject to approved compensation terms. Actual residuals vary by merchant pricing, processing costs, activity, and agreement terms, and earnings are not guaranteed. White-label and strategic partners have custom residual structures negotiated individually." },
     },
     {
       "@type": "Question",
@@ -135,7 +151,7 @@ const isoServiceJsonLd = {
   "@context": "https://schema.org",
   "@type": "Service",
   name: "Liberty Bancard ISO & Referral Partner Program",
-  description: "Earn 30–50% residual income for every merchant you refer to Liberty Bancard. Designed for ISOs, CPAs, bookkeepers, consultants, and financial advisors. Free to join, no volume minimums.",
+  description: "Earn residuals on merchants you refer to Liberty Bancard: Sales Agents at 50% and Referral Partners at 15% of the residual payable to Liberty, subject to approved compensation terms. Designed for ISOs, CPAs, bookkeepers, consultants, and financial advisors. Free to join, no volume minimums.",
   provider: { "@type": "Organization", name: "Liberty Bancard", url: "https://libertybancard.com" },
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD", description: "Free to join. No upfront cost. Residuals paid monthly." },
 };
@@ -211,7 +227,7 @@ export default function ISOPartnerProgram() {
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="ISO & Partner Program — Earn Residuals | Liberty Bancard"
-        description="Join the Liberty Bancard ISO and partner program. Earn 30–50% residual income for every merchant you refer. Designed for ISOs, CPAs, bookkeepers, consultants, and financial advisors."
+        description="Join the Liberty Bancard partner program. Earn residuals on merchants you refer: Sales Agent 50%, Referral Partner 15%, subject to approved terms."
         path="/partners"
         keywords="ISO partner program, referral partner program, merchant services residuals, payment processing partner, CPA referral income"
         structuredData={[isoFaqJsonLd, isoServiceJsonLd]}
@@ -298,7 +314,7 @@ export default function ISOPartnerProgram() {
                 Commission & Residual Structure
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
-                We offer multiple partner tiers based on your volume and engagement. Serious ISO partners can earn 30–50% of net processing revenue — every month, for the life of the account.
+                We offer multiple partner tiers based on your role and engagement. Sales Agents are shown at 50% and Referral Partners at 15% of the residual payable to Liberty after processor costs and the processor’s share, subject to approved compensation terms.
               </p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -321,7 +337,7 @@ export default function ISOPartnerProgram() {
                       <p className="text-sm font-medium text-foreground">{tier.earn}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Typical Range</p>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Partner Share</p>
                       <p className="text-sm font-semibold text-primary">{tier.example}</p>
                     </div>
                     <div className="pt-2">
@@ -339,9 +355,13 @@ export default function ISOPartnerProgram() {
               <div className="flex items-start gap-3">
                 <Star className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-semibold text-foreground mb-1">ISO Revenue Share Example</p>
-                  <p className="text-sm text-muted-foreground">
-                    A portfolio of 20 merchants processing $30,000/month each = $600,000 total monthly volume. At ~30 bps net revenue and 40% partner split, that's <span className="font-semibold text-foreground">~$720/month in passive residuals</span> — $8,640/year — with no ongoing work required after onboarding.
+                  <p className="text-sm font-semibold text-foreground mb-1">Residual Example</p>
+                  <p className="text-sm text-muted-foreground" data-testid="text-partner-residual-example">
+                    {EXAMPLE_PORTFOLIO.merchants} active merchants each processing {formatPartnerResidualUsd(EXAMPLE_PORTFOLIO.avgMonthlyVolume)} a month, at an assumed {EXAMPLE_PORTFOLIO.bps} bps, comes to{" "}
+                    <span className="font-semibold text-foreground">
+                      {formatPartnerResidualUsd(salesAgentExample.monthly)} a month ({formatPartnerResidualUsd(salesAgentExample.annualized)} a year) at the {SALES_AGENT_SPLIT}% Sales Agent split
+                    </span>{" "}
+                    or {formatPartnerResidualUsd(referralExample.monthly)} a month ({formatPartnerResidualUsd(referralExample.annualized)} a year) at the {REFERRAL_SPLIT}% Referral Partner split. This is an illustrative scenario, not a verified portfolio average or guaranteed earnings, and the 100-bps assumption is a generous example. Change every assumption in the calculator below.
                   </p>
                 </div>
               </div>
@@ -591,7 +611,7 @@ export default function ISOPartnerProgram() {
                   </div>
                   <h3 className="font-display font-bold text-lg text-foreground mb-2">CPAs & Accountants</h3>
                   <p className="text-sm text-muted-foreground leading-relaxed mb-4">
-                    You already review your clients' financials. Processing fees are often the largest overlooked cost. Refer clients, earn 30% lifetime residuals — no sales effort required.
+                    You already review your clients' financials. Processing fees are often the largest overlooked cost. Refer clients and earn monthly residuals, subject to approved compensation terms.
                   </p>
                   <div className="flex items-center gap-1.5 text-primary text-sm font-medium">
                     Learn more <ChevronRight className="w-4 h-4" />
@@ -621,7 +641,7 @@ export default function ISOPartnerProgram() {
                   </div>
                   <h3 className="font-display font-bold text-lg text-foreground mb-2">Business Insurance Agents</h3>
                   <p className="text-sm text-muted-foreground leading-relaxed mb-4">
-                    You talk to every small business. Cash discount programs eliminate processing fees for your clients — a natural conversation starter that earns you 30% monthly residuals.
+                    You talk to every small business. Cash discount programs eliminate processing fees for your clients — a natural conversation starter that can earn you monthly residuals, subject to approved compensation terms.
                   </p>
                   <div className="flex items-center gap-1.5 text-primary text-sm font-medium">
                     Learn more <ChevronRight className="w-4 h-4" />
