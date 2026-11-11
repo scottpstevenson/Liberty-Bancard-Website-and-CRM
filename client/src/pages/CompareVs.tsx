@@ -96,6 +96,7 @@ export default function CompareVs() {
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title={data.metaTitle}
+        brandSuffix={false}
         description={data.metaDescription}
         path={`/compare/${data.slug}`}
         keywords={data.metaKeywords}

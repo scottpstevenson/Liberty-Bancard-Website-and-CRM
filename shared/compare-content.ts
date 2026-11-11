@@ -362,6 +362,9 @@ export function ratesPageRows(): RatesPageRow[] {
 
 // ── Beat Square/Stripe page ─────────────────────────────────────────────────
 
+const BEAT_HEADING_LEAD = "Switching from";
+const BEAT_HEADING_ACCENT = "Square or Stripe";
+
 export const BEAT_SQUARE_STRIPE = {
   path: "/beat-square-stripe",
   title: "Switching from Square or Stripe",
@@ -370,7 +373,10 @@ export const BEAT_SQUARE_STRIPE = {
   keywords: "switch from square, switch from stripe, flat rate vs interchange plus, square alternative, stripe alternative",
   serviceDescription:
     "Interchange-plus payment processing, quoted from your own statement and stated in writing.",
-  heading: "Switching from Square or Stripe",
+  // The page's one h1: the React hero renders headingLead and headingAccent in two colours, the server document renders heading.
+  headingLead: BEAT_HEADING_LEAD,
+  headingAccent: BEAT_HEADING_ACCENT,
+  heading: `${BEAT_HEADING_LEAD} ${BEAT_HEADING_ACCENT}`,
   sub: "See what each provider publishes, dated and sourced, then compare it with your own statement before you change anything.",
 } as const;
 

@@ -121,8 +121,8 @@ export default function BeatSquareStripe() {
                   className="text-4xl md:text-5xl font-display font-bold text-white leading-tight mb-6"
                   data-testid="text-beat-heading"
                 >
-                  Can Liberty Bancard Beat Your Square or Stripe Rate?{" "}
-                  <span className="text-sky-400">Let's Do the Math.</span>
+                  {BEAT_SQUARE_STRIPE.headingLead}{" "}
+                  <span className="text-sky-400">{BEAT_SQUARE_STRIPE.headingAccent}</span>
                 </h1>
                 <p
                   className="text-lg text-white/70 mb-8 leading-relaxed"

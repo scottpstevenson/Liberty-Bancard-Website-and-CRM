@@ -21,8 +21,10 @@ export const ZP_META = {
 
 export const ZP_HERO = {
   badge: "Cash Discount & Surcharging",
-  headingLead: "Cash discount and surcharging programs,",
-  headingAccent: "reviewed for your business.",
+  // The page's one h1. The React hero renders lead and accent on two lines in two colours; the server document
+  // renders ZP_SSR.h1 (lead + " " + accent), so both sides carry the same text.
+  headingLead: "Cash Discount and Surcharging Programs",
+  headingAccent: "for Your Business",
   sub: claimText("program.overview"),
   cta: "Check Eligibility — Free Review",
   secondaryCta: "Talk to a Specialist",
@@ -187,7 +189,7 @@ export const ZP_FINAL = {
 
 export const ZP_SSR = {
   badge: "Program review, no obligation",
-  h1: "Cash Discount and Surcharging Programs for Your Business",
+  h1: `${ZP_HERO.headingLead} ${ZP_HERO.headingAccent}`,
   primaryCta: "📤 See If You Qualify — Free Review",
   secondaryCta: "📞 Ask About These Programs",
   finalHeading: "Ready to See Whether a Program Fits?",

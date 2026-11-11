@@ -239,7 +239,8 @@ export default function UploadStatement() {
   return (
     <div className="min-h-screen flex flex-col bg-white">
       <SEO
-        title="Upload Your Processing Statement"
+        title={FSR_META.title}
+        brandSuffix={false}
         description={FSR_META.description}
         path="/upload-statement"
         keywords={FSR_META.keywords}

@@ -1055,6 +1055,13 @@ export const MANDATORY_SUITES: Suite[] = [
     requiresServer: true,
   },
   {
+    name: "Public Site Server/Hydrated Parity (same title and one h1 before and after hydration)",
+    script: "scripts/check-public-server-hydrated-parity.ts",
+    env: { PUBLIC_SITE_STRICT: "1" },
+    timeoutSecs: 600,
+    requiresServer: true,
+  },
+  {
     name: "Chat Business Hours (AI 24/7, human-handoff hours-gated)",
     script: "scripts/test-chat-business-hours.ts",
     timeoutSecs: 30,

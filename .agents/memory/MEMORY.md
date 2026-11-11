@@ -198,3 +198,4 @@
 - [Receipt milestone gating](ack-milestone-gating-cutoffs.md) — receipts wait for the internal handoff; per-class cutoffs are monotonic and a re-save must not move them.
 - [Website intake](website-intake-review-surfaces.md) / [cert harness](website-intake-cert-harness-lessons.md) / [W-C source & operator truth](public-intake-source-policy-and-operator-truth.md) / [W-C retry rules](wc-intake-handoff-lessons.md) — new modes stay outside warm lane; only pre-claim refusals release a key.
 - [Public site lessons](public-claims-preflight-lessons.md) / [shell & hubs](public-shell-hubs-lessons.md) / [W-C closure](wc-closure-correction-lessons.md) / [lab & gates](public-perf-lab-lessons.md) — SSR/React copy separate; .reveal LCP trap; C1 preview lacks glossary; SEO 70-char titles.
+- [Server vs hydrated title/h1 parity](server-hydrated-parity.md) — one shared title/h1 per page, brandSuffix={false} for full titles; check waits for SSR chrome to be replaced.

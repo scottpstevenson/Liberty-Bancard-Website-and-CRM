@@ -100,7 +100,7 @@ export default function ZeroPercent() {
                   className="public-h1 font-display font-bold text-white mb-6"
                   data-testid="text-zero-heading"
                 >
-                  {ZP_HERO.headingLead}<br /><span className="text-sky-400">{ZP_HERO.headingAccent}</span>
+                  {ZP_HERO.headingLead}{" "}<br /><span className="text-sky-400">{ZP_HERO.headingAccent}</span>
                 </h1>
                 <p
                   className="text-lg text-white/75 mb-8 leading-relaxed"

@@ -96,6 +96,8 @@ import {
 } from "@shared/free-statement-review-content";
 
 import { TERMINAL_INQUIRY_PAGE, TERMINAL_INQUIRY_PATH, readTerminalIntent } from "@shared/public-terminal-inquiry";
+import { GET_STARTED_PAGE } from "@shared/public-get-started";
+import { AFFILIATE_PAGE } from "@shared/public-affiliate";
 
 const BASE_URL = "https://libertybancard.com";
 
@@ -639,7 +641,7 @@ export function getGetStartedHtml(search = ""): string {
     <div class="ssr-hero-inner">
       <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Get Started</span></div>
       <div class="ssr-hero-badge">🚀 Start Your Application</div>
-      <h1>Start Accepting Payments with Liberty Bancard</h1>
+      <h1>${GET_STARTED_PAGE.heading}</h1>
       <p class="ssr-hero-subtitle">Simple onboarding, dedicated support, and transparent pricing. ${TIMING_NOTE}</p>
       <div class="ssr-hero-buttons">
         <a href="/get-started#form" class="ssr-btn-primary">🚀 Start Application</a>
@@ -686,7 +688,7 @@ export function getGetStartedHtml(search = ""): string {
   ${ctaSection("Ready to Get Started?", "Start your application today. Our team will review your request and contact you about next steps.")}`;
 
   return ssrHtmlShell({
-    title: "Get Started with Liberty Bancard | Merchant Account Application",
+    title: GET_STARTED_PAGE.title,
     description: "Apply for a merchant account with Liberty Bancard. Transparent interchange-plus pricing, dedicated support, and a review of your request before next steps.",
     canonical: "/get-started",
     keywords: "merchant account application, get started payment processing, merchant services application, apply merchant account, payment processor application",
@@ -770,7 +772,7 @@ export function getAffiliateProgramHtml(): string {
     <div class="ssr-hero-inner">
       <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Affiliate Program</span></div>
       <div class="ssr-hero-badge">💼 Residual Income Opportunity</div>
-      <h1>Earn Residual Income Referring Merchants</h1>
+      <h1>${AFFILIATE_PAGE.heading}</h1>
       <p class="ssr-hero-subtitle">Refer businesses to Liberty Bancard and earn ongoing commissions as long as they process. Real-time tracking, competitive payouts, and dedicated support.</p>
       <div class="ssr-hero-buttons">
         <a href="/affiliate#signup" class="ssr-btn-primary">💼 Join the Affiliate Program</a>
@@ -804,7 +806,7 @@ export function getAffiliateProgramHtml(): string {
   ${ctaSection("Start Earning Today", "Join the Liberty Bancard affiliate program. Free to join, competitive commissions, real-time reporting.")}`;
 
   return ssrHtmlShell({
-    title: "Affiliate Program | Earn Residuals | Liberty Bancard",
+    title: AFFILIATE_PAGE.title,
     description: "Join the Liberty Bancard affiliate program. Earn ongoing residual income for every merchant you refer. Free to join, competitive commissions, real-time tracking.",
     canonical: "/affiliate",
     keywords: "payment processing affiliate program, merchant services affiliate, residual income payments, refer merchant services, ISO agent program",

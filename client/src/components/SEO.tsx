@@ -41,7 +41,7 @@ interface ProductSchemaInput {
 
 interface SEOProps {
   title: string;
-  /** False when the caller passes a title that already fits the length budget without the site name. */
+  /** False when the caller passes the complete document title: the site name is already in it, or adding it would pass the 70-character limit. */
   brandSuffix?: boolean;
   description: string;
   path?: string;

@@ -23,6 +23,8 @@ import { proofOverviewPage, TESTIMONIAL_SUBMIT_COPY } from "./public-proof";
 import { WHY_LIBERTY_PAGE } from "./public-why-liberty";
 import { FREE_ANALYSIS_PAGE, FREE_ANALYSIS_QUIZ_PAGE } from "./public-free-analysis";
 import { CALC_COPY } from "./public-cost-calculator";
+import { GET_STARTED_PAGE } from "./public-get-started";
+import { AFFILIATE_PAGE } from "./public-affiliate";
 
 const CASE_STUDIES_PAGE = proofOverviewPage("case-studies");
 const TESTIMONIALS_PAGE = proofOverviewPage("testimonials");
@@ -40,7 +42,7 @@ export const SEO_ROUTE_DEFAULTS: Record<string, SeoRouteDefault> = {
   "/": { title: HOME_META.title, description: HOME_META.description, keywords: HOME_META.keywords, ogTemplate: "default", inSitemap: true },
   "/payment-processing": { title: PAYMENT_PROCESSING_PAGE.title, description: PAYMENT_PROCESSING_PAGE.description, keywords: PAYMENT_PROCESSING_PAGE.keywords, ogTemplate: "service", inSitemap: true },
   "/pricing-and-programs": { title: PRICING_AND_PROGRAMS_PAGE.title, description: PRICING_AND_PROGRAMS_PAGE.description, keywords: PRICING_AND_PROGRAMS_PAGE.keywords, ogTemplate: "service", inSitemap: true },
-  "/get-started": { title: "Get Started With Liberty Bancard", description: "Start your merchant account application or get a free processing review. Three quick paths: upload, calculate, or talk to a human.", ogTemplate: "default", inSitemap: true },
+  "/get-started": { title: GET_STARTED_PAGE.title, description: "Start your merchant account application or get a free processing review. Three quick paths: upload, calculate, or talk to a human.", ogTemplate: "default", inSitemap: true },
   "/upload-statement": { title: FSR_META.title, description: FSR_META.description, ogTemplate: "service", inSitemap: true },
   "/free-analysis": { title: FREE_ANALYSIS_QUIZ_PAGE.title, description: FREE_ANALYSIS_QUIZ_PAGE.description, keywords: FREE_ANALYSIS_QUIZ_PAGE.keywords, ogTemplate: "service", inSitemap: true },
   "/free-analysis-guaranteed": { title: FREE_ANALYSIS_PAGE.title, description: FREE_ANALYSIS_PAGE.description, keywords: FREE_ANALYSIS_PAGE.keywords, ogTemplate: "service", inSitemap: true },
@@ -54,7 +56,7 @@ export const SEO_ROUTE_DEFAULTS: Record<string, SeoRouteDefault> = {
   "/compare-rates": { title: `${RATES_PAGE.title} | Liberty Bancard`, description: RATES_PAGE.description, ogTemplate: "compare", inSitemap: true },
   "/blog": { title: "Payment Processing Insights | Liberty Bancard", description: "Free guides on processing fees, interchange, PCI, statements, and switching processors — written for business owners.", ogTemplate: "default", inSitemap: true },
   "/faq": { title: "Payment Processing FAQ | Liberty Bancard", description: "30+ answers on interchange-plus pricing, cash discount, PCI compliance, switching processors, equipment, and more.", ogTemplate: "default", inSitemap: true },
-  "/affiliate": { title: "Affiliate Program | Liberty Bancard", description: "Refer businesses to Liberty Bancard and earn ongoing residual commissions. Tiered payouts, transparent reporting, real-time dashboard.", ogTemplate: "default", inSitemap: true },
+  "/affiliate": { title: AFFILIATE_PAGE.title, description: "Refer businesses to Liberty Bancard and earn ongoing residual commissions. Tiered payouts, transparent reporting, real-time dashboard.", ogTemplate: "default", inSitemap: true },
   "/why-liberty-bancard": { title: WHY_LIBERTY_PAGE.title, description: WHY_LIBERTY_PAGE.description, keywords: WHY_LIBERTY_PAGE.keywords, ogTemplate: "default", inSitemap: true },
   "/shop": { title: "POS Terminals & Equipment | Liberty Bancard", description: "Clover, Dejavoo, PAX, and Valor terminals plus virtual terminal access. Equipment terms are set by your written agreement and confirmed before you decide.", ogTemplate: "default", inSitemap: true },
   "/case-studies": { title: CASE_STUDIES_PAGE.title, description: CASE_STUDIES_PAGE.description, keywords: CASE_STUDIES_PAGE.keywords, ogTemplate: "default", inSitemap: true },

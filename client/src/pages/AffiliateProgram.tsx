@@ -13,6 +13,7 @@ import { getStoredUTMParams } from "@/lib/utm";
 import { trackAffiliateSignup } from "@/lib/tracking";
 import { trackConversion } from "@/lib/analytics";
 import { useToast } from "@/hooks/use-toast";
+import { AFFILIATE_PAGE } from "@shared/public-affiliate";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Users,
@@ -809,9 +810,10 @@ export default function AffiliateProgram() {
   return (
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
-        title="Affiliate Program — Earn Commissions Referring Merchants"
+        title={AFFILIATE_PAGE.title}
+        brandSuffix={false}
         description="Join the Liberty Bancard Affiliate Program. Earn commissions and monthly residuals by referring businesses to our payment processing solutions. Free to join."
-        path="/affiliate"
+        path={AFFILIATE_PAGE.path}
         keywords="affiliate program, referral program, payment processing affiliate, earn commissions, residual income, merchant referral"
       />
       <Navbar />
@@ -825,7 +827,7 @@ export default function AffiliateProgram() {
                   <Gift className="w-3 h-3 mr-1" /> Affiliate Program
                 </Badge>
                 <h1 className="public-h1 font-display font-bold text-foreground mb-4" data-testid="text-affiliate-heading">
-                  Earn Money Referring <span className="text-primary">Businesses</span>
+                  {AFFILIATE_PAGE.headingLead} <span className="text-primary">{AFFILIATE_PAGE.headingAccent}</span>
                 </h1>
                 <p className="text-lg text-muted-foreground mb-6">
                   Join our affiliate program and earn commissions every time a business you refer signs up for payment processing. No experience needed — just share your link.

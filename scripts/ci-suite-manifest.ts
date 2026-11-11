@@ -1368,6 +1368,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "read-only Chromium probes; vendor chat hosts blocked and never opened, no session created, no submit or provider call",
   },
   {
+    name: "Public Site Server/Hydrated Parity (same title and one h1 before and after hydration)",
+    script: "scripts/check-public-server-hydrated-parity.ts",
+    capability: "server-required",
+    providerDenial: "read-only Chromium navigation and same-origin GETs of public pages; vendor hosts blocked, no submit or provider call",
+  },
+  {
     name: "Statement Acquisition",
     script: "scripts/test-statement-acquisition.ts",
     capability: "server-required",

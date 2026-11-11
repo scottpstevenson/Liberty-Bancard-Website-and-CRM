@@ -21,6 +21,7 @@ import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { ArrowLeft, ArrowRight, Loader2, CheckCircle, DollarSign, Landmark, Percent, Monitor, Scale, HelpCircle, Stethoscope, Car, UtensilsCrossed, Wrench, Store, MoreHorizontal, Upload, FileText, Phone, Zap, ShieldCheck, BadgeCheck } from "lucide-react";
 import { PublicImage } from "@/components/public/PublicImage";
 import { claimText } from "@shared/public-claims";
+import { GET_STARTED_PAGE } from "@shared/public-get-started";
 import { TIMING_NOTE, FUNDING_NOTE } from "@shared/public-disclosures";
 import { FST_INQUIRY_PATH } from "@shared/free-smart-terminal-content";
 
@@ -370,12 +371,12 @@ function GetStartedQuiz() {
 
   return (
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
-      <SEO title="Get Started - Free Statement Analysis" description="Answer a few questions and get a personalized processing recommendation. Free statement review, no obligation." path="/get-started" breadcrumbs={[{ name: "Get Started", path: "/get-started" }]} />
+      <SEO title={GET_STARTED_PAGE.title} brandSuffix={false} description="Answer a few questions and get a personalized processing recommendation. Free statement review, no obligation." path="/get-started" breadcrumbs={[{ name: "Get Started", path: "/get-started" }]} />
       <Navbar />
       <main className="marketing-surface flex-grow public-main-offset">
         <PublicHero
           data-testid="section-get-started-hero"
-          headline={<>Find Your <span className="text-accent">Best Path</span> Forward</>}
+          headline={<>{GET_STARTED_PAGE.headingLead} <span className="text-accent">{GET_STARTED_PAGE.headingAccent}</span></>}
           subheadline="60 seconds. 6 questions. We'll tell you exactly what to do next."
           primaryCta={{ label: "Start the Quiz", href: "#quiz-section" }}
           secondaryCta={{ label: "Upload My Statement", href: "/upload-statement" }}
