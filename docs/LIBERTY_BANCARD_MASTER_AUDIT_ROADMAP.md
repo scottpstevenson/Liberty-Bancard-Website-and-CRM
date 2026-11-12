@@ -427,6 +427,33 @@
 
 **Target window:** 60–120 days post-launch.
 
+### Status update — 2026-11-12 (CRM workflow repairs from the 2026-11-11 live audit)
+
+The live audit ("Live CRM audit and Phase 6 roadmap", 2026-11-11) replaced the five old items below with 22 findings (CRM-01 to CRM-22) in five packages. All 22 are built in source, merged to main and included in the 2026-11-12 Publish. This is a source and fixture result, not a closed phase: the audit's own closing rule also needs browser and deployed readback evidence.
+
+| Package | Findings | State |
+|---|---|---|
+| 6A - Review-path reliability | CRM-01 to 04, 13, 17 | Built. Exact task and request paths, safe legacy aliases, one business time zone, keyboard notification actions. |
+| 6B - Mobile continuity and privacy | CRM-05 to 08 | Built. Record-preserving mobile routes, truthful summaries, no private API caching in the service worker, foreground-only bounded refresh. |
+| 6C - Inventory truth and provenance | CRM-09 to 12, 15, 16 | Built. Bounded progress read, no zero substituted for a failed source, record-class labels from the classification authority only. No production repair was applied. |
+| 6D - Daily sales workspace | CRM-14, 18 to 22 | Built, except the breadcrumb in CRM-22 "common page identity" (no breadcrumb component exists; return relies on browser Back and the tab held in the URL). Single-record claim of unassigned work is admin/manager only through the existing fenced update. |
+| 6E - Acceptance and serving receipt | all | Open. See below. |
+
+**Evidence that exists:** nine new Phase 6 check suites registered in the pre-deploy list and passing, the contact header browser check, and the neighbouring contract suites. The Stage 3 C4 mounted browser suite passed every page and accessibility step; its final speed comparison needed a baseline build that was missing and has since been restored by a separate change.
+
+**Evidence still missing (not claimed):**
+- Full pre-deploy roster on the published candidate (the launcher could not run beside the dev app; it now starts its own server on a free port when 5000 is taken, and the SHA check is kept).
+- Production-scale timing and query plans for the backlog and launch-inventory reads (no production queries were made).
+- Post-Publish GET-only readback of the repaired screens, and a real-browser walk of every signed-in screen.
+- Checks that already failed before this work and are not fixed here: CRM operator experience, CRM interface contracts, dashboard calendar update, industry-page contract, lead-ops budget removal, attestation promotion regression. The SEO audit's hydrated-metadata step flagged a different pair of pages on each of two runs, which looks like a timing flake but was not compared with a clean base.
+
+**Old items reconciled against the audit's crosswalk:**
+- P6-1 Inbox auto-refresh: desktop already polled every 45 s; mobile and the selected thread now refresh in the foreground only, on the same cadence. No second inbox was built.
+- P6-2 Daily briefing cache: the server already caches per actor, role, time zone and day. The briefing's day now uses the business time zone. Redis is not required for it.
+- P6-3 Outreach queue actions, P6-4 ZeroBounce history, P6-5 Proposal engagement: already in source when audited. Populated-row, success-state and proposal-open-attribution proofs were not part of this work and remain open.
+
+**Owner decisions still open (not implemented):** wider assignment policy for unassigned intake and service work; whether to recover the three older failed statement commands; approval of any provenance or test-record repair cohort; automatic statement analysis; content and form mappings and controlled email acceptance. Outreach, unpause, release, sends and paid provider spend stay off.
+
 ---
 
 ### P6-1 — Inbox auto-refresh
@@ -616,7 +643,7 @@
 | **Phase 3** | Data Quality Intelligence | 60–90 days | Unified verticals, bulk enrichment, email status fix |
 | **Phase 4** | Outreach Engine | First 90 days | Wave 2 migration, idempotency, Upstash upgrade |
 | **Phase 5** | Revenue Funnel | 90–180 days | Statement edge cases, pipeline pagination, app flow |
-| **Phase 6** | Operator Experience | 60–120 days | Inbox refresh, briefing cache, outreach queue |
+| **Phase 6** | Operator Experience | 60–120 days | CRM workflow repairs built 2026-11-12 (see Phase 6 status); acceptance readback open |
 | **Phase 7** | Conversion Optimization | 6–12 months | A/B testing, vertical copy, funnel analytics |
 | **Phase 8** | Cleanup & Hardening | Ongoing quarterly | Legacy code, demo data, indexes |
 
