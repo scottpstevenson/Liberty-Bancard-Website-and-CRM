@@ -198,3 +198,4 @@
 - [Public site lessons](public-claims-preflight-lessons.md) / [shell](public-shell-hubs-lessons.md) / [W-C closure](wc-closure-correction-lessons.md) / [lab](public-perf-lab-lessons.md) / [title/h1 parity](server-hydrated-parity.md) / [post-Publish pass](wd-post-publish-pv-lessons.md) — lab can't reproduce field CLS; preview re-adds .replit port; Vary: User-Agent.
 - [Territory business counts method](territory-business-counts-method.md) — county is TS-only: group production SQL by geography signature + bit-coded facts, evaluate with resolveBusinessCounty.
 - [CRM repair patterns](crm-workflow-repair-patterns.md) — exact-record reads, unavailable-never-zero counts, one business zone, Draft filter/record scope, Reports drilldown selectors, baseline-failing tests.
+- [QA removal & classification limits](qa-removal-and-classification-limits.md) — erasure is blocked (archive only); deal classification needs three distinct admins; deal archive may write to GHL.
