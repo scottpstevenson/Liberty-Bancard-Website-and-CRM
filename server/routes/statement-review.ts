@@ -252,7 +252,8 @@ export function registerStatementReviewRoutes(app: Express) {
       }
 
       const existing = await getStatementReview(id);
-      if (!existing || !await authorizeReview(req, res, existing, true)) return;
+      // authorizeReview answers 404 itself for a missing review; short-circuiting on !existing would leave the request hanging.
+      if (!await authorizeReview(req, res, existing, true)) return;
       if (parsed.data.version !== existing.version) {
         return res.status(409).json({ code: "STATEMENT_REVIEW_VERSION_CONFLICT", currentVersion: existing.version });
       }
@@ -321,7 +322,8 @@ export function registerStatementReviewRoutes(app: Express) {
     try {
       const id = Number(req.params.id);
       const review = await getStatementReview(id);
-      if (!review || !await authorizeReview(req, res, review, true)) return;
+      // authorizeReview answers 404 itself for a missing review; short-circuiting on !review would leave the request hanging.
+      if (!await authorizeReview(req, res, review, true)) return;
 
       let contactName = "";
       let companyName = "";

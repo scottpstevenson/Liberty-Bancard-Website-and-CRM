@@ -100,6 +100,16 @@ const statementRoutes = read("server/routes/statement-review.ts");
 ok(statementRoutes.includes('app.get("/api/statement-reviews/:id/request", requireRole("admin", "manager")'), "the request link is read by management roles only");
 ok(statementRoutes.includes("if (!await authorizeReview(req, res, review)) return;") && !/if \(!review \|\| !await authorizeReview\(req, res, review\)\) return;\s*\n\s*(res\.setHeader|\n\s*let contactName)/.test(statementRoutes),
   "a missing review answers 404 instead of leaving the request open");
+const patchStart = statementRoutes.indexOf('app.patch("/api/statement-reviews/:id"');
+const patchEnd = statementRoutes.indexOf("\n  // POST /api/statement-reviews/:id/follow-up-draft", patchStart);
+const patchRoute = patchStart >= 0 && patchEnd > patchStart ? statementRoutes.slice(patchStart, patchEnd) : "";
+ok(patchRoute.includes("if (!await authorizeReview(req, res, existing, true)) return;") && !/!existing\s*\|\|/.test(patchRoute),
+  "saving a missing or invisible review answers 404 instead of leaving the request open");
+const draftStart = statementRoutes.indexOf('app.post("/api/statement-reviews/:id/follow-up-draft"');
+const draftEnd = statementRoutes.indexOf("\n  // POST /api/statement-reviews — create", draftStart);
+const draftRoute = draftStart >= 0 && draftEnd > draftStart ? statementRoutes.slice(draftStart, draftEnd) : "";
+ok(draftRoute.includes("if (!await authorizeReview(req, res, review, true)) return;") && !/!review\s*\|\|/.test(draftRoute),
+  "generating a follow-up draft for a missing or invisible review answers 404 instead of leaving the request open");
 ok(statementRoutes.includes('eq(statementUploadCommands.operationScope, "statement_upload")') && statementRoutes.includes('reason: "ambiguous"'), "the link comes only from the recorded upload command and an ambiguous record is not guessed");
 
 // ── Unmapped inbox rows and notification target ─────────────────────────────────────────────────────────────────────
