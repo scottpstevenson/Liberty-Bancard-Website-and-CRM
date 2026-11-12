@@ -24,6 +24,10 @@
 
 set -euo pipefail
 
+# When the caller did not choose BASE_URL, the wrapper may move to a free port if the default one is taken by the
+# running dev app (see the pre-flight below). A BASE_URL the caller chose is never moved.
+BASE_URL_EXPLICIT=0
+if [ -n "${BASE_URL:-}" ]; then BASE_URL_EXPLICIT=1; fi
 BASE_URL="${BASE_URL:-http://localhost:5000}"
 HEALTH_URL="${BASE_URL}/api/health"
 MAX_WAIT_SECS="${MAX_WAIT_SECS:-90}"
@@ -59,15 +63,37 @@ SERVER_PORT="$(node -e 'const u=new URL(process.argv[1]); console.log(u.port || 
 echo "▶  Confirming configured port ${SERVER_PORT} is unoccupied…"
 
 _get_port_pids() {
+  local port="${1:-$SERVER_PORT}"
   if command -v lsof >/dev/null 2>&1; then
-    lsof -Pi :"$SERVER_PORT" -sTCP:LISTEN -t 2>/dev/null || true
+    lsof -Pi :"$port" -sTCP:LISTEN -t 2>/dev/null || true
   elif command -v ss >/dev/null 2>&1; then
-    ss -tlnpH "sport = :${SERVER_PORT}" 2>/dev/null \
+    ss -tlnpH "sport = :${port}" 2>/dev/null \
       | grep -oP 'pid=\K[0-9]+' || true
   fi
 }
 
 _OCCUPYING_PIDS=$(_get_port_pids)
+if [ -n "$_OCCUPYING_PIDS" ] && [ "$BASE_URL_EXPLICIT" = "0" ]; then
+  # The default port belongs to a process this script does not own (normally the running dev app, which reports
+  # sha=unset because it is not started with RELEASE_SHA). Never signal it and never test against it: start this
+  # gate's own server on the first free port instead, and point the gate and its suites at that server only.
+  echo "   Default port ${SERVER_PORT} is in use by pid(s): $_OCCUPYING_PIDS (left running, not signalled)"
+  _FREE_PORT=""
+  for _candidate in $(seq 5100 5199); do
+    if [ -z "$(_get_port_pids "$_candidate")" ]; then _FREE_PORT="$_candidate"; break; fi
+  done
+  if [ -z "$_FREE_PORT" ]; then
+    echo "✗  No free port found between 5100 and 5199."
+    exit 1
+  fi
+  SERVER_PORT="$_FREE_PORT"
+  BASE_URL="http://localhost:${SERVER_PORT}"
+  HEALTH_URL="${BASE_URL}/api/health"
+  _OCCUPYING_PIDS=""
+  echo "   Using port ${SERVER_PORT} for this gate's own server"
+fi
+# pre-deploy.ts and every suite it launches read BASE_URL from the environment.
+export BASE_URL
 if [ -n "$_OCCUPYING_PIDS" ]; then
   echo "✗  Configured port ${SERVER_PORT} is already owned by another process."
   echo "   Refusing to signal or evict unowned pid(s): $_OCCUPYING_PIDS"
