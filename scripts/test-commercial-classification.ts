@@ -410,6 +410,55 @@ async function main() {
   assert(execution.executed, "approved command executes into immutable event");
   assert(await getCurrentClass("contact", contact.id) === "test", "executed command updates root projection");
 
+  // Owner decision: one administrator can promote a deal to production directly.
+  const { classifyDealProductionByAdmin } = authority;
+  const [prodContact] = await db.insert(contacts).values({
+    firstName: "BT06", lastName: "DirectDeal", email: `bt06-direct-${nonce}@test.invalid`, phone: "3055550103",
+  }).returning();
+  await applyClassification({
+    subjectType: "contact", subjectId: prodContact.id, targetClass: "production",
+    eventNamespace: "bt06-test", eventKey: `direct-deal-contact:${nonce}`,
+    evidenceFields: { review_source: "isolated_test" }, actorId: "test-requester", approverId: "test-approver",
+  });
+  const [directDeal] = await db.insert(deals).values({
+    title: `BT06 direct deal ${nonce}`, pipeline: "sales", stage: "New Lead", contactId: prodContact.id,
+  } as any).returning();
+  const [unknownRootDeal] = await db.insert(deals).values({
+    title: `BT06 unknown-root deal ${nonce}`, pipeline: "sales", stage: "New Lead", contactId: otherContact.id,
+  } as any).returning();
+  const directCommandId = crypto.randomUUID();
+  const direct = await classifyDealProductionByAdmin({
+    dealId: directDeal.id, actorId: "sole-admin", commandId: directCommandId, reason: "Owner confirmed this is a real customer request",
+  });
+  assert(direct.applied && await getCurrentClass("deal", directDeal.id) === "production",
+    "a single administrator can classify a deal production when its contact is production");
+  const [directEvent] = await db.select().from(commercialClassificationEvents)
+    .where(eq(commercialClassificationEvents.id, direct.eventId));
+  assert(directEvent?.actorId === "sole-admin" && directEvent.approverId === null && directEvent.newClass === "production",
+    "direct deal promotion records the real actor, no fabricated approver, and an immutable event");
+  const directReplay = await classifyDealProductionByAdmin({
+    dealId: directDeal.id, actorId: "sole-admin", commandId: directCommandId, reason: "Owner confirmed this is a real customer request",
+  });
+  assert(directReplay.duplicate && !directReplay.applied && directReplay.eventId === direct.eventId,
+    "direct deal promotion retry with the same command is idempotent");
+  let unknownRootRejected = false;
+  try {
+    await classifyDealProductionByAdmin({
+      dealId: unknownRootDeal.id, actorId: "sole-admin", commandId: crypto.randomUUID(), reason: "Owner decision",
+    });
+  } catch (error) { unknownRootRejected = String(error).includes("COMMERCIAL_CLASS_CONFLICT"); }
+  assert(unknownRootRejected && await getCurrentClass("deal", unknownRootDeal.id) === "unknown",
+    "direct deal promotion still requires the deal's contact to be production");
+  let dealSelfApprovalStillRejected = false;
+  try {
+    await applyClassification({
+      subjectType: "deal", subjectId: unknownRootDeal.id, targetClass: "production",
+      eventNamespace: "bt06-test", eventKey: `deal-self:${nonce}`,
+      evidenceFields: { review_source: "isolated_test" }, actorId: "same-admin", approverId: "same-admin",
+    });
+  } catch { dealSelfApprovalStillRejected = true; }
+  assert(dealSelfApprovalStillRejected, "the ordinary review path still requires an independent approver");
+
   if (failed) process.exit(1);
   console.log(`\n✓ BT-06 commercial classification integration passed (${passed} checks).`);
 }

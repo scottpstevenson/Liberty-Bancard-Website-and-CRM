@@ -400,11 +400,18 @@ export async function authorizeUse(params: {
  */
 async function applyClassificationWithPolicy(
   command: ClassificationCommand,
-  authorizationPolicy: "independent_reviewer" | "verified_sunbiz_bootstrap" | "verified_import_link" | "verified_first_party_link" = "independent_reviewer",
+  authorizationPolicy: "independent_reviewer" | "admin_direct_deal" | "verified_sunbiz_bootstrap" | "verified_import_link" | "verified_first_party_link" = "independent_reviewer",
 ): Promise<{ eventId: number; applied: boolean; duplicate: boolean }> {
   assertSubjectType(command.subjectType);
   assertCommercialClass(command.targetClass);
   assertNoPii(command.evidenceFields);
+  // Owner decision: an administrator may classify a deal production on their own.
+  // The policy is limited to deals and still requires a recorded actor and every
+  // linked contact/company to already be production (checked below).
+  if (authorizationPolicy === "admin_direct_deal" &&
+      (command.subjectType !== "deal" || command.targetClass !== "production" || !command.actorId)) {
+    throw new Error("Direct administrator classification is limited to promoting a deal to production with a recorded actor.");
+  }
   if (
     authorizationPolicy === "independent_reviewer" &&
     command.targetClass === "production" &&
@@ -536,6 +543,34 @@ export async function applyClassification(
   command: ClassificationCommand
 ): Promise<{ eventId: number; applied: boolean; duplicate: boolean }> {
   return applyClassificationWithPolicy(command, "independent_reviewer");
+}
+
+/**
+ * Administrator-direct deal promotion (owner decision): one admin can classify a
+ * deal production without a separate approver or executor. The deal's contact
+ * and company must already be production, the action is recorded as an
+ * immutable classification event, and `commandId` makes retries idempotent.
+ */
+export async function classifyDealProductionByAdmin(params: {
+  dealId: number;
+  actorId: string;
+  commandId: string;
+  reason: string;
+}): Promise<{ eventId: number; applied: boolean; duplicate: boolean }> {
+  return applyClassificationWithPolicy({
+    subjectType: "deal",
+    subjectId: params.dealId,
+    targetClass: "production",
+    eventNamespace: "deal-admin-direct",
+    eventKey: params.commandId,
+    evidenceFields: {
+      review_source: "admin_direct",
+      approval_basis: "owner_decision",
+      classification_reason: params.reason,
+      command_id: params.commandId,
+    },
+    actorId: params.actorId,
+  }, "admin_direct_deal");
 }
 
 /** Internal automatic initial classification, not a general promotion API.

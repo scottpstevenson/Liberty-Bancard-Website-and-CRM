@@ -6653,6 +6653,54 @@ export function registerAdminRoutes(app: Express) {
     },
   );
 
+  // Owner decision: one administrator can classify a deal production directly,
+  // with no separate approver or executor. The deal's contact/company must
+  // already be production; the change is an immutable classification event.
+  app.post(
+    "/api/admin/deals/:id/classify-production",
+    isDashboardUser,
+    requireRole("admin"),
+    async (req, res) => {
+      const dealId = Number(req.params.id);
+      const parsed = z.object({
+        commandId: z.string().uuid(),
+        reason: z.string().trim().min(1).max(200),
+      }).strict().safeParse(req.body);
+      if (!Number.isSafeInteger(dealId) || dealId <= 0 || !parsed.success) {
+        return res.status(400).json({ message: "A deal id, a commandId (UUID) and a short reason are required." });
+      }
+      const actorId = (req.user as { id?: unknown } | undefined)?.id;
+      if (typeof actorId !== "string" || !actorId) return res.status(401).json({ message: "Unauthorized" });
+      try {
+        const { getCurrentClass, classifyDealProductionByAdmin } = await import("../services/commercial-classification-authority");
+        const [deal] = await db.select({ id: deals.id, archivedAt: deals.archivedAt }).from(deals).where(eq(deals.id, dealId));
+        if (!deal) return res.status(404).json({ message: "Deal not found." });
+        if (deal.archivedAt) return res.status(409).json({ message: "The deal is archived; restore it before classifying." });
+        if (await getCurrentClass("deal", dealId) === "production") {
+          return res.json({ dealId, recordClass: "production", applied: false, alreadyProduction: true });
+        }
+        const result = await classifyDealProductionByAdmin({
+          dealId, actorId, commandId: parsed.data.commandId, reason: parsed.data.reason,
+        });
+        await auditChange({
+          actorType: "user", userId: actorId, action: "deal_classified_production_by_admin",
+          entityType: "deal", entityId: dealId,
+          details: { eventId: result.eventId, applied: result.applied, commandId: parsed.data.commandId },
+        });
+        res.json({ dealId, recordClass: "production", applied: result.applied, eventId: result.eventId });
+      } catch (err: any) {
+        const message = String(err?.message ?? "");
+        if (/^COMMERCIAL_(CLASS_CONFLICT|REQUIRED_ROOT_MISSING)/.test(message)) {
+          return res.status(422).json({ message: "The deal's contact (and company, if any) must already be classified production first." });
+        }
+        if (message.startsWith("Classification idempotency key collision")) {
+          return res.status(409).json({ message: "That commandId was already used for a different request." });
+        }
+        serverError(res, err);
+      }
+    },
+  );
+
   // BT-06: original purge implementation is intentionally unreachable and will
   // be removed in the next cleanup pass. The public handler above is the only
   // registered route and always returns 410.
