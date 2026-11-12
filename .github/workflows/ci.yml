@@ -177,12 +177,7 @@ jobs:
           CERTIFICATION_COMPILER_ONLY: "1"
           CERTIFICATION_ALLOWED_NETWORK_ORIGINS: ""
           CERTIFICATION_ALLOW_LOOPBACK: "0"
-        run: |
-          git fetch origin 85296699ec8d11f22750657dfe5ac34a8fd2577d
-          git worktree add --detach ../c4-performance-baseline 85296699ec8d11f22750657dfe5ac34a8fd2577d
-          ln -s "$PWD/node_modules" ../c4-performance-baseline/node_modules
-          deny_preload="$PWD/scripts/certification-provider-deny-preload.cjs"
-          (cd ../c4-performance-baseline && NODE_OPTIONS="${NODE_OPTIONS:-} --require $deny_preload" npm run build)
+        run: npx tsx scripts/build-c4-performance-baseline.ts
 
       - name: Run all deterministic integration suites
         run: npx tsx scripts/run-ci-suites.ts --capability deterministic-integration

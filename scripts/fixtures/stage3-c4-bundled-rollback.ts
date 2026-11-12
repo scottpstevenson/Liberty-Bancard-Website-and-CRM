@@ -5,13 +5,14 @@ import net from "node:net";
 import path from "node:path";
 import {spawnCertificationTsx,terminateCertificationChild} from "../certification-child-process";
 import type {stage3BHttpFixture} from "./stage3-b-http";
+import {c4PerformanceBaselineRoot,verifyC4PerformanceBaseline} from "./c4-performance-baseline";
 
 /** Runs the actual production server bundles against owned latest-schema data.
  * No migration or worker entry point and no production connection is used. */
 export async function runC4BundledRollback(h:Awaited<ReturnType<typeof stage3BHttpFixture>>,identity:any){
   const hash=(data:string|Buffer)=>createHash("sha256").update(data).digest("hex");
-  const baseline=path.resolve("../c4-performance-baseline");
-  const baselineIdentity=JSON.parse(await readFile(path.join(baseline,"dist/candidate-integrity.json"),"utf8"));
+  const baseline=c4PerformanceBaselineRoot();
+  const baselineIdentity=await verifyC4PerformanceBaseline(baseline);
   const wrapper=path.resolve("scripts/fixtures/stage3-c4-bundled-rollback-child.ts");
   const tableNames=["contacts","merchant_mids","deals","documents","merchant_residuals",
     "chargebacks","tasks","tickets","rfis","onboarding_checklist_items","residual_imports",

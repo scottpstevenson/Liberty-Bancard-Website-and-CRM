@@ -58,10 +58,7 @@ jobs:
       # Baseline compilation is separate from every test DB/session runtime.
       - name: Build matched original production client
         if: matrix.suite == 'scripts/test-stage3-c4-browser.ts'
-        run: |
-          git worktree add --detach ../c4-performance-baseline 85296699ec8d11f22750657dfe5ac34a8fd2577d
-          ln -s "$PWD/node_modules" ../c4-performance-baseline/node_modules
-          (cd ../c4-performance-baseline && NODE_ENV=production npm run build)
+        run: npx tsx scripts/build-c4-performance-baseline.ts
       - name: Execute exact suite with test-only private resources
         env:
           NODE_ENV: test

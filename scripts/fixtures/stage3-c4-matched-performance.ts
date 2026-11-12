@@ -4,6 +4,7 @@ import {createHash} from "node:crypto";
 import {cpus,totalmem} from "node:os";
 import path from "node:path";
 import {privateStage3Browser} from "./private-stage3-browser";
+import {c4PerformanceBaselineRoot,verifyC4PerformanceBaseline} from "./c4-performance-baseline";
 import type {stage3BHttpFixture} from "./stage3-b-http";
 
 /** Same owned API, records and machine; only production client assets vary.
@@ -14,17 +15,29 @@ export async function runC4MatchedPerformance(
   identity:any,selectClient:(root:string)=>void,
 ) {
   const candidate=path.resolve("dist/public");
-  const baseline=path.resolve("../c4-performance-baseline");
-  const baselineIdentity=JSON.parse(await readFile(path.join(baseline,"dist/candidate-integrity.json"),"utf8"));
-  assert.equal(baselineIdentity.sourceHead,"85296699ec8d11f22750657dfe5ac34a8fd2577d");
-  for(const file of ["server/routes/portfolio.ts","shared/schema.ts","server/storage.ts"]){
-    assert.deepEqual(await readFile(file),await readFile(path.join(baseline,file)),
-      `Matched API/source rollback requires unchanged ${file}`);
-  }
+  const baseline=c4PerformanceBaselineRoot();
+  // Names the recorded reference commit and re-hashes the baseline's actual emitted files, not an
+  // index-only existence check. Build it with scripts/build-c4-performance-baseline.ts.
+  const baselineIdentity=await verifyC4PerformanceBaseline(baseline);
+  // The reference commit predates later unrelated work in shared/schema.ts and server/storage.ts, so
+  // whole-file equality cannot hold. The Portfolio reader (routes/portfolio.ts) issues raw SQL through
+  // the pool and imports neither file; what it can observe of them is the definitions of the tables
+  // it reads, so require its source and exactly those definitions to be unchanged.
+  assert.deepEqual(await readFile("server/routes/portfolio.ts"),await readFile(path.join(baseline,"server/routes/portfolio.ts")),
+    "Matched API/source rollback requires unchanged server/routes/portfolio.ts");
+  const tableDefinition=(source:string,name:string)=>{
+    const start=source.search(new RegExp(`^export const ${name} = pgTable\\(`,"m"));
+    assert.ok(start>=0,`Table ${name} must be defined in shared/schema.ts`);
+    const end=source.indexOf("\n});",start);
+    assert.ok(end>start,`Table ${name} definition must be terminated`);
+    return source.slice(start,end);
+  };
+  const candidateSchema=await readFile("shared/schema.ts","utf8");
+  const baselineSchema=await readFile(path.join(baseline,"shared/schema.ts"),"utf8");
+  for(const table of ["contacts","merchantMids","deals","merchantHealthScores","tickets","tasks"])
+    assert.equal(tableDefinition(candidateSchema,table),tableDefinition(baselineSchema,table),
+      `Matched API/source rollback requires unchanged ${table} table definition`);
   const hash=(value:string|Buffer)=>createHash("sha256").update(value).digest("hex");
-  // Verify baseline's actual emitted files, not an index-only existence check.
-  for(const output of baselineIdentity.outputs)
-    assert.equal(hash(await readFile(path.join(baseline,output.file))),output.sha256);
   const snapshot=async()=>{
     const {rows}=await h.pool.query(`SELECT 'contacts' AS kind, row_to_json(c)::text AS value
       FROM contacts c WHERE c.email LIKE $1
@@ -50,7 +63,12 @@ export async function runC4MatchedPerformance(
         await b.navigate("/mobile");await b.waitFor(/Switch to desktop view/);
         await b.waitFor(/Native appointments are unavailable/);
         await b.click('[data-testid="button-switch-to-desktop"]');
-        await b.waitFor(/Portfolio/);
+        // The switch reloads to /dashboard. The reference client lists Portfolio in its flat sidebar, but the
+        // candidate's grouped sidebar nests it under a collapsed group, so wait for the shell, not that label.
+        assert.equal(await b.evaluate(`(async()=>{for(let i=0;i<250;i++){
+          if(location.pathname.startsWith("/dashboard")&&document.readyState==="complete"&&document.querySelector("main"))return true;
+          await new Promise(r=>setTimeout(r,10));
+        }return false;})()`),true,"Switching to desktop must reach the dashboard shell");
         const started=performance.now();
         await b.navigate("/dashboard/portfolio");
         assert.equal(await b.evaluate(`(async()=>{for(let i=0;i<250;i++){
