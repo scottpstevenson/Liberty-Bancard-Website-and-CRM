@@ -13,4 +13,6 @@ Permanent contact erasure is disabled in product code (retention contract unveri
 
 **Unpause side effect:** the global unpause sweeps every paused enrollment carrying a `_globalPauseBlockReason` marker back to `active` (918 in production on 2026-11-12) and that is not undone by re-pausing. Email/SMS/cold-email channel pauses are independent and stayed on, and the global pause gates sends at the transport, so nothing sent in the window. Warn the owner before any future lift.
 
+**Leftover QA sweep:** the People list defaults to production class only, so test-class contacts are hidden but still exist until archived; QA-looking records also hide inside the production class (early March test merchants, example.com contacts). Match by reserved test email domains and class, not by words like "test"/"smoke", which also appear in real business names from the lead files. Test sequences are retired (not deleted) via the versioned retire command after cancelling their enrollments; one test sequence had 911 real contacts enrolled. Companies carry no test records (none are named or classified test).
+
 **How to apply:** when asked to "delete" QA/test records, archive and say so plainly; do not claim erasure. The five July GHL-linked QA deals were archived in one owner-approved lift-archive-repause run.
