@@ -34,6 +34,8 @@ import { useAuth } from "@/hooks/use-auth";
 import {useAuthorizedSelectedRecord} from "@/hooks/use-authorized-selected-record";
 import { exportToCSV } from "@/lib/export-csv";
 import { getDealCardIdentity as dealCardIdentityFn } from "@/lib/deal-identity";
+import { dealCardFacts, focusedBoardStages } from "@/lib/pipeline-focus";
+import { pipelineStageSelection } from "@/lib/crm-destination-state";
 import type { Deal, Contact, PipelineStage, Agent, AgentMerchant, CoBrandedProposal } from "@shared/schema";
 import { SALES_STAGES, OFFER_PATHS, VERTICALS } from "@shared/schema";
 import Comments from "@/components/Comments";
@@ -41,6 +43,7 @@ import SavedFilterBar from "@/components/SavedFilterBar";
 import DashboardErrorState from "@/components/DashboardErrorState";
 import { useConfirmationFailedBatch, type ConfirmationFailedStatus } from "@/hooks/use-confirmation-failed-batch";
 import { CrmPage, CrmPageHeader, CrmDataState } from "@/components/crm/CrmPresentation";
+import { ProductionScopeNote } from "@/components/crm/RecordClass";
 import { AuthorizedContactPicker, type ContactChoice } from "@/components/crm/AuthorizedContactPicker";
 import {
   DndContext,
@@ -742,6 +745,25 @@ function SortableDealCard({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
+          {(() => {
+            const facts = dealCardFacts(deal as any, new Date());
+            return (
+              <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-xs" data-testid={`deal-card-facts-${deal.id}`}>
+                <dt className="text-muted-foreground">Owner</dt>
+                <dd className="min-w-0 truncate" data-testid={`deal-fact-owner-${deal.id}`} data-state={facts.owner.state}>{facts.owner.text}</dd>
+                <dt className="text-muted-foreground">Changed</dt>
+                <dd data-testid={`deal-fact-updated-${deal.id}`} data-state={facts.lastUpdated.state}>{facts.lastUpdated.text}</dd>
+                <dt className="text-muted-foreground">Next</dt>
+                <dd className={facts.nextAction.state === "overdue" ? "font-medium text-destructive" : ""} data-testid={`deal-fact-next-${deal.id}`} data-state={facts.nextAction.state}>{facts.nextAction.text}</dd>
+                {facts.blockers.length > 0 && (
+                  <>
+                    <dt className="text-muted-foreground">Needs</dt>
+                    <dd className="font-medium text-amber-800 dark:text-amber-300" data-testid={`deal-fact-blockers-${deal.id}`}>{facts.blockers.join(" · ")}</dd>
+                  </>
+                )}
+              </dl>
+            );
+          })()}
           <Button variant="outline" className="w-full" aria-label={`Open deal ${deal.id}: ${identity.primary}`} data-testid={`button-open-deal-${deal.id}`}
             onClick={event=>{event.stopPropagation();openDealDetail(deal);}}>
             Open deal
@@ -1585,6 +1607,8 @@ function PipelineWorkspace() {
   const [offerPathFilter, setOfferPathFilter] = useState("");
   // #480 — Hide empty stages toggle
   const [hideEmptyStages, setHideEmptyStages] = useState(false);
+  // Closed and parked stages open on demand; the board starts on the stages a rep works every day.
+  const [showSecondaryStages, setShowSecondaryStages] = useState(false);
   // #475 — No follow-up filter
   const [showNoFollowUpOnly, setShowNoFollowUpOnly] = useState(false);
   // #623 — Unassigned deals (no owner) filter
@@ -2451,6 +2475,17 @@ function PipelineWorkspace() {
     return filtered;
   };
 
+  // Closed and parked stages are counted but held back until asked for; an exactly selected deal keeps its own stage visible.
+  const stagePin = pipelineStageSelection(search, displayStages);
+  const clearStagePin = () => { const params = new URLSearchParams(search); params.delete("stage"); const qs = params.toString(); navigatePipeline(`/dashboard/pipeline${qs ? `?${qs}` : ""}`); };
+  const boardStages = focusedBoardStages({
+    stages: displayStages,
+    showAll: showSecondaryStages,
+    pinnedStage: stagePin.stage,
+    selectedStage: selectedDeal?.stage ?? selectedRecord.data?.stage ?? null,
+    countFor: (stage) => getDealsByStage(stage).length,
+  });
+
   if (dealsLoading) {
     return (
       <CrmPage className="space-y-6">
@@ -2487,12 +2522,15 @@ function PipelineWorkspace() {
       {/* #190 — Sticky header on scroll */}
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 -mx-2 px-2 pb-3">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
           <PageTitle className="text-2xl font-semibold" data-testid="text-pipeline-title">
             Sales Pipeline
             {dealsResult?.total != null && (
               <span className="ml-2 text-base font-normal text-muted-foreground" data-testid="text-pipeline-total-count">({dealsResult.total})</span>
             )}
           </PageTitle>
+          <ProductionScopeNote className="mt-1 max-w-xl" />
+          </div>
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2" data-testid="toggle-show-archived-deals">
             <Switch
@@ -3030,7 +3068,7 @@ function PipelineWorkspace() {
 
       {/* #450 — Flat list view of deals */}
       {viewMode === "list" && (() => {
-        const allVisibleDeals = displayStages.flatMap(s => getDealsByStage(s));
+        const allVisibleDeals = (stagePin.stage ? [stagePin.stage] : displayStages).flatMap(s => getDealsByStage(s));
         const sorted = [...allVisibleDeals].sort((a, b) => {
           if (listSortField === "volume") return ((b as any).totalVolume || 0) - ((a as any).totalVolume || 0);
           if (listSortField === "stage") return (a.stage || "").localeCompare(b.stage || "");
@@ -3084,6 +3122,35 @@ function PipelineWorkspace() {
         );
       })()}
 
+      {(stagePin.stage || stagePin.issues.length > 0) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm" role="status" data-testid="pipeline-stage-pin">
+          <span data-testid="text-pipeline-stage-pin">
+            {stagePin.stage
+              ? `Showing only ${stagePin.stage}: ${getDealsByStage(stagePin.stage).length} deals under the current filters.`
+              : `${stagePin.issues[0].reason.replace("Showing .", "Showing the focused board.")}`}
+          </span>
+          {stagePin.stage && <Button type="button" size="sm" variant="outline" className="min-h-11 sm:min-h-8" onClick={clearStagePin} data-testid="button-clear-stage-pin">Show all stages</Button>}
+        </div>
+      )}
+      {!stagePin.stage && boardStages.hidden.length > 0 && (
+        <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border bg-muted/40 px-3 py-2 text-sm ${viewMode === "list" ? "hidden" : ""}`} data-testid="pipeline-secondary-stages">
+          <span className="text-muted-foreground">Not shown on the board:</span>
+          {boardStages.hidden.map((entry) => (
+            <span key={entry.stage} data-testid={`pipeline-hidden-stage-${entry.stage.replace(/\s+/g, "-").toLowerCase()}`}>
+              <span className="font-medium">{entry.stage}</span> <span className="tabular-nums text-muted-foreground">{entry.count}</span>
+            </span>
+          ))}
+          <Button type="button" variant="outline" size="sm" className="ml-auto min-h-11 sm:min-h-8" onClick={() => setShowSecondaryStages(true)} data-testid="button-show-all-stages">
+            Show all {boardStages.total} stages
+          </Button>
+        </div>
+      )}
+      {!stagePin.stage && showSecondaryStages && viewMode !== "list" && (
+        <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm" data-testid="pipeline-all-stages-note">
+          <span className="text-muted-foreground">Showing all {boardStages.total} stages.</span>
+          <Button type="button" variant="outline" size="sm" className="min-h-11 sm:min-h-8" onClick={() => setShowSecondaryStages(false)} data-testid="button-focus-active-stages">Focus on active stages</Button>
+        </div>
+      )}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}
@@ -3091,8 +3158,8 @@ function PipelineWorkspace() {
         onDragEnd={handleDragEnd}
       >
         <ScrollArea className={`w-full ${viewMode === "list" ? "hidden" : ""}`} data-testid="pipeline-board">
-          <div className="flex gap-4 pb-4" style={{ minWidth: `${displayStages.length * 280}px` }}>
-            {displayStages.filter(stage => !hideEmptyStages || getDealsByStage(stage).length > 0).map((stage) => {
+          <div className="flex gap-4 pb-4" style={{ minWidth: `${boardStages.visible.length * 280}px` }}>
+            {boardStages.visible.filter(stage => !hideEmptyStages || getDealsByStage(stage).length > 0).map((stage) => {
               const stageDeals = getDealsByStage(stage);
               const colorClass = STAGE_COLORS[stage] || "bg-gray-500";
               return (

@@ -18,6 +18,10 @@ import { FIRST_PARTY_BOOK_URL, resolveSalesBooking } from "../services/message-c
 import { serverError } from "../utils/server-error";
 
 import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
+import { db } from "../db";
+import { and, eq } from "drizzle-orm";
+import { inboundRequests, statementUploadCommands } from "@shared/schema";
+import { inboundShortRef } from "../services/inbound-request-authority";
 
 const DRAFT_STATUSES = ["received", "in_review", "ai_analyzed", "reviewed", "complete"] as const;
 const TRANSITIONS: Record<string, readonly string[]> = {
@@ -143,11 +147,40 @@ export function registerStatementReviewRoutes(app: Express) {
     }
   });
 
+  // GET /api/statement-reviews/:id/request — the retained website request that produced this review's document.
+  // Website requests are managed by administrators and managers, so the same roles resolve the link. The link is derived only from
+  // the recorded upload command for the review's own document; no name, contact or time match is ever used.
+  app.get("/api/statement-reviews/:id/request", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const reviewId = /^[1-9]\d{0,9}$/.test(req.params.id) ? Number(req.params.id) : NaN;
+      if (!Number.isSafeInteger(reviewId) || reviewId > 2147483647) return res.status(400).json({ message: "Invalid review id" });
+      const review = await getStatementReview(reviewId);
+      // authorizeReview answers 404 itself for a missing review; short-circuiting on !review would leave the request hanging.
+      if (!await authorizeReview(req, res, review)) return;
+      res.setHeader("Cache-Control", "no-store");
+      if (!review.documentId) return res.json({ linked: false, reason: "no_document" });
+      const rows = await db.select({ id: inboundRequests.id })
+        .from(statementUploadCommands)
+        .innerJoin(inboundRequests, eq(inboundRequests.idempotencyKey, statementUploadCommands.requestId))
+        .where(and(
+          eq(statementUploadCommands.documentId, review.documentId),
+          eq(statementUploadCommands.operationScope, "statement_upload"),
+          eq(inboundRequests.sourceType, "statement_upload"),
+        ));
+      const ids = [...new Set(rows.map((row) => row.id))];
+      if (ids.length === 0) return res.json({ linked: false, reason: "no_request_recorded" });
+      if (ids.length > 1) return res.json({ linked: false, reason: "ambiguous", count: ids.length });
+      return res.json({ linked: true, requestReceipt: ids[0], shortRef: inboundShortRef(ids[0]) });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // GET /api/statement-reviews/:id — single review
   app.get("/api/statement-reviews/:id", isDashboardUser, async (req, res) => {
     try {
       const review = await getStatementReview(Number(req.params.id));
-      if (!review || !await authorizeReview(req, res, review)) return;
+      if (!await authorizeReview(req, res, review)) return;
 
       let contactName = "";
       let companyName = "";

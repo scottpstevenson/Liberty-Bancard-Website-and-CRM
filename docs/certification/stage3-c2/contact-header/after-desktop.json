@@ -22,15 +22,30 @@
   "status": {
     "top": 287,
     "bottom": 337,
-    "width": 797.03125,
+    "width": 794.515625,
     "height": 50,
     "visible": true
   },
   "nextAction": {
     "top": 345,
     "bottom": 365,
-    "width": 797.03125,
+    "width": 794.515625,
     "height": 20,
     "visible": true
-  }
+  },
+  "back": {
+    "top": 145,
+    "bottom": 189,
+    "width": 174.0625,
+    "height": 44,
+    "visible": true
+  },
+  "breadcrumb": {
+    "top": 159,
+    "bottom": 175,
+    "width": 96.046875,
+    "height": 16,
+    "visible": true
+  },
+  "h1Count": 1
 }

@@ -4,6 +4,11 @@ import { storage } from "../storage";
 import { contacts } from "@shared/schema";
 import { serverError } from "../utils/server-error";
 
+const SEARCH_TYPE_LIMIT = 500;
+
+/** Exact Work destination for a task; the destination authorizes the id itself. */
+const taskSelectionHref = (id: number) => `/dashboard/tasks-appointments?tab=tasks&taskId=${id}`;
+
 export function registerSearchRoutes(app: Express) {
   // === UNIVERSAL SMART SEARCH ===
   app.get("/api/search", isDashboardUser, async (req, res) => {
@@ -18,11 +23,11 @@ export function registerSearchRoutes(app: Express) {
       // Agents get object-level filtering on every entity type; prospects have no
       // per-agent ownership model so they're excluded from agent search entirely (#2021).
       const [contactsResult, dealsResult, ticketsResult, tasks, prospectsResult] = await Promise.all([
-        storage.getContacts({ limit: 500 }),
-        storage.getDeals({ limit: 500 }),
-        storage.getTickets({ limit: 500 }),
+        storage.getContacts({ limit: SEARCH_TYPE_LIMIT }),
+        storage.getDeals({ limit: SEARCH_TYPE_LIMIT }),
+        storage.getTickets({ limit: SEARCH_TYPE_LIMIT }),
         storage.getTasks(),
-        canSearchProspects ? storage.getProspects(undefined, { limit: 500 }) : Promise.resolve({ data: [] }),
+        canSearchProspects ? storage.getProspects(undefined, { limit: SEARCH_TYPE_LIMIT }) : Promise.resolve({ data: [] }),
       ]);
       let contacts = contactsResult.data;
       let deals = dealsResult.data;
@@ -50,22 +55,22 @@ export function registerSearchRoutes(app: Express) {
 
       contacts.forEach(c => {
         const searchStr = `${c.firstName} ${c.lastName} ${c.email} ${c.companyName || ""} ${c.phone || ""}`.toLowerCase();
-        if (searchStr.includes(q)) results.push({ type: "contact", id: c.id, title: `${c.firstName} ${c.lastName}`, subtitle: c.companyName || c.email || c.phone || "", href: "/dashboard/contacts" });
+        if (searchStr.includes(q)) results.push({ type: "contact", id: c.id, title: `${c.firstName} ${c.lastName}`, subtitle: c.companyName || c.email || c.phone || "", href: `/dashboard/contacts/${c.id}` });
       });
 
       deals.forEach(d => {
         const searchStr = `${d.offerPath || ""} ${d.stage} ${d.pipeline} deal #${d.id}`.toLowerCase();
-        if (searchStr.includes(q)) results.push({ type: "deal", id: d.id, title: `Deal #${d.id}`, subtitle: `${d.stage} - ${d.offerPath || d.pipeline}`, href: "/dashboard/pipeline" });
+        if (searchStr.includes(q)) results.push({ type: "deal", id: d.id, title: `Deal #${d.id}`, subtitle: `${d.stage} - ${d.offerPath || d.pipeline}`, href: `/dashboard/pipeline?id=${d.id}` });
       });
 
       tickets.forEach(t => {
         const searchStr = `${t.subject} ${t.category || ""} ${t.status}`.toLowerCase();
-        if (searchStr.includes(q)) results.push({ type: "ticket", id: t.id, title: t.subject, subtitle: `${t.status} - ${t.category || "General"}`, href: "/dashboard/tickets" });
+        if (searchStr.includes(q)) results.push({ type: "ticket", id: t.id, title: t.subject, subtitle: `${t.status} - ${t.category || "General"}`, href: `/dashboard/tickets?id=${t.id}` });
       });
 
       allTasks.forEach((t: any) => {
         const searchStr = `${t.title} ${t.description || ""} ${t.status}`.toLowerCase();
-        if (searchStr.includes(q)) results.push({ type: "task", id: t.id, title: t.title, subtitle: t.status || "pending", href: "/dashboard/tasks" });
+        if (searchStr.includes(q)) results.push({ type: "task", id: t.id, title: t.title, subtitle: t.status || "pending", href: taskSelectionHref(t.id) });
       });
 
       prospects.forEach(p => {
@@ -73,7 +78,14 @@ export function registerSearchRoutes(app: Express) {
         if (searchStr.includes(q)) results.push({ type: "prospect", id: p.id, title: p.companyName || "Unknown", subtitle: `${p.vertical || "Unknown"} - ${p.score || "unscored"}`, href: "/dashboard/prospects" });
       });
 
-      res.json({ results: results.slice(0, 20) });
+      // Each type reads at most SEARCH_TYPE_LIMIT rows, so say so rather than imply a whole-population search.
+      res.json({
+        results: results.slice(0, 20),
+        coverage: {
+          perTypeLimit: SEARCH_TYPE_LIMIT,
+          note: `Search reads the first ${SEARCH_TYPE_LIMIT} contacts, deals, tickets and prospects you can access. Use the page filters to find older records.`,
+        },
+      });
     } catch (err: any) {
       serverError(res, err);
     }

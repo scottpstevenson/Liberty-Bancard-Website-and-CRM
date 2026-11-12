@@ -1,4 +1,6 @@
+import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { buildPipelineStageHref, reportDrilldowns } from "@/lib/crm-destination-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -130,7 +132,23 @@ export default function Reporting() {
 
   return (
     <div className="space-y-8" data-testid="reporting-page">
+      <section aria-label="Report scope" className="space-y-2" data-testid="reporting-scope">
+        <p className="text-sm text-muted-foreground" data-testid="text-reporting-scope">
+          Scope: all sales deals, all support tickets, tasks you are authorized to see. Tickets read {new Date(support.meta.asOf).toLocaleString()}; tasks read {new Date(tasks.meta.asOf).toLocaleString()}; pipeline counts are the current read at page load.
+        </p>
+        <details className="rounded-md border bg-card text-sm" data-testid="details-report-caveats">
+          <summary className="flex min-h-11 cursor-pointer items-center px-3 font-medium">What these figures include and leave out</summary>
+          <ul className="list-disc space-y-1 px-8 pb-3 text-muted-foreground">
+            <li>Each card answers its own question with its own population. They are not added together or divided into one another.</li>
+            <li>Win rate counts only deals already won or lost. With no decided deals it says so instead of showing a percentage.</li>
+            <li>Active pipeline counts open sales stages; nurture and unrecognized stages are listed separately when present.</li>
+            <li>Ticket and task totals cover the whole population. The lists they open load up to 500 tickets and the tasks you can see, and say when that is fewer than the total.</li>
+            <li>This page does not estimate a conversion funnel or attribute revenue to sources. Revenue attribution has its own tab and says when it is unavailable.</li>
+          </ul>
+        </details>
+      </section>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Link href={reportDrilldowns.winLoss} className="block rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring" aria-label="Open the Win/Loss report for win rate" data-testid="link-card-kpi-winrate">
         <Card data-testid="card-kpi-winrate">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Win Rate</CardTitle>
@@ -156,7 +174,9 @@ export default function Reporting() {
             </p>
           </CardContent>
         </Card>
+        </Link>
 
+        <Link href={reportDrilldowns.pipeline} className="block rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring" aria-label="Open the Pipeline for active deals" data-testid="link-card-kpi-active-pipeline">
         <Card data-testid="card-kpi-active-pipeline">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Active Pipeline</CardTitle>
@@ -173,7 +193,9 @@ export default function Reporting() {
             </p>
           </CardContent>
         </Card>
+        </Link>
 
+        <Link href={reportDrilldowns.openTickets} className="block rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring" aria-label="Open the list of open tickets" data-testid="link-card-kpi-open-tickets">
         <Card data-testid="card-kpi-open-tickets">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Open Tickets</CardTitle>
@@ -188,7 +210,9 @@ export default function Reporting() {
             </p>
           </CardContent>
         </Card>
+        </Link>
 
+        <Link href={reportDrilldowns.overdueTasks} className="block rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring" aria-label="Open the list of overdue tasks" data-testid="link-card-kpi-overdue-tasks">
         <Card data-testid="card-kpi-overdue-tasks">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Overdue Tasks</CardTitle>
@@ -206,6 +230,7 @@ export default function Reporting() {
             </p>
           </CardContent>
         </Card>
+        </Link>
       </div>
 
       <Card data-testid="card-pipeline-performance">
@@ -223,7 +248,7 @@ export default function Reporting() {
                 <div key={stage} className="space-y-1" data-testid={`stage-row-${stage.toLowerCase().replace(/\s+/g, "-")}`}>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm">{stage}</span>
-                    <span className="text-sm font-medium text-muted-foreground">{count}</span>
+                    <Link href={buildPipelineStageHref(stage)} className="inline-flex min-h-11 min-w-11 items-center justify-end text-sm font-medium underline underline-offset-2" aria-label={`Open ${count} deals in ${stage}`} data-testid={`link-stage-${stage.toLowerCase().replace(/\s+/g, "-")}`}>{count}</Link>
                   </div>
                   <Progress
                     value={(count / stageMax) * 100}
@@ -330,12 +355,14 @@ export default function Reporting() {
               <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50">
                 <AlertTriangle className={`w-4 h-4 shrink-0 ${support.slaBreaches > 0 ? "text-destructive" : "text-green-600"}`} />
                 <div>
-                  <Badge
-                    variant={support.slaBreaches > 0 ? "destructive" : "secondary"}
-                    data-testid="badge-sla-breaches"
-                  >
-                    {support.slaBreaches} SLA breaches
-                  </Badge>
+                  <Link href={reportDrilldowns.slaBreaches} className="inline-flex min-h-11 items-center" aria-label={`Open the list of ${support.slaBreaches} open tickets past their SLA deadline`} data-testid="link-sla-breaches">
+                    <Badge
+                      variant={support.slaBreaches > 0 ? "destructive" : "secondary"}
+                      data-testid="badge-sla-breaches"
+                    >
+                      {support.slaBreaches} SLA breaches
+                    </Badge>
+                  </Link>
                 </div>
               </div>
             </div>
@@ -395,9 +422,9 @@ export default function Reporting() {
                {tasks.overdue > 0 ? (
                 <>
                   <AlertTriangle className="w-4 h-4 text-destructive shrink-0" />
-                  <span className="text-sm text-destructive font-medium" data-testid="text-task-overdue-count">
+                  <Link href={reportDrilldowns.overdueTasks} className="inline-flex min-h-11 items-center text-sm text-destructive font-medium underline underline-offset-2" data-testid="text-task-overdue-count">
                     {tasks!.overdue} overdue tasks require attention
-                  </span>
+                  </Link>
                 </>
               ) : (
                 <>

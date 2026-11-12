@@ -11,6 +11,7 @@ import { z } from "zod";
 import { taskReadPredicate, taskStateSql, readTaskMetrics } from "../services/task-read-authority";
 import { revenuePredicateSql } from "../services/revenue-read-authority";
 import { crmDayWindow } from "@shared/crm-time-window";
+import { APP_TIMEZONE } from "../config";
 import { authorityStateToLegacyTaskStatus } from "@shared/work-item-commands";
 
 const ALLOWED_ACTIVITY_TYPES = ["call", "email", "sms", "meeting", "voicemail"] as const;
@@ -74,7 +75,7 @@ export function registerMyDayRoutes(app: Express) {
       }
 
       const today = new Date();
-      const timezone=typeof req.query.timezone==="string" ? req.query.timezone : "UTC";
+      const timezone=typeof req.query.timezone==="string" ? req.query.timezone : APP_TIMEZONE;
       let dayWindow;
       try { dayWindow=crmDayWindow(today,timezone); }
       catch { return res.status(400).json({message:"Valid IANA timezone required"}); }

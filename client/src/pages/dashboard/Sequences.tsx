@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { ContentWorkspaceEntrance } from "@/components/dashboard/ContentWorkspace";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link } from "wouter";
+import { useCatalogReadiness } from "@/hooks/use-catalog-readiness";
+import { EmailLaneStates, LaneVerdictLine } from "@/components/crm/EmailLaneStates";
+import { packageScopeOf, sequenceLaneStates, type PackageScope } from "@/lib/email-lane-states";
 import { useAuth } from "@/hooks/use-auth";
 import {useRetainedLocalIntent} from "@/hooks/use-retained-local-intent";
 import {useRetainedCreateIntent} from "@/hooks/use-retained-create-intent";
@@ -211,6 +215,15 @@ export default function Sequences() {
   const [bucketFilter, setBucketFilter] = useState<"all" | SequenceBucket>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "paused">("all");
   const [wiringFilter, setWiringFilter] = useState<"all" | "missing">("all");
+  // Package grouping comes only from the catalog authority. It labels and filters; it never changes what a sequence can do,
+  // and while the catalog cannot be read no sequence is hidden or called "other".
+  const catalogRead = useCatalogReadiness();
+  const [packageFilter, setPackageFilter] = useState<"all" | PackageScope>("all");
+  const packageCounts = { current: 0, historical: 0, other: 0 };
+  for (const seq of sequences) {
+    const scope = packageScopeOf(catalogRead, "sequence", seq.id);
+    if (scope) packageCounts[scope]++;
+  }
 
   const { data: allEnrollmentsRaw, isError: enrollmentReadError, isLoading: enrollmentReadLoading } = useQuery<any[]>({
     queryKey: ["/api/sequence-enrollments/owned"],
@@ -772,12 +785,37 @@ export default function Sequences() {
                 : "Grouping and wiring metadata could not be loaded; groups and wiring are unknown, not uncategorized."}
             </p>
           )}
+          <p className="text-sm text-muted-foreground" data-testid="text-sequence-readiness-note">
+            {sequences.length} sequences are listed. Configured, active and enrolled do not mean send-ready: each row separates configuration, content approval, enrollment history, current eligibility, worker selection, suppression, pause and release.
+            Existing enrollments stay as history and are not woken by this page. Held recipients are counted under{" "}
+            <Link className="underline" href="/dashboard/lead-ops?tab=sfp">SFP in Lead Ops</Link>, not in an empty queue.
+          </p>
           <Card data-testid="card-sequence-filters">
             <CardContent className="pt-4 pb-4">
               <div className="flex items-center gap-2 mb-3 text-sm font-medium text-muted-foreground">
                 <Filter className="w-4 h-4" /> Filter &amp; Group Sequences
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Package</Label>
+                  {catalogRead.status === "ready" ? (
+                    <Select value={packageFilter} onValueChange={(v) => setPackageFilter(v as "all" | PackageScope)}>
+                      <SelectTrigger data-testid="select-package-filter">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">{`All sequences (${sequences.length})`}</SelectItem>
+                        <SelectItem value="current">{`Current package (${packageCounts.current})`}</SelectItem>
+                        <SelectItem value="historical">{`Historical (${packageCounts.historical})`}</SelectItem>
+                        <SelectItem value="other">{`Other, not in a package (${packageCounts.other})`}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p role="status" className="text-xs text-muted-foreground" data-testid="package-filter-unavailable">
+                      {catalogRead.status === "loading" ? "Loading package grouping." : "Package grouping is unavailable, so no sequence is hidden or called historical."}
+                    </p>
+                  )}
+                </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs text-muted-foreground">Group</Label>
                   <Select value={bucketFilter} onValueChange={(v) => setBucketFilter(v as any)}>
@@ -829,6 +867,7 @@ export default function Sequences() {
               return { seq, bucket, wiring };
             });
             const filtered = enriched.filter(({ seq, bucket, wiring }) => {
+              if (packageFilter !== "all" && packageScopeOf(catalogRead, "sequence", seq.id) !== packageFilter) return false;
               if (bucketFilter !== "all" && bucket !== bucketFilter) return false;
               if (statusFilter !== "all" && seq.status !== statusFilter) return false;
               if (wiringFilter === "missing" && wiring.status !== "missing" && wiring.status !== "invalid_stale") return false;
@@ -915,6 +954,19 @@ export default function Sequences() {
                         <span>{enrollmentReadError ? "Unavailable" : enrollmentReadLoading ? "Loading" : seqEnrollments.filter((e: any) => e.status === "active").length} active</span>
                         <span>{enrollmentReadError ? "Unavailable" : enrollmentReadLoading ? "Loading" : seqEnrollments.filter((e: any) => e.status === "completed").length} completed</span>
                       </div>
+                      {(() => {
+                        const lanes = sequenceLaneStates({
+                          sequence: { id: seq.id, status: seq.status, totalSteps: seq.totalSteps ?? null, retiredAt: seq.retiredAt ?? null },
+                          catalog: catalogRead,
+                          enrollments: enrollmentReadError || enrollmentReadLoading ? null : seqEnrollments,
+                        });
+                        return (
+                          <div className="mt-2 space-y-1.5" data-testid={`lanes-${seq.id}`}>
+                            <LaneVerdictLine states={lanes} testId={`lane-verdict-${seq.id}`} />
+                            <EmailLaneStates states={lanes} testId={`lane-states-${seq.id}`} />
+                          </div>
+                        );
+                      })()}
                       {/* #547 — Per-card completion percent bar */}
                       {seqEnrollments.length > 0 && (() => {
                         const completed = seqEnrollments.filter((e: any) => e.status === "completed").length;

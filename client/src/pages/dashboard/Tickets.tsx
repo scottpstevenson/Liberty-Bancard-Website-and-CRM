@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useWorkCommands, invalidateWorkFacts } from "@/hooks/use-work-commands";
 import {useTicketCreateCommand} from "@/hooks/use-rfi-command";
-import { useSearch } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import {useAuthorizedSelectedRecord} from "@/hooks/use-authorized-selected-record";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -28,6 +28,10 @@ import DashboardErrorState from "@/components/DashboardErrorState";
 import { DataState } from "@/components/ui/data-state";
 import { PageHeader } from "@/components/crm/CrmPresentation";
 import { toastError } from "@/lib/toast-helpers";
+import { isUnassignedWork, canClaimUnassignedWork, summarizeUnassigned, unassignedBlocker, claimConflictMessage } from "@/lib/unassigned-work";
+import { UnassignedQueueBanner } from "@/components/work/UnassignedQueueBanner";
+import { buildTicketCohortHref, ticketCohortState } from "@/lib/crm-destination-state";
+import { ticketCohortLabel, ticketInCohort } from "@/lib/ticket-cohort";
 import type { Ticket, Contact, TicketComment } from "@shared/schema";
 import { TICKET_CATEGORIES, SUPPORT_STAGES } from "@shared/schema";
 import { useTicketDraft } from "@/hooks/use-ticket-draft";
@@ -358,6 +362,14 @@ export default function Tickets() {
   const [searchTerm, setSearchTerm] = useState("");
   // #575 — Assigned to me filter
   const [assignedToMe, setAssignedToMe] = useState(false);
+  // Unassigned-management queue: tickets with no recorded owner. A view only; nothing is assigned by showing it.
+  const [unassignedOnly, setUnassignedOnly] = useState(false);
+  // Registered cohort selector from Reports (`ticketState`, `ticketSla`), derived from the URL on every render so reload and
+  // Back/Forward restore it. Same predicate as the Reports figure; it filters loaded tickets and never changes one.
+  const cohortSearch = useSearch();
+  const [, navigateCohort] = useLocation();
+  const cohort = ticketCohortState(cohortSearch);
+  const cohortActive = cohort.state !== "all" || cohort.sla !== "all";
   // #425 — Bulk resolve tickets
   const [selectedTicketIds, setSelectedTicketIds] = useState<Set<number>>(new Set());
   const toggleTicketSelect = (id: number) => setSelectedTicketIds(prev => {
@@ -392,7 +404,9 @@ export default function Tickets() {
   // #532 — Apply status filter; #551 — Apply search
   const tickets = allTickets?.filter(t => {
     if (statusFilter && t.status !== statusFilter) return false;
+    if (cohortActive && !ticketInCohort(t, cohort, new Date())) return false;
     if (assignedToMe && t.assignedTo !== user?.email) return false;
+    if (unassignedOnly && !isUnassignedWork(t)) return false;
     if (searchTerm) {
       const s = searchTerm.toLowerCase();
       if (!t.subject?.toLowerCase().includes(s) && !t.description?.toLowerCase().includes(s)) return false;
@@ -458,6 +472,27 @@ export default function Tickets() {
       toastError(err, { title: "Failed to update ticket" });
     },
   });
+
+  // Single-record claim through the same fenced ticket edit as the detail dialog (current version required, 409 on conflict).
+  const claimTicketMutation = useMutation({
+    mutationFn: async (ticket: Ticket) => {
+      if (!user?.email) throw new Error("Your account email is unavailable, so the claim cannot be recorded. Reload and try again.");
+      const res = await apiRequest("PUT", `/api/tickets/${ticket.id}`, workCommands.edit(ticket, { assignedTo: user.email }));
+      return res.json();
+    },
+    onSuccess: (_data, ticket) => {
+      invalidateWorkFacts();
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      toast({ title: "Ticket claimed", description: `Ticket #${ticket.id} is now assigned to you.` });
+    },
+    onError: (err: Error, ticket) => {
+      invalidateWorkFacts();
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      toast({ title: `Ticket #${ticket.id} was not claimed`, description: claimConflictMessage(err), variant: "destructive" });
+    },
+  });
+  const canClaim = canClaimUnassignedWork(user?.role);
+  const unassignedSummary = summarizeUnassigned(allTickets ?? [], t => isSlaBreached(t));
 
   const classifyMutation = useMutation({
     mutationFn: async (ticketId: number) => {
@@ -699,6 +734,22 @@ export default function Tickets() {
         </button>
       </div>
 
+      {cohortActive && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm" role="status" data-testid="ticket-cohort-banner">
+          <span data-testid="text-ticket-cohort">
+            Showing: {ticketCohortLabel(cohort)}. {tickets?.length ?? 0} of the {allTickets?.length ?? 0} loaded tickets match
+            {ticketsResult && allTickets && ticketsResult.total > allTickets.length ? `; only the first ${allTickets.length} of ${ticketsResult.total} tickets are loaded` : ""}.
+          </span>
+          <Button type="button" size="sm" variant="outline" className="min-h-11 sm:min-h-8" onClick={() => navigateCohort(buildTicketCohortHref({ state: "all" }))} data-testid="button-clear-ticket-cohort">Show all tickets</Button>
+        </div>
+      )}
+      <UnassignedQueueBanner
+        kind="ticket" summary={unassignedSummary} active={unassignedOnly} canClaim={canClaim}
+        overdueLabel="past their SLA deadline"
+        onShowUnassigned={() => { setUnassignedOnly(true); setAssignedToMe(false); }}
+        onShowAll={() => setUnassignedOnly(false)}
+      />
+
       <SavedFilterBar
         entityType="ticket"
         currentFilters={{}}
@@ -755,7 +806,7 @@ export default function Tickets() {
 
       <Card>
         <CardContent className="p-0">
-          <div className="overflow-x-auto" data-testid="table-tickets-scroll">
+          <div className="crm-dense-worklist overflow-x-auto" data-testid="table-tickets-scroll">
           <Table data-testid="table-tickets">
             <TableHeader>
               <TableRow>
@@ -827,6 +878,11 @@ export default function Tickets() {
                     </TableCell>
                     <TableCell className="font-medium" data-testid={`text-ticket-id-${ticket.id}`}>
                       #{ticket.id}
+                      {isUnassignedWork(ticket) && (
+                        <span className="block text-xs font-normal text-amber-800 dark:text-amber-300" data-testid={`text-unassigned-blocker-${ticket.id}`}>
+                          Unassigned. {unassignedBlocker("ticket", ticket)}
+                        </span>
+                      )}
                       {/* #460 — Contact name; #638 — Contact email */}
                       {ticket.contactId && contacts && (() => {
                         const c = contacts.find(x => x.id === ticket.contactId);
@@ -878,7 +934,20 @@ export default function Tickets() {
                     </TableCell>
                     {/* #384 — Assignee cell */}
                     <TableCell className="hidden sm:table-cell" data-testid={`text-ticket-assignee-${ticket.id}`}>
-                      {(ticket as any).assignedTo || <span className="text-muted-foreground text-xs">Unassigned</span>}
+                      {(ticket as any).assignedTo || (
+                        <div className="flex flex-col items-start gap-1">
+                          <span className="text-muted-foreground text-xs">Unassigned</span>
+                          {canClaim && !["Resolved", "Closed"].includes(ticket.status ?? "") && (
+                            <Button size="sm" variant="outline" className="h-7 text-xs"
+                              onClick={(e) => { e.stopPropagation(); claimTicketMutation.mutate(ticket); }}
+                              disabled={claimTicketMutation.isPending}
+                              data-testid={`button-claim-ticket-${ticket.id}`}
+                              aria-label={`Assign to me: ticket #${ticket.id}`}>
+                              Assign to me
+                            </Button>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="hidden sm:table-cell" data-testid={`text-ticket-created-${ticket.id}`}>
                       {ticket.createdAt ? new Date(ticket.createdAt).toLocaleDateString() : "N/A"}

@@ -211,6 +211,11 @@
   color: hsl(var(--foreground));
 }
 .crm-state-panel p { margin: 4px 0 0; color: hsl(var(--muted-foreground)); }
+/* Dense worklists: tighter rows so more work fits on screen. Every column keeps its content; controls keep their own 44px targets. */
+.crm-dense-worklist :is(td, th) { padding: 8px 12px; }
+.crm-dense-worklist th { height: 40px; }
+.crm-dense-worklist :is(td, th):has([role="checkbox"]) { width: 36px; padding-left: 12px; padding-right: 4px; }
+.crm-dense-worklist tbody tr { min-height: 44px; }
 .crm-inline-retry {
   margin-top: 12px;
   min-height: 44px;

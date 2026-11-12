@@ -84,7 +84,13 @@ ok(!/\btotalSteps\s*:/.test(seq.slice(seq.indexOf("createMutation"), seq.indexOf
 const campaignsRoute = read("server/routes/campaigns.ts");
 ok(campaignsRoute.includes(".strict()"), "strict sequence schemas remain");
 const backlog = read("client/src/pages/dashboard/CanonicalBacklog.tsx");
-ok(!/refetchInterval/.test(backlog), "Canonical Backlog has no automatic polling");
+{
+  // No automatic recount or refresh. The single interval is the in-memory progress report for a read that is already running:
+  // it is enabled and repeating only while that read is busy, and it never starts or repeats the aggregate itself.
+  const intervals = backlog.match(/refetchInterval\s*:[^,\n]*/g) ?? [];
+  ok(intervals.length === 1 && /busy \? \d+ : false/.test(intervals[0]) && backlog.includes("enabled: busy"), "Canonical Backlog has no automatic recount; only the busy-gated progress report repeats");
+  ok(backlog.includes("staleTime: Infinity"), "the launch inventory aggregate is never refreshed in the background");
+}
 ok(/Idempotency-Key/.test(backlog), "Release keeps its Idempotency-Key");
 const enrichment = read("client/src/pages/dashboard/CanonicalEnrichment.tsx");
 ok(/Vertical unresolved/.test(enrichment) && /Excluded from vertical scope/.test(enrichment), "vertical classification is not labelled as affiliation");

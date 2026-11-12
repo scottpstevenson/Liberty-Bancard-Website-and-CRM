@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { ZeroBounceCampaign } from "@/components/ZeroBounceCampaign";
+import { RecordClassReviewPanel } from "@/components/crm/RecordClassReviewPanel";
 import {
   Users, Mail, Phone, Tag, User, CheckCircle2, XCircle, AlertCircle,
   Loader2, ShieldCheck, ShieldX, ShieldAlert, Zap,
@@ -185,6 +186,8 @@ export default function DataQuality() {
         title="Data Quality Scanner"
         subtitle="Surface contacts with incomplete or unvalidated data. Validate eligible emails via ZeroBounce."
       />
+
+      <RecordClassReviewPanel />
 
       {/* ── Validation campaign tracker (task 1540C) ── */}
       <ZeroBounceCampaign

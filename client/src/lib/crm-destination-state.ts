@@ -39,7 +39,7 @@ export function revenueFilterUrl(search:string,hash:string,filter:Omit<RevenueFi
 }
 export const underwritingViews = ["queue","approved","config"] as const;
 export const onboardingViews = ["overview", "board"] as const;
-export const applicationStatuses = ["all","submitted","under_review","approved","declined","draft","withdrawn"] as const;
+export const applicationStatuses = ["all","submitted","under_review","approved","declined","draft","in_progress","withdrawn"] as const;
 export const boardingViews = ["submissions","mid-registry"] as const;
 export const boardingStatuses = ["all","submitted","under_review","more_info_needed","approved","declined"] as const;
 export const outreachViews = ["campaigns","ab-testing","messages"] as const;
@@ -254,6 +254,7 @@ export function safeParams(search: string, keys: readonly string[]): URLSearchPa
     const values = [...new Set(input.getAll(key))];
     if (values.length !== 1) continue;
     if (key in contextIdKinds && !parseLocalEntityId(key as LocalEntityId["kind"], values[0])) continue;
+    if (key === "taskId" && !(/^[1-9]\d*$/.test(values[0]) && Number(values[0]) <= 2147483647)) continue;
     if (key === "from" && !/^\/dashboard(?:\/[a-z0-9/-]*)?$/.test(values[0]) && !isRegistryReturnUrl(values[0])) continue;
     out.set(key, values[0]);
   }
@@ -522,7 +523,7 @@ export function contactWorkspaceState(search: string, permitted: readonly Contac
   }
   return {area:section ? contactSectionArea(section) : null, section, drawer, issues, permittedSections:allowed};
 }
-function workspaceContextKeys() {
+export function workspaceContextKeys() {
   return [...peopleQueryKeys, "id", "taskId", "month", "timezone", "channel", "filter", "thread", "source"] as const;
 }
 /** Preserve registered context and hash; callers push user choices, replace only
@@ -554,19 +555,36 @@ export function buildWorkWorkspaceHref(href: string, tab: "tasks" | "calendar") 
  * Tasks filters share these values and the overdue predicate, so a count and the list it opens use one definition. */
 export const taskStateFilters = ["all", "pending", "in_progress", "completed", "cancelled"] as const;
 export const taskDueFilters = ["all", "overdue"] as const;
+/** `unassigned` lists work with no recorded owner. It is a view of existing records; it never assigns anything. */
+export const taskOwnerFilters = ["all", "unassigned"] as const;
 export function taskCohortState(search: string) {
   const params = new URLSearchParams(search);
   const status = selectValue(params, "taskState", taskStateFilters, "all");
   const due = selectValue(params, "due", taskDueFilters, "all");
-  return { status: status.value, due: due.value, issues: [...status.issues, ...due.issues] };
+  const owner = selectValue(params, "taskOwner", taskOwnerFilters, "all");
+  return { status: status.value, due: due.value, owner: owner.value, issues: [...status.issues, ...due.issues, ...owner.issues] };
 }
-export function buildTaskCohortHref(href: string, cohort: { status: typeof taskStateFilters[number]; due: typeof taskDueFilters[number] }) {
-  const url = new URL(href, "https://crm.invalid"), params = safeParams(url.search, [...workspaceContextKeys(), "tab", "taskState", "due"]);
+export function buildTaskCohortHref(href: string, cohort: { status: typeof taskStateFilters[number]; due: typeof taskDueFilters[number]; owner?: typeof taskOwnerFilters[number] }) {
+  const url = new URL(href, "https://crm.invalid"), params = safeParams(url.search, [...workspaceContextKeys(), "tab", "taskState", "due", "taskOwner"]);
   params.set("tab", "tasks");
   cohort.status === "all" ? params.delete("taskState") : params.set("taskState", cohort.status);
   cohort.due === "all" ? params.delete("due") : params.set("due", cohort.due);
+  (cohort.owner ?? "all") === "all" ? params.delete("taskOwner") : params.set("taskOwner", cohort.owner as string);
   return destinationUrl(url.pathname, params, url.hash);
 }
+/** Exact selected task (`taskId`) in Work. Selection is independent of the cohort filters; the destination authorizes it with the
+ * actor-scoped single-task read, so a stale or foreign id shows an honest unavailable state rather than another task. */
+export function buildTaskSelectionHref(href: string, taskId: number | null) {
+  const url = new URL(href, "https://crm.invalid"), params = safeParams(url.search, [...workspaceContextKeys(), "tab", "taskState", "due", "taskOwner"]);
+  params.set("tab", "tasks");
+  params.delete("taskId");
+  if (taskId !== null) {
+    if (!Number.isSafeInteger(taskId) || taskId <= 0 || taskId > 2147483647) throw new Error("Invalid task id");
+    params.set("taskId", String(taskId));
+  }
+  return destinationUrl("/dashboard/tasks-appointments", params, url.hash);
+}
+export const taskSelectionHref = (taskId: number) => buildTaskSelectionHref("/dashboard/tasks-appointments", taskId);
 /** Overdue = still open (pending or in progress) with a due time before `asOf`; identical to the server's Today metric. */
 export function isOverdueTask(task: { status: string | null; dueDate?: string | Date | null }, asOf: Date) {
   if (task.status !== "pending" && task.status !== "in_progress") return false;
@@ -574,10 +592,44 @@ export function isOverdueTask(task: { status: string | null; dueDate?: string | 
   const due = new Date(task.dueDate);
   return Number.isFinite(due.getTime()) && due.getTime() < asOf.getTime();
 }
+/** Ticket cohort destinations used by Reports. `open` is every ticket not Resolved or Closed (the analytics definition);
+ * `breached` is an open ticket whose SLA deadline has passed. Both are views of loaded tickets and never change a ticket. */
+export const ticketStateFilters = ["all", "open", "resolved"] as const;
+export const ticketSlaFilters = ["all", "breached"] as const;
+export function ticketCohortState(search: string) {
+  const params = new URLSearchParams(search);
+  const state = selectValue(params, "ticketState", ticketStateFilters, "all");
+  const sla = selectValue(params, "ticketSla", ticketSlaFilters, "all");
+  return { state: state.value, sla: sla.value, issues: [...state.issues, ...sla.issues] };
+}
+export function buildTicketCohortHref(cohort: { state: typeof ticketStateFilters[number]; sla?: typeof ticketSlaFilters[number] }) {
+  const params = new URLSearchParams({ tab: "tickets" });
+  if (cohort.state !== "all") params.set("ticketState", cohort.state);
+  if ((cohort.sla ?? "all") !== "all") params.set("ticketSla", cohort.sla as string);
+  return destinationUrl("/dashboard/support-hub", params, "");
+}
+/** Pipeline stage drilldown (`stage`). The value must be a recorded stage name; anything else is reported and ignored. */
+export function pipelineStageSelection(search: string, knownStages: readonly string[]) {
+  const selection = selectValue(new URLSearchParams(search), "stage", knownStages as readonly string[], "" as string);
+  return { stage: selection.value || null, issues: selection.issues };
+}
+export function buildPipelineStageHref(stage: string) {
+  const params = new URLSearchParams({ stage });
+  return destinationUrl("/dashboard/pipeline", params, "");
+}
 export const todayDestinations = {
   overdueTasks: "/dashboard/tasks-appointments?tab=tasks&due=overdue",
   pendingTasks: "/dashboard/tasks-appointments?tab=tasks&taskState=pending",
+  unassignedTasks: "/dashboard/tasks-appointments?tab=tasks&taskOwner=unassigned",
   newLeads7d: "/dashboard/pipeline?created=7d",
+} as const;
+/** Reports drilldowns: each number opens the list it counted, using the same predicate as the destination's own filter. */
+export const reportDrilldowns = {
+  overdueTasks: todayDestinations.overdueTasks,
+  winLoss: "/dashboard/reporting?tab=win-loss",
+  pipeline: "/dashboard/pipeline",
+  openTickets: buildTicketCohortHref({ state: "open" }),
+  slaBreaches: buildTicketCohortHref({ state: "open", sla: "breached" }),
 } as const;
 export const inboxChannels = ["all", "email", "sms", "voicemail", "site", "ghl_chat"] as const;
 export const inboxFilters = ["all", "unread", "needs_reply"] as const;

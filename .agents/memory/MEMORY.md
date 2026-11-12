@@ -159,8 +159,7 @@
 - [SFP canonical release authority](sfp-canonical-release-authority.md) — capped admin release of held recipients; sender identity has no status column; county_fips empty in prod.
 - [Stale-package refresh & seed boundary](sfp-stale-package-refresh-and-seed-boundary.md) — cursors miss stale packages; lazy policy bounds preview; real-path seed send needs a design decision.
 - [Private browser suite pitfalls](private-browser-suite-pitfalls.md) — rebuild before browser suites (identity covers scripts/); narrow viewports need prefer_desktop; wait on test IDs. Stale dist/blank app: see stale-dist-and-import-gaps.md, dev-app-blank-and-cold-load.md.
-- [Full roster run pitfalls](full-roster-run-pitfalls.md) — roster dirties docs/ evidence; rerun failures clean and diff against a baseline worktree.
-- [Recipient-selection lane starvation](recipient-selection-lane-starvation.md) — priority runs do not reach new uploads; staged-email businesses gated by geography; projection tick timing out.
+- [Full roster pitfalls](full-roster-run-pitfalls.md) / [Lane starvation](recipient-selection-lane-starvation.md) — roster dirties docs/ evidence; priority runs skip new uploads.
 - [C5 admin/shell lessons](c5-admin-shell-lessons.md) — Express 5 mount provenance, generator-parses-pages rule, sidebar cutover data, readiness test limits.
 - [Enrichment funnel blockers](enrichment-audit-blockers.md) — unclassified website businesses are mostly geography-deferred; suppressed contacts dominated the priority lane.
 - [Serper contact-page stage](serper-contact-page-stage.md) — governed one-request-per-business lookup; closed by default; request vs credit accounting; yield only from real runs.
@@ -170,8 +169,7 @@
 - [ZB low usage](zerobounce-spend-gating.md) / [legacyInFlight hold](validation-legacy-inflight-hold.md) — spend gated by SFP preparation supply, not credits; held addresses stay held (owner decision).
 - [Serper discovery drop cause](serper-selector-exhaustion.md) — selector exhaustion not the counter; see [domain/location automation](domain-location-automation.md): closed-by-default worker.
 - [Domain/location tick resumability](domain-location-tick-resume.md) — budget-stopped windowed ticks must persist cursor to the last handled id; else progress stalls.
-- [Heading ownership claims](heading-ownership-claims.md) — one h1 per page via runtime claim; hubs embed children at h2; verify by settled-h1 crawl.
-- [D-V review repair patterns](dv-review-repair-patterns.md) — cohort URL selectors, in-page fetch hold tests, bounded CSV streaming, rebuild-after-scripts rule.
+- [Heading ownership](heading-ownership-claims.md) / [D-V repairs](dv-review-repair-patterns.md) — one h1 via runtime claim; cohort URL selectors, bounded CSV streaming, rebuild after scripts.
 - [Drizzle begin failure leaks client](drizzle-begin-leak.md) — failed BEGIN never released in drizzle 0.45; override in server/db.ts; db:long_checkout floods mean a leak.
 - [Actor-change browser trigger](actor-change-browser-trigger.md) — auth revalidation via Date.now skew + offline/online; hold strips abort signal; release old before fresh.
 - [Inbound acknowledgement owner](inbound-ack-owner.md) — default-closed per-message lease; no unpause or historical catch-up. See [liveness](ack-worker-liveness.md): override refused, heartbeat.
@@ -199,3 +197,4 @@
 - [Website intake](website-intake-review-surfaces.md) / [cert harness](website-intake-cert-harness-lessons.md) / [W-C source & operator truth](public-intake-source-policy-and-operator-truth.md) / [W-C retry rules](wc-intake-handoff-lessons.md) — new modes stay outside warm lane; only pre-claim refusals release a key.
 - [Public site lessons](public-claims-preflight-lessons.md) / [shell](public-shell-hubs-lessons.md) / [W-C closure](wc-closure-correction-lessons.md) / [lab](public-perf-lab-lessons.md) / [title/h1 parity](server-hydrated-parity.md) / [post-Publish pass](wd-post-publish-pv-lessons.md) — lab can't reproduce field CLS; preview re-adds .replit port; Vary: User-Agent.
 - [Territory business counts method](territory-business-counts-method.md) — county is TS-only: group production SQL by geography signature + bit-coded facts, evaluate with resolveBusinessCounty.
+- [CRM repair patterns](crm-workflow-repair-patterns.md) — exact-record reads, unavailable-never-zero counts, one business zone, Draft filter/record scope, Reports drilldown selectors, baseline-failing tests.

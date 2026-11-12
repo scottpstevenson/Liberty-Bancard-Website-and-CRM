@@ -286,16 +286,27 @@ export default function Notifications() {
     },
   });
 
+  // Resolve the destination first. A notification is marked read only after its
+  // destination was resolved; a failed or unavailable lookup leaves it unread so
+  // it is not silently lost, and the failure is announced in a live region.
+  const [targetFailure, setTargetFailure] = useState<{ id: number; message: string } | null>(null);
   const handleNotificationClick = useCallback(async(notification: NotificationRecord) => {
-    if (!notification.read) {
-      markReadMutation.mutate(notification.id);
-    }
+    setTargetFailure(null);
     try {
       const response=await apiRequest("GET",`/api/notifications/${notification.id}/target`);
       const target=await response.json();
-      if(target.state==="available" && target.url) navigate(target.url);
-      else toast({title:"Record unavailable",description:"The destination is missing, archived, unsupported or no longer authorized."});
-    } catch(error) {toastError(error as Error,{title:"Destination unavailable — retry"});}
+      if(target.state==="available" && target.url) {
+        if (!notification.read) markReadMutation.mutate(notification.id);
+        navigate(target.url);
+      } else {
+        const message="The destination is missing, archived, unsupported or no longer authorized. This notification was left unread.";
+        setTargetFailure({ id: notification.id, message });
+        toast({title:"Record unavailable",description:message});
+      }
+    } catch(error) {
+      setTargetFailure({ id: notification.id, message: "The destination could not be checked. This notification was left unread; try again." });
+      toastError(error as Error,{title:"Destination unavailable — retry"});
+    }
   }, [navigate,markReadMutation,toast,toastError]);
 
   const updatePrefMutation = useMutation({
@@ -641,10 +652,33 @@ export default function Notifications() {
                         <div className="text-xs text-muted-foreground" data-testid={`text-notification-time-${notification.id}`}>
                           {notification.createdAt ? new Date(notification.createdAt).toLocaleString() : ""}
                         </div>
+                        {targetFailure?.id === notification.id && (
+                          <p role="alert" className="text-xs text-destructive" data-testid={`text-notification-target-failure-${notification.id}`}>
+                            {targetFailure.message}
+                          </p>
+                        )}
                       </div>
                       {notification.target?.context==="authorized_list_fallback" && <span className="text-xs text-muted-foreground">
                         {notification.target.label}
                       </span>}
+                      {link ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-shrink-0"
+                          aria-label={`Open destination for notification: ${notification.title}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleNotificationClick(notification);
+                          }}
+                          data-testid={`button-open-notification-${notification.id}`}
+                        >
+                          Open
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground flex-shrink-0"
+                          data-testid={`text-notification-no-destination-${notification.id}`}>No destination</span>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"

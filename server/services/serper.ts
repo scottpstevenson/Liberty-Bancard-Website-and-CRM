@@ -9,6 +9,7 @@
  */
 
 import { serperGateway } from "./serper-gateway";
+import { isDirectoryOrGovernmentDomain } from "@shared/source-domain-provenance";
 
 interface SerperOrganicResult {
   title: string;
@@ -127,18 +128,6 @@ async function serperSearch(
   return { data: result.data as SerperSearchResponse, attempted: true };
 }
 
-const DIRECTORY_DOMAINS = [
-  "google.com", "gstatic.com", "googleapis.com",
-  "sunbiz.org", "wikipedia.org", "reddit.com", "pinterest.com",
-  "tiktok.com", "apple.com", "amazon.com", "nextdoor.com",
-  "dandb.com", "indeed.com", "glassdoor.com",
-  "facebook.com", "linkedin.com", "yelp.com", "bbb.org",
-  "yellowpages.com", "mapquest.com", "tripadvisor.com",
-  "chamberofcommerce.com", "manta.com", "angi.com",
-  "thumbtack.com", "homeadvisor.com", "instagram.com",
-  "twitter.com", "x.com",
-];
-
 function extractDomainFromUrl(url: string): string | null {
   try {
     const parsed = new URL(url);
@@ -150,7 +139,7 @@ function extractDomainFromUrl(url: string): string | null {
 
 function isBusinessWebsite(domain: string): boolean {
   if (domain.length < 4) return false;
-  return !DIRECTORY_DOMAINS.some(dd => domain === dd || domain.endsWith(`.${dd}`));
+  return !isDirectoryOrGovernmentDomain(domain);
 }
 
 function extractContactFromText(text: string): { emails: string[]; phones: string[] } {

@@ -1,29 +1,27 @@
-import { useQuery } from "@tanstack/react-query";
+import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { apiRequest } from "@/lib/queryClient";
+import { blockedContactsHref } from "@/lib/mobile-destination";
+import { decodeTaskRows } from "@/lib/task-source";
+import { decodeInboxSourcePage, type InboxSourcePage } from "@/lib/inbox-source";
+import {
+  decodeLiveHealth, healthFreshness, healthSummary, inboxSummary, taskSummary,
+  type LiveHealth,
+} from "@/lib/mobile-more-summary";
+import type { Task } from "@shared/schema";
 import {
   CheckSquare, MessageSquare, BarChart3, ShieldAlert, Activity,
   Monitor, ChevronRight, TrendingUp, Mail, Users, Zap,
   AlertCircle, CheckCircle2, Clock, ExternalLink, MapPin,
 } from "lucide-react";
 
-type HealthResult = {
-  status: "ok" | "degraded" | "unavailable" | "error" | "warn";
-  message?: string;
-};
-type HealthData = {
-  checks: Record<string, HealthResult>;
-  overallOk: boolean;
-  okCount: number;
-  totalCount: number;
-};
-
 function StatusDot({ status }: { status: string }) {
   const c =
     status === "ok" ? "bg-green-500" :
-    status === "warn" ? "bg-yellow-500" :
+    status === "warn" || status === "stale" ? "bg-yellow-500" :
     "bg-red-500";
-  return <span className={`w-2 h-2 rounded-full flex-shrink-0 ${c}`} />;
+  return <span className={`w-2 h-2 rounded-full flex-shrink-0 ${c}`} aria-hidden="true" />;
 }
 
 function Row({
@@ -83,26 +81,31 @@ export default function MobileMore() {
     retry: false,
   });
 
-  const { data: tasks = [] } = useQuery<any[]>({
+  // Same task collection and open-task rule as mobile Home and Tasks.
+  const tasksRead = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
+    queryFn: async ({ signal }) => decodeTaskRows(await (await apiRequest("GET", "/api/tasks", undefined, undefined, signal)).json()),
     staleTime: 1000 * 60 * 2,
-    select: (d) => d.filter((t: any) => t.status !== "completed"),
   });
 
-  const { data: inbox } = useQuery<{ total: number; unread: number }>({
-    queryKey: ["/api/notifications"],
-    staleTime: 1000 * 60,
-    select: (d: any) => ({
-      total: d?.total ?? (Array.isArray(d) ? d.length : 0),
-      unread: d?.unread ?? (Array.isArray(d) ? d.filter((n: any) => !n.read).length : 0),
-    }),
+  // Unread work comes from the inbox authority (the feed the Inbox screen opens), not from notification totals.
+  const inboxRead = useQuery<InboxSourcePage>({
+    queryKey: ["/api/inbox/items", "more-summary", { channel: "all", filter: "unread", limit: 30 }],
+    queryFn: async ({ signal }) => decodeInboxSourcePage(
+      await (await apiRequest("GET", "/api/inbox/items?channel=all&filter=unread&limit=30", undefined, undefined, signal)).json(),
+    ),
+    staleTime: 1000 * 30,
   });
 
-  const { data: health } = useQuery<HealthData>({
+  // The health read is admin-only; a failed or malformed answer is "unavailable", never healthy.
+  const healthRead = useQuery<LiveHealth>({
     queryKey: ["/api/admin/live-health"],
+    queryFn: async ({ signal }) => decodeLiveHealth(await (await apiRequest("GET", "/api/admin/live-health", undefined, undefined, signal)).json()),
     staleTime: 1000 * 60 * 10,
     enabled: isAdmin,
+    retry: false,
   });
+  const health = healthRead.data;
 
   const { data: outreach } = useQuery<any>({
     queryKey: ["/api/outreach/status"],
@@ -115,9 +118,10 @@ export default function MobileMore() {
     window.location.href = "/dashboard";
   }
 
-  const openTasks = tasks.length;
-  const unreadInbox = inbox?.unread ?? 0;
-  const healthOk = health?.overallOk ?? true;
+  const taskState = taskSummary({ isLoading: tasksRead.isLoading, isError: tasksRead.isError, data: tasksRead.data });
+  const inboxState = inboxSummary({ isLoading: inboxRead.isLoading, isError: inboxRead.isError, data: inboxRead.data });
+  const healthState = healthSummary({ isLoading: isAdmin && healthRead.isLoading, isError: healthRead.isError, data: health });
+  const healthFresh = healthFreshness(health, Date.now());
 
   return (
     <div className="flex flex-col h-full">
@@ -146,17 +150,17 @@ export default function MobileMore() {
           <Row
             icon={CheckSquare}
             label="Tasks"
-            sublabel={openTasks > 0 ? `${openTasks} open task${openTasks !== 1 ? "s" : ""}` : "All caught up"}
+            sublabel={taskState.label}
             onPress={() => setLocation("/mobile/tasks")}
-            badge={openTasks > 0 ? String(openTasks) : undefined}
+            badge={taskState.badge ?? undefined}
             iconColor="text-purple-600"
           />
           <Row
             icon={MessageSquare}
             label="Inbox"
-            sublabel={unreadInbox > 0 ? `${unreadInbox} unread` : "No new messages"}
+            sublabel={inboxState.label}
             onPress={() => setLocation("/mobile/inbox")}
-            badge={unreadInbox > 0 ? String(unreadInbox) : undefined}
+            badge={inboxState.badge ?? undefined}
             iconColor="text-blue-600"
           />
         </div>
@@ -223,17 +227,13 @@ export default function MobileMore() {
                 <Row
                   icon={Activity}
                   label="System Health"
-                  sublabel={
-                    health
-                      ? `${health.okCount}/${health.totalCount} checks passing`
-                      : "Background workers & AI"
-                  }
+                  sublabel={healthState.label}
                   onPress={() => {
                     localStorage.setItem(PREFER_DESKTOP_KEY, "true");
                     window.location.href = "/dashboard/system-audit";
                   }}
-                  iconColor={healthOk ? "text-green-600" : "text-red-500"}
-                  badge={!healthOk ? "!" : undefined}
+                  iconColor={healthState.tone === "healthy" ? "text-green-600" : healthState.tone === "loading" ? "text-gray-500" : healthState.tone === "attention" ? "text-yellow-600" : "text-red-500"}
+                  badge={healthState.badge ?? undefined}
                 />
               )}
               <Row
@@ -242,7 +242,7 @@ export default function MobileMore() {
                 sublabel="DNC, bounced & opted-out"
                 onPress={() => {
                   localStorage.setItem(PREFER_DESKTOP_KEY, "true");
-                  window.location.href = "/dashboard/contacts?tab=blocked";
+                  window.location.href = blockedContactsHref();
                 }}
                 iconColor="text-orange-500"
               />
@@ -272,32 +272,56 @@ export default function MobileMore() {
           </>
         )}
 
-        {/* System Health Summary (admin only, inline) */}
-        {isAdmin && health && (
-          <div className="mx-4 mt-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-4">
-            <div className="flex items-center justify-between mb-3">
+        {/* System Health Summary (admin only, inline). Only a decoded, fully passing answer says healthy. */}
+        {isAdmin && (
+          <div className="mx-4 mt-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-4" data-testid="card-health-summary">
+            <div className="flex items-center justify-between mb-3 gap-2">
               <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                 Health Checks
               </span>
-              <span className={`text-xs font-medium ${healthOk ? "text-green-600" : "text-red-500"}`}>
-                {healthOk ? "All systems go" : "Issues detected"}
+              <span
+                role="status"
+                data-testid="text-health-state"
+                className={`text-xs font-medium text-right ${
+                  healthState.tone === "healthy" ? "text-green-600"
+                  : healthState.tone === "loading" ? "text-gray-500"
+                  : healthState.tone === "attention" ? "text-yellow-700"
+                  : "text-red-600"}`}
+              >
+                {healthState.tone === "healthy" ? "All checks passing"
+                  : healthState.tone === "attention" ? `${healthState.notPassing} need attention`
+                  : healthState.tone === "unhealthy" ? "Issues detected"
+                  : healthState.label}
               </span>
             </div>
-            <div className="space-y-2">
-              {Object.entries(health.checks).map(([name, result]) => (
-                <div key={name} className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
-                    <StatusDot status={result.status} />
-                    <span className="text-gray-700 dark:text-gray-300 capitalize">
-                      {name.replace(/([A-Z])/g, " $1").trim()}
-                    </span>
-                  </div>
-                  <span className="text-gray-400 dark:text-gray-500 truncate max-w-[140px] text-right">
-                    {result.message ?? result.status}
-                  </span>
+            {healthState.tone === "unavailable" && (
+              <div className="text-xs text-gray-600 dark:text-gray-300" role="alert">
+                The health read did not return a usable answer, so system status is unknown.
+                <button type="button" className="min-h-11 ml-2 underline text-blue-700 dark:text-blue-400" onClick={() => void healthRead.refetch()}>
+                  Retry
+                </button>
+              </div>
+            )}
+            {health && healthState.tone !== "unavailable" && (
+              <>
+                <div className="space-y-2">
+                  {health.checks.map((check) => (
+                    <div key={check.name} className="flex items-center justify-between text-xs gap-2">
+                      <div className="flex items-center gap-2">
+                        <StatusDot status={check.status} />
+                        <span className="text-gray-700 dark:text-gray-300 capitalize">
+                          {check.name.replace(/([A-Z])/g, " $1").trim()}
+                        </span>
+                      </div>
+                      <span className="text-gray-500 dark:text-gray-400 truncate max-w-[160px] text-right">
+                        {check.status === "ok" ? (check.detail ?? "ok") : `${check.status}${check.detail ? ` · ${check.detail}` : ""}`}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+                {healthFresh && <div className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">{healthFresh}{health.cached ? " (cached result)" : ""}</div>}
+              </>
+            )}
           </div>
         )}
 

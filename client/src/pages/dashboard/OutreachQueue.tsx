@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Rocket, SkipForward, RefreshCw, Users, Phone, Mail, Loader2,
-  ChevronLeft, ChevronRight, MapPin, Building2, CheckCircle,
+  ChevronLeft, ChevronRight, MapPin, Building2, CheckCircle, Info,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -401,11 +401,19 @@ export default function OutreachQueue() {
                 <TableRow>
                   <TableCell colSpan={isAdmin ? 10 : 9} className="text-center h-40">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                      <CheckCircle className="h-8 w-8 text-green-400" />
-                      <p className="font-medium text-foreground">{queueQuery.data?.hasMore ? "No matches in this scan" : "All caught up"}</p>
-                      <p className="text-sm">{queueQuery.data?.hasMore
+                      <Info className="h-8 w-8 text-slate-400" aria-hidden="true" />
+                      <p className="font-medium text-foreground">{queueQuery.data?.hasMore ? "No matches in this scan" : "Nothing in this queue"}</p>
+                      <p className="text-sm" data-testid="text-queue-empty-scope">{queueQuery.data?.hasMore
                         ? "Continue to scan the next bounded set of leads."
-                        : "No leads ready for outreach right now."}</p>
+                        : `No lead currently qualifies under policy v${queueQuery.data?.policyVersion ?? "—"} in this queue. An empty queue is not an empty or released SFP population.`}</p>
+                      {!queueQuery.data?.hasMore && (
+                        <p className="max-w-md text-xs">
+                          Recipients held for SFP are counted under{" "}
+                          <Link href="/dashboard/lead-ops?tab=sfp" className="underline" data-testid="link-queue-empty-sfp">SFP in Lead Ops</Link>
+                          , and releasing them is a separate admin action under{" "}
+                          <Link href="/dashboard/outbound-readiness" className="underline" data-testid="link-queue-empty-readiness">Outbound Readiness</Link>.
+                        </p>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
+import { websiteSourceNeedsOwnershipReview } from "@shared/source-domain-provenance";
 import { sfpLaunchPresentationFingerprint } from "./cro03/sfp-launch-presentation";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { effectiveBusinessVerticalSql, effectiveBusinessVerticalStatusSql } from "@shared/effective-vertical";
 import {
   LAUNCH_GATE_LABELS,
-  type LaunchCountyVerticalCell, type LaunchGateKey, type LaunchInventoryPopulation,
+  type LaunchCountyVerticalCell, type LaunchGateKey, type LaunchInventoryPopulation, type LaunchInventoryProgress,
   type LaunchReasonCount, type LaunchReleaseBlocker, type SfpLaunchInventory,
 } from "@shared/sfp-launch-inventory";
 import { boundVerticalsCte, resolveBusinessCounty } from "./canonical-enrichment-backlog";
@@ -27,6 +28,7 @@ const CODE_LABELS: Record<string, string> = {
   address_changed: "The email address changed after it was prepared",
   link_not_current: "The contact no longer has a current verified link to this business",
   business_not_current: "The business is no longer a current canonical business",
+  website_source_unreviewed: "The business website is a directory or government host and no independent ownership evidence exists; it stays in review",
   vertical_not_accepted: "The business has no current accepted vertical in the program",
   no_live_sequence: "No live sequence is bound to the business's vertical",
   outside_territory: "The business is outside the three program counties",
@@ -179,7 +181,8 @@ export function buildRecordedLaunchQuery(validationTtlDays: number, intentIds?: 
       ${sql.raw(VERT)} AS vertical,
       (${sql.raw(VERT)} IN (SELECT vertical FROM bound_verticals)
         AND EXISTS(SELECT 1 FROM follow_up_sequences s WHERE s.id=i.sequence_id AND s.retired_at IS NULL)) AS sequence_ok,
-      b.state AS gstate, b.postal_code AS gzip, b.city AS gcity,
+      b.state AS gstate, b.postal_code AS gzip, b.city AS gcity, b.website_domain AS gwebsite,
+      COALESCE((SELECT array_agg(DISTINCT sl.source_type) FROM canonical_source_links sl WHERE sl.business_id=b.id), ARRAY[]::text[]) AS gsource_types,
       (SELECT jsonb_agg(jsonb_build_object('id',bl.id,'is_primary',bl.is_primary,'city',bl.city,'state',bl.state,
           'postal_code',bl.postal_code,'county_fips',bl.county_fips) ORDER BY bl.id)
          FROM business_locations bl WHERE bl.business_id=b.id)::text AS glocs,
@@ -243,6 +246,7 @@ async function evaluateLaunchRows(
     else if (!r.status_ok) fail("contact_current", "address_marked_undeliverable");
     if (!r.link_ok) fail("business_link_current", "link_not_current");
     if (!r.business_ok) fail("business_current", "business_not_current");
+    else if (websiteSourceNeedsOwnershipReview(r.gwebsite, (r.gsource_types ?? []) as string[])) fail("business_current", "website_source_unreviewed");
     if (!r.vertical_ok) fail("accepted_vertical", "vertical_not_accepted");
     else if (!r.sequence_ok) fail("sequence_bound", "no_live_sequence");
     if (geo.outcome !== "resolved") fail("in_territory", "location_unresolved");
@@ -414,6 +418,7 @@ export async function computeSfpLaunchInventory(ctx?: LaunchReadContext): Promis
 
 interface InventoryFlight {
   generation: number;
+  startedAt: number;
   backend: LaunchBackendHandle | null;
   expired: boolean;
   phases: LaunchPhaseTimings;
@@ -454,7 +459,7 @@ export const launchInventoryDeps = {
 function startInventoryFlight(deadlineMs: number): InventoryFlight {
   const startedAt = Date.now();
   const phases = newPhases();
-  const flight = { generation, backend: null, expired: false, phases } as InventoryFlight;
+  const flight = { generation, startedAt, backend: null, expired: false, phases } as InventoryFlight;
   const flightMemo = policyMemo;
   let timer: NodeJS.Timeout | null = null;
   let retry: NodeJS.Timeout | null = null;
@@ -514,6 +519,23 @@ export async function readSfpLaunchInventory(opts: { fresh?: boolean; deadlineMs
   }
   if (!inflight || inflight.expired) inflight = startInventoryFlight(opts.deadlineMs ?? LAUNCH_INVENTORY_DEADLINE_MS);
   return inflight.promise;
+}
+
+/**
+ * What the current read is doing, for an operator waiting on it. In-memory only: it never starts, joins or extends a read and
+ * never touches the database, so watching it cannot add load. `idle` means no read is running (not that a count is current).
+ */
+export function readLaunchInventoryProgress(now: number = Date.now()): LaunchInventoryProgress {
+  const flight = inflight;
+  if (!flight || flight.expired) {
+    return { state: "idle", elapsedMs: null, deadlineMs: LAUNCH_INVENTORY_DEADLINE_MS, phase: null, evaluated: null, total: null };
+  }
+  const total = flight.phases.policyTotal;
+  return {
+    state: "running", elapsedMs: Math.max(0, now - flight.startedAt), deadlineMs: LAUNCH_INVENTORY_DEADLINE_MS,
+    phase: flight.phases.current,
+    evaluated: total ? flight.phases.policyEvaluated + flight.phases.policyReused : null, total: total || null,
+  };
 }
 
 /** Test seam: drops cache, memo and any flight so suites start from a known state. */

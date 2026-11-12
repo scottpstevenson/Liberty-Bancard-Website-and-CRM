@@ -22,6 +22,7 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { readReturnUrl } from "@/lib/crm-return-context";
 import { useAuth } from "@/hooks/use-auth";
+import { WebsiteProvenanceNotice } from "@/components/crm/WebsiteProvenanceNotice";
 
 // ─── Types (mirror BusinessDetailPanel) ───────────────────────────────────────
 
@@ -307,6 +308,7 @@ export function BusinessDetailPage() {
         {b && d && (
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]" data-testid="business-detail-layout">
             <div className="grid min-w-0 gap-6 md:grid-cols-2 xl:grid-cols-1" data-testid="business-detail-main">
+            <WebsiteProvenanceNotice className="md:col-span-2 xl:col-span-1" website={b.website_domain} sourceTypes={d.sourceLinks.map(sl => sl.source_type)} />
             {/* 1. Provenance */}
             <Card>
               <CardHeader className="pb-2 pt-4 px-4">

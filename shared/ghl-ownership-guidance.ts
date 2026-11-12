@@ -6,7 +6,7 @@ export const GHL_OWNERSHIP_STATEMENT = {
   cadence:
     "Replit owns sequence cadence, timing, routing, enrollment gates, suppression, sender policy and audit.",
   workflowIds:
-    "Sequence workflow IDs are reference-only records: a missing one does not change sequence execution. A separate set of supported handoff workflows (form confirmation, scheduling, merchant application, proposal follow-up, affiliate welcome, unsubscribe) is enrolled from Replit using the saved ID; when that ID is missing the enrollment is skipped.",
+    "Sequence workflow IDs are reference-only records: a missing one does not change sequence execution. A separate set of supported handoff workflows (scheduling, merchant application, proposal follow-up, affiliate welcome, unsubscribe) is enrolled from Replit using the saved ID; when that ID is missing the enrollment is skipped and the handoff is reported as not sent. A saved ID never authorizes a message by itself: the request receipt, website follow-up, approvals, consent checks and the outbound pause each decide separately. Website request confirmation is the Replit request receipt, not a GHL workflow.",
   incoming:
     "Incoming GHL sync is controlled independently of outbound sending and keeps running while outbound is paused.",
   pause:

@@ -9,6 +9,9 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import { decodeTaskRows, isPendingTask, taskPresentationState } from "@/lib/task-source";
+import { Link } from "wouter";
+import { taskRelatedLinks } from "@/lib/task-presentation";
+import { isDueBusinessToday, formatBusinessDateTime, businessZoneNote, businessZoneAbbreviation, businessInputToInstant } from "@shared/business-time";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
 function isOverdue(task: Task): boolean {
@@ -16,19 +19,19 @@ function isOverdue(task: Task): boolean {
   return new Date() > new Date(task.dueDate);
 }
 
+// "Today" is the business day (America/New_York), the same day desktop Work and the briefing use.
 function isToday(dateStr: string | null | undefined): boolean {
-  if (!dateStr) return false;
-  const d = new Date(dateStr);
-  const now = new Date();
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  return isDueBusinessToday(dateStr);
 }
 
 function formatDue(dateStr: string | null | undefined, pending: boolean): string {
   if (!dateStr) return "";
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return "";
-  return `${pending && d < new Date() ? "Overdue" : "Due"} · ${d.toLocaleString([], {dateStyle:"medium",timeStyle:"short"})}`;
+  return `${pending && d < new Date() ? "Overdue" : "Due"} · ${formatBusinessDateTime(d)}`;
 }
+
+const TASK_STATE_LABEL = { open: "Pending", in_progress: "In progress", completed: "Completed", cancelled: "Cancelled" } as const;
 
 const PRIORITY_OPTIONS = ["normal", "high", "urgent"] as const;
 
@@ -95,8 +98,8 @@ export default function MobileTasks() {
       toast({ title: "Task not saved", description: "Your signed-in actor is unavailable. Reload before creating work.", variant: "destructive" });
       return;
     }
-    const due=data.dueDate ? new Date(data.dueDate) : null;
-    if(due && !Number.isFinite(due.getTime())) {
+    const due=data.dueDate ? businessInputToInstant(data.dueDate) : null;
+    if(data.dueDate && !due) {
       toast({title:"Task not saved",description:"Choose a valid due date and time.",variant:"destructive"});
       return;
     }
@@ -183,7 +186,7 @@ export default function MobileTasks() {
       </div>
       {!isError && !isLoading && <p className="px-4 pt-3 text-xs text-gray-500 dark:text-gray-400">
         {allTasks.length} tasks returned by your authorized reader. Loaded counts, not a paged total.
-        {" "}Due times use {Intl.DateTimeFormat().resolvedOptions().timeZone}.
+        {" "}{businessZoneNote()} The circle beside a task marks it complete.
       </p>}
 
       <div className="py-2">
@@ -198,13 +201,30 @@ export default function MobileTasks() {
             <button type="button" className="min-h-11 mt-3 text-sm font-semibold underline" onClick={() => void refetch()}>Retry</button>
           </div>
         ) : displayTasks.length === 0 ? (
-          <div className="text-center py-12 px-4">
-            <CheckSquare className="w-12 h-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
-            <p className="text-gray-500 dark:text-gray-400 text-sm">
-              {filter === "today" ? "No tasks due today" : filter === "completed" ? "No completed tasks" :
-                filter === "cancelled" ? "No cancelled tasks" : "No pending tasks"}
-            </p>
-          </div>
+          allTasks.length === 0 ? (
+            <div className="text-center py-12 px-4" data-testid="empty-tasks" data-empty-kind="none_exist">
+              <CheckSquare className="w-12 h-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
+              <p className="text-gray-900 dark:text-white text-sm font-medium">No tasks yet</p>
+              <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">No tasks are assigned to you or visible to your role.</p>
+              <button type="button" data-testid="button-empty-create-task" onClick={() => setAddOpen(true)}
+                className="min-h-11 mt-3 rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white">Create a task</button>
+            </div>
+          ) : (
+            <div className="text-center py-12 px-4" data-testid="empty-tasks" data-empty-kind="no_match">
+              <CheckSquare className="w-12 h-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
+              <p className="text-gray-900 dark:text-white text-sm font-medium">
+                {filter === "today" ? "Nothing due today" : filter === "completed" ? "No completed tasks in this view" :
+                  filter === "cancelled" ? "No cancelled tasks in this view" : "No pending tasks"}
+              </p>
+              <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                {allTasks.length} {allTasks.length === 1 ? "task is" : "tasks are"} loaded, but none are in this view.
+              </p>
+              {filter !== "all" && (
+                <button type="button" data-testid="button-clear-task-filters" onClick={() => setFilter("all")}
+                  className="min-h-11 mt-3 rounded-xl border border-gray-300 px-4 text-sm font-semibold text-gray-900 dark:border-gray-600 dark:text-white">Show all pending tasks</button>
+              )}
+            </div>
+          )
         ) : (
           <div className="px-4 space-y-2">
             {displayTasks.map(task => (
@@ -217,7 +237,7 @@ export default function MobileTasks() {
               >
                 <button
                   data-testid={`button-complete-${task.id}`}
-                  aria-label={`Complete task: ${task.title}`}
+                  aria-label={isPendingTask(task) ? `Mark complete: ${task.title}` : `${task.title} is ${TASK_STATE_LABEL[taskPresentationState(task)].toLowerCase()}`}
                   onClick={() => completeTask(task.id)}
                   disabled={!isPendingTask(task) || completingIds.has(task.id)}
                   className={`mt-0.5 w-11 h-11 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
@@ -254,10 +274,21 @@ export default function MobileTasks() {
                         {task.priority}
                       </span>
                     )}
-                    {task.assignedTo && (
-                      <span className="text-xs text-gray-500 dark:text-gray-400">{task.assignedTo}</span>
-                    )}
+                    <span className="text-xs text-gray-700 dark:text-gray-300" data-testid={`text-task-state-${task.id}`}>
+                      Status: {TASK_STATE_LABEL[taskPresentationState(task)]}
+                    </span>
+                    <span className="text-xs text-gray-600 dark:text-gray-400" data-testid={`text-task-owner-${task.id}`}>
+                      Owner: {task.assignedTo || "Unassigned"}
+                    </span>
                   </div>
+                  {taskRelatedLinks(task).length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-x-4" data-testid={`task-related-${task.id}`}>
+                      {taskRelatedLinks(task).map(link => (
+                        <Link key={link.kind} href={link.href} className="inline-flex min-h-11 items-center text-xs font-medium text-blue-700 underline dark:text-blue-400"
+                          data-testid={`link-task-${task.id}-${link.kind}`}>{link.label}</Link>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -316,10 +347,10 @@ export default function MobileTasks() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Due Date</label>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Due Date ({businessZoneAbbreviation()} business time)</label>
                 <input
                   data-testid="input-task-due-date"
-                  aria-label="Task due date and time"
+                  aria-label="Task due date and time in Eastern business time"
                   type="datetime-local"
                   value={newDueDate}
                   onChange={(e) => setNewDueDate(e.target.value)}

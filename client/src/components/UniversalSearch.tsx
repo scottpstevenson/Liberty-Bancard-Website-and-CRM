@@ -38,6 +38,8 @@ export default function UniversalSearch() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
+  const [coverageNote, setCoverageNote] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -107,13 +109,19 @@ export default function UniversalSearch() {
           signal: controller.signal,
           credentials: "include",
         });
+        if (!response.ok) throw new Error(`${response.status}: Search unavailable`);
         const data = await response.json();
+        setSearchFailed(false);
+        setCoverageNote(typeof data.coverage?.note === "string" ? data.coverage.note : null);
         setResults(data.results || []);
         setSelectedIndex(-1);
         setIsOpen(true);
       } catch (err: unknown) {
         if (err instanceof Error && err.name !== "AbortError") {
+          // A failed search is not "no results": say so.
           setResults([]);
+          setSearchFailed(true);
+          setIsOpen(true);
         }
       } finally {
         setIsLoading(false);
@@ -446,7 +454,8 @@ export default function UniversalSearch() {
               data-testid="text-no-results"
               className="p-4 text-sm text-muted-foreground text-center"
             >
-              No results found
+              {searchFailed ? "Search is unavailable right now. Try again in a moment." : "No results found"}
+              {!searchFailed && coverageNote && <span className="block mt-1 text-xs" data-testid="text-search-coverage">{coverageNote}</span>}
             </div>
           ) : (
             <div className="py-1">

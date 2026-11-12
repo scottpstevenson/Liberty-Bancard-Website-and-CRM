@@ -23,6 +23,7 @@ import { taskReadPredicate, readTaskMetrics } from "../services/task-read-author
 import { dealReadPredicate } from "../services/revenue-read-authority";
 import { crmFactRevision } from "../services/crm-fact-freshness";
 import { crmDayWindow } from "@shared/crm-time-window";
+import { APP_TIMEZONE } from "../config";
 
 function getTodayStr(): string {
   return new Date().toISOString().split("T")[0]; // YYYY-MM-DD
@@ -50,7 +51,7 @@ async function generateAiBriefing(stats: BriefingFacts): Promise<string> {
   return briefingFactsSummary(stats);
 }
 
-async function buildDailyBriefing(user: any, bypassCache = false, timezone="UTC") {
+async function buildDailyBriefing(user: any, bypassCache = false, timezone=APP_TIMEZONE) {
       const userId = String(user?.id || "");
       const userEmail = String(user?.email || "");
       const role = user?.role || "agent";
@@ -193,7 +194,7 @@ export function registerDailyBriefingRoutes(app: Express) {
   // GET /api/overview/daily-briefing
   app.get("/api/overview/daily-briefing", isDashboardUser, async (req, res) => {
     try {
-      const timezone=typeof req.query.timezone==="string"?req.query.timezone:"UTC";
+      const timezone=typeof req.query.timezone==="string"?req.query.timezone:APP_TIMEZONE;
       try { crmDayWindow(new Date(),timezone); } catch { return res.status(400).json({message:"Valid IANA timezone required"}); }
       res.json(await buildDailyBriefing(req.user as any,false,timezone));
     } catch (err: any) {
@@ -206,7 +207,7 @@ export function registerDailyBriefingRoutes(app: Express) {
   app.post("/api/overview/daily-briefing/refresh", isDashboardUser, async (req, res) => {
     try {
       const user = req.user as any;
-      const timezone=typeof req.query.timezone==="string"?req.query.timezone:"UTC";
+      const timezone=typeof req.query.timezone==="string"?req.query.timezone:APP_TIMEZONE;
       try { crmDayWindow(new Date(),timezone); } catch { return res.status(400).json({message:"Valid IANA timezone required"}); }
       res.json(await buildDailyBriefing(user, true,timezone));
     } catch (err: any) {

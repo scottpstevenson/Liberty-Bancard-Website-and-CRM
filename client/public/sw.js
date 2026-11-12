@@ -6,10 +6,20 @@ const _sha =
   "dev-" + self.registration.scope.replace(/[^a-z0-9]/gi, "").slice(-8) + "-" + Date.now();
 
 const CACHE_NAME = "lb-mobile-" + _sha;
-const API_CACHE_NAME = "lb-api-" + _sha;
+// Private CRM reads are never stored by this worker. A URL-keyed copy of /api/contacts, /api/deals, /api/tasks or
+// /api/appointments would outlive logout and an actor change on a shared device and could be shown to the next
+// person. The only cache this worker owns is the public app shell below; any "lb-api-*" cache left by an earlier
+// release is deleted on activation and on request (PURGE_PRIVATE_CACHES).
+const PRIVATE_CACHE_PREFIX = "lb-api-";
 
 const STATIC_ASSETS = ["/mobile", "/mobile/login", "/favicon.png"];
-const CACHEABLE_APIS = ["/api/contacts", "/api/deals", "/api/tasks", "/api/appointments"];
+const PRIVATE_APIS = ["/api/contacts", "/api/deals", "/api/tasks", "/api/appointments"];
+
+function purgePrivateCaches() {
+  return caches.keys().then((keys) =>
+    Promise.all(keys.filter((k) => k.startsWith(PRIVATE_CACHE_PREFIX)).map((k) => caches.delete(k)))
+  );
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -24,9 +34,9 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
-        // Delete ALL caches from previous releases, not just ones with different names.
+        // Delete ALL caches from previous releases (including every private API cache), keeping only this shell cache.
         keys
-          .filter((k) => k !== CACHE_NAME && k !== API_CACHE_NAME)
+          .filter((k) => k !== CACHE_NAME)
           .map((k) => caches.delete(k))
       )
     ).then(() => self.clients.claim())
@@ -41,42 +51,14 @@ const CHUNK_RECOVERY_WINDOW_MS = 10_000; // 10 s — try reload once per asset
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
-  // ── Cacheable API calls: network-first, cache fallback ───────────────────
-  if (CACHEABLE_APIS.some((api) => url.pathname.startsWith(api))) {
+  // ── Private CRM reads: network only, never stored or replayed ────────────
+  // An unreachable network is an explicit 503 so the UI shows an unavailable state, never stale or empty data.
+  if (PRIVATE_APIS.some((api) => url.pathname === api || url.pathname.startsWith(api + "/"))) {
     event.respondWith(
-      (async () => {
-        const client = event.clientId ? await self.clients.get(event.clientId) : null;
-        // Employee reads must never consume a URL-only mobile API cache.
-        // This is a cache boundary, not authentication or permission authority.
-        const clientPath = client ? new URL(client.url).pathname : "";
-        const employee = /^\/dashboard(?:\/|$)/.test(clientPath)
-          && !/^\/dashboard\/(?:merchant-portal|mobile)(?:\/|$)/.test(clientPath);
-        if (!client || employee) {
-          return fetch(event.request).catch(() => new Response(
-            JSON.stringify({error:"protected_read_unavailable"}),
-            {status:503,headers:{"Content-Type":"application/json"}}
-          ));
-        }
-        return fetch(event.request)
-        .then((res) => {
-          if (res.ok) {
-            const clone = res.clone();
-            caches.open(API_CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return res;
-        })
-        .catch(() =>
-          caches.match(event.request).then((cached) => {
-            if (cached) return cached;
-            // No cache and network failed — return explicit 503 so the UI
-            // can show an error state rather than treating it as empty data.
-            return new Response(JSON.stringify({ error: "offline" }), {
-              status: 503,
-              headers: { "Content-Type": "application/json" },
-            });
-          })
-        );
-      })()
+      fetch(event.request).catch(() => new Response(
+        JSON.stringify({ error: "protected_read_unavailable" }),
+        { status: 503, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } }
+      ))
     );
     return;
   }
@@ -123,6 +105,8 @@ self.addEventListener("fetch", (event) => {
 
 self.addEventListener("message", (event) => {
   if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+  // Sent on logout and on a change of signed-in person; clears any private cache an older release left behind.
+  if (event.data?.type === "PURGE_PRIVATE_CACHES") event.waitUntil(purgePrivateCaches());
 });
 
 self.addEventListener("push", (event) => {

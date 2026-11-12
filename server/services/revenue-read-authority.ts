@@ -195,6 +195,9 @@ export function contactReadPredicate(user: RevenueUser, filters: RevenueFilters,
 /** Same production/nonarchived/owned-or-unassigned population as the deal list. */
 export function dealReadPredicate(user: RevenueUser, filters: Pick<RevenueFilters, "pipeline"|"includeArchived"|"assignedTo"|"vertical"|"groupContactId"|"offerPath"|"noFollowUp"|"unassigned"|"pastGoLive"|"createdLast7Days"|"followUpFrom"|"followUpTo">, values: unknown[], alias = "d"): string {
   const where = [`${alias}.record_class='production'`];
+  // The same narrow legacy QA signature the People list applies, so a deal and its contact are never counted
+  // under different class rules. It is not a name heuristic: three independent fixture markers are required.
+  where.push(`NOT EXISTS (SELECT 1 FROM contacts ${alias}_qa WHERE ${alias}_qa.id=${alias}.contact_id AND ${syntheticQaIdentitySql(`${alias}_qa`)})`);
   if(!filters.includeArchived)where.push(`${alias}.archived_at IS NULL`);
   if (filters.pipeline) {
     values.push(filters.pipeline);
@@ -634,7 +637,7 @@ export async function readRevenueDeals(user: RevenueUser, filters: RevenueFilter
     assignedTo:filters.assignedTo??null,vertical:filters.vertical??null,groupContactId:filters.groupContactId??null,offerPath:filters.offerPath??null,
     noFollowUp:filters.noFollowUp??false,unassigned:filters.unassigned??false,pastGoLive:filters.pastGoLive??false,createdLast7Days:filters.createdLast7Days??false,
     followUpFrom:filters.followUpFrom??null,followUpTo:filters.followUpTo??null};
-  const dealsCacheKey = `deals-count:v3:${JSON.stringify({ factRevision:await crmFactRevision(),scope: dealsCacheScope,...normalizedFilters })}`;
+  const dealsCacheKey = `deals-count:v4:${JSON.stringify({ factRevision:await crmFactRevision(),scope: dealsCacheScope,...normalizedFilters })}`;
   const _cachedDeals = _getCachedFacet(dealsCacheKey);
   let countRow: { total: number; as_of: string | Date; stage_distribution:Record<string,number> } = _cachedDeals
     ? { total: _cachedDeals.total, as_of: _cachedDeals.asOf,stage_distribution:_cachedDeals.stageDistribution! }

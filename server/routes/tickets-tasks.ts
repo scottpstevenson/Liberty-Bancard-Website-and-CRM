@@ -9,6 +9,7 @@ import { createPreferenceAwareNotification } from "../services/digest-service";
 import { serverError } from "../utils/server-error";
 import { authorizeContactAccess, authorizeDealAccess, denyCrmObject } from "../services/crm-object-access";
 import { readTaskMetrics } from "../services/task-read-authority";
+import { APP_TIMEZONE } from "../config";
 
 export async function authorizeTicketScope(req: any, res: any, ticket: { contactId: number | null }) {
   if (!ticket.contactId) return req.user?.role === "agent" ? denyCrmObject(res) : true;
@@ -91,7 +92,7 @@ export function registerTicketsTasksRoutes(app: Express) {
   app.get("/api/tasks/overdue-count", isDashboardUser, async (req, res) => {
     try {
       const now = new Date();
-      const metrics = await readTaskMetrics({ actor: req.user as any, asOf: now, timezone: "UTC" });
+      const metrics = await readTaskMetrics({ actor: req.user as any, asOf: now, timezone: APP_TIMEZONE });
       res.json({ count: Number(metrics.rows[0]?.overdue), meta: metrics.meta });
     } catch (err: any) {
       serverError(res, err);
@@ -105,7 +106,7 @@ export function registerTicketsTasksRoutes(app: Express) {
         if (req.query.source !== undefined) {
           return res.status(400).json({ message: "Cannot combine dealId and source filters" });
         }
-        const tasks = await storage.getTasksByDeal(dealId, { actor: req.user as any, asOf: new Date(), timezone: "UTC" });
+        const tasks = await storage.getTasksByDeal(dealId, { actor: req.user as any, asOf: new Date(), timezone: APP_TIMEZONE });
         if (!await authorizeDealAccess(req, res, dealId)) return;
         return res.json(tasks);
       }
@@ -115,8 +116,27 @@ export function registerTicketsTasksRoutes(app: Express) {
       } catch {
         return res.status(400).json({ message: "Invalid source filter. Allowed values: sla, manual" });
       }
-      const tasks = await storage.getTasks({ source, scope: { actor: req.user as any, asOf: new Date(), timezone: "UTC" } });
+      const tasks = await storage.getTasks({ source, scope: { actor: req.user as any, asOf: new Date(), timezone: APP_TIMEZONE } });
       res.json(tasks);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // Exact selected-task read for a shared destination (`taskId`). It uses the
+  // same actor-scoped read authority as the list, so a task the actor cannot
+  // list is an indistinguishable 404 here rather than a broader exception.
+  app.get("/api/tasks/:id", isDashboardUser, async (req, res) => {
+    try {
+      const parsed = strictRecordId.safeParse(req.params.id);
+      if (!parsed.success || parsed.data > 2147483647) return res.status(400).json({ message: "Invalid task id" });
+      const [task] = await storage.getTasks({
+        taskId: parsed.data, limit: 1,
+        scope: { actor: req.user as any, asOf: new Date(), timezone: APP_TIMEZONE },
+      });
+      if (!task) return void denyCrmObject(res);
+      res.setHeader("Cache-Control", "no-store");
+      res.json(task);
     } catch (err: any) {
       serverError(res, err);
     }

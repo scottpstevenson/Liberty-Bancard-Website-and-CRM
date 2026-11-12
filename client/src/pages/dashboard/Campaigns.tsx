@@ -3,6 +3,9 @@ import { ContentWorkspaceEntrance } from "@/components/dashboard/ContentWorkspac
 import { useAuth } from "@/hooks/use-auth";
 import { useMutation } from "@tanstack/react-query";
 import { useCrmQuery } from "@/hooks/use-crm-query";
+import { useCatalogReadiness } from "@/hooks/use-catalog-readiness";
+import { EmailLaneStates, LaneVerdictLine } from "@/components/crm/EmailLaneStates";
+import { campaignLaneStates } from "@/lib/email-lane-states";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
@@ -1074,20 +1077,10 @@ export default function Campaigns() {
 
   // Package-ownership class of each campaign (current / historical / template / unresolved) from the catalog authority.
   // It is a label only: it never changes what a campaign can do, and when it cannot be read no class is shown (never a guess).
-  const { user: campaignsUser } = useAuth();
-  const canReadCatalogClass = campaignsUser?.role === "admin" || campaignsUser?.role === "manager";
-  const { data: catalogClassByCampaign } = useCrmQuery<Map<number, { catalogClass: string; reason: string }>>({
-    queryKey: ["/api/admin/catalog-truth", "campaign-classes"],
-    enabled: canReadCatalogClass,
-    queryFn: async ({ signal }) => {
-      const res = await fetch("/api/admin/catalog-truth", { credentials: "include", signal });
-      if (!res.ok) throw new Error(`${res.status}`);
-      const body = await res.json() as { available?: boolean; campaigns?: Array<{ id: number; catalogClass: string; reason: string }> };
-      if (!body.available || !Array.isArray(body.campaigns)) throw new Error("catalog unavailable");
-      return new Map(body.campaigns.map(c => [c.id, { catalogClass: c.catalogClass, reason: c.reason }] as const));
-    },
-    retry: false,
-  });
+  const catalogRead = useCatalogReadiness();
+  const catalogClassByCampaign = catalogRead.status === "ready" && catalogRead.catalog
+    ? new Map(catalogRead.catalog.campaigns.map(c => [c.id, { catalogClass: c.catalogClass, reason: c.reason }] as const))
+    : undefined;
 
   const form = useForm<CampaignFormData>({
     resolver: zodResolver(campaignFormSchema),
@@ -1562,6 +1555,19 @@ export default function Campaigns() {
                       </div>
                     </div>
                   </div>
+
+                  {(() => {
+                    const lanes = campaignLaneStates({
+                      campaign: { id: campaign.id, status: campaign.status, totalSteps: campaign.totalSteps ?? null, totalSent: campaign.totalSent ?? null },
+                      catalog: catalogRead,
+                    });
+                    return (
+                      <div className="space-y-1.5" data-testid={`campaign-lanes-${campaign.id}`}>
+                        <LaneVerdictLine states={lanes} testId={`campaign-lane-verdict-${campaign.id}`} />
+                        <EmailLaneStates states={lanes} testId={`campaign-lane-states-${campaign.id}`} />
+                      </div>
+                    );
+                  })()}
 
                   <Button
                     variant="outline"

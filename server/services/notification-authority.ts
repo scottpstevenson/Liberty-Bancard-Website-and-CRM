@@ -154,11 +154,11 @@ function destination(metadata:any) {
     return {state:"available",url:metadata.link};
   if(!target) return metadata?.link==="/dashboard" || ["daily","weekly"].includes(metadata?.digestType)
     ? {state:"available",url:"/dashboard"}:{state:"unavailable",url:null};
-  if(target.kind==="task") return {state:"available",url:"/dashboard/tasks-appointments?tab=tasks",...target,
-    context:"authorized_list_fallback",label:"Open task list (no selected task)"};
+  // A task opens the exact selected task in Work (`taskId`), authorized by the
+  // actor-scoped single-task read; an unreadable task shows an honest empty state there.
   const paths:Record<string,string>={contact:`/dashboard/contacts/${target.id}`,
     deal:`/dashboard/pipeline?id=${target.id}`,ticket:`/dashboard/tickets?id=${target.id}`,
-    task:`/dashboard/tasks?id=${target.id}`,rfi:`/dashboard/rfis?id=${target.id}`};
+    task:`/dashboard/tasks-appointments?tab=tasks&taskId=${target.id}`,rfi:`/dashboard/rfis?id=${target.id}`};
   return {state:"available",url:paths[target.kind],...target};
 }
 export async function listActorNotifications(params:{userId?:string;limit:number;offset:number;category?:string}) {

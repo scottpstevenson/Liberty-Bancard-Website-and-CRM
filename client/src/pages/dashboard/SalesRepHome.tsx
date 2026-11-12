@@ -3,6 +3,8 @@ import { useMutation } from "@tanstack/react-query";
 import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import QRCode from "qrcode";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { BUSINESS_TIMEZONE_QUERY } from "@shared/business-time";
+import { taskSelectionHref } from "@/lib/crm-destination-state";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +27,7 @@ import {
 import { SALES_STAGES } from "@shared/schema";
 import { trackPhoneCallClick } from "@/lib/analytics";
 import { CrmPage, CrmPageHeader, ScopedMetricStrip } from "@/components/crm/CrmPresentation";
+import { TodayWorkQueue } from "@/components/dashboard/TodayWorkQueue";
 import { useOutboundPauseObservation } from "@/hooks/use-outbound-pause-observation";
 
 interface Appointment {
@@ -779,8 +782,10 @@ export default function SalesRepHome() {
   const [moveStageDeal, setMoveStageDeal] = useState<{ id: number; stage: string } | null>(null);
   const [onePagerOpen, setOnePagerOpen] = useState(false);
 
+  // "Today" is the business day, requested explicitly rather than inherited from a server default.
   const { data, isLoading, isError, refetch } = useQuery<MyDayData>({
     queryKey: ["/api/my-day"],
+    queryFn: async ({ signal }) => (await apiRequest("GET", `/api/my-day?${BUSINESS_TIMEZONE_QUERY}`, undefined, undefined, signal)).json(),
     refetchInterval: 60000,
   });
 
@@ -914,6 +919,7 @@ export default function SalesRepHome() {
           </CardContent>
         </Card>
       </ScopedMetricStrip>
+      <TodayWorkQueue role={user?.role} />
       <details className="rounded-lg border p-4">
         <summary className="min-h-11 cursor-pointer font-semibold">Sales insights and handoffs</summary>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -1447,9 +1453,10 @@ export default function SalesRepHome() {
                           task.priority === "high" ? "bg-amber-500" : "bg-slate-400"
                         }`} />
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium truncate" data-testid={`text-task-title-${task.id}`}>
+                          <Link href={taskSelectionHref(task.id)} className="block text-sm font-medium truncate hover:underline" data-testid={`text-task-title-${task.id}`}
+                            aria-label={`Open task ${task.id}: ${task.title}`}>
                             {task.title}
-                          </div>
+                          </Link>
                           {task.dueDate && (
                             <div className={`text-xs mt-0.5 ${isOverdue ? "text-destructive" : "text-muted-foreground"}`} data-testid={`text-task-due-${task.id}`}>
                               {isOverdue ? "⚠ Overdue · " : ""}

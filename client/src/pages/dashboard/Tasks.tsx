@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef, Fragment, type ReactNode } from "react";
-import { useSearch, useLocation } from "wouter";
-import { taskCohortState, buildTaskCohortHref, isOverdueTask, taskStateFilters } from "@/lib/crm-destination-state";
+import { useSearch, useLocation, Link } from "wouter";
+import { taskCohortState, buildTaskCohortHref, buildTaskSelectionHref, isOverdueTask, taskStateFilters } from "@/lib/crm-destination-state";
+import { taskActionVerb, taskEmptyState, taskRelatedLinks } from "@/lib/task-presentation";
+import { isUnassignedWork, canClaimUnassignedWork, summarizeUnassigned, unassignedBlocker, claimConflictMessage } from "@/lib/unassigned-work";
+import { UnassignedQueueBanner } from "@/components/work/UnassignedQueueBanner";
+import { SelectedTaskPanel } from "@/components/work/SelectedTaskPanel";
+import { useAuthorizedSelectedRecord } from "@/hooks/use-authorized-selected-record";
+import { formatBusinessDateTime, businessZoneNote, businessZoneAbbreviation, businessInputToInstant, instantToBusinessInput } from "@shared/business-time";
 import { useWorkCommands, invalidateWorkFacts } from "@/hooks/use-work-commands";
 import { useMutation } from "@tanstack/react-query";
 import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
@@ -49,15 +55,7 @@ function isValidDate(value: unknown): value is Date {
 function formatDueDate(dueDate: Task["dueDate"]): string {
   if (!dueDate) return "No due date";
   const parsed = new Date(dueDate);
-  return isValidDate(parsed) ? parsed.toLocaleString(undefined, { timeZone: "UTC", timeZoneName: "short" }) : "Invalid due date";
-}
-
-function isOverdue(task: Task): boolean {
-  if (!task.dueDate) return false;
-  if (task.status === "completed" || task.status==="cancelled") return false;
-  const due = new Date(task.dueDate);
-  if (!isValidDate(due)) return false;
-  return new Date() > due;
+  return isValidDate(parsed) ? formatBusinessDateTime(parsed) : "Invalid due date";
 }
 
 function humanizeUnknownLabel(value: string): string {
@@ -119,11 +117,15 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
   const cohortSearch = useSearch();
   const [, navigateCohort] = useLocation();
   const cohort = taskCohortState(cohortSearch);
+  // Exact selected task (`taskId`): read through the actor-scoped single-task authority, independent of the list filters.
+  const selectedTask = useAuthorizedSelectedRecord<Task>("/api/tasks", cohortSearch, "taskId");
+  const clearSelectedTask = () => navigateCohort(buildTaskSelectionHref(window.location.href, null), { replace: true });
   const filterStatus: string = cohort.status;
   const filterDue = cohort.due;
-  const setCohort = (status: string, due: "all" | "overdue") => {
+  const filterOwner = cohort.owner;
+  const setCohort = (status: string, due: "all" | "overdue", owner: "all" | "unassigned" = filterOwner) => {
     const safeStatus = (taskStateFilters as readonly string[]).includes(status) ? status as typeof taskStateFilters[number] : "all";
-    navigateCohort(buildTaskCohortHref(window.location.href, { status: safeStatus, due }));
+    navigateCohort(buildTaskCohortHref(window.location.href, { status: safeStatus, due, owner }));
   };
   const setFilterStatus = (status: string) => setCohort(status, filterDue);
   const [filterSource, setFilterSource] = useState<string>("all");
@@ -170,7 +172,7 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
     ticketId: "",
   });
   const actorContext=JSON.stringify(protectedScope(user));
-  const commandContext=JSON.stringify([actorContext,filterSource,filterStatus,filterDue,createOpen,editTaskId,[...selectedTaskIds].sort()]);
+  const commandContext=JSON.stringify([actorContext,filterSource,filterStatus,filterDue,filterOwner,createOpen,editTaskId,[...selectedTaskIds].sort()]);
   const currentContext=useRef(commandContext);currentContext.current=commandContext;
   const mutationBoundary={onMutate:()=>commandContext};
   const accepts=(submitted:string|undefined)=>submitted===currentContext.current;
@@ -229,6 +231,25 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
     onError: (err: Error,_variables,submitted) => {
       if(!accepts(submitted))return;
       toastError(err, { title: "Failed to update task" });
+    },
+  });
+
+  // Single-record claim through the same fenced edit command as Edit: it carries the task's current version, so a task that
+  // changed or was claimed elsewhere is refused (409) rather than overwritten. The server decides eligibility.
+  const claimTaskMutation = useMutation({
+    ...mutationBoundary,
+    mutationFn: async (task: Task) => {
+      if (!user?.email) throw new Error("Your account email is unavailable, so the claim cannot be recorded. Reload and try again.");
+      const res = await apiRequest("PUT", `/api/tasks/${task.id}`, workCommands.edit(task, { assignedTo: user.email }));
+      return res.json();
+    },
+    onSuccess: (_data, task, submitted) => {
+      invalidateWorkFacts();if(!accepts(submitted))return;
+      toast({ title: "Task claimed", description: `Task #${task.id} is now assigned to you.` });
+    },
+    onError: (err: Error, task, submitted) => {
+      invalidateWorkFacts();if(!accepts(submitted))return;
+      toast({ title: `Task #${task.id} was not claimed`, description: claimConflictMessage(err), variant: "destructive" });
     },
   });
 
@@ -334,7 +355,11 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
       assignedTo: newTask.assignedTo || undefined,
       priority: newTask.priority,
     };
-    if (newTask.dueDate) payload.dueDate = new Date(newTask.dueDate).toISOString();
+    if (newTask.dueDate) {
+      const due = businessInputToInstant(newTask.dueDate);
+      if (!due) { toast({ title: "Choose a valid due date and time", variant: "destructive" }); return; }
+      payload.dueDate = due.toISOString();
+    }
     if (newTask.dealId) payload.dealId = Number(newTask.dealId);
     if (newTask.contactId) payload.contactId = Number(newTask.contactId);
     if (newTask.ticketId) payload.ticketId = Number(newTask.ticketId);
@@ -342,15 +367,8 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
   };
 
   const openEditTask = (task: Task) => {
-    let dueDateLocal = "";
-    if (task.dueDate) {
-      const d = new Date(task.dueDate);
-      if (!isNaN(d.getTime())) {
-        // Convert to local datetime-local format (YYYY-MM-DDTHH:mm)
-        const pad = (n: number) => String(n).padStart(2, "0");
-        dueDateLocal = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-      }
-    }
+    // The edit field shows business-zone wall time, the same zone every due time is displayed in.
+    const dueDateLocal = instantToBusinessInput(task.dueDate);
     setEditTaskFields({
       title: task.title || "",
       description: task.description || "",
@@ -368,6 +386,11 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
       toast({ title: "Title is required", variant: "destructive" });
       return;
     }
+    const editedDue = editTaskFields.dueDate ? businessInputToInstant(editTaskFields.dueDate) : null;
+    if (editTaskFields.dueDate && !editedDue) {
+      toast({ title: "Choose a valid due date and time", variant: "destructive" });
+      return;
+    }
     // Explicitly send null for cleared optional fields so the server can persist the clear.
     const payload: Record<string, unknown> = {
       title: editTaskFields.title.trim(),
@@ -375,7 +398,7 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
       assignedTo: editTaskFields.assignedTo.trim() || null,
       priority: editTaskFields.priority,
       // Send null when dueDate is cleared so the server actually removes the deadline.
-      dueDate: editTaskFields.dueDate ? new Date(editTaskFields.dueDate).toISOString() : null,
+      dueDate: editedDue ? editedDue.toISOString() : null,
     };
     updateTaskMutation.mutate(
       { id: editTaskId, ...workCommands.edit({ id: editTaskId, authorityFence: editTaskFence }, payload) },
@@ -395,8 +418,17 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
   const filteredTasks = tasks?.filter((t) => {
     if (filterStatus !== "all" && t.status !== filterStatus) return false;
     if (filterDue === "overdue" && !isOverdueTask(t, new Date())) return false;
+    if (filterOwner === "unassigned" && !isUnassignedWork(t)) return false;
     return true;
   }) || [];
+  const unassignedSummary = summarizeUnassigned(tasks ?? [], t => isOverdueTask(t, new Date()));
+  const canClaim = canClaimUnassignedWork(user?.role);
+
+  const empty = taskEmptyState(tasks?.length ?? 0, filteredTasks.length);
+  const clearAllFilters = () => {
+    navigateCohort(buildTaskCohortHref(window.location.href, { status: "all", due: "all", owner: "all" }));
+    handleSourceFilterChange("all");
+  };
 
   const toggleAllTasks = () => {
     if (selectedTaskIds.size === filteredTasks.length && filteredTasks.length > 0) {
@@ -486,6 +518,15 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
                 <SelectItem value="overdue">Overdue only</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={filterOwner} onValueChange={(v) => { setCohort(filterStatus, filterDue, v === "unassigned" ? "unassigned" : "all"); setSelectedTaskIds(new Set()); setSelectAll(false); }}>
+              <SelectTrigger aria-label="Filter tasks by owner" className="w-[160px]" data-testid="select-filter-owner">
+                <SelectValue placeholder="Owner" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any owner</SelectItem>
+                <SelectItem value="unassigned">Unassigned only</SelectItem>
+              </SelectContent>
+            </Select>
             <Button
               variant="outline"
               data-testid="button-ai-generate-tasks"
@@ -540,13 +581,13 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Due Date</Label>
+                    <Label>Due Date ({businessZoneAbbreviation()} business time)</Label>
                     <Input
                       type="datetime-local"
                       value={newTask.dueDate}
                       onChange={(e) => setNewTask({ ...newTask, dueDate: e.target.value })}
                       data-testid="input-task-duedate"
-                      aria-label="Task due date and time in your device timezone"
+                      aria-label="Task due date and time in Eastern business time"
                     />
                   </div>
                 </div>
@@ -758,9 +799,10 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Due Date</Label>
+                <Label>Due Date ({businessZoneAbbreviation()} business time)</Label>
                 <Input
                   type="datetime-local"
+                  aria-label="Task due date and time in Eastern business time"
                   value={editTaskFields.dueDate}
                   onChange={(e) => setEditTaskFields((p) => ({ ...p, dueDate: e.target.value }))}
                   data-testid="input-edit-task-duedate"
@@ -799,11 +841,21 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
         </DialogContent>
       </Dialog>
 
+      <SelectedTaskPanel
+        selection={selectedTask}
+        statusLabel={getStatusLabel}
+        priorityLabel={getPriorityLabel}
+        onClear={clearSelectedTask}
+        onEdit={openEditTask}
+        onAdvance={handleAdvanceStatus}
+        busy={updateTaskMutation.isPending}
+      />
+
       <SavedFilterBar
         entityType="task"
-        currentFilters={{ filterStatus, filterSource, filterDue }}
+        currentFilters={{ filterStatus, filterSource, filterDue, filterOwner }}
         onApplyFilter={(filters) => {
-          setCohort(String(filters.filterStatus || "all"), filters.filterDue === "overdue" ? "overdue" : "all");
+          setCohort(String(filters.filterStatus || "all"), filters.filterDue === "overdue" ? "overdue" : "all", filters.filterOwner === "unassigned" ? "unassigned" : "all");
           setFilterSource(String(filters.filterSource || "all"));
           setSelectedTaskIds(new Set());
           setSelectAll(false);
@@ -812,12 +864,18 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
         }}
       />
 
+      <UnassignedQueueBanner
+        kind="task" summary={unassignedSummary} active={filterOwner === "unassigned"} canClaim={canClaim}
+        overdueLabel="overdue"
+        onShowUnassigned={() => { setCohort("all", "all", "unassigned"); setSelectedTaskIds(new Set()); setSelectAll(false); }}
+        onShowAll={() => { setCohort(filterStatus, filterDue, "all"); setSelectedTaskIds(new Set()); setSelectAll(false); }}
+      />
       <p role="status" data-testid="work-ai-capability-reason">{aiCapability.reason}</p>
       <p className="text-xs" data-testid="work-reader-coverage">
         {tasks?.length ?? 0} tasks returned by the authorized array reader; {filteredTasks.length} match these loaded filters{filterDue === "overdue" ? " (overdue: pending or in progress, due before now)" : ""}.{cohort.issues.length > 0 ? ` ${cohort.issues[0].reason}` : ""}
-        No server paging or whole-population selection is claimed. Due times use {Intl.DateTimeFormat().resolvedOptions().timeZone}.
+        No server paging or whole-population selection is claimed. {businessZoneNote()}
       </p>
-      <div className="overflow-x-auto border rounded-md" data-testid="tasks-table">
+      <div className="crm-dense-worklist overflow-x-auto border rounded-md" data-testid="tasks-table">
         <Table>
           <TableHeader>
             <TableRow>
@@ -839,28 +897,35 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredTasks.length === 0 && (
+            {empty && (
               <TableRow>
                 <TableCell colSpan={8}>
-                  <div className="flex flex-col items-center justify-center py-14 text-center gap-3" data-testid="empty-tasks">
+                  <div className="flex flex-col items-center justify-center py-14 text-center gap-3" data-testid="empty-tasks" data-empty-kind={empty.kind}>
                     <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
                       <CheckCircle className="w-6 h-6 text-muted-foreground" />
                     </div>
-                    <p className="text-sm font-medium text-foreground" data-testid="text-empty-tasks">No tasks yet</p>
-                    <p className="text-xs text-muted-foreground max-w-xs">Create your first task to start tracking work items and deadlines.</p>
-                    <Button size="sm" className="gap-1 mt-1" onClick={() => setCreateOpen(true)} data-testid="button-empty-create-task">
-                      <Plus className="w-3.5 h-3.5" /> Create Task
-                    </Button>
+                    <p className="text-sm font-medium text-foreground" data-testid="text-empty-tasks">{empty.title}</p>
+                    <p className="text-xs text-muted-foreground max-w-sm">{empty.detail}</p>
+                    {empty.kind === "no_match" ? (
+                      <Button size="sm" variant="outline" className="gap-1 mt-1" onClick={clearAllFilters} data-testid="button-clear-task-filters">
+                        Clear filters
+                      </Button>
+                    ) : (
+                      <Button size="sm" className="gap-1 mt-1" onClick={() => setCreateOpen(true)} data-testid="button-empty-create-task">
+                        <Plus className="w-3.5 h-3.5" /> Create Task
+                      </Button>
+                    )}
                   </div>
                 </TableCell>
               </TableRow>
             )}
             {filteredTasks.map((task) => {
-              const overdue = isOverdue(task);
+              const overdue = isOverdueTask(task, new Date());
               const nextStatus = getNextStatus(task.status);
               return (
                 <Fragment key={task.id}>
-                <TableRow data-testid={`row-task-${task.id}`}>
+                <TableRow data-testid={`row-task-${task.id}`} data-selected={selectedTask.id === task.id ? "true" : undefined}
+                  className={selectedTask.id === task.id ? "bg-blue-50/60 dark:bg-blue-950/20" : undefined}>
                   <TableCell>
                     <Checkbox
                       aria-label={`Select task ${task.id}: ${task.title}`}
@@ -872,7 +937,7 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
                   <TableCell>
                     <div className="space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium" data-testid={`text-task-title-${task.id}`}>{task.title || "Untitled task"}</span>
+                        <Link href={buildTaskSelectionHref(window.location.href, task.id)} className="font-medium hover:underline" data-testid={`text-task-title-${task.id}`} aria-label={`Open task ${task.id}: ${task.title || "Untitled task"}`}>{task.title || "Untitled task"}</Link>
                         {isSlaGeneratedTask(task) && (
                           <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-sla-${task.id}`}>
                             SLA
@@ -882,6 +947,19 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
                       {task.description && (
                         <div className="text-xs text-muted-foreground line-clamp-1" data-testid={`text-task-desc-${task.id}`}>{task.description}</div>
                       )}
+                      {isUnassignedWork(task) && (
+                        <p className="text-xs text-amber-800 dark:text-amber-300" data-testid={`text-unassigned-blocker-${task.id}`}>
+                          Unassigned. {unassignedBlocker("task", task)}
+                        </p>
+                      )}
+                      {/* The owner, due and related columns hide at narrow widths; this line keeps each one visible exactly where its column is hidden. */}
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground lg:hidden" data-testid={`task-compact-meta-${task.id}`}>
+                        <span className="md:hidden">Owner: {task.assignedTo || "Unassigned"}</span>
+                        <span className="sm:hidden">Due: {task.dueDate ? formatDueDate(task.dueDate) : "No due time"}{overdue ? " (overdue)" : ""}</span>
+                        {taskRelatedLinks(task).map(link => (
+                          <Link key={link.kind} href={link.href} className="lg:hidden text-blue-600 hover:underline" data-testid={`link-task-${task.id}-compact-${link.kind}`}>{link.label}</Link>
+                        ))}
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell className="hidden md:table-cell" data-testid={`text-task-assigned-${task.id}`}>
@@ -909,14 +987,28 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
                   </TableCell>
                   <TableCell className="hidden lg:table-cell" data-testid={`text-task-related-${task.id}`}>
                     <div className="text-xs text-muted-foreground space-y-0.5">
-                      {task.dealId && <div>Deal #{task.dealId}</div>}
-                      {task.contactId && <div>Contact #{task.contactId}</div>}
-                      {task.ticketId && <div>Ticket #{task.ticketId}</div>}
-                      {!task.dealId && !task.contactId && !task.ticketId && <span>--</span>}
+                      {taskRelatedLinks(task).map(link => (
+                        <div key={link.kind}><Link href={link.href} className="text-blue-600 hover:underline" data-testid={`link-task-${task.id}-${link.kind}`}>{link.label}</Link></div>
+                      ))}
+                      {taskRelatedLinks(task).length === 0 && <span>--</span>}
                     </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1 flex-wrap">
+                      {canClaim && isUnassignedWork(task) && getNextStatus(task.status) !== null && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1"
+                          onClick={() => claimTaskMutation.mutate(task)}
+                          disabled={claimTaskMutation.isPending}
+                          data-testid={`button-claim-task-${task.id}`}
+                          aria-label={`Assign to me: ${task.title || `task ${task.id}`}`}
+                        >
+                          <UserPlus className="w-3 h-3" />
+                          Assign to me
+                        </Button>
+                      )}
                       {nextStatus && (
                         <Button
                           size="sm"
@@ -925,9 +1017,10 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
                           onClick={() => handleAdvanceStatus(task)}
                           disabled={updateTaskMutation.isPending}
                           data-testid={`button-advance-${task.id}`}
+                          aria-label={`${taskActionVerb(task.status)?.verb ?? "Update"}: ${task.title || `task ${task.id}`}`}
                         >
                           <ArrowRight className="w-3 h-3" />
-                          {getStatusLabel(nextStatus)}
+                          {taskActionVerb(task.status)?.verb ?? getStatusLabel(nextStatus)}
                         </Button>
                       )}
                       <Button

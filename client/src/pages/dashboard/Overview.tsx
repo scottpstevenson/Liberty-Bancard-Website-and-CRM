@@ -11,10 +11,13 @@ import { apiRequest, queryClient, protectedScope } from "@/lib/queryClient";
 import { useToolCapability } from "@/hooks/use-tool-capabilities";
 import { useOutboundPauseObservation } from "@/hooks/use-outbound-pause-observation";
 import { WebsiteRequestsSummary } from "@/components/dashboard/WebsiteRequestsSummary";
+import { TodayWorkQueue } from "@/components/dashboard/TodayWorkQueue";
 import { Link } from "wouter";
 import { OPEN_SALES_LEAD_STAGES } from "@shared/schema";
 import { todayDestinations } from "@/lib/crm-destination-state";
+import { BUSINESS_TIMEZONE_QUERY } from "@shared/business-time";
 import { CrmPage, CrmPageHeader, ScopedMetricStrip } from "@/components/crm/CrmPresentation";
+import { ProductionScopeNote } from "@/components/crm/RecordClass";
 import {
   Users, Ticket, TrendingUp, CheckCircle, AlertTriangle, Clock,
   Target, ArrowUpRight, ArrowDownRight, Loader2, Brain, Sparkles,
@@ -53,15 +56,17 @@ function DailyBriefing({ userId }: { userId: string }) {
   const [dismissed, setDismissed] = useState(() => localStorage.getItem(localKey) === "1");
 
   // Only fetch if not dismissed for today
+  // The briefing's civil day is the business day, never the server default (UTC) or a browser zone.
   const { data, isLoading, isError } = useQuery<DailyBriefingData>({
     queryKey: ["/api/overview/daily-briefing"],
+    queryFn: async ({ signal }) => (await apiRequest("GET", `/api/overview/daily-briefing?${BUSINESS_TIMEZONE_QUERY}`, undefined, undefined, signal)).json(),
     enabled: !dismissed,
     staleTime: 3 * 60 * 60 * 1000, // 3 hours — re-fetch only if stale
     retry: 1,
   });
   const refreshBriefing = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/overview/daily-briefing/refresh");
+      const response = await apiRequest("POST", `/api/overview/daily-briefing/refresh?${BUSINESS_TIMEZONE_QUERY}`);
       return response.json() as Promise<DailyBriefingData>;
     },
     onSuccess: (briefing) => queryClient.setQueriesData({ queryKey: ["/api/overview/daily-briefing"] }, () => briefing),
@@ -136,7 +141,7 @@ function DailyBriefing({ userId }: { userId: string }) {
         </Link>
 
         {data.overdueTaskCount !== null && data.overdueTaskCount > 0 && (
-          <Link href="/dashboard/tasks">
+          <Link href={todayDestinations.overdueTasks}>
             <Badge className="cursor-pointer gap-1 text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 hover:bg-red-200 transition-colors">
               <AlertTriangle className="w-3 h-3" />
               {data.overdueTaskCount} overdue
@@ -301,7 +306,16 @@ export default function Overview() {
     topRepsByPipeline: Array<{ owner: string; openDeals: number }>; // #1144 — full-table server aggregate
   }>({ queryKey: ["/api/kpi/summary"], refetchInterval: 30000 });
 
-  const { data: contactsResult, isLoading: contactsLoading } = useQuery<{ data: Contact[]; total: number }>({ queryKey: ["/api/contacts"], refetchInterval: 30000 });
+  // Recent contacts are read by the authoritative production class, never filtered by name or address patterns.
+  const { data: contactsResult, isLoading: contactsLoading } = useQuery<{ data: Contact[]; total: number }>({
+    queryKey: ["/api/contacts", { recentScope: "today", recordClass: "production" }],
+    queryFn: async ({ signal }) => {
+      const res = await fetch("/api/contacts?recordClass=production&limit=10", { credentials: "include", signal });
+      if (!res.ok) throw new Error(`${res.status}: recent contacts unavailable`);
+      return res.json();
+    },
+    refetchInterval: 30000,
+  });
   const contacts = contactsResult?.data;
   const { data: dealsResult, isLoading: dealsLoading } = useQuery<{ data: Deal[]; total: number }>({ queryKey: ["/api/deals"], refetchInterval: 30000 });
   const deals = dealsResult?.data;
@@ -398,21 +412,7 @@ export default function Overview() {
     );
   }
 
-  // Filter out test/QA contacts from the Recent Contacts widget
-  const isTestContact = (c: Contact) => {
-    const email = (c.email || "").toLowerCase();
-    const firstName = (c.firstName || "").toLowerCase();
-    if (email.includes("@test.invalid") || email.includes("@test.internal") ||
-        email.includes("@libertybancard.test") || email.includes("@example.test")) return true;
-    if (email.startsWith("wh-test-") || email.startsWith("ghl-deal-test-") ||
-        email.startsWith("qa-release-") || email.startsWith("qa-appt-") ||
-        email.startsWith("no-op-") || email.startsWith("test-ca-")) return true;
-    if (firstName.startsWith("webhooktest") || firstName.startsWith("testnle") ||
-        firstName.startsWith("stmttest") || firstName.startsWith("statementtest") ||
-        firstName.startsWith("golive-test")) return true;
-    return false;
-  };
-  const recentContacts = (contacts || []).filter((c: Contact) => !isTestContact(c)).slice(0, 5);
+  const recentContacts = (contacts || []).slice(0, 5);
   const activeDeals = deals?.filter((d: Deal) => d.pipeline === "sales" && (OPEN_SALES_LEAD_STAGES as readonly string[]).includes(d.stage ?? "")).slice(0, 5) || [];
 
   const handleSendDigest = async () => {
@@ -451,6 +451,7 @@ export default function Overview() {
           <div className="mt-1 text-xs text-muted-foreground">{metric.label}</div>
         </div>)}
       </ScopedMetricStrip>
+      <ProductionScopeNote className="-mt-4" />
       {/* UI-03: action queue. Each row is a fact from the scoped reads above; a missing read is stated, never shown as zero. */}
       <section aria-labelledby="today-next-actions-heading" className="rounded-lg border bg-card p-4" data-testid="today-next-actions">
         <h2 id="today-next-actions-heading" className="text-base font-semibold">Next actions</h2>
@@ -470,6 +471,7 @@ export default function Overview() {
           ))}
         </ul>
       </section>
+      <TodayWorkQueue role={user?.role} />
       {/* #319 — Personalized time-of-day greeting */}
       {user?.firstName && (
         <p className="text-lg font-medium text-muted-foreground" data-testid="text-overview-greeting">
@@ -478,7 +480,15 @@ export default function Overview() {
       )}
 
       {/* ── #1476 — Daily Briefing ── */}
-      {user?.id && <DailyBriefing userId={String(user.id)} />}
+      {/* The briefing is a cached, dated narrative: secondary to the live queue above, so it opens on demand. */}
+      {user?.id && (
+        <details className="rounded-lg border bg-card" data-testid="section-daily-briefing-disclosure">
+          <summary className="flex min-h-11 cursor-pointer items-center px-4 text-sm font-semibold">
+            Daily briefing: a dated summary, not live counts
+          </summary>
+          <div className="p-3 pt-0"><DailyBriefing userId={String(user.id)} /></div>
+        </details>
+      )}
 
       {/* ── OUTBOUND PAUSED BANNER ── */}
       {outboundSettings?.outboundGlobalPaused && (

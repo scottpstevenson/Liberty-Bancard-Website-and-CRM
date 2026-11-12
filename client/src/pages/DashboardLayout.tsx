@@ -1,6 +1,8 @@
 import { ReactNode, useState, useMemo, useEffect, useCallback } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { peopleHubState } from "@/lib/crm-destination-state";
+import { mobileDestinationFor } from "@/lib/mobile-destination";
+import { MobileDestinationNotice } from "@/components/crm/MobileDestinationNotice";
 import { useIsMobile } from "@/hooks/use-mobile";
 import Forbidden from "@/pages/Forbidden";
 import { useQuery } from "@tanstack/react-query";
@@ -401,15 +403,21 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
   const { openTour } = useTour();
   const [location, setLocation] = useLocation();
   const isMobile = useIsMobile();
+  const [, setDesktopChoiceVersion] = useState(0);
   const mobileDesktopOptOut = typeof window !== "undefined" && localStorage.getItem("prefer_desktop") === "true";
   const { logout, user } = useAuth();
+  const layoutSearch = useSearch();
 
-  // Redirect mobile browsers to the native mobile shell unless the user
-  // has explicitly opted into desktop view.
+  // A mobile-width browser goes to the equivalent mobile record or workspace (same contact, inbox selection, task list),
+  // replacing this history entry so Back does not return here. Views the mobile app cannot reproduce exactly are not
+  // swapped for the mobile home page: the address stays and the person chooses (see MobileDestinationNotice).
+  const mobileDestination = isMobile && !mobileDesktopOptOut && !location.startsWith("/dashboard/mobile")
+    ? mobileDestinationFor(location, layoutSearch, typeof window !== "undefined" ? window.location.hash : "")
+    : null;
+  const mobileRedirectHref = mobileDestination?.kind === "redirect" ? mobileDestination.href : null;
   useEffect(() => {
-    const optedOut = localStorage.getItem("prefer_desktop") === "true";
-    if (isMobile && !optedOut) setLocation("/mobile");
-  }, [isMobile, setLocation]);
+    if (mobileRedirectHref) setLocation(mobileRedirectHref, { replace: true });
+  }, [mobileRedirectHref, setLocation]);
   const [emailOpen, setEmailOpen] = useState(false);
   const [aiChatOpen, setAiChatOpen] = useState(false);
   const [resourcesOpen, setResourcesOpen] = useState(false);
@@ -745,6 +753,13 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
     () => [...filterByRole(dailyWorkItems, role), ...filteredAgentTools],
     [role, filteredAgentTools]
   );
+
+  if (mobileDestination?.kind === "choose") {
+    return <MobileDestinationNotice destination={mobileDestination} onOpenDesktop={() => {
+      localStorage.setItem("prefer_desktop", "true");
+      setDesktopChoiceVersion((version) => version + 1);
+    }} />;
+  }
 
   return (
     <EmployeeCrmProvider enabled={isEmployeeCrm}>

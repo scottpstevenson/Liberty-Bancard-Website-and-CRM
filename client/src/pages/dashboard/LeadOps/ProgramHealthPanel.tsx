@@ -16,6 +16,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { PaidProviderControlsPanel } from "./PaidProviderControlsPanel";
+import { CountTile, NamedDisclosure, PopulationStagesGuide } from "@/components/crm/CountContractCard";
+import { asOfLabel, readCount, type CountContract } from "@/lib/count-contract";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -51,9 +53,16 @@ interface PipelineCountsMetric {
   error?: string;
 }
 
+/** Each depth carries its own availability; a failed read has value null and available false, never 0. */
+interface QueueDepthCell {
+  value: number | null;
+  available: boolean;
+  error?: string;
+}
+
 interface FreeEnrichQueueDepth {
-  free: number;
-  paid: number;
+  free: QueueDepthCell;
+  paid: QueueDepthCell;
 }
 
 interface CandidateFunnel {
@@ -70,6 +79,8 @@ interface SchedulerStatus {
 }
 
 interface LeadOpsHealth {
+  /** When the served snapshot was computed. The server may serve a snapshot while a refresh runs. */
+  asOf?: string | null;
   // Existing fields
   enrichedToday: MetricCell;
   emailsToday: MetricCell;
@@ -279,6 +290,32 @@ interface BackfillResult {
   reasons?: Record<string, number>;
 }
 
+const LEGACY_STAGING_UNITS: Record<string, string> = {
+  staged: "Rows staged and not yet decided",
+  readyToPromote: "Rows marked ready to promote",
+  promoted: "Rows already promoted",
+  suppressed: "Rows suppressed",
+  duplicates: "Rows marked as duplicates",
+};
+
+/** Legacy master_leads staging totals are history: a different table and unit from the current population. */
+function legacyStagingContract(key: string, asOf: string | null = null): CountContract {
+  return {
+    unit: "legacy master-lead staging rows",
+    scope: `${LEGACY_STAGING_UNITS[key] ?? "Rows"} in the legacy master_leads staging table, all time`,
+    exclusions: "Free-discovery candidates, current recipient preparation, businesses and contacts",
+    asOf, completeness: "complete", authority: "Legacy master_leads staging table (lead-ops health)", temporal: "historical",
+  };
+}
+
+function legacyThroughputContract(unit: string, scope: string, asOf: string | null = null): CountContract {
+  return {
+    unit, scope,
+    exclusions: "Canonical South Florida Prospecting results, and anything outside the raw Sunbiz source",
+    asOf, completeness: "complete", authority: "Legacy Sunbiz enrichment (lead-ops health)", temporal: "historical",
+  };
+}
+
 export function ProgramHealthPanel() {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -375,6 +412,48 @@ export function ProgramHealthPanel() {
   const enrichmentHb = h?.workerHeartbeats?.enrichment;
   const showEnrichmentStaleAlert = h?.enrichmentWorkerStaleAlert === true;
 
+  const asOf = typeof h?.asOf === "string" ? h.asOf : null;
+  const current = (unit: string, scope: string, exclusions: string, authority: string): CountContract => ({
+    unit, scope, exclusions, asOf, completeness: "complete", authority, temporal: "current",
+  });
+  const funnel = h?.candidateFunnel ?? null;
+  const CANDIDATES = "free-discovery candidates";
+  const CANDIDATE_EXCLUSIONS = "Candidates in any other state; not businesses, not linked contacts and not recipients";
+  const CANDIDATE_AUTHORITY = "Free-discovery candidate dispositions (lead-ops health)";
+  const stuck = h?.businessStuckProcessingCount;
+  const freeQueue = h?.freeEnrichQueueDepth?.free;
+  const paidQueue = h?.freeEnrichQueueDepth?.paid;
+  const summaryReadings = [
+    { key: "staged", label: "Staged candidates",
+      reading: readCount(funnel?.staged, !!funnel, current(CANDIDATES, "Candidates currently staged and not yet validated", CANDIDATE_EXCLUSIONS, CANDIDATE_AUTHORITY)) },
+    { key: "admitted", label: "Admitted to validation",
+      reading: readCount(funnel?.validationAdmitted, !!funnel, current(CANDIDATES, "Candidates admitted to email validation and pending the provider", `${CANDIDATE_EXCLUSIONS}; admitted to validation is not admitted to send`, CANDIDATE_AUTHORITY)) },
+    { key: "suppressed", label: "Suppressed candidates",
+      reading: readCount(funnel?.suppressed, !!funnel, current(CANDIDATES, "Candidates suppressed and kept out of the pipeline", CANDIDATE_EXCLUSIONS, CANDIDATE_AUTHORITY)) },
+    { key: "stalled", label: "Stalled candidates",
+      reading: readCount(funnel?.stalled, !!funnel, current(CANDIDATES, "Candidates whose generation crashed before finishing", CANDIDATE_EXCLUSIONS, CANDIDATE_AUTHORITY)) },
+    { key: "stuck", label: "Businesses stuck in processing",
+      reading: readCount(stuck?.value, stuck?.available, current("businesses", "Businesses locked in free-enrichment 'processing' right now; the reaper recovers them every 15 minutes", "Businesses that finished, failed or are waiting", "Business free-enrichment status (lead-ops health)")) },
+    { key: "free-queue", label: "Free enrichment queue",
+      reading: readCount(freeQueue?.value, freeQueue?.available, current("queued jobs", "Canonical free-enrichment jobs waiting right now", "Paid-provider jobs and jobs already running", "Enrichment queue depth (lead-ops health)")) },
+    { key: "paid-queue", label: "Paid enrichment queue",
+      reading: readCount(paidQueue?.value, paidQueue?.available, current("queued jobs", "Paid-provider enrichment jobs waiting right now", "Free jobs and jobs already running", "Enrichment queue depth (lead-ops health)")) },
+  ] as const;
+  const unavailableSources = [
+    ...summaryReadings.filter(r => r.reading.availability === "unavailable").map(r => r.label.toLowerCase()),
+    ...(h?.pipelineCounts?.available ? [] : ["legacy master-lead staging counts"]),
+    ...(["enrichedToday", "emailsToday", "phonesToday", "totalEnriched", "totalFailed", "successRate"] as const)
+      .some(k => !h?.[k]?.available) ? ["legacy Sunbiz throughput"] : [],
+  ];
+  const legacyThroughput = [
+    { label: "Source entities enriched today (raw Sunbiz)", cell: h?.enrichedToday, unit: "raw Sunbiz source entities", scope: "Enriched in the last 24 hours" },
+    { label: "Emails Found", cell: h?.emailsToday, unit: "emails found on raw Sunbiz entities", scope: "Found in the last 24 hours" },
+    { label: "Phones Found", cell: h?.phonesToday, unit: "phones found on raw Sunbiz entities", scope: "Found in the last 24 hours" },
+    { label: "Total Enriched", cell: h?.totalEnriched, unit: "raw Sunbiz source entities", scope: "Enriched, all time" },
+    { label: "Total Failed", cell: h?.totalFailed, unit: "raw Sunbiz source entities", scope: "Failed, all time" },
+    { label: "Success Rate", cell: h?.successRate, unit: "percent of finished entities", scope: "Enriched divided by enriched plus failed, all time", suffix: "%" },
+  ] as const;
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -383,7 +462,7 @@ export function ProgramHealthPanel() {
           <Activity className="h-5 w-5 text-muted-foreground" />
           <div>
             <h2 className="text-base font-semibold">Program Health</h2>
-            <p className="text-xs text-muted-foreground">Live counters — refreshes every 30 s</p>
+            <p className="text-xs text-muted-foreground" data-testid="program-health-asof">Refreshes every 30 s · {asOfLabel(asOf)}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -424,6 +503,120 @@ export function ProgramHealthPanel() {
         </div>
       )}
 
+      {/* ── Current operator summary: the one place to start ─────────────── */}
+      <Card data-testid="program-health-summary">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm">Current summary</CardTitle>
+          <CardDescription className="text-xs">
+            Each figure opens to its unit, scope, exclusions, read time and authority. These are different populations, so they are not added together and are not expected to match. {asOfLabel(asOf)}.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {unavailableSources.length > 0 ? (
+            <p role="status" className="text-xs text-red-700" data-testid="summary-unavailable-sources">
+              Not read, so nothing is shown for them and none is treated as zero: {unavailableSources.join(", ")}.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground" data-testid="summary-sources-ok">Every count source on this page answered.</p>
+          )}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="summary-counts">
+            {summaryReadings.map(({ key, label, reading }) => <CountTile key={key} label={label} reading={reading} testId={`summary-${key}`} />)}
+          </div>
+          <details className="rounded-md border p-3 text-sm" data-testid="summary-populations">
+            <summary className="cursor-pointer select-none font-medium">
+              Eight populations: discovered, linked, classified, selected, validated, prepared-held, admitted, sent
+            </summary>
+            <p className="my-2 text-xs text-muted-foreground">
+              Each word has its own unit and its own screen. A card opens the exact population that owns the number.
+            </p>
+            <PopulationStagesGuide />
+          </details>
+        </CardContent>
+      </Card>
+      {/* ── Promotion gate and admin backfill ───────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <CardTitle className="text-sm">Routine SFP Candidate Promotion</CardTitle>
+              <CardDescription className="text-xs mt-0.5">
+                The promotion gate and the admin backfill. The candidate counts (staged, admitted, suppressed, stalled) and businesses stuck in processing are in the Current summary above, each with its own unit and scope.
+              </CardDescription>
+            </div>
+            {/* Gate status badge reflects the feature flag and durable runtime owner. */}
+            {ps && (
+              ps.gateOpen ? (
+                <Badge className="shrink-0 bg-green-100 text-green-800 border-green-300 hover:bg-green-100" variant="outline">
+                  <CheckCircle className="h-3 w-3 mr-1" /> Gate open
+                </Badge>
+              ) : (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Badge
+                    className="bg-red-100 text-red-800 border-red-300 hover:bg-red-100 cursor-help"
+                    variant="outline"
+                    title={ps.note}
+                  >
+                    <XCircle className="h-3 w-3 mr-1" />
+                    {ps.promotionEnabled && !ps.runtimeOwnerReady ? "Owner unavailable" : "Gate closed"}
+                  </Badge>
+                </div>
+              )
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {/* Promotion state note (a separate read from the candidate counts) */}
+          {ps && <p className="text-xs text-muted-foreground">
+            {ps.note} Scoped staged: {ps.scopedStaged?.toLocaleString() ?? "Unknown"}; outside current scope: {ps.unscopedStaged?.toLocaleString() ?? "Unknown"}.
+          </p>}
+          {(
+            <div className="grid grid-cols-1 gap-3">
+              {/* Staged tile — includes backfill controls */}
+              <div className="rounded-md border bg-muted/10 px-3 py-2">
+                <div className="text-xs text-muted-foreground mb-0.5">Promote staged candidates</div>
+                <div className="text-xs text-muted-foreground">Admin only; limited by the gate. The staged count is in the Current summary.</div>
+                {/* Backfill controls — admin only */}
+                {isAdmin && (
+                  <>
+                    <div className="mt-2 flex items-center gap-1.5">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={200}
+                        value={backfillLimit}
+                        onChange={(e) => setBackfillLimit(Math.min(200, Math.max(1, Math.floor(Number(e.target.value)) || 50)))}
+                        className="h-6 w-16 text-xs px-1.5 py-0"
+                        aria-label="Backfill limit"
+                        disabled={backfillMutation.isPending}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[11px] px-2 gap-1"
+                        disabled={backfillMutation.isPending || !ps?.gateOpen}
+                        title={!ps?.gateOpen ? (ps?.promotionEnabled ? `Durable runtime owner unavailable: ${ps.runtimeOwnerReason ?? "identity not ready"}` : "Gate is closed — enable FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED first") : `Promote up to ${backfillLimit} staged candidates`}
+                        onClick={() => backfillMutation.mutate(backfillLimit)}
+                      >
+                        {backfillMutation.isPending
+                          ? <><RefreshCw className="h-3 w-3 animate-spin" /> Running…</>
+                          : <><PlayCircle className="h-3 w-3" /> Promote</>
+                        }
+                      </Button>
+                    </div>
+                    {!ps?.gateOpen && (
+                      <p className="mt-1 text-[10px] text-red-500">
+                        {ps?.promotionEnabled && !ps?.runtimeOwnerReady
+                          ? "Runtime owner unavailable"
+                          : "Gate closed"}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
       {/* ── Per-named-worker heartbeats ──────────────────────────────────── */}
       <Card>
         <CardHeader className="pb-3">
@@ -465,65 +658,33 @@ export function ProgramHealthPanel() {
         </CardContent>
       </Card>
 
-      {/* ── Pipeline counts ──────────────────────────────────────────────── */}
+      <NamedDisclosure testId="disclosure-historical-counts" title="Historical and raw counts"
+        summary="Legacy master-lead staging and raw Sunbiz throughput. Reference only; not the current population.">
+      {/* ── Legacy master-lead staging counts (historical) ─────────────── */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm">Pipeline Counts</CardTitle>
+          <CardTitle className="text-sm">Legacy Master-Lead Staging Counts</CardTitle>
           <CardDescription className="text-xs">
-            Live counts from master_leads staging table.
+            Historical totals from the legacy master_leads staging table. They are not the current South Florida population and are not expected to match it.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {h?.pipelineCounts?.available && h.pipelineCounts.value ? (
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-              {[
-                { label: "Staged", value: h.pipelineCounts.value.staged, color: "text-blue-700" },
-                { label: "Ready", value: h.pipelineCounts.value.readyToPromote, color: "text-green-700" },
-                { label: "Promoted", value: h.pipelineCounts.value.promoted, color: "text-emerald-700" },
-                { label: "Suppressed", value: h.pipelineCounts.value.suppressed, color: "text-red-700" },
-                { label: "Duplicates", value: h.pipelineCounts.value.duplicates, color: "text-amber-700" },
-              ].map(({ label, value, color }) => (
-                <div key={label} className="rounded-md border bg-muted/10 px-3 py-2">
-                  <div className="text-xs text-muted-foreground mb-0.5">{label}</div>
-                  <div className={`text-lg font-bold ${color}`}>{value.toLocaleString()}</div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-sm text-red-500">
-              <XCircle className="h-4 w-4" />
-              {h?.pipelineCounts?.error ?? "Pipeline counts unavailable"}
-            </div>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3" data-testid="legacy-pipeline-counts">
+            {([
+              ["Staged", "staged", "text-blue-700"], ["Ready", "readyToPromote", "text-green-700"], ["Promoted", "promoted", "text-emerald-700"],
+              ["Suppressed", "suppressed", "text-red-700"], ["Duplicates", "duplicates", "text-amber-700"],
+            ] as const).map(([label, key, color]) => (
+              <CountTile key={key} label={label} testId={`legacy-pipeline-${key}`} tone={color}
+                reading={readCount(h?.pipelineCounts?.value?.[key], h?.pipelineCounts?.available, legacyStagingContract(key, asOf))} />
+            ))}
+          </div>
+          {!h?.pipelineCounts?.available && (
+            <p role="status" className="mt-2 text-xs text-red-600">{h?.pipelineCounts?.error ?? "Pipeline counts unavailable"}: not read, so no figure is shown.</p>
           )}
         </CardContent>
       </Card>
 
-      {/* ── Enrichment queue depth ───────────────────────────────────────── */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">Enrichment Queue</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 gap-3">
-            <MetricDisplay
-               label="Free Enrich Queue"
-               cell={h?.freeEnrichQueueDepth?.free != null
-                 ? { ...(h.freeEnrichQueueDepth.free as any), stale: false }
-                 : null}
-              unit=" pending"
-            />
-            <MetricDisplay
-               label="Paid Enrich Queue"
-               cell={h?.freeEnrichQueueDepth?.paid != null
-                 ? { ...(h.freeEnrichQueueDepth.paid as any), stale: false }
-                 : null}
-              unit=" pending"
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ── Enrichment throughput ────────────────────────────────────────── */}
+      {/* ── Legacy Sunbiz enrichment throughput (reference) ───────────────── */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Legacy Sunbiz Enrichment Throughput (24 h, reference)</CardTitle>
@@ -534,21 +695,17 @@ export function ProgramHealthPanel() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {[
-              { label: "Source entities enriched today (raw Sunbiz)", cell: h?.enrichedToday },
-              { label: "Emails Found", cell: h?.emailsToday },
-              { label: "Phones Found", cell: h?.phonesToday },
-              { label: "Total Enriched", cell: h?.totalEnriched },
-              { label: "Total Failed", cell: h?.totalFailed },
-              { label: "Success Rate", cell: h?.successRate },
-            ].map(({ label, cell }) => (
-              <MetricDisplay key={label} label={label} cell={cell} unit={label === "Success Rate" ? "%" : ""} />
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3" data-testid="legacy-throughput-counts">
+            {legacyThroughput.map(({ label, cell, unit, scope, suffix }) => (
+              <CountTile key={label} label={label} suffix={suffix} testId={`legacy-throughput-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`}
+                reading={readCount(typeof cell?.value === "number" ? cell.value : null, cell?.available, legacyThroughputContract(unit, scope, asOf))} />
             ))}
           </div>
         </CardContent>
       </Card>
-
+      </NamedDisclosure>
+      <NamedDisclosure testId="disclosure-provider-diagnostics" title="Scheduler and provider-gate diagnostics"
+        summary="Producer and scheduler status, plus the administrator provider-gate checks. Diagnostics, not counts.">
       {/* ── Scheduler status (Correction #3) ────────────────────────────── */}
       {h?.freeEnrichmentSchedulerStatus && (
         <Card>
@@ -588,6 +745,7 @@ export function ProgramHealthPanel() {
           </CardContent>
         </Card>
       )}
+
 
       {/* ── CRO-03C Readiness diagnostics (admin only) ───────────────────── */}
       {isAdmin && (() => {
@@ -735,128 +893,7 @@ export function ProgramHealthPanel() {
         );
       })()}
 
-      {/* ── Stuck-processing + candidate funnel ─────────────────────────── */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <CardTitle className="text-sm">Routine SFP Candidate Pipeline</CardTitle>
-              <CardDescription className="text-xs mt-0.5">
-                Free-discovery candidates by validation state. Stuck = businesses locked in 'processing' (reaper recovers these every 15 min).
-              </CardDescription>
-            </div>
-            {/* Gate status badge reflects the feature flag and durable runtime owner. */}
-            {ps && (
-              ps.gateOpen ? (
-                <Badge className="shrink-0 bg-green-100 text-green-800 border-green-300 hover:bg-green-100" variant="outline">
-                  <CheckCircle className="h-3 w-3 mr-1" /> Gate open
-                </Badge>
-              ) : (
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <Badge
-                    className="bg-red-100 text-red-800 border-red-300 hover:bg-red-100 cursor-help"
-                    variant="outline"
-                    title={ps.note}
-                  >
-                    <XCircle className="h-3 w-3 mr-1" />
-                    {ps.promotionEnabled && !ps.runtimeOwnerReady ? "Owner unavailable" : "Gate closed"}
-                  </Badge>
-                </div>
-              )
-            )}
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {/* Stuck processing count */}
-          {ps && <p className="text-xs text-muted-foreground">
-            {ps.note} Scoped staged: {ps.scopedStaged?.toLocaleString() ?? "Unknown"}; outside current scope: {ps.unscopedStaged?.toLocaleString() ?? "Unknown"}.
-          </p>}
-          <div className="flex items-center gap-3">
-            <div className="rounded-md border bg-muted/10 px-3 py-2 flex-1">
-              <div className="text-xs text-muted-foreground mb-0.5">Stuck in processing</div>
-              {h?.businessStuckProcessingCount?.available
-                ? (
-                  <div className={`text-sm font-medium ${(h.businessStuckProcessingCount.value ?? 0) > 0 ? "text-amber-700" : "text-green-700"}`}>
-                    {h.businessStuckProcessingCount.value?.toLocaleString() ?? "0"}
-                    {(h.businessStuckProcessingCount.value ?? 0) === 0 && (
-                      <span className="text-xs font-normal text-muted-foreground ml-1">(reaper healthy)</span>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-sm text-muted-foreground">—</div>
-                )
-              }
-            </div>
-          </div>
-
-          {/* Candidate funnel */}
-          {h?.candidateFunnel ? (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {/* Staged tile — includes backfill controls */}
-              <div className="rounded-md border bg-muted/10 px-3 py-2 col-span-2 sm:col-span-1">
-                <div className="text-xs text-muted-foreground mb-0.5">
-                  Staged
-                  <span className="ml-1 text-[9px] text-muted-foreground/70">(unvalidated)</span>
-                </div>
-                <div className="text-lg font-bold text-blue-700">{h.candidateFunnel.staged.toLocaleString()}</div>
-                {/* Backfill controls — admin only */}
-                {isAdmin && (
-                  <>
-                    <div className="mt-2 flex items-center gap-1.5">
-                      <Input
-                        type="number"
-                        min={1}
-                        max={200}
-                        value={backfillLimit}
-                        onChange={(e) => setBackfillLimit(Math.min(200, Math.max(1, Math.floor(Number(e.target.value)) || 50)))}
-                        className="h-6 w-16 text-xs px-1.5 py-0"
-                        aria-label="Backfill limit"
-                        disabled={backfillMutation.isPending}
-                      />
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-6 text-[11px] px-2 gap-1"
-                        disabled={backfillMutation.isPending || !ps?.gateOpen}
-                        title={!ps?.gateOpen ? (ps?.promotionEnabled ? `Durable runtime owner unavailable: ${ps.runtimeOwnerReason ?? "identity not ready"}` : "Gate is closed — enable FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED first") : `Promote up to ${backfillLimit} staged candidates`}
-                        onClick={() => backfillMutation.mutate(backfillLimit)}
-                      >
-                        {backfillMutation.isPending
-                          ? <><RefreshCw className="h-3 w-3 animate-spin" /> Running…</>
-                          : <><PlayCircle className="h-3 w-3" /> Promote</>
-                        }
-                      </Button>
-                    </div>
-                    {!ps?.gateOpen && (
-                      <p className="mt-1 text-[10px] text-red-500">
-                        {ps?.promotionEnabled && !ps?.runtimeOwnerReady
-                          ? "Runtime owner unavailable"
-                          : "Gate closed"}
-                      </p>
-                    )}
-                  </>
-                )}
-              </div>
-
-              {[
-                { label: "Admitted", value: h.candidateFunnel.validationAdmitted, color: "text-indigo-700", note: "pending ZB" },
-                { label: "Suppressed", value: h.candidateFunnel.suppressed, color: "text-red-700", note: "" },
-                { label: "Stalled", value: h.candidateFunnel.stalled, color: "text-amber-700", note: "crashed gen" },
-              ].map(({ label, value, color, note }) => (
-                <div key={label} className="rounded-md border bg-muted/10 px-3 py-2">
-                  <div className="text-xs text-muted-foreground mb-0.5">
-                    {label}
-                    {note && <span className="ml-1 text-[9px] text-muted-foreground/70">({note})</span>}
-                  </div>
-                  <div className={`text-lg font-bold ${color}`}>{value.toLocaleString()}</div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">Candidate funnel data unavailable.</p>
-          )}
-        </CardContent>
-      </Card>
+      </NamedDisclosure>
       {/* Paid provider controls and emergency stop (relocated from the retired pilot panel) */}
       <PaidProviderControlsPanel />
     </div>

@@ -27,12 +27,13 @@ import {
 } from "lucide-react";
 import { apiRequest, protectedContextToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { INBOX_FEED_REFRESH_MS, inboxForegroundRefresh, selectedFeedStamp } from "@/lib/inbox-refresh";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import { format, formatDistanceToNow } from "date-fns";
 import { useMessageDraft } from "@/hooks/use-message-draft";
 import { CrmPageHeader, CrmDataState } from "@/components/crm/CrmPresentation";
-import { decodeInboxSourceItem, decodeInboxSourcePage } from "@/lib/inbox-source";
+import { decodeInboxSourceItem, decodeInboxSourcePage, inboxRowOpenState } from "@/lib/inbox-source";
 import { buildInboxWorkspaceHref, inboxWorkspaceState } from "@/lib/crm-destination-state";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -154,15 +155,20 @@ function formatDuration(seconds: number | null | undefined): string {
 function ItemCard({ item, selected, onClick }: { item: InboxItem; selected: boolean; onClick: () => void }) {
   const meta = CHANNEL_META[item.channel] || CHANNEL_META.email;
   const intentMeta = item.intentLabel ? INTENT_META[item.intentLabel] : null;
+  const openState = inboxRowOpenState(item);
 
   return (
     <button
       className={cn(
         "w-full text-left px-4 py-3 border-b border-border/60 hover:bg-accent/50 transition-colors",
         selected && "bg-accent",
-        !item.isRead && "bg-primary/[0.03]"
+        !item.isRead && "bg-primary/[0.03]",
+        !openState.openable && "cursor-not-allowed opacity-80 hover:bg-transparent"
       )}
-      onClick={onClick}
+      onClick={openState.openable ? onClick : undefined}
+      aria-disabled={!openState.openable}
+      aria-describedby={openState.openable ? undefined : `inbox-unmapped-${item.id}`}
+      data-open-state={openState.openable ? "openable" : "unmapped"}
       data-testid={`inbox-item-${item.id}`}
     >
       <div className="flex items-start gap-2.5">
@@ -195,6 +201,12 @@ function ItemCard({ item, selected, onClick }: { item: InboxItem; selected: bool
             )}
           </div>
 
+          {!openState.openable && (
+            <p id={`inbox-unmapped-${item.id}`} className="mb-1 text-[11px] font-medium text-amber-700 dark:text-amber-400"
+              data-testid={`inbox-unmapped-${item.id}`}>
+              Not linked to a contact · cannot be opened here
+            </p>
+          )}
           {/* Preview text */}
           {item.channel === "voicemail" ? (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -716,7 +728,8 @@ export default function CommsHub() {
       return body;
     },
     getNextPageParam: lastPage => lastPage.nextCursor || undefined,
-    refetchInterval: 45000,
+    refetchInterval: INBOX_FEED_REFRESH_MS,
+    ...inboxForegroundRefresh,
     staleTime: 30000,
   });
 
@@ -770,6 +783,18 @@ export default function CommsHub() {
     pageUrl: typeof source.pageUrl === "string" ? source.pageUrl : undefined,
   } : null;
   const showPanel = !!workspace.thread;
+  // Refresh the open conversation once when the feed's view of its contact changes (new reply, read state) instead of on a
+  // second timer. The conversation panel owns its draft, so refetching never clears typing or moves the selection.
+  const feedStamp = selectedFeedStamp(allItems, selected?.contactId);
+  const lastFeedStamp = useRef<string | null>(null);
+  useEffect(() => {
+    if (!workspace.thread || !selected) { lastFeedStamp.current = null; return; }
+    if (lastFeedStamp.current !== null && lastFeedStamp.current !== feedStamp) {
+      void selectedSource.refetch();
+      if (selected.contactId) void queryClient.invalidateQueries({ queryKey: ["/api/inbox/contacts", selected.contactId, "thread"] });
+    }
+    lastFeedStamp.current = feedStamp;
+  }, [feedStamp, workspace.thread, selected?.id]);
 
   const handleSelect = (item: InboxItem) => {
     navigate(buildInboxWorkspaceHref(window.location.href, { thread: item.id }), { replace: false });
@@ -798,8 +823,8 @@ export default function CommsHub() {
             Email, SMS, voicemail, chat and website live chat in your authorized scope
           </p>
           <p className="text-xs text-muted-foreground" data-testid="text-site-scope">
-            Site chat shows conversations visitors start in the website chat. Website forms and statement uploads are not chat messages; review them in Inbound Operations or your review tasks.
-            {(user?.role === "admin" || user?.role === "manager") && <> <a className="underline" href="/dashboard/lead-ops?tab=pipeline" data-testid="link-site-scope-inbound-operations">Open Inbound Operations</a></>}
+            Site chat shows conversations visitors start in the website chat. Website forms and statement uploads are not chat messages; review them in Intake or your review tasks.
+            {(user?.role === "admin" || user?.role === "manager") && <> <a className="underline" href="/dashboard/lead-ops?tab=pipeline" data-testid="link-site-scope-inbound-operations">Open Intake</a></>}
           </p>
           {failedSources.length > 0 && (
             <p className="mt-1 text-xs text-destructive" role="alert" data-testid="inbox-failed-sources">

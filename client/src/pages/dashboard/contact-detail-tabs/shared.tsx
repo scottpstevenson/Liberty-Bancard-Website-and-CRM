@@ -29,6 +29,15 @@ export interface ContactDetailData {
     notes?: boolean;
     documents?: boolean;
   };
+  /** What the business-link authority has recorded for this person. Absent means the projection did not ask for it. */
+  relationshipFacts?: {
+    business?: {
+      state: "verified" | "conflicted" | "rejected" | "legacy_unknown" | "missing" | "none" | "unavailable";
+      businessId: number | null;
+      businessName: string | null;
+      decidedAt: string | null;
+    };
+  };
   /** Small, non-interior deal facts retained for the always-visible contact header. */
   headerDealFacts?: {
     activeDeal?: Pick<Deal, "id" | "stage" | "pipeline" | "nextFollowUp" | "archivedAt"> | null;

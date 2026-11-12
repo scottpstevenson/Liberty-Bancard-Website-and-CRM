@@ -126,11 +126,19 @@ export function isProtectedQuery(key: readonly unknown[]) {
     "/api/testimonials", "/api/case-studies", "/api/faq", "/api/site",
   ].some(prefix => endpoint === prefix || endpoint.startsWith(prefix + "/"));
 }
+/** Ask the service worker to delete any private API cache an earlier release stored. The shipped worker no longer stores
+ * any, so this only clears legacy data when the signed-in person changes or signs out. Absent worker: nothing to clear. */
+function purgeWorkerPrivateCaches() {
+  try {
+    if (typeof navigator !== "undefined") navigator.serviceWorker?.controller?.postMessage({ type: "PURGE_PRIVATE_CACHES" });
+  } catch { /* no worker to notify */ }
+}
 export async function transitionProtectedActor(actor: ProtectedActor | null) {
   const next = actorIdentity(actor);
   if (next === currentProtectedIdentity()) return protectedTransition;
   // Fence first; delayed reads must not be reused while cancellation settles.
   const generation=advanceProtectedIdentity(next);
+  purgeWorkerPrivateCaches();
   clearProtectedToasts();
   protectedTransition=queryClient.cancelQueries({ predicate: q => isProtectedQuery(q.queryKey) }).then(()=>{
     if(generation===currentProtectedGeneration())

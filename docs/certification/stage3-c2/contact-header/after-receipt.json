@@ -54,9 +54,9 @@
       "status": 201
     }
   ],
-  "sourceHead": "33a3a924a0d887edc94c2671c2c352b4d9e54e3e",
-  "compiledInputHash": "9c740c8b7aa8c1cac401f282f7fae38b3a48e161e6264864a9f655ecc2c59814",
-  "compiledOutputHash": "ab109ce66c064a2332cf36324cd18d8bf8122c679f85465f89f3a4869ff5aee9",
+  "sourceHead": "966994f29c50fe321671f644202a6331955b57ca",
+  "compiledInputHash": "1e7bceb3045c694c144a5f1cd9f9b9331022c79dfbbf7d5b529b418fb6f08ec7",
+  "compiledOutputHash": "c2a80403ea42d799ce46a1b2781cf932897986ac3bcd137152034326781e4568",
   "requests": [
     {
       "path": "/api/auth/user",
@@ -95,11 +95,13 @@
     },
     {
       "path": "/api/notifications/count",
-      "method": "GET"
+      "method": "GET",
+      "status": 200
     },
     {
       "path": "/api/live-chat/sessions?status=active",
-      "method": "GET"
+      "method": "GET",
+      "status": 200
     },
     {
       "path": "/api/tasks/overdue-count",
@@ -108,7 +110,18 @@
     },
     {
       "path": "/api/outreach-queue/count",
-      "method": "GET"
+      "method": "GET",
+      "status": 501
+    },
+    {
+      "path": "/api/leaderboard?period=month",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/appointments",
+      "method": "GET",
+      "status": 200
     },
     {
       "path": "/api/auth/user",
@@ -187,6 +200,14 @@
     },
     {
       "path": "/api/contacts/1/zerobounce-history",
+      "method": "GET"
+    },
+    {
+      "path": "/api/contacts/1/sfp-readiness",
+      "method": "GET"
+    },
+    {
+      "path": "/api/contacts/1/zerobounce-history",
       "method": "GET",
       "status": 200
     },
@@ -241,6 +262,11 @@
       "status": 200
     },
     {
+      "path": "/api/live-chat/sessions?status=active",
+      "method": "GET",
+      "status": 200
+    },
+    {
       "path": "/api/contacts/1/detail?section=overview",
       "method": "GET",
       "status": 200
@@ -261,19 +287,71 @@
       "status": 200
     },
     {
-      "path": "/api/live-chat/sessions?status=active",
-      "method": "GET",
-      "status": 200
-    },
-    {
       "path": "/api/tickets",
       "method": "POST",
       "status": 201
     },
     {
+      "path": "/api/notifications/count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/tasks/overdue-count",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/detail?section=overview",
+      "method": "GET"
+    },
+    {
+      "path": "/api/contacts/1/companies",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/confirmation-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/parent",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/nba",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts/1/suppression-status",
+      "method": "GET",
+      "status": 200
+    },
+    {
       "path": "/api/contacts/1/detail?section=overview",
       "method": "GET",
       "status": 200
+    },
+    {
+      "path": "/api/tools/capabilities",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/contacts?limit=50&offset=0",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/sms-inbox/unread-count",
+      "method": "GET"
+    },
+    {
+      "path": "/api/outreach-queue/count",
+      "method": "GET"
     },
     {
       "path": "/api/auth/user",
@@ -447,8 +525,7 @@
     },
     {
       "path": "/api/notifications/count",
-      "method": "GET",
-      "status": 200
+      "method": "GET"
     },
     {
       "path": "/api/tasks/overdue-count",
@@ -577,8 +654,7 @@
     },
     {
       "path": "/api/inbox/send-state",
-      "method": "GET",
-      "status": 200
+      "method": "GET"
     },
     {
       "path": "/api/my-day",
@@ -630,7 +706,8 @@
     },
     {
       "path": "/api/deals",
-      "method": "GET"
+      "method": "GET",
+      "status": 200
     },
     {
       "path": "/api/field-sales/status",

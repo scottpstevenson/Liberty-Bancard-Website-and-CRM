@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { websiteSourceNeedsOwnershipReview } from "@shared/source-domain-provenance";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { evaluateContactDecisions } from "./contactability";
@@ -178,6 +179,16 @@ async function prepareCanonicalRecipientPass(input: CanonicalPreparationInput) {
         FOR UPDATE OF b
     `))[0];
     if (!business) return held("INDEPENDENT_BUSINESS_AFFILIATION_REQUIRED");
+    // A directory or government website shows where the business was seen, not that it owns the site. Without
+    // independent ownership evidence the recipient stays in review, whatever the address validation says.
+    const siteProvenance = rows(await tx.execute(sql`
+      SELECT b.website_domain AS website_domain,
+        COALESCE((SELECT array_agg(DISTINCT s.source_type) FROM canonical_source_links s WHERE s.business_id=b.id), ARRAY[]::text[]) AS source_types
+        FROM businesses b WHERE b.id=${Number(business.id)}
+    `))[0];
+    if (websiteSourceNeedsOwnershipReview(siteProvenance?.website_domain, (siteProvenance?.source_types ?? []) as string[])) {
+      return held("WEBSITE_SOURCE_OWNERSHIP_REVIEW_REQUIRED");
+    }
     const locations = rows(await tx.execute(sql`
       SELECT id,is_primary,city,state,postal_code,county_fips FROM business_locations
        WHERE business_id=${Number(business.id)} ORDER BY id FOR SHARE

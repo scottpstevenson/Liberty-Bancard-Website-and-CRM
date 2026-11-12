@@ -23,6 +23,7 @@ import { PageHeader, CrmPage } from "@/components/crm/CrmPresentation";
 import type { MerchantApplication, MerchantProfile, Document as DocType, UnderwritingNoteEntry } from "@shared/schema";
 import { canTransition, STATUS_TRANSITIONS, TERMINAL_APPLICATION_STATUSES } from "@shared/merchant-application-status";
 import { applicationStatuses } from "@/lib/crm-destination-state";
+import { RecordClassBadge } from "@/components/crm/RecordClass";
 import { useC4RetainedSelection } from "@/hooks/use-c4-retained-selection";
 
 const STATUS_TABS = [
@@ -31,7 +32,7 @@ const STATUS_TABS = [
   { value: "under_review", label: "Under Review" },
   { value: "approved", label: "Approved" },
   { value: "declined", label: "Declined" },
-  { value: "draft", label: "Draft" },
+  { value: "draft", label: "Draft + in progress" },
   { value: "withdrawn", label: "Withdrawn" },
 ];
 
@@ -1069,21 +1070,25 @@ const LIST_PAGE_SIZE = 50;
 
 export default function MerchantApplicationsList() {
   const statusState=useC4RetainedSelection("/dashboard/merchant-applications","status",applicationStatuses,"all");
-  const statusFilter=statusState.value;
+  // "In progress" is not a separate list: the server's Draft filter already covers saved drafts and applications still
+  // being filled in, so a retained in_progress selection resolves to that one tab and its count.
+  const statusFilter=statusState.value==="in_progress" ? "draft" : statusState.value;
+  const [recordScope, setRecordScope] = useState<"production" | "all">("production");
   const setStatusFilter=(value:string)=>{if(applicationStatuses.includes(value as typeof statusFilter))statusState.setValue(value as typeof statusFilter);};
   const [search, setSearch] = useState("");
   const [selectedApp, setSelectedApp] = useState<MerchantApplication | null>(null);
   const [listPage, setListPage] = useState(0);
-  useEffect(() => { setListPage(0); }, [statusFilter, search]);
+  useEffect(() => { setListPage(0); }, [statusFilter, search, recordScope]);
 
   const params = new URLSearchParams();
   if (statusFilter !== "all") params.set("status", statusFilter);
   if (search) params.set("search", search);
   params.set("limit", String(LIST_PAGE_SIZE));
   params.set("offset", String(listPage * LIST_PAGE_SIZE));
+  params.set("recordScope", recordScope);
 
-  const { data, isLoading, isError, error, refetch } = useQuery<{ applications: MerchantApplication[]; total: number }>({
-    queryKey: ["/api/merchant-applications", statusFilter, search, listPage],
+  const { data, isLoading, isError, error, refetch } = useQuery<{ applications: MerchantApplication[]; total: number; hiddenByRecordClass?: number }>({
+    queryKey: ["/api/merchant-applications", statusFilter, search, listPage, recordScope],
     retry: false,
     queryFn: async () => {
       const res = await fetch(`/api/merchant-applications?${params.toString()}`, { credentials: "include" });
@@ -1098,6 +1103,7 @@ export default function MerchantApplicationsList() {
 
   const applications = isError ? [] : data?.applications || [];
   const total = isError ? 0 : data?.total || 0;
+  const hiddenByClass = isError ? 0 : data?.hiddenByRecordClass ?? 0;
 
   if (selectedApp) {
     return (
@@ -1150,6 +1156,23 @@ export default function MerchantApplicationsList() {
         </TabsList>
       </Tabs>
       {statusState.issues.map(issue=><p key={issue.key} role="status" className="text-sm text-destructive">{issue.reason}</p>)}
+      {statusFilter === "draft" && (
+        <p className="text-xs text-muted-foreground" data-testid="text-draft-filter-scope">
+          Includes saved drafts and applications still being filled in (In Progress). The count and the list use the same filter.
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground" data-testid="application-record-scope">
+        <span>
+          {recordScope === "production"
+            ? "Production records only: applications linked to a test, demo or synthetic contact are not listed or counted."
+            : "Showing every application, including those linked to test, demo or synthetic contacts. Each is labelled."}
+          {recordScope === "production" && hiddenByClass > 0 && ` ${hiddenByClass} hidden by this filter.`}
+        </span>
+        <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => setRecordScope(v => v === "production" ? "all" : "production")}
+          data-testid="button-toggle-application-record-scope">
+          {recordScope === "production" ? "Show test and history records" : "Back to production records"}
+        </Button>
+      </div>
 
       <Card data-testid="card-applications-table">
         <CardContent className="p-0 overflow-x-auto">
@@ -1206,7 +1229,9 @@ export default function MerchantApplicationsList() {
                     >
                       <TableCell>
                         <div className="space-y-0.5">
-                          <p className="font-medium text-foreground" data-testid={`text-biz-name-${app.id}`}>{businessName}</p>
+                          <p className="font-medium text-foreground" data-testid={`text-biz-name-${app.id}`}>{businessName}
+                            <RecordClassBadge recordClass={(app as any).contactRecordClass} className="ml-2 align-middle" />
+                          </p>
                           {app.vertical && (
                             <p className="text-xs text-muted-foreground">{app.vertical}</p>
                           )}

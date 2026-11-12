@@ -31,6 +31,27 @@ import { onboardingPreparationFields } from "@shared/onboarding-preparation";
 import { prepareOnboarding, readOnboardingPreparation } from "../services/onboarding-preparation-command";
 import { isUuidV4 } from "../services/chargeback-submission-service";
 
+type HeaderBusinessRelationship =
+  | {state:"verified"|"conflicted"|"rejected"|"legacy_unknown"|"missing"|"none";businessId:number|null;businessName:string|null;decidedAt:string|null}
+  | {state:"unavailable";businessId:null;businessName:null;decidedAt:null};
+async function readHeaderBusinessRelationship(contactId:number):Promise<HeaderBusinessRelationship>{
+  try{
+    const result=await pool.query(
+      `SELECT d.decision, d.business_id AS "businessId", b.canonical_name AS "businessName", COALESCE(d.reviewed_at,d.created_at) AS "decidedAt"
+         FROM contact_business_link_decisions d LEFT JOIN businesses b ON b.id=d.business_id
+        WHERE d.contact_id=$1 AND d.superseded_at IS NULL
+        ORDER BY d.created_at DESC, d.id DESC LIMIT 1`,[contactId]);
+    const row=result.rows[0];
+    if(!row) return {state:"none",businessId:null,businessName:null,decidedAt:null};
+    const state=["verified","conflicted","rejected","legacy_unknown","missing"].includes(row.decision)?row.decision:"none";
+    return {state,businessId:row.businessId??null,businessName:state==="verified"||state==="conflicted"?row.businessName??null:null,
+      decidedAt:row.decidedAt?new Date(row.decidedAt).toISOString():null};
+  }catch(error){
+    console.error("[contact-detail] business relationship read failed:",(error as any)?.message??error);
+    return {state:"unavailable",businessId:null,businessName:null,decidedAt:null};
+  }
+}
+
 export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDeleteTransport?: NativeTaskDeleteTransport;
   relationshipExtractor?:(contactId:number)=>Promise<unknown>;
   onboardingPreparationAfterStep?:(step:string)=>Promise<void> } = {}) {
@@ -122,7 +143,11 @@ export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDele
       const activeDeal=activeDeals[0];
       const nextFollowUp=activeDeals.find(deal=>deal.nextFollowUp)?.nextFollowUp;
 
+      // Header relationship fact: what the business-link authority has recorded for THIS person. Read-only; a failed read is
+      // reported as unavailable rather than as "no business".
+      const businessRelationship=await readHeaderBusinessRelationship(contactId);
       res.json({ contact, deals: contactDeals, tickets: contactTickets, tasks: contactTasks, notes: contactNotes,
+        relationshipFacts:{business:businessRelationship},
         capabilities:{hasOnboarding:rawDeals.some(deal=>deal.pipeline==="onboarding" && !deal.archivedAt),
           sdrSourced},
         loaded:{deals:loadDeals,tickets:loadTickets,tasks:loadTasks,notes:loadNotes},

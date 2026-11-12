@@ -63,3 +63,14 @@ export interface SfpLaunchInventory {
   releaseBlockers: LaunchReleaseBlocker[];
   notes: string[];
 }
+
+/** What the in-flight launch-inventory read is doing. Reported from memory; never starts or recounts a read. */
+export interface LaunchInventoryProgress {
+  state: "running" | "idle";
+  elapsedMs: number | null;
+  /** The whole-read deadline in effect; the read is stopped, not extended, when it is reached. */
+  deadlineMs: number;
+  phase: "policy_read" | "recorded_facts" | "contact_policy" | "sender_and_pause" | "done" | null;
+  evaluated: number | null;
+  total: number | null;
+}

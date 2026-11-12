@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useEffect, useState } from "react";
 import { Switch, Route, Redirect, useLocation, useSearch } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { financialUrl, operatorAliasUrl, merchantHealthAliasUrl,c4WorkspaceUrl,supportViews,testimonialAliasUrl,rfiUrl,outreachAliasUrl } from "@/lib/crm-destination-state";
+import { legacyAliasUrl, aliasFragment } from "@/lib/legacy-aliases";
 import { actorIdentity, protectedScope } from "@/lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { HelmetProvider } from 'react-helmet-async';
@@ -352,41 +353,47 @@ function ProtectedRoute({ component: Component, allowedRoles }: { component: Rea
   );
 }
 
+/** Table-driven alias (client/src/lib/legacy-aliases.ts): replaces the retired path and keeps registered context and fragment. */
+function LegacyAlias({ from }: { from: string }) {
+  const search = useSearch();
+  return <Redirect replace to={legacyAliasUrl(from, search, window.location.hash)} />;
+}
+
 function LegacyOperatorRedirect() {
   const search = useSearch();
-  return <Redirect to={operatorAliasUrl(search, window.location.hash)} />;
+  return <Redirect replace to={operatorAliasUrl(search, window.location.hash)} />;
 }
 
 function LegacyFinancialRedirect() {
   const search = useSearch();
-  return <Redirect to={financialUrl(search, window.location.hash)} />;
+  return <Redirect replace to={financialUrl(search, window.location.hash)} />;
 }
 function LegacyMerchantHealthRedirect() {
   const search = useSearch();
-  return <Redirect to={merchantHealthAliasUrl(search, window.location.hash)} />;
+  return <Redirect replace to={merchantHealthAliasUrl(search, window.location.hash)} />;
 }
 function LegacyReviewQueueRedirect(){
   const search=useSearch();
-  return <Redirect to={c4WorkspaceUrl("/dashboard/support-hub",search,window.location.hash,"tab",supportViews,"tickets","review-queue")}/>;
+  return <Redirect replace to={c4WorkspaceUrl("/dashboard/support-hub",search,window.location.hash,"tab",supportViews,"tickets","review-queue")}/>;
 }
 function LegacyTestimonialRedirect(){
   const search=useSearch();
-  return <Redirect to={testimonialAliasUrl(search,window.location.hash)}/>;
+  return <Redirect replace to={testimonialAliasUrl(search,window.location.hash)}/>;
 }
 function LegacyRfiRedirect(){
   const search=useSearch();
-  return <Redirect to={rfiUrl(search,window.location.hash)}/>;
+  return <Redirect replace to={rfiUrl(search,window.location.hash)}/>;
 }
 function LegacyFinancialChildRedirect({ child }: { child: "revenue" | "forecasting" | "terminal-roi" }) {
   const search = useSearch();
   const params = new URLSearchParams(search);
   if (!params.has("financialTab")) params.set("financialTab", child);
-  return <Redirect to={financialUrl(params.toString(), window.location.hash)} />;
+  return <Redirect replace to={financialUrl(params.toString(), window.location.hash)} />;
 }
 
 function LegacyOutreachRedirect() {
   const search=useSearch();
-  return <Redirect to={outreachAliasUrl(search,window.location.hash)} />;
+  return <Redirect replace to={outreachAliasUrl(search,window.location.hash)} />;
 }
 
 function LegacyProspectsRedirect() {
@@ -394,14 +401,14 @@ function LegacyProspectsRedirect() {
   const params = new URLSearchParams(search);
   params.delete("tab");
   params.set("tab", "prospects");
-  return <Redirect to={`/dashboard/lead-ops?${params.toString()}`} />;
+  return <Redirect replace to={`/dashboard/lead-ops?${params.toString()}${aliasFragment(window.location.hash)}`} />;
 }
 
 function LegacyLeadImportsRedirect() {
   const search = useSearch();
   const params = new URLSearchParams(search);
   params.set("tab", "imports");
-  return <Redirect to={`/dashboard/lead-ops?${params.toString()}`} />;
+  return <Redirect replace to={`/dashboard/lead-ops?${params.toString()}${aliasFragment(window.location.hash)}`} />;
 }
 
 function LegacyMasterLeadDatabaseRedirect() {
@@ -409,7 +416,7 @@ function LegacyMasterLeadDatabaseRedirect() {
   const params = new URLSearchParams(search);
   params.set("tab", "staging");
   params.set("stagingTab", "master-leads");
-  return <Redirect to={`/dashboard/lead-ops?${params.toString()}`} />;
+  return <Redirect replace to={`/dashboard/lead-ops?${params.toString()}${aliasFragment(window.location.hash)}`} />;
 }
 
 function LegacyLeadIntelligenceRedirect() {
@@ -423,7 +430,7 @@ function LegacyLeadIntelligenceRedirect() {
   if (user && !["admin", "manager"].includes(user.role as string)) {
     return <LeadIntelligence />;
   }
-  return <Redirect to={`/dashboard/lead-ops?${params.toString()}`} />;
+  return <Redirect replace to={`/dashboard/lead-ops?${params.toString()}${aliasFragment(window.location.hash)}`} />;
 }
 
 function LegacyLeadCommandCenterRedirect() {
@@ -434,14 +441,14 @@ function LegacyLeadCommandCenterRedirect() {
   if (user && !["admin", "manager"].includes(user.role as string)) {
     return <LeadCommandCenter />;
   }
-  return <Redirect to="/dashboard/lead-ops" />;
+  return <Redirect replace to={`/dashboard/lead-ops${aliasFragment(window.location.hash)}`} />;
 }
 
 function LegacyDataQualityRedirect() {
   const search = useSearch();
   const params = new URLSearchParams(search);
   params.set("tab", "quality");
-  return <Redirect to={`/dashboard/lead-ops?${params.toString()}`} />;
+  return <Redirect replace to={`/dashboard/lead-ops?${params.toString()}${aliasFragment(window.location.hash)}`} />;
 }
 
 function Router() {
@@ -624,10 +631,10 @@ function Router() {
           <ProtectedRoute component={OnboardingHub} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/tickets">
-          <Redirect to="/dashboard/support-hub?tab=tickets" />
+          <LegacyAlias from="/dashboard/tickets" />
         </Route>
         <Route path="/dashboard/tasks">
-          <Redirect to="/dashboard/tasks-appointments?tab=tasks" />
+          <LegacyAlias from="/dashboard/tasks" />
         </Route>
         <Route path="/dashboard/notifications">
           <ProtectedRoute component={Notifications} />
@@ -639,7 +646,7 @@ function Router() {
           <ProtectedRoute component={ReviewComplete} />
         </Route>
         <Route path="/dashboard/review-requests">
-          <Redirect to="/dashboard/merchant-success?tab=reviews" />
+          <LegacyAlias from="/dashboard/review-requests" />
         </Route>
         <Route path="/dashboard/testimonial-submissions">
           <LegacyTestimonialRedirect />
@@ -660,10 +667,10 @@ function Router() {
           <ProtectedRoute component={CaseStudyIntake} />
         </Route>
         <Route path="/dashboard/ghl-settings">
-          <Redirect to="/dashboard/ghl-integration?tab=settings" />
+          <LegacyAlias from="/dashboard/ghl-settings" />
         </Route>
         <Route path="/dashboard/ghl-workflows">
-          <Redirect to="/dashboard/ghl-integration?tab=workflow-ids" />
+          <LegacyAlias from="/dashboard/ghl-workflows" />
         </Route>
         <Route path="/dashboard/automation">
           <ProtectedRoute component={Automation} />
@@ -695,7 +702,7 @@ function Router() {
           <ProtectedRoute component={LegacyMasterLeadDatabaseRedirect} allowedRoles={["admin"]} />
         </Route>
         <Route path="/dashboard/campaigns">
-          <Redirect to="/dashboard/outbound-center?tab=campaigns" />
+          <LegacyAlias from="/dashboard/campaigns" />
         </Route>
         <Route path="/dashboard/outreach-analytics">
           <LegacyOutreachRedirect />
@@ -704,16 +711,16 @@ function Router() {
           <ProtectedRoute component={ReportingHub} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/acquisition-hub">
-          <Redirect to="/dashboard/outbound-center?tab=analytics" />
+          <LegacyAlias from="/dashboard/acquisition-hub" />
         </Route>
         <Route path="/dashboard/win-loss">
-          <Redirect to="/dashboard/reporting?tab=win-loss" />
+          <LegacyAlias from="/dashboard/win-loss" />
         </Route>
         <Route path="/dashboard/stage-rules">
           <ProtectedRoute component={StageRules} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/sequences">
-          <Redirect to="/dashboard/outbound-center?tab=sequences" />
+          <LegacyAlias from="/dashboard/sequences" />
         </Route>
         <Route path="/dashboard/lead-gen">
           <ProtectedRoute component={LeadGenCleaner} />
@@ -725,10 +732,10 @@ function Router() {
           <ProtectedRoute component={StatementReview} />
         </Route>
         <Route path="/dashboard/outreach">
-          <Redirect to="/dashboard/outbound-center?tab=command" />
+          <LegacyAlias from="/dashboard/outreach" />
         </Route>
         <Route path="/dashboard/outreach-command">
-          <Redirect to="/dashboard/outbound-center?tab=command" />
+          <LegacyAlias from="/dashboard/outreach-command" />
         </Route>
         <Route path="/dashboard/lead-engine">
           {/* lead-engine previously pointed at the unrestricted lead-intelligence
@@ -740,7 +747,7 @@ function Router() {
           <ProtectedRoute component={LegacyLeadCommandCenterRedirect} />
         </Route>
         <Route path="/dashboard/blaze">
-          <Redirect to="/dashboard/content-hub?tab=blaze" />
+          <LegacyAlias from="/dashboard/blaze" />
         </Route>
         <Route path="/dashboard/merchant-applications">
           <ProtectedRoute component={MerchantApplicationsList} />
@@ -749,7 +756,7 @@ function Router() {
           <ProtectedRoute component={BoardingTracker} />
         </Route>
         <Route path="/dashboard/onboarding-board">
-          <Redirect to="/dashboard/onboarding?tab=board" />
+          <LegacyAlias from="/dashboard/onboarding-board" />
         </Route>
         <Route path="/dashboard/merchant-portal">
           <ProtectedRoute component={MerchantPortal} />
@@ -758,13 +765,13 @@ function Router() {
           <LegacyMerchantHealthRedirect />
         </Route>
         <Route path="/dashboard/chargebacks">
-          <Redirect to="/dashboard/merchant-risk?tab=chargebacks" />
+          <LegacyAlias from="/dashboard/chargebacks" />
         </Route>
         <Route path="/dashboard/nps">
-          <Redirect to="/dashboard/merchant-success?tab=nps" />
+          <LegacyAlias from="/dashboard/nps" />
         </Route>
         <Route path="/dashboard/retention-campaigns">
-          <Redirect to="/dashboard/merchant-success?tab=retention" />
+          <LegacyAlias from="/dashboard/retention-campaigns" />
         </Route>
         <Route path="/dashboard/agent-management">
           <ProtectedRoute component={AgentManagement} />
@@ -797,16 +804,16 @@ function Router() {
           <ProtectedRoute component={KnowledgeAdmin} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/consent-audit">
-          <Redirect to="/dashboard/admin-hub?tab=consent" />
+          <LegacyAlias from="/dashboard/consent-audit" />
         </Route>
         <Route path="/dashboard/calendar">
-          <Redirect to="/dashboard/tasks-appointments?tab=calendar" />
+          <LegacyAlias from="/dashboard/calendar" />
         </Route>
         <Route path="/dashboard/user-management">
-          <Redirect to="/dashboard/admin-hub?tab=users" />
+          <LegacyAlias from="/dashboard/user-management" />
         </Route>
         <Route path="/dashboard/permissions">
-          <Redirect to="/dashboard/admin-hub?tab=permissions" />
+          <LegacyAlias from="/dashboard/permissions" />
         </Route>
         <Route path="/dashboard/security">
           <ProtectedRoute component={SecuritySettings} />
@@ -821,28 +828,28 @@ function Router() {
           <LegacyFinancialChildRedirect child="forecasting" />
         </Route>
         <Route path="/dashboard/pci-assessment">
-          <Redirect to="/dashboard/admin-hub?tab=pci" />
+          <LegacyAlias from="/dashboard/pci-assessment" />
         </Route>
         <Route path="/dashboard/data-requests">
           <ProtectedRoute component={DataRequests} />
         </Route>
         <Route path="/dashboard/audit-logs">
-          <Redirect to="/dashboard/admin-hub?tab=audit-log" />
+          <LegacyAlias from="/dashboard/audit-logs" />
         </Route>
         <Route path="/dashboard/blog-generator">
-          <Redirect to="/dashboard/content-hub?tab=blog" />
+          <LegacyAlias from="/dashboard/blog-generator" />
         </Route>
         <Route path="/dashboard/content">
-          <Redirect to="/dashboard/content-hub?tab=content" />
+          <LegacyAlias from="/dashboard/content" />
         </Route>
         <Route path="/dashboard/social">
-          <Redirect to="/dashboard/content-hub?tab=linkedin" />
+          <LegacyAlias from="/dashboard/social" />
         </Route>
         <Route path="/dashboard/sdr">
-          <Redirect to="/dashboard/sdr-hub?tab=sdr" />
+          <LegacyAlias from="/dashboard/sdr" />
         </Route>
         <Route path="/dashboard/sms-inbox">
-          <Redirect to="/dashboard/comms-hub?tab=messages" />
+          <LegacyAlias from="/dashboard/sms-inbox" />
         </Route>
         <Route path="/dashboard/bin-lookup">
           <ProtectedRoute component={BinLookup} />
@@ -851,10 +858,10 @@ function Router() {
           <ProtectedRoute component={RoundRobinAdmin} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/inbox-health">
-          <Redirect to="/dashboard/deliverability-hub?tab=inbox-health" />
+          <LegacyAlias from="/dashboard/inbox-health" />
         </Route>
         <Route path="/dashboard/email-health">
-          <Redirect to="/dashboard/deliverability-hub?tab=email-health" />
+          <LegacyAlias from="/dashboard/email-health" />
         </Route>
         <Route path="/dashboard/activation">
           <ProtectedRoute component={ActivationPanel} allowedRoles={["admin", "manager"]} />
@@ -866,10 +873,10 @@ function Router() {
           <LegacyOperatorRedirect />
         </Route>
         <Route path="/dashboard/seo-health">
-          <Redirect to="/dashboard/system-health?tab=seo" />
+          <LegacyAlias from="/dashboard/seo-health" />
         </Route>
         <Route path="/dashboard/system-readiness">
-          <Redirect to="/dashboard/system-health?tab=readiness" />
+          <LegacyAlias from="/dashboard/system-readiness" />
         </Route>
         <Route path="/dashboard/training">
           <ProtectedRoute component={Training} />
@@ -884,25 +891,25 @@ function Router() {
           <AgentRoute component={SalesRepHome} />
         </Route>
         <Route path="/dashboard/live-chat">
-          <Redirect to="/dashboard/comms-hub?tab=live-chat" />
+          <LegacyAlias from="/dashboard/live-chat" />
         </Route>
         <Route path="/dashboard/document-vault">
           <ProtectedRoute component={DocumentVault} />
         </Route>
         <Route path="/dashboard/virtual-terminal">
-          <Redirect to="/dashboard" />
+          <LegacyAlias from="/dashboard/virtual-terminal" />
         </Route>
         <Route path="/dashboard/ghl-sequence-guide">
-          <Redirect to="/dashboard/ghl-integration?tab=sequence-guide" />
+          <LegacyAlias from="/dashboard/ghl-sequence-guide" />
         </Route>
         <Route path="/dashboard/marketing-playbook">
-          <Redirect to="/dashboard/playbooks?tab=marketing" />
+          <LegacyAlias from="/dashboard/marketing-playbook" />
         </Route>
         <Route path="/dashboard/growth-playbook">
-          <Redirect to="/dashboard/playbooks?tab=growth" />
+          <LegacyAlias from="/dashboard/growth-playbook" />
         </Route>
         <Route path="/dashboard/growth-kpi">
-          <Redirect to="/dashboard/reporting?tab=growth" />
+          <LegacyAlias from="/dashboard/growth-kpi" />
         </Route>
         <Route path="/dashboard/widget-generator">
           <ProtectedRoute component={WidgetGenerator} allowedRoles={["admin", "manager"]} />
@@ -911,7 +918,7 @@ function Router() {
         <Route path="/partners/embed-widget" component={PartnerEmbedWidget} />
 
         <Route path="/dashboard/cold-leads">
-          <Redirect to="/dashboard/outbound-center?tab=prospects" />
+          <LegacyAlias from="/dashboard/cold-leads" />
         </Route>
 
         <Route path="/dashboard/underwriting">
@@ -919,13 +926,13 @@ function Router() {
         </Route>
 
         <Route path="/dashboard/conversation-ai">
-          <Redirect to="/dashboard/sdr-hub?tab=chatbot" />
+          <LegacyAlias from="/dashboard/conversation-ai" />
         </Route>
 
         {/* ─── Hub Routes ───────────────────────────────────────────────────── */}
         {/* outreach-hub retired — redirect to the unified OutboundCenter */}
         <Route path="/dashboard/outreach-hub">
-          <Redirect to="/dashboard/outbound-center" />
+          <LegacyAlias from="/dashboard/outreach-hub" />
         </Route>
         <Route path="/dashboard/ghl-integration">
           <ProtectedRoute component={GhlIntegrationHub} allowedRoles={["admin", "manager"]} />
@@ -997,7 +1004,7 @@ function Router() {
           <ProtectedRoute component={GhlConflicts} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/information-flow">
-          <Redirect to="/dashboard/admin-hub?tab=info-flow" />
+          <LegacyAlias from="/dashboard/information-flow" />
         </Route>
         <Route path="/dashboard/contact-census">
           <ProtectedRoute component={ContactCensus} allowedRoles={["admin"]} />
@@ -1028,13 +1035,13 @@ function Router() {
         </Route>
         {/* ─── Alias Redirects (legacy deep-links) ─────────────────────────── */}
         <Route path="/dashboard/ghl-workflow-ids">
-          <Redirect to="/dashboard/ghl-integration?tab=workflow-ids" />
+          <LegacyAlias from="/dashboard/ghl-workflow-ids" />
         </Route>
         <Route path="/dashboard/social-composer">
-          <Redirect to="/dashboard/content-hub?tab=linkedin" />
+          <LegacyAlias from="/dashboard/social-composer" />
         </Route>
         <Route path="/dashboard/blaze-integration">
-          <Redirect to="/dashboard/content-hub?tab=blaze" />
+          <LegacyAlias from="/dashboard/blaze-integration" />
         </Route>
 
         <Route path="/dashboard/forbidden" component={Forbidden} />

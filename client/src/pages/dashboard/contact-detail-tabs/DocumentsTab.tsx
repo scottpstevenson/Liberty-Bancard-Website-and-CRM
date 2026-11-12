@@ -13,18 +13,7 @@ import type { Document } from "@shared/schema";
 import { DOCUMENT_CATEGORIES } from "@shared/schema";
 import { formatDate, getDocCategoryColor, formatFileSize, DocFileIcon } from "./shared";
 import { CrmDataState } from "@/components/crm/CrmPresentation";
-
-const MERCHANT_EXPECTED_DOCS = [
-  { category: "Application", label: "Merchant Application" },
-  { category: "Photo ID", label: "Government-Issued Photo ID" },
-  { category: "Voided Check", label: "Voided Check / Bank Letter" },
-  { category: "Processing Statement", label: "Processing Statement" },
-] as const;
-
-const PARTNER_EXPECTED_DOCS = [
-  { category: "EIN Letter", label: "W9 / EIN Letter" },
-  { category: "Signed Proposal", label: "Partner Agreement" },
-] as const;
+import { expectedDocumentsFor } from "@/lib/contact-documents-stage";
 
 function getStatusInfo(status: string | null | undefined): { label: string; className: string; icon: typeof Clock } {
   switch (status) {
@@ -35,7 +24,7 @@ function getStatusInfo(status: string | null | undefined): { label: string; clas
   }
 }
 
-export function ContactDocumentsTab({ contactId, userRole, isPartnerContact }: { contactId: number; userRole?: string; isPartnerContact?: boolean }) {
+export function ContactDocumentsTab({ contactId, userRole, isPartnerContact, lifecycleState }: { contactId: number; userRole?: string; isPartnerContact?: boolean; lifecycleState?: string | null }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -50,7 +39,8 @@ export function ContactDocumentsTab({ contactId, userRole, isPartnerContact }: {
   const [docUploadIdempotencyKey, setDocUploadIdempotencyKey] = useState<string>(() => crypto.randomUUID());
 
   const isAdminOrManager = userRole === 'admin' || userRole === 'manager';
-  const expectedDocs = isPartnerContact ? PARTNER_EXPECTED_DOCS : MERCHANT_EXPECTED_DOCS;
+  const expectation = expectedDocumentsFor({ lifecycleState, isPartner: !!isPartnerContact });
+  const expectedDocs = expectation.expected;
 
   const { data: docs = [], isLoading, isError, refetch } = useQuery<Document[]>({
     queryKey: ["/api/merchant-documents/contact", contactId],
@@ -161,13 +151,16 @@ export function ContactDocumentsTab({ contactId, userRole, isPartnerContact }: {
   if (isLoading) return <CrmDataState state="loading" message="Reading authorized document versions. Checklist completeness is not yet known."/>;
   return (
     <div className="space-y-4" data-testid="contact-documents-tab">
+      <p className="text-xs text-muted-foreground" data-testid="documents-stage-note">
+        {expectation.note}
+      </p>
       {/* Missing Document Placeholders */}
       {missingDocs.length > 0 && (
         <Card className="border-dashed border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2 text-amber-700 dark:text-amber-400">
               <AlertCircle className="h-4 w-4" />
-              Missing Required Documents ({missingDocs.length})
+              Documents still needed for this stage ({missingDocs.length})
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">

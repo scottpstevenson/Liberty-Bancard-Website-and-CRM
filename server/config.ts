@@ -7,8 +7,11 @@
  * Centralised here to prevent further drift.
  */
 
-/** Canonical application timezone for all server-side date formatting and window calculations. */
-export const APP_TIMEZONE = "America/New_York";
+import { BUSINESS_TIMEZONE } from "../shared/business-time";
+
+/** Canonical application timezone for all server-side date formatting and window calculations
+ *  (the same zone every CRM client surface uses; see shared/business-time.ts). */
+export const APP_TIMEZONE = BUSINESS_TIMEZONE;
 
 /**
  * Minimum data-readiness score (0–100) a prospect must reach before it can be

@@ -1637,9 +1637,13 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   app.get("/api/lead-ops/health", requireRole("admin", "manager"), async (_req, res) => {
     try {
       const { data, isStale } = await getOrRefreshHealth();
+      // The snapshot may be served while a refresh runs, so say when it was computed. Null means the cache was reset
+      // while this request ran; the screen then reports the read time as not reported instead of inventing one.
+      const asOf = _healthCache ? new Date(_healthCache.ts).toISOString() : null;
       // Always inject the live in-memory counter (not cached — resets on restart).
       res.json({
         ...data,
+        asOf,
         legacyRouteAttemptsSinceStartup: _legacyRouteAttemptsSinceStartup,
         ...(isStale ? { isStale: true } : {}),
         ...(HEALTH_CACHE_TEST_MODE ? { __dbRoundTrips: _healthTestRoundTrips } : {}),

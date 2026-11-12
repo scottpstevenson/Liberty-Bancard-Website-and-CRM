@@ -11,31 +11,50 @@ const lockedLayers=Object.entries(JSON.parse(fs.readFileSync("package-lock.json"
   .filter(([key])=>key.endsWith("/@radix-ui/react-dismissable-layer"))
   .map(([,value])=>(value as {version:string}).version);
 assert.deepEqual(lockedLayers,["1.1.11"],"nested portals must share one dismissal context");checks++;
-// Execute the actual shipped worker against a retained URL-only response.
+// Execute the actual shipped worker: private CRM reads are network only and are never stored, replayed offline, or kept in any
+// cache, for the mobile and the employee client alike.
 const events:Record<string,Function>={};
-const cached=new Map<string,Response>();
+const putCalls:string[]=[];
+const deleted:string[]=[];
 let clientPath="/mobile",offline=false;
-const workerCache={put:async(request:Request,response:Response)=>{cached.set(request.url,response);}};
-const workerSelf={registration:{scope:"http://candidate.test/"},clients:{get:async()=>({url:"http://candidate.test"+clientPath})},
-  addEventListener:(name:string,handler:Function)=>{events[name]=handler;}};
+const workerCache={put:async(request:Request)=>{putCalls.push(request.url);}};
+const workerSelf={registration:{scope:"http://candidate.test/"},clients:{get:async()=>({url:"http://candidate.test"+clientPath}),claim:async()=>undefined},
+  skipWaiting:()=>undefined,addEventListener:(name:string,handler:Function)=>{events[name]=handler;}};
 vm.runInNewContext(fs.readFileSync("client/public/sw.js","utf8"),{
-  self:workerSelf,URL,Response,Date,
-  caches:{open:async()=>workerCache,match:async(request:Request)=>cached.get(request.url)?.clone()},
+  self:workerSelf,URL,Response,Date,Promise,
+  caches:{open:async()=>workerCache,match:async()=>undefined,keys:async()=>["lb-mobile-old","lb-api-old","lb-api-current","lb-mobile-dev"],
+    delete:async(key:string)=>{deleted.push(key);return true;}},
   fetch:async()=>{if(offline)throw new Error("isolated offline");return Response.json({owner:"current"});},
 });
-async function workerRead(){
+async function workerRead(path="/api/contacts"){
   let response!:Promise<Response>;
-  events.fetch({clientId:"isolated",request:new Request("http://candidate.test/api/contacts"),
+  events.fetch({clientId:"isolated",request:new Request("http://candidate.test"+path),
     respondWith:(value:Promise<Response>)=>{response=value;}});
   return response;
 }
-await workerRead();
+assert.deepEqual(await (await workerRead()).json(),{owner:"current"},"online read reaches the network");
 offline=true;
-assert.deepEqual(await (await workerRead()).json(),{owner:"current"},"retained mobile behavior unchanged");
-clientPath="/dashboard/contacts";
-assert.equal((await workerRead()).status,503,"employee never resurrects URL-only protected cache");
+for(const path of ["/api/contacts","/api/deals","/api/tasks","/api/tasks/15","/api/appointments"]){
+  for(const surface of ["/mobile","/dashboard/contacts"]){
+    clientPath=surface;
+    const response=await workerRead(path);
+    assert.equal(response.status,503,`${surface} offline read of ${path} is an explicit unavailable state, never stored data`);
+    assert.equal((await response.json()).error,"protected_read_unavailable");
+  }
+}
 offline=false;
+clientPath="/dashboard/contacts";
 assert.deepEqual(await (await workerRead()).json(),{owner:"current"},"employee reads current network");
+assert.deepEqual(putCalls,[],"the worker never stores a private API response");
+let activation!:Promise<unknown>;
+events.activate({waitUntil:(value:Promise<unknown>)=>{activation=value;}});
+await activation;
+assert.deepEqual(deleted.sort(),["lb-api-current","lb-api-old","lb-mobile-dev","lb-mobile-old"].sort(),"activation deletes every private API cache and stale shell cache");
+deleted.length=0;
+let purge!:Promise<unknown>;
+events.message({data:{type:"PURGE_PRIVATE_CACHES"},waitUntil:(value:Promise<unknown>)=>{purge=value;}});
+await purge;
+assert.deepEqual(deleted.sort(),["lb-api-current","lb-api-old"],"purge-on-request deletes only private API caches");
 assert.equal(peopleHubState("tab=leads").value,"leads");
 assert.equal(peopleHubState("tab=leads&tab=people").value,"people");
 assert.equal(peopleHubState("tab=leads&tab=people").issues[0].kind,"conflict");

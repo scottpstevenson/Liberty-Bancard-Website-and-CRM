@@ -14,6 +14,7 @@
  */
 
 import type { SerperGateway } from "./serper-gateway";
+import { isDirectoryOrGovernmentDomain } from "@shared/source-domain-provenance";
 
 // ── Threshold constants (named + justified by fixture tests) ─────────────────
 
@@ -174,29 +175,8 @@ function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
 
 // ── Directory/aggregator domain rejection ────────────────────────────────────
 
-const DIRECTORY_DOMAINS = new Set([
-  "google.com", "gstatic.com", "googleapis.com", "sunbiz.org",
-  "wikipedia.org", "reddit.com", "pinterest.com", "tiktok.com",
-  "apple.com", "amazon.com", "nextdoor.com", "dandb.com",
-  "indeed.com", "glassdoor.com", "facebook.com", "linkedin.com",
-  "yelp.com", "bbb.org", "yellowpages.com", "mapquest.com",
-  "tripadvisor.com", "chamberofcommerce.com", "manta.com",
-  "angi.com", "thumbtack.com", "homeadvisor.com", "instagram.com",
-  "twitter.com", "x.com", "bing.com", "yahoo.com", "mapquest.com",
-  "whitepages.com", "bizbuysell.com",
-]);
-
 function isDirectoryDomain(url: string | null | undefined): boolean {
-  if (!url) return false;
-  try {
-    const hostname = new URL(
-      url.startsWith("http") ? url : `https://${url}`,
-    ).hostname.replace(/^www\./, "");
-    return DIRECTORY_DOMAINS.has(hostname) ||
-      [...DIRECTORY_DOMAINS].some((d) => hostname.endsWith(`.${d}`));
-  } catch {
-    return false;
-  }
+  return isDirectoryOrGovernmentDomain(url);
 }
 
 // ── Address field extractor (parse Serper returned addresses) ─────────────────

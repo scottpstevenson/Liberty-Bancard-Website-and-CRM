@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { WebsiteProvenanceNotice } from "@/components/crm/WebsiteProvenanceNotice";
 import {
   X, Link2, Shield, TrendingUp, Mail, Users, Zap, ArrowRight, Navigation, Database,
   AlertTriangle, CheckCircle, Clock, XCircle,
@@ -270,6 +271,7 @@ export function BusinessDetailPanel({ businessId, onClose }: Props) {
 
           {b && (
             <>
+              <WebsiteProvenanceNotice website={b.website_domain} sourceTypes={(d?.sourceLinks ?? []).map(sl => sl.source_type)} />
               {/* 1. Provenance */}
               <Section icon={Link2} title="1 · Provenance">
                 {d!.sourceLinks.length === 0 ? (

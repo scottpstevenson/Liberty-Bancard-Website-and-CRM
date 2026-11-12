@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { consentState } from "@/lib/contact-header-presentation";
 import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -226,8 +227,8 @@ export function OverviewTab({ contact, dealsCount, totalDealVolume, openTicketsC
             <DetailRow label="Primary Offer Path" value={contact.primaryOfferPath} />
             <DetailRow label="Interested in 0%" value={contact.interestedIn0Percent ? "Yes" : "No"} />
             <DetailRow label="Needs Terminal" value={contact.needTerminal ? "Yes" : "No"} />
-            <DetailRow label="SMS Consent" value={contact.consentSms ? "Yes" : "No"} />
-            <DetailRow label="Email Consent" value={contact.consentEmail ? "Yes" : "No"} />
+            <DetailRow label="SMS Consent" value={consentState(contact as any, "sms").label} />
+            <DetailRow label="Email Consent" value={consentState(contact as any, "email").label} />
             <DetailRow label="Do Not Contact" value={contact.doNotContact ? "Yes" : "No"} />
             {/* #456 — Referral source */}
             {contact.referralSource && <DetailRow label="Referral Source" value={contact.referralSource} />}

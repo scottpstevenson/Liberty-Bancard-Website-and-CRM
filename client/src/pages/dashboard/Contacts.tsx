@@ -1055,7 +1055,7 @@ export default function Contacts() {
                 : facetsError
                 ? "Count unavailable"
                 : totalContacts != null
-                ? `${totalContacts.toLocaleString()} ${totalContacts === 1 ? "contact" : "contacts"} matching the current filters${facetsResult?.asOf ? ` · as of ${new Date(facetsResult.asOf).toLocaleTimeString()}` : ""}`
+                ? `${totalContacts.toLocaleString()} ${totalContacts === 1 ? "contact" : "contacts"} matching the current filters (${recordClassFilter === "all" ? "all record classes" : `${recordClassFilter || "production"} records`})${facetsResult?.asOf ? ` · as of ${new Date(facetsResult.asOf).toLocaleTimeString()}` : ""}`
                 : "— contacts"}
             </span>
           )}

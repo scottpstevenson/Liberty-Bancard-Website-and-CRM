@@ -2,7 +2,7 @@ import {
   CanonicalReleaseError, describeCanonicalRelease, executeCanonicalRelease, previewCanonicalRelease,
   resolveCanonicalHold, revokeCanonicalRelease, writeReleasePolicy, type HoldResolution,
 } from "../services/sfp-canonical-release";
-import { LaunchInventoryDeadlineError, readSfpLaunchInventory } from "../services/sfp-launch-inventory";
+import { LaunchInventoryDeadlineError, readLaunchInventoryProgress, readSfpLaunchInventory } from "../services/sfp-launch-inventory";
 import type { Express } from "express";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { readCanonicalEnrichmentStatus } from "../services/canonical-enrichment-status";
@@ -112,6 +112,12 @@ export function registerCanonicalEnrichmentRoutes(app: Express) {
       }
       res.status(503).json({ code: "LAUNCH_INVENTORY_UNAVAILABLE", message: "The launch inventory is unavailable; nothing was counted." });
     }
+  });
+
+  // What the in-flight launch-inventory read is doing right now. In-memory; it never starts, joins or recounts anything.
+  app.get("/api/canonical-enrichment/launch-inventory/progress", isDashboardUser, requireRole("admin", "manager"), (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.json(readLaunchInventoryProgress());
   });
 
   // Narrow operator release of current canonical recipients. Preview is read-only. Execute and revoke

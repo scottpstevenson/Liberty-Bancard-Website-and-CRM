@@ -138,6 +138,13 @@ export interface InboxItem {
   liveChatSessionId?: string | null;
   liveChatStatus?: string | null;
   pageUrl?: string | null;
+  /**
+   * Whether the exact-read route can open this row. Rows with no local contact
+   * have no persisted observation, so the exact read refuses them; the list
+   * still shows them but labels them non-actionable instead of letting the
+   * first click fail.
+   */
+  detailAccess?: "authorized_read" | "unmapped_contact";
 }
 
 /** Stable, gap-free merge. Provider continuations may advance through the
@@ -679,6 +686,11 @@ export function registerInboxRoutes(app: Express, readerDependencies?: {
           return !!contact && (!contact.assignedTo || contact.assignedTo === agentEmail);
         }));
         for (let i = items.length - 1; i >= 0; i--) if (!visibility[i]) items.splice(i, 1);
+      }
+      // Keep unmapped rows visible, but state plainly that they cannot be opened.
+      for (const item of items) {
+        item.detailAccess = item.channel !== "site" && item.contactId === null
+          ? "unmapped_contact" : "authorized_read";
       }
       await Promise.all(items
         .filter((item) => item.contactId !== null)

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { InfiniteData, QueryKey } from "@tanstack/react-query";
 import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { useCrmInfiniteQuery } from "@/hooks/use-crm-infinite-query";
@@ -13,8 +13,9 @@ import { useAuth } from "@/hooks/use-auth";
 import { useLocation, useSearch } from "wouter";
 import { buildInboxWorkspaceHref, inboxWorkspaceState, inboxChannels } from "@/lib/crm-destination-state";
 import { protectedContextToken } from "@/lib/queryClient";
-import { decodeInboxSourceItem, decodeInboxSourcePage, type InboxSourceItem, type InboxSourcePage } from "@/lib/inbox-source";
+import { decodeInboxSourceItem, decodeInboxSourcePage, inboxRowOpenState, type InboxSourceItem, type InboxSourcePage } from "@/lib/inbox-source";
 import { CrmDataState } from "@/components/crm/CrmPresentation";
+import { INBOX_FEED_REFRESH_MS, inboxFeedRefreshInterval, inboxForegroundRefresh, selectedFeedStamp } from "@/lib/inbox-refresh";
 
 function timeAgo(ts: string | null | undefined): string {
   if (!ts) return "";
@@ -77,6 +78,10 @@ function ThreadView({ item, onBack }: { item: InboxItem; onBack: () => void }) {
         throw new Error("Malformed captured site-chat messages");
       return value;
     },
+    // A live site conversation changes while it is open; foreground-only, same cadence as the feed.
+    refetchInterval:INBOX_FEED_REFRESH_MS,
+    refetchOnWindowFocus:true,
+    refetchIntervalInBackground:false,
   });
   const name = item.contactName || "Unknown";
   const color = avatarColor(name);
@@ -208,6 +213,9 @@ export default function MobileInbox() {
     },
     getNextPageParam: lastPage => lastPage.nextCursor || undefined,
     staleTime: 1000 * 30,
+    // Foreground-only refresh, bounded by page count (see lib/inbox-refresh.ts); staleTime alone never polls.
+    refetchInterval: query => inboxFeedRefreshInterval(query.state.data?.pages.length),
+    ...inboxForegroundRefresh,
   });
 
   const selected = useQuery({
@@ -224,6 +232,15 @@ export default function MobileInbox() {
   const lastPage = pages.at(-1);
   const degraded = pages.some(page => !page.complete || page.sourceStatus?.some(source => source.status === "failed"));
   const unreadCount = items.filter((i) => i.isRead === false).length;
+  // Refetch the open conversation once when the feed's view of its contact changes (new reply, read state), not on a timer.
+  // The conversation view keeps its own draft state, so a refetch never discards typing.
+  const feedStamp = selectedFeedStamp(items, selected.data?.contactId);
+  const lastFeedStamp = useRef<string | null>(null);
+  useEffect(() => {
+    if (!workspace.thread || !selected.data) { lastFeedStamp.current = null; return; }
+    if (lastFeedStamp.current !== null && lastFeedStamp.current !== feedStamp) void selected.refetch();
+    lastFeedStamp.current = feedStamp;
+  }, [feedStamp, workspace.thread, selected.data?.id]);
   const filtered = items.filter((item) => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
@@ -329,15 +346,19 @@ export default function MobileInbox() {
               const name = item.contactName || "Unknown";
               const color = avatarColor(name);
               const initials = getInitials(name);
+              const openState = inboxRowOpenState(item);
               return (
                 <button
                   type="button"
                   key={item.id}
                   data-testid={`inbox-item-${item.id}`}
-                   onClick={() => changeWorkspace({ thread: item.id })}
+                  data-open-state={openState.openable ? "openable" : "unmapped"}
+                  aria-disabled={!openState.openable}
+                  aria-describedby={openState.openable ? undefined : `inbox-unmapped-${item.id}`}
+                  onClick={openState.openable ? () => changeWorkspace({ thread: item.id }) : undefined}
                   className={`flex w-full items-start gap-3 px-4 py-3.5 text-left active:bg-gray-50 dark:active:bg-gray-700 ${
                     !item.isRead ? "bg-blue-50/50 dark:bg-blue-900/10" : ""
-                  }`}
+                  } ${openState.openable ? "" : "cursor-not-allowed opacity-80"}`}
                 >
                   <div className={`w-9 h-9 rounded-full ${color} flex items-center justify-center shrink-0 mt-0.5`}>
                     <span className="text-white text-xs font-semibold">{initials}</span>
@@ -361,6 +382,12 @@ export default function MobileInbox() {
                       {item.channel && <span className="capitalize">{item.channel.replace("_", " ")}</span>}
                       {item.companyName && <span className="truncate">{item.companyName}</span>}
                     </div>
+                    {!openState.openable && (
+                      <div id={`inbox-unmapped-${item.id}`} data-testid={`inbox-unmapped-${item.id}`}
+                        className="mt-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                        Not linked to a contact · cannot be opened here
+                      </div>
+                    )}
                     {item.preview && (
                       <div className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">
                         {stripHtml(item.preview).slice(0, 80)}

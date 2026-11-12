@@ -120,7 +120,7 @@ try {
     [`${h.prefix}-browser-%`],
   );
   assert.equal(ownedUsefulCount.rows[0].count,110,"The owned useful fixture volume remains exactly 110");
-  const mobileFacets=await h.request("admin","GET","/api/contacts/facets?");
+  const mobileFacets=await h.request("admin","GET","/api/contacts/facets?recordClass=production");
   assert.equal(mobileFacets.status,200);
   assert.ok(mobileFacets.body.total>=110,"The actual admin reader must include every useful fixture contact");
   assert.equal(await b.evaluate(`(async()=>{for(let n=0;n<120;n++){
@@ -176,7 +176,8 @@ try {
     assert.fail(`Retained tab did not become active in the settled document: ${control}`);
   };
   const retainedTabCases:Array<[string,string,string,string,RegExp]>=[
-    ...applicationStatuses.map(value=>[
+    // in_progress is a valid selector but not a tab of its own: it resolves to the Draft tab (checked separately below).
+    ...applicationStatuses.filter(value=>value!=="in_progress").map(value=>[
       `/dashboard/merchant-applications?status=${value==="all"?"approved":"all"}&page=2&cursor=retained-fixture`,
       `tab-status-${value}`,"status",value,/Merchant Applications/] as [string,string,string,string,RegExp]),
     ...boardingStatuses.map(value=>[
@@ -215,6 +216,17 @@ try {
     for(let attempt=0;attempt<60 && await b.evaluate(`new URLSearchParams(location.search).get(${JSON.stringify(parameter)})`)!==value;attempt++)await new Promise(resolve=>setTimeout(resolve,50));
     assert.equal(await b.evaluate(`new URLSearchParams(location.search).get(${JSON.stringify(parameter)})`),value,"Forward restores selection");
     rows.push({phase:"Retained URL state reload/Back/Forward",role:"admin",route,parameter,value});
+  }
+  {
+    await b.navigate("/dashboard/merchant-applications?status=in_progress");await b.waitFor(/Merchant Applications/);
+    assert.equal(await b.evaluate(`(async()=>{
+      for(let attempt=0;attempt<120;attempt++){
+        const tab=document.querySelector('[data-testid="tab-status-draft"]');
+        if(tab&&tab.getAttribute("data-state")==="active"&&document.querySelector('[data-testid="text-draft-filter-scope"]'))return true;
+        await new Promise(r=>setTimeout(r,50));
+      }return false;
+    })()`),true,"status=in_progress opens the Draft tab, which says it includes In Progress");
+    rows.push({phase:"Retained URL state in_progress resolves to Draft",role:"admin",route:"/dashboard/merchant-applications?status=in_progress",parameter:"status",value:"draft"});
   }
   for(const period of leaderboardPeriods){
     await b.navigate(`/dashboard/leaderboard?period=${period==="week"?"month":"week"}&page=2`);

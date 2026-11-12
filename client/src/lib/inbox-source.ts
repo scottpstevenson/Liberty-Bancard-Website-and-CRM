@@ -41,3 +41,15 @@ export function decodeInboxSourceItem(input: unknown, expectedId: string) {
 export function decodeInboxSourcePage(input: unknown) {
   return inboxSourcePageSchema.parse(input);
 }
+
+/** Row-level open state. Server `detailAccess` wins; a missing contact on a
+ *  non-site row is treated the same way so an older server answer cannot make
+ *  an unreadable row look openable. Navigation metadata never grants access. */
+export const UNMAPPED_INBOX_ROW_MESSAGE =
+  "No local contact is linked to this message, so it cannot be opened here. It stays listed so it is not lost.";
+export function inboxRowOpenState(item: { channel?: string | null; contactId?: number | null; detailAccess?: unknown }):
+  { openable: true } | { openable: false; reason: string } {
+  const unmapped = item.detailAccess === "unmapped_contact"
+    || (item.detailAccess === undefined && item.channel !== "site" && !item.contactId);
+  return unmapped ? { openable: false, reason: UNMAPPED_INBOX_ROW_MESSAGE } : { openable: true };
+}

@@ -6556,6 +6556,20 @@ export function registerAdminRoutes(app: Express) {
   );
 
   app.get(
+    "/api/admin/commercial-classification/review-cohorts",
+    isDashboardUser,
+    requireRole("admin", "manager"),
+    async (_req, res) => {
+      try {
+        const { getRecordClassReviewCohorts } = await import("../services/record-class-review-cohorts");
+        res.json(await getRecordClassReviewCohorts());
+      } catch (err) {
+        serverError(res, err);
+      }
+    },
+  );
+
+  app.get(
     "/api/admin/commercial-classification/reconciliation/:aggregateType/:aggregateKey",
     isDashboardUser,
     requireRole("admin", "manager"),

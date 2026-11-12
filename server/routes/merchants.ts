@@ -329,16 +329,21 @@ export function registerMerchantsRoutes(app: Express) {
 
   app.get("/api/merchant-applications", isAdminOrManager, async (req, res) => {
     try {
-      const { status, search, limit = "50", offset = "0" } = req.query as Record<string, string>;
+      const { status, search, limit = "50", offset = "0", recordScope } = req.query as Record<string, string>;
+      if (recordScope !== undefined && recordScope !== "production" && recordScope !== "all") {
+        return res.status(400).json({ message: "recordScope must be production or all", code: "INVALID_RECORD_SCOPE" });
+      }
       const page = await listMerchantApplicationsPage({
         statuses: status && status !== "all" ? statusesForFilter(status) : undefined,
         search: typeof search === "string" ? search : undefined,
         limit: Number.parseInt(String(limit), 10),
         offset: Number.parseInt(String(offset), 10),
+        recordScope: recordScope === "all" ? "all" : "production",
       });
       res.json({
-        applications: page.rows.map((a) => merchantAppService.toOperatorDto(a as any)),
+        applications: page.rows.map((a) => ({ ...merchantAppService.toOperatorDto(a as any), contactRecordClass: (a as any).contactRecordClass ?? null })),
         total: page.total, limit: page.limit, offset: page.offset,
+        recordScope: page.recordScope, hiddenByRecordClass: page.hiddenByRecordClass,
         hasMore: page.offset + page.rows.length < page.total,
       });
     } catch (err: any) {

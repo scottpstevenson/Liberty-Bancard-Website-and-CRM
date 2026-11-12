@@ -5,6 +5,7 @@ import { useParams, useLocation, Link, useSearch } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUpdateContact } from "@/hooks/use-contacts";
 import { readReturnUrl } from "@/lib/crm-return-context";
+import { businessIdentity, consentState, contactDisplayName, headerNextAction as headerNextActionFor, personName } from "@/lib/contact-header-presentation";
 import { useCompanySearch, type CompanySearchItem } from "@/hooks/use-company-search";
 import { apiRequest, getCsrfToken, protectedContextToken, protectedScope } from "@/lib/queryClient";
 import { RetainedContactCore, projectContactCore, type ContactCoreProjection } from "@/lib/retained-contact-core";
@@ -1791,16 +1792,15 @@ function ContactDetailRecord() {
     : dealsLoaded
       ? deals.find(deal => deal.nextFollowUp && !deal.archivedAt)?.nextFollowUp?.toString() ?? null
       : undefined;
-  const nextFollowUpDate = nextFollowUp ? new Date(nextFollowUp) : null;
-  const headerNextAction = nextFollowUpDate
-    ? Number.isNaN(nextFollowUpDate.getTime())
-      ? "Follow-up date needs review"
-      : `Follow up ${nextFollowUpDate.toLocaleString()}`
-    : pendingTasks?.[0]
-      ? `Complete task: ${pendingTasks[0].title}`
-      : nextFollowUp === undefined || pendingTasks === undefined
-        ? "Scheduled action unavailable"
-        : "No next action scheduled";
+  const headerNextAction = headerNextActionFor({
+    nextFollowUp,
+    activeDealId: activeHeaderDeal?.id ?? null,
+    pendingTask: pendingTasks?.[0] ?? null,
+    pendingTasksLoaded: pendingTasks !== undefined,
+  });
+  const businessView = businessIdentity(contact, data.relationshipFacts?.business);
+  const emailConsent = consentState(contact as any, "email");
+  const smsConsent = consentState(contact as any, "sms");
 
   const startEdit = () => {
     setEditFields({
@@ -2078,14 +2078,20 @@ function ContactDetailRecord() {
             <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0 space-y-2">
                 <PageTitle className="break-words text-2xl font-semibold tracking-tight" data-testid="text-contact-name">
-                  {contact.companyName ||
-                    `${contact.firstName || ""} ${contact.lastName || ""}`.trim() ||
-                    contact.email ||
-                    contact.phone ||
-                    "Unnamed Contact"}
+                  {contactDisplayName(contact)}
                 </PageTitle>
-                <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                  {contact.companyName && <span className="inline-flex min-w-0 items-center gap-1.5" data-testid="text-company"><Building2 className="h-4 w-4 shrink-0" /><span className="break-words">{contact.companyName}</span></span>}
+                <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground" data-testid="contact-identities">
+                  <span className="inline-flex min-w-0 items-center gap-1.5" data-testid="contact-identity-person">
+                    <UserCheck className="h-4 w-4 shrink-0" />
+                    <span className="break-words">Person: <strong className="font-medium text-foreground">{personName(contact) ?? "No person name recorded"}</strong></span>
+                  </span>
+                  <span className="inline-flex min-w-0 items-center gap-1.5" data-testid="contact-identity-business">
+                    <Building2 className="h-4 w-4 shrink-0" />
+                    <span className="break-words" data-testid="text-company">
+                      Business: <strong className="font-medium text-foreground">{businessView.verifiedName ?? businessView.enteredName ?? "None recorded"}</strong>
+                      {" "}<span className={businessView.tone === "attention" ? "text-amber-800 dark:text-amber-300" : ""} data-testid="contact-business-relationship" data-relationship-state={data.relationshipFacts?.business?.state ?? "not_loaded"}>({businessView.relationshipLabel})</span>
+                    </span>
+                  </span>
                   {contact.email && (
                     <span className="inline-flex min-w-0 items-center gap-1.5" data-testid="text-email">
                       <Mail className="h-4 w-4 shrink-0" />
@@ -2109,8 +2115,8 @@ function ContactDetailRecord() {
                       : "Not recorded"}
                   </Badge>
                   <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm" data-testid="contactability-status">
-                    <span>Email consent: <strong className="font-medium text-foreground">{(contact as any).consentEmail ? "Recorded" : "Not recorded"}</strong></span>
-                    <span>SMS consent: <strong className="font-medium text-foreground">{(contact as any).consentSms ? "Recorded" : "Not recorded"}</strong></span>
+                    <span>Email consent: <strong className="font-medium text-foreground" data-testid="consent-email-state" data-consent-state={emailConsent.state}>{emailConsent.label}</strong></span>
+                    <span>SMS consent: <strong className="font-medium text-foreground" data-testid="consent-sms-state" data-consent-state={smsConsent.state}>{smsConsent.label}</strong></span>
                     {(contact as any).doNotContact && <span className="font-medium text-destructive">Do not contact{(contact as any).dncReason ? ` · ${(contact as any).dncReason}` : ""}</span>}
                     {(contact as any).emailStatus && <span>Email status: <strong className="font-medium text-foreground">{String((contact as any).emailStatus).replace(/_/g, " ")}</strong></span>}
                   </span>
@@ -2131,7 +2137,9 @@ function ContactDetailRecord() {
                 </div>
                 <p className="text-sm text-muted-foreground" data-testid="contact-next-action">
                   <span className="font-medium text-foreground">Next action:</span>{" "}
-                  {headerNextAction}
+                  {headerNextAction.href
+                    ? <Link href={headerNextAction.href} className="text-blue-600 underline-offset-2 hover:underline" data-testid="contact-next-action-link">{headerNextAction.text}</Link>
+                    : headerNextAction.text}
                 </p>
               </div>
               <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end" data-testid="contact-primary-actions">
@@ -3030,7 +3038,7 @@ function ContactDetailRecord() {
 
         <TabsContent value="documents" data-testid="tab-content-documents">
           <div className="space-y-4">
-            <ContactDocumentsTab contactId={contactId} userRole={user?.role ?? undefined} isPartnerContact={!!contact?.partnerOrgId} />
+            <ContactDocumentsTab contactId={contactId} userRole={user?.role ?? undefined} isPartnerContact={!!contact?.partnerOrgId} lifecycleState={(contact as any)?.lifecycleState ?? null} />
             <Card data-testid="section-document-access-history">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2">

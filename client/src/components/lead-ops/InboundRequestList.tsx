@@ -7,6 +7,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { apiRequest, parseApiRequestError, queryClient } from "@/lib/queryClient";
 import { InboundResumeAction } from "@/components/lead-ops/InboundResumeAction";
 import type { AnalysisState } from "@shared/statement-chain-state";
+import { taskSelectionHref, todayDestinations } from "@/lib/crm-destination-state";
+import { statementReviewHref } from "@/lib/statement-request-paths";
 
 export interface InboundRequestRow {
   requestReceipt: string;
@@ -171,8 +173,13 @@ function Links({ row }: { row: InboundRequestRow }) {
   return (
     <div className="flex flex-col items-start gap-1.5 text-sm">
       {row.work?.taskId != null && (
-        <a className="text-blue-600 hover:underline inline-flex items-center min-h-11 lg:min-h-0" href="/dashboard/tasks-appointments?tab=tasks" data-testid={`link-work-${row.shortRef}`}>
+        <a className="text-blue-600 hover:underline inline-flex items-center min-h-11 lg:min-h-0" href={taskSelectionHref(row.work.taskId)} data-testid={`link-work-${row.shortRef}`}>
           Open review task{row.work.status ? ` (${row.work.status.replace(/_/g, " ")})` : ""}
+        </a>
+      )}
+      {row.statement?.documentId != null && (
+        <a className="text-blue-600 hover:underline inline-flex items-center min-h-11 lg:min-h-0" href={statementReviewHref(row.statement.documentId)} data-testid={`link-statement-review-${row.shortRef}`}>
+          Open statement review
         </a>
       )}
       {row.contactId && <a className="text-blue-600 hover:underline inline-flex items-center min-h-11 lg:min-h-0" href={`/dashboard/contacts/${row.contactId}`}>Open contact</a>}
@@ -232,6 +239,12 @@ function StatusBadges({ row }: { row: InboundRequestRow }) {
       <div className="text-xs">
         <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-5 ${statusClass(row.assignmentStatus)}`}>{label(ASSIGNMENT_LABEL, row.assignmentStatus)}</Badge>
         {(row.assignedTo || row.assignmentReason) && <span className="ml-1.5 text-muted-foreground break-words">{row.assignedTo || row.assignmentReason}</span>}
+        {!row.assignedTo && row.work?.taskId != null && (
+          <div className="mt-1 text-muted-foreground" data-testid={`text-unassigned-review-${row.shortRef}`}>
+            Review owner: none recorded. The review task is in the unassigned queue;{" "}
+            <a className="text-blue-600 hover:underline" href={todayDestinations.unassignedTasks} data-testid={`link-unassigned-queue-${row.shortRef}`}>open the unassigned queue</a>.
+          </div>
+        )}
       </div>
       <div className={`text-xs ${dueToneClass[due.tone]}`}>{due.text}</div>
     </div>
@@ -334,7 +347,7 @@ export function InboundRequestList({ requests, isLoading, isAdmin }: { requests:
       </div>
 
       {/* Wide screens: compact table; technical detail stays behind Diagnostics. */}
-      <div className="hidden lg:block" data-testid="inbound-table">
+      <div className="crm-dense-worklist hidden lg:block" data-testid="inbound-table">
         <Table>
           <TableHeader>
             <TableRow>

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { websiteSourceNeedsOwnershipReview } from "@shared/source-domain-provenance";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { effectiveBusinessVerticalSql } from "@shared/effective-vertical";
@@ -190,7 +191,8 @@ export async function processCanonicalRecipientPreparationTick(
     const contactsWithoutPreparation=new Set(contacts.filter(contact=>contact.has_preparation!==true).map(contact=>Number(contact.id)));
     if (bindingsByContact.size) {
       const facts=rows(await timed("screen_query",()=>db.execute(sql`
-        SELECT c.id AS contact_id,c.email,b.city,b.state,b.postal_code,${sql.raw(contactSuppressedSql("c"))} AS suppressed,
+        SELECT c.id AS contact_id,c.email,b.city,b.state,b.postal_code,b.website_domain,${sql.raw(contactSuppressedSql("c"))} AS suppressed,
+          COALESCE((SELECT array_agg(DISTINCT sl.source_type) FROM canonical_source_links sl WHERE sl.business_id=b.id),ARRAY[]::text[]) AS source_types,
           EXISTS(SELECT 1 FROM contact_business_link_decisions l WHERE l.contact_id=c.id AND l.business_id=c.business_id
             AND l.decision='verified' AND l.superseded_at IS NULL) AS has_link,
           COALESCE((SELECT jsonb_agg(jsonb_build_object('id',bl.id,'is_primary',bl.is_primary,'city',bl.city,
@@ -200,6 +202,10 @@ export async function processCanonicalRecipientPreparationTick(
         WHERE c.id IN (${sql.join([...bindingsByContact.keys()].map(id=>sql`${id}`),sql`,`)})`)));
       for (const fact of facts) {
         if (fact.has_link!==true) {screenedHold.set(Number(fact.contact_id),"INDEPENDENT_BUSINESS_AFFILIATION_REQUIRED");continue;}
+        // A directory or government website is not ownership evidence; the writer holds the same way under lock.
+        if (websiteSourceNeedsOwnershipReview(fact.website_domain,(fact.source_types ?? []) as string[])) {
+          screenedHold.set(Number(fact.contact_id),"WEBSITE_SOURCE_OWNERSHIP_REVIEW_REQUIRED");continue;
+        }
         const locations:any[]=Array.isArray(fact.locations) ? fact.locations : [];
         const geography=resolveGeographyFromCandidates([
           ...locations.map(location=>({

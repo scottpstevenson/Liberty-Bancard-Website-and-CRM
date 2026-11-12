@@ -6,11 +6,14 @@ import {
   type BacklogFamily, type BacklogProcessRequest, type BacklogProcessResponse, type BacklogState,
   type BacklogStageSummary, type CanonicalEnrichmentBacklog,
 } from "@shared/canonical-enrichment-backlog";
-import type { LaunchInventoryPopulation, SfpLaunchInventory } from "@shared/sfp-launch-inventory";
+import type { LaunchInventoryPopulation, LaunchInventoryProgress, SfpLaunchInventory } from "@shared/sfp-launch-inventory";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { ReadProgress } from "@/components/crm/ReadProgress";
+import { describeInventoryProgress } from "@/lib/read-progress";
+import { NamedDisclosure, PopulationStagesGuide } from "@/components/crm/CountContractCard";
 
 const numberFormat = new Intl.NumberFormat("en-US");
 const n = (value: number) => numberFormat.format(value);
@@ -423,11 +426,16 @@ function ReleasePanel() {
 }
 
 /** Splits an apiRequest-style "503: {json}" error into a short typed code and its raw text for diagnostics. */
-function readErrorDetail(error: unknown): { code: string | null; raw: string } {
+function readErrorDetail(error: unknown): { code: string | null; raw: string; progress: { evaluated: number; total: number } | null } {
   const raw = error instanceof Error ? error.message : String(error ?? "");
   const json = raw.slice(raw.indexOf("{"));
-  try { const parsed = JSON.parse(json); return { code: typeof parsed?.code === "string" ? parsed.code : null, raw }; }
-  catch { return { code: null, raw }; }
+  try {
+    const parsed = JSON.parse(json);
+    const p = parsed?.progress;
+    const progress = p && Number.isSafeInteger(p.evaluated) && Number.isSafeInteger(p.total) && p.total > 0 ? { evaluated: p.evaluated, total: p.total } : null;
+    return { code: typeof parsed?.code === "string" ? parsed.code : null, raw, progress };
+  }
+  catch { return { code: null, raw, progress: null }; }
 }
 
 function ReadFailureNotice({ code, raw, headline, onRetry, busy, testId }:
@@ -460,13 +468,28 @@ function LaunchInventorySection() {
     staleTime: Infinity,
     refetchOnWindowFocus: false,
   });
-  if (isLoading) return <div className="h-40 animate-pulse rounded-xl border border-border/60 bg-card" aria-busy="true" data-testid="launch-inventory-loading" />;
+  // Progress is an in-memory report from the server about the read already running; it never starts or recounts one.
+  // It is watched only while this read is busy, at a slow fixed cadence, and a failed progress read is simply not shown.
+  const busy = isLoading || isFetching;
+  const progress = useQuery<LaunchInventoryProgress>({
+    queryKey: ["/api/canonical-enrichment/launch-inventory/progress"],
+    enabled: busy, refetchInterval: busy ? 3000 : false, staleTime: 0, gcTime: 0, retry: false, refetchOnWindowFocus: false,
+  });
+  const progressDetail = describeInventoryProgress(progress.data);
+  const progressNotice = <ReadProgress active={busy} label="Reading the launch inventory." deadlineMs={progress.data?.deadlineMs}
+    detail={progressDetail} testId="launch-inventory-progress" />;
+  if (isLoading) return <div className="space-y-2" data-testid="launch-inventory-loading" aria-busy="true">
+    <div className="h-40 animate-pulse rounded-xl border border-border/60 bg-card" />
+    {progressNotice}
+  </div>;
   if (isError || !data) {
     const detail = readErrorDetail(error);
     const timedOut = detail.code === "LAUNCH_INVENTORY_DEADLINE_EXCEEDED";
     return <ReadFailureNotice testId="launch-inventory-unavailable" code={detail.code} raw={detail.raw}
       headline={timedOut
-        ? "The launch inventory took too long and was stopped, so nothing is shown. Checks already finished are kept: retry to continue. Release state below is a separate read."
+        ? `The launch inventory took too long and was stopped, so nothing is shown.${detail.progress
+          ? ` ${n(detail.progress.evaluated)} of ${n(detail.progress.total)} contact checks had finished and are kept.`
+          : " Checks already finished are kept."} Retry to continue from them. Release state below is a separate read.`
         : "The launch inventory could not be read, so nothing is shown. Nothing has been inferred. Release state below is a separate read."}
       onRetry={() => refetch()} busy={isFetching} />;
   }
@@ -480,6 +503,7 @@ function LaunchInventorySection() {
           Refresh inventory
         </Button>
       </p>
+      {isFetching && <div className="-mt-2 mb-3">{progressNotice}</div>}
       <div className="grid gap-3 lg:grid-cols-2">
         <PopulationCard title="Ready, held" pop={data.readyHeld}
           note="Validated, owned paused membership in place." />
@@ -546,7 +570,13 @@ export function CanonicalBacklog({ isAdmin }: { isAdmin: boolean }) {
       <div className="space-y-4" aria-busy="true" aria-label="Loading enrichment backlog counts">
         <div className="h-24 animate-pulse rounded-xl border border-border/60 bg-card" />
         <div className="h-64 animate-pulse rounded-xl border border-border/60 bg-card" />
+        <ReadProgress active label="Counting the enrichment backlog." testId="backlog-progress" />
       </div>
+      <NamedDisclosure testId="disclosure-population-words" title="What each population word means"
+        summary="Discovered, linked, classified, selected, validated, prepared-held, admitted and sent are different units counted on different screens.">
+        <PopulationStagesGuide testId="backlog-population-stages" />
+      </NamedDisclosure>
+
       <LaunchInventory isAdmin={isAdmin} />
       <IndependentProcessPanel isAdmin={isAdmin} />
     </div>;
@@ -568,6 +598,7 @@ export function CanonicalBacklog({ isAdmin }: { isAdmin: boolean }) {
           <pre className="mt-1 max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono">{backlogDetail.raw || "No response body."}</pre>
         </details>
         <Button className="mt-4" onClick={() => refetch()} disabled={isFetching}>Retry backlog</Button>
+        {isFetching && <div className="mt-2"><ReadProgress active label="Retrying the backlog count." testId="backlog-progress" /></div>}
       </section>
       <LaunchInventory isAdmin={isAdmin} />
       <IndependentProcessPanel isAdmin={isAdmin} />
@@ -585,6 +616,7 @@ export function CanonicalBacklog({ isAdmin }: { isAdmin: boolean }) {
           <RefreshCw className={`mr-2 h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />Refresh
         </Button>
       </div>
+      {isFetching && <ReadProgress active label="Recounting the enrichment backlog; the previous counts stay visible until it finishes." testId="backlog-progress" />}
 
       <div className="flex items-start gap-3 rounded-xl border border-amber-300/70 bg-amber-50/70 p-4 dark:border-amber-900/70 dark:bg-amber-950/20">
         <PauseCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
@@ -642,7 +674,9 @@ export function CanonicalBacklog({ isAdmin }: { isAdmin: boolean }) {
         <div className="space-y-2">{data.families.map(f => <FamilyCard key={f.key} family={f} />)}</div>
       </section>
 
-      <section className="grid gap-3 lg:grid-cols-3">
+      <NamedDisclosure testId="disclosure-raw-receipts" title="Raw receipts and provider operations"
+        summary="Original-row receipts and provider operation states. History and diagnostics, counted in their own units; not part of the funnel above.">
+      <section className="grid gap-3 lg:grid-cols-3" data-testid="raw-receipts-and-provider-operations">
         <div className="rounded-xl border border-border/70 bg-card p-4">
           <h3 className="font-semibold">Original-row receipts</h3>
           <dl className="mt-3 space-y-1 text-sm">
@@ -667,6 +701,7 @@ export function CanonicalBacklog({ isAdmin }: { isAdmin: boolean }) {
           </div>
         </div>
       </section>
+      </NamedDisclosure>
 
       {data.notes.length > 0 && (
         <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">

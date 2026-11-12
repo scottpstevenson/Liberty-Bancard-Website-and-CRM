@@ -15,20 +15,19 @@ import { useWorkCommands, invalidateWorkFacts } from "@/hooks/use-work-commands"
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { decodeTaskRows, isPendingTask } from "@/lib/task-source";
+import { BUSINESS_TIMEZONE, businessZoneAbbreviation, businessZoneNote, isDueBusinessToday } from "@shared/business-time";
 import { useContactsFacets } from "@/hooks/use-contacts";
 
 function formatTime(ts: string | null | undefined): string {
   if (!ts) return "";
   const d = new Date(ts);
   if (isNaN(d.getTime())) return "";
-  return d.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return `${new Intl.DateTimeFormat("en-US", { timeZone: BUSINESS_TIMEZONE, weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(d)} ${businessZoneAbbreviation(d)}`;
 }
 
+// "Today" is the business day (America/New_York), the same day desktop Work and the briefing use.
 function isToday(dateStr: string | null | undefined): boolean {
-  if (!dateStr) return false;
-  const d = new Date(dateStr);
-  const now = new Date();
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  return isDueBusinessToday(dateStr);
 }
 
 function isOverdue(task: Task): boolean {
@@ -68,7 +67,7 @@ export default function MobileHome() {
     isFetching: contactsFetching,
     refetch: refetchContacts,
     dataUpdatedAt: contactsUpdatedAt,
-  } = useContactsFacets();
+  } = useContactsFacets({ recordClass: "production" });
 
   const {
     data: dealsData,
@@ -185,7 +184,10 @@ export default function MobileHome() {
                 <div className="text-white text-xl font-bold" data-testid="text-total-contacts">
                   {contactsFetching && contactsData === undefined ? <Loader2 className="w-5 h-5 mx-auto animate-spin opacity-70" /> : (contactsData?.total ?? "—")}
                 </div>
-                <div className="text-white text-xs">People · scoped total</div>
+                <div className="text-white text-xs">People · production records</div>
+                <div className="mt-0.5 text-[10px] leading-tight text-white/70" data-testid="text-total-contacts-scope">
+                  Test, demo and synthetic records are not counted here
+                </div>
               </>
             )}
           </div>
@@ -321,7 +323,7 @@ export default function MobileHome() {
           )}
         </div>
         {!tasksError && !tasksLoading && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-          Up to 5 of {todayTasks.length} loaded due/overdue tasks shown. Due times use {Intl.DateTimeFormat().resolvedOptions().timeZone}.
+          Up to 5 of {todayTasks.length} loaded due/overdue tasks shown. {businessZoneNote()}
         </p>}
       </div>
 
@@ -340,7 +342,7 @@ export default function MobileHome() {
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold text-gray-900 dark:text-white text-sm">Upcoming Appointments</h2>
           </div>
-          <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">{appointments.length} shown from the bounded native GHL queue; local events are separate. Times use {Intl.DateTimeFormat().resolvedOptions().timeZone}.</p>
+          <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">{appointments.length} shown from the bounded native GHL queue; local events are separate. {businessZoneNote()}</p>
           <div className="space-y-2" data-testid="card-appointments">
             {appointments.map((appt: any) => (
               <div key={appt.id} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">

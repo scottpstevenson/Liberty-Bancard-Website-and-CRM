@@ -2735,7 +2735,7 @@ export default function LeadOpsCenter() {
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <CardTitle className="text-base">Inbound Request Operations</CardTitle>
+              <CardTitle className="text-base">Intake: website requests</CardTitle>
               <CardDescription className="text-xs mt-1">
                 Website requests from the public forms, with the review work, deadline and receipt email for each. Enter the reference from a requester's confirmation to open that request.
               </CardDescription>
@@ -2851,6 +2851,12 @@ export default function LeadOpsCenter() {
 
       {(user?.role === "admin" || user?.role === "manager") && <StatementChainPanel />}
 
+      {/* Privileged maintenance (queue health, admin controls, enrichment queue, lead-pool tools) lives behind a named disclosure so the request list above stays the ordinary work surface. */}
+      <details className="rounded-lg border bg-card" data-testid="details-pipeline-maintenance">
+        <summary className="flex min-h-11 cursor-pointer items-center px-4 text-sm font-semibold" data-testid="summary-pipeline-maintenance">
+          Pipeline maintenance, queue controls and lead-pool tools
+        </summary>
+        <div className="space-y-6 p-4">
       {/* ── Stats row ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {statCards.map((s) => (
@@ -3231,6 +3237,8 @@ export default function LeadOpsCenter() {
           </CardContent>
         )}
       </Card>
+        </div>
+      </details>
 
       {/* ── Filters + bulk actions toolbar ───────────────────────────────── */}
       <div className="flex flex-wrap gap-2 items-center">
