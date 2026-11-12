@@ -28,6 +28,7 @@ import {
 } from "@shared/schema";
 import { resolveWorkAssignee, workPrincipalFields, WorkCommandError } from "./work-item-command";
 import { auditChange } from "./audit-change";
+import { getRecordedDefaultOwnerId } from "./inbound-default-owner";
 import { WEBSITE_LANE_SOURCE_PROGRAMS, laneSourceKey } from "./website-email-contracts";
 import { z } from "zod";
 import { INQUIRY_GENERAL_INTENTS, INQUIRY_LEASE_ANSWERS, INQUIRY_VOLUME_BANDS } from "@shared/public-inquiry";
@@ -528,8 +529,11 @@ export async function evaluateInboundAssignment(input: {
   actorId?: string | null;
   contactId?: number | null;
   dealId?: number | null;
-}, existingTx?: Parameters<Parameters<typeof db.transaction>[0]>[0]): Promise<{ status: string; assignedTo: string | null; reasonCode: string; policyVersion: string }> {
-  const { policy, hash } = readAssignmentPolicy();
+}, existingTx?: Parameters<Parameters<typeof db.transaction>[0]>[0]): Promise<{ status: string; assignedTo: string | null; reasonCode: string; policyVersion: string; reviewOwner?: string | null }> {
+  const { policy, hash: policyHash } = readAssignmentPolicy();
+  // The administrator-recorded default owner is part of the decision's identity: changing it records a new decision.
+  const defaultOwnerId = await getRecordedDefaultOwnerId();
+  const hash = defaultOwnerId ? hashPayload({ base: policyHash, defaultOwnerId }) : policyHash;
   if (input.actorType && !["system","user"].includes(input.actorType)) throw new Error("INBOUND_ASSIGNMENT_ACTOR_UNAVAILABLE");
   const execute = async (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${input.requestId}))`);
@@ -550,7 +554,7 @@ export async function evaluateInboundAssignment(input: {
     // Pool identity is user ID/email only. Configured names and emails never
     // override actual account state. Pin all candidate principals before graph.
     const identities = [...new Set([...(policy?.reps.map(r=>r.id) ?? []),accepted?.assignedTo,
-      input.currentOwner,request.assignedTo,ownerSnapshot?.assignedTo].filter((id):id is string=>typeof id==="string" && !!id))];
+      input.currentOwner,request.assignedTo,ownerSnapshot?.assignedTo,defaultOwnerId].filter((id):id is string=>typeof id==="string" && !!id))];
     const principals = identities.length ? await tx.select(workPrincipalFields).from(users)
       .where(sql`${users.id} IN (${sql.join(identities.map(id=>sql`${id}`),sql`,`)})
         OR lower(${users.email}) IN (${sql.join(identities.map(id=>sql`${id.toLowerCase()}`),sql`,`)})`)
@@ -560,8 +564,20 @@ export async function evaluateInboundAssignment(input: {
       try { resolved.set(identity,await resolveWorkAssignee(identity,tx,principals,true)); }
       catch(error) { if (!(error instanceof WorkCommandError)) throw error; }
     }
-    const [contact] = contactId ? await tx.select().from(contacts).where(eq(contacts.id,contactId)).for("share") : [];
-    const [deal] = dealId ? await tx.select().from(deals).where(eq(deals.id,dealId)).for("share") : [];
+    // The recorded default owner is a management account (not a sales rep), so it resolves without the sales-rep link
+    // requirement but must still be an active admin or manager.
+    let defaultOwner: typeof principals[number] | undefined;
+    if (defaultOwnerId) {
+      try {
+        const candidate = await resolveWorkAssignee(defaultOwnerId,tx,principals,false);
+        if (["admin","manager"].includes(candidate.role || "")) defaultOwner = candidate;
+      } catch(error) { if (!(error instanceof WorkCommandError)) throw error; }
+    }
+    // A possible ownership handoff updates these rows, so take the write-intent lock up front (a share lock held by
+    // two requests for one contact would deadlock on upgrade). It still permits foreign-key checks on child rows.
+    const lockMode = defaultOwner ? "no key update" : "share";
+    const [contact] = contactId ? await tx.select().from(contacts).where(eq(contacts.id,contactId)).for(lockMode) : [];
+    const [deal] = dealId ? await tx.select().from(deals).where(eq(deals.id,dealId)).for(lockMode) : [];
     // Newly accepted first-party contacts remain unknown until the separate
     // classification authority acts. Only this exact occurrence's immutable
     // provenance permits a generic, unlinked management review obligation.
@@ -591,9 +607,16 @@ export async function evaluateInboundAssignment(input: {
     const owns = (email:string) => !!contact && !contact.archivedAt && contact.recordClass==="production" &&
       contact.assignedTo===email && (!dealId || (!!deal && !deal.archivedAt && deal.recordClass==="production" &&
         deal.contactId===contact.id && deal.owner===email));
-    let result:{status:string;assignedTo:string|null;reasonCode:string;policyVersion:string};
+    let result:{status:string;assignedTo:string|null;reasonCode:string;policyVersion:string;reviewOwner?:string|null};
     if (accepted) {
-      const current = accepted.assignedTo ? resolved.get(accepted.assignedTo) : undefined;
+      let current = accepted.assignedTo ? resolved.get(accepted.assignedTo) : undefined;
+      if (accepted.assignedTo && !current && accepted.reasonCode==="DEFAULT_OWNER_ASSIGNED") {
+        // A default-owner assignment names a management account, which is never a sales-rep identity.
+        try {
+          const management = await resolveWorkAssignee(accepted.assignedTo,tx,principals,false);
+          if (["admin","manager"].includes(management.role || "")) current = management;
+        } catch(error) { if (!(error instanceof WorkCommandError)) throw error; }
+      }
       result = {...accepted,status:accepted.assignedTo && (!current || !owns(current.email!)) ? "review_required":accepted.status,
         reasonCode:accepted.assignedTo && (!current || !owns(current.email!)) ? "ACCEPTED_ASSIGNMENT_CURRENTLY_UNAVAILABLE":accepted.reasonCode,
         policyVersion:accepted.policyVersion ?? "missing"};
@@ -608,12 +631,39 @@ export async function evaluateInboundAssignment(input: {
     const owner = priorOwner ? resolved.get(priorOwner) : undefined;
     const selected = owner && owns(owner.email!) ? owner : [...eligible].sort((a,b)=>
       ((a.load ?? 0)-(b.load ?? 0)) || a.id.localeCompare(b.id)).map(r=>resolved.get(r.id)!).find(u=>owns(u.email!));
+    // Automatic default-owner rule. Applies only when no rep owns/qualifies, the contact (and deal) are production and
+    // either unowned or already the default owner's. A record that belongs to anyone else is never taken over.
+    const sameEmail = (a:string|null|undefined,b:string) => !!a && a.toLowerCase()===b.toLowerCase();
+    const defaultOwnerEmail = defaultOwner?.email ?? null;
+    const defaultOwnerMayTake = !!defaultOwnerEmail && !classReview && !selected && !!contact && !contact.archivedAt &&
+      contact.recordClass==="production" && (!contact.assignedTo || sameEmail(contact.assignedTo,defaultOwnerEmail)) &&
+      (!dealId || (!!deal && !deal.archivedAt && deal.recordClass==="production" && deal.contactId===contact.id &&
+        (!deal.owner || sameEmail(deal.owner,defaultOwnerEmail))));
     result = classReview ? {status:"review_required",assignedTo:null,
-      reasonCode:"CONTACT_CLASS_REVIEW_REQUIRED",policyVersion:policy?.version ?? "missing"} :
+      reasonCode:"CONTACT_CLASS_REVIEW_REQUIRED",policyVersion:policy?.version ?? "missing",
+      reviewOwner:defaultOwnerEmail} :
       selected ? {status:owner===selected?"preserved":"assigned",assignedTo:selected.email,
       reasonCode:owner===selected?"OWNER_PRESERVED":"POLICY_DETERMINISTIC_MATCH",policyVersion:policy?.version ?? "existing-owner"}
+      : defaultOwnerMayTake ? {status:"assigned",assignedTo:defaultOwnerEmail,reasonCode:"DEFAULT_OWNER_ASSIGNED",
+        policyVersion:`default-owner:${defaultOwner!.id}`}
       : {status:"review_required",assignedTo:null,reasonCode:!policy?"UNASSIGNED_POLICY_MISSING":
         !eligible.length?"NO_CURRENT_ELIGIBLE_REP":"OWNERSHIP_HANDOFF_REQUIRED",policyVersion:policy?.version ?? "missing"};
+    // The ownership handoff commits with the decision (same transaction) so work is never assigned to an account that
+    // does not own the contact it is linked to. Writes only the owner field; no sync, send or provider call is involved.
+    const ownershipHandoff = async () => {
+      if (!defaultOwnerMayTake || !contact || !defaultOwnerEmail) return;
+      if (contact.assignedTo!==defaultOwnerEmail) {
+        await tx.update(contacts).set({assignedTo:defaultOwnerEmail,updatedAt:new Date()}).where(eq(contacts.id,contact.id));
+        await auditChange({actorType:"system",action:"contact_assigned",entityType:"contact",entityId:contact.id,
+          details:{assignedTo:defaultOwnerEmail,previousAssignedTo:contact.assignedTo ?? null,reason:"INBOUND_DEFAULT_OWNER",requestId:request.id}},tx);
+      }
+      if (deal && deal.owner!==defaultOwnerEmail) {
+        await tx.update(deals).set({owner:defaultOwnerEmail,updatedAt:new Date()}).where(eq(deals.id,deal.id));
+        await auditChange({actorType:"system",action:"deal_owner_assigned",entityType:"deal",entityId:deal.id,
+          details:{owner:defaultOwnerEmail,previousOwner:deal.owner ?? null,reason:"INBOUND_DEFAULT_OWNER",requestId:request.id}},tx);
+      }
+    };
+    await ownershipHandoff();
     // An unchanged pending decision is not re-recorded: replays and re-evaluations leave exactly one row per distinct state.
     const [latest] = await tx.select().from(inboundAssignmentDecisions).where(eq(inboundAssignmentDecisions.requestId, input.requestId))
       .orderBy(desc(inboundAssignmentDecisions.decisionOrdinal)).limit(1);
@@ -632,7 +682,8 @@ export async function evaluateInboundAssignment(input: {
       policyVersion: result.policyVersion,
       policyHash: hash,
       territory: input.territory || null,
-      capacitySnapshot: {mode:"configured_load_advisory_not_reserved",reps:policy?.reps ?? []},
+      capacitySnapshot: {mode:"configured_load_advisory_not_reserved",reps:policy?.reps ?? [],
+        defaultOwner:defaultOwnerEmail ? {userId:defaultOwner!.id,email:defaultOwnerEmail} : null},
       serviceHoursSnapshot: {mode:"not_enforced",configured:(policy?.reps ?? []).some(r=>!!r.serviceHours),
         reason:"No accepted timezone/interval enforcement contract"},
       actorType: input.actorType || "system",
@@ -988,7 +1039,11 @@ export async function orchestrateInboundRequest(input: {
         title: statementCopy?.title
           ?? (assignment.reasonCode==="CONTACT_CLASS_REVIEW_REQUIRED" ? "Review retained inbound request" : "Follow up inbound sales request"),
         description: `${statementCopy?.description ?? `Inbound ${request.sourceType} request`}${!assignment.assignedTo ? ` — Management assignment review: ${assignment.reasonCode}` : ""}`,
-        assignedTo: assignment.status==="review_required" ? undefined : assignment.assignedTo ?? undefined,
+        // A request still waiting on class review has no rep owner; its generic review task goes to the recorded
+        // default owner (if any). Every other review-required decision leaves the task unassigned.
+        assignedTo: assignment.status==="review_required"
+          ? (assignment.reasonCode==="CONTACT_CLASS_REVIEW_REQUIRED" ? assignment.reviewOwner ?? undefined : undefined)
+          : assignment.assignedTo ?? undefined,
         dueDate: slaDueAt ?? undefined,
         status: "pending",
         priority: "normal",
@@ -1011,7 +1066,8 @@ export async function orchestrateInboundRequest(input: {
           contactId: input.contactId, dealId: input.dealId ?? null,
           title: statementCopy?.title ?? "Follow up inbound sales request",
           description: `${statementCopy?.description ?? `Inbound ${request.sourceType} request`}${!assignment.assignedTo ? ` — Management assignment review: ${assignment.reasonCode}` : ""}`,
-          assignedTo: owner, canonicalAssignee: owner,
+          // With no elected owner the task keeps whoever already holds it (for example the default review owner).
+          ...(owner ? { assignedTo: owner, canonicalAssignee: owner } : {}),
           authorityFence: sql`${tasks.authorityFence} + 1`,
         }).where(and(eq(tasks.id,task.id),sql`${tasks.contactId} IS NULL`,
           // Completed or cancelled human work is never reopened or relinked by a continuation.

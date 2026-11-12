@@ -22,6 +22,7 @@ import {
   resolveCommittedOccurrenceProgress,
 } from "../services/public-sales-occurrence";
 import { ensureSupportReceiptComment, findSupportTicket } from "../services/public-support-occurrence";
+import { resolveDefaultOwnerEmail } from "../services/inbound-default-owner";
 import { inboundReviewLink } from "../services/statement-review-notification";
 import { isPlausibleInquiryPhone } from "@shared/public-inquiry";
 
@@ -136,12 +137,16 @@ export async function runSupportIntake(req: any, res: any, deps: SupportDeps) {
     }
 
     // 2. ticket (keyed: a re-entry returns the same ticket)
+    // The administrator-recorded default owner (an active admin or manager) receives the ticket; with none recorded the
+    // ticket is created unassigned exactly as before.
+    const defaultOwnerEmail = await resolveDefaultOwnerEmail();
     const ticket = await storage.createAuthorityTicket({
       contactId: contact.id,
       subject: `${issueType} - ${businessName || firstName}`,
       description: msg,
       priority,
       category: issueType,
+      ...(defaultOwnerEmail ? { assignedTo: defaultOwnerEmail } : {}),
     }, {
       producer: "inbound_request",
       commandKey: `inbound:${submissionId}:ticket`,

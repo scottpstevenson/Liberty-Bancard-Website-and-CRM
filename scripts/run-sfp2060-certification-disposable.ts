@@ -86,6 +86,7 @@ async function main(): Promise<void> {
       { name: "stage5-underwriting-conditions", script: "scripts/certification/test-stage5-underwriting-conditions.ts", database: true },
       { name: "stage5-application-effects", script: "scripts/certification/test-stage5-application-effects.ts", database: true },
       { name: "stage5-fresh-inbound", script: "scripts/test-stage5-fresh-inbound.ts", database: true },
+      { name: "inbound-default-owner", script: "scripts/test-inbound-default-owner.ts", database: true },
       { name: "stage5-intake-recovery", script: "scripts/test-stage5-intake-recovery.ts", database: true },
       { name: "stage5-application-contract", script: "scripts/certification/test-stage5-application-contract.ts", database: true },
       { name: "stage5-underwriting-evidence", script: "scripts/certification/test-stage5-underwriting-evidence.ts", database: true },

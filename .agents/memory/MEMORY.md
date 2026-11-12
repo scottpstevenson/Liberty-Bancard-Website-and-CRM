@@ -73,7 +73,7 @@
 - [Multi-source cursor buffering](multi-source-cursor-buffering.md) — merged pagination must retain fetched-but-not-emitted items or cursors silently drop them.
 - [Selection authority](source-thread-url-authority.md) — exact authorized reads before mounting drafts; see also [typed child context](typed-child-context.md): IDs belong to their destination.
 - [CR-06 immutable rollout versioning](cr06-immutable-rollout-versioning.md) — never edit an applied premium manifest in place; publish a new artifact identity/version.
-- [Inbound request authority](inbound-request-authority.md) — request occurrence owns classification, idempotency, held effects, assignment/SLA links, receipts.
+- [Inbound request authority](inbound-request-authority.md) — occurrence owns classification, idempotency, held effects, links, receipts. See [default owner](inbound-default-owner.md): admin-recorded rule.
 - [Dependency-free CRO03C constants module](cro03c-dependency-free-contracts.md) — contracts.ts has zero db import; never import live-execution.ts (eager db import) from DB-less CLI tools.
 - [Task agent isolated branch vs production deploy target](task-agent-isolated-branch.md) — task-agent `main` isn't what Publish deploys from; pushing to `origin` never updates the live app.
 - [Layering a new authority on immutable upstream systems](cro07-controlled-delivery.md) — one-active-chain-per-intent constraint; reply-vs-suppression matrix; CAS-locked decisions.

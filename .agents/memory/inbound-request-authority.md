@@ -13,4 +13,4 @@ For a sales-intent callback with multiple matching contacts, do not call the nor
 
 **Why:** The normal sales path requires a definite contact to issue linked task/SLA work; passing an empty reference fails the request, while selecting a candidate would incorrectly merge identity and certify work.
 
-**How to apply:** Use a durable, request-linked review notification that carries the candidate IDs privately and exposes only the opaque receipt publicly. After manual identity resolution, the owning authority can complete the original sales handoff; do not invent a default rep or treat a notification alone as completed sales work.
+**How to apply:** Use a durable, request-linked review notification that carries the candidate IDs privately and exposes only the opaque receipt publicly. After manual identity resolution, the owning authority can complete the original sales handoff; do not invent a default rep or treat a notification alone as completed sales work. (The only default owner allowed is the administrator-recorded one in inbound-default-owner.md.)

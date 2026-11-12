@@ -75,6 +75,28 @@ export function registerTemplatesSettingsRoutes(app: Express) {
     }
   });
 
+  // === DEFAULT OWNER for new inbound requests (administrator-recorded; none recorded means no automatic owner) ===
+  app.get("/api/admin/inbound-default-owner", requireRole("admin"), async (_req, res) => {
+    try {
+      const { getDefaultOwnerStatus } = await import("../services/inbound-default-owner");
+      res.json(await getDefaultOwnerStatus());
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  app.put("/api/admin/inbound-default-owner", requireRole("admin"), async (req, res) => {
+    try {
+      const { setDefaultOwner } = await import("../services/inbound-default-owner");
+      const ownerUserId = req.body?.ownerUserId;
+      if (ownerUserId !== null && typeof ownerUserId !== "string") return res.status(400).json({ message: "INVALID_DEFAULT_OWNER" });
+      res.json(await setDefaultOwner(ownerUserId, String((req.user as any)?.id ?? "admin")));
+    } catch (err: any) {
+      if (err?.message === "INVALID_DEFAULT_OWNER") return res.status(400).json({ message: err.message });
+      serverError(res, err);
+    }
+  });
+
   app.get("/api/admin/inbound-review-queue", requireRole("admin"), async (_req, res) => {
     try {
       const { getReviewQueueStatus } = await import("../services/inbound-review-policy");
