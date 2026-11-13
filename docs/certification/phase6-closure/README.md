@@ -149,7 +149,7 @@ Dispositions: **ACCEPTED** = repaired and proved by the executed isolated eviden
 ## 8. Needs the owner
 
 1. Publish: done (section 9).
-2. Deal 2589 (David Turner) is still `unknown` class and not archived; inbound request d6a49091-1b76-416c-a942-4c9d335f4d4c is still `review_required` (nothing was changed). Classifying the deal through the admin route is a production write and needs the owner's go-ahead; the request can resume after it.
+2. Done with the owner's go-ahead on 2026-11-13 (12:47Z), after section 9's readback: deal 2589 (David Turner) was classified production through the admin route (one immutable classification event, id 83784, audit action `deal_classified_production_by_admin`), then inbound request d6a49091-1b76-416c-a942-4c9d335f4d4c was continued through the existing resume command (audit action `inbound_review_resumed`). Read back afterwards: the request is `accepted` / `assigned` to scott@libertybancard.com; follow-up task 7075 "Follow up business inquiry — David Turner" exists, pending, linked to contact 166172 and deal 2589. Nothing was sent: no communication event for the contact in the following 30 minutes, the request's acknowledgement is still the 2026-11-12 17:01Z one, and the outbound pause is still `paused`, epoch 4. This was the only production write in the closure; it used an admin sign-in, and nothing else was changed.
 3. Approval of any QA or provenance reclassification cohort.
 4. If the owner wants the signed-in live screens proved, a signed-in walk (or a read-only account) is needed; this closure used none.
 
