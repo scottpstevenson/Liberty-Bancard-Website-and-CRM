@@ -12,6 +12,7 @@ import { apiRequest, queryClient, parseApiRequestError } from "@/lib/queryClient
 import { useToast } from "@/hooks/use-toast";
 import { WEBSITE_EMAIL_STATUS_KEY, type WebsiteEmailStatus } from "@/components/dashboard/WebsiteEmailLaneCard";
 import { PROGRAM_LABELS, WEBSITE_SOURCE_LABELS } from "@/lib/website-email-reasons";
+import { inlineEmailLogo, loadEmailLogoDataUri } from "@/lib/email-preview-logo";
 
 interface RevisionPreview {
   revisionId: number;
@@ -48,6 +49,14 @@ export function WebsiteWarmRevisionsPanel({ canControl, sequences }: { canContro
   const preview = useQuery<RevisionPreview>({
     queryKey: [`/api/admin/website-email/revisions/${previewId}/preview`],
     enabled: previewId !== null,
+  });
+  // Display only: the sandboxed preview frame cannot load the site logo directly (see email-preview-logo.ts).
+  const previewLogo = useQuery<string>({
+    queryKey: ["email-preview-logo-data-uri"],
+    queryFn: loadEmailLogoDataUri,
+    enabled: previewId !== null,
+    staleTime: Infinity,
+    retry: false,
   });
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: WEBSITE_EMAIL_STATUS_KEY });
@@ -224,7 +233,7 @@ export function WebsiteWarmRevisionsPanel({ canControl, sequences }: { canContro
                       <iframe
                         title={`HTML preview of email ${step.order + 1}`}
                         sandbox=""
-                        srcDoc={step.html ?? ""}
+                        srcDoc={inlineEmailLogo(step.html ?? "", previewLogo.data)}
                         className="h-56 w-full rounded-md border bg-white"
                         data-testid={`iframe-warm-step-${step.order}`}
                       />
