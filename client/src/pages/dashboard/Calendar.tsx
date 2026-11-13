@@ -1,6 +1,7 @@
 import { PageTitle } from "@/components/ui/page-header";
 import { useState, useMemo, useEffect } from "react";
 import { useUrlParam, parseMonthParam } from "@/hooks/use-url-param";
+import { AppointmentWindowPanel } from "@/components/calendar/AppointmentWindowPanel";
 import { useAuth } from "@/hooks/use-auth";
 import { BookingCommandPanel } from "@/components/BookingCommandPanel";
 import { BookingCreatePanel } from "@/components/BookingCreatePanel";
@@ -506,6 +507,8 @@ export default function CalendarPage({ embedded = false }: { embedded?: boolean 
           </Button>
         </div>
       </div>
+
+      <AppointmentWindowPanel />
 
       <div className="space-y-1" data-testid="calendar-source-filter">
         <p className="text-xs font-medium text-muted-foreground" id="calendar-source-filter-label">Source</p>

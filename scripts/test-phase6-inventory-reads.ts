@@ -76,5 +76,22 @@ eq(intervals, ["busy ? 3000 : false"], "the only interval in the backlog page is
 ok(/staleTime: Infinity/.test(client), "aggregate reads still refresh only on entry or explicit refresh");
 ok(/launch-inventory\/progress/.test(client) && /enabled: busy/.test(client), "progress is read only while the inventory read is busy");
 
+// R02: the whole-population read uses set reads and a policy snapshot only inside the aggregate; every mutation boundary keeps
+// the per-row and per-contact forms (parity is proven row for row in test-phase6-inventory-set-reads.ts).
+const snapshotUsers = fs.readdirSync("server/services", { recursive: true, encoding: "utf8" })
+  .filter((f) => f.endsWith(".ts"))
+  .filter((f) => /withContactPolicySnapshot\(/.test(fs.readFileSync(`server/services/${f}`, "utf8")) && !/contact-policy-read-snapshot\.ts$/.test(f));
+eq(snapshotUsers, ["sfp-launch-inventory.ts"], "only the launch inventory aggregate enters a contact-policy snapshot");
+ok(/if \(ctx\) \{[\s\S]{0,1200}loadContactPolicySnapshot/.test(inventoryService), "the snapshot is loaded only when the bounded aggregate context exists");
+ok(/!opts\.intentIds \|\| opts\.intentIds\.length >= SET_READ_MIN_RECIPIENTS/.test(inventoryService),
+  "set reads are used only for whole-population reads (no intent filter or 50 or more recipients)");
+ok(/evaluateLaunchRows\(\{ intentIds: \[intentId\], mode: "dispatch" \}\)/.test(inventoryService),
+  "final dispatch verification reads one recipient with the per-row forms and no snapshot");
+const contactability = fs.readFileSync("server/services/contactability.ts", "utf8");
+ok(/input\.mode === "dryRun" \? currentContactPolicySnapshot\(\)/.test(contactability) && /mode === "dryRun" \? currentContactPolicySnapshot\(\)/.test(contactability),
+  "contact policy consults the snapshot only for dry-run checks");
+ok(!/useQuery[\s\S]{0,200}launch-inventory[\s\S]{0,200}retryOnMount/.test(client) && /key="launch-inventory"/.test(client) && /key="independent-process-panel"/.test(client),
+  "the inventory and process panels keep a stable key across backlog states, so a sibling change never restarts the read");
+
 console.log(`phase6 inventory reads: ok (${checks} checks)`);
 process.exit(0);

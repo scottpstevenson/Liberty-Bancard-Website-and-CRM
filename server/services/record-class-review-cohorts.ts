@@ -8,7 +8,8 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { syntheticQaIdentitySql } from "@shared/synthetic-qa-identity";
-import { INDEPENDENT_OWNERSHIP_SOURCE_TYPES, sourceDomainSqlPatterns } from "@shared/source-domain-provenance";
+import { sourceDomainSqlPatterns } from "@shared/source-domain-provenance";
+import { hasConfirmedWebsiteOwnershipSql, websiteOwnershipSourceTypesSql } from "./website-ownership-evidence-sql";
 
 export const REVIEW_COHORT_SAMPLE_LIMIT = 25;
 const SECTION_TIMEOUT_MS = 8000;
@@ -36,9 +37,6 @@ export function sourceDomainMatchSql(hostSql: string) {
   return sql`(${sql.raw(hostSql)} IN (${sql.join(exact.map(d => sql`${d}`), sql`,`)})
     OR ${sql.raw(hostSql)} LIKE ANY(ARRAY[${sql.join(like.map(p => sql`${p}`), sql`,`)}]::text[]))`;
 }
-
-export const independentOwnershipSourceTypesSql = () =>
-  sql`ARRAY[${sql.join(INDEPENDENT_OWNERSHIP_SOURCE_TYPES.map(t => sql`${t}`), sql`,`)}]::text[]`;
 
 export async function getRecordClassReviewCohorts() {
   const limit = REVIEW_COHORT_SAMPLE_LIMIT;
@@ -84,18 +82,20 @@ export async function getRecordClassReviewCohorts() {
   const directoryDomainBusinesses = await bounded(async tx => {
     const host = `regexp_replace(lower(b.website_domain),'^www\\.','')`;
     const match = sourceDomainMatchSql(host);
-    const independent = independentOwnershipSourceTypesSql();
+    // Same rule as the recipient gates: an independent organization link clears the hold only when its recorded evidence names this
+    // website host, so a business held by an unrelated organization link stays visible here.
+    const confirmed = hasConfirmedWebsiteOwnershipSql("s", "b");
     const [count] = rowsOf(await tx.execute(sql`SELECT count(*)::int AS n FROM businesses b
       WHERE b.record_class='canonical' AND b.website_domain IS NOT NULL AND ${match}
-        AND NOT EXISTS (SELECT 1 FROM canonical_source_links s WHERE s.business_id=b.id AND s.source_type = ANY(${independent}))`));
+        AND NOT ${confirmed}`));
     const sample = rowsOf(await tx.execute(sql`SELECT b.id, b.website_domain,
         (SELECT count(*)::int FROM canonical_source_links s WHERE s.business_id=b.id) AS source_link_count,
-        COALESCE((SELECT array_agg(DISTINCT s.source_type) FROM canonical_source_links s WHERE s.business_id=b.id), ARRAY[]::text[]) AS source_types,
+        ${sql.raw(websiteOwnershipSourceTypesSql("s", "b"))} AS source_types,
         (SELECT count(*)::int FROM contacts c WHERE c.business_id=b.id AND c.record_class='production') AS linked_contacts,
         (SELECT count(*)::int FROM contacts c WHERE c.business_id=b.id AND c.record_class='production' AND c.email_status='valid') AS contacts_with_valid_email
       FROM businesses b
       WHERE b.record_class='canonical' AND b.website_domain IS NOT NULL AND ${match}
-        AND NOT EXISTS (SELECT 1 FROM canonical_source_links s WHERE s.business_id=b.id AND s.source_type = ANY(${independent}))
+        AND NOT ${confirmed}
       ORDER BY b.id DESC LIMIT ${limit}`));
     return {
       businessCount: Number(count?.n ?? 0),
@@ -103,7 +103,7 @@ export async function getRecordClassReviewCohorts() {
         businessId: Number(r.id), websiteDomain: String(r.website_domain), sourceLinkCount: Number(r.source_link_count),
         sourceTypes: (r.source_types ?? []) as string[], linkedProductionContacts: Number(r.linked_contacts),
         contactsWithValidEmail: Number(r.contacts_with_valid_email),
-        matchBasis: "Website host is a directory, profile or government host with no registry or CRM organization link.",
+        matchBasis: "Website host is a directory, profile or government host and no registry or CRM organization link records that host for this business.",
       })),
     };
   });

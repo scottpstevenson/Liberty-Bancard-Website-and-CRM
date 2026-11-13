@@ -4,7 +4,8 @@ import path from "node:path";
 import { GHL_SUPPORTED_HANDOFF_WORKFLOWS, GHL_OWNERSHIP_SUMMARY, summarizeGhlWorkflowReadiness } from "../shared/ghl-ownership-guidance";
 
 // Registry ids parsed from source so this test needs no database or environment.
-const registrySource = fs.readFileSync("server/services/ghl-workflows.ts", "utf8");
+const REGISTRY_DATA_FILE = "server/services/ghl-workflow-registry-data.ts";
+const registrySource = fs.readFileSync(REGISTRY_DATA_FILE, "utf8");
 const registryIds = [...registrySource.matchAll(/^\s*\{ id: "([a-z_0-9]+)", name:/gm)].map(m => m[1]);
 assert(registryIds.length >= 30, `registry parsed (${registryIds.length})`);
 
@@ -15,7 +16,7 @@ function walk(dir: string, out: string[] = []): string[] {
   }
   return out;
 }
-const callerSources = walk("server").filter(f => f !== "server/services/ghl-workflows.ts").map(f => fs.readFileSync(f, "utf8")).join("\n");
+const callerSources = walk("server").filter(f => f !== "server/services/ghl-workflows.ts" && f !== REGISTRY_DATA_FILE).map(f => fs.readFileSync(f, "utf8")).join("\n");
 const hasCaller = (id: string) =>
   new RegExp(`workflowKey:\\s*["'\`]${id}["'\`]`).test(callerSources) ||
   new RegExp(`enrollMerchantWorkflow\\([^,]+,\\s*["'\`]${id}["'\`]`).test(callerSources) ||

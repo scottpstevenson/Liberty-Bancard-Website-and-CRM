@@ -1,12 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { websiteSourceNeedsOwnershipReview } from "@shared/source-domain-provenance";
+import { websiteOwnershipSourceTypesSql } from "./website-ownership-evidence-sql";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { evaluateContactDecisions } from "./contactability";
 import { effectiveBusinessVerticalSql } from "@shared/effective-vertical";
 import { contactTargetVerticalSql } from "@shared/contact-vertical-taxonomy";
 import { resolveGeographyFromCandidates } from "./cro03/sfp-geography-resolver";
-import { relationshipReasonsSql } from "@shared/relationship-evidence-sql";
+import { relationshipReasonsSql, type RelationshipReasonsOptions } from "@shared/relationship-evidence-sql";
 import { assertSystemLinkDatabaseGuard } from "./commercial-link-authority";
 import { findFreshProviderObservation, lockCurrentSfpOutreachPolicy,isCanonicallySuppressed } from "./cro03/sfp-outreach-policy";
 import { lockCommercialGraph } from "./commercial-graph-locks";
@@ -183,7 +184,7 @@ async function prepareCanonicalRecipientPass(input: CanonicalPreparationInput) {
     // independent ownership evidence the recipient stays in review, whatever the address validation says.
     const siteProvenance = rows(await tx.execute(sql`
       SELECT b.website_domain AS website_domain,
-        COALESCE((SELECT array_agg(DISTINCT s.source_type) FROM canonical_source_links s WHERE s.business_id=b.id), ARRAY[]::text[]) AS source_types
+        ${sql.raw(websiteOwnershipSourceTypesSql("s", "b"))} AS source_types
         FROM businesses b WHERE b.id=${Number(business.id)}
     `))[0];
     if (websiteSourceNeedsOwnershipReview(siteProvenance?.website_domain, (siteProvenance?.source_types ?? []) as string[])) {
@@ -452,7 +453,20 @@ async function prepareCanonicalRecipientPass(input: CanonicalPreparationInput) {
  * inventory and the release/dispatch recheck so none of them can drift from the preparation writer.
  * It includes the package pin: a changed package content hash makes the preparation stale.
  */
-export function preparedFactsCurrentSql(): string {
+/**
+ * Optional set-read substitutes used by a caller that reads a whole population (the launch inventory). The default is the
+ * per-row correlated form that release and dispatch use for a few recipients. A substitute must be the same value computed
+ * for every row in one pass; `scripts/test-phase6-inventory-reads.ts` proves row-for-row parity against the default.
+ */
+export interface PreparedFactsReadOptions {
+  relationship?: RelationshipReasonsOptions;
+  /** SQL expression (text) equal to jsonb_agg(to_jsonb(bl) ORDER BY bl.id)::text of the business's locations, or NULL. */
+  locationsFingerprintSql?: string;
+}
+export function preparedFactsCurrentSql(options: PreparedFactsReadOptions = {}): string {
+  const locationsFingerprint = options.locationsFingerprintSql
+    ?? `(SELECT jsonb_agg(to_jsonb(bl) ORDER BY bl.id)::text
+           FROM business_locations bl WHERE bl.business_id=b.id)`;
   return `p.is_active AND p.taxonomy_version=2
        AND i.preparation_snapshot->>'policyVersion'=p.policy_version::text
        AND i.preparation_snapshot->>'emailMutationGeneration'=c.email_mutation_generation::text
@@ -460,13 +474,12 @@ export function preparedFactsCurrentSql(): string {
        AND i.preparation_snapshot->>'canonicalVertical'=ANY(p.vertical_ids)
        AND i.preparation_snapshot->'geography'->>'countyFips'=ANY(p.county_fips)
        AND i.preparation_snapshot->>'businessSourceFingerprint'=
-         md5(to_jsonb(b)::text||COALESCE((SELECT jsonb_agg(to_jsonb(bl) ORDER BY bl.id)::text
-           FROM business_locations bl WHERE bl.business_id=b.id),'[]'))
+         md5(to_jsonb(b)::text||COALESCE(${locationsFingerprint},'[]'))
        AND EXISTS (SELECT 1 FROM contact_business_link_decisions l
          LEFT JOIN contact_business_system_link_evidence proof ON proof.id=l.system_evidence_id
          WHERE l.contact_id=c.id AND l.business_id=b.id AND l.decision='verified'
            AND l.superseded_at IS NULL AND (proof.id IS NULL OR
-             ${relationshipReasonsSql("c.id","b.id","proof.source_link_id","proof.source_entity_id")}
+             ${relationshipReasonsSql("c.id","b.id","proof.source_link_id","proof.source_entity_id",options.relationship)}
                <@ ARRAY['current_link_decision_exists']::text[]))
        AND (i.preparation_snapshot->>'packageVersionId' IS NOT NULL AND EXISTS (
          SELECT 1 FROM sfp_campaign_package_versions pkg

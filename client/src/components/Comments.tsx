@@ -87,11 +87,13 @@ function MentionInput({
   onChange,
   placeholder,
   testId,
+  label = "Comment",
 }: {
   value: string;
   onChange: (val: string) => void;
   placeholder?: string;
   testId: string;
+  label?: string;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -139,6 +141,7 @@ function MentionInput({
         value={value}
         onChange={handleChange}
         placeholder={placeholder}
+        aria-label={label}
         className="resize-none text-sm"
         rows={2}
         data-testid={testId}
@@ -324,6 +327,7 @@ function CommentNode({
                 onChange={setReplyContent}
                 placeholder="Write a reply... Use @ to mention"
                 testId={`input-reply-${comment.id}`}
+                label="Reply to comment"
               />
               <Button
                 size="icon"
@@ -423,6 +427,7 @@ export default function Comments({ entityType, entityId }: CommentsProps) {
             onChange={setNewContent}
             placeholder="Add a comment... Use @ to mention team members"
             testId="input-new-comment"
+            label="Add a comment"
           />
         </div>
         <Button

@@ -43,6 +43,8 @@ export interface ContactDetailData {
     activeDeal?: Pick<Deal, "id" | "stage" | "pipeline" | "nextFollowUp" | "archivedAt"> | null;
     nextFollowUp?: string | null;
   };
+  /** The header's next task, read on every section: known (a task or none) or unavailable. Not a task list. */
+  headerTaskFacts?: { state: "known"; task: { id: number; title: string } | null } | { state: "unavailable" };
 }
 
 export function formatRelativeTime(dateStr: string | Date): string {

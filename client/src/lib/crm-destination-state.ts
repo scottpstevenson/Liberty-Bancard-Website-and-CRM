@@ -1,5 +1,6 @@
 /** URL authority shared by C1 and later workspace owners. Metadata does not
  * authorize rendering; mounted wrappers retain their existing role guards. */
+import { safeWorkReturn } from "@shared/task-evidence";
 export const financialViews = ["revenue", "forecasting", "terminal-roi"] as const;
 // C4-owned nested extensions. They are separate from outer Reporting.tab and
 // Financial.financialTab; existing six legacy report values do not change.
@@ -242,6 +243,11 @@ export function registryReturnFromSearch(search: string): string | null {
   const values = [...new Set(new URLSearchParams(search).getAll("from"))];
   return values.length === 1 && isRegistryReturnUrl(values[0]) ? values[0] : null;
 }
+/** Validated Work return (`/dashboard/tasks-appointments?...`) carried by a record URL as `from`, or null (invalid, repeated or absent). */
+export function workReturnFromSearch(search: string): string | null {
+  const values = [...new Set(new URLSearchParams(search).getAll("from"))];
+  return values.length === 1 ? safeWorkReturn(values[0]) : null;
+}
 /** A requested local deal id from `dealId`; anything but one positive integer is ignored. */
 export function requestedDealIdFromSearch(search: string): number | null {
   const values = [...new Set(new URLSearchParams(search).getAll("dealId"))];
@@ -255,7 +261,7 @@ export function safeParams(search: string, keys: readonly string[]): URLSearchPa
     if (values.length !== 1) continue;
     if (key in contextIdKinds && !parseLocalEntityId(key as LocalEntityId["kind"], values[0])) continue;
     if (key === "taskId" && !(/^[1-9]\d*$/.test(values[0]) && Number(values[0]) <= 2147483647)) continue;
-    if (key === "from" && !/^\/dashboard(?:\/[a-z0-9/-]*)?$/.test(values[0]) && !isRegistryReturnUrl(values[0])) continue;
+    if (key === "from" && !/^\/dashboard(?:\/[a-z0-9/-]*)?$/.test(values[0]) && !isRegistryReturnUrl(values[0]) && !safeWorkReturn(values[0])) continue;
     out.set(key, values[0]);
   }
   return out;
@@ -553,29 +559,39 @@ export function buildWorkWorkspaceHref(href: string, tab: "tasks" | "calendar") 
 }
 /** Task cohort destinations. `taskState` and `due` are registered selectors parsed at the destination; the Today actions and the
  * Tasks filters share these values and the overdue predicate, so a count and the list it opens use one definition. */
-export const taskStateFilters = ["all", "pending", "in_progress", "completed", "cancelled"] as const;
+export const taskStateFilters = ["all", "open", "pending", "in_progress", "completed", "cancelled"] as const;
 export const taskDueFilters = ["all", "overdue"] as const;
 /** `unassigned` lists work with no recorded owner. It is a view of existing records; it never assigns anything. */
 export const taskOwnerFilters = ["all", "unassigned"] as const;
+/** Open request-linked work behind the Website requests counts. The ids come from the server's own count predicate, so the
+ *  list and the count cannot drift. Eastern-time day boundaries; both groups are shown separately, never merged. */
+export const taskRequestCohorts = ["all", "due_today", "overdue"] as const;
+export const taskCohortKeys = ["tab", "taskState", "due", "taskOwner", "requestTasks"] as const;
 export function taskCohortState(search: string) {
   const params = new URLSearchParams(search);
   const status = selectValue(params, "taskState", taskStateFilters, "all");
   const due = selectValue(params, "due", taskDueFilters, "all");
   const owner = selectValue(params, "taskOwner", taskOwnerFilters, "all");
-  return { status: status.value, due: due.value, owner: owner.value, issues: [...status.issues, ...due.issues, ...owner.issues] };
+  const requestTasks = selectValue(params, "requestTasks", taskRequestCohorts, "all");
+  return { status: status.value, due: due.value, owner: owner.value, requestTasks: requestTasks.value,
+    issues: [...status.issues, ...due.issues, ...owner.issues, ...requestTasks.issues] };
 }
-export function buildTaskCohortHref(href: string, cohort: { status: typeof taskStateFilters[number]; due: typeof taskDueFilters[number]; owner?: typeof taskOwnerFilters[number] }) {
-  const url = new URL(href, "https://crm.invalid"), params = safeParams(url.search, [...workspaceContextKeys(), "tab", "taskState", "due", "taskOwner"]);
+export function buildTaskCohortHref(href: string, cohort: {
+  status: typeof taskStateFilters[number]; due: typeof taskDueFilters[number]; owner?: typeof taskOwnerFilters[number];
+  requestTasks?: typeof taskRequestCohorts[number];
+}) {
+  const url = new URL(href, "https://crm.invalid"), params = safeParams(url.search, [...workspaceContextKeys(), ...taskCohortKeys]);
   params.set("tab", "tasks");
   cohort.status === "all" ? params.delete("taskState") : params.set("taskState", cohort.status);
   cohort.due === "all" ? params.delete("due") : params.set("due", cohort.due);
   (cohort.owner ?? "all") === "all" ? params.delete("taskOwner") : params.set("taskOwner", cohort.owner as string);
+  (cohort.requestTasks ?? "all") === "all" ? params.delete("requestTasks") : params.set("requestTasks", cohort.requestTasks as string);
   return destinationUrl(url.pathname, params, url.hash);
 }
 /** Exact selected task (`taskId`) in Work. Selection is independent of the cohort filters; the destination authorizes it with the
  * actor-scoped single-task read, so a stale or foreign id shows an honest unavailable state rather than another task. */
 export function buildTaskSelectionHref(href: string, taskId: number | null) {
-  const url = new URL(href, "https://crm.invalid"), params = safeParams(url.search, [...workspaceContextKeys(), "tab", "taskState", "due", "taskOwner"]);
+  const url = new URL(href, "https://crm.invalid"), params = safeParams(url.search, [...workspaceContextKeys(), ...taskCohortKeys]);
   params.set("tab", "tasks");
   params.delete("taskId");
   if (taskId !== null) {
@@ -617,17 +633,61 @@ export function buildPipelineStageHref(stage: string) {
   const params = new URLSearchParams({ stage });
   return destinationUrl("/dashboard/pipeline", params, "");
 }
+/** Website request (Intake) cohorts. `intake` is a registered selector on the Intake list; the server filters with the same
+ *  predicate that counts the group on Today and Overview. `intakeDays` only applies to the windowed "received" group. */
+export const intakeCohorts = ["received", "needs_review", "statement_attention"] as const;
+export type IntakeCohort = typeof intakeCohorts[number];
+export const intakeCohortLabels: Record<IntakeCohort, string> = {
+  received: "Website submissions received",
+  needs_review: "Needs assignment or review",
+  statement_attention: "Statement processing needs attention",
+};
+export function intakeCohortState(search: string) {
+  const params = new URLSearchParams(search);
+  const cohort = selectValue(params, "intake", intakeCohorts, "" as IntakeCohort);
+  const daysRaw = params.getAll("intakeDays");
+  const days = daysRaw.length === 1 && /^[1-9]\d?$/.test(daysRaw[0]) && Number(daysRaw[0]) <= 90 ? Number(daysRaw[0]) : null;
+  const issues = [...cohort.issues, ...(daysRaw.length && days === null ? [{ key: "intakeDays", kind: "invalid" as const, reason: "intakeDays: invalid selection. Showing 7." }] : [])];
+  return { cohort: cohort.value || null, days: cohort.value === "received" ? days ?? 7 : null, issues };
+}
+export function buildIntakeCohortHref(cohort: IntakeCohort, windowDays?: number | null) {
+  const params = new URLSearchParams({ tab: "pipeline", intake: cohort });
+  if (cohort === "received") params.set("intakeDays", String(Number.isInteger(windowDays) && (windowDays as number) >= 1 && (windowDays as number) <= 90 ? windowDays : 7));
+  return destinationUrl("/dashboard/lead-ops", params, "");
+}
+/** Appointment window opened from Today (`cal_window_from` ISO instant + `cal_window_days`). The calendar lists exactly the
+ *  appointments the Today count used: active ones starting in [from, from + days). */
+export function appointmentWindowState(search: string): { from: string; days: number } | null {
+  const params = new URLSearchParams(search);
+  const from = params.getAll("cal_window_from"), days = params.getAll("cal_window_days");
+  if (from.length !== 1 || days.length !== 1) return null;
+  const instant = Date.parse(from[0]);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(from[0]) || !Number.isFinite(instant)) return null;
+  if (!/^[1-9]\d?$/.test(days[0]) || Number(days[0]) > 31) return null;
+  return { from: new Date(instant).toISOString(), days: Number(days[0]) };
+}
+export function buildAppointmentWindowHref(fromIso: string, days: number) {
+  const params = new URLSearchParams({ tab: "calendar", cal_window_from: new Date(fromIso).toISOString(), cal_window_days: String(days) });
+  return destinationUrl("/dashboard/tasks-appointments", params, "");
+}
+/** Pipeline cohort (`cohort=active`): sales deals in an open stage, the Reports "Active Pipeline" population. */
+export const pipelineCohorts = ["active"] as const;
+export function pipelineCohortState(search: string) {
+  const selection = selectValue(new URLSearchParams(search), "cohort", pipelineCohorts, "" as typeof pipelineCohorts[number]);
+  return { cohort: selection.value || null, issues: selection.issues };
+}
 export const todayDestinations = {
   overdueTasks: "/dashboard/tasks-appointments?tab=tasks&due=overdue",
   pendingTasks: "/dashboard/tasks-appointments?tab=tasks&taskState=pending",
-  unassignedTasks: "/dashboard/tasks-appointments?tab=tasks&taskOwner=unassigned",
+  /** Open (pending or in progress) work with no recorded owner: the population the Today row counted. */
+  unassignedTasks: "/dashboard/tasks-appointments?tab=tasks&taskState=open&taskOwner=unassigned",
   newLeads7d: "/dashboard/pipeline?created=7d",
 } as const;
 /** Reports drilldowns: each number opens the list it counted, using the same predicate as the destination's own filter. */
 export const reportDrilldowns = {
   overdueTasks: todayDestinations.overdueTasks,
   winLoss: "/dashboard/reporting?tab=win-loss",
-  pipeline: "/dashboard/pipeline",
+  pipeline: "/dashboard/pipeline?cohort=active",
   openTickets: buildTicketCohortHref({ state: "open" }),
   slaBreaches: buildTicketCohortHref({ state: "open", sla: "breached" }),
 } as const;

@@ -1,0 +1,268 @@
+{
+  "checks": [
+    "a contact with receipts shows its latest validation outcome (Valid)",
+    "a current receipt for the current address carries no staleness warning",
+    "earlier receipts are counted (2 earlier)",
+    "the earlier invalid receipt and its reason are shown (\"Invalid· mailbox_not_foundValid\")",
+    "a receipt older than 180 days is labeled past the window, not presented as current",
+    "a receipt for an earlier address is labeled as not the current address",
+    "no receipt: stated plainly and the legacy stored status is not treated as one (\"No validation receipt on record · stored status “active” is a legacy value, not a receipt\")",
+    "a failed history read says unavailable (not the same as 'not validated') and never shows an all-clear or an empty receipt",
+    "Retry recovers the validation history once the read works again",
+    "an agent reading another owner's validation history is refused with nothing leaked (404)",
+    "the owning agent reads the same history",
+    "an administrator reads any contact's history",
+    "merchant cannot read validation history (403)",
+    "affiliate cannot read validation history (403)",
+    "partner cannot read validation history (403)",
+    "opening another owner's record in the browser shows neither the record nor its validation receipt",
+    "another owner's deal is not on this agent's Pipeline",
+    "the deal drawer lists that deal's proposal with its open count (\"Proposal Merchant AViewed 3×\")",
+    "a proposal opened within a day shows an alert with its age (\"🔔Viewed about 2 hours ago!\")",
+    "the open count is attached to that deal's badge (\"Proposal viewed 3 times — last opened about 2 hours ago\")",
+    "a proposal opened three days ago shows a plain viewed badge, not an alert (\"👁Viewed 3 days ago\")",
+    "an accepted proposal shows Proposal Accepted",
+    "an open older than seven days is not presented as live engagement",
+    "a deal without a proposal shows no engagement badge",
+    "a failed proposal read says details unavailable for that deal only and shows no engagement",
+    "the failure did not remove the other deal's engagement alert",
+    "Retry recovers that deal's proposal engagement and shows its alert",
+    "a deal's proposal read returns exactly that deal's proposal with its open count",
+    "an agent reading another owner's deal proposals is refused with no merchant data or viewer link (404)",
+    "the owning agent reads the same deal's proposals",
+    "merchant cannot read proposal engagement (403)",
+    "affiliate cannot read proposal engagement (403)",
+    "partner cannot read proposal engagement (403)",
+    "each queue row offers its contact link, call link and email link ({\"rows\":3,\"calls\":3,\"emails\":3,\"skips\":3,\"starts\":3})",
+    "each queue row offers named Start and Skip actions (Start is never pressed in this suite)",
+    "Skip recorded the flag and one audit event, and the lead left the visible queue",
+    "the other rows were not skipped",
+    "an agent cannot skip another owner's lead (404) and the lead is unchanged",
+    "merchant is refused the queue (403) and Skip (403)",
+    "affiliate is refused the queue (403) and Skip (403)",
+    "partner is refused the queue (403) and Skip (403)",
+    "with the real projection and no qualified recipients the queue explains the empty scope and links to readiness, not a blank table",
+    "the administrator's Inbox lists the mapped unread message",
+    "the administrator's Inbox lists the unmapped message",
+    "the administrator's Inbox lists the foreign-owner message",
+    "the administrator's Inbox lists the mapped read message",
+    "an unmapped message states it is not linked to a contact and cannot be opened",
+    "a mapped message is openable",
+    "unconfigured provider sources are labeled as a partial window, not as an all-clear and not as a failure",
+    "the unread badge says how many are on the loaded page, not a total",
+    "pressing an unmapped message does not select it",
+    "the selected message's own body is shown in the thread panel",
+    "Send stays disabled while outbound is paused",
+    "after a full reload the same message is still selected",
+    "a failed selected-message read shows unavailable and substitutes no other message",
+    "a half-typed draft is in the reply box before the refresh",
+    "a new inbound message appears through the bounded foreground refresh without any user action",
+    "the open message selection is unchanged by the refresh",
+    "the half-typed draft survived the refresh",
+    "an agent's Inbox read contains their own mapped messages and neither the foreign-owner nor the unmapped message",
+    "an agent opening the foreign-owner message directly is refused with no body (404)",
+    "merchant is refused the Inbox (403)",
+    "affiliate is refused the Inbox (403)",
+    "partner is refused the Inbox (403)",
+    "an agent who types the foreign message's URL sees the unavailable state, not its content",
+    "populated journeys passed at 1280, 768, 454, 390 and 320 px and at native 200% zoom with no overflow, one h1, named controls or page exception"
+  ],
+  "results": [
+    {
+      "label": "Pipeline board before any deal is opened",
+      "coBrandedProposalBadges": 0,
+      "note": "existing behavior: proposal events load per deal when the deal is opened"
+    },
+    {
+      "label": "Pipeline deal drawer with proposal events @1280px",
+      "width": 1280,
+      "dpr": 1,
+      "documentWidth": 1280,
+      "h1": [
+        "Sales Pipeline(6)"
+      ],
+      "controls": 105,
+      "unnamed": []
+    },
+    {
+      "label": "Pipeline deal drawer with proposal events @768px",
+      "width": 768,
+      "dpr": 1,
+      "documentWidth": 768,
+      "h1": [
+        "Sales Pipeline(6)"
+      ],
+      "controls": 105,
+      "unnamed": []
+    },
+    {
+      "label": "Pipeline deal drawer with proposal events @454px",
+      "width": 454,
+      "dpr": 1,
+      "documentWidth": 454,
+      "h1": [
+        "Sales Pipeline(6)"
+      ],
+      "controls": 90,
+      "unnamed": []
+    },
+    {
+      "label": "Pipeline deal drawer with proposal events @390px",
+      "width": 390,
+      "dpr": 1,
+      "documentWidth": 390,
+      "h1": [
+        "Sales Pipeline(6)"
+      ],
+      "controls": 90,
+      "unnamed": []
+    },
+    {
+      "label": "Pipeline deal drawer with proposal events @320px",
+      "width": 320,
+      "dpr": 1,
+      "documentWidth": 320,
+      "h1": [
+        "Sales Pipeline(6)"
+      ],
+      "controls": 90,
+      "unnamed": []
+    },
+    {
+      "label": "Outreach queue @1280px",
+      "width": 1280,
+      "dpr": 1,
+      "documentWidth": 1280,
+      "h1": [
+        "Ready for Outreach"
+      ],
+      "controls": 44,
+      "unnamed": []
+    },
+    {
+      "label": "Outreach queue @768px",
+      "width": 768,
+      "dpr": 1,
+      "documentWidth": 768,
+      "h1": [
+        "Ready for Outreach"
+      ],
+      "controls": 44,
+      "unnamed": []
+    },
+    {
+      "label": "Outreach queue @454px",
+      "width": 454,
+      "dpr": 1,
+      "documentWidth": 454,
+      "h1": [
+        "Ready for Outreach"
+      ],
+      "controls": 29,
+      "unnamed": []
+    },
+    {
+      "label": "Outreach queue @390px",
+      "width": 390,
+      "dpr": 1,
+      "documentWidth": 390,
+      "h1": [
+        "Ready for Outreach"
+      ],
+      "controls": 29,
+      "unnamed": []
+    },
+    {
+      "label": "Outreach queue @320px",
+      "width": 320,
+      "dpr": 1,
+      "documentWidth": 320,
+      "h1": [
+        "Ready for Outreach"
+      ],
+      "controls": 29,
+      "unnamed": []
+    },
+    {
+      "label": "inbox after history.back",
+      "location": "/dashboard/comms-hub?channel=all&filter=all&thread=audit%3Alocal%3A%3Aemail%3A11"
+    },
+    {
+      "label": "Inbox (populated, selected thread) @1280px",
+      "width": 1280,
+      "dpr": 1,
+      "documentWidth": 1280,
+      "h1": [
+        "Inbox"
+      ],
+      "controls": 50,
+      "unnamed": []
+    },
+    {
+      "label": "Inbox (populated, selected thread) @768px",
+      "width": 768,
+      "dpr": 1,
+      "documentWidth": 768,
+      "h1": [
+        "Inbox"
+      ],
+      "controls": 44,
+      "unnamed": []
+    },
+    {
+      "label": "Inbox (populated, selected thread) @454px",
+      "width": 454,
+      "dpr": 1,
+      "documentWidth": 454,
+      "h1": [
+        "Inbox"
+      ],
+      "controls": 27,
+      "unnamed": []
+    },
+    {
+      "label": "Inbox (populated, selected thread) @390px",
+      "width": 390,
+      "dpr": 1,
+      "documentWidth": 390,
+      "h1": [
+        "Inbox"
+      ],
+      "controls": 27,
+      "unnamed": []
+    },
+    {
+      "label": "Inbox (populated, selected thread) @320px",
+      "width": 320,
+      "dpr": 1,
+      "documentWidth": 320,
+      "h1": [
+        "Inbox"
+      ],
+      "controls": 27,
+      "unnamed": []
+    },
+    {
+      "label": "Inbox @200% zoom",
+      "width": 720,
+      "dpr": 2,
+      "documentWidth": 720,
+      "h1": [
+        "Inbox"
+      ],
+      "controls": 29,
+      "unnamed": []
+    },
+    {
+      "label": "Outreach queue @200% zoom",
+      "width": 720,
+      "dpr": 2,
+      "documentWidth": 720,
+      "h1": [
+        "Ready for Outreach"
+      ],
+      "controls": 30,
+      "unnamed": []
+    }
+  ]
+}

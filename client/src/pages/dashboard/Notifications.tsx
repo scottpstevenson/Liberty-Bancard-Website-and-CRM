@@ -15,6 +15,7 @@ import { PageHeader } from "@/components/crm/CrmPresentation";
 import { toastError } from "@/lib/toast-helpers";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { groupNotifications, notificationActionLabel, NOTIFICATION_UNRESOLVED_DETAIL, NOTIFICATION_UNRESOLVED_LABEL } from "@/lib/notification-presentation";
 import type { NotificationPreference } from "@shared/schema";
 import { NOTIFICATION_EVENT_TYPES } from "@shared/schema";
 
@@ -38,7 +39,7 @@ type DigestAvailability = {
 };
 
 type NotificationRecord = {
-  target?:{state:string;url:string|null;label?:string;context?:string};
+  target?:{state:string;url:string|null;label?:string;context?:string;actionLabel?:string|null};
   id: number;
   title: string;
   message: string;
@@ -289,7 +290,7 @@ export default function Notifications() {
   // Resolve the destination first. A notification is marked read only after its
   // destination was resolved; a failed or unavailable lookup leaves it unread so
   // it is not silently lost, and the failure is announced in a live region.
-  const [targetFailure, setTargetFailure] = useState<{ id: number; message: string } | null>(null);
+  const [targetFailure, setTargetFailure] = useState<{ id: number; message: string; retryable: boolean } | null>(null);
   const handleNotificationClick = useCallback(async(notification: NotificationRecord) => {
     setTargetFailure(null);
     try {
@@ -300,11 +301,11 @@ export default function Notifications() {
         navigate(target.url);
       } else {
         const message="The destination is missing, archived, unsupported or no longer authorized. This notification was left unread.";
-        setTargetFailure({ id: notification.id, message });
+        setTargetFailure({ id: notification.id, message, retryable: false });
         toast({title:"Record unavailable",description:message});
       }
     } catch(error) {
-      setTargetFailure({ id: notification.id, message: "The destination could not be checked. This notification was left unread; try again." });
+      setTargetFailure({ id: notification.id, message: "The destination could not be checked. This notification was left unread; try again.", retryable: true });
       toastError(error as Error,{title:"Destination unavailable — retry"});
     }
   }, [navigate,markReadMutation,toast,toastError]);
@@ -380,6 +381,107 @@ export default function Notifications() {
       </DataState>
     );
   }
+
+  const grouped = groupNotifications(notifications, Date.now());
+  const renderNotification = (notification: NotificationRecord) => {
+    const link = getNotificationLink(notification);
+    const actionLabel = notificationActionLabel(notification.target);
+    return (
+      <Card
+        key={notification.id}
+        className={`hover-elevate ${!notification.read ? "" : "opacity-60"} ${link ? "cursor-pointer" : ""}`}
+        data-testid={`card-notification-${notification.id}`}
+        data-notification-link={link ?? ""}
+        onClick={() => handleNotificationClick(notification)}
+      >
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex-shrink-0">
+              {getTypeIcon(notification.type)}
+            </div>
+            <div className="flex-1 min-w-0 space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium text-sm" data-testid={`text-notification-title-${notification.id}`}>
+                  {notification.title}
+                </span>
+                <Badge
+                  variant={getTypeVariant(notification.type)}
+                  className="text-xs no-default-hover-elevate no-default-active-elevate"
+                  data-testid={`badge-notification-type-${notification.id}`}
+                >
+                  {getTypeLabel(notification.type)}
+                </Badge>
+                {!notification.read && (
+                  <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-notification-unread-${notification.id}`}>
+                    Unread
+                  </Badge>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground" data-testid={`text-notification-message-${notification.id}`}>
+                {notification.message}
+              </p>
+              <div className="text-xs text-muted-foreground" data-testid={`text-notification-time-${notification.id}`}>
+                {notification.createdAt ? new Date(notification.createdAt).toLocaleString() : ""}
+              </div>
+              {targetFailure?.id === notification.id && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <p role="alert" className="text-xs text-destructive" data-testid={`text-notification-target-failure-${notification.id}`}>
+                    {targetFailure.message}
+                  </p>
+                  {targetFailure.retryable && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => { e.stopPropagation(); void handleNotificationClick(notification); }}
+                      data-testid={`button-notification-retry-${notification.id}`}
+                    >
+                      Retry
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+            {notification.target?.context==="authorized_list_fallback" && <span className="text-xs text-muted-foreground">
+              {notification.target.label}
+            </span>}
+            {link ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-shrink-0"
+                aria-label={`${actionLabel}: ${notification.title}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleNotificationClick(notification);
+                }}
+                data-testid={`button-open-notification-${notification.id}`}
+              >
+                {actionLabel}
+              </Button>
+            ) : (
+              <span className="max-w-[10rem] flex-shrink-0 text-xs text-muted-foreground"
+                title={NOTIFICATION_UNRESOLVED_DETAIL}
+                data-testid={`text-notification-no-destination-${notification.id}`}>{NOTIFICATION_UNRESOLVED_LABEL}</span>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="flex-shrink-0 h-6 w-6 text-muted-foreground hover:text-foreground"
+              aria-label="Dismiss notification"
+              onClick={(e) => {
+                e.stopPropagation();
+                dismissMutation.mutate(notification.id);
+              }}
+              disabled={dismissMutation.isPending}
+              data-testid={`button-dismiss-${notification.id}`}
+            >
+              <X className="w-3 h-3" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <div className="space-y-6" data-testid="notifications-page">
@@ -613,91 +715,21 @@ export default function Notifications() {
                   {null}
                 </DataState>
               )}
-              {notifications.map((notification) => {
-                const link = getNotificationLink(notification);
-                return (
-                <Card
-                  key={notification.id}
-                  className={`hover-elevate ${!notification.read ? "" : "opacity-60"} ${link ? "cursor-pointer" : ""}`}
-                  data-testid={`card-notification-${notification.id}`}
-                  data-notification-link={link ?? ""}
-                  onClick={() => handleNotificationClick(notification)}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="mt-0.5 flex-shrink-0">
-                        {getTypeIcon(notification.type)}
-                      </div>
-                      <div className="flex-1 min-w-0 space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium text-sm" data-testid={`text-notification-title-${notification.id}`}>
-                            {notification.title}
-                          </span>
-                          <Badge
-                            variant={getTypeVariant(notification.type)}
-                            className="text-xs no-default-hover-elevate no-default-active-elevate"
-                            data-testid={`badge-notification-type-${notification.id}`}
-                          >
-                            {getTypeLabel(notification.type)}
-                          </Badge>
-                          {!notification.read && (
-                            <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-notification-unread-${notification.id}`}>
-                              Unread
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground" data-testid={`text-notification-message-${notification.id}`}>
-                          {notification.message}
-                        </p>
-                        <div className="text-xs text-muted-foreground" data-testid={`text-notification-time-${notification.id}`}>
-                          {notification.createdAt ? new Date(notification.createdAt).toLocaleString() : ""}
-                        </div>
-                        {targetFailure?.id === notification.id && (
-                          <p role="alert" className="text-xs text-destructive" data-testid={`text-notification-target-failure-${notification.id}`}>
-                            {targetFailure.message}
-                          </p>
-                        )}
-                      </div>
-                      {notification.target?.context==="authorized_list_fallback" && <span className="text-xs text-muted-foreground">
-                        {notification.target.label}
-                      </span>}
-                      {link ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="flex-shrink-0"
-                          aria-label={`Open destination for notification: ${notification.title}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void handleNotificationClick(notification);
-                          }}
-                          data-testid={`button-open-notification-${notification.id}`}
-                        >
-                          Open
-                        </Button>
-                      ) : (
-                        <span className="text-xs text-muted-foreground flex-shrink-0"
-                          data-testid={`text-notification-no-destination-${notification.id}`}>No destination</span>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="flex-shrink-0 h-6 w-6 text-muted-foreground hover:text-foreground"
-                        aria-label="Dismiss notification"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          dismissMutation.mutate(notification.id);
-                        }}
-                        disabled={dismissMutation.isPending}
-                        data-testid={`button-dismiss-${notification.id}`}
-                      >
-                        <X className="w-3 h-3" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-                );
-              })}
+              {grouped.current.map(renderNotification)}
+              {grouped.aged.length > 0 && (
+                <details className="rounded-md border" data-testid="notifications-aged-group">
+                  <summary className="min-h-11 cursor-pointer px-3 py-2 text-sm font-medium" data-testid="notifications-aged-summary">
+                    Older digests and SLA reminders ({grouped.aged.length}
+                    {grouped.agedUnread > 0 ? `, ${grouped.agedUnread} unread` : ""})
+                  </summary>
+                  <div className="space-y-3 p-3" data-testid="notifications-aged-list">
+                    <p className="text-xs text-muted-foreground">
+                      Summaries and reminders more than two days old. Nothing here was removed; each one still opens and keeps its own unread state.
+                    </p>
+                    {grouped.aged.map(renderNotification)}
+                  </div>
+                </details>
+              )}
               {isLoading && (
                 <div className="text-center text-muted-foreground py-4" data-testid="notifications-loading-more">
                   Loading...

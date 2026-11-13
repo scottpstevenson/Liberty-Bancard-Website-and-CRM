@@ -10,7 +10,10 @@ import OpenAI from "openai";
 import { featureFlags } from "../services/feature-flags";
 import { inboundShortRef, listInboundRequests, parseInboundShortRef, resumeInboundSalesRequestForActor } from "../services/inbound-request-authority";
 import { recoverStatementOccurrence } from "../services/statement-occurrence-recovery";
-import { getInboundRequestSummary } from "../services/inbound-request-summary";
+import {
+  clampSummaryWindowDays, getInboundRequestSummary, INBOUND_INTAKE_COHORTS, INBOUND_TASK_COHORTS, readInboundTaskCohort,
+  type InboundIntakeCohort, type InboundTaskCohort,
+} from "../services/inbound-request-summary";
 import { readStatementOccurrenceTruth } from "../services/statement-chain-read-model";
 import { readInquiryContext } from "./public-inquiry";
 import { generalIntentLabel, leaseAnswerLabel, volumeBandLabel } from "@shared/public-inquiry";
@@ -127,7 +130,18 @@ export function registerLeadOpsRoutes(app: Express) {
       if (typeof req.query.ref === "string" && req.query.ref.trim() && !parseInboundShortRef(req.query.ref)) {
         return res.status(400).json({ error: "INVALID_REFERENCE", message: "Enter the reference from the confirmation (up to 8 letters a-f and digits)." });
       }
+      // A named cohort filters with the predicate that counts it on Today and Overview. An unknown or repeated value is
+      // refused; it never widens into the unfiltered list.
+      let cohort: { kind: InboundIntakeCohort; windowDays: number } | undefined;
+      if (req.query.cohort !== undefined) {
+        const kind = req.query.cohort;
+        if (typeof kind !== "string" || !(INBOUND_INTAKE_COHORTS as readonly string[]).includes(kind)) {
+          return res.status(400).json({ error: "INVALID_COHORT", message: "Unknown request group." });
+        }
+        cohort = { kind: kind as InboundIntakeCohort, windowDays: clampSummaryWindowDays(req.query.days) };
+      }
       const rows = await listInboundRequests({
+        cohort,
         limit: Number(req.query.limit) || 50,
         offset: Number(req.query.offset) || 0,
         sourceClass: typeof req.query.sourceClass === "string" ? req.query.sourceClass : undefined,
@@ -255,6 +269,20 @@ export function registerLeadOpsRoutes(app: Express) {
 
   // Separate, individually-failing populations for the Overview (received / needs review / statement attention /
   // due today / overdue). Registered as a fixed one-segment GET so it cannot collide with a `:receipt` pattern.
+  // Task ids behind the "request tasks due today / overdue" counts, so Work can open exactly the counted tasks.
+  app.get("/api/lead-ops/inbound-requests/task-cohort", requireRole("admin", "manager"), async (req, res) => {
+    const cohort = req.query.cohort;
+    if (typeof cohort !== "string" || !(INBOUND_TASK_COHORTS as readonly string[]).includes(cohort)) {
+      return res.status(400).json({ error: "INVALID_COHORT", message: "Unknown request task group." });
+    }
+    try {
+      res.json(await readInboundTaskCohort(cohort as InboundTaskCohort));
+    } catch (error) {
+      console.error("[LeadOps] inbound task cohort failed:", error instanceof Error ? error.name : "unknown");
+      res.status(500).json({ error: "Failed to load the request task group" });
+    }
+  });
+
   app.get("/api/lead-ops/inbound-requests/summary", requireRole("admin", "manager"), async (req, res) => {
     try {
       res.json(await getInboundRequestSummary(Number(req.query.days) || 7));

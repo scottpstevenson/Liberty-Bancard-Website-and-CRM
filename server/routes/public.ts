@@ -18,7 +18,7 @@ import { normalizePhoneE164 } from "../services/sdr/dedupe";
 import { retainStatementAndTryEnqueue } from "../services/statement-command-worker";
 import { inspectStatementFile, STATEMENT_MAX_BYTES } from "../services/statement-upload-file";
 import { STATEMENT_UPLOAD_LIMITS } from "../../shared/statement-upload-limits";
-import { ensureStatementOccurrenceNotification } from "../services/statement-review-notification";
+import { ensureStatementOccurrenceNotification, inboundReviewLink } from "../services/statement-review-notification";
 import { parseStatementFields, computeStatementFingerprintV2 } from "../services/public-statement-fields";
 import {
   claimCommand,
@@ -988,6 +988,9 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         channel: "#sales", title: "New Estimate Request",
         message: `${firstName} ${lastName} - Volume: ${monthlyVolume}, Fees: ${totalFees}`,
         type: "info",
+        // The request's own identity, so the alert opens that request's review page (no typed contact/deal target: a fresh
+        // public contact is not yet production-classified and a typed target would hide it from every reader).
+        metadata: { eventType: "estimate_request_received", requestId: submissionId, shortRef: inboundShortRef(submissionId), link: inboundReviewLink(submissionId) },
       });
 
       // Post-accept effects run only after the authority accepted the occurrence, so a recovered request runs them once.
@@ -1200,6 +1203,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         channel: "#sales", title: "New Quiz Lead",
         message: `${firstName} ${lastName} - ${vertical}, ${monthlyVolume}, Goal: ${goal}${utmSource ? ` (via ${utmSource})` : ""}`,
         type: "info",
+        metadata: { eventType: "quiz_lead_received", requestId: submissionId, shortRef: inboundShortRef(submissionId), link: inboundReviewLink(submissionId) },
       });
 
       // Post-accept effects run only after the authority accepted the occurrence, so a recovered request runs them once.
@@ -1496,6 +1500,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         channel: "#sales", title: "Callback Requested",
         message: `${firstName} ${lastName} - ${phone} - Best time: ${bestTime || "Anytime"}`,
         type: "alert",
+        metadata: { eventType: "callback_request_received", requestId: submissionId, shortRef: inboundShortRef(submissionId), link: inboundReviewLink(submissionId) },
       });
 
       if (pewcConsent && !(recovered && await pewcDecisionRecorded(`callback:${submissionId}`))) {

@@ -1,11 +1,12 @@
 import { PageTitle } from "@/components/ui/page-header";
 import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, useLocation, Link, useSearch } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUpdateContact } from "@/hooks/use-contacts";
 import { readReturnUrl } from "@/lib/crm-return-context";
-import { businessIdentity, consentState, contactDisplayName, headerNextAction as headerNextActionFor, personName } from "@/lib/contact-header-presentation";
+import { readRecordOrigin } from "@/lib/record-origin";
+import { businessIdentity, consentState, contactDisplayName, headerNextAction as headerNextActionFor, personName, sharedNotRecordedNote } from "@/lib/contact-header-presentation";
 import { useCompanySearch, type CompanySearchItem } from "@/hooks/use-company-search";
 import { apiRequest, getCsrfToken, protectedContextToken, protectedScope } from "@/lib/queryClient";
 import { RetainedContactCore, projectContactCore, type ContactCoreProjection } from "@/lib/retained-contact-core";
@@ -57,7 +58,7 @@ import Comments from "@/components/Comments";
 import { EmailComposer } from "@/components/EmailComposer";
 import { ReadinessCard } from "@/components/ReadinessCard";
 import { CrmDataState, CrmPage, RecordHeader, CrmPageHeader, CrmAreaNav, CrmDetailDrawer } from "@/components/crm/CrmPresentation";
-import { contactAreaSections, contactAreas, contactSectionArea, contactSections, contactWorkspaceState, buildContactWorkspaceHref, parseLocalEntityId, registryReturnFromSearch, requestedDealIdFromSearch, type ContactArea, type ContactSection } from "@/lib/crm-destination-state";
+import { contactAreaSections, contactAreas, contactSectionArea, contactSections, contactWorkspaceState, buildContactWorkspaceHref, parseLocalEntityId, registryReturnFromSearch, requestedDealIdFromSearch, workReturnFromSearch, type ContactArea, type ContactSection } from "@/lib/crm-destination-state";
 import { useEmployeeCrm } from "@/components/crm/employee-crm-context";
 
 // #240 — One-click copy button for phone/email
@@ -1315,7 +1316,7 @@ function ContactDetailRecord() {
   const requestedDrawer = contactWorkspaceState(search).drawer;
   const requestedWorkspace = contactWorkspaceState(search);
   const requestedSection = requestedWorkspace.section ?? "overview";
-  const [, setLocation] = useLocation();
+  const [recordPath, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const updateContact = useUpdateContact();
@@ -1323,9 +1324,16 @@ function ContactDetailRecord() {
   // Validated MID Registry return (path + list state) and requested deal, both carried in the record URL so they survive reload.
   const registryReturn = registryReturnFromSearch(search);
   const requestedDealId = requestedDealIdFromSearch(search);
-  const backTarget = registryReturn ?? readReturnUrl("people", user?.id) ?? "/dashboard/contacts";
-  const backLabel = registryReturn ? "Back to MID Registry" : "Back to Contacts";
-  const recordsLabel = registryReturn ? "MID Registry" : "Records";
+  const workReturn = registryReturn ? null : workReturnFromSearch(search);
+  // An explicit return carried in the URL wins; otherwise the area that opened this record (re-validated for this role), then the
+  // People list the person last used.
+  const recordOrigin = useMemo(
+    () => (registryReturn || workReturn ? null : readRecordOrigin(user?.id ?? undefined, user?.role ?? undefined, recordPath)),
+    [registryReturn, workReturn, user?.id, user?.role, recordPath],
+  );
+  const backTarget = registryReturn ?? workReturn ?? recordOrigin?.href ?? readReturnUrl("people", user?.id) ?? "/dashboard/contacts";
+  const backLabel = registryReturn ? "Back to MID Registry" : workReturn ? "Back to Work" : recordOrigin ? `Back to ${recordOrigin.areaLabel}` : "Back to Contacts";
+  const recordsLabel = registryReturn ? "MID Registry" : workReturn ? "Work" : recordOrigin ? recordOrigin.areaLabel : "Records";
   const noteIntents=useRetainedLocalIntent();
   const isManagerOrAdmin = user?.role === "admin" || user?.role === "manager";
   const [isEditing, setIsEditing] = useState(false);
@@ -1425,6 +1433,10 @@ function ContactDetailRecord() {
       return res.json();
     },
     enabled: !!contactId,
+    // The header's next action rides on this read. Revisiting a section or returning to this tab (after a task was completed in
+    // another tab) re-reads it; the cached section is shown meanwhile, so nothing flashes.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
   const detailAuthorized = Boolean(data?.contact && !error);
   // Contact core retained across section reads. Keyed by actor scope + entity, so another actor or contact never reuses it.
@@ -1797,10 +1809,12 @@ function ContactDetailRecord() {
     activeDealId: activeHeaderDeal?.id ?? null,
     pendingTask: pendingTasks?.[0] ?? null,
     pendingTasksLoaded: pendingTasks !== undefined,
+    taskFacts: data.headerTaskFacts ?? null,
   });
   const businessView = businessIdentity(contact, data.relationshipFacts?.business);
   const emailConsent = consentState(contact as any, "email");
   const smsConsent = consentState(contact as any, "sms");
+  const sharedConsentNote = sharedNotRecordedNote(emailConsent, smsConsent);
 
   const startEdit = () => {
     setEditFields({
@@ -2081,7 +2095,8 @@ function ContactDetailRecord() {
                   {contactDisplayName(contact)}
                 </PageTitle>
                 <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground" data-testid="contact-identities">
-                  <span className="inline-flex min-w-0 items-center gap-1.5" data-testid="contact-identity-person">
+                  {/* The heading is the person's name whenever one exists; the labelled line stays for assistive technology and shows only when it adds a fact. */}
+                  <span className={`inline-flex min-w-0 items-center gap-1.5${personName(contact) ? " sr-only" : ""}`} data-testid="contact-identity-person">
                     <UserCheck className="h-4 w-4 shrink-0" />
                     <span className="break-words">Person: <strong className="font-medium text-foreground">{personName(contact) ?? "No person name recorded"}</strong></span>
                   </span>
@@ -2089,7 +2104,7 @@ function ContactDetailRecord() {
                     <Building2 className="h-4 w-4 shrink-0" />
                     <span className="break-words" data-testid="text-company">
                       Business: <strong className="font-medium text-foreground">{businessView.verifiedName ?? businessView.enteredName ?? "None recorded"}</strong>
-                      {" "}<span className={businessView.tone === "attention" ? "text-amber-800 dark:text-amber-300" : ""} data-testid="contact-business-relationship" data-relationship-state={data.relationshipFacts?.business?.state ?? "not_loaded"}>({businessView.relationshipLabel})</span>
+                      {" "}<span className={businessView.tone === "attention" ? "text-amber-800 dark:text-amber-300" : ""} data-testid="contact-business-relationship" data-relationship-state={data.relationshipFacts?.business?.state ?? "not_loaded"} title={businessView.relationshipTitle}>({businessView.relationshipLabel})</span>
                     </span>
                   </span>
                   {contact.email && (
@@ -2115,8 +2130,9 @@ function ContactDetailRecord() {
                       : "Not recorded"}
                   </Badge>
                   <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm" data-testid="contactability-status">
-                    <span>Email consent: <strong className="font-medium text-foreground" data-testid="consent-email-state" data-consent-state={emailConsent.state}>{emailConsent.label}</strong></span>
-                    <span>SMS consent: <strong className="font-medium text-foreground" data-testid="consent-sms-state" data-consent-state={smsConsent.state}>{smsConsent.label}</strong></span>
+                    <span>Email consent: <strong className="font-medium text-foreground" data-testid="consent-email-state" data-consent-state={emailConsent.state}>{sharedConsentNote ? sharedConsentNote.short : emailConsent.label}</strong></span>
+                    <span>SMS consent: <strong className="font-medium text-foreground" data-testid="consent-sms-state" data-consent-state={smsConsent.state}>{sharedConsentNote ? sharedConsentNote.short : smsConsent.label}</strong></span>
+                    {sharedConsentNote && <span data-testid="consent-not-recorded-note">{sharedConsentNote.note}</span>}
                     {(contact as any).doNotContact && <span className="font-medium text-destructive">Do not contact{(contact as any).dncReason ? ` · ${(contact as any).dncReason}` : ""}</span>}
                     {(contact as any).emailStatus && <span>Email status: <strong className="font-medium text-foreground">{String((contact as any).emailStatus).replace(/_/g, " ")}</strong></span>}
                   </span>

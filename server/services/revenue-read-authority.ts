@@ -770,6 +770,9 @@ export async function readPipelineAnalytics(user: RevenueUser): Promise<{
     WITH scoped_deals AS (
       SELECT d.* FROM deals d
       WHERE d.archived_at IS NULL AND d.record_class = 'production' AND ${ownership}
+        -- Same population as the Pipeline list (dealReadPredicate): a deal whose contact carries the legacy QA fixture
+        -- signature is out of both, so the Active Pipeline count and the list it opens cannot differ on it.
+        AND NOT EXISTS (SELECT 1 FROM contacts d_qa WHERE d_qa.id = d.contact_id AND ${syntheticQaIdentitySql("d_qa")})
     ), metrics AS (
       SELECT
         COUNT(*) FILTER (WHERE pipeline = 'sales')::int::text AS sales_total,

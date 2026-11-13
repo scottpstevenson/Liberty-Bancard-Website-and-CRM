@@ -26,6 +26,7 @@ import {
   contactSourceEvents,
   type InboundRequest,
 } from "@shared/schema";
+import { inboundIntakeCohortIds, type InboundIntakeCohort } from "./inbound-request-summary";
 import { resolveWorkAssignee, workPrincipalFields, WorkCommandError } from "./work-item-command";
 import { auditChange } from "./audit-change";
 import { getRecordedDefaultOwnerId } from "./inbound-default-owner";
@@ -1318,6 +1319,8 @@ export async function listInboundRequests(input: {
   lifecycleState?: string;
   /** Exact short reference (or prefix of at least four characters) as quoted by the requester. */
   shortRef?: string;
+  /** One of the Today/Overview intake populations. Uses the very predicate that counts it (inbound-request-summary.ts). */
+  cohort?: { kind: InboundIntakeCohort; windowDays?: number };
 }) {
   const limit = Math.min(Math.max(input.limit || 50, 1), 200);
   const offset = Math.max(input.offset || 0, 0);
@@ -1327,6 +1330,7 @@ export async function listInboundRequests(input: {
   const ref = parseInboundShortRef(input.shortRef);
   // The first uuid group is the short reference, so a text prefix on the canonical form is exact.
   if (ref) filters.push(sql`${inboundRequests.id}::text LIKE ${`${ref}%`}`);
+  if (input.cohort) filters.push(sql`${inboundRequests.id} IN (${inboundIntakeCohortIds(input.cohort.kind, input.cohort.windowDays)})`);
   return db.select().from(inboundRequests)
     .where(filters.length ? and(...filters) : undefined)
     .orderBy(desc(inboundRequests.createdAt))

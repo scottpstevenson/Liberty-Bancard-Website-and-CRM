@@ -427,32 +427,50 @@
 
 **Target window:** 60–120 days post-launch.
 
-### Status update — 2026-11-12 (CRM workflow repairs from the 2026-11-11 live audit)
+### Status update — 2026-11-12 (closure of the post-Publish verification)
 
-The live audit ("Live CRM audit and Phase 6 roadmap", 2026-11-11) replaced the five old items below with 22 findings (CRM-01 to CRM-22) in five packages. All 22 are built in source, merged to main and included in the 2026-11-12 Publish. This is a source and fixture result, not a closed phase: the audit's own closing rule also needs browser and deployed readback evidence.
+The live audit ("Live CRM audit and Phase 6 roadmap", 2026-11-11) replaced the five old items below with 22 findings (CRM-01 to CRM-22) in five packages. A post-Publish verification (2026-11-12, 26 rows) then found nine repairs still needed (R01–R09). They are built in the working tree and were checked on isolated infrastructure; they are **not yet published**, and no live readback has been done. Full evidence, hashes and the row-by-row table are in [`docs/certification/phase6-closure/README.md`](certification/phase6-closure/README.md).
 
 | Package | Findings | State |
 |---|---|---|
-| 6A - Review-path reliability | CRM-01 to 04, 13, 17 | Built. Exact task and request paths, safe legacy aliases, one business time zone, keyboard notification actions. |
-| 6B - Mobile continuity and privacy | CRM-05 to 08 | Built. Record-preserving mobile routes, truthful summaries, no private API caching in the service worker, foreground-only bounded refresh. |
-| 6C - Inventory truth and provenance | CRM-09 to 12, 15, 16 | Built. Bounded progress read, no zero substituted for a failed source, record-class labels from the classification authority only. No production repair was applied. |
-| 6D - Daily sales workspace | CRM-14, 18 to 22 | Built, except the breadcrumb in CRM-22 "common page identity" (no breadcrumb component exists; return relies on browser Back and the tab held in the URL). Single-record claim of unassigned work is admin/manager only through the existing fenced update. |
-| 6E - Acceptance and serving receipt | all | Open. See below. |
+| 6A - Review-path reliability | CRM-01 to 04, 13, 17 | Built. Exact task and request paths (R01), safe legacy aliases, one business time zone, notifications that resolve from their own recorded request (R07). |
+| 6B - Mobile continuity and privacy | CRM-05 to 08 | Built. Narrowing a window keeps the exact record address (R04), truthful summaries, no private API caching in the service worker, foreground-only bounded refresh. |
+| 6C - Inventory truth and provenance | CRM-09 to 12, 15, 16 | Built. Bounded, fenced inventory reads (R02), counts that state their definition (R05), email-lane guidance matching local receipts (R03), record-class labels from the classification authority only. No production repair was applied. |
+| 6D - Daily sales workspace | CRM-14, 18 to 22 | Built. Contact is a person with a separately labelled business and three-state consent (R06). Maintenance details behind disclosures with the emergency stop visible (R08). Page identity: area names come from the sidebar entries; record pages show an area-only breadcrumb and a Back control that survives reload (R09). Single-record claim of unassigned work is admin/manager only through the existing fenced update. |
+| 6E - Acceptance and serving receipt | all | Isolated acceptance done; live acceptance open until Publish. See below. |
 
-**Evidence that exists:** nine new Phase 6 check suites registered in the pre-deploy list and passing, the contact header browser check, and the neighbouring contract suites. The Stage 3 C4 mounted browser suite passed every page and accessibility step; its final speed comparison needed a baseline build that was missing and has since been restored by a separate change.
+**Evidence that exists (isolated infrastructure, final candidate source hash in the closure README):** nine static and seven disposable-database Phase 6 suites, the Phase 6 browser suite (55 named checks, 36 audited states: five widths and native 200% zoom, Back/reload/breakpoint continuity, late responses, actor change, offline, role revocation, keyboard, role matrix, claim fencing), the populated-journey browser suite (66 checks: Inbox, Outreach Queue, validation history, proposal events, Pipeline at 320 px), the contact header browser check, role-guard smoke and route-guard checks. Two authorization gaps found on the way were closed (ZeroBounce history and co-branded proposal reads now apply the owner checks) and the Pipeline toolbar no longer covers every card at 320 px.
 
 **Evidence still missing (not claimed):**
-- Full pre-deploy roster on the published candidate (the launcher could not run beside the dev app; it now starts its own server on a free port when 5000 is taken, and the SHA check is kept).
-- Production-scale timing and query plans for the backlog and launch-inventory reads (no production queries were made).
-- Post-Publish GET-only readback of the repaired screens, and a real-browser walk of every signed-in screen.
-- Checks that already failed before this work and are not fixed here: CRM operator experience, CRM interface contracts, dashboard calendar update, industry-page contract, lead-ops budget removal, attestation promotion regression. The SEO audit's hydrated-metadata step flagged a different pair of pages on each of two runs, which looks like a timing flake but was not compared with a clean base.
+- Everything that needs the owner's Publish: health sha and build capture, source comparison, GET-only readback of the repaired screens, production-scale counts, timing and query plans (no production queries were made for those reads; fixture scale only).
+- Real simultaneous multi-tab behaviour, WebKit, real phones and installed-app behaviour; a browser run in a device time zone other than the container's; a real-browser walk of the exact task, request and file actions and of opening a notification; signed-in production screens.
+- Full pre-deploy roster on the published candidate.
+- Checks that already failed on the exact clean base and still fail at the same first assertion: CRM operator experience, CRM interface contracts, dashboard calendar update, industry-page contract, lead-ops budget removal, attestation promotion regression. These scripts stop at the first failure, so their later assertions were not executed on either side. The contact header browser check also failed on the base (section navigation below the phone fold) and passes on the candidate after a compact-header change. The SEO audit's hydrated-metadata step flagged a different pair of pages on each of two runs; it looks like a timing flake but was not compared with a clean base.
+
+**Row verdicts (26 rows).** ACCEPTED = proved by the isolated evidence named in the closure README. LIMITED = accepted for that scope; a named part was not executed. OWNER-DEFERRED = needs an owner decision or Publish.
+
+| Row | Verdict | Row | Verdict |
+|---|---|---|---|
+| CRM-01 Inbox visibility | ACCEPTED, LIMITED (provider-side live facts not reproduced) | CRM-13 Exact request | ACCEPTED, LIMITED (no real-browser walk) |
+| CRM-02 Exact task | ACCEPTED, LIMITED (no real-browser walk) | CRM-14 Claim fencing | ACCEPTED |
+| CRM-03 Legacy aliases | ACCEPTED | CRM-15 Email-lane states | ACCEPTED |
+| CRM-04 Business time zone | ACCEPTED, LIMITED (container zone only) | CRM-16 Email-lane guidance | ACCEPTED, LIMITED (live after Publish) |
+| CRM-05 Mobile continuity | ACCEPTED, LIMITED (Chromium only) | CRM-17 Notifications | ACCEPTED, LIMITED (no real-browser open journey) |
+| CRM-06 Mobile privacy | ACCEPTED, LIMITED (source level) | CRM-18 Contact is a person | ACCEPTED |
+| CRM-07 Stale / actor change | ACCEPTED, LIMITED (no real multi-tab) | CRM-19 Documents | ACCEPTED |
+| CRM-08 Foreground refresh | ACCEPTED, LIMITED (desktop Inbox in browser) | CRM-20 Work presentation | ACCEPTED, LIMITED (Work page not width-audited) |
+| CRM-09 Bounded reads | ACCEPTED, LIMITED (fixture scale; live readback) | CRM-21A Today queue | ACCEPTED, LIMITED (density not measured) |
+| CRM-10 Provenance | ACCEPTED | CRM-21B Pipeline | ACCEPTED, LIMITED; read-first drawer OWNER-DEFERRED |
+| CRM-11 Record class / QA | ACCEPTED for labels; reclassification cohort OWNER-DEFERRED | CRM-21C Responsive | ACCEPTED, LIMITED (listed pages; no real devices) |
+| CRM-12 Counts | ACCEPTED, LIMITED (fixture scale; live readback) | CRM-21D Maintenance | ACCEPTED, LIMITED |
+| CRM-22A | ACCEPTED, LIMITED (density not measured) | CRM-22B Page identity | ACCEPTED |
 
 **Old items reconciled against the audit's crosswalk:**
-- P6-1 Inbox auto-refresh: desktop already polled every 45 s; mobile and the selected thread now refresh in the foreground only, on the same cadence. No second inbox was built.
+- P6-1 Inbox auto-refresh: desktop already polled every 45 s; mobile and the selected thread now refresh in the foreground only, on the same cadence. The populated Inbox journey shows a new message arriving through that refresh with the selection and a half-typed draft kept. No second inbox was built.
 - P6-2 Daily briefing cache: the server already caches per actor, role, time zone and day. The briefing's day now uses the business time zone. Redis is not required for it.
-- P6-3 Outreach queue actions, P6-4 ZeroBounce history, P6-5 Proposal engagement: already in source when audited. Populated-row, success-state and proposal-open-attribution proofs were not part of this work and remain open.
+- P6-3 Outreach queue actions, P6-4 ZeroBounce history, P6-5 Proposal engagement: populated proofs now exist on isolated data. Outreach Queue rows show contact, call, email, Start and Skip (Start was never pressed; rows come from a labelled stand-in for the CR04 projection) and Skip is audited and owner-fenced. Validation history shows current, earlier, past-window, earlier-address, legacy-status, failed-read and Retry states. Proposal engagement shows the open count, alert age, accepted, older-than-seven-days and failed-read states per deal. Board-wide proposal badges need a per-deal open, which is a separate proposed task.
 
-**Owner decisions still open (not implemented):** wider assignment policy for unassigned intake and service work; whether to recover the three older failed statement commands; approval of any provenance or test-record repair cohort; automatic statement analysis; content and form mappings and controlled email acceptance. Outreach, unpause, release, sends and paid provider spend stay off.
+**Owner decisions still open (not implemented):** Publish of these repairs and the live readback; classifying deal 2589 through the admin route so the waiting inbound request can resume; wider assignment policy for unassigned intake and service work; whether to recover the three older failed statement commands; approval of any provenance or test-record reclassification cohort; a read-first Pipeline deal drawer; automatic statement analysis; content and form mappings and controlled email acceptance. Outreach, unpause, release, sends and paid provider spend stay off.
 
 ---
 

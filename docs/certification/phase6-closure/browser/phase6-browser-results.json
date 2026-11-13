@@ -1,0 +1,824 @@
+{
+  "checks": [
+    "contact record, Pipeline, Notifications and Lead Ops have no horizontal overflow, one h1, named controls or page exception at 1280, 768, 454, 390 and 320 px",
+    "the populated Notifications list renders its rows",
+    "populated pages reach visible records within 8 s on the fixture (contact 1825 ms, Pipeline 1569 ms, Notifications 1110 ms; fixture scale, not production)",
+    "contact record, Pipeline and Notifications hold at native 200% browser zoom (no overflow, one h1, named controls)",
+    "a record opened from the Pipeline offers Back to its area (\"Back to Pipeline\")",
+    "the record page has one h1",
+    "after a full reload the record still offers the same Back destination",
+    "Back lands in the same workspace area it left (pipeline -> pipeline)",
+    "browser Back and the in-page Back control both return to the originating Pipeline",
+    "narrowing the window keeps the exact record address (/dashboard/contacts/1?area=overview&section=overview)",
+    "the notice offers the same contact on mobile knowingly, not the mobile home page",
+    "widening the window shows the same record at the same address (area and section kept)",
+    "choosing the desktop layout opens the same record at the same address and remembers the choice",
+    "a phone-width link to a contact with no record area opens that same contact in the mobile app (not the mobile home page)",
+    "a late response for the earlier record did not replace the visible record (\"Bravo Phasesix\")",
+    "after the actor changes in the same browser profile, the previous actor's record is not shown to the next actor",
+    "while offline, the previous actor's record does not reappear for the next actor",
+    "a manager can open Lead Ops before revocation",
+    "after the role is revoked the manager-only page is no longer offered (now /dashboard/my-day)",
+    "Tab never drops focus back to the page body after the first controls",
+    "every focused control is named and has a box (offending: [])",
+    "keyboard focus visits 30 distinct controls in 30 presses",
+    "admin /api/contacts?limit=50: allowed and returns the fixture rows (200)",
+    "manager /api/contacts?limit=50: answered with a real status (200), not a failure",
+    "agent /api/contacts?limit=50: answered with a real status (200), not a failure",
+    "merchant /api/contacts?limit=50: refused (403) or returned none of the staff fixture rows",
+    "affiliate /api/contacts?limit=50: refused (403) or returned none of the staff fixture rows",
+    "partner /api/contacts?limit=50: refused (403) or returned none of the staff fixture rows",
+    "admin /api/deals: allowed and returns the fixture rows (200)",
+    "manager /api/deals: answered with a real status (200), not a failure",
+    "agent /api/deals: answered with a real status (200), not a failure",
+    "merchant /api/deals: refused (403) or returned none of the staff fixture rows",
+    "affiliate /api/deals: refused (403) or returned none of the staff fixture rows",
+    "partner /api/deals: refused (403) or returned none of the staff fixture rows",
+    "admin /api/notifications: allowed and returns the fixture rows (200)",
+    "manager /api/notifications: answered with a real status (200), not a failure",
+    "manager /api/notifications: another actor's notifications are not returned",
+    "agent /api/notifications: answered with a real status (200), not a failure",
+    "agent /api/notifications: another actor's notifications are not returned",
+    "merchant /api/notifications: refused (200) or returned none of the staff fixture rows",
+    "affiliate /api/notifications: refused (200) or returned none of the staff fixture rows",
+    "partner /api/notifications: refused (200) or returned none of the staff fixture rows",
+    "an agent reading another agent's contact is refused (404), not shown a blank record",
+    "the owning agent reads the same contact",
+    "a manager claims one unassigned task with its current version (200)",
+    "the claimed task is assigned to the claiming manager only",
+    "a second claim made from the same stale version is refused (409)",
+    "the refused claim changed nothing and wrote no second event",
+    "two simultaneous claims of one task have exactly one winner (409, 200)",
+    "the simultaneous claim wrote exactly one event",
+    "an agent cannot claim unassigned work through the same command (404)",
+    "merchant cannot claim work (403)",
+    "affiliate cannot claim work (403)",
+    "partner cannot claim work (403)",
+    "an agent cannot assign work in bulk (403)"
+  ],
+  "results": [
+    {
+      "label": "contact-record @1280px",
+      "width": 1280,
+      "dpr": 1,
+      "documentWidth": 1280,
+      "h1Count": 1,
+      "h1": [
+        "Alpha Phasesix"
+      ],
+      "controls": 48,
+      "unnamed": [],
+      "title": "records",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "pipeline @1280px",
+      "width": 1280,
+      "dpr": 1,
+      "documentWidth": 1280,
+      "h1Count": 1,
+      "h1": [
+        "Sales Pipeline(24)"
+      ],
+      "controls": 177,
+      "unnamed": [],
+      "title": "pipeline",
+      "breadcrumb": "Pipeline/Sales Pipeline",
+      "mainPresent": true
+    },
+    {
+      "label": "notifications @1280px",
+      "width": 1280,
+      "dpr": 1,
+      "documentWidth": 1280,
+      "h1Count": 1,
+      "h1": [
+        "Notifications"
+      ],
+      "controls": 62,
+      "unnamed": [],
+      "title": null,
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "lead-ops-unregistered-sources @1280px",
+      "width": 1280,
+      "dpr": 1,
+      "documentWidth": 1280,
+      "h1Count": 1,
+      "h1": [
+        "Lead Operations Center"
+      ],
+      "controls": 44,
+      "unnamed": [],
+      "title": "prospecting",
+      "breadcrumb": "Prospecting/Lead Operations Center",
+      "mainPresent": true
+    },
+    {
+      "label": "contact-record @768px",
+      "width": 768,
+      "dpr": 1,
+      "documentWidth": 768,
+      "h1Count": 1,
+      "h1": [
+        "Alpha Phasesix"
+      ],
+      "controls": 48,
+      "unnamed": [],
+      "title": "records",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "pipeline @768px",
+      "width": 768,
+      "dpr": 1,
+      "documentWidth": 768,
+      "h1Count": 1,
+      "h1": [
+        "Sales Pipeline(24)"
+      ],
+      "controls": 177,
+      "unnamed": [],
+      "title": "pipeline",
+      "breadcrumb": "Pipeline/Sales Pipeline",
+      "mainPresent": true
+    },
+    {
+      "label": "notifications @768px",
+      "width": 768,
+      "dpr": 1,
+      "documentWidth": 768,
+      "h1Count": 1,
+      "h1": [
+        "Notifications"
+      ],
+      "controls": 62,
+      "unnamed": [],
+      "title": null,
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "lead-ops-unregistered-sources @768px",
+      "width": 768,
+      "dpr": 1,
+      "documentWidth": 768,
+      "h1Count": 1,
+      "h1": [
+        "Lead Operations Center"
+      ],
+      "controls": 44,
+      "unnamed": [],
+      "title": "prospecting",
+      "breadcrumb": "Prospecting/Lead Operations Center",
+      "mainPresent": true
+    },
+    {
+      "label": "contact-record @454px",
+      "width": 454,
+      "dpr": 1,
+      "documentWidth": 454,
+      "h1Count": 1,
+      "h1": [
+        "Alpha Phasesix"
+      ],
+      "controls": 31,
+      "unnamed": [],
+      "title": "records",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "pipeline @454px",
+      "width": 454,
+      "dpr": 1,
+      "documentWidth": 454,
+      "h1Count": 1,
+      "h1": [
+        "Sales Pipeline(24)"
+      ],
+      "controls": 160,
+      "unnamed": [],
+      "title": "pipeline",
+      "breadcrumb": "Pipeline/Sales Pipeline",
+      "mainPresent": true
+    },
+    {
+      "label": "notifications @454px",
+      "width": 454,
+      "dpr": 1,
+      "documentWidth": 454,
+      "h1Count": 1,
+      "h1": [
+        "Notifications"
+      ],
+      "controls": 45,
+      "unnamed": [],
+      "title": null,
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "lead-ops-unregistered-sources @454px",
+      "width": 454,
+      "dpr": 1,
+      "documentWidth": 454,
+      "h1Count": 1,
+      "h1": [
+        "Lead Operations Center"
+      ],
+      "controls": 27,
+      "unnamed": [],
+      "title": "prospecting",
+      "breadcrumb": "Prospecting/Lead Operations Center",
+      "mainPresent": true
+    },
+    {
+      "label": "contact-record @390px",
+      "width": 390,
+      "dpr": 1,
+      "documentWidth": 390,
+      "h1Count": 1,
+      "h1": [
+        "Alpha Phasesix"
+      ],
+      "controls": 31,
+      "unnamed": [],
+      "title": "records",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "pipeline @390px",
+      "width": 390,
+      "dpr": 1,
+      "documentWidth": 390,
+      "h1Count": 1,
+      "h1": [
+        "Sales Pipeline(24)"
+      ],
+      "controls": 160,
+      "unnamed": [],
+      "title": "pipeline",
+      "breadcrumb": "Pipeline/Sales Pipeline",
+      "mainPresent": true
+    },
+    {
+      "label": "notifications @390px",
+      "width": 390,
+      "dpr": 1,
+      "documentWidth": 390,
+      "h1Count": 1,
+      "h1": [
+        "Notifications"
+      ],
+      "controls": 45,
+      "unnamed": [],
+      "title": null,
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "lead-ops-unregistered-sources @390px",
+      "width": 390,
+      "dpr": 1,
+      "documentWidth": 390,
+      "h1Count": 1,
+      "h1": [
+        "Lead Operations Center"
+      ],
+      "controls": 27,
+      "unnamed": [],
+      "title": "prospecting",
+      "breadcrumb": "Prospecting/Lead Operations Center",
+      "mainPresent": true
+    },
+    {
+      "label": "contact-record @320px",
+      "width": 320,
+      "dpr": 1,
+      "documentWidth": 320,
+      "h1Count": 1,
+      "h1": [
+        "Alpha Phasesix"
+      ],
+      "controls": 31,
+      "unnamed": [],
+      "title": "records",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "pipeline @320px",
+      "width": 320,
+      "dpr": 1,
+      "documentWidth": 320,
+      "h1Count": 1,
+      "h1": [
+        "Sales Pipeline(24)"
+      ],
+      "controls": 160,
+      "unnamed": [],
+      "title": "pipeline",
+      "breadcrumb": "Pipeline/Sales Pipeline",
+      "mainPresent": true
+    },
+    {
+      "label": "notifications @320px",
+      "width": 320,
+      "dpr": 1,
+      "documentWidth": 320,
+      "h1Count": 1,
+      "h1": [
+        "Notifications"
+      ],
+      "controls": 45,
+      "unnamed": [],
+      "title": null,
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "lead-ops-unregistered-sources @320px",
+      "width": 320,
+      "dpr": 1,
+      "documentWidth": 320,
+      "h1Count": 1,
+      "h1": [
+        "Lead Operations Center"
+      ],
+      "controls": 27,
+      "unnamed": [],
+      "title": "prospecting",
+      "breadcrumb": "Prospecting/Lead Operations Center",
+      "mainPresent": true
+    },
+    {
+      "label": "requests during layout-and-names",
+      "shapes": [
+        "GET /api/admin/ghl-health x21 [501]",
+        "GET /api/agents x5 [501]",
+        "GET /api/analytics/pipeline x5 [200]",
+        "GET /api/auth/user x22 [200]",
+        "GET /api/contacts/:id/companies x5 [200]",
+        "GET /api/contacts/:id/confirmation-status x5 [200]",
+        "GET /api/contacts/:id/detail x5 [200]",
+        "GET /api/contacts/:id/nba x5 [200]",
+        "GET /api/contacts/:id/parent x5 [200]",
+        "GET /api/contacts/:id/suppression-status x5 [200]",
+        "GET /api/deals x5 [200]",
+        "GET /api/deals/:id/checklist-summary x120 [200]",
+        "GET /api/ghl/sync-status/contact/:id x5 [501]",
+        "GET /api/inbox/send-state x5 [200]",
+        "GET /api/lead-ops/business-verticals x5 [501]",
+        "GET /api/lead-ops/businesses x5 [501]",
+        "GET /api/lead-ops/config x5 [501]",
+        "GET /api/lead-ops/sunbiz-bootstrap/backfill-status x5 [501]",
+        "GET /api/lead-ops/sunbiz-bootstrap/preview x5 [501]",
+        "GET /api/lead-ops/sunbiz-bootstrap/record-class-repair/preview x5 [501]",
+        "GET /api/lead-ops/sunbiz-bootstrap/status x5 [501]",
+        "GET /api/live-chat/sessions x21 [200]",
+        "GET /api/merchant-applications/pending-count x21 [501]",
+        "GET /api/mid-stats/pipeline-summary x5 [501]",
+        "GET /api/notification-preferences x6 [200]",
+        "GET /api/notifications x6 [200]",
+        "GET /api/notifications/count x21 [200]",
+        "GET /api/outreach-queue/count x21 [501]",
+        "GET /api/pipeline-stages x5 [200]",
+        "GET /api/rate-reviews/contact/:id x5 [501]",
+        "GET /api/saved-filters x5 [501]",
+        "GET /api/sms-inbox/unread-count x21 [200]",
+        "GET /api/tasks/overdue-count x21 [200]",
+        "POST /api/contacts/confirmation-status/batch x5 [200]"
+      ]
+    },
+    {
+      "label": "contact-record @200% zoom",
+      "width": 720,
+      "dpr": 2,
+      "documentWidth": 720,
+      "h1Count": 1,
+      "h1": [
+        "Alpha Phasesix"
+      ],
+      "controls": 31,
+      "unnamed": [],
+      "title": "records",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "pipeline @200% zoom",
+      "width": 720,
+      "dpr": 2,
+      "documentWidth": 720,
+      "h1Count": 1,
+      "h1": [
+        "Sales Pipeline(24)"
+      ],
+      "controls": 160,
+      "unnamed": [],
+      "title": "pipeline",
+      "breadcrumb": "Pipeline/Sales Pipeline",
+      "mainPresent": true
+    },
+    {
+      "label": "notifications @200% zoom",
+      "width": 720,
+      "dpr": 2,
+      "documentWidth": 720,
+      "h1Count": 1,
+      "h1": [
+        "Notifications"
+      ],
+      "controls": 45,
+      "unnamed": [],
+      "title": null,
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "requests during zoom-200",
+      "shapes": []
+    },
+    {
+      "label": "requests during workspace-identity",
+      "shapes": [
+        "GET /api/admin/ghl-health x6 [501,pending]",
+        "GET /api/agents x3 [501,pending]",
+        "GET /api/analytics/pipeline x3 [200,pending]",
+        "GET /api/auth/user x2 [200]",
+        "GET /api/contacts/:id/companies x2 [200]",
+        "GET /api/contacts/:id/confirmation-status x2 [200]",
+        "GET /api/contacts/:id/detail x3 [200]",
+        "GET /api/contacts/:id/nba x2 [200]",
+        "GET /api/contacts/:id/parent x2 [200]",
+        "GET /api/contacts/:id/suppression-status x2 [200]",
+        "GET /api/deals x3 [net::ERR_ABORTED,pending]",
+        "GET /api/ghl/sync-status/contact/:id x3 [501]",
+        "GET /api/inbox/send-state x3 [200]",
+        "GET /api/live-chat/sessions x2 [200]",
+        "GET /api/merchant-applications/pending-count x6 [501,pending]",
+        "GET /api/mid-stats/pipeline-summary x3 [501,pending]",
+        "GET /api/notifications/count x2 [200]",
+        "GET /api/outreach-queue/count x6 [501,pending]",
+        "GET /api/pipeline-stages x2 [200]",
+        "GET /api/rate-reviews/contact/:id x3 [501]",
+        "GET /api/sms-inbox/unread-count x2 [200]",
+        "GET /api/tasks/overdue-count x2 [200]"
+      ]
+    },
+    {
+      "label": "requests during breakpoint-continuity",
+      "shapes": [
+        "GET /api/admin/ghl-health x4 [501,net::ERR_ABORTED]",
+        "GET /api/auth/user x2 [200]",
+        "GET /api/contacts/:id x1 [pending]",
+        "GET /api/contacts/:id/companies x1 [200]",
+        "GET /api/contacts/:id/confirmation-status x1 [200]",
+        "GET /api/contacts/:id/detail x4 [200,net::ERR_ABORTED]",
+        "GET /api/contacts/:id/enrollments x1 [501]",
+        "GET /api/contacts/:id/nba x3 [net::ERR_ABORTED,200]",
+        "GET /api/contacts/:id/parent x1 [200]",
+        "GET /api/contacts/:id/suppression-status x3 [net::ERR_ABORTED,200]",
+        "GET /api/ghl/sync-status/contact/:id x3 [501]",
+        "GET /api/inbox/send-state x5 [200,net::ERR_ABORTED]",
+        "GET /api/live-chat/sessions x4 [503,200]",
+        "GET /api/merchant-applications/pending-count x2 [501,net::ERR_ABORTED]",
+        "GET /api/notifications/count x3 [200,net::ERR_ABORTED]",
+        "GET /api/outreach-queue/count x2 [501,net::ERR_ABORTED]",
+        "GET /api/rate-reviews/contact/:id x3 [501]",
+        "GET /api/sms-inbox/unread-count x2 [200,net::ERR_ABORTED]",
+        "GET /api/tasks/overdue-count x2 [200,net::ERR_ABORTED]"
+      ]
+    },
+    {
+      "label": "requests during late-response",
+      "shapes": [
+        "GET /api/admin/ghl-health x3 [501]",
+        "GET /api/auth/user x1 [200]",
+        "GET /api/contacts/:id/activity x1 [200]",
+        "GET /api/contacts/:id/companies x1 [200]",
+        "GET /api/contacts/:id/confirmation-status x1 [200]",
+        "GET /api/contacts/:id/deals x1 [200]",
+        "GET /api/contacts/:id/detail x3 [200,net::ERR_ABORTED]",
+        "GET /api/contacts/:id/nba x2 [net::ERR_ABORTED,200]",
+        "GET /api/contacts/:id/parent x1 [200]",
+        "GET /api/contacts/:id/suppression-status x1 [200]",
+        "GET /api/ghl/sync-status/contact/:id x2 [501]",
+        "GET /api/inbox/send-state x3 [200]",
+        "GET /api/live-chat/sessions x1 [200]",
+        "GET /api/merchant-applications/pending-count x3 [501]",
+        "GET /api/notifications/count x1 [200]",
+        "GET /api/outreach-queue/count x3 [501]",
+        "GET /api/rate-reviews/contact/:id x2 [501]",
+        "GET /api/sms-inbox/unread-count x1 [200]",
+        "GET /api/tasks/overdue-count x1 [200]"
+      ]
+    },
+    {
+      "label": "requests during actor-separation",
+      "shapes": [
+        "GET /api/admin/ghl-health x1 [501]",
+        "GET /api/auth/user x2 [200]",
+        "GET /api/contacts/:id/companies x1 [200]",
+        "GET /api/contacts/:id/confirmation-status x1 [200]",
+        "GET /api/contacts/:id/detail x2 [200,404]",
+        "GET /api/contacts/:id/nba x1 [200]",
+        "GET /api/contacts/:id/parent x1 [200]",
+        "GET /api/contacts/:id/suppression-status x1 [200]",
+        "GET /api/ghl/sync-status/contact/:id x1 [501]",
+        "GET /api/inbox/send-state x2 [200]",
+        "GET /api/live-chat/sessions x2 [200]",
+        "GET /api/merchant-applications/pending-count x1 [501]",
+        "GET /api/notifications/count x2 [200]",
+        "GET /api/outreach-queue/count x2 [501]",
+        "GET /api/rate-reviews/contact/:id x1 [501]",
+        "GET /api/sms-inbox/unread-count x2 [200,403]",
+        "GET /api/tasks/overdue-count x2 [200]"
+      ]
+    },
+    {
+      "label": "requests during permission-revocation",
+      "shapes": [
+        "GET /api/contacts/:id/detail x1 [404]",
+        "GET /api/inbox/send-state x1 [200]",
+        "GET /api/live-chat/sessions x1 [200]",
+        "GET /api/outreach-queue/count x1 [501]",
+        "GET /api/sms-inbox/unread-count x1 [403]"
+      ]
+    },
+    {
+      "label": "keyboard focus trail",
+      "trail": [
+        "A|link-sidebar-logo|named|box",
+        "A|link-sidebar-today|named|box",
+        "A|link-sidebar-records|named|box",
+        "A|link-sidebar-pipeline|named|box",
+        "A|link-sidebar-inbox|named|box",
+        "A|link-sidebar-work|named|box",
+        "A|link-sidebar-merchant-operations|named|box",
+        "A|link-sidebar-prospecting|named|box",
+        "A|link-sidebar-campaigns|named|box",
+        "A|link-sidebar-reports|named|box",
+        "A|link-sidebar-administration|named|box",
+        "A|link-sidebar-resources|named|box",
+        "BUTTON|button-sidebar-dev-mode|named|box",
+        "A|link-sidebar-ai-advisor|named|box",
+        "A|link-sidebar-security|named|box",
+        "BUTTON|button-sidebar-replay-tour|named|box",
+        "BUTTON|button-logout|named|box",
+        "BUTTON|button-sidebar-toggle|named|box",
+        "INPUT|input-universal-search|named|box",
+        "BUTTON|button-advanced-search|named|box",
+        "A|button-topbar-notifications|named|box",
+        "BUTTON|button-theme-toggle|named|box",
+        "BUTTON|button-tour-help|named|box",
+        "BUTTON|button-compose-email|named|box",
+        "BUTTON|button-ai-assistant-toggle|named|box",
+        "A|link-2fa-banner-setup|named|box",
+        "BUTTON|button-2fa-banner-dismiss|named|box",
+        "BUTTON|button-mark-all-read|named|box",
+        "BUTTON|button-clear-old-read|named|box",
+        "BUTTON|button-notification-settings|named|box"
+      ]
+    },
+    {
+      "label": "requests during keyboard",
+      "shapes": [
+        "GET /api/admin/ghl-health x1 [501]",
+        "GET /api/auth/user x1 [200]",
+        "GET /api/live-chat/sessions x1 [200]",
+        "GET /api/merchant-applications/pending-count x1 [501]",
+        "GET /api/notification-preferences x1 [200]",
+        "GET /api/notifications x1 [200]",
+        "GET /api/notifications/count x1 [200]",
+        "GET /api/outreach-queue/count x1 [501]",
+        "GET /api/sms-inbox/unread-count x1 [200]",
+        "GET /api/tasks/overdue-count x1 [200]"
+      ]
+    },
+    {
+      "label": "visibility and refusal matrix (HTTP, signed-in roles)",
+      "observed": [
+        {
+          "role": "admin",
+          "path": "/api/contacts?limit=50",
+          "status": 200,
+          "fixtureRowsReturned": true
+        },
+        {
+          "role": "manager",
+          "path": "/api/contacts?limit=50",
+          "status": 200,
+          "fixtureRowsReturned": true
+        },
+        {
+          "role": "agent",
+          "path": "/api/contacts?limit=50",
+          "status": 200,
+          "fixtureRowsReturned": false
+        },
+        {
+          "role": "merchant",
+          "path": "/api/contacts?limit=50",
+          "status": 403,
+          "fixtureRowsReturned": false
+        },
+        {
+          "role": "affiliate",
+          "path": "/api/contacts?limit=50",
+          "status": 403,
+          "fixtureRowsReturned": false
+        },
+        {
+          "role": "partner",
+          "path": "/api/contacts?limit=50",
+          "status": 403,
+          "fixtureRowsReturned": false
+        },
+        {
+          "role": "admin",
+          "path": "/api/deals",
+          "status": 200,
+          "fixtureRowsReturned": true
+        },
+        {
+          "role": "manager",
+          "path": "/api/deals",
+          "status": 200,
+          "fixtureRowsReturned": true
+        },
+        {
+          "role": "agent",
+          "path": "/api/deals",
+          "status": 200,
+          "fixtureRowsReturned": false
+        },
+        {
+          "role": "merchant",
+          "path": "/api/deals",
+          "status": 403,
+          "fixtureRowsReturned": false
+        },
+        {
+          "role": "affiliate",
+          "path": "/api/deals",
+          "status": 403,
+          "fixtureRowsReturned": false
+        },
+        {
+          "role": "partner",
+          "path": "/api/deals",
+          "status": 403,
+          "fixtureRowsReturned": false
+        },
+        {
+          "role": "admin",
+          "path": "/api/notifications",
+          "status": 200,
+          "fixtureRowsReturned": true
+        },
+        {
+          "role": "manager",
+          "path": "/api/notifications",
+          "status": 200,
+          "fixtureRowsReturned": false
+        },
+        {
+          "role": "agent",
+          "path": "/api/notifications",
+          "status": 200,
+          "fixtureRowsReturned": false
+        },
+        {
+          "role": "merchant",
+          "path": "/api/notifications",
+          "status": 200,
+          "fixtureRowsReturned": false
+        },
+        {
+          "role": "affiliate",
+          "path": "/api/notifications",
+          "status": 200,
+          "fixtureRowsReturned": false
+        },
+        {
+          "role": "partner",
+          "path": "/api/notifications",
+          "status": 200,
+          "fixtureRowsReturned": false
+        }
+      ]
+    },
+    {
+      "label": "requests during visibility-matrix",
+      "shapes": []
+    },
+    {
+      "label": "requests during claim-fencing",
+      "shapes": []
+    },
+    {
+      "label": "advisory-lock observation (statements waiting on or holding advisory locks during the run; peak concurrent backends)",
+      "waiting": [
+        {
+          "n": 18,
+          "q": "SELECT pg_advisory_xact_lock(hashtextextended($1, 1700))"
+        }
+      ],
+      "holding": [
+        {
+          "n": 1,
+          "q": "SELECT * FROM commercial_membership_revisions WHERE (left_subject_type || ':' || left_subject_id::text) IN ($1, $2) OR (right_subject_type || ':' || right_subject_id::text) IN ($3, $4) ORDER BY edge_type,left_subject_typ"
+        },
+        {
+          "n": 2,
+          "q": "SELECT r.id,r.survivor_contact_id,r.operation_id,o.status,o.reconciliation_status FROM contact_merge_redirects r JOIN contact_merge_operations o ON o.id=r.operation_id WHERE r.deprecated_contact_id=$1 AND r.active ORDER "
+        },
+        {
+          "n": 2,
+          "q": "SELECT pg_advisory_xact_lock(hashtextextended($1, 1700))"
+        },
+        {
+          "n": 1,
+          "q": "SELECT * FROM contact_business_link_decisions WHERE contact_id IN ($1) AND superseded_at IS NULL ORDER BY contact_id,business_id,id FOR UPDATE"
+        },
+        {
+          "n": 1,
+          "q": "SELECT * FROM contact_identity_observations WHERE contact_id IN ($1) AND superseded_at IS NULL ORDER BY contact_id,identity_kind,id FOR UPDATE"
+        },
+        {
+          "n": 1,
+          "q": "SELECT * FROM \"contacts\" WHERE id=$1 FOR UPDATE"
+        },
+        {
+          "n": 1,
+          "q": "SELECT mine.id FROM contact_identity_observations mine JOIN contact_identity_observations other ON other.identity_kind=mine.identity_kind AND other.lookup_token=mine.lookup_token AND other.contact_id<>mine.contact_id WHE"
+        }
+      ],
+      "settledBetweenScenarios": [
+        {
+          "before": "layout-and-names",
+          "waitedMs": 1,
+          "settled": true
+        },
+        {
+          "before": "zoom-200",
+          "waitedMs": 1,
+          "settled": true
+        },
+        {
+          "before": "workspace-identity",
+          "waitedMs": 1,
+          "settled": true
+        },
+        {
+          "before": "breakpoint-continuity",
+          "waitedMs": 30003,
+          "settled": false
+        },
+        {
+          "before": "late-response",
+          "waitedMs": 253,
+          "settled": true
+        },
+        {
+          "before": "actor-separation",
+          "waitedMs": 2,
+          "settled": true
+        },
+        {
+          "before": "permission-revocation",
+          "waitedMs": 1,
+          "settled": true
+        },
+        {
+          "before": "keyboard",
+          "waitedMs": 0,
+          "settled": true
+        },
+        {
+          "before": "visibility-matrix",
+          "waitedMs": 1,
+          "settled": true
+        },
+        {
+          "before": "claim-fencing",
+          "waitedMs": 1,
+          "settled": true
+        }
+      ]
+    }
+  ],
+  "timingsMsFixtureScale": {
+    "contact-record": 1825,
+    "pipeline": 1569,
+    "notifications": 1110,
+    "lead-ops-unregistered-sources": 1191
+  }
+}

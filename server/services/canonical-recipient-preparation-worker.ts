@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { websiteSourceNeedsOwnershipReview } from "@shared/source-domain-provenance";
+import { websiteOwnershipSourceTypesSql } from "./website-ownership-evidence-sql";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { effectiveBusinessVerticalSql } from "@shared/effective-vertical";
@@ -192,7 +193,7 @@ export async function processCanonicalRecipientPreparationTick(
     if (bindingsByContact.size) {
       const facts=rows(await timed("screen_query",()=>db.execute(sql`
         SELECT c.id AS contact_id,c.email,b.city,b.state,b.postal_code,b.website_domain,${sql.raw(contactSuppressedSql("c"))} AS suppressed,
-          COALESCE((SELECT array_agg(DISTINCT sl.source_type) FROM canonical_source_links sl WHERE sl.business_id=b.id),ARRAY[]::text[]) AS source_types,
+          ${sql.raw(websiteOwnershipSourceTypesSql("sl","b"))} AS source_types,
           EXISTS(SELECT 1 FROM contact_business_link_decisions l WHERE l.contact_id=c.id AND l.business_id=c.business_id
             AND l.decision='verified' AND l.superseded_at IS NULL) AS has_link,
           COALESCE((SELECT jsonb_agg(jsonb_build_object('id',bl.id,'is_primary',bl.is_primary,'city',bl.city,

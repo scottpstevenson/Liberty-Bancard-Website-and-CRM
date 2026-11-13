@@ -9,6 +9,7 @@ import { createPreferenceAwareNotification } from "../services/digest-service";
 import { serverError } from "../utils/server-error";
 import { authorizeContactAccess, authorizeDealAccess, denyCrmObject } from "../services/crm-object-access";
 import { readTaskMetrics } from "../services/task-read-authority";
+import { readTaskEvidence } from "../services/task-evidence";
 import { APP_TIMEZONE } from "../config";
 
 export async function authorizeTicketScope(req: any, res: any, ticket: { contactId: number | null }) {
@@ -137,6 +138,26 @@ export function registerTicketsTasksRoutes(app: Express) {
       if (!task) return void denyCrmObject(res);
       res.setHeader("Cache-Control", "no-store");
       res.json(task);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // Read-only evidence for ONE task: the website request (and retained file) recorded against it. The task is first
+  // authorized through the same actor-scoped exact read as `GET /api/tasks/:id`, so a task the actor cannot read is an
+  // indistinguishable 404 and no evidence is resolved. Evidence comes from recorded work links only, never description text.
+  app.get("/api/tasks/:id/evidence", isDashboardUser, async (req, res) => {
+    try {
+      const parsed = strictRecordId.safeParse(req.params.id);
+      if (!parsed.success || parsed.data > 2147483647) return res.status(400).json({ message: "Invalid task id" });
+      const [task] = await storage.getTasks({
+        taskId: parsed.data, limit: 1,
+        scope: { actor: req.user as any, asOf: new Date(), timezone: APP_TIMEZONE },
+      });
+      if (!task) return void denyCrmObject(res);
+      const evidence = await readTaskEvidence({ taskId: task.id, taskContactId: task.contactId ?? null, role: (req.user as any)?.role });
+      res.setHeader("Cache-Control", "no-store");
+      res.json(evidence);
     } catch (err: any) {
       serverError(res, err);
     }

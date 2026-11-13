@@ -26,8 +26,14 @@ export function focusedBoardStages(input: {
   selectedStage?: string | null;
   /** A stage opened from a count elsewhere (Reports). Only that stage shows, whatever the default focus would be. */
   pinnedStage?: string | null;
+  /** A cohort opened from a count elsewhere (Reports "Active Pipeline"): only these stages show, in the board's own order. */
+  onlyStages?: readonly string[] | null;
   countFor: (stage: string) => number;
 }): FocusedStages {
+  if (input.onlyStages && !input.pinnedStage) {
+    const visible = input.stages.filter((stage) => input.onlyStages!.includes(stage));
+    return { visible, hidden: [], total: input.stages.length };
+  }
   if (input.pinnedStage && input.stages.includes(input.pinnedStage)) {
     return { visible: [input.pinnedStage], hidden: [], total: input.stages.length };
   }

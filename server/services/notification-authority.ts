@@ -73,7 +73,8 @@ const STATEMENT_REVIEW_EVENT="statement_uploaded";
  * contact that is not yet classified as production, so a typed contact/deal/ticket target would silently hide the
  * notification from everyone; these events link to the request's review page by short reference instead.
  */
-const INBOUND_REVIEW_EVENTS=[STATEMENT_REVIEW_EVENT,"public_inquiry_received","support_request_received"];
+const INBOUND_REVIEW_EVENTS=[STATEMENT_REVIEW_EVENT,"public_inquiry_received","support_request_received",
+  "estimate_request_received","quiz_lead_received","callback_request_received"];
 const STATEMENT_REVIEW_LINK_PATTERN="^/dashboard/lead-ops\\?tab=pipeline&ref=[0-9A-F]{8}$";
 function readExpression(actor:Actor) {
   return sql<boolean>`COALESCE((SELECT s.read_at IS NOT NULL FROM notification_actor_states s
@@ -145,28 +146,46 @@ function typedTarget(metadata:any):{kind:string;id:number}|null {
   }
   return null; // Never infer an entity from a title, name or arbitrary URL.
 }
-function destination(metadata:any) {
+/** Operator-facing button text, named for what opens. Computed here so the page never guesses from a title or event name. */
+const ACTION_LABELS:Record<string,string>={contact:"Open contact",deal:"Open deal",task:"Open task",ticket:"Open ticket",rfi:"Open RFI"};
+const REQUEST_ACTION_LABEL="Open request";
+/** Same reference and link the producers write (`inboundShortRef`/`inboundReviewLink`); a test pins the parity. This module
+ *  cannot import them (storage imports this file), so the two one-line rules are repeated, never varied. */
+export function inboundReviewLinkFor(requestId:string) {
+  return `/dashboard/lead-ops?tab=pipeline&ref=${requestId.replace(/-/g,"").slice(0,8).toUpperCase()}`;
+}
+const requestReview=(url:string)=>({state:"available",url,context:"inbound_review",label:"Open Inbound Operations review",actionLabel:REQUEST_ACTION_LABEL});
+function destination(metadata:any,context:{inboundRequestId?:string|null;privileged?:boolean}={}) {
   if(INBOUND_REVIEW_EVENTS.includes(metadata?.eventType) && typeof metadata.link==="string"
     && new RegExp(STATEMENT_REVIEW_LINK_PATTERN).test(metadata.link))
-    return {state:"available",url:metadata.link,context:"inbound_review",label:"Open Inbound Operations review"};
+    return requestReview(metadata.link);
   const target=typedTarget(metadata);
   if(!target && metadata?.eventType && adminQueueLinks[metadata.eventType]===metadata?.link)
-    return {state:"available",url:metadata.link};
-  if(!target) return metadata?.link==="/dashboard" || ["daily","weekly"].includes(metadata?.digestType)
-    ? {state:"available",url:"/dashboard"}:{state:"unavailable",url:null};
+    return {state:"available",url:metadata.link,
+      actionLabel:metadata.eventType==="partner_application_received"?"Open application":"Open data request"};
+  if(!target && (metadata?.link==="/dashboard" || ["daily","weekly"].includes(metadata?.digestType)))
+    return {state:"available",url:"/dashboard",actionLabel:"Open dashboard"};
+  // A request notification written before its producer recorded a link still carries the immutable request it was created
+  // for (`inbound_request_id`). That recorded relationship, never a name, email or title, resolves it to the same review
+  // surface the request's own review link names; the surface re-authorizes by role. Rows with no recorded relationship stay
+  // explicitly unresolved.
+  if(!target && context.inboundRequestId && context.privileged)
+    return requestReview(inboundReviewLinkFor(context.inboundRequestId));
+  if(!target) return {state:"unavailable",url:null};
   // A task opens the exact selected task in Work (`taskId`), authorized by the
   // actor-scoped single-task read; an unreadable task shows an honest empty state there.
   const paths:Record<string,string>={contact:`/dashboard/contacts/${target.id}`,
     deal:`/dashboard/pipeline?id=${target.id}`,ticket:`/dashboard/tickets?id=${target.id}`,
     task:`/dashboard/tasks-appointments?tab=tasks&taskId=${target.id}`,rfi:`/dashboard/rfis?id=${target.id}`};
-  return {state:"available",url:paths[target.kind],...target};
+  return {state:"available",url:paths[target.kind],actionLabel:ACTION_LABELS[target.kind],...target};
 }
+const reviewerRole=(role:string|null|undefined)=>role==="admin" || role==="manager";
 export async function listActorNotifications(params:{userId?:string;limit:number;offset:number;category?:string}) {
   const actor=await currentActor(params.userId),where=scope(actor,params.category);
   const data=await db.select({...getTableColumns(notifications),read:readExpression(actor)}).from(notifications)
     .where(where).orderBy(desc(notifications.createdAt),desc(notifications.id)).limit(params.limit).offset(params.offset);
   const [total]=await db.select({n:sql<number>`count(*)::integer`}).from(notifications).where(where);
-  return {data:data.map(row=>({...row,target:destination(row.metadata)})),total:total.n};
+  return {data:data.map(row=>({...row,target:destination(row.metadata,{inboundRequestId:row.inboundRequestId,privileged:reviewerRole(actor.role)})})),total:total.n};
 }
 export async function countActorNotifications(userId?:string) {
   const actor=await currentActor(userId);
@@ -233,9 +252,9 @@ export async function bindNotificationAudience(input:typeof notifications.$infer
 }
 export async function resolveActorNotification(userId:string,id:number) {
   const actor=await currentActor(userId);
-  const [row]=await db.select({metadata:notifications.metadata}).from(notifications)
+  const [row]=await db.select({metadata:notifications.metadata,inboundRequestId:notifications.inboundRequestId}).from(notifications)
     .where(sql`${scope(actor)} AND ${notifications.id}=${id}`);
-  return row?destination(row.metadata):{state:"unavailable",url:null};
+  return row?destination(row.metadata,{inboundRequestId:row.inboundRequestId,privileged:reviewerRole(actor.role)}):{state:"unavailable",url:null};
 }
 export async function readActorRfi(userId:string,id:number) {
   const actor=await currentActor(userId);

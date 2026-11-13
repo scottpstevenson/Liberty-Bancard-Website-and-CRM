@@ -15,8 +15,20 @@ const eq = <T>(actual: T, expected: T, message: string) => { assert.deepEqual(ac
 
 // ── CRM-05: desktop -> mobile destination mapping never swaps a record for the home page ────────────────────────────
 eq(mobileDestinationFor("/dashboard", "", ""), { kind: "redirect", href: "/mobile" }, "plain overview maps to mobile home");
-eq(mobileDestinationFor("/dashboard/contacts/42", "?area=activity&section=history", "#notes"), { kind: "redirect", href: "/mobile/contacts/42#notes" },
-  "an open contact record reaches the same contact on mobile");
+eq(mobileDestinationFor("/dashboard/contacts/42", "", "#notes"), { kind: "redirect", href: "/mobile/contacts/42#notes" },
+  "an open contact record with no selector reaches the same contact on mobile");
+// R04: the mobile contact page cannot apply a record area, section or return context, so a link that names one is never
+// redirected to a page that shows something else; the exact address stays available for the desktop layout.
+for (const search of ["?area=activity&section=history", "?section=notes", "?area=activity", "?from=%2Fdashboard%2Ftasks-appointments%3Ftab%3Dtasks", "?area=activity&section=history&from=%2Fdashboard%2Fcomms-hub"]) {
+  const chosen = mobileDestinationFor("/dashboard/contacts/42", search, "#notes");
+  ok(chosen.kind === "choose", `a contact link naming ${search} is a choice, not a silent redirect`);
+  if (chosen.kind === "choose") {
+    eq(chosen.desktopHref, `/dashboard/contacts/42${search}#notes`, `the desktop address keeps ${search} and the fragment exactly`);
+    eq(chosen.mobileHref, "/mobile/contacts/42#notes", "the mobile choice opens the same contact, knowingly, not the home page");
+  }
+}
+const noticeSource = fs.readFileSync("client/src/components/crm/MobileDestinationNotice.tsx", "utf8");
+ok(/link-mobile-record/.test(noticeSource) && /without them/.test(noticeSource), "the notice tells the person the mobile record opens without the named section");
 for (const bad of ["abc", "0", "-3", "4.5", "99999999999999999999"]) {
   const result = mobileDestinationFor(`/dashboard/contacts/${bad}`, "", "");
   ok(result.kind === "choose", `invalid contact id ${bad} is not redirected anywhere`);

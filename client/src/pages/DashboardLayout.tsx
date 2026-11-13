@@ -108,7 +108,9 @@ import {
 } from "@/components/ui/sidebar";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { activeSidebarId, employeeSidebarFor, type SidebarIconKey } from "@/lib/employee-sidebar";
-import { PageHeadingOwnerProvider, ShellPageTitle } from "@/components/ui/page-header";
+import { PageHeadingOwnerProvider } from "@/components/ui/page-header";
+import { WorkspaceTitle } from "@/components/crm/WorkspaceTitle";
+import { noteRouteChange } from "@/lib/record-origin";
 import { EmployeeCrmProvider } from "@/components/crm/employee-crm-context";
 import { canShowMerchantOperationsNav, MerchantOperationsLayout } from "@/components/crm/MerchantOperationsNav";
 
@@ -516,6 +518,13 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
   });
   const outreachQueueCount = outreachQueueData?.count || 0;
 
+  // Remember which area opened a record (contact, company) so its Back control returns there. This runs while rendering, not in
+  // an effect, because the record page reads the origin in its own first render and children render after this component.
+  // It is idempotent: the same path again records nothing.
+  useMemo(() => {
+    noteRouteChange(user?.id, role, location, layoutSearch ? `${location}?${layoutSearch.replace(/^\?/, "")}` : location);
+  }, [location, layoutSearch, user?.id, role]);
+
   // #487 — Update page title with unread count (after counts are declared)
   useEffect(() => {
     const total = (notificationsUnreadCount || 0) + (smsUnreadCount || 0);
@@ -884,7 +893,7 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
           <header className="h-14 bg-background border-b flex items-center justify-between gap-2 sm:gap-4 px-3 sm:px-6 sticky top-0 z-50">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               <SidebarTrigger data-testid="button-sidebar-toggle" className="shrink-0" />
-              <ShellPageTitle label={currentLabel} className="font-display font-semibold text-base sm:text-lg truncate" />
+              <WorkspaceTitle role={role} location={location} search={layoutSearch} fallbackLabel={currentLabel} className="font-display font-semibold text-base sm:text-lg truncate" />
             </div>
             <div className="flex items-center gap-1 sm:gap-2 min-w-0">
               <div className="min-w-0">

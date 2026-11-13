@@ -18,10 +18,7 @@ import { FIRST_PARTY_BOOK_URL, resolveSalesBooking } from "../services/message-c
 import { serverError } from "../utils/server-error";
 
 import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
-import { db } from "../db";
-import { and, eq } from "drizzle-orm";
-import { inboundRequests, statementUploadCommands } from "@shared/schema";
-import { inboundShortRef } from "../services/inbound-request-authority";
+import { resolveStatementRequestByDocument } from "../services/statement-request-link";
 
 const DRAFT_STATUSES = ["received", "in_review", "ai_analyzed", "reviewed", "complete"] as const;
 const TRANSITIONS: Record<string, readonly string[]> = {
@@ -158,19 +155,20 @@ export function registerStatementReviewRoutes(app: Express) {
       // authorizeReview answers 404 itself for a missing review; short-circuiting on !review would leave the request hanging.
       if (!await authorizeReview(req, res, review)) return;
       res.setHeader("Cache-Control", "no-store");
-      if (!review.documentId) return res.json({ linked: false, reason: "no_document" });
-      const rows = await db.select({ id: inboundRequests.id })
-        .from(statementUploadCommands)
-        .innerJoin(inboundRequests, eq(inboundRequests.idempotencyKey, statementUploadCommands.requestId))
-        .where(and(
-          eq(statementUploadCommands.documentId, review.documentId),
-          eq(statementUploadCommands.operationScope, "statement_upload"),
-          eq(inboundRequests.sourceType, "statement_upload"),
-        ));
-      const ids = [...new Set(rows.map((row) => row.id))];
-      if (ids.length === 0) return res.json({ linked: false, reason: "no_request_recorded" });
-      if (ids.length > 1) return res.json({ linked: false, reason: "ambiguous", count: ids.length });
-      return res.json({ linked: true, requestReceipt: ids[0], shortRef: inboundShortRef(ids[0]) });
+      return res.json(await resolveStatementRequestByDocument(review.documentId ?? null));
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // GET /api/statement-documents/:documentId/request — the same recorded-command resolution for a retained document that
+  // has NO analyst review yet (the website request's own file link). Admin/manager only, read-only, exact or an honest reason.
+  app.get("/api/statement-documents/:documentId/request", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const documentId = /^[1-9]\d{0,9}$/.test(req.params.documentId) ? Number(req.params.documentId) : NaN;
+      if (!Number.isSafeInteger(documentId) || documentId > 2147483647) return res.status(400).json({ message: "Invalid document id" });
+      res.setHeader("Cache-Control", "no-store");
+      return res.json(await resolveStatementRequestByDocument(documentId));
     } catch (err: any) {
       serverError(res, err);
     }

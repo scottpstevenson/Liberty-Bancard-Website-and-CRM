@@ -11,8 +11,10 @@ import {
 import { SECONDARY_SALES_STAGES, dealCardFacts, focusedBoardStages } from "../client/src/lib/pipeline-focus";
 import { isOpenTicket, ticketCohortLabel, ticketInCohort } from "../client/src/lib/ticket-cohort";
 import {
-  buildPipelineStageHref, buildTicketCohortHref, pipelineStageSelection, reportDrilldowns, ticketCohortState, todayDestinations,
+  appointmentWindowState, buildAppointmentWindowHref, buildInboxWorkspaceHref, buildIntakeCohortHref, buildPipelineStageHref, buildTaskCohortHref,
+  buildTicketCohortHref, intakeCohortState, pipelineCohortState, pipelineStageSelection, reportDrilldowns, taskCohortState, ticketCohortState, todayDestinations,
 } from "../client/src/lib/crm-destination-state";
+import { appointmentsInWindow, formatAppointmentWindow } from "../client/src/lib/today-cockpit";
 
 let checks = 0;
 const ok = (value: unknown, message: string) => { assert.ok(value, message); checks++; };
@@ -33,7 +35,7 @@ const incompleteEmpty = unreadRow({ isLoading: false, isError: false, data: page
 ok(incompleteEmpty.value === null, "an empty but incomplete inbox is not zero");
 
 eq(intakeRow({ isLoading: false, isError: false, data: { needsReview: 3 } }).value, 3, "intake reports the server count");
-eq(intakeRow({ isLoading: false, isError: false, data: { needsReview: 3 } }).href, "/dashboard/lead-ops?tab=pipeline", "intake opens the existing Intake destination");
+eq(intakeRow({ isLoading: false, isError: false, data: { needsReview: 3 } }).href, "/dashboard/lead-ops?tab=pipeline&intake=needs_review", "intake opens the needs-review group, not the whole list");
 for (const data of [undefined, { needsReview: null }, { needsReview: Number.NaN }] as const) {
   eq(intakeRow({ isLoading: false, isError: false, data: data as never }).value, null, "an unreadable intake count is null, not zero");
 }
@@ -62,7 +64,8 @@ eq(appointmentRow({ isLoading: false, isError: false, data: { appointments: [] }
 eq(cockpitPermissions("agent"), { intake: false, unassigned: false }, "agents do not see management queues");
 eq(cockpitPermissions("manager"), { intake: true, unassigned: true }, "managers see them");
 eq(cockpitPermissions(undefined), { intake: false, unassigned: false }, "an unknown role sees none");
-eq(COCKPIT_DESTINATIONS.inbox, "/dashboard/comms-hub", "unread opens the Inbox");
+eq(COCKPIT_DESTINATIONS.inbox, "/dashboard/comms-hub?channel=all&filter=unread", "unread opens the Inbox filtered to unread, the filter the count read used");
+eq(buildInboxWorkspaceHref("/dashboard/comms-hub", { channel: "all", filter: "unread" }), COCKPIT_DESTINATIONS.inbox, "the Inbox codec builds the same link");
 
 const queue = read("client/src/components/dashboard/TodayWorkQueue.tsx");
 ok(queue.includes("enabled: permitted.intake") && queue.includes("enabled: permitted.unassigned"), "management reads are not even requested for agents");
@@ -155,5 +158,80 @@ for (const [file, id] of [["Tasks.tsx", "tasks-table"], ["Tickets.tsx", "table-t
   ok(new RegExp(`crm-dense-worklist[^"]*"[^>]*data-testid="${id}"`).test(read(`client/src/pages/dashboard/${file}`)), `${file} uses the dense worklist`);
 }
 ok(/crm-dense-worklist[^"]*"[^>]*data-testid="inbound-table"/.test(read("client/src/components/lead-ops/InboundRequestList.tsx")), "the intake list uses the dense worklist");
+
+// ── R05: every count action selects the counted population ──────────────────────────────────────────────────────────
+// Intake groups: one registered selector per group; the Today count, the Overview tile and the Intake list share it.
+eq(buildIntakeCohortHref("needs_review"), "/dashboard/lead-ops?tab=pipeline&intake=needs_review", "needs-review opens its own group");
+eq(buildIntakeCohortHref("statement_attention"), "/dashboard/lead-ops?tab=pipeline&intake=statement_attention", "statement attention opens its own group");
+eq(buildIntakeCohortHref("received", 14), "/dashboard/lead-ops?tab=pipeline&intake=received&intakeDays=14", "received carries the window the count used");
+eq(buildIntakeCohortHref("received", 500), "/dashboard/lead-ops?tab=pipeline&intake=received&intakeDays=7", "an out-of-range window falls back to the summary default");
+eq(intakeCohortState("?intake=received&intakeDays=14"), { cohort: "received", days: 14, issues: [] }, "received parses its window");
+eq(intakeCohortState("?intake=needs_review").days, null, "an all-time group has no window");
+ok(intakeCohortState("?intake=sideways").cohort === null && intakeCohortState("?intake=sideways").issues.length === 1, "an unknown intake group is reported, never widened");
+ok(intakeCohortState("?intake=received&intake=needs_review").cohort === null, "conflicting intake groups select nothing");
+ok(intakeCohortState("?intake=received&intakeDays=0").issues.length === 1, "an invalid window is reported");
+const website = read("client/src/components/dashboard/WebsiteRequestsSummary.tsx");
+for (const call of ['buildIntakeCohortHref("received", data.windowDays)', 'buildIntakeCohortHref("needs_review")', 'buildIntakeCohortHref("statement_attention")', 'requestTasks: "due_today"', 'requestTasks: "overdue"']) {
+  ok(website.includes(call), `the Overview tile opens its group: ${call}`);
+}
+ok(!/href: "\/dashboard\/(lead-ops|tasks-appointments)\?tab=(pipeline|tasks)"/.test(website), "no Website request tile opens an unfiltered list");
+const summarySrc = read("server/services/inbound-request-summary.ts");
+for (const kind of ["received", "needs_review", "statement_attention"]) ok(summarySrc.includes(`countOf(inboundIntakeCohortIds("${kind}", days))`), `the summary counts ${kind} with the cohort predicate`);
+for (const kind of ["due_today", "overdue"]) ok(summarySrc.includes(`countOf(inboundTaskCohortIds("${kind}"))`), `the summary counts ${kind} request tasks with the cohort predicate`);
+const leadOpsRoute = read("server/routes/lead-ops.ts");
+ok(leadOpsRoute.includes('"INVALID_COHORT"') && leadOpsRoute.includes("/api/lead-ops/inbound-requests/task-cohort"), "unknown groups are refused and the task ids are served for Work");
+ok(/inbound-requests\/task-cohort", requireRole\("admin", "manager"\)/.test(leadOpsRoute), "the task group read is admin/manager only");
+ok(read("server/services/inbound-request-authority.ts").includes("inboundIntakeCohortIds(input.cohort.kind"), "the Intake list filters with the counting predicate");
+
+// Request tasks in Work.
+eq(buildTaskCohortHref("/dashboard/tasks-appointments", { status: "all", due: "all", requestTasks: "due_today" }), "/dashboard/tasks-appointments?tab=tasks&requestTasks=due_today", "due-today request tasks open their group");
+eq(buildTaskCohortHref("/dashboard/tasks-appointments", { status: "all", due: "all", requestTasks: "overdue" }), "/dashboard/tasks-appointments?tab=tasks&requestTasks=overdue", "overdue request tasks open their own group");
+eq(taskCohortState("?requestTasks=overdue").requestTasks, "overdue", "the request task group parses");
+ok(taskCohortState("?requestTasks=never").issues.length === 1 && taskCohortState("?requestTasks=never").requestTasks === "all", "an unknown request task group is reported");
+eq(buildTaskCohortHref("/dashboard/tasks-appointments?tab=tasks&requestTasks=overdue&taskState=open", { status: "open", due: "all", owner: "all", requestTasks: "all" }), "/dashboard/tasks-appointments?tab=tasks&taskState=open", "clearing the group keeps the other selectors");
+const tasksPage = read("client/src/pages/dashboard/Tasks.tsx");
+ok(tasksPage.includes("/api/lead-ops/inbound-requests/task-cohort") && tasksPage.includes("work-request-cohort-unavailable") && tasksPage.includes("work-request-cohort-forbidden"), "Work reads the group ids and states unavailable and forbidden");
+ok(tasksPage.includes('cohort.requestTasks !== "all" && !(requestCohortIds?.has(t.id))'), "an unresolved group lists nothing instead of the unfiltered list");
+
+// Unassigned: open work, the population the Today row counted.
+eq(todayDestinations.unassignedTasks, "/dashboard/tasks-appointments?tab=tasks&taskState=open&taskOwner=unassigned", "unassigned opens open unowned work only");
+eq(taskCohortState("?taskState=open&taskOwner=unassigned"), { status: "open", due: "all", owner: "unassigned", requestTasks: "all", issues: [] }, "the open state is registered");
+ok(tasksPage.includes('filterStatus === "open" ? (t.status !== "pending" && t.status !== "in_progress")'), "Work's open state is pending or in progress, the Today predicate");
+
+// Appointments: the Today count and the Calendar list share one window and one predicate.
+const t0 = Date.parse("2026-11-11T15:00:00Z");
+const sample = [
+  { startTime: t0 - 60_000, status: "confirmed" },            // just started: not in the window
+  { startTime: t0, status: "confirmed" },                      // exactly at the start: in
+  { startTime: t0 + 6 * day + 23 * 3_600_000, status: "booked" }, // inside the last hour: in
+  { startTime: t0 + 7 * day, status: "confirmed" },            // exactly at the end: out (exclusive)
+  { startTime: t0 + day, status: "cancelled" }, { startTime: t0 + day, status: "no_show" },
+];
+eq(appointmentsInWindow(sample, t0, 7).length, 2, "start inclusive, end exclusive, cancelled and no-show excluded");
+eq(upcomingAppointmentCount({ appointments: sample }, new Date(t0), 7), appointmentsInWindow(sample, t0, 7).length, "the count is the window list's length");
+eq(appointmentsInWindow(sample, t0 + 120_000, 7).map((a) => a.startTime), [t0 + 6 * day + 23 * 3_600_000, t0 + 7 * day], "a later minute drops the appointment that has started and admits the one now inside");
+const apptHref = appointmentRow({ isLoading: false, isError: false, data: { appointments: sample } }, new Date(t0)).href;
+eq(apptHref, "/dashboard/tasks-appointments?tab=calendar&cal_window_from=2026-11-11T15%3A00%3A00.000Z&cal_window_days=7", "the row carries its exact window start");
+eq(appointmentWindowState(new URL(apptHref, "https://x.test").search), { from: "2026-11-11T15:00:00.000Z", days: 7 }, "the Calendar decodes the same window");
+eq(buildAppointmentWindowHref("2026-11-11T15:00:00Z", 7), apptHref, "the builder is the single encoder");
+for (const bad of ["?cal_window_from=2026-11-11&cal_window_days=7", "?cal_window_from=2026-11-11T15:00:00Z&cal_window_days=99", "?cal_window_from=2026-11-11T15:00:00Z", "?cal_window_from=nope&cal_window_days=7",
+  "?cal_window_from=2026-11-11T15:00:00Z&cal_window_from=2026-11-12T15:00:00Z&cal_window_days=7"]) eq(appointmentWindowState(bad), null, `an invalid window is refused: ${bad}`);
+// Local-midnight crossing: the label is in the business zone, not the device zone.
+eq(formatAppointmentWindow(Date.parse("2026-11-12T04:30:00Z"), 7), "Nov 11, 11:30 PM \u2013 Nov 18, 11:30 PM ET", "the window label is stated in Eastern time");
+ok(appointmentRow({ isLoading: false, isError: false, data: { appointments: sample } }, new Date(t0)).note?.includes("ET."), "the row states its window");
+const queueSrc = read("client/src/components/dashboard/TodayWorkQueue.tsx");
+ok(queueSrc.includes("setInterval(() => setNowMs(") && !queueSrc.includes("useMemo(() => {\n    const start = Math.floor(Date.now()"), "the appointment count's 'now' advances while Today stays open");
+ok(read("client/src/pages/dashboard/Calendar.tsx").includes("<AppointmentWindowPanel />"), "the Calendar lists the counted window");
+
+// Pipeline: Reports' Active Pipeline opens the open-stage cohort.
+eq(reportDrilldowns.pipeline, "/dashboard/pipeline?cohort=active", "Active Pipeline opens the open-stage cohort");
+eq(pipelineCohortState("?cohort=active"), { cohort: "active", issues: [] }, "the cohort parses");
+ok(pipelineCohortState("?cohort=everything").cohort === null && pipelineCohortState("?cohort=everything").issues.length === 1, "an unknown pipeline cohort is reported");
+const openStages = ["New Lead", "Enriched", "Statement Received", "Review In Progress", "Call Booked", "Proposal Sent", "Negotiation / Follow-Up", "Verbal Commit", "Promise to Submit"];
+const boardStagesAll = [...openStages, "Closed Won", "Closed Lost", "Nurture / Not Now", "Legacy Stage"];
+eq(focusedBoardStages({ stages: boardStagesAll, showAll: true, onlyStages: openStages, countFor: () => 0 }).visible, openStages, "the cohort shows exactly the open stages, whatever 'show all' says");
+eq(focusedBoardStages({ stages: boardStagesAll, showAll: false, onlyStages: openStages, pinnedStage: "Closed Won", countFor: () => 0 }).visible, ["Closed Won"], "an explicit stage pin still wins");
+ok(pipeline.includes('data-testid="pipeline-active-cohort"') && pipeline.includes("OPEN_SALES_LEAD_STAGES"), "the Pipeline names the open-stage cohort and uses the schema's open stages");
+ok(read("server/services/revenue-read-authority.ts").includes('d_qa.id = d.contact_id AND ${syntheticQaIdentitySql("d_qa")}'), "the Active Pipeline count excludes the same QA fixtures as the Pipeline list");
 
 console.log(`phase6 today pipeline reports: ${checks} checks passed`);

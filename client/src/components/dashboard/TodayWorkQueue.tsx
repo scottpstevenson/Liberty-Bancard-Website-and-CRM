@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -10,6 +10,7 @@ import {
 } from "@/lib/today-cockpit";
 
 const HOUR_MS = 3_600_000;
+const MINUTE_MS = 60_000;
 
 /**
  * The part of Today that answers "what needs me now" beyond due tasks: unread conversations, new website requests,
@@ -18,11 +19,18 @@ const HOUR_MS = 3_600_000;
  */
 export function TodayWorkQueue({ role }: { role: string | null | undefined }) {
   const permitted = cockpitPermissions(role);
-  // The window is anchored to the hour so the query identity is stable between renders and refetches.
-  const range = useMemo(() => {
-    const start = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
-    return { start: new Date(start).toISOString(), end: new Date(start + 7 * 24 * HOUR_MS).toISOString(), anchoredAt: start };
+  // "Now" advances every minute while Today is open, so an appointment that has just started leaves the count instead of
+  // being evaluated against the instant the page mounted. The read window is hour-anchored so the query identity stays
+  // stable; it reaches one hour before and after the counted window, and the count itself uses the minute anchor.
+  const [nowMs, setNowMs] = useState(() => Math.floor(Date.now() / MINUTE_MS) * MINUTE_MS);
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Math.floor(Date.now() / MINUTE_MS) * MINUTE_MS), MINUTE_MS);
+    return () => clearInterval(timer);
   }, []);
+  const hourStart = Math.floor(nowMs / HOUR_MS) * HOUR_MS;
+  const range = useMemo(() => ({
+    start: new Date(hourStart).toISOString(), end: new Date(hourStart + 7 * 24 * HOUR_MS + HOUR_MS).toISOString(),
+  }), [hourStart]);
 
   const unread = useQuery<InboxSourcePage>({
     queryKey: ["/api/inbox/items", "today-queue", { channel: "all", filter: "unread", limit: 30 }],
@@ -60,7 +68,7 @@ export function TodayWorkQueue({ role }: { role: string | null | undefined }) {
     unreadRow(unread),
     ...(permitted.intake ? [intakeRow(intake)] : []),
     ...(permitted.unassigned ? [unassignedRow(tasks)] : []),
-    appointmentRow(appointments, new Date(range.anchoredAt)),
+    appointmentRow(appointments, new Date(nowMs)),
   ];
   const stamps = [unread.dataUpdatedAt, permitted.intake ? intake.dataUpdatedAt : 0, permitted.unassigned ? tasks.dataUpdatedAt : 0, appointments.dataUpdatedAt].filter(Boolean);
   const asOf = stamps.length ? new Date(Math.min(...stamps)) : null;

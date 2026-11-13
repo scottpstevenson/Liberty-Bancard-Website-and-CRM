@@ -2813,8 +2813,8 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
       const contactId = Number(req.params.id);
       if (!Number.isFinite(contactId)) return res.status(400).json({ message: "Invalid contact ID" });
 
-      const contact = await storage.getContact(contactId);
-      if (!contact) return res.status(404).json({ message: "Contact not found" });
+      // The same object-access owner as the contact record itself: an agent never reads another owner's receipts.
+      if (!await authorizeContactAccess(req, res, contactId)) return;
 
       const logs = await storage.getAuditLogsByEntity("contact", contactId, 20);
       const zbLogs = logs

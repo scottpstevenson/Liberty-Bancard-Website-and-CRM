@@ -25,13 +25,17 @@ const { getQueryFn } = await import("@/lib/queryClient");
 // unintended mutations (anything but GET) are visible to the assertions.
 let releaseMode: "revoked" | "expired" | "open" | "none" | "fail" | "denied" = "fail";
 const requests: Array<{ method: string; path: string }> = [];
+let backlogDelayMs = 0;
 const rec = (id: string, extra: any = {}) => ({ releaseId: id, releasedAt: "2026-10-10T00:00:00Z", admissionClosesAt: "2026-10-11T00:00:00Z",
   journeyExpiresAt: "2026-10-24T00:00:00Z", admissionClosedAt: null, journeyEndedAt: null, revokedAt: null, enrollmentIds: [1], ...extra });
 globalThis.fetch = (async (input: any, init: any = {}) => {
   const url = new URL(String(input), "http://localhost");
   requests.push({ method: (init.method ?? "GET").toUpperCase(), path: url.pathname });
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-  if (url.pathname === "/api/canonical-enrichment/backlog") return json({ message: "enrichment backlog is unavailable; nothing was counted" }, 503);
+  if (url.pathname === "/api/canonical-enrichment/backlog") {
+    if (backlogDelayMs) await new Promise(resolve => setTimeout(resolve, backlogDelayMs));
+    return json({ message: "enrichment backlog is unavailable; nothing was counted" }, 503);
+  }
   if (url.pathname === "/api/canonical-enrichment/launch-inventory") return json({ message: "inventory down" }, 503);
   if (url.pathname === "/api/canonical-enrichment/release") {
     if (releaseMode === "fail") return json({ message: "boom" }, 500);
@@ -138,5 +142,34 @@ await act(async () => root.unmount());
   const notStaged = await render({ ...base, staged: null });
   assert.ok(notStaged.includes("Staged emails were not processed in that pass."), "null staged means not processed");
 }
+// 6. The backlog aggregate changing state never restarts the launch inventory read. The inventory fails while the backlog
+//    is still loading; when the backlog then fails (loading -> error, a different layout), the failed inventory read is
+//    the same mounted component and is not requested again. Only the operator's own Retry sends another request.
+{
+  const inventoryRequests = () => requests.filter(r => r.path === "/api/canonical-enrichment/launch-inventory").length;
+  requests.length = 0;
+  releaseMode = "none";
+  backlogDelayMs = 400;
+  root = await mount();
+  await waitFor(() => !!byTest("launch-inventory-unavailable"), "inventory failed while the backlog is still loading");
+  assert.ok(byTest("canonical-backlog-loading"), "the backlog is still loading when the inventory has already failed");
+  const inventoryNode = byTest("launch-inventory-unavailable");
+  await waitFor(() => !!byTest("backlog-unavailable"), "the backlog then fails");
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 150)); });
+  assert.equal(inventoryRequests(), 1, `one inventory request for one entrance, not one per layout change (saw ${inventoryRequests()})`);
+  assert.ok(inventoryNode!.isConnected && byTest("launch-inventory-unavailable") === inventoryNode,
+    "the same inventory notice element stays mounted across the backlog loading -> error change");
+  assert.equal(requests.filter(r => r.path === "/api/canonical-enrichment/release").length, 1, "the release read is not restarted either");
+  const retryInventory = [...document.querySelectorAll('[data-testid="launch-inventory-unavailable"] button')]
+    .find(b => /Retry/.test(b.textContent ?? "")) as HTMLButtonElement | undefined;
+  assert.ok(retryInventory, "the inventory failure offers its own Retry");
+  await act(async () => { retryInventory!.click(); });
+  await waitFor(() => inventoryRequests() === 2, "an explicit Retry sends exactly one more inventory request");
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 100)); });
+  assert.equal(inventoryRequests(), 2, "a single Retry is a single request");
+  backlogDelayMs = 0;
+  await act(async () => root.unmount());
+}
+
 console.log("CANONICAL_BACKLOG_UI_PASS");
 process.exit(0);

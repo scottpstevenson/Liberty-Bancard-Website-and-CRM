@@ -44,42 +44,42 @@ These map business events to GHL automation workflows. All are optional — the 
 
 | Variable | Trigger |
 |---|---|
-| `GHL_WORKFLOW_INBOUND_LEAD` | New inbound lead (get-started, free-analysis, estimate, cost-quiz forms). Sends welcome email + SMS with booking link; 24h follow-up if no booking. |
-| `GHL_WORKFLOW_INBOUND_CONFIRMATION` | Inbound lead multi-step nurture / confirmation sequence. |
-| `GHL_WORKFLOW_STATEMENT_REVIEW` | Statement uploaded — sends confirmation and schedules AI savings review. |
-| `GHL_WORKFLOW_CALLBACK` | Callback request submitted — creates sales task and sends confirmation SMS. |
+| `GHL_WORKFLOW_INBOUND_LEAD` | Legacy reference slot. Replit does not enroll contacts here; a saved ID starts no message. |
+| `GHL_WORKFLOW_INBOUND_CONFIRMATION` | Reference slot. A submitted web form is confirmed by the request receipt Replit sends, not by a GHL workflow. |
+| `GHL_WORKFLOW_STATEMENT_REVIEW` | Reference slot. Statement uploads are received, held and reviewed in Replit; this slot starts no analysis. |
+| `GHL_WORKFLOW_CALLBACK` | Reference slot. Callback requests create the follow-up task in Replit; this slot sends no confirmation text. |
 
 ### Onboarding Events
 
 | Variable | Trigger |
 |---|---|
-| `GHL_WORKFLOW_MERCHANT_APP` | Merchant application submitted — sends confirmation, triggers e-sign, begins onboarding. |
-| `GHL_WORKFLOW_MERCHANT_APPROVED` | Merchant profile approved — sends portal welcome email with MID and next steps. |
-| `GHL_WORKFLOW_PARTNER_WELCOME` | Partner approved — sends welcome email with portal access and referral instructions. |
-| `GHL_WORKFLOW_AFFILIATE_WELCOME` | New affiliate signup — sends portal access and referral instructions. |
-| `GHL_WORKFLOW_EQUIPMENT_ORDER` | Equipment order placed — sends order confirmation with setup timeline. |
+| `GHL_WORKFLOW_MERCHANT_APP` | Handoff slot. Merchant application recorded — Replit can enroll the contact; skipped and reported as not sent when no ID is saved. |
+| `GHL_WORKFLOW_MERCHANT_APPROVED` | Merchant profile approved — Replit triggers it when the ID and the contact's GHL record exist; otherwise portal access goes by direct email. |
+| `GHL_WORKFLOW_PARTNER_WELCOME` | Reference slot. Partner approval and portal access are handled in Replit. |
+| `GHL_WORKFLOW_AFFILIATE_WELCOME` | Handoff slot. Affiliate signup recorded — Replit can enroll the contact; skipped and reported as not sent when no ID is saved. |
+| `GHL_WORKFLOW_EQUIPMENT_ORDER` | Reference slot. Equipment orders are tracked in Replit. |
 
 ### Scheduling
 
 | Variable | Trigger |
 |---|---|
-| `GHL_WORKFLOW_BOOKING_CONFIRM` | Appointment booked — sends confirmation email + SMS with 24h and 1h reminders. |
+| `GHL_WORKFLOW_BOOKING_CONFIRM` | Handoff slot. Appointment booked in Replit — Replit can pass the booking on. The 24-hour reminder is its own slot; no 1-hour reminder has a CRM-side owner. |
 | `GHL_WORKFLOW_REMINDER` | 24-hour appointment reminder. |
-| `GHL_WORKFLOW_NO_SHOW` | Appointment no-show — sends reschedule link. |
+| `GHL_WORKFLOW_NO_SHOW` | Handoff slot. Appointment recorded as a no-show — Replit can pass it on. |
 
 ### Sales Nurture
 
 | Variable | Trigger |
 |---|---|
-| `GHL_WORKFLOW_POST_CALL` | Sales call completed — sends recap, proposal, and next steps. |
-| `GHL_WORKFLOW_PROPOSAL_FOLLOWUP` | Proposal delivered — Day 1 check, Day 3 nudge, Day 7 urgency sequence. |
-| `GHL_WORKFLOW_LONG_NURTURE` | Long-term nurture enrolled — monthly education-focused touch sequence. |
+| `GHL_WORKFLOW_POST_CALL` | Handoff slot. Sales call recorded as completed — Replit can pass it on. |
+| `GHL_WORKFLOW_PROPOSAL_FOLLOWUP` | Handoff slot. Proposal recorded as sent — Replit can pass it on. |
+| `GHL_WORKFLOW_LONG_NURTURE` | Handoff slot. Long-term nurture is a deliberate handoff and never overrides consent, suppression or the outbound pause. |
 
 ### Support
 
 | Variable | Trigger |
 |---|---|
-| `GHL_WORKFLOW_SUPPORT_TICKET` | Support ticket created — assigns to support team, sends acknowledgment. |
+| `GHL_WORKFLOW_SUPPORT_TICKET` | Reference slot. Support requests are recorded and assigned in Replit. |
 
 ### SDR Cold Outbound (by Vertical)
 

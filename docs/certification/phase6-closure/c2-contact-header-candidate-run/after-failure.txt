@@ -1,0 +1,106 @@
+Toggle Sidebar
+Dashboard
+Protect your account by enabling two-factor authentication (2FA).
+Set up 2FA
+Back to Contacts
+Records / Contact
+Header Fixture
+Person: Header Fixture
+Business: Liberty fixture (Business name as entered; relationship not verified)
+stage3b-a93f7b76-53d1-42f4-8b0a-10bee3344147@example.test
++19080890717
+Owner: stage3b-a93f7b76-53d1-42f4-8b0a-10bee3344147-agent@example.test
+Automotive
+New
+Lifecycle: Prospect
+Email consent: Not recorded (unknown, not a refusal)
+SMS consent: Not recorded (unknown, not a refusal)
+Email status: valid
+Outbound paused
+No control row found — fail-closed default
+
+Next action: No next action scheduled
+
+Log Call
+Add Note
+New Task
+More actions
+Overview
+Sales work
+Conversations
+Lifecycle
+Service & performance
+Validation, readiness & record diagnostics
+Associated Companies
+Link Company
+
+No companies linked yet
+
+Activity
+History
+Summary
+Relationships
+Locations
+NO ACTION
+low
+Blocked
+system
+global pause active
+
+Outbound communications are globally paused.
+
+This recommendation is blocked. No action or outreach can be started from this card.
+
+Cold
+Automotive
+Unknown
+Never
+None scheduled
+0
+Contact Details
+Vertical
+Automotive
+Monthly Volume
+—
+Current Provider
+—
+Preferred Channel
+—
+Primary Offer Path
+—
+Interested in 0%
+No
+Needs Terminal
+No
+SMS Consent
+Not recorded (unknown, not a refusal)
+Email Consent
+Not recorded (unknown, not a refusal)
+Do Not Contact
+No
+Assigned Rep
+stage3b-a93f7b76-53d1-42f4-8b0a-10bee3344147-agent
+Lifecycle State
+PROSPECT
+Summary
+Total Deals
+0
+Total Deal Volume
+$0/mo
+Open Tickets
+0
+Pending Tasks
+0
+Days Since Added
+0d
+Decision Maker
+Not a Decision Maker
+Mark as DM
+Compliance & Suppression
+Do Not Contact
+Opted Out
+Unsubscribed
+Hard Bounce
+Complaint
+SMS Consent
+Mark Do Not Contact

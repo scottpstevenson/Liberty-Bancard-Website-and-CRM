@@ -6,7 +6,7 @@
  */
 import { inboxSummary } from "./mobile-more-summary";
 import type { InboxSourcePage } from "./inbox-source";
-import { todayDestinations } from "./crm-destination-state";
+import { buildAppointmentWindowHref, buildInboxWorkspaceHref, buildIntakeCohortHref, todayDestinations } from "./crm-destination-state";
 import { summarizeUnassigned } from "./unassigned-work";
 
 export type CockpitRowState = "loading" | "unavailable" | "ready" | "partial";
@@ -24,10 +24,11 @@ export type CockpitRow = {
   tone: "alert" | "normal";
 };
 
+/** Each row opens the population it counted: unread conversations, the needs-review intake group, open unowned tasks, and the
+ *  exact appointment window (the window's start is carried in the link, see appointmentRow). */
 export const COCKPIT_DESTINATIONS = {
-  inbox: "/dashboard/comms-hub",
-  intake: "/dashboard/lead-ops?tab=pipeline",
-  appointments: "/dashboard/tasks-appointments?tab=calendar",
+  inbox: buildInboxWorkspaceHref("/dashboard/comms-hub", { channel: "all", filter: "unread" }),
+  intake: buildIntakeCohortHref("needs_review"),
   unassigned: todayDestinations.unassignedTasks,
 } as const;
 
@@ -87,24 +88,38 @@ export type AppointmentRangeRead = {
 };
 const INACTIVE_APPOINTMENT = /^(cancel+ed|no_?show|invalid)$/i;
 
-export function upcomingAppointmentCount(data: AppointmentRangeRead, now: Date, days: number): number {
-  const from = now.getTime(), to = from + days * 86_400_000;
-  return (data.appointments ?? []).filter((appointment) => {
+/** Active appointments starting in [from, from + days). The Today count and the Calendar window list both use this. */
+export function appointmentsInWindow<T extends { startTime?: string | number | null; status?: string | null }>(
+  appointments: readonly T[] | undefined, fromMs: number, days: number,
+): T[] {
+  const to = fromMs + days * 86_400_000;
+  return (appointments ?? []).filter((appointment) => {
     if (INACTIVE_APPOINTMENT.test(String(appointment.status ?? ""))) return false;
     const start = typeof appointment.startTime === "number" ? appointment.startTime : Date.parse(String(appointment.startTime ?? ""));
-    return Number.isFinite(start) && start >= from && start < to;
-  }).length;
+    return Number.isFinite(start) && start >= fromMs && start < to;
+  });
+}
+
+export function upcomingAppointmentCount(data: AppointmentRangeRead, now: Date, days: number): number {
+  return appointmentsInWindow(data.appointments, now.getTime(), days).length;
+}
+
+/** "Nov 12, 3:00 PM – Nov 19, 3:00 PM ET": the exact window a count or list covers, in the business time zone. */
+export function formatAppointmentWindow(fromMs: number, days: number): string {
+  const format = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return `${format.format(new Date(fromMs))} \u2013 ${format.format(new Date(fromMs + days * 86_400_000))} ET`;
 }
 
 export function appointmentRow(read: Read<AppointmentRangeRead>, now: Date, days = 7): CockpitRow {
-  const base = { key: "appointments" as const, label: `Appointments in the next ${days} days`, href: COCKPIT_DESTINATIONS.appointments, cta: "Open calendar" };
+  const base = { key: "appointments" as const, label: `Appointments in the next ${days} days`,
+    href: buildAppointmentWindowHref(now.toISOString(), days), cta: "Open calendar" };
   if (read.isLoading) return { ...base, value: null, qualifier: null, state: "loading", note: null, tone: "normal" };
   if (read.isError || !read.data) return { ...base, value: null, qualifier: null, state: "unavailable", note: "Appointments could not be read. This is not an all-clear.", tone: "normal" };
   if (read.data.configured === false || read.data.status === "not_configured") {
     return { ...base, value: null, qualifier: null, state: "unavailable", note: "The sales calendar is not connected, so appointments cannot be counted.", tone: "normal" };
   }
   return { ...base, value: upcomingAppointmentCount(read.data, now, days), qualifier: null, state: "ready",
-    note: "Sales calendar, excluding cancelled and no-show appointments.", tone: "normal" };
+    note: `${formatAppointmentWindow(now.getTime(), days)}. Sales calendar, excluding cancelled and no-show appointments.`, tone: "normal" };
 }
 
 export function cockpitRowText(row: CockpitRow): string {

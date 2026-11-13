@@ -904,6 +904,7 @@ export default function CommsHub() {
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
               <Input
                 placeholder="Search loaded messages"
+                aria-label="Search loaded messages"
                 value={search}
                 onChange={(e) => changeWorkspace({ search: e.target.value, thread: "" }, true)}
                 className="pl-8 h-8 text-sm"

@@ -110,7 +110,10 @@ const draftEnd = statementRoutes.indexOf("\n  // POST /api/statement-reviews —
 const draftRoute = draftStart >= 0 && draftEnd > draftStart ? statementRoutes.slice(draftStart, draftEnd) : "";
 ok(draftRoute.includes("if (!await authorizeReview(req, res, review, true)) return;") && !/!review\s*\|\|/.test(draftRoute),
   "generating a follow-up draft for a missing or invisible review answers 404 instead of leaving the request open");
-ok(statementRoutes.includes('eq(statementUploadCommands.operationScope, "statement_upload")') && statementRoutes.includes('reason: "ambiguous"'), "the link comes only from the recorded upload command and an ambiguous record is not guessed");
+const requestLinkService = read("server/services/statement-request-link.ts");
+ok(requestLinkService.includes('eq(statementUploadCommands.operationScope, "statement_upload")') && requestLinkService.includes('reason: "ambiguous"'), "the link comes only from the recorded upload command and an ambiguous record is not guessed");
+ok(statementRoutes.includes("resolveStatementRequestByDocument(review.documentId ?? null)"), "the review's request link uses the one recorded-command resolver");
+ok(statementRoutes.includes('app.get("/api/statement-documents/:documentId/request", requireRole("admin", "manager")'), "a retained document with no review resolves its exact request through the same resolver, for management roles only");
 
 // ── Unmapped inbox rows and notification target ─────────────────────────────────────────────────────────────────────
 eq(inboxRowOpenState({ channel: "email", contactId: null, detailAccess: "unmapped_contact" }), { openable: false, reason: UNMAPPED_INBOX_ROW_MESSAGE }, "the server's unmapped answer wins");

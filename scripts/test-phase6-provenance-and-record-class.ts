@@ -17,6 +17,7 @@ import {
 import { dealReadPredicate } from "../server/services/revenue-read-authority";
 import { countPendingMerchantApplications, listMerchantApplicationsPage } from "../server/services/merchant-application-read-model";
 import { getRecordClassReviewCohorts, sourceDomainMatchSql } from "../server/services/record-class-review-cohorts";
+import { WEBSITE_NOT_CONFIRMED_SUFFIX, websiteOwnershipSourceTypesSql } from "../server/services/website-ownership-evidence-sql";
 import { recordClassBadge } from "../client/src/lib/record-class";
 
 let checks = 0;
@@ -54,6 +55,11 @@ for (const file of ["server/services/canonical-recipient-preparation.ts", "serve
   ok(read(file).includes("websiteSourceNeedsOwnershipReview"), `${file} applies the website ownership gate`);
 }
 ok(read("server/services/canonical-recipient-preparation.ts").includes("WEBSITE_SOURCE_OWNERSHIP_REVIEW_REQUIRED"), "the writer holds with a named reason");
+for (const file of ["server/services/canonical-recipient-preparation.ts", "server/services/canonical-recipient-preparation-worker.ts", "server/services/sfp-launch-inventory.ts", "server/services/record-class-review-cohorts.ts"]) {
+  const text = read(file);
+  ok(text.includes("website-ownership-evidence-sql"), `${file} reads source types through the evidence-qualified helper`);
+  ok(!/array_agg\(DISTINCT (s|sl)\.source_type\) FROM canonical_source_links/.test(text), `${file} no longer offers raw source types to the website gate`);
+}
 ok(read("server/services/revenue-read-authority.ts").includes("syntheticQaIdentitySql(`${alias}_qa`)"), "deal reads use the same QA signature as People");
 
 // ── SQL parity: the review read classifies hosts exactly like the TypeScript rule ──
@@ -85,7 +91,60 @@ const insertApplication = async (contactId: number | null) =>
   String(rows(await db.execute(sql`INSERT INTO merchant_applications (contact_id,legal_business_name,status)
     VALUES (${contactId},${`${tag} Co`},'submitted') RETURNING id`))[0].id);
 
+// Website-ownership fixtures: one directory-host business per case, so each case is judged independently.
+const insertBusiness = async (label: string, website: string | null) =>
+  Number(rows(await db.execute(sql`INSERT INTO businesses (canonical_name,normalized_name,website_domain,record_class)
+    VALUES (${`${tag} ${label}`},${`${tag.toLowerCase()} ${label.toLowerCase()}`},${website},'canonical') RETURNING id`))[0].id);
+const insertLink = async (businessId: number, sourceSystem: string, sourceType: string, evidenceHost: string | null | undefined) =>
+  db.execute(sql`INSERT INTO canonical_source_links (business_id,source_system,source_type,stable_key,raw_evidence)
+    VALUES (${businessId},${sourceSystem},${sourceType},${`${tag}-${randomUUID()}`},
+      ${evidenceHost === undefined ? null : JSON.stringify({ representation: "source_family_identity_v1", businessEvidence: evidenceHost === null ? {} : { websiteDomain: evidenceHost } })}::jsonb)`);
+const bUnrelated = await insertBusiness("Unrelated", "yelp.com");
+const bSilent = await insertBusiness("Silent", "yelp.com");
+const bNoEvidence = await insertBusiness("NoEvidence", "yelp.com");
+const bMatched = await insertBusiness("Matched", "www.Yelp.com");
+const bMatchedUrl = await insertBusiness("MatchedUrl", "https://www.Yelp.com/biz/example/");
+const bMatchedGov = await insertBusiness("MatchedGov", "miamidade.gov");
+const bProviderOnly = await insertBusiness("ProviderOnly", "yelp.com");
+const bNoSource = await insertBusiness("NoSource", "yelp.com");
+const bOrdinary = await insertBusiness("Ordinary", "joesplumbing.example");
+await insertLink(bUnrelated, "crm", "organization_location", "someone-elses-plumbing.com");
+await insertLink(bUnrelated, "crm", "crm_organization", "another-unrelated-site.org");
+await insertLink(bSilent, "crm", "organization_location", null);
+await insertLink(bNoEvidence, "registry", "organization", undefined);
+await insertLink(bMatched, "crm", "organization_location", "yelp.com");
+await insertLink(bMatchedUrl, "crm", "organization_location", "yelp.com");
+await insertLink(bMatchedGov, "crm", "crm_organization", "WWW.MiamiDade.gov/");
+await insertLink(bProviderOnly, "outscraper", "place", "yelp.com");
+const gateTypes = async (businessId: number): Promise<string[]> =>
+  rows(await db.execute(sql`SELECT ${sql.raw(websiteOwnershipSourceTypesSql("sl", "b"))} AS types FROM businesses b WHERE b.id=${businessId}`))[0].types.slice().sort();
+const gateHeld = async (businessId: number, website: string | null) => websiteSourceNeedsOwnershipReview(website, await gateTypes(businessId));
+
 try {
+  // Website ownership (CRM-10): an independent type clears a directory/government hold only when its recorded evidence names
+  // this business's website host. Recorded policy: domain ownership as recorded by an independent source.
+  eq(await gateTypes(bUnrelated), [`crm_organization${WEBSITE_NOT_CONFIRMED_SUFFIX}`, `organization_location${WEBSITE_NOT_CONFIRMED_SUFFIX}`],
+    "unrelated organization links are offered as not confirming this website");
+  eq(await gateHeld(bUnrelated, "yelp.com"), true, "NEGATIVE: unrelated organization sources do not clear the directory-host hold");
+  eq(await gateHeld(bSilent, "yelp.com"), true, "NEGATIVE: an organization link whose evidence records no website does not clear the hold");
+  eq(await gateHeld(bNoEvidence, "yelp.com"), true, "NEGATIVE: an organization link with no evidence at all does not clear the hold");
+  eq(await gateHeld(bProviderOnly, "yelp.com"), true, "a provider place link never clears the hold");
+  eq(await gateHeld(bNoSource, "yelp.com"), true, "a directory host with no source links is held");
+  eq(await gateHeld(bMatched, "www.Yelp.com"), false, "POSITIVE: an organization link recording the same host (www and case ignored) clears it");
+  eq(await gateHeld(bMatchedUrl, "https://www.Yelp.com/biz/example/"), false, "POSITIVE: scheme, www, case and path are ignored when comparing hosts");
+  eq(await gateHeld(bMatchedGov, "miamidade.gov"), false, "POSITIVE: a CRM organization link recording the same government host clears it");
+  eq(await gateHeld(bOrdinary, "joesplumbing.example"), false, "an ordinary website is never held by this rule");
+  ok((await gateTypes(bProviderOnly)).join() === "place", "other source types pass through unchanged");
+
+  // The review cohort uses the same rule: held businesses stay listed, a confirmed one leaves the list.
+  const directory = (await getRecordClassReviewCohorts()).directoryDomainBusinesses as any;
+  ok(directory.available === true, "the directory-host review cohort is available");
+  const listed = new Set<number>(directory.sample.map((r: any) => r.businessId));
+  // The sample is bounded (newest first); fixtures are the newest rows, so the held ones must be listed and the cleared must not.
+  for (const id of [bUnrelated, bSilent, bNoEvidence, bProviderOnly, bNoSource]) ok(listed.has(id), `held business ${id} stays in the review cohort`);
+  for (const id of [bMatched, bMatchedGov, bOrdinary]) ok(!listed.has(id), `business ${id} is not in the review cohort`);
+  ok(directory.sample.find((r: any) => r.businessId === bUnrelated).sourceTypes.every((t: string) => t.endsWith(WEBSITE_NOT_CONFIRMED_SUFFIX)), "the cohort shows the unrelated links as not confirming");
+
   // Deals: the shared predicate keeps production deals of production contacts only.
   const values: unknown[] = [];
   const predicate = dealReadPredicate({ role: "admin", email: "admin@example.test" }, {}, values);
@@ -128,6 +187,8 @@ try {
   await db.execute(sql`DELETE FROM merchant_applications WHERE legal_business_name=${`${tag} Co`}`);
   await db.execute(sql`DELETE FROM deals WHERE name=${tag}`);
   await db.execute(sql`DELETE FROM contacts WHERE id IN (${productionContact},${qaContact},${testContact})`);
+  await db.execute(sql`DELETE FROM canonical_source_links WHERE stable_key LIKE ${`${tag}-%`}`);
+  await db.execute(sql`DELETE FROM businesses WHERE canonical_name LIKE ${`${tag} %`}`);
 }
 
 console.log(`PHASE6_PROVENANCE_RECORD_CLASS_PASS (${checks} checks)`);

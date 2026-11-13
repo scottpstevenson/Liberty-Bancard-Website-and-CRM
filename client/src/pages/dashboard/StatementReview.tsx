@@ -58,6 +58,8 @@ import { formatTimeAgo } from "@/lib/utils";
 import { Link, useSearch } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { websiteRequestHref, documentIdFromSearch } from "@/lib/statement-request-paths";
+import { workReturnFromSearch } from "@/lib/crm-destination-state";
+import { withWorkReturn } from "@shared/task-evidence";
 
 // ─── Statement Review Types ────────────────────────────────────────────────────
 interface StatementReviewRecord {
@@ -140,7 +142,9 @@ function StatementOperationsPanel() {
   const { user } = useAuth();
   const canOpenWebsiteRequests = user?.role === "admin" || user?.role === "manager";
   // Exact destination from a website request: the review whose own document id matches. No nearest or first-row fallback.
-  const requestedDocument = documentIdFromSearch(useSearch());
+  const search = useSearch();
+  const requestedDocument = documentIdFromSearch(search);
+  const workReturn = workReturnFromSearch(search);
   const [appliedDocument, setAppliedDocument] = useState<number | null>(null);
   useEffect(()=>{setSelectedReview(null);setAnalystNotes("");setSavingsOverride("");setFollowUpDraft("");},[actorIdentity]);
   const { data: reviews = [], isLoading,isError,error, refetch } = useQuery<StatementReviewRecord[]>({
@@ -172,6 +176,18 @@ function StatementOperationsPanel() {
     staleTime: 0, gcTime: 0, retry: false,
     queryFn: async ({ signal }) => {
       const response = await fetch(`/api/statement-reviews/${selectedReview!.id}/request`, { credentials: "include", signal });
+      if (!response.ok) throw new Error(`${response.status}: Website request lookup unavailable`);
+      return response.json();
+    },
+  });
+  // A retained document with no visible analyst review resolves to its exact recorded website request (never a generic list).
+  const documentWithoutReview = requestedDocument !== null && !isLoading && !isError && !requestedReview;
+  const documentRequest = useQuery<{ linked: boolean; shortRef?: string; reason?: string }>({
+    queryKey: ["/api/statement-documents", "request-link", requestedDocument, actorIdentity],
+    enabled: canOpenWebsiteRequests && documentWithoutReview,
+    staleTime: 0, gcTime: 0, retry: false,
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`/api/statement-documents/${requestedDocument}/request`, { credentials: "include", signal });
       if (!response.ok) throw new Error(`${response.status}: Website request lookup unavailable`);
       return response.json();
     },
@@ -275,7 +291,9 @@ function StatementOperationsPanel() {
               <div className="space-y-2 p-4 text-xs text-muted-foreground" data-testid="statement-reviews-empty">
                 <p>No analyst statement reviews are recorded for you here. This does not mean no statements were uploaded.</p>
                 <p>Statements sent through the public website are tracked as website requests, with their retained file and review task.</p>
-                {canOpenWebsiteRequests ? (
+                {requestedDocument !== null ? (
+                  <p data-testid="text-statements-document-resolution">The exact website request for retained file #{requestedDocument} is shown beside this list.</p>
+                ) : canOpenWebsiteRequests ? (
                   <Link href={websiteRequestHref(null)} className="inline-flex min-h-11 items-center text-blue-600 hover:underline lg:min-h-0" data-testid="link-statements-website-requests">
                     Open website requests
                   </Link>
@@ -324,10 +342,34 @@ function StatementOperationsPanel() {
 
         {/* Right: review detail */}
         <div className="lg:col-span-2">
-          {requestedDocument !== null && !isLoading && !isError && !requestedReview && (
-            <p role="status" className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs dark:bg-amber-950/30" data-testid="statement-document-not-found">
-              No analyst review exists for retained document #{requestedDocument} in your view yet. The file stays on its website request; no other review is shown in its place.
+          {workReturn && (
+            <p className="mb-3 text-xs" data-testid="statement-work-return">
+              <Link href={workReturn} className="inline-flex min-h-11 items-center text-blue-600 hover:underline lg:min-h-0">Back to Work</Link>
             </p>
+          )}
+          {documentWithoutReview && (
+            <div role="status" className="mb-3 space-y-1 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs dark:bg-amber-950/30" data-testid="statement-document-not-found">
+              <p>No analyst review exists for retained document #{requestedDocument} in your view yet. The file stays on its website request; no other review is shown in its place.</p>
+              {!canOpenWebsiteRequests ? (
+                <p data-testid="statement-document-request-role">Ask an administrator or manager to open the website request for this file.</p>
+              ) : documentRequest.isLoading ? (
+                <p data-testid="statement-document-request-loading">Looking up the website request for this file…</p>
+              ) : documentRequest.isError ? (
+                <p className="text-amber-800 dark:text-amber-300" data-testid="statement-document-request-unavailable">
+                  The website request lookup is unavailable. <button type="button" className="underline min-h-11 lg:min-h-0" onClick={() => documentRequest.refetch()}>Retry</button>
+                </p>
+              ) : documentRequest.data?.linked && documentRequest.data.shortRef ? (
+                <Link href={withWorkReturn(websiteRequestHref(documentRequest.data.shortRef), workReturn)} className="inline-flex min-h-11 items-center text-blue-600 hover:underline lg:min-h-0" data-testid="link-document-website-request">
+                  Open website request {documentRequest.data.shortRef}
+                </Link>
+              ) : (
+                <p data-testid="statement-document-request-none">
+                  {documentRequest.data?.reason === "ambiguous"
+                    ? "More than one website request references this file, so none is opened automatically."
+                    : "No website request is recorded for this file."}
+                </p>
+              )}
+            </div>
           )}
           {selectedReview&&!selectionCurrent ? <CrmDataState state="unavailable" message="Selected review has no current matching authorized version. Reselect after retry; prior fields are not an editable placeholder." onRetry={()=>void refetch()}/>
           : !selectedReview ? (
@@ -361,7 +403,7 @@ function StatementOperationsPanel() {
                           {requestLink.isLoading ? <span className="text-muted-foreground">Looking up the website request…</span>
                             : requestLink.isError ? <span className="text-amber-700 dark:text-amber-400">Website request lookup unavailable. <button type="button" className="underline" onClick={() => requestLink.refetch()}>Retry</button></span>
                             : requestLink.data?.linked && requestLink.data.shortRef ? (
-                              <Link href={websiteRequestHref(requestLink.data.shortRef)} className="inline-flex min-h-11 items-center text-blue-600 hover:underline lg:min-h-0" data-testid="link-review-website-request">
+                              <Link href={withWorkReturn(websiteRequestHref(requestLink.data.shortRef), workReturn)} className="inline-flex min-h-11 items-center text-blue-600 hover:underline lg:min-h-0" data-testid="link-review-website-request">
                                 Open website request {requestLink.data.shortRef}
                               </Link>
                             ) : <span className="text-muted-foreground" data-testid="text-review-no-website-request">

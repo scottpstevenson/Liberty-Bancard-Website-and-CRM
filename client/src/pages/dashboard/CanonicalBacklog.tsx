@@ -557,6 +557,12 @@ function IndependentProcessPanel({ isAdmin }: { isAdmin: boolean }) {
   </div>;
 }
 
+/**
+ * The launch inventory and the process panel are separate reads that sit at different positions while the backlog
+ * aggregate is loading, failed or loaded. Each carries a stable `key` in every state, so the backlog changing state
+ * never remounts them: a remount of a failed inventory read would start the heavy read again (one aggregate request
+ * per entrance or explicit retry, never a restart caused by a sibling).
+ */
 export function CanonicalBacklog({ isAdmin }: { isAdmin: boolean }) {
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery<CanonicalEnrichmentBacklog>({
     queryKey: ["/api/canonical-enrichment/backlog"],
@@ -577,8 +583,8 @@ export function CanonicalBacklog({ isAdmin }: { isAdmin: boolean }) {
         <PopulationStagesGuide testId="backlog-population-stages" />
       </NamedDisclosure>
 
-      <LaunchInventory isAdmin={isAdmin} />
-      <IndependentProcessPanel isAdmin={isAdmin} />
+      <LaunchInventory key="launch-inventory" isAdmin={isAdmin} />
+      <IndependentProcessPanel key="independent-process-panel" isAdmin={isAdmin} />
     </div>;
   }
   if (isError || !data) {
@@ -600,8 +606,8 @@ export function CanonicalBacklog({ isAdmin }: { isAdmin: boolean }) {
         <Button className="mt-4" onClick={() => refetch()} disabled={isFetching}>Retry backlog</Button>
         {isFetching && <div className="mt-2"><ReadProgress active label="Retrying the backlog count." testId="backlog-progress" /></div>}
       </section>
-      <LaunchInventory isAdmin={isAdmin} />
-      <IndependentProcessPanel isAdmin={isAdmin} />
+      <LaunchInventory key="launch-inventory" isAdmin={isAdmin} />
+      <IndependentProcessPanel key="independent-process-panel" isAdmin={isAdmin} />
     </div>;
   }
   return (
@@ -626,7 +632,7 @@ export function CanonicalBacklog({ isAdmin }: { isAdmin: boolean }) {
         </p>
       </div>
 
-      <LaunchInventory isAdmin={isAdmin} />
+      <LaunchInventory key="launch-inventory" isAdmin={isAdmin} />
 
       <section>
         <h2 className="text-xl font-semibold tracking-tight">Funnel</h2>
@@ -664,7 +670,7 @@ export function CanonicalBacklog({ isAdmin }: { isAdmin: boolean }) {
         </ol>
       </section>
 
-      <IndependentProcessPanel isAdmin={isAdmin} />
+      <IndependentProcessPanel key="independent-process-panel" isAdmin={isAdmin} />
 
       <section>
         <h2 className="text-xl font-semibold tracking-tight">By intake family</h2>

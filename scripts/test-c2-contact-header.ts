@@ -1,3 +1,4 @@
+import { formatBusinessDateTime } from "../shared/business-time";
 import assert from "node:assert/strict";
 import {mkdir,writeFile,readFile} from "node:fs/promises";
 import {stage3BHttpFixture} from "./fixtures/stage3-b-http";
@@ -68,8 +69,10 @@ async function login(zoom=1) {
   await b.navigate("/login");await b.waitFor(/Sign In/);
   await b.set('[data-testid="input-email"]',h.email("agent"));
   await b.set('[data-testid="input-password"]',h.password);
-  await b.click('[data-testid="button-login"]');await b.waitFor(/Dashboard|Today|My Day/);
+  // The desktop-layout choice is stored before signing in: at native 200% zoom the page is under 768 CSS px wide, and a signed-in
+  // landing page that is not part of the mobile app would otherwise show the choice notice instead of the dashboard.
   await b.evaluate("localStorage.setItem('liberty_setup_notice_hidden','true');localStorage.setItem('libertycrm_tour_completed','true');localStorage.setItem('prefer_desktop','true')");
+  await b.click('[data-testid="button-login"]');await b.waitFor(/Dashboard|Today|My Day/);
   await b.navigate(href());await until("!!document.querySelector('[data-testid=\"text-contact-name\"]')");
   const realClick=b.click;
   b.click=async selector=>{
@@ -268,7 +271,7 @@ try {
     assert.equal(currentFacts.status,200);
     const followUp=currentFacts.body.headerDealFacts?.nextFollowUp;
     if(followUp){
-      const expected=await b!.evaluate(`'Follow up '+new Date(${JSON.stringify(followUp)}).toLocaleString()`);
+      const expected=`Follow up ${formatBusinessDateTime(followUp)}`;
       await until(`document.querySelector('[data-testid="contact-next-action"]')?.textContent.includes(${JSON.stringify(expected)})`);
     }else{
       await until(`document.querySelector('[data-testid="contact-next-action"]')?.textContent.includes('Complete task:')`);

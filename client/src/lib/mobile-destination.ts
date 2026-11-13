@@ -39,9 +39,19 @@ export function mobileDestinationFor(pathname: string, search: string, hash = ""
   const contact = /^\/dashboard\/contacts\/([^/]+)$/.exec(path);
   if (contact) {
     const id = parseLocalEntityId("contactId", contact[1]);
-    return id
-      ? { kind: "redirect", href: `/mobile/contacts/${id.value}${safeFragment(hash)}` }
-      : chooseFor(pathname, search, hash, "That contact link is not a valid record address.");
+    if (!id) return chooseFor(pathname, search, hash, "That contact link is not a valid record address.");
+    const mobileContact = `/mobile/contacts/${id.value}${safeFragment(hash)}`;
+    if (keys.length === 0) return { kind: "redirect", href: mobileContact };
+    // The mobile contact page is one scrolling record. A desktop link that names a record area, section or return
+    // context (`area`, `section`, `from`, ...) cannot be applied there, so it is not silently redirected to a page that
+    // would show something else. The person is told, keeps the exact address for the desktop layout, and may open the
+    // same contact on mobile knowingly.
+    return {
+      kind: "choose",
+      reason: "The mobile contact page has no separate sections or return context, so it would not show the part of the record this link names.",
+      desktopHref: `${pathname}${search.startsWith("?") ? search : `?${search}`}${hash}`,
+      mobileHref: mobileContact,
+    };
   }
 
   if (path === "/dashboard/contacts") {

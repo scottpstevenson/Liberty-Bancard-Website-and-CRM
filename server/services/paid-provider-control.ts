@@ -82,6 +82,8 @@ export async function getPaidProviderControls(): Promise<{
   inFlightOperations: Array<Record<string, unknown>>;
   /** inFlightOperations is a bounded sample; inFlightCount is the whole-population count. */
   inFlightSample: { limit: number; returned: number; total: number; truncated: boolean; scope: string; asOf: string };
+  /** Cost estimates are read separately; when unavailable they are null, never 0. */
+  costAggregates: { available: boolean; failure: string | null };
 }> {
   const controls = rows(await db.execute(sql`
     SELECT provider, capability, enabled, circuit_state,
@@ -106,19 +108,27 @@ export async function getPaidProviderControls(): Promise<{
      WHERE provider IN ('serper', 'outscraper', 'openai', 'apollo', 'zerobounce')
        AND (state IN ('pending', 'deferred', 'running') OR billing_state IN ('reserved','ambiguous'))
   `))[0]?.n ?? 0);
-  const sfpCostRows = rows(await db.execute(sql`
+  // Settled/reserved cost estimates are a separate, heavier aggregate over every SFP operation. Its failure must not hide the
+  // control state above (enabled, circuit, in-flight work, emergency stop): the estimates alone become "unavailable" (null,
+  // never 0, never an all-clear) and the reason is named. The amount cast accepts only digit strings that fit a bigint, so one
+  // malformed recorded amount cannot make the whole read fail with an out-of-range error.
+  let costAggregatesAvailable = true;
+  let costAggregatesFailure: string | null = null;
+  let sfpCostRows: Array<Record<string, any>> = [];
+  try {
+    sfpCostRows = rows(await db.execute(sql`
     SELECT o.provider,
            COALESCE(SUM(settled_cost_micros) FILTER (WHERE settled_cost_micros IS NOT NULL), 0)::bigint AS settled_micros,
            COUNT(*) FILTER (WHERE o.settled_cost_micros IS NOT NULL)::int AS settled_cost_records,
            COALESCE(SUM(CASE WHEN o.billing_state = 'reserved' AND price.amount_micros IS NOT NULL
-                             THEN o.reserved_units::bigint * price.amount_micros ELSE 0 END), 0)::bigint AS reserved_micros,
+                             THEN o.reserved_units::numeric * price.amount_micros ELSE 0 END), 0)::numeric AS reserved_micros,
            COUNT(*) FILTER (WHERE price.amount_micros IS NULL)::int AS unpriced_operations,
            COUNT(*) FILTER (WHERE o.billing_state='ambiguous')::int AS ambiguous_operations
       FROM provider_operations o
       CROSS JOIN LATERAL (
         SELECT CASE
           WHEN o.unit_price_micros IS NOT NULL THEN o.unit_price_micros
-          WHEN o.sfp_result_data->>'reservedUnitAmountMicros' ~ '^[0-9]+$'
+          WHEN o.sfp_result_data->>'reservedUnitAmountMicros' ~ '^[0-9]{1,15}$'
             THEN (o.sfp_result_data->>'reservedUnitAmountMicros')::bigint
           ELSE NULL
         END AS amount_micros
@@ -126,6 +136,11 @@ export async function getPaidProviderControls(): Promise<{
      WHERE o.operation_type IN ('sfp_enrichment', 'sfp_precohort_classification')
      GROUP BY o.provider
   `));
+  } catch (err: any) {
+    costAggregatesAvailable = false;
+    costAggregatesFailure = String(err?.cause?.code ?? err?.code ?? "cost_aggregate_failed");
+    console.error("[PaidProviderControl] cost aggregates unavailable:", costAggregatesFailure);
+  }
   const byProvider = new Map(controls.map((row) => [String(row.provider), row]));
   const sfpCostsByProvider = new Map(sfpCostRows.map((row) => [String(row.provider), row]));
 
@@ -196,13 +211,14 @@ export async function getPaidProviderControls(): Promise<{
       gatewayConsumedUnits,
       // These are schedule-based estimates, not provider invoices. NULL means
       // the operation writer has not recorded per-operation settlement data.
-      sfpSettledCostEstimateMicros: Number(sfpCost?.settled_cost_records ?? 0) > 0
-        ? Number(sfpCost.settled_micros)
+      sfpCostEstimateAvailable: costAggregatesAvailable,
+      sfpSettledCostEstimateMicros: costAggregatesAvailable && Number(sfpCost?.settled_cost_records ?? 0) > 0
+        ? Number(sfpCost?.settled_micros ?? 0)
         : null,
-      sfpSettledCostEstimateRecordCount: Number(sfpCost?.settled_cost_records ?? 0),
-      sfpReservedCostEstimateMicros: Number(sfpCost?.reserved_micros ?? 0),
-      sfpUnpricedOperationCount: Number(sfpCost?.unpriced_operations ?? 0),
-      sfpAmbiguousOperationCount: Number(sfpCost?.ambiguous_operations ?? 0),
+      sfpSettledCostEstimateRecordCount: costAggregatesAvailable ? Number(sfpCost?.settled_cost_records ?? 0) : null,
+      sfpReservedCostEstimateMicros: costAggregatesAvailable ? Number(sfpCost?.reserved_micros ?? 0) : null,
+      sfpUnpricedOperationCount: costAggregatesAvailable ? Number(sfpCost?.unpriced_operations ?? 0) : null,
+      sfpAmbiguousOperationCount: costAggregatesAvailable ? Number(sfpCost?.ambiguous_operations ?? 0) : null,
       currentPriceArtifactReference: pricingAvailable && price
         ? (pricingArtifactRefs.get(provider) ?? `mi09_pricing_schedule_snapshots:${pricingSnapshotId}:${provider}:v${price.version}`)
         : null,
@@ -236,6 +252,7 @@ export async function getPaidProviderControls(): Promise<{
       authorizedCallers: zb.authorizedCallers,
     },
     inFlightCount: inFlightTotal,
+    costAggregates: { available: costAggregatesAvailable, failure: costAggregatesFailure },
     inFlightOperations,
     inFlightSample: {
       limit: IN_FLIGHT_SAMPLE_LIMIT,

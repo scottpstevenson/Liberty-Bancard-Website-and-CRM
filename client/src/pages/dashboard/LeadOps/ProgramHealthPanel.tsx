@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { PaidProviderControlsPanel } from "./PaidProviderControlsPanel";
+import { TechnicalDetails } from "@/components/crm/TechnicalDetails";
 import { CountTile, NamedDisclosure, PopulationStagesGuide } from "@/components/crm/CountContractCard";
 import { asOfLabel, readCount, type CountContract } from "@/lib/count-contract";
 
@@ -394,9 +395,13 @@ export function ProgramHealthPanel() {
 
   if (healthQuery.isError) {
     return (
-      <Card>
-        <CardContent className="pt-6 text-sm text-destructive">
-          Failed to load health data. {healthQuery.error instanceof Error ? healthQuery.error.message : ""}
+      <Card data-testid="program-health-unavailable">
+        <CardContent className="space-y-3 pt-6 text-sm">
+          <p role="alert" className="text-destructive">Program Health could not be read right now. No figures are shown, and none is treated as zero.</p>
+          <Button variant="outline" size="sm" className="min-h-11" onClick={() => void healthQuery.refetch()} disabled={healthQuery.isFetching} data-testid="program-health-retry">
+            {healthQuery.isFetching ? "Retrying…" : "Retry"}
+          </Button>
+          <TechnicalDetails testId="program-health-technical-details" text={healthQuery.error instanceof Error ? healthQuery.error.message : null} />
         </CardContent>
       </Card>
     );
@@ -446,11 +451,11 @@ export function ProgramHealthPanel() {
       .some(k => !h?.[k]?.available) ? ["legacy Sunbiz throughput"] : [],
   ];
   const legacyThroughput = [
-    { label: "Source entities enriched today (raw Sunbiz)", cell: h?.enrichedToday, unit: "raw Sunbiz source entities", scope: "Enriched in the last 24 hours" },
-    { label: "Emails Found", cell: h?.emailsToday, unit: "emails found on raw Sunbiz entities", scope: "Found in the last 24 hours" },
-    { label: "Phones Found", cell: h?.phonesToday, unit: "phones found on raw Sunbiz entities", scope: "Found in the last 24 hours" },
-    { label: "Total Enriched", cell: h?.totalEnriched, unit: "raw Sunbiz source entities", scope: "Enriched, all time" },
-    { label: "Total Failed", cell: h?.totalFailed, unit: "raw Sunbiz source entities", scope: "Failed, all time" },
+    { label: "Source entities enriched today (raw Sunbiz)", cell: h?.enrichedToday, unit: "raw Sunbiz source entities", scope: "Enriched in the last 24 hours", suffix: undefined },
+    { label: "Emails Found", cell: h?.emailsToday, unit: "emails found on raw Sunbiz entities", scope: "Found in the last 24 hours", suffix: undefined },
+    { label: "Phones Found", cell: h?.phonesToday, unit: "phones found on raw Sunbiz entities", scope: "Found in the last 24 hours", suffix: undefined },
+    { label: "Total Enriched", cell: h?.totalEnriched, unit: "raw Sunbiz source entities", scope: "Enriched, all time", suffix: undefined },
+    { label: "Total Failed", cell: h?.totalFailed, unit: "raw Sunbiz source entities", scope: "Failed, all time", suffix: undefined },
     { label: "Success Rate", cell: h?.successRate, unit: "percent of finished entities", scope: "Enriched divided by enriched plus failed, all time", suffix: "%" },
   ] as const;
 
@@ -679,7 +684,10 @@ export function ProgramHealthPanel() {
             ))}
           </div>
           {!h?.pipelineCounts?.available && (
-            <p role="status" className="mt-2 text-xs text-red-600">{h?.pipelineCounts?.error ?? "Pipeline counts unavailable"}: not read, so no figure is shown.</p>
+            <div role="status" className="mt-2 space-y-1 text-xs text-red-600" data-testid="legacy-pipeline-unavailable">
+              <p>Pipeline counts unavailable: not read, so no figure is shown.</p>
+              <TechnicalDetails testId="legacy-pipeline-technical-details" text={h?.pipelineCounts?.error ?? null} />
+            </div>
           )}
         </CardContent>
       </Card>

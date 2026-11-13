@@ -1,4 +1,4 @@
-import { and, eq, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, sql, type SQL } from "drizzle-orm";
 import { tasks } from "@shared/schema";
 import { db } from "../db";
 import { syntheticQaIdentitySql } from "@shared/synthetic-qa-identity";
@@ -57,6 +57,25 @@ export function taskReadPredicate(scope: TaskReadScope): SQL {
     scope.dealId ? eq(tasks.dealId, scope.dealId) : undefined,
     scope.source === "sla" ? eq(tasks.source, "sla") : scope.source === "manual" ? sql`${tasks.source} IS NULL` : undefined,
   )!;
+}
+
+/** The one task a contact header offers as its next action. Section-independent: it is read on every contact projection so the
+ *  header says the same thing on Overview, Lifecycle, Conversations and Tasks. Open or in-progress work only, soonest due first
+ *  (undated last), then lowest id; authorized with the same predicate as the Tasks section. A failed read is `unavailable`,
+ *  never "no task". Carries no description, notes or other task payload. */
+export type ContactNextTaskFacts =
+  | { state: "known"; task: { id: number; title: string } | null }
+  | { state: "unavailable" };
+export async function readContactNextTask(scope: Pick<TaskReadScope, "actor" | "asOf" | "timezone">, contactId: number): Promise<ContactNextTaskFacts> {
+  try {
+    const [row] = await db.select({ id: tasks.id, title: tasks.title }).from(tasks)
+      .where(and(eq(tasks.contactId, contactId), taskReadPredicate({ ...scope, states: ["open", "in_progress"] })))
+      .orderBy(sql`${tasks.dueDate} ASC NULLS LAST`, asc(tasks.id)).limit(1);
+    return { state: "known", task: row ? { id: row.id, title: row.title } : null };
+  } catch (error) {
+    console.error("[contact-header] next task read failed:", (error as Error)?.message ?? error);
+    return { state: "unavailable" };
+  }
 }
 
 export async function readTaskMetrics(scope: TaskReadScope) {

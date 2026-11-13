@@ -3,6 +3,7 @@ import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Globe, Loader2 } from "lucide-react";
+import { buildIntakeCohortHref, buildTaskCohortHref } from "@/lib/crm-destination-state";
 
 interface Summary {
   asOf: string;
@@ -26,11 +27,11 @@ export function WebsiteRequestsSummary() {
   const { data, isLoading, isError, refetch, isFetching } = useQuery<Summary>({ queryKey: KEY, refetchInterval: 60_000 });
 
   const tiles: Array<{ id: string; label: string; hint: string; value: number | null | undefined; href: string; tone?: "alert" }> = data ? [
-    { id: "received", label: "Website submissions received", hint: `Last ${data.windowDays} days`, value: data.received, href: "/dashboard/lead-ops?tab=pipeline" },
-    { id: "needs-review", label: "Needs assignment or review", hint: "Open now, any age", value: data.needsReview, href: "/dashboard/lead-ops?tab=pipeline", tone: "alert" },
-    { id: "statement-attention", label: "Statement processing needs attention", hint: "File saved, not processed", value: data.statementAttention, href: "/dashboard/lead-ops?tab=pipeline", tone: "alert" },
-    { id: "due-today", label: "Request tasks due today", hint: "Eastern time", value: data.tasksDueToday, href: "/dashboard/tasks-appointments?tab=tasks" },
-    { id: "overdue", label: "Request tasks overdue", hint: "Due before today", value: data.tasksOverdue, href: "/dashboard/tasks-appointments?tab=tasks", tone: "alert" },
+    { id: "received", label: "Website submissions received", hint: `Last ${data.windowDays} days`, value: data.received, href: buildIntakeCohortHref("received", data.windowDays) },
+    { id: "needs-review", label: "Needs assignment or review", hint: "Open now, any age", value: data.needsReview, href: buildIntakeCohortHref("needs_review"), tone: "alert" },
+    { id: "statement-attention", label: "Statement processing needs attention", hint: "File saved, not processed", value: data.statementAttention, href: buildIntakeCohortHref("statement_attention"), tone: "alert" },
+    { id: "due-today", label: "Request tasks due today", hint: "Eastern time", value: data.tasksDueToday, href: buildTaskCohortHref("/dashboard/tasks-appointments", { status: "all", due: "all", requestTasks: "due_today" }) },
+    { id: "overdue", label: "Request tasks overdue", hint: "Due before today", value: data.tasksOverdue, href: buildTaskCohortHref("/dashboard/tasks-appointments", { status: "all", due: "all", requestTasks: "overdue" }), tone: "alert" },
   ] : [];
 
   return (

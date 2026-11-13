@@ -14,10 +14,27 @@ export function identityDomainSql(value: string): string {
   return `NULLIF(lower(regexp_replace(split_part(split_part(regexp_replace(
     btrim(coalesce(${value},'')),'^[a-zA-Z]+://',''), '/',1),':',1),'^www[.]','','i')),'')`;
 }
-export function relationshipReasonsSql(contact: string, business: string, source: string, entity: string): string {
+/**
+ * Optional set-read substitutes for the two "exactly one canonical business shares this value" tests. Each receives a
+ * normalized SQL expression and must return a SQL boolean that is TRUE exactly when one canonical business has that
+ * normalized phone / website domain, and FALSE (never NULL) otherwise. The default is the correlated scan, which is correct
+ * everywhere but costs a full pass over the canonical businesses per evaluated row; a caller reading a whole population
+ * supplies a one-pass grouped lookup instead. Only these two tests change; every other rule is untouched.
+ */
+export interface RelationshipReasonsOptions {
+  canonicalPhoneIsUnique?: (normalizedPhone: string) => string;
+  canonicalDomainIsUnique?: (normalizedDomain: string) => string;
+}
+export function relationshipReasonsSql(
+  contact: string, business: string, source: string, entity: string, options: RelationshipReasonsOptions = {},
+): string {
   const name = identityNameSql;
   const domain = identityDomainSql;
   const phone = (v: string) => `right(regexp_replace(coalesce(${v},''),'[^0-9]','','g'),10)`;
+  const phoneUnique = options.canonicalPhoneIsUnique ?? ((value: string) => `(SELECT count(*) FROM businesses ob WHERE ob.record_class='canonical'
+          AND ${phone("ob.main_phone")}=${value})=1`);
+  const domainUnique = options.canonicalDomainIsUnique ?? ((value: string) => `(SELECT count(*) FROM businesses ob WHERE ob.record_class='canonical'
+          AND ${domain("ob.website_domain")}=${value})=1`);
   const sharedHosts = "'instagram.com','facebook.com','waze.com','linktr.ee','linkedin.com','google.com','yelp.com','tiktok.com','bit.ly'";
   return `(CASE WHEN EXISTS(SELECT 1 FROM canonical_source_links family
     WHERE family.id=${source}::uuid AND family.business_id=${business}::integer
@@ -63,8 +80,7 @@ export function relationshipReasonsSql(contact: string, business: string, source
       length(regexp_replace(coalesce(s.phone,''),'[^0-9]','','g'))>=10
         AND ${phone("s.phone")}=${phone("coalesce(nullif(s.entity_json->>'phone',''),s.entity_json->>'owner_phone','')")}
         AND ${phone("s.phone")}=${phone("s.main_phone")}
-        AND (SELECT count(*) FROM businesses ob WHERE ob.record_class='canonical'
-          AND ${phone("ob.main_phone")}=${phone("s.phone")})=1 phone_match,
+        AND ${phoneUnique(phone("s.phone"))} phone_match,
       ${domain("s.website")} contact_domain,${domain("s.website_domain")} canonical_domain
     FROM subject s
   ), evaluated AS (
@@ -75,8 +91,7 @@ export function relationshipReasonsSql(contact: string, business: string, source
         AND contact_domain NOT IN (${sharedHosts},'maps.google.com')
         AND NOT EXISTS(SELECT 1 FROM unnest(ARRAY[${sharedHosts}]) host
           WHERE contact_domain LIKE '%.'||host)
-        AND (SELECT count(*) FROM businesses ob WHERE ob.record_class='canonical'
-          AND ${domain("ob.website_domain")}=contact_domain)=1 domain_match
+        AND ${domainUnique("contact_domain")} domain_match
     FROM facts f
   ) SELECT CASE
     WHEN id IS NULL THEN ARRAY['contact_missing']::text[]

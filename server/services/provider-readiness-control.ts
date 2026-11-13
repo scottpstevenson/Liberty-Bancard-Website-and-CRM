@@ -9,6 +9,7 @@
 import { randomUUID } from "crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
+import { currentContactPolicySnapshot } from "./contact-policy-read-snapshot";
 import { contacts, eligibilitySnapshots, providerObservations, validationIntents } from "@shared/schema";
 import { CRO03C_CURRENT_MIGRATION_HEAD } from "./cro03/contracts";
 import { currentCanonicalValidationSelection } from "./canonical-recipient-preparation";
@@ -110,22 +111,32 @@ export async function selectedRecipientValidationTtlDays(businessId: number): Pr
  */
 export async function evaluateMarketingEmailEligibility(contactId: number): Promise<MarketingValidationDecision> {
   try {
-    const [contact] = await db.select({
-      id: contacts.id,
-      businessId: contacts.businessId,
-      email: contacts.email,
-      emailStatus: contacts.emailStatus,
-      emailTokenHash: contacts.emailTokenHash,
-      emailMutationGeneration: contacts.emailMutationGeneration,
-      emailValidationUpdatedAt: contacts.emailValidationUpdatedAt,
-    }).from(contacts).where(eq(contacts.id, contactId)).limit(1);
+    // Inside the launch inventory's whole-population dry run (see contact-policy-read-snapshot.ts) the contact row comes
+    // from the set-read snapshot and the passive CRO-02 observation below is skipped: it never persists here and nothing
+    // from it enters the decision. Every other caller, including each mutation boundary, reads and observes per contact.
+    const policySnapshot = currentContactPolicySnapshot();
+    const preloaded = policySnapshot?.contacts.get(contactId);
+    const [contact] = preloaded
+      ? [{
+        id: preloaded.id, businessId: preloaded.businessId, email: preloaded.email, emailStatus: preloaded.emailStatus,
+        emailTokenHash: preloaded.emailTokenHash, emailMutationGeneration: preloaded.emailMutationGeneration,
+        emailValidationUpdatedAt: preloaded.emailValidationUpdatedAt,
+      }]
+      : await db.select({
+        id: contacts.id,
+        businessId: contacts.businessId,
+        email: contacts.email,
+        emailStatus: contacts.emailStatus,
+        emailTokenHash: contacts.emailTokenHash,
+        emailMutationGeneration: contacts.emailMutationGeneration,
+        emailValidationUpdatedAt: contacts.emailValidationUpdatedAt,
+      }).from(contacts).where(eq(contacts.id, contactId)).limit(1);
     if (!contact) {
       return { allowed: false, decision: "blocked", reason: "missing_email", emailTokenHash: null, subjectGeneration: null, evidenceAt: null };
     }
     // CRO-02 observes provider-pre-spend inputs through the shared adapter.
     // BT-10 remains the effective readiness authority in shadow mode.
-    const { authorizeCommercialUse } = await import("./commercial-resolution");
-    const commercial = await authorizeCommercialUse({
+    const commercial = policySnapshot ? null : await (await import("./commercial-resolution")).authorizeCommercialUse({
       subjectType: "contact",
       subjectId: contactId,
       effect: "provider_pre_spend",
@@ -149,7 +160,7 @@ export async function evaluateMarketingEmailEligibility(contactId: number): Prom
         operationId:observation.operationId,emailTokenHash:tokenHash,expiresAt:observation.expiresAt,
       } : null,
       }),
-      ...(commercial.shadowDecision.snapshotId
+      ...(commercial?.shadowDecision.snapshotId
         ? { commercialResolutionSnapshotId: commercial.shadowDecision.snapshotId }
         : {}),
     };

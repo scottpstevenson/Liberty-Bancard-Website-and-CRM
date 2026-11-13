@@ -2,6 +2,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { NamedDisclosure } from "@/components/crm/CountContractCard";
+import { TechnicalDetails } from "@/components/crm/TechnicalDetails";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 /**
@@ -48,7 +50,31 @@ export function PaidProviderControlsPanel() {
     {/* Full telemetry snapshot */}
     <div className="rounded-lg border bg-card p-4 space-y-3">
       <h3 className="font-semibold text-sm">Paid provider controls &amp; emergency stop</h3>
+      <p className="text-xs text-muted-foreground">
+        Stops every paid provider at once. The release build, each provider's state and the automatic validation lane are kept in the named section below.
+      </p>
+      <Button
+        size="sm"
+        variant="destructive"
+        disabled={emergencyStopMutation.isPending}
+        onClick={() => emergencyStopMutation.mutate()}
+        data-testid="button-paid-provider-emergency-stop"
+      >
+        <ShieldAlert className="h-3.5 w-3.5 mr-1" />
+        Emergency stop all paid providers
+      </Button>
+      {statusOverviewQuery.isError && (
+        <div className="space-y-1" data-testid="paid-provider-controls-error">
+          <p className="text-xs text-red-600" role="status">Provider control state could not be read. The emergency stop remains available.</p>
+          <Button size="sm" variant="outline" className="min-h-11" onClick={() => void statusOverviewQuery.refetch()} disabled={statusOverviewQuery.isFetching} data-testid="button-paid-provider-controls-retry">
+            {statusOverviewQuery.isFetching ? "Retrying…" : "Retry"}
+          </Button>
+          <TechnicalDetails testId="paid-provider-controls-technical-details" text={statusOverviewQuery.error instanceof Error ? statusOverviewQuery.error.message : "request failed"} />
+        </div>
+      )}
       {statusOverviewQuery.isLoading && <p className="text-xs text-muted-foreground">Loading...</p>}
+      <NamedDisclosure testId="disclosure-provider-controls" title="Provider controls and state (administrators)"
+        summary="Release build, each provider's enabled state and budget units, and the automatic validation lane. Read-only; the emergency stop above is unchanged.">
       {statusOverviewQuery.data && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
           <div className="rounded border p-2">
@@ -190,23 +216,8 @@ export function PaidProviderControlsPanel() {
           </div>
         </div>
       )}
-      <Button
-        size="sm"
-        variant="destructive"
-        disabled={emergencyStopMutation.isPending}
-        onClick={() => emergencyStopMutation.mutate()}
-        data-testid="button-paid-provider-emergency-stop"
-      >
-        <ShieldAlert className="h-3.5 w-3.5 mr-1" />
-        Emergency stop all paid providers
-      </Button>
+      </NamedDisclosure>
     </div>
-
-      {statusOverviewQuery.isError && (
-        <p className="text-xs text-red-500" data-testid="paid-provider-controls-error">
-          Provider control state unavailable: {statusOverviewQuery.error instanceof Error ? statusOverviewQuery.error.message : "request failed"}. The emergency stop remains available.
-        </p>
-      )}
     </div>
   );
 }

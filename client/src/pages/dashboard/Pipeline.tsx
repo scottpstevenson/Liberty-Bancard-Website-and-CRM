@@ -35,9 +35,9 @@ import {useAuthorizedSelectedRecord} from "@/hooks/use-authorized-selected-recor
 import { exportToCSV } from "@/lib/export-csv";
 import { getDealCardIdentity as dealCardIdentityFn } from "@/lib/deal-identity";
 import { dealCardFacts, focusedBoardStages } from "@/lib/pipeline-focus";
-import { pipelineStageSelection } from "@/lib/crm-destination-state";
+import { pipelineCohortState, pipelineStageSelection } from "@/lib/crm-destination-state";
 import type { Deal, Contact, PipelineStage, Agent, AgentMerchant, CoBrandedProposal } from "@shared/schema";
-import { SALES_STAGES, OFFER_PATHS, VERTICALS } from "@shared/schema";
+import { SALES_STAGES, OFFER_PATHS, VERTICALS, OPEN_SALES_LEAD_STAGES } from "@shared/schema";
 import Comments from "@/components/Comments";
 import SavedFilterBar from "@/components/SavedFilterBar";
 import DashboardErrorState from "@/components/DashboardErrorState";
@@ -2478,7 +2478,14 @@ function PipelineWorkspace() {
   // Closed and parked stages are counted but held back until asked for; an exactly selected deal keeps its own stage visible.
   const stagePin = pipelineStageSelection(search, displayStages);
   const clearStagePin = () => { const params = new URLSearchParams(search); params.delete("stage"); const qs = params.toString(); navigatePipeline(`/dashboard/pipeline${qs ? `?${qs}` : ""}`); };
+  // Registered cohort selector from the Reports "Active Pipeline" count: only the open sales stages, the counted population.
+  const pipelineCohort = pipelineCohortState(search);
+  const activeCohort = pipelineCohort.cohort === "active";
+  const clearActiveCohort = () => { const params = new URLSearchParams(search); params.delete("cohort"); const qs = params.toString(); navigatePipeline(`/dashboard/pipeline${qs ? `?${qs}` : ""}`); };
+  const activeCohortCount = dealsResult && !hasLoadedSignalFilter
+    ? OPEN_SALES_LEAD_STAGES.reduce((total, stage) => total + (dealsResult.stageDistribution[stage] ?? 0), 0) : null;
   const boardStages = focusedBoardStages({
+    onlyStages: activeCohort ? OPEN_SALES_LEAD_STAGES : null,
     stages: displayStages,
     showAll: showSecondaryStages,
     pinnedStage: stagePin.stage,
@@ -2520,7 +2527,8 @@ function PipelineWorkspace() {
         {!selectedRecord.invalid && <Button onClick={()=>void selectedRecord.refetch()}>Retry selected record</Button>}
       </div>}
       {/* #190 — Sticky header on scroll */}
-      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 -mx-2 px-2 pb-3">
+      {/* Pinned only where the toolbar leaves room for the board; below md it is taller than the screen and would cover every card. */}
+      <div className="md:sticky md:top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 -mx-2 px-2 pb-3">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
           <PageTitle className="text-2xl font-semibold" data-testid="text-pipeline-title">
@@ -3122,6 +3130,16 @@ function PipelineWorkspace() {
         );
       })()}
 
+      {(activeCohort || pipelineCohort.issues.length > 0) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm" role="status" data-testid="pipeline-active-cohort">
+          <span data-testid="text-pipeline-active-cohort">
+            {activeCohort
+              ? `Open pipeline: ${activeCohortCount ?? "?"} sales deals in open stages under the current filters. Reports counts Active Pipeline from the same open stages; closed, parked and unrecognized stages are not shown here.`
+              : pipelineCohort.issues[0].reason}
+          </span>
+          {activeCohort && <Button type="button" size="sm" variant="outline" className="min-h-11 sm:min-h-8" onClick={clearActiveCohort} data-testid="button-clear-active-cohort">Show the full board</Button>}
+        </div>
+      )}
       {(stagePin.stage || stagePin.issues.length > 0) && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm" role="status" data-testid="pipeline-stage-pin">
           <span data-testid="text-pipeline-stage-pin">
@@ -3132,7 +3150,7 @@ function PipelineWorkspace() {
           {stagePin.stage && <Button type="button" size="sm" variant="outline" className="min-h-11 sm:min-h-8" onClick={clearStagePin} data-testid="button-clear-stage-pin">Show all stages</Button>}
         </div>
       )}
-      {!stagePin.stage && boardStages.hidden.length > 0 && (
+      {!stagePin.stage && !activeCohort && boardStages.hidden.length > 0 && (
         <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border bg-muted/40 px-3 py-2 text-sm ${viewMode === "list" ? "hidden" : ""}`} data-testid="pipeline-secondary-stages">
           <span className="text-muted-foreground">Not shown on the board:</span>
           {boardStages.hidden.map((entry) => (
@@ -3145,7 +3163,7 @@ function PipelineWorkspace() {
           </Button>
         </div>
       )}
-      {!stagePin.stage && showSecondaryStages && viewMode !== "list" && (
+      {!stagePin.stage && !activeCohort && showSecondaryStages && viewMode !== "list" && (
         <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm" data-testid="pipeline-all-stages-note">
           <span className="text-muted-foreground">Showing all {boardStages.total} stages.</span>
           <Button type="button" variant="outline" size="sm" className="min-h-11 sm:min-h-8" onClick={() => setShowSecondaryStages(false)} data-testid="button-focus-active-stages">Focus on active stages</Button>
@@ -3319,6 +3337,7 @@ function PipelineWorkspace() {
                   value={editNotes}
                   onChange={(e) => setEditNotes(e.target.value)}
                   placeholder="Add notes..."
+                  aria-label="Notes"
                   data-testid="input-edit-notes"
                 />
               </div>
@@ -3356,6 +3375,7 @@ function PipelineWorkspace() {
                   type="datetime-local"
                   value={editFollowUp}
                   onChange={(e) => setEditFollowUp(e.target.value)}
+                  aria-label="Next follow-up"
                   data-testid="input-edit-followup"
                 />
               </div>
@@ -3367,6 +3387,7 @@ function PipelineWorkspace() {
                   type="date"
                   value={editExpectedGoLiveDate}
                   onChange={(e) => setEditExpectedGoLiveDate(e.target.value)}
+                  aria-label="Expected go-live date"
                   data-testid="input-edit-expected-go-live"
                 />
                 <p className="text-xs text-muted-foreground">When you expect this merchant to start processing.</p>
@@ -3379,6 +3400,7 @@ function PipelineWorkspace() {
                   onChange={(e) => setEditMid(e.target.value)}
                   placeholder="e.g. 5491234567890"
                   className="font-mono"
+                  aria-label="Merchant ID (MID)"
                   data-testid="input-edit-mid"
                 />
                 <p className="text-xs text-muted-foreground">
@@ -3710,7 +3732,7 @@ function PipelineWorkspace() {
                             >
                               <Copy className="w-3.5 h-3.5" />
                             </button>
-                            <a href={p.viewerUrl} target="_blank" rel="noopener noreferrer">
+                            <a href={p.viewerUrl} target="_blank" rel="noopener noreferrer" aria-label="Open proposal in a new tab">
                               <button
                                 className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
                                 title="Open proposal"

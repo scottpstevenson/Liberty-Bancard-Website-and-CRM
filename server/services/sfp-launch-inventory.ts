@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import { websiteSourceNeedsOwnershipReview } from "@shared/source-domain-provenance";
+import { websiteOwnershipSourceTypesSql } from "./website-ownership-evidence-sql";
 import { sfpLaunchPresentationFingerprint } from "./cro03/sfp-launch-presentation";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { effectiveBusinessVerticalSql, effectiveBusinessVerticalStatusSql } from "@shared/effective-vertical";
+import { identityDomainSql } from "@shared/relationship-evidence-sql";
 import {
   LAUNCH_GATE_LABELS,
   type LaunchCountyVerticalCell, type LaunchGateKey, type LaunchInventoryPopulation, type LaunchInventoryProgress,
@@ -12,7 +14,8 @@ import {
 import { boundVerticalsCte, resolveBusinessCounty } from "./canonical-enrichment-backlog";
 import { getActiveSfpOutreachPolicy } from "./cro03/sfp-outreach-policy";
 import { evaluateContactDecisions } from "./contactability";
-import { preparedFactsCurrentSql } from "./canonical-recipient-preparation";
+import { loadContactPolicySnapshot, withContactPolicySnapshot } from "./contact-policy-read-snapshot";
+import { preparedFactsCurrentSql, type PreparedFactsReadOptions } from "./canonical-recipient-preparation";
 import { decideCr06PromotionalLifecycle } from "./cr06-promotional-lifecycle-decision";
 import { isUsableSenderIdentity } from "./sdr/sender-identity-state";
 import { readSenderCapacity } from "./sfp-sender-capacity";
@@ -148,19 +151,59 @@ async function applyContactPolicy(row: Row, ctx?: LaunchReadContext): Promise<vo
   }
 }
 
+/**
+ * A whole-population read does not need a full pass over the canonical businesses and their locations for every
+ * recipient. These one-pass lookups return the same values the per-row correlated forms return (identical normalization,
+ * identical "exactly one canonical business" test, identical location text), so the read is cheaper, never different.
+ * A read of a few recipients (dispatch verification) keeps the per-row forms. Parity is asserted row for row by
+ * `scripts/test-phase6-inventory-set-reads.ts` and was measured against production data before release.
+ */
+const SET_READ_MIN_RECIPIENTS = 50;
+export function launchSetReadCtes() {
+  const phone = (v: string) => `right(regexp_replace(coalesce(${v},''),'[^0-9]','','g'),10)`;
+  return sql`
+    launch_unique_phones AS MATERIALIZED (
+      SELECT phone FROM (SELECT ${sql.raw(phone("main_phone"))} AS phone, count(*) AS n FROM businesses
+        WHERE record_class='canonical' GROUP BY 1) g WHERE n=1),
+    launch_unique_domains AS MATERIALIZED (
+      SELECT domain FROM (SELECT ${sql.raw(identityDomainSql("website_domain"))} AS domain, count(*) AS n FROM businesses
+        WHERE record_class='canonical' GROUP BY 1) g WHERE n=1 AND domain IS NOT NULL),
+    launch_location_rows AS MATERIALIZED (
+      SELECT bl.business_id,
+        jsonb_agg(to_jsonb(bl) ORDER BY bl.id)::text AS fingerprint,
+        jsonb_agg(jsonb_build_object('id',bl.id,'is_primary',bl.is_primary,'city',bl.city,'state',bl.state,
+          'postal_code',bl.postal_code,'county_fips',bl.county_fips) ORDER BY bl.id)::text AS glocs
+      FROM business_locations bl GROUP BY bl.business_id)`;
+}
+export const SET_READ_FACTS_OPTIONS: PreparedFactsReadOptions = {
+  relationship: {
+    canonicalPhoneIsUnique: value => `COALESCE((${value}) IN (SELECT phone FROM launch_unique_phones),FALSE)`,
+    canonicalDomainIsUnique: value => `COALESCE((${value}) IN (SELECT domain FROM launch_unique_domains),FALSE)`,
+  },
+  locationsFingerprintSql: "launch_loc.fingerprint",
+};
+
 /** The recorded-facts read, one row per prepared recipient. Exported so cost can be measured on exact SQL. */
-export function buildRecordedLaunchQuery(validationTtlDays: number, intentIds?: string[]) {
+export function buildRecordedLaunchQuery(
+  validationTtlDays: number, intentIds?: string[], readMode: "per_row" | "set" = "per_row",
+) {
   const VERT = effectiveBusinessVerticalSql("b");
   const STATUS = effectiveBusinessVerticalStatusSql("b");
+  const setReads = readMode === "set";
   const intentFilter = intentIds
     ? sql`AND i.id IN (${sql.join(intentIds.map(id => sql`${id}::uuid`), sql`,`)})` : sql``;
+  const glocs = setReads
+    ? sql`launch_loc.glocs AS glocs,`
+    : sql`(SELECT jsonb_agg(jsonb_build_object('id',bl.id,'is_primary',bl.is_primary,'city',bl.city,'state',bl.state,
+          'postal_code',bl.postal_code,'county_fips',bl.county_fips) ORDER BY bl.id)
+         FROM business_locations bl WHERE bl.business_id=b.id)::text AS glocs,`;
 
   const recordedQuery = sql`
-    WITH ${boundVerticalsCte()}
+    WITH ${boundVerticalsCte()}${setReads ? sql`, ${launchSetReadCtes()}` : sql``}
     SELECT i.id::text AS id, i.preparation_state AS state, i.contact_id, i.business_id, i.sequence_id, i.enrollment_id,
       i.normalized_email_hash AS email_hash, i.program_id::text AS program_id, i.preparation_snapshot AS snapshot,
       c.email_mutation_generation AS email_generation, p.county_fips AS program_counties,
-      COALESCE((${sql.raw(preparedFactsCurrentSql())}), FALSE) AS facts_ok,
+      COALESCE((${sql.raw(preparedFactsCurrentSql(setReads ? SET_READ_FACTS_OPTIONS : undefined))}), FALSE) AS facts_ok,
       (SELECT pkg.content_hash FROM sfp_campaign_package_versions pkg
         WHERE pkg.sequence_id=i.sequence_id AND pkg.lifecycle_state='current' ORDER BY pkg.id LIMIT 1) AS current_content_hash,
       (SELECT d.id::text FROM contact_business_link_decisions d
@@ -182,10 +225,8 @@ export function buildRecordedLaunchQuery(validationTtlDays: number, intentIds?: 
       (${sql.raw(VERT)} IN (SELECT vertical FROM bound_verticals)
         AND EXISTS(SELECT 1 FROM follow_up_sequences s WHERE s.id=i.sequence_id AND s.retired_at IS NULL)) AS sequence_ok,
       b.state AS gstate, b.postal_code AS gzip, b.city AS gcity, b.website_domain AS gwebsite,
-      COALESCE((SELECT array_agg(DISTINCT sl.source_type) FROM canonical_source_links sl WHERE sl.business_id=b.id), ARRAY[]::text[]) AS gsource_types,
-      (SELECT jsonb_agg(jsonb_build_object('id',bl.id,'is_primary',bl.is_primary,'city',bl.city,'state',bl.state,
-          'postal_code',bl.postal_code,'county_fips',bl.county_fips) ORDER BY bl.id)
-         FROM business_locations bl WHERE bl.business_id=b.id)::text AS glocs,
+      ${sql.raw(websiteOwnershipSourceTypesSql("sl", "b"))} AS gsource_types,
+      ${glocs}
       obs.outcome AS obs_outcome, obs.operation_id::text AS obs_operation_id,
       e.id AS enrollment_found, e.status AS enrollment_status, e.current_step AS enrollment_step,
       (e.metadata->>'canonicalPreparationId' = i.id::text) AS enrollment_owned,
@@ -197,6 +238,7 @@ export function buildRecordedLaunchQuery(validationTtlDays: number, intentIds?: 
     LEFT JOIN sfp_programs p ON p.id=i.program_id
     LEFT JOIN follow_up_sequences seq ON seq.id=i.sequence_id
     LEFT JOIN sequence_enrollments e ON e.id=i.enrollment_id
+    ${setReads ? sql`LEFT JOIN launch_location_rows launch_loc ON launch_loc.business_id=b.id` : sql``}
     LEFT JOIN LATERAL (
       SELECT po.outcome, po.operation_id FROM provider_observations po
         JOIN provider_operations op ON op.id=po.operation_id AND op.state='completed' AND op.provider='zerobounce'
@@ -217,7 +259,8 @@ async function evaluateLaunchRows(
   const ctx = opts.ctx;
   if (ctx) ctx.phases.current = "policy_read";
   const policy = await getActiveSfpOutreachPolicy({ bypassCache: true });
-  const recordedQuery = buildRecordedLaunchQuery(policy.validationTtlDays, opts.intentIds);
+  const recordedQuery = buildRecordedLaunchQuery(policy.validationTtlDays, opts.intentIds,
+    !opts.intentIds || opts.intentIds.length >= SET_READ_MIN_RECIPIENTS ? "set" : "per_row");
   const recordedStarted = Date.now();
   if (ctx) ctx.phases.current = "recorded_facts";
   // A bounded read runs in one identified transaction so its deadline can cancel the exact backend (pid + xact_start)
@@ -298,7 +341,23 @@ async function evaluateLaunchRows(
     const pending = results.filter(r => !r.failure);
     const policyStarted = Date.now();
     if (ctx) { ctx.phases.current = "contact_policy"; ctx.phases.policyTotal = pending.length; }
-    await mapWithConcurrency(pending, POLICY_CONCURRENCY, r => applyContactPolicy(r, ctx));
+    const evaluate = () => mapWithConcurrency(pending, POLICY_CONCURRENCY, r => applyContactPolicy(r, ctx));
+    if (ctx) {
+      // The aggregate read loads, in a few set queries, what the shared policy authority reads for every recipient that
+      // is not already answered by the memo. A gap or a failed load only means the authority reads per contact, as before.
+      const unanswered = pending.filter(r => {
+        const hit = ctx.memo.get(policyKey(r));
+        return !(hit && Date.now() - hit.at < LAUNCH_INVENTORY_CACHE_SECONDS * 1000);
+      });
+      const snapshot = unanswered.length === 0 ? undefined
+        : await loadContactPolicySnapshot(unanswered.map(r => ({ contactId: r.contactId, businessId: r.businessId })))
+          .catch(() => undefined);
+      if (ctx.isExpired()) throw new LaunchInventoryDeadlineError("contact_policy",
+        { evaluated: ctx.phases.policyEvaluated + ctx.phases.policyReused, total: ctx.phases.policyTotal });
+      if (snapshot) await withContactPolicySnapshot(snapshot, evaluate); else await evaluate();
+    } else {
+      await evaluate();
+    }
     if (ctx) ctx.phases.policyMs = Date.now() - policyStarted;
   }
 

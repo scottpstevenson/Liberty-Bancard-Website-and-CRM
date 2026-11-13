@@ -125,8 +125,9 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
   const filterOwner = cohort.owner;
   const setCohort = (status: string, due: "all" | "overdue", owner: "all" | "unassigned" = filterOwner) => {
     const safeStatus = (taskStateFilters as readonly string[]).includes(status) ? status as typeof taskStateFilters[number] : "all";
-    navigateCohort(buildTaskCohortHref(window.location.href, { status: safeStatus, due, owner }));
+    navigateCohort(buildTaskCohortHref(window.location.href, { status: safeStatus, due, owner, requestTasks: cohort.requestTasks }));
   };
+  const clearRequestCohort = () => navigateCohort(buildTaskCohortHref(window.location.href, { status: filterStatus as typeof taskStateFilters[number], due: filterDue, owner: filterOwner, requestTasks: "all" }));
   const setFilterStatus = (status: string) => setCohort(status, filterDue);
   const [filterSource, setFilterSource] = useState<string>("all");
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<number>>(new Set());
@@ -172,7 +173,7 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
     ticketId: "",
   });
   const actorContext=JSON.stringify(protectedScope(user));
-  const commandContext=JSON.stringify([actorContext,filterSource,filterStatus,filterDue,filterOwner,createOpen,editTaskId,[...selectedTaskIds].sort()]);
+  const commandContext=JSON.stringify([actorContext,filterSource,filterStatus,filterDue,filterOwner,cohort.requestTasks,createOpen,editTaskId,[...selectedTaskIds].sort()]);
   const currentContext=useRef(commandContext);currentContext.current=commandContext;
   const mutationBoundary={onMutate:()=>commandContext};
   const accepts=(submitted:string|undefined)=>submitted===currentContext.current;
@@ -197,6 +198,19 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
       return data;
     },
   });
+
+  // Request-linked work groups (Website requests counts on Today/Overview). The server returns the ids its own count used, so
+  // this list selects exactly those tasks; a failed or forbidden read says so and never falls back to the unfiltered list.
+  const requestCohortAllowed = user?.role === "admin" || user?.role === "manager";
+  const requestCohortRead = useQuery<{ cohort: string; asOf: string; taskIds: number[] }>({
+    queryKey: ["/api/lead-ops/inbound-requests/task-cohort", cohort.requestTasks],
+    queryFn: async ({ signal }) => (await apiRequest("GET", `/api/lead-ops/inbound-requests/task-cohort?cohort=${encodeURIComponent(cohort.requestTasks)}`, undefined, undefined, signal)).json(),
+    enabled: cohort.requestTasks !== "all" && requestCohortAllowed,
+    staleTime: 0, gcTime: 0, retry: false,
+  });
+  const requestCohortIds = cohort.requestTasks !== "all" && requestCohortAllowed && requestCohortRead.data && !requestCohortRead.isError
+    ? new Set(requestCohortRead.data.taskIds) : null;
+  const requestCohortLabel = cohort.requestTasks === "due_today" ? "Request tasks due today (Eastern time)" : "Request tasks overdue (due before today, Eastern time)";
 
   const workCommands = useWorkCommands("task", selectedTaskIds, tasks);
   const createTaskMutation = useMutation({
@@ -416,11 +430,13 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
   };
 
   const filteredTasks = tasks?.filter((t) => {
-    if (filterStatus !== "all" && t.status !== filterStatus) return false;
+    if (filterStatus === "open" ? (t.status !== "pending" && t.status !== "in_progress") : (filterStatus !== "all" && t.status !== filterStatus)) return false;
     if (filterDue === "overdue" && !isOverdueTask(t, new Date())) return false;
     if (filterOwner === "unassigned" && !isUnassignedWork(t)) return false;
+    if (cohort.requestTasks !== "all" && !(requestCohortIds?.has(t.id))) return false;
     return true;
   }) || [];
+  const requestCohortMissing = requestCohortIds ? [...requestCohortIds].filter((id) => !tasks?.some((t) => t.id === id)).length : 0;
   const unassignedSummary = summarizeUnassigned(tasks ?? [], t => isOverdueTask(t, new Date()));
   const canClaim = canClaimUnassignedWork(user?.role);
 
@@ -504,6 +520,7 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All</SelectItem>
+                <SelectItem value="open">Open (pending or in progress)</SelectItem>
                 {STATUS_OPTIONS.map((s) => (
                   <SelectItem key={s} value={s}>{getStatusLabel(s)}</SelectItem>
                 ))}
@@ -871,6 +888,27 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
         onShowAll={() => { setCohort(filterStatus, filterDue, "all"); setSelectedTaskIds(new Set()); setSelectAll(false); }}
       />
       <p role="status" data-testid="work-ai-capability-reason">{aiCapability.reason}</p>
+      {cohort.requestTasks !== "all" && (
+        <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="work-request-cohort">
+          <Badge variant="secondary" data-testid="work-request-cohort-label">{requestCohortLabel}</Badge>
+          {!requestCohortAllowed ? (
+            <span role="alert" data-testid="work-request-cohort-forbidden">Request task groups are available to admins and managers. Nothing is shown for this group.</span>
+          ) : requestCohortRead.isError ? (
+            <span role="alert" data-testid="work-request-cohort-unavailable">
+              This group could not be read, so the list below is empty on purpose and is not an all-clear.{" "}
+              <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => void requestCohortRead.refetch()} data-testid="work-request-cohort-retry">Retry</Button>
+            </span>
+          ) : requestCohortRead.isLoading ? (
+            <span role="status" data-testid="work-request-cohort-loading">Reading the request tasks counted on Today…</span>
+          ) : (
+            <span role="status" data-testid="work-request-cohort-count">
+              {requestCohortRead.data?.taskIds.length ?? 0} counted on Today
+              {requestCohortMissing > 0 ? `; ${requestCohortMissing} not in the task list you can see` : ""}.
+            </span>
+          )}
+          <Button type="button" variant="ghost" size="sm" className="min-h-11" onClick={clearRequestCohort} data-testid="work-request-cohort-clear">Show all tasks</Button>
+        </div>
+      )}
       <p className="text-xs" data-testid="work-reader-coverage">
         {tasks?.length ?? 0} tasks returned by the authorized array reader; {filteredTasks.length} match these loaded filters{filterDue === "overdue" ? " (overdue: pending or in progress, due before now)" : ""}.{cohort.issues.length > 0 ? ` ${cohort.issues[0].reason}` : ""}
         No server paging or whole-population selection is claimed. {businessZoneNote()}

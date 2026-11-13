@@ -14,7 +14,11 @@ const walk = (dir: string): string[] => readdirSync(dir).flatMap(n => { const p 
 const layout = read("client/src/pages/DashboardLayout.tsx");
 const header = read("client/src/components/ui/page-header.tsx");
 check(!/isAdoptedPage/.test(layout), "DashboardLayout carries no hard-coded adopted-page list");
-check(/PageHeadingOwnerProvider/.test(layout) && /ShellPageTitle/.test(layout), "Shell title is the fallback h1 and yields to a claiming page");
+// Phase 6 R09: the shell's title slot is now WorkspaceTitle (area name from the sidebar registry), which still renders the
+// same ShellPageTitle fallback heading inside the same owner provider. The contract is unchanged; only its owner moved.
+const workspaceTitle = read("client/src/components/crm/WorkspaceTitle.tsx");
+check(/PageHeadingOwnerProvider/.test(layout) && /<WorkspaceTitle\b/.test(layout) && /<ShellPageTitle\b/.test(workspaceTitle),
+  "Shell title is the fallback h1 and yields to a claiming page");
 check(/useLayoutEffect/.test(header) && /level !== 1/.test(header), "Only level-1 headings register a claim");
 const rawH1 = walk("client/src/pages/dashboard").filter(f => f.endsWith(".tsx")).filter(f => /<h1[\s>]/.test(read(f)));
 check(rawH1.length === 0, `No raw <h1> remains in dashboard pages (${rawH1.join(", ") || "none"})`);

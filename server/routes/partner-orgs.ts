@@ -37,6 +37,7 @@ import {
   generateCoBrandedProposalPdf,
 } from "../services/co-branded-proposal";
 import { logOperationalDiagnostic, serverError } from "../utils/server-error";
+import { authorizeDealAccess } from "../services/crm-object-access";
 import { authorizeGhlRouteMutation, requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 import {
   isValidUUIDv4,
@@ -1340,6 +1341,8 @@ ${getEmailSignatureHtml("partners")}
   app.get("/api/deals/:dealId/co-branded-proposals", isDashboardUser, async (req, res) => {
     try {
       const dealId = Number(req.params.dealId);
+      // Proposals carry the merchant's name, email and a viewer link, so they follow the deal's own object-access owner.
+      if (!await authorizeDealAccess(req, res, dealId, { includeArchived: true })) return;
       const allProposals = await storage.getAllCoBrandedProposals();
       const dealProposals = allProposals.filter(p => p.dealId === dealId);
       const baseUrl = getBaseUrl(req);

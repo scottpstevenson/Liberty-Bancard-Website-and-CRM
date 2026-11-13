@@ -433,6 +433,7 @@ export default function OutreachQueue() {
                           checked={selectedIds.has(contact.id)}
                           onCheckedChange={() => toggleOne(contact.id)}
                           disabled={wasEnrolled}
+                          aria-label={`Select ${[contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.companyName || `lead ${contact.id}`}`}
                         />
                       </TableCell>
 

@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
-  businessIdentity, consentState, contactDisplayName, headerNextAction, personName,
+  businessIdentity, consentState, contactDisplayName, headerNextAction, personName, sharedNotRecordedNote,
 } from "../client/src/lib/contact-header-presentation";
 import { expectedDocumentsFor } from "../client/src/lib/contact-documents-stage";
 import { applicationStatuses } from "../client/src/lib/crm-destination-state";
@@ -41,6 +41,15 @@ eq(businessIdentity({ companyName: "Acme" }, undefined).relationshipLabel, "Busi
 eq(consentState({ consentEmail: true }, "email").state, "recorded", "recorded email consent");
 eq(consentState({}, "email").state, "not_recorded", "no consent value is not recorded, not denied");
 ok(consentState({}, "sms").label.includes("not a refusal"), "the not-recorded label says it is not a refusal");
+{
+  // Compact header: the explanation is said once only when both channels are not recorded; mixed states keep their own labels.
+  const both = sharedNotRecordedNote(consentState({}, "email"), consentState({}, "sms"));
+  ok(both?.note.includes("not a refusal") === true && both?.short === "Not recorded", "both channels not recorded: one shared 'unknown, not a refusal' note");
+  eq(sharedNotRecordedNote(consentState({ consentEmail: true }, "email"), consentState({}, "sms")), null, "a recorded channel next to a not-recorded one keeps full per-channel labels");
+  eq(sharedNotRecordedNote(consentState({ doNotContact: true }, "email"), consentState({ doNotContact: true }, "sms")), null, "a denial is never folded into the shared note");
+  const entered = businessIdentity({ companyName: "Acme" }, { state: "none" });
+  ok(entered.relationshipLabel.includes("not verified") && /no reviewed business link verifies it/.test(entered.relationshipTitle), "the short entered-name label keeps its full explanation as the title");
+}
 eq(consentState({ doNotContact: true, consentEmail: true }, "email").state, "denied", "do-not-contact wins over a recorded consent");
 eq(consentState({ emailStatus: "Unsubscribed", consentEmail: true }, "email").state, "denied", "an unsubscribed address is denied for email");
 eq(consentState({ emailStatus: "unsubscribed" }, "sms").state, "not_recorded", "an email unsubscribe does not deny SMS");

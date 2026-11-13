@@ -130,7 +130,7 @@ ok(/res\.json\(\{\s*\.\.\.data,\s*asOf,/.test(leadOps), "asOf is returned with t
 // ── Canonical backlog: glossary first, raw receipts behind a named disclosure ───────────────────────────────
 const backlog = read("client/src/pages/dashboard/CanonicalBacklog.tsx");
 const glossaryAt = backlog.indexOf('testId="disclosure-population-words"');
-const inventoryAt = backlog.indexOf("<LaunchInventory isAdmin={isAdmin} />");
+const inventoryAt = backlog.indexOf("<LaunchInventory key=\"launch-inventory\" isAdmin={isAdmin} />");
 const funnelAt = backlog.indexOf("<Funnel data={data} />");
 const rawAt = backlog.indexOf('testId="disclosure-raw-receipts"');
 ok(glossaryAt > 0 && glossaryAt < inventoryAt && inventoryAt < funnelAt && funnelAt < rawAt, "backlog order: glossary, launch inventory, funnel, raw receipts disclosure");
@@ -146,5 +146,30 @@ const contacts = read("client/src/pages/dashboard/Contacts.tsx");
 ok(contacts.includes('const recordClassFilter = peopleParams.get("recordClass") ?? "production";'), "desktop People defaults to production records");
 ok(contacts.includes('"all record classes"') && contacts.includes("records`})"), "desktop People names its record class beside the total");
 ok(read("scripts/test-stage3-c4-browser.ts").includes("/api/contacts/facets?recordClass=production"), "the browser suite reads the same scope the mobile tile displays");
+
+// ── R08: routine context first; maintenance and raw failure text behind named disclosures; no behavior change ────────────
+const leadOpsSource = read("client/src/pages/dashboard/LeadOpsCenter.tsx");
+const maintStart = leadOpsSource.indexOf('data-testid="lead-ops-maintenance"');
+const maintEnd = leadOpsSource.indexOf("</details>", maintStart);
+ok(maintStart > 0 && maintEnd > maintStart, "Lead Operations has a named Maintenance tools disclosure");
+const maintenance = leadOpsSource.slice(maintStart, maintEnd);
+ok(!/<details[^>]*\bopen\b/.test(leadOpsSource.slice(maintStart - 120, maintStart + 120)), "the maintenance disclosure starts closed");
+ok(maintenance.includes("Maintenance tools") && maintenance.includes("Sync Owner Data") && maintenance.includes("Clear SLA Flood"), "both maintenance actions are inside it");
+ok(/user\?\.role === "admin" && \(\s*<AlertDialog>/.test(maintenance), "Clear SLA Flood keeps its admin-only role check and confirmation dialog");
+ok(maintenance.includes("writebackMutation.mutate()") && maintenance.includes("clearSlaMutation.mutate()"), "the same mutations are called");
+const outsideMaintenance = leadOpsSource.slice(0, maintStart) + leadOpsSource.slice(maintEnd);
+ok(!outsideMaintenance.includes("Sync Owner Data") && !outsideMaintenance.includes("Clear SLA Flood</"), "neither action is offered in the main flow any more");
+ok(leadOpsSource.includes("AREA_ENTRY[prospectingAreaForTab(activeTab)]") && leadOpsSource.includes("<CrmAreaNav"), "the Prospecting area navigation is unchanged");
+const health = read("client/src/pages/dashboard/LeadOps/ProgramHealthPanel.tsx");
+ok(health.includes("Program Health could not be read right now") && health.includes('data-testid="program-health-retry"'), "Program Health states unavailability plainly with Retry");
+ok(!/<p[^>]*>\{healthQuery\.error/.test(health) && !/\{pc\.error\}|\{h\?\.pipelineCounts\?\.error\}/.test(health.replace(/text=\{[^}]*\}/g, "")), "raw failure text is never a visible sentence");
+ok(health.includes('testId="program-health-technical-details"') && health.includes('testId="legacy-pipeline-technical-details"'), "raw failure text goes to named Technical details disclosures");
+ok(health.includes("<PaidProviderControlsPanel />"), "the paid-provider controls remain mounted");
+const providerPanel = read("client/src/pages/dashboard/LeadOps/PaidProviderControlsPanel.tsx");
+const stopAt = providerPanel.indexOf('data-testid="button-paid-provider-emergency-stop"');
+const disclosureAt = providerPanel.indexOf('testId="disclosure-provider-controls"');
+ok(stopAt > 0 && disclosureAt > stopAt, "the emergency stop is rendered before, and outside, the provider-state disclosure");
+ok(providerPanel.includes('apiRequest("POST", "/api/lead-ops/pilot/emergency-stop-paid", { reason: "operator_emergency_stop" })'), "the emergency stop still calls the same admin route");
+ok(providerPanel.includes('testId="paid-provider-controls-technical-details"') && providerPanel.includes("button-paid-provider-controls-retry"), "provider failures offer Retry and name their Technical details");
 
 console.log(`Phase 6 count contract: ${checks} checks passed`);

@@ -54,6 +54,12 @@ export const isDirectoryOrGovernmentDomain = (value: string | null | undefined) 
 /**
  * Registry-owned or CRM-owned organization links are the independent evidence that a business exists apart from
  * where discovery saw it. A provider import by itself is not independent: it is the same observation again.
+ *
+ * This list names the link TYPES that can be independent. It is not, by itself, proof about a particular website: the
+ * recipient gates and the review cohorts pass source types qualified by server/services/website-ownership-evidence-sql.ts,
+ * which keeps an independent type only when the link's recorded evidence names the same website host as the business
+ * (policy: domain ownership as recorded by an independent source; business existence or affiliation alone does not clear
+ * the hold). An unrelated or silent organization link arrives as "<type>:website_not_confirmed" and is not recognised here.
  */
 export const INDEPENDENT_OWNERSHIP_SOURCE_TYPES: readonly string[] = ["organization", "organization_location", "crm_organization"];
 

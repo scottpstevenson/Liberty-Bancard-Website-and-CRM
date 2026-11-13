@@ -14,6 +14,7 @@ import { featureFlags } from "./feature-flags";
 import { normalizeConsentPhone } from "./consent-authority";
 import { isContactMergeEffectHoldState } from "./contact-identity";
 import { isDbprSourceSystem, businessHasDbprLineageSql } from "./dbpr";
+import { currentContactPolicySnapshot } from "./contact-policy-read-snapshot";
 import {
   isWithinBusinessHours,
   getTimezoneFromState,
@@ -169,7 +170,11 @@ function getNextBestCompliantAction(
   return null;
 }
 
-async function hasPewcEvidence(contactId: number, currentPhone: string | null): Promise<boolean> {
+async function hasPewcEvidence(
+  contactId: number, currentPhone: string | null, snapshot?: ReturnType<typeof currentContactPolicySnapshot>,
+): Promise<boolean> {
+  const preloaded = snapshot?.pewcEvidenceByContact.get(contactId);
+  if (preloaded !== undefined) return preloaded;
   const logs = await db
     .select({
       consentType: consentAuditLogs.consentType,
@@ -454,7 +459,11 @@ export async function evaluateContactability(
   // between local relationship changes and the authority-owned restrictive
   // consent handoff; no automated send may proceed until the operation reaches
   // a post-handoff state.
-  const mergeFence = await db.execute(sql`
+  // A whole-population dry-run read may be served from its set-read snapshot (never an enforcement check).
+  const policySnapshot = mode === "dryRun" ? currentContactPolicySnapshot() : undefined;
+  const mergeFence = policySnapshot?.mergeFenceByContact.get(contactId) !== undefined
+    ? { rows: policySnapshot.mergeFenceByContact.get(contactId)! }
+    : await db.execute(sql`
     SELECT status,reconciliation_status FROM contact_merge_operations
     WHERE (${contactId} IN (survivor_contact_id, deprecated_contact_id))
       AND status IN ('committed','reconciliation_pending')
@@ -544,11 +553,14 @@ export async function evaluateContactability(
   }
 
   // ── Step 1: Contact exists ─────────────────────────────────────────────
-  const [contact] = await db
-    .select()
-    .from(contacts)
-    .where(eq(contacts.id, contactId))
-    .limit(1);
+  const preloadedContact = policySnapshot?.contacts.get(contactId);
+  const [contact] = preloadedContact
+    ? [preloadedContact]
+    : await db
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, contactId))
+      .limit(1);
 
   if (!contact) {
     return blocked("Contact not found");
@@ -623,7 +635,11 @@ export async function evaluateContactability(
       ? channel
       : null;
   if (canonicalChannel) {
-    const [canonicalState] = await db
+    const preloadedState = canonicalChannel === "email"
+      ? policySnapshot?.canonicalEmailStateByContact.get(contactId) : undefined;
+    const [canonicalState] = preloadedState !== undefined
+      ? [preloadedState === null ? undefined : { permissionState: preloadedState }]
+      : await db
       .select({ permissionState: consentSubjectChannelStates.permissionState })
       .from(consentSubjectChannelStates)
       .innerJoin(consentSubjects, eq(consentSubjects.id, consentSubjectChannelStates.subjectId))
@@ -649,7 +665,7 @@ export async function evaluateContactability(
   // Pre-fetch PEWC evidence once — used for tier derivation AND step 12 verification.
   // Checked here so deriveConsentTier can receive the pre-computed result (avoids
   // a second DB round-trip at step 12 and ensures tier and evidence stay in sync).
-  const pewcVerified = await hasPewcEvidence(contactId, contact.phone);
+  const pewcVerified = await hasPewcEvidence(contactId, contact.phone, policySnapshot);
 
   // A legacy PEWC tier is compatibility data only. Automated eligibility must
   // derive from canonical evidence bound to the contact's current phone.
@@ -1160,11 +1176,14 @@ async function hasDbprLineage(
   contact: Pick<typeof contacts.$inferSelect, "leadSource" | "sourceCategory">,
   businessId: number | null | undefined,
   executor: any = db,
+  snapshot?: ReturnType<typeof currentContactPolicySnapshot>,
 ): Promise<boolean> {
   if (isDbprSourceSystem(contact.leadSource) || isDbprSourceSystem(contact.sourceCategory)) {
     return true;
   }
   if (businessId == null) return false;
+  const preloaded = snapshot?.dbprLineageByBusiness.get(businessId);
+  if (preloaded !== undefined) return preloaded;
   const rows = (await executor.execute(sql`
     SELECT ${businessHasDbprLineageSql(sql`${businessId}::integer`)} AS has_dbpr
   `) as any).rows ?? [];
@@ -1176,8 +1195,12 @@ async function hasDbprLineage(
  * (businesses.status = 'customer'). Master-lead promotion must not re-promote
  * an existing customer as a fresh cold lead.
  */
-async function isExistingCustomerBusiness(businessId: number | null | undefined, executor: any = db): Promise<boolean> {
+async function isExistingCustomerBusiness(
+  businessId: number | null | undefined, executor: any = db,
+  snapshot?: ReturnType<typeof currentContactPolicySnapshot>,
+): Promise<boolean> {
   if (businessId == null) return false;
+  if (snapshot?.customerLoadedBusinessIds.has(businessId)) return snapshot.customerBusinessIds.has(businessId);
   const rows = (await executor.execute(sql`
     SELECT 1 FROM businesses WHERE id = ${businessId}::integer AND status = 'customer' LIMIT 1
   `) as any).rows ?? [];
@@ -1299,11 +1322,17 @@ export async function evaluateContactDecisions(
   if (executor !== db && input.channel) {
     throw new Error("CONTACT_DECISIONS_TRANSACTIONAL_SEND_CHECK_UNSUPPORTED");
   }
-  const [contact] = await executor
-    .select()
-    .from(contacts)
-    .where(eq(contacts.id, input.contactId))
-    .limit(1);
+  // Only the read-only whole-population dry run (the launch inventory) enters a set-read snapshot; see
+  // contact-policy-read-snapshot.ts. Any value it does not hold is read from the database as before.
+  const policySnapshot = executor === db && input.mode === "dryRun" ? currentContactPolicySnapshot() : undefined;
+  const preloadedContact = policySnapshot?.contacts.get(input.contactId);
+  const [contact] = preloadedContact
+    ? [preloadedContact]
+    : await executor
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, input.contactId))
+      .limit(1);
 
   if (!contact) {
     const notFound = blockedDimension("CONTACT_NOT_FOUND", "Contact not found");
@@ -1312,8 +1341,8 @@ export async function evaluateContactDecisions(
 
   const businessId = input.businessId ?? contact.businessId ?? null;
   const [dbprLineage, existingCustomer] = await Promise.all([
-    hasDbprLineage(contact, businessId, executor),
-    isExistingCustomerBusiness(businessId, executor),
+    hasDbprLineage(contact, businessId, executor, policySnapshot),
+    isExistingCustomerBusiness(businessId, executor, policySnapshot),
   ]);
 
   const dataHygiene = evaluateDataHygieneDecision(contact, dbprLineage);

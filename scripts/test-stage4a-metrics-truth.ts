@@ -99,6 +99,27 @@ async function main() {
   assert.ok(ppc.inFlightSample.asOf);
   ok("in-flight operation sample is labelled; count is the whole population");
 
+  // 6b. Phase 6 R08: the SFP cost aggregate is read on its own. One malformed recorded amount (digits beyond a bigint) must not
+  // fail the provider-control read, and a failed aggregate would be unavailable (null), never zero, without hiding control state.
+  const costTag = `p6cost-${Date.now()}`;
+  await pool.query(
+    `INSERT INTO provider_operations (provider,operation_type,purpose,idempotency_key,actor_type,target_fingerprint,billing_state,reserved_units,sfp_result_data)
+     VALUES ('serper','sfp_enrichment','phase6_cost_probe',$1,'system',$1,'reserved',1,$2::jsonb)`,
+    [costTag, JSON.stringify({ reservedUnitAmountMicros: "9".repeat(25) })],
+  );
+  try {
+    const withMalformed = await getPaidProviderControls();
+    assert.equal(withMalformed.costAggregates.available, true, "a malformed recorded amount does not fail the cost aggregate");
+    const serperRow: any = withMalformed.providers.find((p: any) => p.provider === "serper");
+    assert.ok(serperRow && serperRow.sfpCostEstimateAvailable === true && Number(serperRow.sfpUnpricedOperationCount) >= 1, "the malformed amount is counted as unpriced, not summed");
+  } finally {
+    await pool.query(`DELETE FROM provider_operations WHERE idempotency_key=$1`, [costTag]);
+  }
+  const ppSource = src("server/services/paid-provider-control.ts");
+  assert.ok(/costAggregatesAvailable = false;/.test(ppSource) && /sfpCostEstimateAvailable: costAggregatesAvailable/.test(ppSource), "cost aggregate failure is localized and reported as unavailable");
+  assert.ok(/sfpReservedCostEstimateMicros: costAggregatesAvailable \? Number/.test(ppSource) && /: null,\n      sfpSettledCostEstimateMicros|sfpSettledCostEstimateRecordCount: costAggregatesAvailable \? Number\(sfpCost\?\.settled_cost_records \?\? 0\) : null/.test(ppSource), "an unavailable aggregate yields null estimates, never zero");
+  ok("provider-control cost aggregate: malformed amount tolerated; failure localized and unavailable-not-zero");
+
   // 7. Local-link wording and contact-page DTO.
   const integ = src("server/routes/integrations.ts");
   assert.match(integ, /linked ID recorded locally; current native existence unverified/);

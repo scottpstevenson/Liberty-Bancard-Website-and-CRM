@@ -1,0 +1,51 @@
+{
+  "viewport": {
+    "width": 390,
+    "height": 844,
+    "dpr": 1
+  },
+  "documentWidth": 390,
+  "header": {
+    "top": 205,
+    "bottom": 737,
+    "width": 366,
+    "height": 532,
+    "visible": true
+  },
+  "navigation": {
+    "top": 753,
+    "bottom": 910,
+    "width": 366,
+    "height": 157,
+    "visible": true
+  },
+  "status": {
+    "top": 447,
+    "bottom": 597,
+    "width": 366,
+    "height": 150,
+    "visible": true
+  },
+  "nextAction": {
+    "top": 605,
+    "bottom": 625,
+    "width": 366,
+    "height": 20,
+    "visible": true
+  },
+  "back": {
+    "top": 149,
+    "bottom": 193,
+    "width": 174.0625,
+    "height": 44,
+    "visible": true
+  },
+  "breadcrumb": {
+    "top": 163,
+    "bottom": 179,
+    "width": 96.046875,
+    "height": 16,
+    "visible": true
+  },
+  "h1Count": 1
+}

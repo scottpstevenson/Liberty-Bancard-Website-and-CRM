@@ -1,0 +1,44 @@
+Phase 6 closure — final sweep on candidate source hash 456d46f5…8412 (output hash 05558463…ad08), run 2026-11-12/13
+
+build exit 0
+STATIC legacy-alias-matrix exit 0 :: phase6 legacy alias matrix: ok (44 aliases, 220 generated cases) 
+STATIC mobile-continuity exit 0 :: phase6 mobile continuity: ok (100 checks) 
+STATIC mounted exit 0 :: PASS client/src/pages/dashboard/LeadOps/MaintenanceDisclosures.test.tsx Phase 6 mounted component behavior: all suites passed (injected fetch; no sessions, DB o
+STATIC email-lane-states exit 0 :: PHASE6_EMAIL_LANE_STATES_PASS (514 checks) 
+STATIC count-contract exit 0 :: Phase 6 count contract: 131 checks passed 
+STATIC work-presentation exit 0 :: phase6 work presentation: 93 checks passed 
+STATIC contact-and-applications exit 0 :: phase6 contact and applications: 59 checks passed 
+STATIC today-pipeline-reports exit 0 :: phase6 today pipeline reports: 153 checks passed 
+STATIC workspace-identity exit 0 :: Phase 6 workspace identity: 341 checks passed WORKSPACE_IDENTITY_PASS 
+DISPOSABLE inventory-reads exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval). 
+DISPOSABLE inventory-set-reads exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval). 
+DISPOSABLE provenance-and-record-class exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval). 
+DISPOSABLE task-evidence exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval). 
+DISPOSABLE intake-cohorts exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval). 
+DISPOSABLE contact-header-task exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval). 
+DISPOSABLE notification-targets exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval). 
+DISPOSABLE browser exit 0 :: PHASE6_BROWSER_PASS (55 named checks, 36 audited states) ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval). 
+DISPOSABLE populated-journeys exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval). 
+DISPOSABLE smoke-role-guards exit 0 ::   ✗ PAYARC_API_KEY                      → Payarc processor boarding (MID provisioning disabled without it)   ✗ GHL_LOCATION_ID                     → GoHighLevel CRM sync and all GHL communications 
+STATIC check-route-guards exit 0 ::  ✅ All route-guard assertions passed. No role-protection regressions detected. 
+STATIC test-stage3-d-v-contracts exit 0 :: ✓ performance gate asserts shell and data readiness for every sample and records input identity Stage 3 D-V contracts: PASS (33 checks) 
+STATIC test-task1721-inbox-statement-structure exit 0 :: Task 1721 structural checks passed 
+STATIC test-stage3-d-r2-contracts exit 1 ::  Node.js v22.23.4 
+STATIC test-dashboard-polish exit 1 :: Failures:   - Fix-date mutation (PUT /api/calendar-events/:id) updates startTime 
+STATIC test-crm-operator-experience exit 1 ::  Node.js v22.23.4 
+STATIC test-task2056-crm-ui-contracts exit 1 ::  Node.js v22.23.4 
+STATIC test-lead-ops-budget-removal exit 1 ::  Node.js v22.23.4 
+STATIC test-attestation-promotion-regression exit 1 ::  Attestation/promotion/census regression FAILED. 
+DISPOSABLE c2-contact-header exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval). 
+ALL DONE
+
+First failing assertion, clean base vs candidate (identical for all six):
+  test-crm-operator-experience :: AssertionError [ERR_ASSERTION]: server/routes/crm-operations.ts must contain db.select().from(tasks).where(eq(tasks.contactId, contactId))
+  test-task2056-crm-ui-contracts :: AssertionError [ERR_ASSERTION]: The input did not match the regular expression /user\?\.role === "admin" && <ContactBusinessReconciliationPanel \/>/. Input:
+  test-stage3-d-r2-contracts :: AssertionError [ERR_ASSERTION]: Every listed industry page is server-rendered; only an unknown industry slug answers 404 (no fall-through to the client app)
+  test-lead-ops-budget-removal :: AssertionError [ERR_ASSERTION]: The input did not match the regular expression /AUTHORIZE PAID PILOT/. Input:
+  test-attestation-promotion-regression ::   ✗ Gate 6 uses ORDER BY captured_at DESC (correct schema column)
+  test-dashboard-polish ::   ✗ Fix-date mutation (PUT /api/calendar-events/:id) updates startTime — status=400
+
+test-c2-contact-header on clean base: AssertionError mobile: navigation below fold (navigation bottom 910 px, screen 844 px)
+test-c2-contact-header on candidate: pass (compact header + login-order correction)

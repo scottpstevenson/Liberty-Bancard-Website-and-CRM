@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useCrmQuery } from "@/hooks/use-crm-query";
 import { CrmAreaNav } from "@/components/crm/CrmPresentation";
 import CanonicalEnrichment from "./CanonicalEnrichment";
-import { prospectingAreas, prospectingAreaTabs, prospectingAreaForTab, typedTabUrl } from "@/lib/crm-destination-state";
+import { intakeCohortLabels, intakeCohortState, prospectingAreas, prospectingAreaTabs, prospectingAreaForTab, typedTabUrl, workReturnFromSearch } from "@/lib/crm-destination-state";
 import { useLocation, useSearch, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, parseApiRequestError } from "@/lib/queryClient";
@@ -2237,6 +2237,12 @@ export default function LeadOpsCenter() {
     setInboundRefError(null);
     setInboundPage(0);
   }, [refFromUrl]);
+  // Registered group selector (?intake=received|needs_review|statement_attention) opened from a Today/Overview count. The server
+  // filters with the predicate that produced the count; an invalid selector is reported, never widened to the full list.
+  const intakeSelection = intakeCohortState(urlSearch);
+  const intakeCohortKey = intakeSelection.cohort ? `${intakeSelection.cohort}:${intakeSelection.days ?? ""}` : "";
+  useEffect(() => { setInboundPage(0); }, [intakeCohortKey]);
+  const clearIntakeCohort = () => navigate(typedTabUrl("/dashboard/lead-ops", urlSearch, window.location.hash, { tab: "pipeline" }));
   const applyInboundRef = (raw: string) => {
     const value = raw.trim().toUpperCase();
     if (value === "") {
@@ -2335,9 +2341,10 @@ export default function LeadOpsCenter() {
     ...(inboundSourceClass !== "all" ? { sourceClass: inboundSourceClass } : {}),
     ...(inboundLifecycle !== "all" ? { lifecycleState: inboundLifecycle } : {}),
     ...(inboundRef ? { ref: inboundRef } : {}),
+    ...(intakeSelection.cohort ? { cohort: intakeSelection.cohort, ...(intakeSelection.days ? { days: String(intakeSelection.days) } : {}) } : {}),
   });
   const inboundRequestsQuery = useCrmQuery<InboundRequest[]>({
-    queryKey: ["/api/lead-ops/inbound-requests", inboundPage, inboundSourceClass, inboundLifecycle, inboundRef],
+    queryKey: ["/api/lead-ops/inbound-requests", inboundPage, inboundSourceClass, inboundLifecycle, inboundRef, intakeCohortKey],
     queryFn: ({ signal }) => crmFetch(`/api/lead-ops/inbound-requests?${inboundParams}`, signal),
     enabled: onPipeline,
   });
@@ -2492,6 +2499,14 @@ export default function LeadOpsCenter() {
             Enrich, segment, and route your entire lead pool — no code required.
           </p>
         </div>
+        {/* Occasional repair actions live behind a named disclosure so the first screen is for prospecting work. The actions,
+            their role checks and their server routes are unchanged; only where they are offered moved. */}
+        <details className="rounded-md border bg-card px-3 text-sm sm:max-w-sm" data-testid="lead-ops-maintenance">
+          <summary className="flex min-h-11 cursor-pointer items-center gap-1.5 font-medium" data-testid="lead-ops-maintenance-summary">
+            Maintenance tools
+          </summary>
+          <div className="space-y-2 pb-3">
+            <p className="text-xs text-muted-foreground">Occasional repair actions. They change records, so they are kept out of the daily view.</p>
         <div className="flex flex-wrap gap-2">
           <Button
             variant="outline" size="sm"
@@ -2531,6 +2546,8 @@ export default function LeadOpsCenter() {
             </AlertDialog>
           )}
         </div>
+          </div>
+        </details>
       </div>
 
       {/* ── Five Prospecting areas; the leaf tabs below are the secondary selector for the current area ── */}
@@ -2812,6 +2829,25 @@ export default function LeadOpsCenter() {
               </SelectContent>
             </Select>
           </div>
+          {workReturnFromSearch(urlSearch) && (
+            <p className="pt-1 text-xs" data-testid="inbound-work-return">
+              <a className="text-blue-600 hover:underline inline-flex items-center min-h-11 lg:min-h-0" href={workReturnFromSearch(urlSearch)!}>Back to Work</a>
+            </p>
+          )}
+          {(intakeSelection.cohort || intakeSelection.issues.length > 0) && (
+            <div className="flex flex-wrap items-center gap-2 pt-2 text-xs" data-testid="inbound-intake-cohort">
+              {intakeSelection.cohort && (
+                <>
+                  <Badge variant="secondary" data-testid="inbound-intake-cohort-label">
+                    {intakeCohortLabels[intakeSelection.cohort]}{intakeSelection.days ? ` (last ${intakeSelection.days} days)` : ""}
+                  </Badge>
+                  <span className="text-muted-foreground">The requests counted under this name on Today and Overview.</span>
+                  <Button type="button" variant="ghost" size="sm" className="min-h-11 sm:min-h-8" onClick={clearIntakeCohort} data-testid="button-inbound-intake-cohort-clear">Show all requests</Button>
+                </>
+              )}
+              {intakeSelection.issues.length > 0 && <span role="alert" className="text-destructive" data-testid="inbound-intake-cohort-issue">{intakeSelection.issues[0].reason}</span>}
+            </div>
+          )}
           {inboundRef && !inboundRequestsQuery.isError && !inboundRequestsQuery.isLoading && (
             <p className="text-xs text-muted-foreground pt-1" role="status" data-testid="text-inbound-ref-result">
               {inboundRequests.length === 0

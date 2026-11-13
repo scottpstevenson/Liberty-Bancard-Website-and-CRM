@@ -21,7 +21,7 @@ import { contactReadPredicate, dealReadPredicate } from "../services/revenue-rea
 import { advanceDealStage, DealStageConflictError, DealStageIllegalTransitionError } from "../services/deal-stage-service";
 import { GoLiveGateError } from "../services/go-live-gate";
 import { authorizeContactAccess, canAccessOwner } from "../services/crm-object-access";
-import { taskReadPredicate, taskStateSql } from "../services/task-read-authority";
+import { readContactNextTask, taskReadPredicate, taskStateSql } from "../services/task-read-authority";
 import { contactSections } from "../../client/src/lib/crm-destination-state";
 import {isSdrSourcedContact} from "../services/sales-prep";
 import { db, pool } from "../db";
@@ -146,6 +146,8 @@ export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDele
       // Header relationship fact: what the business-link authority has recorded for THIS person. Read-only; a failed read is
       // reported as unavailable rather than as "no business".
       const businessRelationship=await readHeaderBusinessRelationship(contactId);
+      // Header next task: read on every projection (not only Overview/Tasks) so the header agrees across sections.
+      const headerTaskFacts=await readContactNextTask({actor:req.user as any,asOf,timezone:"UTC"},contactId);
       res.json({ contact, deals: contactDeals, tickets: contactTickets, tasks: contactTasks, notes: contactNotes,
         relationshipFacts:{business:businessRelationship},
         capabilities:{hasOnboarding:rawDeals.some(deal=>deal.pipeline==="onboarding" && !deal.archivedAt),
@@ -154,6 +156,7 @@ export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDele
         headerDealFacts:{activeDeal:activeDeal?{id:activeDeal.id,stage:activeDeal.stage,pipeline:activeDeal.pipeline,
           nextFollowUp:activeDeal.nextFollowUp,archivedAt:activeDeal.archivedAt}:null,
           nextFollowUp:nextFollowUp?.toISOString()??null},
+        headerTaskFacts,
         projection:section??"legacy_full",asOf:asOf.toISOString() });
     } catch (err: any) {
       serverError(res, err);

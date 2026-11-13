@@ -10,7 +10,8 @@ import {
   LANE_KEYS, campaignLaneStates, laneVerdict, packageScopeOf, sequenceLaneStates, type CatalogRead,
 } from "../client/src/lib/email-lane-states";
 import { INTEGRATION_LANES } from "../client/src/components/dashboard/IntegrationLaneGuide";
-import { GHL_OWNERSHIP_STATEMENT } from "../shared/ghl-ownership-guidance";
+import { GHL_OWNERSHIP_STATEMENT, GHL_SUPPORTED_HANDOFF_WORKFLOWS } from "../shared/ghl-ownership-guidance";
+import { GHL_WORKFLOW_REGISTRY } from "../server/services/ghl-workflow-registry-data";
 
 let checks = 0;
 const ok = (value: unknown, message: string) => { assert.ok(value, message); checks++; };
@@ -130,6 +131,62 @@ ok(INTEGRATION_LANES.every(l => l.effect.length > 30 && l.control.length > 5), "
 ok(INTEGRATION_LANES.find(l => l.key === "native")!.effect.includes("never starts a message"), "native workflow installation never implies messaging");
 ok(!/form confirmation,/.test(GHL_OWNERSHIP_STATEMENT.workflowIds), "form confirmation is not listed as a GHL handoff");
 ok(GHL_OWNERSHIP_STATEMENT.workflowIds.includes("never authorizes a message by itself"), "the shared ownership statement says a saved ID never authorizes a message");
+
+// R03: the integrations screen renders registry descriptions from /api/ghl/workflow-env-ids, so the guide's own
+// claims are only true if the registry data agrees. These checks read the real registry, not source strings.
+const WORKFLOW_CLAIMS_BANNED: ReadonlyArray<[RegExp, string]> = [
+  [/\bCRITICAL\b/, "the word CRITICAL"],
+  [/instant/i, "an instant-response claim"],
+  [/immediate(ly)?\b/i, "an immediate-response claim"],
+  [/without this/i, "a consequence claim for an empty slot"],
+  [/no (immediate )?response/i, "a no-response claim"],
+  [/schedules? (an? )?(AI|savings)/i, "automatic analysis"],
+  [/sends? (an? )?(instant |welcome |confirmation |portal )/i, "a message-sending claim"],
+  [/\be-?sign\b/i, "an e-sign claim"],
+  [/triggers on every/i, "an every-submission trigger claim"],
+];
+ok(GHL_WORKFLOW_REGISTRY.length >= 30, "the real registry is loaded");
+for (const w of GHL_WORKFLOW_REGISTRY) {
+  const text = `${w.name}. ${w.description}`;
+  for (const [pattern, label] of WORKFLOW_CLAIMS_BANNED) {
+    // voice and voicemail slots describe a declared-path trigger and are checked for the claims that matter below
+    ok(!pattern.test(text), `${w.id}: registry copy contains ${label}`);
+  }
+  ok(w.description.length > 20, `${w.id}: has a description`);
+}
+const byId = new Map(GHL_WORKFLOW_REGISTRY.map(w => [w.id, w] as const));
+for (const w of GHL_WORKFLOW_REGISTRY) {
+  if (w.category === "sdr_outbound" && w.triggerType === "sdr_outreach") {
+    ok(w.description.startsWith("Reference only."), `${w.id}: cold-outreach slots are reference records`);
+  }
+}
+for (const id of Object.keys(GHL_SUPPORTED_HANDOFF_WORKFLOWS)) {
+  const w = byId.get(id);
+  ok(w, `${id}: supported handoff exists in the registry`);
+  if (id === "inbound_confirmation") continue;
+  ok(/^Handoff slot\./.test(w!.description), `${id}: a supported handoff is described as a conditional handoff`);
+  ok(/saved ID does not send anything by itself|approval, consent checks and the outbound pause still apply|Replit suppression applies/.test(w!.description),
+    `${id}: a saved ID is not described as authority to send`);
+}
+for (const w of GHL_WORKFLOW_REGISTRY) {
+  if (!(w.id in GHL_SUPPORTED_HANDOFF_WORKFLOWS) && w.category !== "sdr_outbound" && !["voicemail_drop", "merchant_approved"].includes(w.id)) {
+    ok(w.description.startsWith("Reference only."), `${w.id}: a slot with no enrollment caller is a reference record`);
+  }
+}
+const confirmation = byId.get("inbound_confirmation")!;
+ok(/request receipt/.test(confirmation.description) && /not by a GHL workflow/.test(confirmation.description), "web-form confirmation is the local request receipt, not a GHL workflow");
+ok(!/Instant/.test(confirmation.name), "the confirmation slot is not named an instant confirmation");
+ok(/no analysis/.test(byId.get("statement_review")!.description), "statement upload does not claim to schedule automatic analysis");
+ok(/no confirmation text/.test(byId.get("callback_request")!.description), "callback request does not claim to send a confirmation text");
+
+// The same rows as the screen receives them: the real registry rows through the route's response projection.
+const routeSource = read("server/routes/integrations.ts");
+ok(/description: w\.description/.test(routeSource), "the registry routes pass the registry description through unchanged");
+ok(/entry\.description/.test(settings), "the settings table renders the registry description (so registry copy is the page copy)");
+for (const doc of ["docs/launch-env-checklist.md"]) {
+  const text = read(doc);
+  ok(!/sends confirmation SMS|schedules AI savings review|Sends welcome email \+ SMS/.test(text), `${doc}: no unconditional registry claims`);
+}
 
 console.log(`PHASE6_EMAIL_LANE_STATES_PASS (${checks} checks)`);
 process.exit(0);
