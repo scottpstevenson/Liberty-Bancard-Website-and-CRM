@@ -2,7 +2,7 @@
 
 Closure task for the external post-Publish verification of 2026-11-12 (`attached_assets/LIBERTY_PHASE6_POST_PUBLISH_VERIFICATION_2026-11-12_1794516397092.md`, 26-row matrix). This is one closure pass with checkpoints. It does not reopen the original audit and it is not a CRM redesign.
 
-**Read this first.** Every result below was produced on isolated infrastructure (throwaway databases, fake provider transports, a private browser) against the candidate source named in section 1. Nothing here is a production result. Step 7 of the closure (capture after the owner's Publish, GET-only readback on the live site, production-scale counts) has not happened because the owner has not published these repairs. Rows that depend on it say so.
+**Read this first.** Sections 1–8 were produced on isolated infrastructure (throwaway databases, fake provider transports, a private browser) against the candidate source named in section 1. The owner published these repairs afterwards. Section 9 records what was then read from the live site and the production database with read-only requests (2026-11-13). It proves which build is serving and that the client files are byte-identical to the candidate; it does not prove the signed-in screens, because no signed-in session was used. Rows still say "LIMITED" where that matters.
 
 ## 1. Frozen identity
 
@@ -137,7 +137,7 @@ Dispositions: **ACCEPTED** = repaired and proved by the executed isolated eviden
 
 ## 7. Not executed (not claimed)
 
-- Step 7 entirely: health sha and build after Publish, source comparison, GET-only live readback, production-scale counts and timing. Needs the owner's Publish.
+- Step 7 partly (see section 9): done are the health sha and build capture, the source and client-bundle comparison, unauthenticated GET checks, post-Publish log review and read-only production counts. Not done: any signed-in readback of the repaired screens, and timing or query plans for the bounded inventory reads at production scale (the routes need an admin session; the production database is reachable only through read-only SQL here).
 - Real simultaneous multi-tab behaviour, WebKit, real phones, installed-app lifecycle.
 - Browser run in a device time zone different from the container's.
 - Real-browser walk of the exact task, request and file actions (CRM-02, 13) and of opening a notification.
@@ -148,6 +148,40 @@ Dispositions: **ACCEPTED** = repaired and proved by the executed isolated eviden
 
 ## 8. Needs the owner
 
-1. Publish, so the repairs run on the live site. After that, a GET-only readback closes step 7 and the live parts of the rows above.
-2. Deal 2589 (David Turner) can then be classified production through the admin route, after which inbound request d6a49091-1b76-416c-a942-4c9d335f4d4c can resume.
+1. Publish: done (section 9).
+2. Deal 2589 (David Turner) is still `unknown` class and not archived; inbound request d6a49091-1b76-416c-a942-4c9d335f4d4c is still `review_required` (nothing was changed). Classifying the deal through the admin route is a production write and needs the owner's go-ahead; the request can resume after it.
 3. Approval of any QA or provenance reclassification cohort.
+4. If the owner wants the signed-in live screens proved, a signed-in walk (or a read-only account) is needed; this closure used none.
+
+## 9. After Publish: live readback (read-only, 2026-11-13)
+
+No request below wrote anything. Production SQL used the read-only production query tool; HTTP requests were GET/HEAD only and unauthenticated.
+
+**Serving identity**
+
+| Item | Value |
+|---|---|
+| `GET /api/health` | `status: ok`, sha `b58b20beca1f068761e9eb64776c99a4a1b2aa6a`, build `b7a93741-d631-4a67-88b5-2fd30f8d48f6`, built 2026-11-13T03:47:37Z, env `production` |
+| Deployment record | published, VM, build successful, public, primary URL `libertybancard.com` |
+| Workspace HEAD after Publish | `7ee8a1e1f902825bd7c8b9743299b94e7b0b0c08` ("Published your App"); its tree is identical to `b58b20be…` (`git diff` empty); working tree clean |
+| Source comparison | Candidate input receipts (`dist/candidate-integrity.json`, every file) re-captured from the published tree: **0 differences**; recomputed source hash `456d46f5…8412` equals section 1 |
+| Client bundle | The live `index.html` references `assets/index-CJvYQnEX.js` and `assets/index-DLGVzxzN.css`. Downloaded from the live site, SHA-256 `41084547…2f06` (js) and `946987a8…c13a` (css) are **byte-identical** to the candidate's `dist/public/assets` files |
+| Not comparable | The bundled server file (`index.cjs`) is not publicly readable, so server-bundle parity is shown only through the source hash and startup log, not byte for byte. The candidate output hash `05558463…` covers the whole `dist/` folder and was not reproducible from outside. |
+
+**Live behaviour without a session**
+
+- Public pages `/`, `/about`, `/contact`, `/login`, `/dashboard` answer 200 (the dashboard path serves the app shell).
+- `/api/notifications`, `/api/contacts/1`, `/api/deals`, `/api/contacts/166172/zerobounce-history` and `/api/deals/2589/co-branded-proposals` answer 401. This shows the routes exist and refuse anonymous callers. It does **not** show the agent-vs-other-owner 404 results (signed-in; isolated proof only).
+- Startup log after the Publish: production migrations skipped (schema managed by Publish), native objects already current, 18 seed-convergence targets already present, outbound pause authority started `paused`, epoch 4, from the database. No HTTP 5xx on an API route in the post-Publish log lines searched.
+- Background queues logged repeated 30-second statement timeouts after Publish (`sfp-free-classification`, the Sunbiz enrichment queue, `canonical-import-recovery`) and a few `ORGANIZATION_AMBIGUOUS_ORGANIZATION_MATCH` enrichment errors. None touches a screen in this closure, and they were not compared with the build before Publish. Cause not investigated here.
+
+**Production facts read (read-only SQL, scale reference; not what any screen displayed)**
+
+- Schema: `notifications.inbound_request_id` and `command_key` columns exist in production (R07 relies on the first).
+- Rows: 161,060 contacts (160,554 not archived); 177,330 businesses (canonical 99,984, production 77,309, unknown 37); 18 inbound requests; 2 undeleted tasks; 1,543 unarchived deals; 4,923 notifications (3,838 unread, 9 carrying an inbound request id).
+- Inbound requests by lifecycle / assignment: failed/pending 5, accepted/pending 5, review_required/review_required 4, accepted/assigned 2, review_required/pending 2. Counts that mix these groups are not forced equal (CRM-12); the exact on-screen numbers were not read.
+- Deals by class: 1,578 unknown, 1 production (deal 2587, archived). Deal 2589: unknown, not archived, stage New Lead.
+- Application 92 ("QA TEST MERCHANT — DO NOT BOARD"): status submitted, no deal or contact link.
+- Outbound pause: `paused`, epoch 4, committed 2026-11-12T19:20Z ("Re-paused after owner-approved QA deal cleanup"). Nothing was unpaused, sent or released.
+
+**What this does not establish:** the repaired screens working for a signed-in admin, manager or agent on the live site; production-scale latency of the bounded inventory reads; real-device behaviour. Rows keep their section 6 dispositions; the "live readback" caveat on CRM-01, 09, 12 and 16 is narrowed to "serving build and client files confirmed; signed-in screens and production-scale timing not run".
