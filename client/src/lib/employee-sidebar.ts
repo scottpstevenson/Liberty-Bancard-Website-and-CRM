@@ -65,7 +65,9 @@ export const employeeSidebarEntries: readonly SidebarEntry[] = [
     // No agent AdminHub; agents keep consent/PCI/security access through their existing standalone routes.
     href: { admin: "/dashboard/admin-hub?tab=users", manager: "/dashboard/admin-hub?tab=agents" },
     matches: starts("/dashboard/admin-hub", "/dashboard/settings", "/dashboard/ghl-integration", "/dashboard/queue-holds",
-      "/dashboard/permissions", "/dashboard/consent-audit", "/dashboard/pci-assessment", "/dashboard/system-health", "/dashboard/activation"),
+      "/dashboard/permissions", "/dashboard/consent-audit", "/dashboard/pci-assessment", "/dashboard/system-health", "/dashboard/activation",
+      // Operational controls (admin/manager route wrapper): release and lane readiness belong to Administration, not to the generic shell label.
+      "/dashboard/outbound-readiness"),
     status: "activated" },
   { id: "resources", label: "Resources", icon: "resources",
     href: { admin: "/dashboard/knowledge-base", manager: "/dashboard/knowledge-base", agent: "/dashboard/knowledge-base" },

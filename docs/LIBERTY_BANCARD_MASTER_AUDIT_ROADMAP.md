@@ -427,6 +427,20 @@
 
 **Target window:** 60–120 days post-launch.
 
+### Status update — 2026-11-14 (follow-up to the live verification of 2026-11-13; isolated checks, not yet published)
+
+The follow-up audit (`LIBERTY_PHASE6_FOLLOWUP_LIVE_VERIFICATION_2026-11-13`) found four Phase 6 defects and a header gap on the published build. Each was repaired in the working tree and checked on isolated infrastructure (closure README section 11, new candidate source hash `879cf620…9f91`); **none is published and none has been read on the live site.**
+
+| Finding | Rows | State now |
+|---|---|---|
+| C01 production Backlog timeout and cold Launch Inventory | CRM-09, CRM-12 | Repaired in isolation: set-based per-contact policy reads and the three Backlog lanes read in parallel; same deadline, fences and fail-closed answers. **Not proven at production scale**; cold and warm results need the owner's Publish and a signed-in admin. Stays LIMITED. |
+| C02 website lane editor starts blank, loses edits | CRM-15 | Repaired and proved in a mounted browser run; lane stays Closed, saved mappings untouched. |
+| C03 Pipeline card "No next action" beside a pending linked task | CRM-21B | Card wording now names the deal follow-up date; checked with three foreign device time zones. Linked-task facts on the card were not built. |
+| C04 integration guide omits the follow-up program | CRM-16 | Both website programs named from one shared source. |
+| Outbound Readiness header | CRM-22B | Page identity and sidebar entry added. |
+
+Operational observations were diagnosed only, with no write: the Seed Convergence error comes from the cro02 graph-membership triggers not being installed in production (the next startup backfill closes each gap; durable prevention needs a certified reconciler entry, an owner decision); the SLA worker "failed 184×" is a historical row for a worker the production profile never starts because the `operations` group is not selected, and SLA checks have not run since 2026-09-05 (enabling the group also enables digests and other jobs, an owner decision). GHL sync stays paused by owner control. Failures that also occur on the clean base now include `test-contactability` in addition to the six listed below. Content revisions 7–10 were approved and the mappings saved on 2026-11-13 (lane Closed, limit 0, no sender); that is no longer an open owner choice. Controlled email acceptance is still open.
+
 ### Status update — 2026-11-12 (closure of the post-Publish verification)
 
 The live audit ("Live CRM audit and Phase 6 roadmap", 2026-11-11) replaced the five old items below with 22 findings (CRM-01 to CRM-22) in five packages. A post-Publish verification (2026-11-12, 26 rows) then found nine repairs still needed (R01–R09). They were checked on isolated infrastructure and then **published by the owner** (live health sha `b58b20be…`, build `b7a93741…`, 2026-11-13). A read-only readback confirmed the published source matches the checked candidate file for file and that the live client files are byte-identical to the candidate's; no signed-in session was used, so the repaired screens themselves were not read live. Full evidence, hashes and the row-by-row table are in [`docs/certification/phase6-closure/README.md`](certification/phase6-closure/README.md).
@@ -439,11 +453,11 @@ The live audit ("Live CRM audit and Phase 6 roadmap", 2026-11-11) replaced the f
 | 6D - Daily sales workspace | CRM-14, 18 to 22 | Built. Contact is a person with a separately labelled business and three-state consent (R06). Maintenance details behind disclosures with the emergency stop visible (R08). Page identity: area names come from the sidebar entries; record pages show an area-only breadcrumb and a Back control that survives reload (R09). Single-record claim of unassigned work is admin/manager only through the existing fenced update. |
 | 6E - Acceptance and serving receipt | all | Isolated acceptance done. Published; serving sha, source match and client-bundle identity confirmed live (read-only). Signed-in live screens and production-scale timing not run. See below. |
 
-**Evidence that exists (isolated infrastructure, final candidate source hash in the closure README):** nine static and seven disposable-database Phase 6 suites, the Phase 6 browser suite (55 named checks, 36 audited states: five widths and native 200% zoom, Back/reload/breakpoint continuity, late responses, actor change, offline, role revocation, keyboard, role matrix, claim fencing), the populated-journey browser suite (66 checks: Inbox, Outreach Queue, validation history, proposal events, Pipeline at 320 px), the contact header browser check, role-guard smoke and route-guard checks. Two authorization gaps found on the way were closed (ZeroBounce history and co-branded proposal reads now apply the owner checks) and the Pipeline toolbar no longer covers every card at 320 px.
+**Evidence that exists (isolated infrastructure, final candidate source hash in the closure README; counts below are from the 2026-11-12 build, the 2026-11-14 candidate has 56 browser checks and 56 audited states, see the closure README section 11):** nine static and seven disposable-database Phase 6 suites, the Phase 6 browser suite (55 named checks, 36 audited states: five widths and native 200% zoom, Back/reload/breakpoint continuity, late responses, actor change, offline, role revocation, keyboard, role matrix, claim fencing), the populated-journey browser suite (66 checks: Inbox, Outreach Queue, validation history, proposal events, Pipeline at 320 px), the contact header browser check, role-guard smoke and route-guard checks. Two authorization gaps found on the way were closed (ZeroBounce history and co-branded proposal reads now apply the owner checks) and the Pipeline toolbar no longer covers every card at 320 px.
 
 **Evidence still missing (not claimed):**
 - Signed-in readback of the repaired screens on the live site, and production-scale timing and query plans for the bounded inventory reads (fixture scale only; the routes need an admin session). Done after Publish: health sha and build capture, source comparison (0 differences), client-bundle byte identity, unauthenticated route refusals, startup and log review, read-only production counts (closure README section 9).
-- Real simultaneous multi-tab behaviour, WebKit, real phones and installed-app behaviour; a browser run in a device time zone other than the container's; a real-browser walk of the exact task, request and file actions and of opening a notification; signed-in production screens.
+- Real simultaneous multi-tab behaviour, WebKit, real phones and installed-app behaviour; a browser run in a device time zone other than the container's (done on the 2026-11-14 candidate for the Pipeline card text only); a real-browser walk of the exact task, request and file actions and of opening a notification; signed-in production screens.
 - Full pre-deploy roster on the published candidate.
 - Checks that already failed on the exact clean base and still fail at the same first assertion: CRM operator experience, CRM interface contracts, dashboard calendar update, industry-page contract, lead-ops budget removal, attestation promotion regression. These scripts stop at the first failure, so their later assertions were not executed on either side. The contact header browser check also failed on the base (section navigation below the phone fold) and passes on the candidate after a compact-header change. The SEO audit's hydrated-metadata step flagged a different pair of pages on each of two runs; it looks like a timing flake but was not compared with a clean base.
 
@@ -453,24 +467,24 @@ The live audit ("Live CRM audit and Phase 6 roadmap", 2026-11-11) replaced the f
 |---|---|---|---|
 | CRM-01 Inbox visibility | ACCEPTED, LIMITED (provider-side live facts not reproduced) | CRM-13 Exact request | ACCEPTED, LIMITED (no real-browser walk) |
 | CRM-02 Exact task | ACCEPTED, LIMITED (no real-browser walk) | CRM-14 Claim fencing | ACCEPTED |
-| CRM-03 Legacy aliases | ACCEPTED | CRM-15 Email-lane states | ACCEPTED |
-| CRM-04 Business time zone | ACCEPTED, LIMITED (container zone only) | CRM-16 Email-lane guidance | ACCEPTED, LIMITED (live after Publish) |
+| CRM-03 Legacy aliases | ACCEPTED | CRM-15 Email-lane states | ACCEPTED, LIMITED (editor repaired in isolation; no delivery claim) |
+| CRM-04 Business time zone | ACCEPTED, LIMITED (foreign zones run for the Pipeline card only) | CRM-16 Email-lane guidance | ACCEPTED, LIMITED (both programs named; live after Publish) |
 | CRM-05 Mobile continuity | ACCEPTED, LIMITED (Chromium only) | CRM-17 Notifications | ACCEPTED, LIMITED (no real-browser open journey) |
 | CRM-06 Mobile privacy | ACCEPTED, LIMITED (source level) | CRM-18 Contact is a person | ACCEPTED |
 | CRM-07 Stale / actor change | ACCEPTED, LIMITED (no real multi-tab) | CRM-19 Documents | ACCEPTED |
-| CRM-08 Foreground refresh | ACCEPTED, LIMITED (desktop Inbox in browser) | CRM-20 Work presentation | ACCEPTED, LIMITED (Work page not width-audited) |
-| CRM-09 Bounded reads | ACCEPTED, LIMITED (fixture scale; live readback) | CRM-21A Today queue | ACCEPTED, LIMITED (density not measured) |
-| CRM-10 Provenance | ACCEPTED | CRM-21B Pipeline | ACCEPTED, LIMITED; read-first drawer OWNER-DEFERRED |
-| CRM-11 Record class / QA | ACCEPTED for labels; reclassification cohort OWNER-DEFERRED | CRM-21C Responsive | ACCEPTED, LIMITED (listed pages; no real devices) |
-| CRM-12 Counts | ACCEPTED, LIMITED (fixture scale; live readback) | CRM-21D Maintenance | ACCEPTED, LIMITED |
-| CRM-22A | ACCEPTED, LIMITED (density not measured) | CRM-22B Page identity | ACCEPTED |
+| CRM-08 Foreground refresh | ACCEPTED, LIMITED (desktop Inbox in browser) | CRM-20 Work presentation | ACCEPTED, LIMITED (Work page audited at five widths with its reader unregistered; no populated Work journey) |
+| CRM-09 Bounded reads | REPAIRED IN ISOLATION, NOT PROVEN LIVE (C01; needs Publish and a signed-in admin) | CRM-21A Today queue | ACCEPTED, LIMITED (density not measured) |
+| CRM-10 Provenance | ACCEPTED | CRM-21B Pipeline | ACCEPTED, LIMITED (card wording repaired in isolation); read-first drawer needs an owner decision, none recorded |
+| CRM-11 Record class / QA | ACCEPTED for labels; reclassification cohort OWNER-DEFERRED | CRM-21C Responsive | ACCEPTED, LIMITED (Today, Work, Applications, Reports audited with unregistered readers; no real devices) |
+| CRM-12 Counts | ACCEPTED, LIMITED (fixture scale; C01 live readback open) | CRM-21D Maintenance | ACCEPTED, LIMITED |
+| CRM-22A | ACCEPTED, LIMITED (density not measured) | CRM-22B Page identity | ACCEPTED, LIMITED (Outbound Readiness mapped; not walked live) |
 
 **Old items reconciled against the audit's crosswalk:**
 - P6-1 Inbox auto-refresh: desktop already polled every 45 s; mobile and the selected thread now refresh in the foreground only, on the same cadence. The populated Inbox journey shows a new message arriving through that refresh with the selection and a half-typed draft kept. No second inbox was built.
 - P6-2 Daily briefing cache: the server already caches per actor, role, time zone and day. The briefing's day now uses the business time zone. Redis is not required for it.
 - P6-3 Outreach queue actions, P6-4 ZeroBounce history, P6-5 Proposal engagement: populated proofs now exist on isolated data. Outreach Queue rows show contact, call, email, Start and Skip (Start was never pressed; rows come from a labelled stand-in for the CR04 projection) and Skip is audited and owner-fenced. Validation history shows current, earlier, past-window, earlier-address, legacy-status, failed-read and Retry states. Proposal engagement shows the open count, alert age, accepted, older-than-seven-days and failed-read states per deal. Board-wide proposal badges need a per-deal open, which is a separate proposed task.
 
-**Owner decisions still open (not implemented):** whether to have the signed-in live screens proved; (deal 2589 was classified production by the owner's go-ahead on 2026-11-13 and its waiting inbound request was continued, creating task 7075; no outbound was released); wider assignment policy for unassigned intake and service work; whether to recover the three older failed statement commands; approval of any provenance or test-record reclassification cohort; a read-first Pipeline deal drawer; automatic statement analysis; content and form mappings and controlled email acceptance. Outreach, unpause, release, sends and paid provider spend stay off.
+**Owner decisions still open (not implemented):** whether to have the signed-in live screens proved; (deal 2589 was classified production by the owner's go-ahead on 2026-11-13 and its waiting inbound request was continued, creating task 7075; no outbound was released); wider assignment policy for unassigned intake and service work; whether to recover the three older failed statement commands; approval of any provenance or test-record reclassification cohort; a read-first Pipeline deal drawer; automatic statement analysis; controlled email acceptance (content approval and mappings were done on 2026-11-13); whether to enable the `operations` background group in production; whether to install the graph-membership triggers through the reconciler; acceptance or deferral of the browser evidence that could not be executed here (none recorded). Outreach, unpause, release, sends and paid provider spend stay off.
 
 ---
 

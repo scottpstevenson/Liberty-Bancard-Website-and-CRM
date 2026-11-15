@@ -21,8 +21,13 @@ import { inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import { contacts } from "@shared/schema";
 import { businessHasDbprLineageSql } from "./dbpr";
+import { EMAIL_VALIDATION_MAX_AGE_MS, hashEmailToken } from "./provider-readiness-decision";
+import { assertCanonicalAddressReceiptContract } from "./canonical-address-receipt-contract";
 
 type ContactRow = typeof contacts.$inferSelect;
+
+/** The fresh original-address receipt `findFreshProviderObservation` returns, as the set read reproduces it. */
+export interface SnapshotProviderObservation { operationId: string; outcome: string; observedAt: string; expiresAt: string | null }
 
 export interface ContactPolicyReadSnapshot {
   readonly contacts: ReadonlyMap<number, ContactRow>;
@@ -36,12 +41,34 @@ export interface ContactPolicyReadSnapshot {
   readonly canonicalEmailStateByContact: ReadonlyMap<number, string | null>;
   /** Whether verified express-written evidence exists in the contact's most recent 20 consented audit rows. */
   readonly pewcEvidenceByContact: ReadonlyMap<number, boolean>;
+  /**
+   * Marketing-email validation reads (the other dominant per-contact cost). `stagingBusinessIds` lists the businesses that
+   * have a staging intent (they use the active SFP policy's TTL instead of the shared 180 days); `stagedValidationTtlDays`
+   * is that policy TTL, or null when it could not be read (a staged business then reads per contact, which fails closed
+   * exactly as before). `freshObservationByKey` holds the fresh observation per `${ttlDays}|${emailTokenHash}` (null = none
+   * fresh); it is empty when the native receipt contract could not be proven, so every contact reads per contact instead.
+   */
+  readonly stagingBusinessIds: ReadonlySet<number>;
+  readonly stagingLoadedBusinessIds: ReadonlySet<number>;
+  readonly stagedValidationTtlDays: number | null;
+  readonly freshObservationByKey: ReadonlyMap<string, SnapshotProviderObservation | null>;
 }
 
 const als = new AsyncLocalStorage<ContactPolicyReadSnapshot>();
 export const currentContactPolicySnapshot = (): ContactPolicyReadSnapshot | undefined => als.getStore();
 export const withContactPolicySnapshot = <T>(snapshot: ContactPolicyReadSnapshot, run: () => Promise<T>): Promise<T> =>
   als.run(snapshot, run);
+
+/** The TTL `selectedRecipientValidationTtlDays` would return for this business, or undefined when only the database can say. */
+export function snapshotValidationTtlDays(snapshot: ContactPolicyReadSnapshot, businessId: number): number | undefined {
+  if (!Number.isSafeInteger(businessId) || businessId <= 0) return EMAIL_VALIDATION_MAX_AGE_MS / 86_400_000;
+  if (!snapshot.stagingLoadedBusinessIds.has(businessId)) return undefined;
+  if (!snapshot.stagingBusinessIds.has(businessId)) return EMAIL_VALIDATION_MAX_AGE_MS / 86_400_000;
+  return snapshot.stagedValidationTtlDays === null
+    ? undefined
+    : Math.min(EMAIL_VALIDATION_MAX_AGE_MS / 86_400_000, snapshot.stagedValidationTtlDays);
+}
+export const observationKey = (ttlDays: number, emailTokenHash: string) => `${ttlDays}|${emailTokenHash}`;
 
 const rowsOf = (result: any): any[] => result?.rows ?? result ?? [];
 /** A real ARRAY[...]::integer[] expression; an interpolated JS array does not bind as a Postgres array in this driver. */
@@ -122,9 +149,99 @@ export async function loadContactPolicySnapshot(
     for (const row of status) customers.add(Number(row.id));
   }
 
-  return {
+  const staging = new Set<number>();
+  const stagingLoaded = new Set<number>();
+  const observations = new Map<string, SnapshotProviderObservation | null>();
+  const snapshot: ContactPolicyReadSnapshot = {
     contacts: contactMap, dbprLineageByBusiness: lineage, customerBusinessIds: customers,
     customerLoadedBusinessIds: customerLoaded, mergeFenceByContact: mergeFence,
     canonicalEmailStateByContact: canonicalState, pewcEvidenceByContact: pewc,
+    stagingBusinessIds: staging, stagingLoadedBusinessIds: stagingLoaded,
+    stagedValidationTtlDays: null, freshObservationByKey: observations,
   };
+  // The validation reads are best effort: any failure leaves these maps empty and each contact reads for itself, which
+  // is slower but is the same authority, including its fail-closed "provider unavailable" answer.
+  try {
+    await loadValidationReads(snapshot, { staging, stagingLoaded, observations });
+  } catch {
+    staging.clear(); stagingLoaded.clear(); observations.clear();
+    (snapshot as { stagedValidationTtlDays: number | null }).stagedValidationTtlDays = null;
+  }
+  return snapshot;
+}
+
+/**
+ * Reproduces, for the whole population, the two reads `evaluateMarketingEmailEligibility` makes per contact: the
+ * recipient's validation TTL (`selectedRecipientValidationTtlDays`) and its fresh original-address receipt
+ * (`findFreshProviderObservation`). The receipt query is the same predicate and ordering; it differs only in reading at one
+ * moment for the run and not taking row locks, which a read-only count has no use for.
+ */
+async function loadValidationReads(
+  snapshot: ContactPolicyReadSnapshot,
+  sinks: { staging: Set<number>; stagingLoaded: Set<number>; observations: Map<string, SnapshotProviderObservation | null> },
+): Promise<void> {
+  const businessIds = [...new Set([...snapshot.contacts.values()]
+    .map(c => Number(c.businessId ?? 0)).filter(id => Number.isSafeInteger(id) && id > 0))];
+  for (const ids of chunks(businessIds)) {
+    for (const id of ids) sinks.stagingLoaded.add(id);
+    const scoped = rowsOf(await db.execute(sql`
+      SELECT DISTINCT business_id FROM sfp_campaign_staging_intents WHERE business_id = ANY(${intArray(ids)})`));
+    for (const row of scoped) sinks.staging.add(Number(row.business_id));
+  }
+  if (sinks.staging.size > 0) {
+    try {
+      const { getActiveSfpOutreachPolicy } = await import("./cro03/sfp-outreach-policy");
+      const days = Number((await getActiveSfpOutreachPolicy()).validationTtlDays);
+      if (Number.isFinite(days) && days > 0) (snapshot as { stagedValidationTtlDays: number | null }).stagedValidationTtlDays = days;
+    } catch { /* unreadable policy: staged businesses read per contact and fail closed there */ }
+  }
+
+  // The per-contact receipt read first proves the installed native receipt contract. Prove it once; if it cannot be proven
+  // no receipt is preloaded, so every contact runs the original read and its original failure.
+  await assertCanonicalAddressReceiptContract(db);
+  const hashesByTtl = new Map<number, Set<string>>();
+  for (const contact of snapshot.contacts.values()) {
+    const hash = hashEmailToken(contact.email);
+    if (!hash) continue;
+    const ttl = snapshotValidationTtlDays(snapshot, Number(contact.businessId ?? 0));
+    if (ttl === undefined) continue;
+    (hashesByTtl.get(ttl) ?? hashesByTtl.set(ttl, new Set()).get(ttl)!).add(hash);
+  }
+  for (const [ttl, hashes] of hashesByTtl) {
+    for (const group of chunks([...hashes])) {
+      const wanted = sql`ARRAY[${sql.join(group.map(h => sql`${h}`), sql`, `)}]::text[]`;
+      const found = rowsOf(await db.execute(sql`
+        WITH fence_clock AS MATERIALIZED (SELECT clock_timestamp() AS at)
+        SELECT w.h AS email_token_hash, best.operation_id, best.outcome, best.observed_at, best.expires_at
+          FROM unnest(${wanted}) AS w(h)
+          CROSS JOIN fence_clock fc
+          LEFT JOIN LATERAL (
+            SELECT po.operation_id, po.outcome, po.observed_at::text AS observed_at, po.expires_at::text AS expires_at
+              FROM provider_observations po
+              JOIN provider_operations op ON op.id=po.operation_id
+             WHERE po.subject_type IN ('business','contact')
+               AND po.email_token_hash = w.h
+               AND po.provider = 'zerobounce'
+               AND po.retryable = FALSE
+               AND po.outcome IN ('valid', 'invalid')
+               AND op.state='completed'
+               AND op.provider='zerobounce'
+               AND po.observed_at > fc.at - (${ttl}::text || ' days')::interval
+               AND po.observed_at <= fc.at
+               AND LEAST(
+                 COALESCE(po.expires_at, po.observed_at + (${ttl}::text || ' days')::interval),
+                 po.observed_at + (${ttl}::text || ' days')::interval
+               ) > fc.at
+             ORDER BY po.observed_at DESC,(po.outcome='invalid') DESC,po.id DESC
+             LIMIT 1) best ON TRUE`));
+      // Every wanted hash yields exactly one row (the lateral is a LEFT JOIN), so absence means "not read".
+      for (const row of found) {
+        const hash = String(row.email_token_hash);
+        sinks.observations.set(observationKey(ttl, hash), !row.operation_id ? null : {
+          operationId: String(row.operation_id), outcome: String(row.outcome), observedAt: String(row.observed_at),
+          expiresAt: row.expires_at == null ? null : String(row.expires_at),
+        });
+      }
+    }
+  }
 }

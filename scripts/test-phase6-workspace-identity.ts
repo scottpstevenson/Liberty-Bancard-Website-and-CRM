@@ -115,6 +115,7 @@ const headingSources: Record<string, { file: string; text: string }> = {
   "/dashboard/my-earnings": { file: "MyEarnings", text: "My Earnings" },
   "/dashboard/admin-hub": { file: "AdminHub", text: "Administration" },
   "/dashboard/knowledge-base": { file: "KnowledgeBase", text: "Knowledge Base" },
+  "/dashboard/outbound-readiness": { file: "OutboundReadiness", text: "Outbound Launch Readiness" },
 };
 const pagesWithHeadings = Object.entries(PAGE_RULES).filter(([, rule]) => rule.page).map(([path]) => path).sort();
 eq(Object.keys(headingSources).sort(), pagesWithHeadings, "every registered page heading has a source to compare with");
@@ -163,6 +164,16 @@ for (const hub of hubs) {
 {
   const reporting = page("ReportingHub");
   for (const label of ["Operations", "Outreach", "Financial"]) ok(new RegExp(`\\n\\s+${label}\\n\\s+</button>`).test(reporting), `ReportingHub area button "${label}"`);
+}
+
+// Outbound Readiness is a subordinate Administration page: the shell names it instead of falling back to a generic label.
+{
+  const identity = resolveWorkspaceIdentity("admin", "/dashboard/outbound-readiness");
+  eq([identity?.areaLabel, identity?.pageTitle], ["Administration", "Outbound Launch Readiness"], "Outbound Readiness resolves to Administration > Outbound Launch Readiness");
+  eq(identity?.crumbs.map(c => c.label), ["Administration", "Outbound Launch Readiness"], "its breadcrumb names the area and the page");
+  eq(resolveWorkspaceIdentity("manager", "/dashboard/outbound-readiness?x=1")?.pageTitle, "Outbound Launch Readiness", "a manager sees the same name");
+  eq(resolveWorkspaceIdentity("agent", "/dashboard/outbound-readiness")?.areaLabel ?? null, null, "an agent has no Administration area, so no name is invented for it");
+  eq(resolveWorkspaceIdentity("admin", "/dashboard/outbound-readiness-copy"), null, "a similar path is not claimed");
 }
 
 // 8. The shell and Contact use the shared mapping; no route/role wrapper is edited by this change.

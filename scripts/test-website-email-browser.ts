@@ -228,6 +228,67 @@ try {
   await until(`location.pathname==='/dashboard/outbound-readiness'&&!!document.querySelector('[data-testid="list-website-lane-facts"]')`, "Back returns to Outbound readiness");
   check(!/none \(default closed\)/.test(await textOf("list-website-lane-facts")), "Back shows the saved revision, not a blank lane");
 
+  // The editor is an editor over the SAVED revision: it hydrates from it, keeps unsaved edits across the 30 s refetch, and asks
+  // before carrying them onto a revision saved in the meantime. Isolated configuration data only; the lane stays Closed.
+  await until(`/Revision ${nurtureRev.id}\\b/.test(document.querySelector('[data-testid="select-map-estimate_form-nurture"]')?.textContent||'')`, "mapping select hydrated from the saved revision");
+  check(/saved revision 1/.test(await textOf("text-website-lane-draft-source")) && !/unsaved edits/.test(await textOf("text-website-lane-draft-source")), "the form states it starts from saved revision 1 and has no unsaved edits");
+  check(await count(tid("list-website-lane-diff")) === 0 && /No changes/.test(await textOf("text-website-lane-no-changes")), "an untouched editor shows no pending changes");
+  const statusReads = () => b!.requests.filter(r => r.url.startsWith("/api/admin/website-email/status")).length;
+  const adminSession = h.sessions.get("admin")!;
+  const adminPost = (path: string, body: unknown) => h.originalFetch(`${h.base}${path}`, { method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: adminSession.cookie, "X-CSRF-Token": adminSession.token }, body: JSON.stringify(body) });
+  await pick(tid("select-map-estimate_form-nurture"), /No nurture/);
+  check(/unsaved edits/.test(await textOf("text-website-lane-draft-source")), "an edit is reported as unsaved");
+  check(/removed/.test(await textOf("list-website-lane-diff")) && /Revision \d+ → none/.test(await textOf("list-website-lane-diff")), "the saved-versus-proposed diff names the mapping that would be removed");
+  // A refetch of an unchanged saved revision keeps the edit.
+  const readsBefore = statusReads();
+  for (let n = 0; n < 800 && statusReads() === readsBefore; n++) await wait(50);
+  check(statusReads() > readsBefore, "the 30 s status refetch ran while the edit was open");
+  await wait(600);
+  {
+    const selectText = await textOf("select-map-estimate_form-nurture");
+    const sourceText = await textOf("text-website-lane-draft-source");
+    check(/No nurture/.test(selectText) && /unsaved edits/.test(sourceText), `the unsaved edit survives the refetch (select="${selectText}", source="${sourceText}", conflict=${await count(tid("section-website-lane-conflict"))})`);
+  }
+  check(await count(tid("section-website-lane-conflict")) === 0, "no conflict is raised while the saved revision is unchanged");
+  // Someone else saves revision 2 while this edit is open.
+  const rev2Body = { status: "closed", senderAccount: null, dailyLimit: 0, sourceProgramMap: {
+    [SOURCE_KEY]: { nurture: Number(nurtureRev.id) }, "website_form|get_started_form": { nurture: Number(nurtureRev.id) } } };
+  const rev2Preview = await (await adminPost("/api/admin/website-email/config/preview", rev2Body)).json() as { ok: boolean; currentRevision: number };
+  check(rev2Preview.ok === true && rev2Preview.currentRevision === 1, "the second saver's closed configuration previews as passing against revision 1");
+  check((await adminPost("/api/admin/website-email/config", { ...rev2Body, expectedRevision: 1 })).status === 201, "revision 2 is appended by a second saver");
+  const readsBeforeConflict = statusReads();
+  await until(has("section-website-lane-conflict"), "conflict notice after the saved revision moved", 800);
+  check(statusReads() > readsBeforeConflict, "the conflict came from the ordinary status refetch, with no extra request loop");
+  check(/No nurture/.test(await textOf("select-map-estimate_form-nurture")), "the operator's edit is still in the form beside the conflict notice");
+  check(await b.evaluate(`document.querySelector('[data-testid="button-website-lane-preview"]').disabled`) === true, "Preview is paused while a newer revision is unresolved");
+  check(await b.evaluate(`document.querySelector('[data-testid="button-website-lane-save"]').disabled`) === true, "Save is paused while a newer revision is unresolved");
+  // Keep the edits: the diff is now measured against revision 2 and names what saving would remove.
+  await scrollClick(tid("button-website-lane-keep"));
+  await until(`!document.querySelector('[data-testid="section-website-lane-conflict"]')`, "conflict resolved by keeping the edits");
+  check(/saved revision 2/.test(await textOf("text-website-lane-draft-source")) && /unsaved edits/.test(await textOf("text-website-lane-draft-source")), "keeping the edits rebases them onto revision 2");
+  const keepDiff = await textOf("list-website-lane-diff");
+  check(/Get Started form/.test(keepDiff) && /Estimate form/.test(keepDiff) && (keepDiff.match(/removed/g) ?? []).length === 2, "the diff shows both mappings that saving would drop from revision 2");
+  check(await b.evaluate(`document.querySelector('[data-testid="button-website-lane-save"]').disabled`) === true, "Save still needs a preview of this exact input after rebasing");
+  check(Number((await q(`SELECT count(*)::int n FROM website_lifecycle_config_revisions`))[0].n) === baselineLaneRows + 2, "only the two intended revisions exist; the editor saved nothing by itself");
+  // Revision 3 lands while the rebased edits are still unsaved; this time the operator reloads from the saved revision.
+  const rev3Body = { ...rev2Body, sourceProgramMap: { ...rev2Body.sourceProgramMap, "website_form|free_analysis": { nurture: Number(nurtureRev.id) } } };
+  check((await adminPost("/api/admin/website-email/config", { ...rev3Body, expectedRevision: 2 })).status === 201, "revision 3 is appended by a second saver");
+  await until(has("section-website-lane-conflict"), "second conflict notice after revision 3", 800);
+  check(/revision 3/i.test(await textOf("button-website-lane-reload")), "the reload choice names the revision it would load");
+  await scrollClick(tid("button-website-lane-reload"));
+  await until(`!document.querySelector('[data-testid="section-website-lane-conflict"]')`, "conflict resolved by reloading");
+  check(/saved revision 3/.test(await textOf("text-website-lane-draft-source")) && !/unsaved edits/.test(await textOf("text-website-lane-draft-source")), "reloading discards the edits and starts from revision 3");
+  for (const form of ["estimate_form", "get_started_form", "free_analysis"]) {
+    check(new RegExp(`Revision ${nurtureRev.id}\\b`).test(await textOf(`select-map-${form}-nurture`)), `reload shows the saved ${form} mapping`);
+  }
+  check(await count(tid("list-website-lane-diff")) === 0, "the reloaded editor has no pending changes");
+  check(Number((await q(`SELECT count(*)::int n FROM website_lifecycle_config_revisions`))[0].n) === baselineLaneRows + 3, "only the three intended revisions exist; the editor saved nothing by itself");
+  check(Number((await q(`SELECT count(*)::int n FROM website_lifecycle_config_revisions WHERE status<>'closed'`))[0].n) === 0, "every revision stayed closed");
+  await b.navigate("/dashboard/outbound-readiness");
+  await until(`/saved revision 3/.test(document.querySelector('[data-testid="text-website-lane-draft-source"]')?.textContent||'')`, "a fresh page load hydrates from saved revision 3");
+  check(/Closed/.test(await textOf("badge-website-lane-state")), "the lane is still Closed after every step");
+
   // Activation panel: a status summary and a link, with no enabling control of its own.
   await b.navigate("/dashboard/activation");
   await until(has("tab-kill-switch"), "activation tabs");
@@ -238,6 +299,19 @@ try {
   check(await count(`${tid("card-website-email-lane-summary")} button`) === 0, "the summary has no enabling control");
   check(await count(tid("link-website-lane-outbound-readiness")) === 1, "the summary links to the single configuration page");
   check(b.exceptions.length === 0, `no uncaught browser exceptions (admin pages): ${b.exceptions.slice(0, 2).join(" || ")}`);
+
+  // One explanation of the lane: the card and the integration guide render the same two programs.
+  await b.navigate("/dashboard/outbound-readiness");
+  await until(has("text-website-lane-programs"), "program explanation on the lane card");
+  const cardPrograms = (await textOf("text-website-lane-programs")).replace(/\.$/, "");
+  await b.navigate("/dashboard/settings/integrations");
+  await until(has("integration-lane-website"), "website row of the integration guide");
+  const guideRow = await textOf("integration-lane-website");
+  check(/Requested follow-up/.test(guideRow) && /Opted-in nurture/.test(guideRow), "the integration guide names both website programs, requested follow-up and nurture");
+  check(guideRow.includes(cardPrograms), "the guide and the lane card use the same program explanation");
+  check(!/people who opted in on the website/.test(guideRow), "the guide no longer describes the lane as opted-in people only");
+  check(await count(`${tid("integration-lane-website")} a[href="/dashboard/outbound-readiness"]`) === 1, "the guide row links to the lane configuration");
+  check(b.exceptions.length === 0, `no uncaught browser exceptions (integration guide): ${b.exceptions.slice(0, 2).join(" || ")}`);
   await b.close(); b = undefined;
 
   // ═══ B2. Actor switch: the admin is demoted while the session is live ═══

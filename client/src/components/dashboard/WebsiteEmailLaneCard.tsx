@@ -15,8 +15,12 @@ import { Loader2, MailCheck } from "lucide-react";
 import { apiRequest, queryClient, parseApiRequestError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
-  describeWebsiteEmailReason, PROGRAM_LABELS, WEBSITE_SOURCE_LABELS, WEBSITE_SOURCE_PROGRAMS,
+  describeWebsiteEmailReason, WEBSITE_PROGRAM_EXPLANATION, WEBSITE_SOURCE_LABELS, WEBSITE_SOURCE_PROGRAMS,
 } from "@/lib/website-email-reasons";
+import {
+  applyServerLane, describeChange, diffAgainstSaved, draftFromLane, editDraft, editMapping, hasUnsavedEdits, proposedFromDraft,
+  rebaseOnServer, reloadFromServer, snapshotKey, type LaneEditSession, type LaneStatus,
+} from "@/lib/website-lane-draft";
 
 export interface WebsiteEmailStatus {
   generatedAt: string;
@@ -67,40 +71,71 @@ export function WebsiteEmailLaneCard({ canControl }: { canControl: boolean }) {
   const { toast } = useToast();
   const { data, isLoading, isError } = useQuery<WebsiteEmailStatus>({ queryKey: WEBSITE_EMAIL_STATUS_KEY, refetchInterval: 30_000 });
 
-  const [status, setStatus] = useState<"closed" | "open" | "revoked">("closed");
-  const [senderAccount, setSenderAccount] = useState("");
-  const [dailyLimit, setDailyLimit] = useState("0");
-  const [mapping, setMapping] = useState<Record<string, string>>({});
+  // The editor works on a session over the SAVED revision: it starts from what is saved, keeps unsaved edits across the 30 s
+  // refetch, and asks before carrying edits onto a revision someone else saved in the meantime.
+  const [session, setSession] = useState<LaneEditSession | null>(null);
   const [understood, setUnderstood] = useState(false);
   const [review, setReview] = useState<{ key: string; value: LaneReview } | null>(null);
   const [resolving, setResolving] = useState<{ id: number; resolution: "accepted" | "not_sent" } | null>(null);
 
+  const laneKey = data ? snapshotKey(data.lane) : null;
+  if (data && laneKey !== null && (!session || session.seenKey !== laneKey)) setSession(applyServerLane(session, data.lane));
+  const live = session ?? (data ? applyServerLane(null, data.lane) : null);
+
+  const draft = live?.draft ?? null;
+  const status: LaneStatus = draft?.status ?? "closed";
+  const senderAccount = draft?.senderAccount ?? "";
+  const dailyLimit = draft?.dailyLimit ?? "0";
+  const mapping = useMemo(() => draft?.mapping ?? {}, [draft]);
+  const conflict = live?.conflict ?? null;
+  const dirty = live ? hasUnsavedEdits(live) : false;
+  const changes = useMemo(() => (live ? diffAgainstSaved(live.baseline, live.draft) : []), [live]);
+  const edit = (change: (s: LaneEditSession) => LaneEditSession) => {
+    setSession((current) => {
+      const base = current ?? (data ? applyServerLane(null, data.lane) : null);
+      return base ? change(base) : current;
+    });
+  };
+  const setStatus = (value: LaneStatus) => edit((s) => editDraft(s, { status: value }));
+  const setSenderAccount = (value: string) => edit((s) => editDraft(s, { senderAccount: value }));
+  const setDailyLimit = (value: string) => edit((s) => editDraft(s, { dailyLimit: value }));
+  const setMappingValue = (key: string, value: string) => edit((s) => editMapping(s, key, value));
+  const resolveConflict = (how: "reload" | "keep") => {
+    edit((s) => (how === "reload" ? reloadFromServer(s) : rebaseOnServer(s)));
+    setReview(null);
+    setUnderstood(false);
+  };
+
+  const hiddenMappings = useMemo(() => Object.entries(mapping).filter(([key, value]) => {
+    if (!value) return false;
+    const [source, program] = key.split("::");
+    return !(WEBSITE_SOURCE_PROGRAMS[source] ?? []).includes(program);
+  }).length, [mapping]);
+
   const approved = useMemo(() => (data?.warmRevisions ?? []).filter((r) => r.state === "approved" && r.unsupportedSteps === 0), [data]);
 
-  const proposed = useMemo(() => {
-    const sourceProgramMap: Record<string, Record<string, number>> = {};
-    for (const [key, value] of Object.entries(mapping)) {
-      if (!value) continue;
-      const [source, program] = key.split("::");
-      (sourceProgramMap[source] ??= {})[program] = Number(value);
-    }
-    return { status, sourceProgramMap, senderAccount: senderAccount.trim() ? senderAccount.trim() : null, dailyLimit: Number.parseInt(dailyLimit, 10) };
-  }, [status, mapping, senderAccount, dailyLimit]);
-  const proposedKey = JSON.stringify(proposed);
+  const proposed = useMemo(() => proposedFromDraft(draft ?? draftFromLane({
+    effectiveState: "closed", revision: null, senderAccount: null, dailyLimit: null, sourceProgramMap: {},
+  })), [draft]);
+  // A review belongs to the exact input AND the saved revision it was measured against.
+  const proposedKey = `${live?.baseline.revision ?? 0}:${JSON.stringify(proposed)}`;
   const currentReview = review && review.key === proposedKey ? review.value : null;
 
   const previewMutation = useMutation({
-    mutationFn: async () => {
-      if (!Number.isInteger(proposed.dailyLimit)) throw new Error("Enter a whole number for the daily limit.");
-      const res = await apiRequest("POST", "/api/admin/website-email/config/preview", proposed);
+    // The review is keyed by the input and saved revision captured when the preview was requested, never by later edits.
+    mutationFn: async (input: { body: typeof proposed; key: string }) => {
+      if (conflict) throw new Error("Resolve the newer saved revision first.");
+      if (!Number.isInteger(input.body.dailyLimit)) throw new Error("Enter a whole number for the daily limit.");
+      const res = await apiRequest("POST", "/api/admin/website-email/config/preview", input.body);
       return (await res.json()) as LaneReview;
     },
-    onSuccess: (value) => setReview({ key: proposedKey, value }),
+    onSuccess: (value, input) => setReview({ key: input.key, value }),
     onError: (e: Error) => toast({ title: "Could not preview the change", description: e.message, variant: "destructive" }),
   });
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (conflict) throw new Error("Resolve the newer saved revision first.");
       if (!currentReview) throw new Error("Preview this exact configuration first.");
       const res = await apiRequest("POST", "/api/admin/website-email/config", { ...proposed, expectedRevision: currentReview.currentRevision });
       return res.json();
@@ -134,7 +169,7 @@ export function WebsiteEmailLaneCard({ canControl }: { canControl: boolean }) {
 
   const state = data?.lane.effectiveState ?? "closed";
   const needsAcknowledgement = status === "open";
-  const canSave = Boolean(currentReview?.ok) && (!needsAcknowledgement || understood) && !saveMutation.isPending;
+  const canSave = Boolean(currentReview?.ok) && !conflict && (!needsAcknowledgement || understood) && !saveMutation.isPending;
 
   return (
     <Card data-testid="card-website-email-lane">
@@ -230,6 +265,29 @@ export function WebsiteEmailLaneCard({ canControl }: { canControl: boolean }) {
 
                 <fieldset className="space-y-3">
                   <legend className="text-sm font-medium">Lane configuration</legend>
+                  <p className="text-xs text-muted-foreground" data-testid="text-website-lane-draft-source">
+                    {live?.baseline.revision == null
+                      ? "Nothing has been saved yet; these fields show the closed default."
+                      : `These fields start from saved revision ${live.baseline.revision}.`}
+                    {dirty ? " You have unsaved edits." : ""}
+                  </p>
+                  {conflict && (
+                    <div className="space-y-2 rounded-md border border-amber-400 p-3 text-sm" role="alert" data-testid="section-website-lane-conflict">
+                      <p className="font-medium">The saved configuration changed while you were editing.</p>
+                      <p className="text-muted-foreground">
+                        Saved revision is now {conflict.revision ?? "none"}; you started from {live?.baseline.revision ?? "none"}. Your edits are kept, but
+                        previewing and saving are paused until you choose.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="outline" className="min-h-11" onClick={() => resolveConflict("reload")} data-testid="button-website-lane-reload">
+                          Reload revision {conflict.revision ?? "none"} (discard my edits)
+                        </Button>
+                        <Button variant="outline" className="min-h-11" onClick={() => resolveConflict("keep")} data-testid="button-website-lane-keep">
+                          Keep my edits on revision {conflict.revision ?? "none"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div className="space-y-1">
                       <Label htmlFor="website-lane-status">State</Label>
@@ -260,7 +318,7 @@ export function WebsiteEmailLaneCard({ canControl }: { canControl: boolean }) {
                           {programs.map((program) => {
                             const key = `${source}::${program}`;
                             return (
-                              <Select key={key} value={mapping[key] ?? "none"} onValueChange={(v) => setMapping((m) => ({ ...m, [key]: v === "none" ? "" : v }))}>
+                              <Select key={key} value={mapping[key] || "none"} onValueChange={(v) => setMappingValue(key, v === "none" ? "" : v)}>
                                 <SelectTrigger className="min-h-11" aria-label={`${WEBSITE_SOURCE_LABELS[source]} ${program}`} data-testid={`select-map-${source.split("|")[1]}-${program}`}>
                                   <SelectValue />
                                 </SelectTrigger>
@@ -269,6 +327,9 @@ export function WebsiteEmailLaneCard({ canControl }: { canControl: boolean }) {
                                   {approved.filter((r) => r.program === program).map((r) => (
                                     <SelectItem key={r.id} value={String(r.id)}>Revision {r.id} ({r.steps} step{r.steps === 1 ? "" : "s"})</SelectItem>
                                   ))}
+                                  {mapping[key] && !approved.some((r) => r.program === program && String(r.id) === mapping[key]) ? (
+                                    <SelectItem value={mapping[key]}>Revision {mapping[key]} (saved; not currently approved)</SelectItem>
+                                  ) : null}
                                 </SelectContent>
                               </Select>
                             );
@@ -276,10 +337,29 @@ export function WebsiteEmailLaneCard({ canControl }: { canControl: boolean }) {
                         </div>
                       </div>
                     ))}
-                    <p className="text-xs text-muted-foreground">{Object.values(PROGRAM_LABELS).join(" ")}</p>
+                    <p className="text-xs text-muted-foreground"><span data-testid="text-website-lane-programs">{WEBSITE_PROGRAM_EXPLANATION}.</span></p>
+                    {hiddenMappings > 0 ? (
+                      <p className="text-xs text-muted-foreground" data-testid="text-website-lane-hidden-mappings">
+                        {hiddenMappings} saved mapping{hiddenMappings === 1 ? "" : "s"} for a form this page does not list {hiddenMappings === 1 ? "is" : "are"} kept unchanged.
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="space-y-1 text-sm" data-testid="section-website-lane-diff">
+                    <p className="font-medium">
+                      {live?.baseline.revision == null ? "Changes from the closed default" : `Changes from saved revision ${live.baseline.revision}`}
+                    </p>
+                    {changes.length === 0 ? (
+                      <p className="text-xs text-muted-foreground" data-testid="text-website-lane-no-changes">No changes: this matches what is saved.</p>
+                    ) : (
+                      <ul className="list-disc pl-5 text-xs" data-testid="list-website-lane-diff">
+                        {changes.map((c) => (
+                          <li key={`${c.field}:${c.label}`} className={c.removed ? "text-destructive" : undefined}>{describeChange(c)}</li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" className="min-h-11" disabled={previewMutation.isPending} onClick={() => previewMutation.mutate()} data-testid="button-website-lane-preview">
+                    <Button variant="outline" className="min-h-11" disabled={previewMutation.isPending || Boolean(conflict)} onClick={() => previewMutation.mutate({ body: proposed, key: proposedKey })} data-testid="button-website-lane-preview">
                       {previewMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Preview change
                     </Button>
                   </div>

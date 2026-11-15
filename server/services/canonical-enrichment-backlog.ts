@@ -334,22 +334,99 @@ export async function selectBusinessesAfterFreeEmailSearch(
 
 export interface BacklogBackendHandle { pid: number; xactStart: string }
 
+/** What one lane has done so far; the flight keeps it for its phase log and a failed read reports where it stopped. */
+export interface BacklogLaneProgress {
+  lane: string; totalQueries: number; queries: number; ms: number | null; current: string | null;
+  stepMs: Record<string, number>; state: "running" | "done" | "failed";
+}
+export interface BacklogReadContext {
+  onBackend?: (backend: BacklogBackendHandle) => void;
+  /** True once the read passed its deadline or was superseded: no lane may open a transaction or start another statement. */
+  isExpired?: () => boolean;
+  progress?: Map<string, BacklogLaneProgress>;
+}
+/** Test seams for the failure-injection and parity suite. Production never changes them. */
+export const backlogReadDeps = {
+  /** Lets a suite replace one statement (to stall or fail it). Production returns the statement unchanged. */
+  stepQuery: (_lane: string, _key: string, query: ReturnType<typeof sql>): ReturnType<typeof sql> => query,
+  layout: "parallel" as "parallel" | "sequential",
+};
+interface BacklogLane { name: string; steps: Array<{ key: string; query: ReturnType<typeof sql> }> }
+
+/** A lane stopped because a sibling lane already failed; never reported as the cause. */
+class BacklogLaneAbortedError extends Error { constructor() { super("BACKLOG_LANE_ABORTED"); } }
+
+/**
+ * Runs each lane in its own identified transaction at the same time. Every statement sets the same statement timeout it had
+ * when the read was sequential. When a lane fails, expires or is superseded, the other lanes stop before their next
+ * statement and their exact backends (pid + transaction start) are cancelled; the read returns only after every lane has
+ * ended, so no transaction is left running behind a failed read. The first failure is the one reported.
+ */
+async function runBacklogLanes(lanes: BacklogLane[], ctx: BacklogReadContext): Promise<Record<string, any[]>> {
+  const backends: BacklogBackendHandle[] = [];
+  let failure: { error: unknown } | null = null;
+  let recancel: NodeJS.Timeout | null = null;
+  const fail = (error: unknown) => {
+    if (failure) return;
+    failure = { error };
+    for (const backend of backends) void cancelBacklogBackend(backend);
+    // A cancel that lands before a statement reaches the server is a no-op; repeat until every lane has ended.
+    recancel = setInterval(() => { for (const backend of backends) void cancelBacklogBackend(backend); }, 1000);
+  };
+  const guard = () => {
+    if (ctx.isExpired?.()) throw new BacklogDeadlineError();
+    if (failure) throw new BacklogLaneAbortedError();
+  };
+  const runLane = async (lane: BacklogLane): Promise<Record<string, any[]>> => {
+    const progress: BacklogLaneProgress = { lane: lane.name, totalQueries: lane.steps.length, queries: 0, ms: null, current: null, stepMs: {}, state: "running" };
+    ctx.progress?.set(lane.name, progress);
+    const startedAt = Date.now();
+    try {
+      guard();
+      return await db.transaction(async tx => {
+        await tx.execute(sql.raw(`SET LOCAL statement_timeout='${STATEMENT_TIMEOUT}'`));
+        // Identify this exact transaction so a deadline can cancel the real database work (not just stop waiting for it).
+        const identity = rows(await tx.execute(sql`SELECT pg_backend_pid()::int AS pid, now()::text AS started`))[0];
+        if (identity) {
+          const handle = { pid: Number(identity.pid), xactStart: String(identity.started) };
+          backends.push(handle);
+          ctx.onBackend?.(handle);
+          if (failure) void cancelBacklogBackend(handle);
+        }
+        const out: Record<string, any[]> = {};
+        for (const step of lane.steps) {
+          guard();
+          progress.current = step.key;
+          const stepStarted = Date.now();
+          out[step.key] = rows(await tx.execute(step.query));
+          progress.stepMs[step.key] = Date.now() - stepStarted;
+          progress.queries++;
+        }
+        progress.current = null; progress.ms = Date.now() - startedAt; progress.state = "done";
+        return out;
+      });
+    } catch (error) {
+      progress.state = "failed"; progress.ms = Date.now() - startedAt;
+      fail(error);
+      throw error;
+    }
+  };
+  const settled = await Promise.allSettled(lanes.map(runLane));
+  if (recancel) clearInterval(recancel);
+  if (failure) throw (failure as { error: unknown }).error;
+  const merged: Record<string, any[]> = {};
+  for (const outcome of settled) if (outcome.status === "fulfilled") Object.assign(merged, outcome.value);
+  return merged;
+}
+
 export async function computeCanonicalEnrichmentBacklog(
-  ctx: { onBackend?: (backend: BacklogBackendHandle) => void } = {},
+  ctx: BacklogReadContext = {},
 ): Promise<CanonicalEnrichmentBacklog> {
-  const gate = await readUnlabeledDiscoveryGate();
-  const program = await readProgram();
+  const [gate, program] = await Promise.all([readUnlabeledDiscoveryGate(), readProgram()]);
   const counties = program?.countyFips ?? [];
   const tally: Tally = new Map();
 
-  const result = await db.transaction(async tx => {
-    await tx.execute(sql.raw(`SET LOCAL statement_timeout='${STATEMENT_TIMEOUT}'`));
-    // Identify this exact transaction so a deadline can cancel the real database work (not just stop waiting for it).
-    const identity = rows(await tx.execute(sql`SELECT pg_backend_pid()::int AS pid, now()::text AS started`))[0];
-    if (identity) ctx.onBackend?.({ pid: Number(identity.pid), xactStart: String(identity.started) });
-
-    // 1) Businesses: one current action each, grouped by origin.
-    const businessRows = rows(await tx.execute(sql`
+  const businessQuery = sql`
       WITH ${businessFacts(null, gate.enabled)}
       SELECT origin, bk AS k,
         CASE WHEN (bk LIKE 'website|eligible_now|%' OR bk LIKE 'website|retryable|%') THEN gstate END AS gs,
@@ -357,19 +434,9 @@ export async function computeCanonicalEnrichmentBacklog(
         CASE WHEN (bk LIKE 'website|eligible_now|%' OR bk LIKE 'website|retryable|%') THEN gcity END AS gc,
         CASE WHEN (bk LIKE 'website|eligible_now|%' OR bk LIKE 'website|retryable|%') THEN glocs END AS gl,
         count(*)::int AS n
-      FROM keyed GROUP BY 1,2,3,4,5,6`));
-    for (const r of businessRows) {
-      let key = String(r.k);
-      const slot = parseKey(key);
-      if (slot.stage === "website" && (slot.state === "eligible_now" || slot.state === "retryable")) {
-        const t = territory({ gstate: r.gs, gzip: r.gz, gcity: r.gc, glocs: r.gl }, counties);
-        if (t !== "in") key = `website|held|${t === "outside" ? "outside_program_territory" : "location_unresolved"}`;
-      }
-      bump(tally, r.origin === "other" ? "other_business" : String(r.origin), key, Number(r.n));
-    }
+      FROM keyed GROUP BY 1,2,3,4,5,6`;
 
-    // 2) Contacts: each contact's current action, through its business when linked.
-    const contactRows = rows(await tx.execute(sql`
+  const contactQuery = sql`
       WITH linked AS MATERIALIZED (
         SELECT DISTINCT d.contact_id, d.business_id FROM contact_business_link_decisions d
          WHERE d.decision='verified' AND d.superseded_at IS NULL),
@@ -442,19 +509,9 @@ export async function computeCanonicalEnrichmentBacklog(
           CASE WHEN cc.is_linked AND bd.vstatus='mapped' AND bd.in_program AND bd.has_binding AND cc.preparation_state IS NULL
                  AND NOT cc.suppressed AND cc.has_email THEN bd.glocs END AS gl
         FROM cc LEFT JOIN keyed bd ON bd.id=cc.business_id AND cc.is_linked) y
-      GROUP BY 1,2,3,4,5,6`));
-    for (const r of contactRows) {
-      let key = String(r.k);
-      if (key === "recipient|geo_check|ready_to_prepare") {
-        const t = territory({ gstate: r.gs, gzip: r.gz, gcity: r.gc, glocs: r.gl }, counties);
-        key = t === "in" ? "recipient|eligible_now|ready_to_prepare"
-          : `recipient|held|${t === "outside" ? "outside_program_territory" : "location_unresolved"}`;
-      }
-      bump(tally, String(r.fam), key, Number(r.n));
-    }
+      GROUP BY 1,2,3,4,5,6`;
 
-    // 3) Addresses already on a business.
-    const emailRows = rows(await tx.execute(sql`
+  const emailQuery = sql`
       SELECT CASE WHEN c_here.id IS NOT NULL THEN 'email|done|has_usable_contact'
                   WHEN c_any.id IS NULL THEN 'email|held|no_contact_for_address'
                   ELSE 'link|held|' || COALESCE(disp.reason_code, 'awaiting_link_pass') END AS k,
@@ -465,11 +522,9 @@ export async function computeCanonicalEnrichmentBacklog(
       LEFT JOIN LATERAL (SELECT c.id FROM contacts c WHERE lower(btrim(c.email))=lower(btrim(b.main_email))
          AND c.archived_at IS NULL ORDER BY (c.business_id IS NULL) DESC, c.id LIMIT 1) c_any ON TRUE
       LEFT JOIN contact_business_link_dispositions disp ON disp.contact_id=c_any.id
-      WHERE b.record_class='canonical' AND NULLIF(btrim(b.main_email),'')<>'' GROUP BY 1`));
-    for (const r of emailRows) bump(tally, "business_email", String(r.k), Number(r.n));
+      WHERE b.record_class='canonical' AND NULLIF(btrim(b.main_email),'')<>'' GROUP BY 1`;
 
-    // 4) Staged crawl emails, using the same gates as the materializer.
-    const stagedRows = rows(await tx.execute(sql`
+  const stagedQuery = sql`
       WITH shared AS MATERIALIZED (
         SELECT normalized_value_hash FROM free_discovery_candidates
          WHERE field='email' AND disposition='staged' AND subject_type='business' AND business_id IS NOT NULL
@@ -500,11 +555,9 @@ export async function computeCanonicalEnrichmentBacklog(
       LEFT JOIN usable u ON u.business_id=f.business_id
       WHERE f.field='email' AND f.disposition='staged' AND f.subject_type='business'
         AND f.business_id IS NOT NULL AND f.promoted_at IS NULL
-      GROUP BY 1`));
-    for (const r of stagedRows) bump(tally, "staged_email", String(r.k), Number(r.n));
+      GROUP BY 1`;
 
-    // 5) State registry records that carry a website or email.
-    const registryRows = rows(await tx.execute(sql`
+  const registryQuery = sql`
       SELECT CASE WHEN cl.id IS NULL THEN 'link|eligible_now|awaiting_registry_backfill'
                   WHEN cl.status IN ('created','matched_existing') THEN 'link|done|' || cl.status
                   WHEN cl.status='claimed' THEN 'link|waiting|registry_claim_in_progress'
@@ -513,11 +566,9 @@ export async function computeCanonicalEnrichmentBacklog(
       FROM sunbiz_entities se
       LEFT JOIN sunbiz_bootstrap_claims cl ON cl.filing_number=se.filing_number
       WHERE NULLIF(btrim(se.website),'') IS NOT NULL OR NULLIF(btrim(se.email),'') IS NOT NULL
-      GROUP BY 1`));
-    for (const r of registryRows) bump(tally, "registry", String(r.k), Number(r.n));
+      GROUP BY 1`;
 
-    // Funnel and the counts kept apart from it.
-    const funnel = rows(await tx.execute(sql`
+  const funnelQuery = sql`
       WITH linked AS MATERIALIZED (
         SELECT DISTINCT d.contact_id, d.business_id FROM contact_business_link_decisions d
           JOIN contacts c ON c.id=d.contact_id AND c.business_id=d.business_id AND c.record_class='production' AND c.archived_at IS NULL
@@ -534,18 +585,77 @@ export async function computeCanonicalEnrichmentBacklog(
         (SELECT count(DISTINCT contact_id) FROM cr04_enrollment_intents WHERE program_id IS NOT NULL
            AND preparation_state='pending_validation')::int AS pending,
         (SELECT count(DISTINCT contact_id) FROM cr04_enrollment_intents WHERE program_id IS NOT NULL
-           AND preparation_state='ready_held')::int AS ready`))[0];
-    const receipts = rows(await tx.execute(sql`SELECT disposition AS k, count(*)::int AS n
-      FROM import_row_dispositions GROUP BY 1`));
-    const providerOps = rows(await tx.execute(sql`SELECT provider, state, count(*)::int AS n
-      FROM provider_operations WHERE provider IN ('zerobounce','serper') GROUP BY 1,2`));
-    const zb = rows(await tx.execute(sql`SELECT outcome, count(*)::int AS n FROM provider_observations
-      WHERE provider='zerobounce' AND retryable=FALSE AND outcome IN ('valid','invalid') GROUP BY 1`));
-    const serper = rows(await tx.execute(sql`SELECT lifetime_calls, yield_websites FROM serper_control LIMIT 1`))[0];
-    return { funnel, receipts, providerOps, zb, serper };
-  });
+           AND preparation_state='ready_held')::int AS ready`;
 
-  const { funnel, receipts, providerOps, zb, serper } = result;
+  const receiptsQuery = sql`SELECT disposition AS k, count(*)::int AS n
+      FROM import_row_dispositions GROUP BY 1`;
+
+  const providerOpsQuery = sql`SELECT provider, state, count(*)::int AS n
+      FROM provider_operations WHERE provider IN ('zerobounce','serper') GROUP BY 1,2`;
+
+  const zbQuery = sql`SELECT outcome, count(*)::int AS n FROM provider_observations
+      WHERE provider='zerobounce' AND retryable=FALSE AND outcome IN ('valid','invalid') GROUP BY 1`;
+
+  const serperQuery = sql`SELECT lifetime_calls, yield_websites FROM serper_control LIMIT 1`;
+
+
+  // The statements are independent reads, so they run as three lanes on three connections at once instead of one after
+  // another. Each statement and its isolation are exactly what ran before; only the wall clock changes (it is now the
+  // slowest lane, not the sum of every statement). Results are folded below in the original statement order, so the
+  // tallies, ordering and every count are identical to the sequential read.
+  // Statement order is the order the sequential read used. "sequential" runs them as one lane in that order (the reference the
+  // parity suite compares against); "parallel" (production) gives each group below its own connection.
+  const statements: Array<{ key: string; lane: string; query: ReturnType<typeof sql> }> = [
+    { key: "business", lane: "businesses", query: businessQuery },
+    { key: "contact", lane: "contacts", query: contactQuery },
+    { key: "email", lane: "contacts", query: emailQuery },
+    { key: "staged", lane: "contacts", query: stagedQuery },
+    { key: "registry", lane: "registry", query: registryQuery },
+    { key: "funnel", lane: "businesses", query: funnelQuery },
+    { key: "receipts", lane: "businesses", query: receiptsQuery },
+    { key: "providerOps", lane: "businesses", query: providerOpsQuery },
+    { key: "zb", lane: "businesses", query: zbQuery },
+    { key: "serper", lane: "businesses", query: serperQuery },
+  ];
+  const laneNames = backlogReadDeps.layout === "sequential" ? ["sequential"] : ["businesses", "contacts", "registry"];
+  const lanes: BacklogLane[] = laneNames.map(name => ({
+    name,
+    steps: statements.filter(st => name === "sequential" || st.lane === name)
+      .map(st => ({ key: st.key, query: backlogReadDeps.stepQuery(name, st.key, st.query) })),
+  }));
+  const read = await runBacklogLanes(lanes, ctx);
+  const businessRows = read.business, contactRows = read.contact, emailRows = read.email,
+    stagedRows = read.staged, registryRows = read.registry;
+  const funnel = read.funnel[0], receipts = read.receipts, providerOps = read.providerOps, zb = read.zb, serper = read.serper[0];
+
+  // 1) Businesses: one current action each, grouped by origin.
+  // 2) Contacts: each contact's current action, through its business when linked.
+  // 3) Addresses already on a business, 4) staged crawl emails, 5) state registry records that carry a website or email.
+
+  for (const r of businessRows) {
+    let key = String(r.k);
+    const slot = parseKey(key);
+    if (slot.stage === "website" && (slot.state === "eligible_now" || slot.state === "retryable")) {
+      const t = territory({ gstate: r.gs, gzip: r.gz, gcity: r.gc, glocs: r.gl }, counties);
+      if (t !== "in") key = `website|held|${t === "outside" ? "outside_program_territory" : "location_unresolved"}`;
+    }
+    bump(tally, r.origin === "other" ? "other_business" : String(r.origin), key, Number(r.n));
+  }
+
+  for (const r of contactRows) {
+    let key = String(r.k);
+    if (key === "recipient|geo_check|ready_to_prepare") {
+      const t = territory({ gstate: r.gs, gzip: r.gz, gcity: r.gc, glocs: r.gl }, counties);
+      key = t === "in" ? "recipient|eligible_now|ready_to_prepare"
+        : `recipient|held|${t === "outside" ? "outside_program_territory" : "location_unresolved"}`;
+    }
+    bump(tally, String(r.fam), key, Number(r.n));
+  }
+
+  for (const r of emailRows) bump(tally, "business_email", String(r.k), Number(r.n));
+  for (const r of stagedRows) bump(tally, "staged_email", String(r.k), Number(r.n));
+  for (const r of registryRows) bump(tally, "registry", String(r.k), Number(r.n));
+
 
   // Assemble families.
   const families: BacklogFamily[] = [];
@@ -677,7 +787,10 @@ export class BacklogDeadlineError extends Error {
 
 interface BacklogFlight {
   generation: number;
-  backend: BacklogBackendHandle | null;
+  startedAt: number;
+  /** Every lane's identified transaction; all are cancelled together on expiry. */
+  backends: BacklogBackendHandle[];
+  progress: Map<string, BacklogLaneProgress>;
   expired: boolean;
   /** Marks the flight expired and rejects its callers immediately; late work is fenced out. */
   expire: () => void;
@@ -701,9 +814,20 @@ async function cancelBacklogBackend(backend: BacklogBackendHandle | null): Promi
   }
 }
 
+function logBacklogPhases(outcome: string, progress: Map<string, BacklogLaneProgress>, totalMs: number) {
+  const lanes = [...progress.values()].map(l =>
+    `${l.lane}:${l.state}:${l.ms ?? "-"}ms:${l.queries}/${l.totalQueries}q:at=${l.current ?? "-"}:steps=${
+      Object.entries(l.stepMs).map(([key, ms]) => `${key}=${ms}`).join(",") || "-"}`);
+  console.log(`[canonical-backlog] ${outcome} totalMs=${totalMs} lanes=${progress.size} ${lanes.join(" ")}`);
+}
+
 function startBacklogFlight(deadlineMs: number): BacklogFlight {
   const flightGeneration = generation;
-  const flight = { generation: flightGeneration, backend: null, expired: false } as BacklogFlight;
+  const startedAt = Date.now();
+  const flight = {
+    generation: flightGeneration, startedAt, backends: [] as BacklogBackendHandle[],
+    progress: new Map<string, BacklogLaneProgress>(), expired: false,
+  } as BacklogFlight;
   let timer: NodeJS.Timeout | null = null;
   let retry: NodeJS.Timeout | null = null;
   let rejectCaller: (error: Error) => void = () => undefined;
@@ -716,22 +840,29 @@ function startBacklogFlight(deadlineMs: number): BacklogFlight {
   flight.expire = () => {
     if (flight.expired) return;
     flight.expired = true;
+    logBacklogPhases("deadline", flight.progress, Date.now() - startedAt);
     rejectCaller(new BacklogDeadlineError());
-    void cancelBacklogBackend(flight.backend);
+    for (const backend of flight.backends) void cancelBacklogBackend(backend);
     // A cancel that lands between statements is a no-op; keep cancelling until the work actually ends.
-    if (!retry) retry = setInterval(() => { void cancelBacklogBackend(flight.backend); }, 1000);
+    if (!retry) retry = setInterval(() => { for (const backend of flight.backends) void cancelBacklogBackend(backend); }, 1000);
     if (inflight === flight) inflight = null;
   };
-  const computation = computeCanonicalEnrichmentBacklog({ onBackend: (backend) => { flight.backend = backend; } })
+  const computation = computeCanonicalEnrichmentBacklog({
+    onBackend: (backend) => { flight.backends.push(backend); if (flight.expired) void cancelBacklogBackend(backend); },
+    isExpired: () => flight.expired || flight.generation !== generation,
+    progress: flight.progress,
+  })
     .then((value) => {
       stop();
       if (flight.expired) throw new BacklogDeadlineError();
+      logBacklogPhases("ok", flight.progress, Date.now() - startedAt);
       // Only the current generation may populate the cache.
       if (flight.generation === generation) cache = { at: Date.now(), generation: flight.generation, value };
       return value;
     }, (error) => {
       stop();
       if (flight.expired) throw new BacklogDeadlineError();
+      logBacklogPhases("error", flight.progress, Date.now() - startedAt);
       throw error;
     })
     .finally(() => { if (inflight === flight) inflight = null; });

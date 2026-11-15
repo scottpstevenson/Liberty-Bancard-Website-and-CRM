@@ -22,7 +22,8 @@ applyCertificationProviderDenyBoundary({ fatal: true });
 
 const { db, pool } = await import("../server/db");
 const { prepareCanonicalRecipient } = await import("../server/services/canonical-recipient-preparation");
-const { hashEmailToken, evaluateMarketingEmailEligibility } = await import("../server/services/provider-readiness-control");
+const { hashEmailToken, evaluateMarketingEmailEligibility, selectedRecipientValidationTtlDays } = await import("../server/services/provider-readiness-control");
+const { findFreshProviderObservation } = await import("../server/services/cro03/sfp-outreach-policy");
 const { previewContactBusinessSystemLinks, applyContactBusinessSystemLink } = await import("../server/services/contact-business-system-links");
 const inventory = await import("../server/services/sfp-launch-inventory");
 const snapshots = await import("../server/services/contact-policy-read-snapshot");
@@ -37,7 +38,11 @@ const same = (actual: unknown, expected: unknown, message: string) => { assert.d
 const dialect = new PgDialect();
 
 /** A prepared-eligible fixture: real business, Maps source link, reviewed relationship writer, optional fresh validation. */
-async function recipient(validated: boolean) {
+type Validation = boolean | { observedAgo: string; expiresIn: string; outcome: "valid" | "invalid"; subject: "contact" | "business" };
+async function recipient(validation: Validation) {
+  const validated = validation !== false;
+  const shape = typeof validation === "object" ? validation
+    : { observedAgo: "1 hour", expiresIn: "29 days", outcome: "valid" as const, subject: "contact" as const };
   const label = randomUUID().replaceAll("-", "");
   const place = `${prefix}_${label}_place`;
   const business = (await pool.query(`INSERT INTO businesses
@@ -68,7 +73,8 @@ async function recipient(validated: boolean) {
       VALUES($1,'zerobounce','email_validation','certification',$2,'system',$3,'completed')`, [opId, `${prefix}-${opId}`, `business:${business.id}`]);
     await pool.query(`INSERT INTO provider_observations
       (provider,operation_id,subject_type,subject_id,email_token_hash,subject_generation,outcome,retryable,observed_at,expires_at)
-      VALUES('zerobounce',$1,'contact',$2,$3,0,'valid',false,NOW()-INTERVAL '1 hour',NOW()+INTERVAL '29 days')`, [opId, contact.id, tokenHash]);
+      VALUES('zerobounce',$1,$4,$2,$3,0,$5,false,NOW()-$6::interval,NOW()+$7::interval)`,
+    [opId, shape.subject === "business" ? String(business.id) : String(contact.id), tokenHash, shape.subject, shape.outcome, shape.observedAgo, shape.expiresIn]);
     await pool.query(`UPDATE contacts SET email_status='valid',email_token_hash=$2,email_validation_updated_at=NOW() WHERE id=$1`,
       [contact.id, tokenHash]);
   }
@@ -99,8 +105,9 @@ try {
   for (const validated of [true, true, true, false, true, true, true, true, false, true]) {
     const f = await recipient(validated);
     const prepared = await prepareCanonicalRecipient({ contactId: f.contactId, sequenceId, programId, actor, source: prefix });
-    check(prepared.intentId, "recipient prepared");
-    made.push({ ...f, intentId: String(prepared.intentId), validated });
+    const intentId = (prepared as { intentId?: string }).intentId;
+    check(intentId, "recipient prepared");
+    made.push({ ...f, intentId: String(intentId), validated });
   }
   const states = (await pool.query("SELECT preparation_state, count(*)::int n FROM cr04_enrollment_intents WHERE program_id=$1 GROUP BY 1", [programId])).rows;
   check(states.some(r => r.preparation_state === "ready_held") && states.some(r => r.preparation_state === "pending_validation"),
@@ -194,17 +201,63 @@ try {
   await pool.query("DELETE FROM provider_observations WHERE subject_id=$1", [String(unvalidated.contactId)]);
   await pool.query("UPDATE contacts SET email_status='unvalidated' WHERE id=$1", [unvalidated.contactId]);
 
+  // Validation-evidence shapes the marketing-email read must reproduce exactly through the snapshot: an observation past
+  // the 180-day window although its own expiry is later, a definite "invalid" answer, a receipt recorded against the
+  // business instead of the contact, and a business that has a staging intent (it reads the SFP policy TTL path).
+  const [expiredObs, invalidObs, businessSubjectObs, stagedBusiness] = [
+    await recipient({ observedAgo: "200 days", expiresIn: "10 days", outcome: "valid", subject: "contact" }),
+    await recipient({ observedAgo: "1 hour", expiresIn: "29 days", outcome: "invalid", subject: "contact" }),
+    await recipient({ observedAgo: "1 hour", expiresIn: "29 days", outcome: "valid", subject: "business" }),
+    await recipient(true),
+  ];
+  {
+    const client = await pool.connect();
+    try {
+      await client.query("SET session_replication_role = replica"); // fixture-only: skip the staging table's foreign keys
+      await client.query(`INSERT INTO sfp_campaign_staging_intents
+        (cohort_run_id,eligibility_id,business_id,candidate_id,source_kind,idempotency_key,actor_id,state,policy_version,validation_snapshot,lineage)
+        VALUES($1,$2,$3,$4,'free',$5,$6,'staged',1,'{}'::jsonb,'{}'::jsonb)`,
+      [randomUUID(), randomUUID(), stagedBusiness.businessId, randomUUID(), `${prefix}-staged`, actor.actorId]);
+    } finally { await client.query("SET session_replication_role = DEFAULT").catch(() => undefined); client.release(); }
+  }
+
   const scenarios = [...made.map(m => ({ contactId: m.contactId, businessId: m.businessId })),
+    ...[expiredObs, invalidObs, businessSubjectObs, stagedBusiness].map(m => ({ contactId: m.contactId, businessId: m.businessId })),
     { contactId: 2_000_000_000, businessId: null }, // a contact that does not exist: the snapshot cannot answer, the database does
   ];
   const decide = (s: { contactId: number; businessId: number | null }) =>
     evaluateContactDecisions({ contactId: s.contactId, businessId: s.businessId, channel: "email", mode: "dryRun" });
-  const plainResults = [];
+  const plainResults: Array<{ decisions: Awaited<ReturnType<typeof decide>>; eligibility: Awaited<ReturnType<typeof evaluateMarketingEmailEligibility>> }> = [];
   for (const s of scenarios) plainResults.push({ decisions: await decide(s), eligibility: await evaluateMarketingEmailEligibility(s.contactId) });
 
   const loaded = await countQueries(() => snapshots.loadContactPolicySnapshot(scenarios));
-  check(loaded.queries <= 12, `the snapshot is a fixed handful of set reads, not per contact (${loaded.queries})`);
+  check(loaded.queries <= 14, `the snapshot is a fixed handful of set reads, not per contact (${loaded.queries})`);
   const snapshot = loaded.value;
+  check(snapshot.stagingBusinessIds.has(stagedBusiness.businessId) && !snapshot.stagingBusinessIds.has(baseline.businessId),
+    "the snapshot knows which businesses have a staging intent");
+  const activePolicyDays = Number((await (await import("../server/services/cro03/sfp-outreach-policy")).getActiveSfpOutreachPolicy()).validationTtlDays);
+  same(snapshot.stagedValidationTtlDays, activePolicyDays, `the staged-business TTL comes from the active SFP policy (${activePolicyDays} days)`);
+  for (const m of [baseline, expiredObs, invalidObs, businessSubjectObs, stagedBusiness]) {
+    same(snapshots.snapshotValidationTtlDays(snapshot, m.businessId), await selectedRecipientValidationTtlDays(m.businessId),
+      `business ${m.businessId}: the preloaded validation TTL equals the per-business read`);
+  }
+  check(snapshot.freshObservationByKey.size >= 8, `fresh receipts were read as a set (${snapshot.freshObservationByKey.size})`);
+  {
+    // Receipt-for-receipt equality with the per-contact read, for every shape above, including "none fresh" answers.
+    const rowsByContact = (await pool.query("SELECT id,email,business_id FROM contacts WHERE id = ANY($1::int[])",
+      [scenarios.map(s => s.contactId).filter(id => id < 2_000_000_000)])).rows;
+    let present = 0, absent = 0;
+    for (const row of rowsByContact) {
+      const hash = hashEmailToken(row.email)!;
+      const ttl = snapshots.snapshotValidationTtlDays(snapshot, Number(row.business_id ?? 0))!;
+      const preloaded = snapshot.freshObservationByKey.get(snapshots.observationKey(ttl, hash));
+      check(preloaded !== undefined, `contact ${row.id}: the receipt was read`);
+      const plain = await findFreshProviderObservation({ businessId: Number(row.business_id ?? 0), emailTokenHash: hash, ttlDays: ttl });
+      same(preloaded, plain, `contact ${row.id}: preloaded receipt equals the per-contact receipt`);
+      if (plain) present++; else absent++;
+    }
+    check(present >= 4 && absent >= 2, `both fresh and not-fresh receipts were compared (${present} fresh, ${absent} not)`);
+  }
   const throughSnapshot = await countQueries(async () => snapshots.withContactPolicySnapshot(snapshot, async () => {
     const out = [];
     for (const s of scenarios) out.push({ decisions: await decide(s), eligibility: await evaluateMarketingEmailEligibility(s.contactId) });
@@ -227,7 +280,7 @@ try {
   const perContactSnapshot = throughSnapshot.queries / scenarios.length;
   check(perContactPlain >= 8, `without the snapshot each contact still costs many reads (${perContactPlain})`);
   console.log(`policy reads: snapshot load ${loaded.queries} statements; per contact ${perContactPlain.toFixed(1)} plain vs ${perContactSnapshot.toFixed(1)} through the snapshot`);
-  check(perContactSnapshot <= 5, `through the snapshot each contact costs only the provider-observation reads (${perContactSnapshot})`);
+  check(perContactSnapshot <= 0.2, `through the snapshot a contact costs no database round trip of its own (${perContactSnapshot} per contact)`);
 
   // ───────────────────────────── 5. Scope: no snapshot outside the aggregate flow ─────────────────────────────
   check(snapshots.currentContactPolicySnapshot() === undefined, "no snapshot is active outside the aggregate read");

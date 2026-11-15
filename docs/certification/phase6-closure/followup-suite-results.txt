@@ -1,0 +1,55 @@
+Phase 6 follow-up sweep, started 2026-11-15T01:31:10Z, candidate source hash 879cf620546333f90b5b2d8e78f5608f8a51f4583a4f4b660b430499a9456f91
+STATIC legacy-alias-matrix exit 0 :: phase6 legacy alias matrix: ok (44 aliases, 220 generated cases) 
+STATIC mobile-continuity exit 0 :: phase6 mobile continuity: ok (100 checks) 
+STATIC mounted exit 0 :: PASS client/src/components/crm/WorkspaceTitle.test.tsx PASS client/src/pages/dashboard/LeadOps/MaintenanceDisclosures.test.tsx Phase 6 mounted component behavior: all suites passed (injected fetch; no sess
+STATIC email-lane-states exit 0 :: PHASE6_EMAIL_LANE_STATES_PASS (519 checks) 
+STATIC count-contract exit 0 :: Phase 6 count contract: 131 checks passed 
+STATIC work-presentation exit 0 :: phase6 work presentation: 93 checks passed 
+STATIC contact-and-applications exit 0 :: phase6 contact and applications: 59 checks passed 
+STATIC today-pipeline-reports exit 0 :: phase6 today pipeline reports: 161 checks passed 
+STATIC workspace-identity exit 0 :: Phase 6 workspace identity: 348 checks passed WORKSPACE_IDENTITY_PASS 
+STATIC website-lane-draft exit 0 :: website lane draft: ok (48 checks) 
+STATIC c5-sidebar exit 0 :: Stage 3 C5 sidebar: PASS 
+STATIC check-route-guards exit 0 ::     /dashboard/comms-hub                         (line 955)  ✅ All route-guard assertions passed. No role-protection regressions detected. 
+STATIC test-stage3-d-v-contracts exit 0 :: ✓ route crawl fails when a page does not have exactly one main ✓ performance gate asserts shell and data readiness for every sample and records input identity Stage 3 D-V contracts: PASS 
+STATIC test-task1721-inbox-statement-structure exit 0 :: Task 1721 structural checks passed 
+DISPOSABLE inventory-reads exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failures=0
+DISPOSABLE inventory-set-reads exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failur
+DISPOSABLE backlog-lanes exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failures=0; 
+DISPOSABLE provenance-and-record-class exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardow
+DISPOSABLE task-evidence exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failures=0; 
+DISPOSABLE intake-cohorts exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failures=0;
+DISPOSABLE contact-header-task exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failur
+DISPOSABLE notification-targets exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failu
+DISPOSABLE browser exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failures=0; shared
+DISPOSABLE populated-journeys exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failure
+DISPOSABLE website-email-browser exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown fail
+DISPOSABLE website-email-contracts exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown fa
+DISPOSABLE c2-contact-header exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failures
+DISPOSABLE smoke-role-guards exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failures
+DISPOSABLE stage4b-supply-throughput exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown 
+DISPOSABLE provider-readiness-controls exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardow
+DISPOSABLE stage3-c3-backlog-command exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown 
+DISPOSABLE stage3-c3-roles exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failures=0
+DISPOSABLE stage3-a-authority exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failure
+DISPOSABLE canonical-recipient-preparation exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/tea
+DISPOSABLE canonical-release-authority exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardow
+DISPOSABLE contactability exit 1 :: ❌  PRE-DEPLOY GATE FAILED — executed suite failures=1; delegated/unverified=0; gate-control failures=0:   Suites: 0/1 passed; child failures=1; suite setup/teardown failures=0; shared launcher f
+DISPOSABLE stage4b-workspace-browser exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown 
+DISPOSABLE stage3-c3-browser exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failures
+STATIC test-crm-operator-experience exit 1 :: }  Node.js v22.23.4 
+STATIC test-task2056-crm-ui-contracts exit 1 :: }  Node.js v22.23.4 
+STATIC test-lead-ops-budget-removal exit 1 :: }  Node.js v22.23.4 
+STATIC test-attestation-promotion-regression exit 1 ::   44 passed, 16 failed  Attestation/promotion/census regression FAILED. 
+STATIC test-dashboard-polish exit 1 ::  Failures:   - Fix-date mutation (PUT /api/calendar-events/:id) updates startTime 
+STATIC test-stage3-d-r2-contracts exit 1 :: }  Node.js v22.23.4 
+SWEEP_DONE 2026-11-15T01:45:24Z
+
+Clean-base comparison (HEAD tree exported with git archive to a temp directory; throwaway git init there; run 2026-11-15):
+BASE test-crm-operator-experience exit 1 :: first failure identical on candidate: AssertionError [ERR_ASSERTION]: server/routes/crm-operations.ts must contain db.select().from(tasks).where(eq(tasks.contactId, contactId))
+BASE test-task2056-crm-ui-contracts exit 1 :: first failure identical on candidate: AssertionError [ERR_ASSERTION]: The input did not match the regular expression /user\?\.role === "admin" && <ContactBusinessReconciliationPanel \/>/. Input:
+BASE test-lead-ops-budget-removal exit 1 :: first failure identical on candidate: AssertionError [ERR_ASSERTION]: The input did not match the regular expression /AUTHORIZE PAID PILOT/. Input:
+BASE test-attestation-promotion-regression exit 1 :: first failure identical on candidate:   ✗ Gate 6 uses ORDER BY captured_at DESC (correct schema column)
+BASE test-dashboard-polish exit 1 :: first failure identical on candidate:   ✗ Fix-date mutation (PUT /api/calendar-events/:id) updates startTime — status=400
+BASE test-stage3-d-r2-contracts exit 1 :: first failure identical on candidate: AssertionError [ERR_ASSERTION]: Every listed industry page is server-rendered; only an unknown industry slug answers 404 (no fall-through to the client app)
+BASE test-contactability (disposable) exit 1 :: same six failing assertions as candidate (mismatched_email_token on 'cold scraped can receive email' and 'Case 2'; four more email-allowed assertions)

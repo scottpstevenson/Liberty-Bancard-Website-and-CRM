@@ -35,6 +35,7 @@ import {useAuthorizedSelectedRecord} from "@/hooks/use-authorized-selected-recor
 import { exportToCSV } from "@/lib/export-csv";
 import { getDealCardIdentity as dealCardIdentityFn } from "@/lib/deal-identity";
 import { dealCardFacts, focusedBoardStages } from "@/lib/pipeline-focus";
+import { formatBusinessDateTime } from "@shared/business-time";
 import { pipelineCohortState, pipelineStageSelection } from "@/lib/crm-destination-state";
 import type { Deal, Contact, PipelineStage, Agent, AgentMerchant, CoBrandedProposal } from "@shared/schema";
 import { SALES_STAGES, OFFER_PATHS, VERTICALS, OPEN_SALES_LEAD_STAGES } from "@shared/schema";
@@ -753,8 +754,9 @@ function SortableDealCard({
                 <dd className="min-w-0 truncate" data-testid={`deal-fact-owner-${deal.id}`} data-state={facts.owner.state}>{facts.owner.text}</dd>
                 <dt className="text-muted-foreground">Changed</dt>
                 <dd data-testid={`deal-fact-updated-${deal.id}`} data-state={facts.lastUpdated.state}>{facts.lastUpdated.text}</dd>
-                <dt className="text-muted-foreground">Next</dt>
-                <dd className={facts.nextAction.state === "overdue" ? "font-medium text-destructive" : ""} data-testid={`deal-fact-next-${deal.id}`} data-state={facts.nextAction.state}>{facts.nextAction.text}</dd>
+                <dt className="text-muted-foreground">Follow-up</dt>
+                <dd className={facts.nextAction.state === "overdue" ? "font-medium text-destructive" : ""} data-testid={`deal-fact-next-${deal.id}`} data-state={facts.nextAction.state}
+                  title="The follow-up date saved on this deal. Tasks linked to the deal are listed on the deal and are not counted here.">{facts.nextAction.text}</dd>
                 {facts.blockers.length > 0 && (
                   <>
                     <dt className="text-muted-foreground">Needs</dt>
@@ -825,9 +827,9 @@ function SortableDealCard({
               variant="outline"
               className="text-xs no-default-hover-elevate no-default-active-elevate border-blue-200 bg-blue-50 text-blue-700"
               data-testid={`badge-followup-${deal.id}`}
-              title={`Follow-up: ${new Date(deal.nextFollowUp).toLocaleString()}`}
+              title={`Deal follow-up: ${formatBusinessDateTime(deal.nextFollowUp)}`}
             >
-              <Clock className="w-3 h-3 mr-1" /> {new Date(deal.nextFollowUp).toLocaleDateString()}
+              <Clock className="w-3 h-3 mr-1" /> {formatBusinessDateTime(deal.nextFollowUp)}
             </Badge>
           )}
           {/* #213 — Overdue follow-up indicator */}
@@ -836,7 +838,7 @@ function SortableDealCard({
               variant="outline"
               className="text-xs no-default-hover-elevate no-default-active-elevate border-red-300 bg-red-50 text-red-700"
               data-testid={`badge-overdue-followup-${deal.id}`}
-              title={`Follow-up was due ${new Date(deal.nextFollowUp).toLocaleDateString()}`}
+              title={`Deal follow-up was due ${formatBusinessDateTime(deal.nextFollowUp)}`}
             >
               <Clock className="w-3 h-3 mr-1" /> Overdue
             </Badge>

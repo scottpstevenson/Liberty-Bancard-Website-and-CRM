@@ -6,6 +6,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { stage3BHttpFixture } from "./fixtures/stage3-b-http";
 import { privateStage3Browser } from "./fixtures/private-stage3-browser";
 import { verifyCandidateIdentity } from "./fixtures/candidate-build-identity";
+import { formatBusinessDateTime } from "../shared/business-time";
 
 /**
  * Phase 6 closure: real Chromium against the compiled client, real persisted sessions and the real contact, deal, task and
@@ -169,6 +170,9 @@ try {
     await h.pool.query(`INSERT INTO notifications(channel,recipient_id,title,message,type,read) VALUES('in_app',$1,$2,$3,'info',false)`,
       [h.userId("admin"), `Phase6 notice ${n}`, "A fixture notification with enough text to wrap on a 320 pixel screen and prove the card layout holds."]);
   }
+  // One deal carries a saved follow-up so the device-time-zone check below has a dated card fact to read.
+  const FOLLOW_UP_ISO = "2027-06-15T16:00:00";
+  const followUpDealId = Number((await h.pool.query(`UPDATE deals SET next_follow_up=$1 WHERE name='Phase6 deal 0' RETURNING id`, [new Date(FOLLOW_UP_ISO)])).rows[0].id);
   const recordHref = (id: number) => `/dashboard/contacts/${id}?area=overview&section=overview`;
   const goInApp = (b: Browser, url: string) =>
     b.evaluate(`(()=>{history.pushState({},'',${JSON.stringify(url)});window.dispatchEvent(new PopStateEvent('popstate'));return true})()`);
@@ -180,6 +184,11 @@ try {
     { path: "/dashboard/pipeline", ready: "!!document.querySelector('[data-testid^=\"card-deal-\"]')", name: "pipeline" },
     { path: "/dashboard/notifications", ready: "!!document.querySelector('[data-testid^=\"card-notification-\"]')", name: "notifications" },
     { path: "/dashboard/lead-ops", ready: "!!document.querySelector('main')", name: "lead-ops-unregistered-sources" },
+    // Today, Work, Applications and Reports run here with their readers unregistered (501): layout, heading and named-control audit only.
+    { path: "/dashboard", ready: "!!document.querySelector('h1')", name: "today-unregistered-sources" },
+    { path: "/dashboard/tasks-appointments", ready: "!!document.querySelector('h1')", name: "work-unregistered-sources" },
+    { path: "/dashboard/merchant-applications", ready: "!!document.querySelector('h1')", name: "applications-unregistered-sources" },
+    { path: "/dashboard/reporting", ready: "!!document.querySelector('h1')", name: "reports-unregistered-sources" },
   ];
   const timings: Record<string, number> = {};
   // ── 1. Layout, headings and named controls: five widths for each destination ───────────────────────────────────────────
@@ -198,7 +207,7 @@ try {
       } catch (error) { failures.push(`${destination.name} @${width}px: ${String((error as Error).message).slice(0, 700)}`); }
     }
   }
-  check(failures.length === failuresBefore, "contact record, Pipeline, Notifications and Lead Ops have no horizontal overflow, one h1, named controls or page exception at 1280, 768, 454, 390 and 320 px");
+  check(failures.length === failuresBefore, "contact record, Pipeline, Notifications, Lead Ops, Today, Work, Applications and Reports have no horizontal overflow, one h1, named controls or page exception at 1280, 768, 454, 390 and 320 px");
   await setWidth(admin, 1280);
   await admin.navigate("/dashboard/notifications");
   await until(admin, "!!document.querySelector('[data-testid^=\"card-notification-\"]')", "notifications populated");
@@ -206,6 +215,21 @@ try {
   check(await admin.evaluate("document.querySelectorAll('[data-testid^=\"card-notification-\"]').length") >= 20, "the populated Notifications list renders its rows");
   check(timings.notifications < 8000 && timings.pipeline < 8000 && timings["contact-record"] < 8000,
     `populated pages reach visible records within 8 s on the fixture (contact ${timings["contact-record"]} ms, Pipeline ${timings.pipeline} ms, Notifications ${timings.notifications} ms; fixture scale, not production)`);
+  // Device time zone: a follow-up saved on a deal reads the same business time whatever zone the browser reports.
+  const expectedFollowUp = `Deal follow-up ${formatBusinessDateTime(new Date(FOLLOW_UP_ISO))}`;
+  const seenByZone: Record<string, { zone: string; text: string }> = {};
+  for (const zone of ["Pacific/Auckland", "America/Los_Angeles", "Asia/Tokyo"]) {
+    await admin.call("Emulation.setTimezoneOverride", { timezoneId: zone });
+    await admin.navigate("/dashboard/pipeline");
+    await until(admin, `!!document.querySelector('[data-testid="deal-fact-next-${followUpDealId}"]')`, `Pipeline follow-up fact in ${zone}`, 300);
+    seenByZone[zone] = {
+      zone: String(await admin.evaluate("Intl.DateTimeFormat().resolvedOptions().timeZone")),
+      text: String(await admin.evaluate(`document.querySelector('[data-testid="deal-fact-next-${followUpDealId}"]').textContent`)).trim(),
+    };
+  }
+  await admin.call("Emulation.setTimezoneOverride", { timezoneId: "" });
+  check(Object.entries(seenByZone).every(([zone, seen]) => seen.zone === zone) && Object.values(seenByZone).every((seen) => seen.text === expectedFollowUp),
+    `a Pipeline card's saved follow-up reads "${expectedFollowUp}" with the browser reporting Auckland, Los Angeles and Tokyo (${JSON.stringify(seenByZone)})`);
 
   });
   // ── 2. Native 200% browser zoom ──────────────────────────────────────────────────────────────────────────────────────

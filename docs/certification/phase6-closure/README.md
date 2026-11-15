@@ -4,6 +4,8 @@ Closure task for the external post-Publish verification of 2026-11-12 (`attached
 
 **Read this first.** Sections 1–8 were produced on isolated infrastructure (throwaway databases, fake provider transports, a private browser) against the candidate source named in section 1. The owner published these repairs afterwards. Section 9 records what was then read from the live site and the production database with read-only requests (2026-11-13). It proves which build is serving and that the client files are byte-identical to the candidate; it does not prove the signed-in screens, because no signed-in session was used. Rows still say "LIMITED" where that matters.
 
+**Update 2026-11-14 (local date; sweep timestamps below are UTC):** section 11 records the follow-up pass for the external live verification of 2026-11-13 (findings C01–C04, the Outbound Readiness header, the Program Health observations, a new candidate and a new sweep). Where it differs from sections 1–10, section 11 is current. Sections 1–10 are kept as written for the build that was published on 2026-11-13.
+
 ## 1. Frozen identity
 
 | Item | Value |
@@ -19,6 +21,8 @@ Closure task for the external post-Publish verification of 2026-11-12 (`attached
 The source hash covers `scripts/`, `client/` and `server/`; `docs/` is outside it, so this README and the roadmap can change without moving the identity. Any edit to those three folders requires a rebuild and a repeat of section 4.
 
 No migration was added by this work, so there is no schema or rollback record to keep separately.
+
+Section 11 has the identity of the later candidate (the working tree after the follow-up pass). The hash above describes the build published on 2026-11-13, not the current working tree.
 
 ## 2. Repairs (R01–R09)
 
@@ -144,7 +148,7 @@ Dispositions: **ACCEPTED** = repaired and proved by the executed isolated eviden
 - Signed-in production screens.
 - Outreach Queue Start and enrolment (never pressed).
 - Later assertions of the scripts listed in section 4's failure table.
-- Known observations left unfixed: the SLA worker's stale `background_jobs` row (`sla-worker`, last run 2026-09-05; Program Health shows `failed` ahead of stale; hosting is an owner decision); pool contention seen around the commercial-graph lock; validation history sits behind the closed diagnostics disclosure on the contact page.
+- Known observations left unfixed (section 11.3 has the later diagnosis): the SLA worker's stale `background_jobs` row (`sla-worker`, last run 2026-09-05; Program Health shows `failed` ahead of stale; hosting is an owner decision); pool contention seen around the commercial-graph lock; validation history sits behind the closed diagnostics disclosure on the contact page.
 
 ## 8. Needs the owner
 
@@ -189,3 +193,85 @@ No request below wrote anything. Production SQL used the read-only production qu
 ## 10. Later display fix (after Publish, not yet published)
 
 On 2026-11-13 the owner reported that the logo did not show in the CRM preview of the website follow-up emails (Campaigns → Sequences → Website follow-up content). Cause: the preview frame is fully sandboxed (opaque origin) and the site serves `/logo-blue.png` with `Cross-Origin-Resource-Policy: same-origin`, so the browser refuses the image there. The logo itself serves fine (HTTP 200) and shows in the real receipt email. Fix: the panel fetches `/logo-blue.png` once, and shows the preview with that same image inlined (`client/src/lib/email-preview-logo.ts`, `WebsiteWarmRevisionsPanel.tsx`). The sandbox stays fully closed (`sandbox=""`, so `test-website-email-browser` still holds), and the saved revision, its fingerprint and the sent email are unchanged. Verified in a standalone headless Chromium page with the production CSP and CORP headers: logo missing with `sandbox=""`, loads with the inlined image. Not run: the full sweep, a rebuild, or the real CRM dialog. This edit changes `client/`, so the candidate source hash in section 1 no longer describes the workspace; it needs a rebuild and the owner's Publish to appear live.
+
+## 11. Follow-up pass for the live verification of 2026-11-13 (isolated checks; not yet published)
+
+Source: `attached_assets/LIBERTY_PHASE6_FOLLOWUP_LIVE_VERIFICATION_2026-11-13_1794700689252.md`. The audit does not authorize an unpause, a recipient release, paid provider work, reclassification, notification consumption or any send, and none was done. The only production access in this pass was read-only SQL. Nothing was published; the owner publishes.
+
+### 11.1 Identity of this candidate
+
+| Item | Value |
+|---|---|
+| Workspace HEAD the work sits on | `158d86a3bb9c611b350f4cb38327b3009830de12` plus the uncommitted working tree |
+| Candidate source hash (`dist/candidate-integrity.json`, `sourceInputHash`) | `879cf620546333f90b5b2d8e78f5608f8a51f4583a4f4b660b430499a9456f91` |
+| Candidate output hash | `48945e5707dd01c74a71e387e4c1e1bfa5dcaaa650ccf1cdb12fe5d239ba4173` |
+| Qualification | Compiled client and registered handlers in isolated previews, as in section 1. Not a deployed-server parity check. It includes the logo-preview change of section 10. |
+
+Sweep record: `followup-suite-results.txt` in this folder (one line per suite, started 2026-11-15T01:31Z, finished 01:45Z; run by `generated-artifacts/p6g-sweep.sh`, logs `generated-artifacts/p6g-*.log`, local and not committed). The sweep was run after the last source edit; an earlier sweep on an earlier candidate was discarded because two later edits (below) changed the hash.
+
+### 11.2 The five findings and the header
+
+| Finding | What was done | Isolated proof | Not proven |
+|---|---|---|---|
+| **C01** Backlog 25 s timeout, cold Launch Inventory (CRM-09, CRM-12) | The Launch Inventory's dominant per-contact reads (each recipient's validation TTL and fresh original-address receipt, read for every contact) are now preloaded as set reads for the whole population (`contact-policy-read-snapshot.ts`); if the installed receipt contract cannot be proven or a read fails, each contact falls back to its own original read and original fail-closed answer. The Backlog's three independent lanes (`canonical-enrichment-backlog.ts`) are read in parallel on separate connections instead of one after another. The 25 s deadline, generation and cancellation fences, explicit unavailable states and the independent release reader are unchanged. No retry loop, no longer timeout, no cache dependence, no new index. | `test-phase6-inventory-set-reads` (139 checks, including parity of the set reads with the per-contact reads), `test-phase6-backlog-lanes` (24, new), `test-phase6-inventory-reads` (37), `test-provider-readiness-controls`, `test-stage3-c3-backlog-command`, `test-stage4b-supply-throughput`, `test-stage3-c3-roles` all pass on throwaway databases. | Production-scale timing. Read-only plans on the production replica put the three Backlog lanes at about 25.6 s when summed one after another, so the parallel read is expected to finish under the deadline, but concurrent behaviour on production was not measured. That needs the owner's Publish and a signed-in admin. Cold and warm results on the live site are therefore open; CRM-09 and CRM-12 stay LIMITED until then. |
+| **C02** Website lane editor starts blank and loses edits (CRM-15) | The editor is a session over the saved revision (`client/src/lib/website-lane-draft.ts`, `WebsiteEmailLaneCard.tsx`): it starts from the saved revision, keeps unsaved edits across the 30 s refresh, adopts a changed revision silently when there are no edits, and when there are edits keeps them, shows a conflict and blocks Preview and Save until the operator chooses Reload (discard) or Keep (re-measure the edits against the new revision). A saved-versus-proposed list names every change, including mappings that would be removed. A malformed stored configuration opens as closed; a sender is never chosen automatically. | `test-website-lane-draft` (48), `test-phase6-email-lane-states` (519), and the mounted browser run `test-website-email-browser` (182 checks): hydration from revision 1, no pending changes when untouched, an edit marked unsaved, the removal named in the list, the edit surviving the real 30 s refresh, a second saver creating revision 2 giving a conflict notice with Preview and Save paused, Keep rebasing with both removals listed, and Reload from a third revision. Only configuration rows in the throwaway database were written; the lane stayed Closed. The first run of this browser check failed: a cleared mapping rendered as a blank select instead of "No nurture" (`?? "none"` should have been `|| "none"`). Fixed and re-run. | Production's four saved mappings were not touched or re-read through the screen; the saved configuration there (revision 1, closed, limit 0, no sender) was read with SQL only. |
+| **C03** Pipeline card says "No next action" next to a pending linked task (CRM-21B) | The card now labels the blocker as the deal's own follow-up date ("No deal follow-up date", "Deal follow-up overdue since …", "Deal follow-up …"). It does not read or copy linked tasks, so there is no per-card read; the card's tooltip says linked tasks are listed on the deal. Dates use the business-time formatter. An unreadable stored date shows "Deal follow-up date unreadable". | `test-phase6-today-pipeline-reports` (161). In the Phase 6 browser run a deal with a saved follow-up reads "Deal follow-up Jun 15, 2027, 12:00 PM EDT" with the browser reporting Pacific/Auckland, America/Los_Angeles and Asia/Tokyo. | Showing linked-task facts on the card was not built; that would need a bounded shared read (the audit allowed either). |
+| **C04** Integration guide omits the requested follow-up program (CRM-16) | The website lane's guide text is built from the canonical program labels (`WEBSITE_LANE_PROGRAMS` / `WEBSITE_PROGRAM_EXPLANATION` in `website-email-reasons.ts`) and names both programs; the lane card shows the same sentence (`text-website-lane-programs`). | `test-phase6-email-lane-states` (519) and a mounted check in `test-website-email-browser` (visits Outbound Readiness, then Settings → Integrations, and compares the website lane text and link). | Live wording until Publish. |
+| **Header** Outbound Readiness shows the generic "Dashboard" (CRM-22B) | `/dashboard/outbound-readiness` now has a page identity ("Outbound Launch Readiness") and its sidebar entry lives under Administration. | `test-phase6-workspace-identity` (348), `test-stage3-c5-sidebar`. | Not walked live. |
+
+### 11.3 Program Health observations (diagnosed only; no repair, no manual write)
+
+**Production Seed Convergence error (2 subjects and 1 edge in the audit).** The native-object reconciler's manifest holds a single entry (the first-party staged-email one). The commercial-graph membership function `cro02_bump_graph_membership` (redefined in migration `0173`) and the triggers that call it were not found installed in production when read; only the three `cro02_*_link_evidence_append_only` functions exist. `commercial-link-authority.ts` records `contact_business_link_decisions` without bumping a revision in application code, so each new automatic link decision leaves a gap that only the next production startup's insert-only backfill (`convergeCommercialGraphRevisions`, last audited run 2026-11-13 03:47Z) closes. Read-only counts on 2026-11-14 showed 5 subjects missing (contacts 18065, 18073, 18081; businesses 3249, 3250) and 3 membership edges missing, matching link decisions created 2026-11-13 05:31Z, 2026-11-14 12:01Z and 17:01Z. The audit's "2 subjects and 1 edge" was the first decision; the gap grows with each new link. It explains why the startup read in section 9 said "current" and a later screen did not. The next Publish or restart heals the existing gaps. Durable prevention is to install that function and its triggers through a certified native-object-reconciler entry; that changes production behaviour and was not done.
+
+**SLA worker "Failed (184×)", last run 2026-09-05.** The production `BACKGROUND_JOB_PROFILE` (in `.replit`) is `selective:enrichment,free-enrichment-lane,provider-live,email-validation,sunbiz-backfill,sfp-free-classification,sfp-campaign-staging,sfp-continuous-discovery,ghl-sync-only,statement-upload`. It does not include the `operations` group, which holds `sla-checks` (and the digests, MID ingestion, activation monitor and merchant-success jobs). So the SLA worker is not selected on the production host. Its `background_jobs` row says `running` with a stale lock token, last finished 2026-09-05 13:01, 184 consecutive failures, last error a connection-timeout on `sla_configs` from an earlier period of pool contention. The stale lock clears itself through the 20-minute lock TTL on the next acquire. Program Health ranks `failed` ahead of `not_selected_expected_idle` (`server/routes/lead-ops.ts`), which is why it shows a failure for a worker the profile never starts. The real operational gap is that SLA checks have not run for about 70 days; the 4 overdue tickets in the audit are real work regardless of the badge. Enabling `operations` would also turn on the digest and other jobs in that group, so it is an owner decision. The classification was not changed because that would hide the gap.
+
+**Kept separate.** GHL sync is paused by owner control (epoch 16) and was not touched. The audit's third operational item (Chat source reported unavailable on Today and Inbox) was not investigated in this pass; nothing here says the provider is healthy or broken. These observations are not UI acceptance results.
+
+### 11.4 Other changes made on the way
+
+- `MerchantApplicationsList.tsx`: the search box had only a placeholder and no accessible name; it now has an `aria-label`. Found by the width audit below.
+- `scripts/pre-deploy.ts` registers `test-phase6-backlog-lanes` and `test-website-lane-draft`.
+
+### 11.5 Browser evidence added
+
+`test-phase6-browser` now also audits Today, Work, Applications and Reports at 1280, 768, 454, 390 and 320 px (layout, one h1, named controls, no page exception; their readers are unregistered in that fixture, so they render explicit unavailable states) and checks the Pipeline follow-up text with the browser reporting three other time zones: **56 named checks, 56 audited states** (was 55 and 36). `browser/phase6-browser-results.json` holds this run. The populated-journey suite is unchanged (66 checks). Still not executed here: WebKit, real phones, installed-app behaviour, real simultaneous multi-tab, a real-browser walk of the exact task/request/file actions and of opening a notification, Work/Today density measured on a device, and any signed-in production screen.
+
+### 11.6 Suites on this candidate
+
+All exit 0 unless listed under 11.7: the nine static Phase 6 suites (alias matrix 44/220, mobile continuity 100, mounted all, email lane states 519, count contract 131, work presentation 93, contact and applications 59, today/pipeline/reports 161, workspace identity 348), `test-website-lane-draft` 48, `test-stage3-c5-sidebar`, `check-route-guards`, `test-stage3-d-v-contracts` 33, `test-task1721-inbox-statement-structure`, and on throwaway databases: inventory-reads, inventory-set-reads, backlog-lanes, provenance-and-record-class, task-evidence, intake-cohorts, contact-header-task, notification-targets, `test-phase6-browser` (56), populated-journeys (66), `test-website-email-browser` (182), `test-website-email-contracts`, `test-c2-contact-header`, `smoke-role-guards`, `test-stage4b-supply-throughput`, `test-provider-readiness-controls`, `test-stage3-c3-backlog-command`, `test-stage3-c3-roles`, `test-stage3-a-authority`, `test-canonical-recipient-preparation`, `test-canonical-release-authority`, `test-stage4b-workspace-browser`, `test-stage3-c3-browser`. This is not the full pre-deploy roster (288 entries) and no whole-project type check was run; the changed client, server and script files were type-checked together without the whole project and show only errors that already exist at HEAD: `server/db.ts(174)`, `server/routes/campaigns.ts(629)`, `scripts/fixtures/private-stage3-browser.ts(144)` and one `variant="link"` button type in `MerchantApplicationsList.tsx` that is in the committed file too.
+
+### 11.7 Failures that also fail on the exact clean base
+
+The clean base is the HEAD tree exported to a temporary directory (with a throwaway git repository created there, never in the workspace). Each script below fails at the same first assertion on the base and on this candidate. These scripts stop at the first failure, so every later assertion is unexecuted on both sides; they are not claimed to pass.
+
+| Script | First failure (base and candidate) |
+|---|---|
+| `test-crm-operator-experience` | `server/routes/crm-operations.ts must contain db.select().from(tasks).where(eq(tasks.contactId, contactId))` |
+| `test-task2056-crm-ui-contracts` | regex for `user?.role === "admin" && <ContactBusinessReconciliationPanel />` not found |
+| `test-lead-ops-budget-removal` | regex `/AUTHORIZE PAID PILOT/` not found |
+| `test-attestation-promotion-regression` | Gate 6 `ORDER BY captured_at DESC` (44 pass, 16 fail) |
+| `test-dashboard-polish` | calendar PUT answers 400 (14 pass, 1 fail) |
+| `test-stage3-d-r2-contracts` | "Every listed industry page is server-rendered; only an unknown industry slug answers 404…" |
+| `test-contactability` (throwaway database; new to this record) | six assertions fail with `mismatched_email_token` or an email-allowed result (for example "cold scraped can receive email", "Case 2: email-only tier"); identical on the base. It has not been fixed here. |
+
+### 11.8 Row changes
+
+| Row | Disposition now | Reason |
+|---|---|---|
+| CRM-04 business time | ACCEPTED, LIMITED | Added: a browser check with three foreign device zones on the Pipeline card text. The Work page and other surfaces were not run in a foreign zone. |
+| CRM-09 bounded reads | REPAIRED, NOT PROVEN LIVE | Isolated proof only; production timing needs Publish. The live failure in the audit is not disproved by this record. |
+| CRM-12 counts | LIMITED | Same as CRM-09 for the Launch Inventory count. |
+| CRM-15 lane states | ACCEPTED, LIMITED | Editor repaired with mounted proof; no delivery claim; lane stays Closed. |
+| CRM-16 guidance | ACCEPTED, LIMITED | Both programs named; live after Publish. |
+| CRM-21B Pipeline | ACCEPTED, LIMITED | Card wording repaired. The read-first drawer remains a proposed design choice; **no owner decision has been recorded on it**, so it is not labelled approved or deferred by the owner. |
+| CRM-21C responsive | ACCEPTED, LIMITED | Today, Work, Applications and Reports now have a five-width audit with unregistered readers. Density on a device is not measured; real devices were not used. |
+| CRM-22B page identity | ACCEPTED, LIMITED | Outbound Readiness mapped; other unwalked routes are not claimed. |
+
+Rows not listed keep their section 6 dispositions. No row is marked closed by this section alone: C01 in particular is open until the post-Publish steps below.
+
+### 11.9 Owner status and what remains
+
+- Content and mapping approval is done, not open: warm revisions 7–10 were approved and the mappings saved on 2026-11-13 (configuration revision 1: closed, daily limit 0, no sender; zero send receipts and the global outbound pause on, both read with SQL on 2026-11-14; reader and channel-pause state are as the audit reported them). That is a configuration state, not a decision to send.
+- The statement in the roadmap's earlier "owner decisions still open" list about content and form mappings is therefore stale and was corrected there; controlled email acceptance is still open.
+- Owner decisions raised by this pass: (1) whether to enable the `operations` background group in production so SLA checks run; (2) whether to install the graph-membership triggers through the reconciler. Neither was done. No acceptance or deferral of the unexecuted browser evidence in 11.5 has been requested or recorded.
+- Next: the owner's Publish, then the new serving identity, the GET-only journeys and the initial inventory reads (cold and warm) from a signed-in admin session, then the roadmap rows are updated again. Until then C01 is open.

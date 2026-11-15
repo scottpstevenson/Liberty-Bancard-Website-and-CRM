@@ -1134,6 +1134,7 @@ export default function MerchantApplicationsList() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
           <Input
             placeholder="Search by business name or email..."
+            aria-label="Search applications by business name or email"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"

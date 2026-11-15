@@ -1,5 +1,6 @@
 import { Link } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { WEBSITE_PROGRAM_EXPLANATION } from "@/lib/website-email-reasons";
 
 /**
  * Which system does what when a request arrives, and where each one is controlled. Every row names its own owner
@@ -17,7 +18,7 @@ export const INTEGRATION_LANES: ReadonlyArray<{
     effect: "Creates the follow-up task and tells the team a request arrived. It sends nothing to the person who asked.",
     control: "Owned by the request intake service; no setting here", href: null },
   { key: "website", lane: "Opted-in website follow-up",
-    effect: "A separate, default-closed email lane for people who opted in on the website. It has its own approval, pause and release.",
+    effect: `A separate, default-closed email lane for website forms, with its own approval, pause and release. It carries two programs: ${WEBSITE_PROGRAM_EXPLANATION}.`,
     control: "Outbound Readiness → Website email follow-up lane", href: "/dashboard/outbound-readiness" },
   { key: "cold", lane: "Cold outreach sequences",
     effect: "Replit's sequence engine decides eligibility, timing and suppression. Sequences start paused and stay under the global outbound pause.",

@@ -65,3 +65,12 @@ export const PROGRAM_LABELS: Record<string, string> = {
   requested_followup: "Requested follow-up (answers a request the person made)",
   nurture: "Opted-in nurture (marketing, needs this request's opt-in)",
 };
+
+/** Programs the website lane carries, in the order operators read them. */
+export const WEBSITE_LANE_PROGRAMS = ["requested_followup", "nurture"] as const;
+
+/**
+ * The one explanation of what the website lane can carry. The lane card and the integration guide both render this, so a
+ * program added or renamed above changes every place that describes the lane.
+ */
+export const WEBSITE_PROGRAM_EXPLANATION = WEBSITE_LANE_PROGRAMS.map((program) => PROGRAM_LABELS[program]).join(" and ");

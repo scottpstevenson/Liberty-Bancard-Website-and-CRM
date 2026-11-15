@@ -70,6 +70,19 @@ resetLaunchInventoryForTests();
 const backlogService = fs.readFileSync("server/services/canonical-enrichment-backlog.ts", "utf8");
 const inventoryService = fs.readFileSync("server/services/sfp-launch-inventory.ts", "utf8");
 ok(/BACKLOG_DEADLINE_MS = 25_000/.test(backlogService) && /LAUNCH_INVENTORY_DEADLINE_MS = 25_000/.test(inventoryService), "deadlines are unchanged at 25 s");
+// C01: the backlog's independent statements run as three concurrent lanes inside the same 25 s deadline. No retry or recount loop
+// exists in the read: the only timers are the two that re-issue a cancel for work that has already been told to stop.
+ok(/laneNames = backlogReadDeps\.layout === "sequential" \? \["sequential"\] : \["businesses", "contacts", "registry"\]/.test(backlogService),
+  "the backlog read is three lanes (businesses, contacts, registry) in production; one lane only as the parity reference");
+eq((backlogService.match(/setInterval\(/g) ?? []).length, 2, "the backlog service has only its two cancel-repeat timers, no polling or automatic retry");
+ok([...backlogService.matchAll(/setInterval\(([^\n]*)/g)].every((m) => /cancelBacklogBackend/.test(m[1])), "both timers only re-issue a cancel");
+ok(/const STATEMENT_TIMEOUT = "60s"/.test(backlogService) && !/BACKLOG_DEADLINE_MS = (?!25_000)/.test(backlogService),
+  "the per-statement timeout and the whole-read deadline were not raised");
+ok(/if \(ctx\.isExpired\?\.\(\)\) throw new BacklogDeadlineError\(\);\s*if \(failure\) throw new BacklogLaneAbortedError\(\);/.test(backlogService),
+  "a lane never starts a transaction or statement after expiry or after a sibling failed");
+ok(/isExpired: \(\) => flight\.expired \|\| flight\.generation !== generation/.test(backlogService), "the lanes are fenced by the flight's expiry and generation");
+const backlogRoute = fs.readFileSync("server/routes/canonical-enrichment.ts", "utf8");
+eq((backlogRoute.match(/readCanonicalEnrichmentBacklog\(/g) ?? []).length, 1, "one aggregate request per entrance or retry: the route calls the backlog read once");
 const client = fs.readFileSync("client/src/pages/dashboard/CanonicalBacklog.tsx", "utf8");
 const intervals = [...client.matchAll(/refetchInterval:\s*([^,}]+)/g)].map((m) => m[1].trim());
 eq(intervals, ["busy ? 3000 : false"], "the only interval in the backlog page is the in-memory progress report, and only while a read is busy");

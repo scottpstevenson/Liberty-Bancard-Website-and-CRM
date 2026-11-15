@@ -97,14 +97,28 @@ eq(focusedBoardStages({ stages, showAll: false, pinnedStage: "Not A Stage", coun
 eq([...SECONDARY_SALES_STAGES], ["Closed Won", "Closed Lost", "Nurture / Not Now"], "the secondary set is exactly terminal and parked stages");
 
 const facts = dealCardFacts({ stage: "Proposal", owner: " Sam ", nextFollowUp: "2026-11-10T12:00:00Z", updatedAt: "2026-11-08T15:00:00Z" }, now);
-ok(facts.owner.text === "Sam" && facts.lastUpdated.text === "Updated 3d ago" && facts.nextAction.state === "overdue" && facts.blockers.includes("Follow-up overdue"), "an overdue follow-up is a stated blocker");
+ok(facts.owner.text === "Sam" && facts.lastUpdated.text === "Updated 3d ago" && facts.nextAction.state === "overdue" && facts.blockers.includes("Deal follow-up overdue"), "an overdue deal follow-up is a stated blocker");
 const bare = dealCardFacts({ stage: "Contacted" }, now);
 ok(bare.owner.state === "none" && bare.lastUpdated.state === "unknown" && bare.nextAction.state === "none", "missing facts are named as missing");
-eq(bare.blockers, ["No next action", "No owner"], "a deal with no owner and no follow-up lists both");
+eq(bare.blockers, ["No deal follow-up date", "No owner"], "a deal with no owner and no follow-up date lists both");
+// The card states what the DEAL records. A linked pending task is a different fact and must never be denied by this card.
+eq(bare.nextAction.text, "No deal follow-up date", "a deal without a follow-up date says exactly that");
+ok(!/next action|no follow-up scheduled/i.test(`${bare.nextAction.text} ${bare.blockers.join(" ")}`), "the card never claims there is no next action or nothing scheduled");
+ok(!/^no deal follow-up date$/i.test(dealCardFacts({ stage: "Proposal", nextFollowUp: "not-a-date" }, now).nextAction.text) && dealCardFacts({ stage: "Proposal", nextFollowUp: "not-a-date" }, now).nextAction.state === "unknown"
+  && dealCardFacts({ stage: "Proposal", nextFollowUp: "not-a-date", owner: "Sam" }, now).blockers.length === 0, "a stored but unreadable date is unknown, never reported as none or as a blocker");
+// Dates read in the business zone, not the device zone: 2026-11-21T02:30Z is 9:30 PM on Nov 20 in Eastern time.
+const lateUtc = dealCardFacts({ stage: "Proposal", owner: "Sam", nextFollowUp: "2026-11-21T02:30:00Z", updatedAt: now }, now);
+ok(/Nov 20, 2026/.test(lateUtc.nextAction.text) && /9:30 PM EST/.test(lateUtc.nextAction.text) && lateUtc.nextAction.state === "scheduled", "a scheduled deal follow-up is formatted in business time with its zone");
+for (const zone of ["Pacific/Auckland", "America/Los_Angeles", "UTC"]) {
+  const saved = process.env.TZ; process.env.TZ = zone;
+  eq(dealCardFacts({ stage: "Proposal", owner: "Sam", nextFollowUp: "2026-11-21T02:30:00Z", updatedAt: now }, now).nextAction.text, lateUtc.nextAction.text, `the follow-up reads the same on a device set to ${zone}`);
+  if (saved === undefined) delete process.env.TZ; else process.env.TZ = saved;
+}
 eq(dealCardFacts({ stage: "Closed Won" }, now).blockers, [], "a closed deal has no open blockers");
 eq(dealCardFacts({ stage: "Proposal", assignedTo: "legacy@x.test", nextFollowUp: "2026-11-20T12:00:00Z", updatedAt: now }, now).owner.text, "legacy@x.test", "the legacy assignee is used when no owner is recorded");
 eq(dealCardFacts({ stage: "Proposal", updatedAt: "garbage" }, now).lastUpdated.state, "unknown", "an invalid update time is unknown");
 const pipeline = read("client/src/pages/dashboard/Pipeline.tsx");
+ok(!/toLocaleDateString|toLocaleString\(\)/.test(pipeline.slice(pipeline.indexOf("badge-followup-") - 400, pipeline.indexOf("badge-overdue-followup-") + 600)), "the deal card follow-up badges no longer format dates in the device zone");
 for (const id of ["pipeline-secondary-stages", "button-show-all-stages", "pipeline-all-stages-note", "button-focus-active-stages", "deal-card-facts-", "pipeline-stage-pin", "button-clear-stage-pin"]) ok(pipeline.includes(id), `Pipeline renders ${id}`);
 
 // ── CRM-22 Reports drilldowns ───────────────────────────────────────────────────────────────────────────────────────

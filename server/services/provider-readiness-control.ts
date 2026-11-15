@@ -9,7 +9,7 @@
 import { randomUUID } from "crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
-import { currentContactPolicySnapshot } from "./contact-policy-read-snapshot";
+import { currentContactPolicySnapshot, observationKey, snapshotValidationTtlDays } from "./contact-policy-read-snapshot";
 import { contacts, eligibilitySnapshots, providerObservations, validationIntents } from "@shared/schema";
 import { CRO03C_CURRENT_MIGRATION_HEAD } from "./cro03/contracts";
 import { currentCanonicalValidationSelection } from "./canonical-recipient-preparation";
@@ -142,10 +142,18 @@ export async function evaluateMarketingEmailEligibility(contactId: number): Prom
       effect: "provider_pre_spend",
     });
     const tokenHash = hashEmailToken(contact.email);
-    const observation = tokenHash ? await findFreshProviderObservation({
-      businessId:Number(contact.businessId ?? 0),emailTokenHash:tokenHash,
-      ttlDays:await selectedRecipientValidationTtlDays(Number(contact.businessId ?? 0)),
-    }) : null;
+    let observation: Awaited<ReturnType<typeof findFreshProviderObservation>> = null;
+    if (tokenHash) {
+      const businessId = Number(contact.businessId ?? 0);
+      // Inside the aggregate dry run the TTL and the fresh receipt come from the set-read snapshot when it holds them;
+      // anything it does not hold is read per contact, exactly as every other caller does.
+      const preloadedTtl = policySnapshot ? snapshotValidationTtlDays(policySnapshot, businessId) : undefined;
+      const ttlDays = preloadedTtl ?? await selectedRecipientValidationTtlDays(businessId);
+      const preloadedObservation = policySnapshot?.freshObservationByKey.get(observationKey(ttlDays, tokenHash));
+      observation = preloadedObservation !== undefined
+        ? preloadedObservation
+        : await findFreshProviderObservation({ businessId, emailTokenHash: tokenHash, ttlDays });
+    }
     return {
       ...decideMarketingEmailValidation(contact.email, {
       emailStatus: contact.emailStatus,

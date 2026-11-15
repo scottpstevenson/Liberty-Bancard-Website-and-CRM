@@ -303,6 +303,8 @@ export const MANDATORY_SUITES: Suite[] = [
   {name:"Phase 6 Mobile Continuity, Truthful Summaries And Bounded Refresh",script:"scripts/test-phase6-mobile-continuity.ts",timeoutSecs:60},
   {name:"Phase 6 Inventory Read Progress, Generation Fence And Bounded Deadline",script:"scripts/test-phase6-inventory-reads.ts",timeoutSecs:90,requiresDisposableTestDatabase:true},
   {name:"Phase 6 Launch Inventory Set-Read Parity And Contact Policy Snapshot",script:"scripts/test-phase6-inventory-set-reads.ts",timeoutSecs:180,requiresDisposableTestDatabase:true},
+  {name:"Phase 6 Backlog Concurrent Lane Parity, Failure Injection And Cancellation",script:"scripts/test-phase6-backlog-lanes.ts",timeoutSecs:180,requiresDisposableTestDatabase:true},
+  {name:"Phase 6 Website Lane Editor Hydration, Retained Edits And Revision Conflict",script:"scripts/test-website-lane-draft.ts",timeoutSecs:60},
   {name:"Phase 6 Record Class Scope And Website Source Provenance",script:"scripts/test-phase6-provenance-and-record-class.ts",timeoutSecs:90,requiresDisposableTestDatabase:true},
   {name:"Phase 6 Task Evidence, Exact Request And Retained File Resolution",script:"scripts/test-phase6-task-evidence.ts",timeoutSecs:90,requiresDisposableTestDatabase:true},
   {name:"Phase 6 Count Actions Open The Counted Population",script:"scripts/test-phase6-intake-cohorts.ts",timeoutSecs:120,requiresDisposableTestDatabase:true},

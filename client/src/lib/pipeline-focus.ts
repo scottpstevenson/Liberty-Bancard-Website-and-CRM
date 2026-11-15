@@ -1,3 +1,5 @@
+import { formatBusinessDateTime } from "@shared/business-time";
+
 /**
  * Pipeline presentation contracts: which stages the board shows first, and the identity facts every deal card states.
  * Nothing here filters, moves or authorizes a deal; the deal list and its filters come from the authorized reader.
@@ -57,7 +59,12 @@ export type DealCardFactsInput = {
 export type DealCardFacts = {
   owner: { state: "recorded" | "none"; text: string };
   lastUpdated: { state: "recorded" | "unknown"; text: string };
-  nextAction: { state: "scheduled" | "overdue" | "none" | "closed"; text: string };
+  /**
+   * The date saved ON THE DEAL (deals.next_follow_up), in business time. It says nothing about tasks linked to the deal: a
+   * pending task can exist while the deal has no follow-up date, so the wording never claims "no next action".
+   * `unknown` means a value is stored but cannot be read as a date; it is never presented as "none".
+   */
+  nextAction: { state: "scheduled" | "overdue" | "none" | "unknown" | "closed"; text: string };
   /** Short, factual reasons the deal needs attention. Empty means none are recorded, not that none exist. */
   blockers: string[];
 };
@@ -82,18 +89,21 @@ export function dealCardFacts(deal: DealCardFactsInput, now: Date): DealCardFact
 
   const terminal = TERMINAL.has(deal.stage ?? "");
   const followUp = dateOrNull(deal.nextFollowUp);
+  const followUpStored = deal.nextFollowUp !== null && deal.nextFollowUp !== undefined && deal.nextFollowUp !== "";
   const blockers: string[] = [];
   let nextAction: DealCardFacts["nextAction"];
   if (terminal) {
     nextAction = { state: "closed", text: "Closed" };
+  } else if (!followUp && followUpStored) {
+    nextAction = { state: "unknown", text: "Deal follow-up date unreadable" };
   } else if (!followUp) {
-    nextAction = { state: "none", text: "No follow-up scheduled" };
-    blockers.push("No next action");
+    nextAction = { state: "none", text: "No deal follow-up date" };
+    blockers.push("No deal follow-up date");
   } else if (followUp.getTime() < now.getTime()) {
-    nextAction = { state: "overdue", text: `Follow-up overdue since ${followUp.toLocaleDateString()}` };
-    blockers.push("Follow-up overdue");
+    nextAction = { state: "overdue", text: `Deal follow-up overdue since ${formatBusinessDateTime(followUp)}` };
+    blockers.push("Deal follow-up overdue");
   } else {
-    nextAction = { state: "scheduled", text: `Follow-up ${followUp.toLocaleDateString()}` };
+    nextAction = { state: "scheduled", text: `Deal follow-up ${formatBusinessDateTime(followUp)}` };
   }
   if (owner.state === "none" && !terminal) blockers.push("No owner");
   return { owner, lastUpdated, nextAction, blockers };

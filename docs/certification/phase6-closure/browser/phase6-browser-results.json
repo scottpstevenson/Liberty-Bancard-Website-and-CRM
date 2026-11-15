@@ -1,8 +1,9 @@
 {
   "checks": [
-    "contact record, Pipeline, Notifications and Lead Ops have no horizontal overflow, one h1, named controls or page exception at 1280, 768, 454, 390 and 320 px",
+    "contact record, Pipeline, Notifications, Lead Ops, Today, Work, Applications and Reports have no horizontal overflow, one h1, named controls or page exception at 1280, 768, 454, 390 and 320 px",
     "the populated Notifications list renders its rows",
-    "populated pages reach visible records within 8 s on the fixture (contact 1825 ms, Pipeline 1569 ms, Notifications 1110 ms; fixture scale, not production)",
+    "populated pages reach visible records within 8 s on the fixture (contact 1324 ms, Pipeline 1686 ms, Notifications 1177 ms; fixture scale, not production)",
+    "a Pipeline card's saved follow-up reads \"Deal follow-up Jun 15, 2027, 12:00 PM EDT\" with the browser reporting Auckland, Los Angeles and Tokyo ({\"Pacific/Auckland\":{\"zone\":\"Pacific/Auckland\",\"text\":\"Deal follow-up Jun 15, 2027, 12:00 PM EDT\"},\"America/Los_Angeles\":{\"zone\":\"America/Los_Angeles\",\"text\":\"Deal follow-up Jun 15, 2027, 12:00 PM EDT\"},\"Asia/Tokyo\":{\"zone\":\"Asia/Tokyo\",\"text\":\"Deal follow-up Jun 15, 2027, 12:00 PM EDT\"}})",
     "contact record, Pipeline and Notifications hold at native 200% browser zoom (no overflow, one h1, named controls)",
     "a record opened from the Pipeline offers Back to its area (\"Back to Pipeline\")",
     "the record page has one h1",
@@ -118,6 +119,66 @@
       "mainPresent": true
     },
     {
+      "label": "today-unregistered-sources @1280px",
+      "width": 1280,
+      "dpr": 1,
+      "documentWidth": 1280,
+      "h1Count": 1,
+      "h1": [
+        "Today"
+      ],
+      "controls": 38,
+      "unnamed": [],
+      "title": "today",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "work-unregistered-sources @1280px",
+      "width": 1280,
+      "dpr": 1,
+      "documentWidth": 1280,
+      "h1Count": 1,
+      "h1": [
+        "Work"
+      ],
+      "controls": 39,
+      "unnamed": [],
+      "title": "work",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "applications-unregistered-sources @1280px",
+      "width": 1280,
+      "dpr": 1,
+      "documentWidth": 1280,
+      "h1Count": 1,
+      "h1": [
+        "Merchant Applications"
+      ],
+      "controls": 54,
+      "unnamed": [],
+      "title": "merchant-operations",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "reports-unregistered-sources @1280px",
+      "width": 1280,
+      "dpr": 1,
+      "documentWidth": 1280,
+      "h1Count": 1,
+      "h1": [
+        "Reports"
+      ],
+      "controls": 41,
+      "unnamed": [],
+      "title": "reports",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
       "label": "contact-record @768px",
       "width": 768,
       "dpr": 1,
@@ -175,6 +236,66 @@
       "unnamed": [],
       "title": "prospecting",
       "breadcrumb": "Prospecting/Lead Operations Center",
+      "mainPresent": true
+    },
+    {
+      "label": "today-unregistered-sources @768px",
+      "width": 768,
+      "dpr": 1,
+      "documentWidth": 768,
+      "h1Count": 1,
+      "h1": [
+        "Today"
+      ],
+      "controls": 38,
+      "unnamed": [],
+      "title": "today",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "work-unregistered-sources @768px",
+      "width": 768,
+      "dpr": 1,
+      "documentWidth": 768,
+      "h1Count": 1,
+      "h1": [
+        "Work"
+      ],
+      "controls": 39,
+      "unnamed": [],
+      "title": "work",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "applications-unregistered-sources @768px",
+      "width": 768,
+      "dpr": 1,
+      "documentWidth": 768,
+      "h1Count": 1,
+      "h1": [
+        "Merchant Applications"
+      ],
+      "controls": 39,
+      "unnamed": [],
+      "title": "merchant-operations",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "reports-unregistered-sources @768px",
+      "width": 768,
+      "dpr": 1,
+      "documentWidth": 768,
+      "h1Count": 1,
+      "h1": [
+        "Reports"
+      ],
+      "controls": 41,
+      "unnamed": [],
+      "title": "reports",
+      "breadcrumb": null,
       "mainPresent": true
     },
     {
@@ -238,6 +359,66 @@
       "mainPresent": true
     },
     {
+      "label": "today-unregistered-sources @454px",
+      "width": 454,
+      "dpr": 1,
+      "documentWidth": 454,
+      "h1Count": 1,
+      "h1": [
+        "Today"
+      ],
+      "controls": 21,
+      "unnamed": [],
+      "title": "today",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "work-unregistered-sources @454px",
+      "width": 454,
+      "dpr": 1,
+      "documentWidth": 454,
+      "h1Count": 1,
+      "h1": [
+        "Work"
+      ],
+      "controls": 22,
+      "unnamed": [],
+      "title": "work",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "applications-unregistered-sources @454px",
+      "width": 454,
+      "dpr": 1,
+      "documentWidth": 454,
+      "h1Count": 1,
+      "h1": [
+        "Merchant Applications"
+      ],
+      "controls": 22,
+      "unnamed": [],
+      "title": "merchant-operations",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "reports-unregistered-sources @454px",
+      "width": 454,
+      "dpr": 1,
+      "documentWidth": 454,
+      "h1Count": 1,
+      "h1": [
+        "Reports"
+      ],
+      "controls": 24,
+      "unnamed": [],
+      "title": "reports",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
       "label": "contact-record @390px",
       "width": 390,
       "dpr": 1,
@@ -295,6 +476,66 @@
       "unnamed": [],
       "title": "prospecting",
       "breadcrumb": "Prospecting/Lead Operations Center",
+      "mainPresent": true
+    },
+    {
+      "label": "today-unregistered-sources @390px",
+      "width": 390,
+      "dpr": 1,
+      "documentWidth": 390,
+      "h1Count": 1,
+      "h1": [
+        "Today"
+      ],
+      "controls": 21,
+      "unnamed": [],
+      "title": "today",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "work-unregistered-sources @390px",
+      "width": 390,
+      "dpr": 1,
+      "documentWidth": 390,
+      "h1Count": 1,
+      "h1": [
+        "Work"
+      ],
+      "controls": 22,
+      "unnamed": [],
+      "title": "work",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "applications-unregistered-sources @390px",
+      "width": 390,
+      "dpr": 1,
+      "documentWidth": 390,
+      "h1Count": 1,
+      "h1": [
+        "Merchant Applications"
+      ],
+      "controls": 22,
+      "unnamed": [],
+      "title": "merchant-operations",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "reports-unregistered-sources @390px",
+      "width": 390,
+      "dpr": 1,
+      "documentWidth": 390,
+      "h1Count": 1,
+      "h1": [
+        "Reports"
+      ],
+      "controls": 24,
+      "unnamed": [],
+      "title": "reports",
+      "breadcrumb": null,
       "mainPresent": true
     },
     {
@@ -358,42 +599,123 @@
       "mainPresent": true
     },
     {
+      "label": "today-unregistered-sources @320px",
+      "width": 320,
+      "dpr": 1,
+      "documentWidth": 320,
+      "h1Count": 1,
+      "h1": [
+        "Today"
+      ],
+      "controls": 21,
+      "unnamed": [],
+      "title": "today",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "work-unregistered-sources @320px",
+      "width": 320,
+      "dpr": 1,
+      "documentWidth": 320,
+      "h1Count": 1,
+      "h1": [
+        "Work"
+      ],
+      "controls": 22,
+      "unnamed": [],
+      "title": "work",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "applications-unregistered-sources @320px",
+      "width": 320,
+      "dpr": 1,
+      "documentWidth": 320,
+      "h1Count": 1,
+      "h1": [
+        "Merchant Applications"
+      ],
+      "controls": 22,
+      "unnamed": [],
+      "title": "merchant-operations",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
+      "label": "reports-unregistered-sources @320px",
+      "width": 320,
+      "dpr": 1,
+      "documentWidth": 320,
+      "h1Count": 1,
+      "h1": [
+        "Reports"
+      ],
+      "controls": 24,
+      "unnamed": [],
+      "title": "reports",
+      "breadcrumb": null,
+      "mainPresent": true
+    },
+    {
       "label": "requests during layout-and-names",
       "shapes": [
-        "GET /api/admin/ghl-health x21 [501]",
-        "GET /api/agents x5 [501]",
-        "GET /api/analytics/pipeline x5 [200]",
-        "GET /api/auth/user x22 [200]",
+        "GET /api/admin/ghl-health x44 [501]",
+        "GET /api/admin/rep-activity/inactive x5 [501]",
+        "GET /api/admin/rep-activity/today x5 [501]",
+        "GET /api/agents x8 [501]",
+        "GET /api/analytics/conversion-funnel x5 [200]",
+        "GET /api/analytics/daily-leads x5 [200]",
+        "GET /api/analytics/lead-sources x5 [200]",
+        "GET /api/analytics/lifecycle-distribution x5 [200]",
+        "GET /api/analytics/pipeline x13 [200]",
+        "GET /api/analytics/support x5 [200]",
+        "GET /api/analytics/tasks x5 [200]",
+        "GET /api/analytics/weekly-outreach x5 [200]",
+        "GET /api/appointments/range x5 [409]",
+        "GET /api/auth/user x45 [200]",
+        "GET /api/contacts x5 [200]",
         "GET /api/contacts/:id/companies x5 [200]",
         "GET /api/contacts/:id/confirmation-status x5 [200]",
         "GET /api/contacts/:id/detail x5 [200]",
         "GET /api/contacts/:id/nba x5 [200]",
         "GET /api/contacts/:id/parent x5 [200]",
         "GET /api/contacts/:id/suppression-status x5 [200]",
-        "GET /api/deals x5 [200]",
-        "GET /api/deals/:id/checklist-summary x120 [200]",
+        "GET /api/deals x13 [200]",
+        "GET /api/deals/:id/checklist-summary x192 [200]",
         "GET /api/ghl/sync-status/contact/:id x5 [501]",
-        "GET /api/inbox/send-state x5 [200]",
+        "GET /api/inbox/items x5 [200]",
+        "GET /api/inbox/send-state x10 [200]",
+        "GET /api/kpi/comparative x5 [200]",
+        "GET /api/kpi/pipeline-stats x5 [200]",
+        "GET /api/kpi/summary x5 [200]",
         "GET /api/lead-ops/business-verticals x5 [501]",
         "GET /api/lead-ops/businesses x5 [501]",
         "GET /api/lead-ops/config x5 [501]",
+        "GET /api/lead-ops/inbound-requests/summary x5 [501]",
         "GET /api/lead-ops/sunbiz-bootstrap/backfill-status x5 [501]",
         "GET /api/lead-ops/sunbiz-bootstrap/preview x5 [501]",
         "GET /api/lead-ops/sunbiz-bootstrap/record-class-repair/preview x5 [501]",
         "GET /api/lead-ops/sunbiz-bootstrap/status x5 [501]",
-        "GET /api/live-chat/sessions x21 [200]",
-        "GET /api/merchant-applications/pending-count x21 [501]",
-        "GET /api/mid-stats/pipeline-summary x5 [501]",
+        "GET /api/live-chat/sessions x44 [200]",
+        "GET /api/merchant-applications x5 [501]",
+        "GET /api/merchant-applications/pending-count x44 [501]",
+        "GET /api/mid-stats/pipeline-summary x8 [501]",
         "GET /api/notification-preferences x6 [200]",
         "GET /api/notifications x6 [200]",
-        "GET /api/notifications/count x21 [200]",
-        "GET /api/outreach-queue/count x21 [501]",
-        "GET /api/pipeline-stages x5 [200]",
+        "GET /api/notifications/count x44 [200]",
+        "GET /api/outreach-queue/count x44 [501]",
+        "GET /api/overview/daily-briefing x5 [200]",
+        "GET /api/pipeline-stages x8 [200]",
         "GET /api/rate-reviews/contact/:id x5 [501]",
-        "GET /api/saved-filters x5 [501]",
-        "GET /api/sms-inbox/unread-count x21 [200]",
-        "GET /api/tasks/overdue-count x21 [200]",
-        "POST /api/contacts/confirmation-status/batch x5 [200]"
+        "GET /api/saved-filters x13 [501]",
+        "GET /api/sms-inbox/unread-count x44 [200]",
+        "GET /api/system/outbound-settings x5 [501]",
+        "GET /api/tasks x10 [200]",
+        "GET /api/tasks/overdue-count x44 [200]",
+        "GET /api/tools/capabilities x10 [200]",
+        "POST /api/contacts/confirmation-status/batch x8 [200]"
       ]
     },
     {
@@ -480,14 +802,14 @@
         "GET /api/contacts/:id x1 [pending]",
         "GET /api/contacts/:id/companies x1 [200]",
         "GET /api/contacts/:id/confirmation-status x1 [200]",
-        "GET /api/contacts/:id/detail x4 [200,net::ERR_ABORTED]",
+        "GET /api/contacts/:id/detail x4 [200,net::ERR_ABORTED,pending]",
         "GET /api/contacts/:id/enrollments x1 [501]",
-        "GET /api/contacts/:id/nba x3 [net::ERR_ABORTED,200]",
+        "GET /api/contacts/:id/nba x1 [200]",
         "GET /api/contacts/:id/parent x1 [200]",
-        "GET /api/contacts/:id/suppression-status x3 [net::ERR_ABORTED,200]",
+        "GET /api/contacts/:id/suppression-status x1 [200]",
         "GET /api/ghl/sync-status/contact/:id x3 [501]",
         "GET /api/inbox/send-state x5 [200,net::ERR_ABORTED]",
-        "GET /api/live-chat/sessions x4 [503,200]",
+        "GET /api/live-chat/sessions x5 [200]",
         "GET /api/merchant-applications/pending-count x2 [501,net::ERR_ABORTED]",
         "GET /api/notifications/count x3 [200,net::ERR_ABORTED]",
         "GET /api/outreach-queue/count x2 [501,net::ERR_ABORTED]",
@@ -502,13 +824,13 @@
         "GET /api/admin/ghl-health x3 [501]",
         "GET /api/auth/user x1 [200]",
         "GET /api/contacts/:id/activity x1 [200]",
-        "GET /api/contacts/:id/companies x1 [200]",
+        "GET /api/contacts/:id/companies x2 [200]",
         "GET /api/contacts/:id/confirmation-status x1 [200]",
         "GET /api/contacts/:id/deals x1 [200]",
         "GET /api/contacts/:id/detail x3 [200,net::ERR_ABORTED]",
         "GET /api/contacts/:id/nba x2 [net::ERR_ABORTED,200]",
-        "GET /api/contacts/:id/parent x1 [200]",
-        "GET /api/contacts/:id/suppression-status x1 [200]",
+        "GET /api/contacts/:id/parent x2 [200]",
+        "GET /api/contacts/:id/suppression-status x2 [200]",
         "GET /api/ghl/sync-status/contact/:id x2 [501]",
         "GET /api/inbox/send-state x3 [200]",
         "GET /api/live-chat/sessions x1 [200]",
@@ -733,14 +1055,6 @@
       ],
       "holding": [
         {
-          "n": 1,
-          "q": "SELECT * FROM commercial_membership_revisions WHERE (left_subject_type || ':' || left_subject_id::text) IN ($1, $2) OR (right_subject_type || ':' || right_subject_id::text) IN ($3, $4) ORDER BY edge_type,left_subject_typ"
-        },
-        {
-          "n": 2,
-          "q": "SELECT r.id,r.survivor_contact_id,r.operation_id,o.status,o.reconciliation_status FROM contact_merge_redirects r JOIN contact_merge_operations o ON o.id=r.operation_id WHERE r.deprecated_contact_id=$1 AND r.active ORDER "
-        },
-        {
           "n": 2,
           "q": "SELECT pg_advisory_xact_lock(hashtextextended($1, 1700))"
         },
@@ -750,7 +1064,7 @@
         },
         {
           "n": 1,
-          "q": "SELECT * FROM contact_identity_observations WHERE contact_id IN ($1) AND superseded_at IS NULL ORDER BY contact_id,identity_kind,id FOR UPDATE"
+          "q": "SELECT * FROM commercial_subject_revisions WHERE (subject_type || ':' || subject_id::text) IN ($1, $2) ORDER BY CASE subject_type WHEN 'contact' THEN 1 WHEN 'deal' THEN 2 WHEN 'prospect' THEN 3 WHEN 'company' THEN 4 ELSE"
         },
         {
           "n": 1,
@@ -758,18 +1072,46 @@
         },
         {
           "n": 1,
+          "q": "SELECT * FROM \"deals\" WHERE id=$1 FOR UPDATE"
+        },
+        {
+          "n": 1,
+          "q": "SELECT * FROM commercial_membership_revisions WHERE (left_subject_type || ':' || left_subject_id::text) IN ($1, $2) OR (right_subject_type || ':' || right_subject_id::text) IN ($3, $4) ORDER BY edge_type,left_subject_typ"
+        },
+        {
+          "n": 1,
+          "q": "SELECT * FROM commercial_subject_revisions WHERE (subject_type || ':' || subject_id::text) IN ($1, $2)"
+        },
+        {
+          "n": 1,
           "q": "SELECT mine.id FROM contact_identity_observations mine JOIN contact_identity_observations other ON other.identity_kind=mine.identity_kind AND other.lookup_token=mine.lookup_token AND other.contact_id<>mine.contact_id WHE"
+        },
+        {
+          "n": 2,
+          "q": "SELECT r.id,r.survivor_contact_id,r.operation_id,o.status,o.reconciliation_status FROM contact_merge_redirects r JOIN contact_merge_operations o ON o.id=r.operation_id WHERE r.deprecated_contact_id=$1 AND r.active ORDER "
+        },
+        {
+          "n": 2,
+          "q": "SELECT * FROM contact_identity_observations WHERE contact_id IN ($1) AND superseded_at IS NULL ORDER BY contact_id,identity_kind,id FOR UPDATE"
+        },
+        {
+          "n": 1,
+          "q": "SELECT * FROM commercial_membership_revisions WHERE (left_subject_type || ':' || left_subject_id::text) IN ($1, $2) OR (right_subject_type || ':' || right_subject_id::text) IN ($3, $4)"
+        },
+        {
+          "n": 1,
+          "q": "SELECT * FROM contact_source_events WHERE id IN ($1) ORDER BY contact_id,id FOR UPDATE"
         }
       ],
       "settledBetweenScenarios": [
         {
           "before": "layout-and-names",
-          "waitedMs": 1,
+          "waitedMs": 0,
           "settled": true
         },
         {
           "before": "zoom-200",
-          "waitedMs": 1,
+          "waitedMs": 0,
           "settled": true
         },
         {
@@ -779,7 +1121,7 @@
         },
         {
           "before": "breakpoint-continuity",
-          "waitedMs": 30003,
+          "waitedMs": 30183,
           "settled": false
         },
         {
@@ -789,7 +1131,7 @@
         },
         {
           "before": "actor-separation",
-          "waitedMs": 2,
+          "waitedMs": 1,
           "settled": true
         },
         {
@@ -799,7 +1141,7 @@
         },
         {
           "before": "keyboard",
-          "waitedMs": 0,
+          "waitedMs": 1,
           "settled": true
         },
         {
@@ -816,9 +1158,13 @@
     }
   ],
   "timingsMsFixtureScale": {
-    "contact-record": 1825,
-    "pipeline": 1569,
-    "notifications": 1110,
-    "lead-ops-unregistered-sources": 1191
+    "contact-record": 1324,
+    "pipeline": 1686,
+    "notifications": 1177,
+    "lead-ops-unregistered-sources": 1068,
+    "today-unregistered-sources": 1061,
+    "work-unregistered-sources": 986,
+    "applications-unregistered-sources": 939,
+    "reports-unregistered-sources": 1024
   }
 }

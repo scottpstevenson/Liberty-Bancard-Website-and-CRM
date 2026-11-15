@@ -72,6 +72,8 @@ export const PAGE_RULES: Readonly<Record<string, PageRule>> = {
     },
   },
   "/dashboard/knowledge-base": { page: "Knowledge Base" },
+  // Operational controls: a subordinate page of Administration (admin and manager), not a sidebar entry of its own.
+  "/dashboard/outbound-readiness": { page: "Outbound Launch Readiness" },
 };
 
 const idSegment = "[A-Za-z0-9_-]{1,64}";

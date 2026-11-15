@@ -129,6 +129,16 @@ ok(!/emailBody|smsBody|emailSubject/.test(settings), "no customer-facing message
 eq(INTEGRATION_LANES.map(l => l.key), ["receipt", "internal", "website", "cold", "export", "booking", "native"], "the guide separates receipt, internal task, website follow-up, cold outreach, contact export, booking and native workflow installation");
 ok(INTEGRATION_LANES.every(l => l.effect.length > 30 && l.control.length > 5), "each lane names its effect and its control");
 ok(INTEGRATION_LANES.find(l => l.key === "native")!.effect.includes("never starts a message"), "native workflow installation never implies messaging");
+{
+  const reasons = await import("../client/src/lib/website-email-reasons");
+  const website = INTEGRATION_LANES.find(l => l.key === "website")!;
+  ok(website.effect.includes(reasons.PROGRAM_LABELS.requested_followup) && website.effect.includes(reasons.PROGRAM_LABELS.nurture),
+    "the website lane row describes both programs, requested follow-up and nurture, with the canonical labels");
+  eq([...reasons.WEBSITE_LANE_PROGRAMS].sort(), Object.keys(reasons.PROGRAM_LABELS).sort(), "the shared explanation covers every labelled program");
+  ok(website.effect.includes(reasons.WEBSITE_PROGRAM_EXPLANATION), "the guide row uses the one shared explanation");
+  ok(!/people who opted in on the website/.test(website.effect), "the row no longer implies the lane is for opted-in people only");
+  ok(read("client/src/components/dashboard/WebsiteEmailLaneCard.tsx").includes("WEBSITE_PROGRAM_EXPLANATION"), "the lane card renders the same shared explanation");
+}
 ok(!/form confirmation,/.test(GHL_OWNERSHIP_STATEMENT.workflowIds), "form confirmation is not listed as a GHL handoff");
 ok(GHL_OWNERSHIP_STATEMENT.workflowIds.includes("never authorizes a message by itself"), "the shared ownership statement says a saved ID never authorizes a message");
 
