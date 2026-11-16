@@ -1,10 +1,10 @@
 /**
- * Phase 6 / C01: the canonical enrichment backlog reads its independent statements as three concurrent lanes (one
+ * Phase 6 / C01: the canonical enrichment backlog reads its independent statements as four concurrent lanes (one
  * connection each) instead of one long sequential transaction, so the whole read fits its unchanged 25 s deadline at
  * production scale. This suite proves, on disposable infrastructure only:
  *   1. parity: the lane read and the one-lane sequential reference return the identical backlog (every family, priority
  *      item, funnel count and separate count) over fixtures that populate several families, and the lane read really used
- *      three distinct database backends while the reference used one;
+ *      four distinct database backends while the reference used one;
  *   2. failure injection: a statement that fails in one lane is reported as itself (not as a sibling abort), the other lanes'
  *      exact backends are cancelled, nothing is cached, no statement is retried, and the next read recovers;
  *   3. cancellation: an expired flight cancels every lane's backend (a stalled statement in each of two lanes), answers at
@@ -15,6 +15,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
 import { applyCertificationProviderDenyBoundary, getBlockedCertificationNetworkAttemptCount } from "./certification-provider-deny";
 
@@ -67,6 +68,15 @@ try {
       VALUES($1,$2,'sunbiz','FL',$3,$4)`, [`${prefix}-F${i}`, `${prefix} registry ${i}`, i < 2 ? `https://${prefix}-${i}.example.com` : null, i === 2 ? `${prefix}@gmail.com` : null]);
   }
 
+  // Registry rows that look empty but are not NULL: blank and whitespace-only values must stay uncounted, exactly as before the index.
+  const blankRegistry: Array<[string, string | null, string | null]> = [
+    [`${prefix}-F3`, "", null], [`${prefix}-F4`, "   ", "  "], [`${prefix}-F5`, "   ", `${prefix}-b@gmail.com`], [`${prefix}-F6`, null, null],
+  ];
+  for (const [filing, website, email] of blankRegistry) {
+    await pool.query(`INSERT INTO sunbiz_entities (filing_number,entity_name,source,principal_state,website,email)
+      VALUES($1,$2,'sunbiz','FL',$3,$4)`, [filing, `${prefix} blank ${filing}`, website, email]);
+  }
+
   // ───────────────────────────── 1. Parity with the sequential reference, and real concurrency ─────────────────────────────
   const read = async (layout: "parallel" | "sequential") => {
     backlog.backlogReadDeps.layout = layout;
@@ -80,14 +90,54 @@ try {
   backlog.backlogReadDeps.layout = "parallel";
   same(strip(lanes.value), strip(reference.value), "the lane read equals the sequential reference in every family, priority item and count");
   check(reference.backends.length === 1 && new Set(reference.backends.map((b) => b.pid)).size === 1, "the reference used one backend");
-  check(lanes.backends.length === 3 && new Set(lanes.backends.map((b) => b.pid)).size === 3,
-    `the lane read used three distinct database backends (${lanes.backends.map((b) => b.pid)})`);
-  same([...lanes.progress.keys()].sort(), ["businesses", "contacts", "registry"], "each lane reports its own progress");
-  same([...lanes.progress.values()].map((l) => l.queries).sort(), [1, 3, 6], "lanes ran 6 + 3 + 1 statements, one aggregate read, no repeats");
+  check(lanes.backends.length === 4 && new Set(lanes.backends.map((b) => b.pid)).size === 4,
+    `the lane read used four distinct database backends (${lanes.backends.map((b) => b.pid)})`);
+  same([...lanes.progress.keys()].sort(), ["businesses", "contacts", "registry", "supporting"], "each lane reports its own progress");
+  same([...lanes.progress.values()].map((l) => l.queries).sort(), [1, 1, 3, 5], "lanes ran 5 + 1 + 1 + 3 statements, one aggregate read, no repeats");
+  same(Object.fromEntries([...lanes.progress.entries()].map(([name, l]) => [name, Object.keys(l.stepMs).sort()])), {
+    businesses: ["business", "providerOps", "receipts", "serper", "zb"], contacts: ["contact"], registry: ["registry"],
+    supporting: ["email", "funnel", "staged"],
+  }, "the two largest statements and the registry count each run alone; the smaller reads share one lane");
   check([...lanes.progress.values()].every((l) => l.state === "done" && Object.keys(l.stepMs).length === l.queries), "every statement's duration is recorded");
   const families = (lanes.value as any).families as Array<{ key?: string; total?: number }>;
   check(families.length >= 3 && families.every((f) => Number(f.total ?? 1) > 0),
     `parity is not trivially empty: ${families.length} families carry counts (${families.map((f) => f.key).join(", ")})`);
+
+  // ───────────────────────────── 1b. Registry count: the indexed form equals the original predicate, and can use the index ─────────────────────────────
+  // The original statement counted rows by NULLIF(btrim(...)) alone. The indexed form adds a plain NULL test that the original
+  // implies; both must select exactly the same rows, including blank, whitespace-only and NULL values.
+  const originalRegistry = Number(rows(await db.execute(sql.raw(`SELECT count(*)::int AS n FROM sunbiz_entities se
+    WHERE NULLIF(btrim(se.website),'') IS NOT NULL OR NULLIF(btrim(se.email),'') IS NOT NULL`)))[0].n);
+  const indexedRegistry = Number(rows(await db.execute(sql.raw(`SELECT count(*)::int AS n FROM sunbiz_entities se
+    WHERE (se.website IS NOT NULL OR se.email IS NOT NULL)
+      AND (NULLIF(btrim(se.website),'') IS NOT NULL OR NULLIF(btrim(se.email),'') IS NOT NULL)`)))[0].n);
+  same(indexedRegistry, originalRegistry, "the indexed registry predicate selects exactly the rows the original predicate did");
+  const fixtureRegistry = Number(rows(await db.execute(sql.raw(`SELECT count(*)::int AS n FROM sunbiz_entities se
+    WHERE se.filing_number LIKE '${prefix}-F%' AND (NULLIF(btrim(se.website),'') IS NOT NULL OR NULLIF(btrim(se.email),'') IS NOT NULL)`)))[0].n);
+  same(fixtureRegistry, 4, "of seven registry fixtures only the four with a real website or email count (blank, whitespace and NULL do not)");
+  const registryFamily = (lanes.value as any).families.find((f: any) => f.key === "registry");
+  same(registryFamily?.total, originalRegistry, "the backlog's registry family total equals the original predicate's count over the whole table");
+  const registryIndex = rows(await db.execute(sql.raw(`SELECT indexdef FROM pg_indexes WHERE tablename='sunbiz_entities'
+    AND indexname='sunbiz_entities_contact_evidence_idx'`)))[0]?.indexdef as string | undefined;
+  check(registryIndex && /\(filing_number\)/.test(registryIndex) && /website IS NOT NULL\) OR \(email IS NOT NULL/.test(registryIndex),
+    `the partial registry evidence index is installed (${registryIndex})`);
+  {
+    let registrySql = "";
+    backlog.backlogReadDeps.layout = "sequential";
+    backlog.backlogReadDeps.stepQuery = (_lane, key, query) => {
+      if (key === "registry") registrySql = new PgDialect().sqlToQuery(query).sql;
+      return query;
+    };
+    await backlog.computeCanonicalEnrichmentBacklog({});
+    backlog.backlogReadDeps.stepQuery = (_lane, _key, query) => query;
+    backlog.backlogReadDeps.layout = "parallel";
+    check(registrySql.includes("se.website IS NOT NULL OR se.email IS NOT NULL"), "the production registry statement carries the index-eligible condition");
+    const plan = await db.transaction(async (tx) => {
+      await tx.execute(sql.raw("SET LOCAL enable_seqscan=off"));
+      return rows(await tx.execute(sql.raw(`EXPLAIN ${registrySql}`))).map((r) => String(r["QUERY PLAN"])).join("\n");
+    });
+    check(/sunbiz_entities_contact_evidence_idx/.test(plan), "the production registry statement can be answered from the partial index");
+  }
 
   // ───────────────────────────── 2. Failure injection: one lane fails, siblings are cancelled, nothing is retried ─────────────────────────────
   // Each injected statement bumps its own sequence first (sequences are not rolled back), so "started once" is observable.

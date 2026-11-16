@@ -164,7 +164,7 @@
 - [Enrichment funnel blockers](enrichment-audit-blockers.md) — unclassified website businesses are mostly geography-deferred; suppressed contacts dominated the priority lane.
 - [Serper contact-page stage](serper-contact-page-stage.md) — governed one-request-per-business lookup; closed by default; request vs credit accounting; yield only from real runs.
 - [Contacts vs businesses counts](contact-vs-business-counts.md) — domain/location audit counts are contacts; always give distinct businesses separately; empty executeSql output means the query errored.
-- [Slow dashboard page causes](slow-page-causes.md) — Outreach Queue pre-filter, SFP count snapshot, health SWR; bounded-read/late-cancel patterns, inventory policy cost, staging claim settlement.
+- [Slow dashboard page causes](slow-page-causes.md) — Outreach Queue, SFP counts, health SWR, bounded reads, inventory policy cost, staging claims; Backlog cold first load = registry scan + lane log.
 - [Production audit baseline](production-audit-2026-10-21.md) — dated funnel snapshot, Serper budget exhaustion, status funnel unavailable; compare later audits against it.
 - [ZB low usage](zerobounce-spend-gating.md) / [legacyInFlight hold](validation-legacy-inflight-hold.md) — spend gated by SFP preparation supply, not credits; held addresses stay held (owner decision).
 - [Serper discovery drop cause](serper-selector-exhaustion.md) — selector exhaustion not the counter; see [domain/location automation](domain-location-automation.md): closed-by-default worker.

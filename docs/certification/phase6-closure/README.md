@@ -275,3 +275,54 @@ Rows not listed keep their section 6 dispositions. No row is marked closed by th
 - The statement in the roadmap's earlier "owner decisions still open" list about content and form mappings is therefore stale and was corrected there; controlled email acceptance is still open.
 - Owner decisions raised by this pass: (1) whether to enable the `operations` background group in production so SLA checks run; (2) whether to install the graph-membership triggers through the reconciler. Neither was done. No acceptance or deferral of the unexecuted browser evidence in 11.5 has been requested or recorded.
 - Next: the owner's Publish, then the new serving identity, the GET-only journeys and the initial inventory reads (cold and warm) from a signed-in admin session, then the roadmap rows are updated again. Until then C01 is open.
+
+## 12. Backlog first-load timeout (2026-11-15; isolated checks; not yet published)
+
+Report from the owner: after Publish the Backlog's first live load failed with `BACKLOG_DEADLINE_EXCEEDED`, a retry succeeded, and Launch Inventory loaded. Nothing in this pass sends, unpauses, changes a provider setting or writes to production; the only production access was read-only SQL and read-only deployment logs. Nothing was published; the owner publishes. This section **supersedes the "no new index" and "three lanes" wording of 11.2 C01**.
+
+### 12.1 What the live logs showed
+
+The per-lane phase line `[canonical-backlog] ...` in the production deployment logs (last 36 hours):
+
+| Time (UTC) | Result | Businesses lane | Contacts lane | Registry lane |
+|---|---|---|---|---|
+| 03:37:32 | deadline at 25.0 s (first load) | done 13.9 s (business 10.8, funnel 2.6) | done 20.5 s (contact 17.0, email 2.9, staged 0.6) | **still on its one statement** |
+| 03:38:18 | ok at 24.6 s (the retry) | 11.7 s | 7.1 s | **24.4 s** |
+| 04:07:19 | deadline at 25.0 s | 18.6 s | 21.2 s (contact 18.5) | **still on its one statement** |
+
+So the read was not slow everywhere. One statement, the state-registry count, took 24 s even on the retry and more than 25 s cold. The earlier estimate in 11.2 (about 25.6 s summed, so parallel would fit) under-counted that statement.
+
+### 12.2 Cause
+
+The registry count asks how many of the 1.92 million `sunbiz_entities` rows carry a website or an email (39,870 in production), grouped by their claim status. No index covers that test, so every read scanned the whole 1.4 GB table (181,511 pages). Measured on the production replica with `EXPLAIN (ANALYZE, BUFFERS)`: first run 11.7 s with 186,233 pages read from disk; the next runs 0.81 to 0.87 s with the pages read from the operating system's cache (the database's own buffer is 128 MB, so it never holds the table: each run re-reads about 182,000 pages). The same table also never had its all-visible map set (`relallvisible = 0`), so an index-only scan is not available. Cold, the production database took 24 s or more for the same work. The other two big statements show the same cold-versus-warm gap on the replica: business 9.4 s then 2.7 s, contact 5.5 s then 1.4 s. In the failing runs the registry scan also competed with them for the disk.
+
+### 12.3 Fix
+
+1. **Partial index** `sunbiz_entities_contact_evidence_idx` on `(filing_number)` where `website IS NOT NULL OR email IS NOT NULL` (migration `0383`, `shared/schema.ts`). In production that is 39,870 of 1,919,454 rows, with no blank values today (`nonnull_either = nonblank_either = 39,870`). The managed schema diff (`explainSchemaDiff`) was read after applying it in development: exactly one statement, `CREATE INDEX "sunbiz_entities_contact_evidence_idx" ... WHERE ((website IS NOT NULL) OR (email IS NOT NULL))`, no data loss, no warnings, predicate intact (it is a plain null test, so the nested-expression problem recorded for earlier Sunbiz indexes does not apply). The build holds a short write lock on `sunbiz_entities` while it scans the table once; nothing else changes.
+2. **The registry statement** now also states that plain null test (`WHERE (website IS NOT NULL OR email IS NOT NULL) AND (original trimmed-blank test)`). The first condition is implied by the second, so no count can change; it is written out because PostgreSQL does not infer it and would otherwise not use the index. Without the index the statement returns the same answer, only slower.
+3. **Four lanes instead of three.** The business statement, the contact statement and the registry count each run alone on their own connection; the smaller reads (email, staged email, funnel) share a fourth. Before, the contact lane carried the contact statement plus two more and the businesses lane carried the business statement plus funnel, so the slowest lane was a statement plus everything queued behind it.
+
+Unchanged: the 25 s whole-read deadline, the 60 s per-statement limit, exact-backend cancellation, the generation fence, single flight, no retry loop, the typed `BACKLOG_DEADLINE_EXCEEDED` and `BACKLOG_UNAVAILABLE` answers, the 300 s cache and every count.
+
+### 12.4 Evidence
+
+| Check | Result |
+|---|---|
+| Same rows selected, original versus indexed predicate | Identical groups from the full 1.92 million-row development table (88,388 rows with a website or email there) before and after the index, compared with `diff`. In `test-phase6-backlog-lanes`: original and indexed predicates select the same count over the whole table, and fixtures for blank (`''`), whitespace-only, NULL and real values count 4 of 7 as before; the Backlog's registry family total equals the original predicate's count. |
+| Plan on a production-sized table | Development holds a registry table of the same size (1.92 million rows, 1.5 GB). Original statement: parallel sequential scan, 198,654 pages read, 17.8 s on its first (cold) run and 0.85 s warm. Indexed statement with the production settings (`random_page_cost=4`, `effective_io_concurrency=128`): bitmap scan of the new index, **32,517 pages read**, 0.58 s and 0.25 s. The suite also proves the production statement text can be answered from the index. |
+| Lane layout | `test-phase6-backlog-lanes` 31 checks (was 24): four distinct backends, 5 + 1 + 1 + 3 statements each run once, each lane's statements named; parity with the one-lane reference, failure injection, cancellation, fence checks as before. |
+| Other suites on throwaway databases | `test-phase6-inventory-reads` (37), `test-stage3-c3-backlog-command`, `test-stage3-c3-roles`, `test-stage4b-supply-throughput`, `test-provider-readiness-controls` pass (`backlog-first-load-suite-results.txt`). Migration integrity check passes (1,015 checks). |
+| Types and build | The changed files type-check with only the known `server/db.ts(174)` error; `npm run build` exits 0. New candidate source hash `48210efb47b1e20c6612342cd4e4af55f563ed59fc7539b0f9cf29f7ba5a4627` (output hash `3be94165f0dd89f3bb9a1858febc3656f9feead785d7c9d29f04c2812dab5a31`). |
+| Already failing on the base | `check-migration-seed-registration` reports three unregistered seed writes in migrations `0360`, `0376` and `0381`; none is `0383`. |
+
+### 12.5 What is not proven
+
+- **The real read at production scale, fresh and repeated.** The live route runs the published build and the production database has no new index until Publish, so neither the first load nor a repeat could be timed after the fix. The production replica also lacks the index, so replica timings above describe the old statements. The cold time of the indexed registry count was not measured (the development disk cache already held the table from the comparison run); it reads about one sixth of the pages, and 39,870 production rows is fewer than the 88,388 in development.
+- **The expected margin is an estimate from the logged phase times, not a measurement.** After the change the slowest lane should be the contact statement alone (17.0 to 18.5 s in the cold failing runs, measured while the registry scan was competing for the disk), against the 25 s limit. The registry lane should fall from 24 s or more to a few seconds. If a first load is still near the limit the next change would be the contact statement itself (it reads the whole 160,554-row contacts table, 37,801 pages); no change to it was made because its exact answer could not be compared at scale in this pass.
+- CRM-09 and CRM-12 stay **REPAIRED, NOT PROVEN LIVE**. C01 closes only after the steps below.
+
+### 12.6 After Publish (owner)
+
+1. Publish, then confirm the index exists (a read-only query on `pg_indexes` for `sunbiz_entities_contact_evidence_idx`).
+2. From a signed-in admin session, load the Backlog first (right after the publish, when the cache is cold), then reload it twice inside five minutes and once with the admin recount (`fresh=1`). GET only. Expected: each load completes without `BACKLOG_DEADLINE_EXCEEDED`; the repeats answer from the 300 s cache with the same `observedAt`.
+3. Read the deployment log line `[canonical-backlog] ok totalMs=... lanes=4 ...`: the registry lane should be small and the slowest lane should be the contact statement. If any load still ends in `deadline`, the same line names which lane and statement was still running.

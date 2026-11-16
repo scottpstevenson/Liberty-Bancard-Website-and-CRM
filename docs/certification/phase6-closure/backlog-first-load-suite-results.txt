@@ -1,0 +1,9 @@
+Backlog first-load fix sweep, started 2026-11-16T04:32:15Z
+DISPOSABLE backlog-lanes exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failures=0; shared launcher failures=
+DISPOSABLE inventory-reads exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failures=0; shared launcher failures=
+DISPOSABLE stage3-c3-backlog-command exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failures=0; shared launcher failures=
+DISPOSABLE stage3-c3-roles exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failures=0; shared launcher failures=
+DISPOSABLE stage4b-supply-throughput exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failures=0; shared launcher failures=
+DISPOSABLE provider-readiness-controls exit 0 :: ✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).   Suites: 1/1 passed; child failures=0; suite setup/teardown failures=0; shared launcher failures=
+BUILD exit 0 :: ⚡ Done in 897ms [SFP Publish Artifact] {"version":1,"artifactSha":"c3a8277160269554210dfc903e48947adcafd76c","buildId":"4319a582-cc6a-4360-88f6-9818387e4fb1","deploymentIdentity":"publish-build:4319a5
+finished 2026-11-16T04:34:41Z

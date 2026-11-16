@@ -15,3 +15,11 @@ description: Why Outreach Queue, SFP status and Lead Ops health were slow, and w
 - UPDATE ... FROM cannot reference the target table inside LATERAL (42P10): use a CTE.
 - sfp_campaign_staging_intents live states are staged/operator_selected/ready_held/promoted (not just staged/promoted).
 - Reclaimed staging runs must settle expired `claimed` items of older claim generations (skipped+recovery lineage or released); recovery-settled rows must not be overwritten by a late completion.
+
+## Cold first-load of the canonical Backlog (registry count)
+- The production deployment log line `[canonical-backlog] ok|deadline totalMs=... <lane>:<state>:<ms>:...:steps=<key>=<ms>` names the lane and statement that ran long; read it before guessing. A single statement (the sunbiz registry count, a full scan of the 1.4 GB / 1.92M-row `sunbiz_entities` heap, ~24 s on the production primary) was the bottleneck, not the lane layout.
+- Cold versus warm differ ~15x here: shared_buffers is 128 MB, so a big-table scan re-reads every page from the OS cache each time (replica: 11.7 s first run, 0.85 s next). Run a statement at least twice and record both, and do not call a warm repeat a pass.
+- Registry rows with a website/email are ~2% (39,870). A partial index with the plain null test is Publish-safe (`explainSchemaDiff` returned one intact statement); the query must repeat that plain test, because PostgreSQL does not infer it from the trimmed-blank test. The table's all-visible map is empty, so index-only scans are unavailable and the heap is still visited.
+- The development database holds a production-sized `sunbiz_entities` (1.92M rows) and works for plan and buffer evidence on that table; its `businesses` table (4.4k rows) does not represent production, and it cannot reproduce a cold production disk.
+**Why:** the first live load after Publish failed at 25 s although the retry (partly warm) passed.
+**How to apply:** for a first-load timeout, fix the largest cold-read statement first, give each large statement its own lane, keep the deadline, and claim live success only from a post-Publish read.

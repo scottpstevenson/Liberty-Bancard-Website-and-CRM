@@ -3955,6 +3955,8 @@ export const sunbizEntities = pgTable("sunbiz_entities", {
   uniqueIndex("sunbiz_entities_source_fn_unique").on(table.source, table.filingNumber).where(sql`source IS NOT NULL AND filing_number IS NOT NULL`),
   index("sunbiz_entities_entity_name_idx").on(table.entityName),
   index("sunbiz_entities_retained_prospect_idx").on(table.prospectId).where(sql`prospect_id IS NOT NULL`),
+  // The backlog counts only registry rows that carry a website or email (~2%); this keeps that count off the full table.
+  index("sunbiz_entities_contact_evidence_idx").on(table.filingNumber).where(sql`website IS NOT NULL OR email IS NOT NULL`),
   index("sunbiz_entities_enrichment_status_idx").on(table.enrichmentStatus),
   index("sunbiz_entities_list_id_idx").on(table.listId),
   index("sunbiz_entities_created_at_idx").on(table.createdAt),
