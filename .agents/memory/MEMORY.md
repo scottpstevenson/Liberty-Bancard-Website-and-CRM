@@ -190,7 +190,7 @@
 - [Pre-deploy gate quirks](appointment-statement-polling-fix.md) — GHL fix: pollUntil(12s); see [predeploy-port-5000-conflict.md](predeploy-port-5000-conflict.md): dev owns port 5000.
 - [Stage 5 application-to-MID patterns](stage5-application-to-mid-patterns.md) — dispatch markers, atomic underwriting override, held-send markers, strict-DTO tracking-key 400, MID rules, journey text-append rule.
 - [Public-site verification lessons](public-site-verification-lessons.md) — Chromium blocks port 6000; WebKit cannot run here; clean-clone baselines need attached_assets; known baseline failures.
-- [SFP pool count authority](sfp-pool-count-authority.md) — real SFP validated count = cr04 ready_held + launch gates (~1,200 businesses); staging/eligibility tables are stale; no live 30-day expiry; `active` tag does not block.
+- [SFP pool count authority](sfp-pool-count-authority.md) — real SFP validated count = cr04 ready_held + launch gates (~1,200 businesses); staging/eligibility tables are stale; no live 30-day expiry; `active` tag does not block. See [expansion audit](vertical-expansion-audit.md): Restaurants sizing.
 - [Website email lifecycle lane](website-email-lifecycle-lane.md) — warm Gmail lane is default closed; marked-enrollment readers must filter; provider CHECK, migration-proof and fixture-egress traps.
 - [Statement-upload queue capability](statement-upload-queue-capability.md) — 503 root cause was a missing producer queue in the published profile; narrow group + truthful deferred handoff; owner Publish required.
 - [Receipt milestone gating](ack-milestone-gating-cutoffs.md) — receipts wait for the internal handoff; per-class cutoffs are monotonic and a re-save must not move them.
