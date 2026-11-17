@@ -154,6 +154,36 @@ check((await storage.getPartner(createdD.partner.id))!.commissionPercent === nul
 const reapply = await applications.createPartnerApplication(referralInput(emailD), { inboundRequestId: (await claim("d2")).id });
 check(reapply.kind === "refused", "A declined mailbox cannot silently re-apply into a second application");
 
+// Identity and re-application conflicts: each refusal reason has its own test and creates nothing. OPEN_APPLICATION and
+// PRIOR_APPLICATION are reached when an application row exists for the mailbox but the partner row no longer carries that
+// address (for example the address was corrected in the CRM afterwards); separate fixtures keep the earlier checks intact.
+const emailO = `ppl-o-${id}@fixture.invalid`;
+const createdO = await applications.createPartnerApplication(referralInput(emailO), { inboundRequestId: (await claim("o")).id }) as any;
+await pool.query(`UPDATE partners SET email=$2 WHERE id=$1`, [createdO.partner.id, `ppl-o-moved-${id}@fixture.invalid`]);
+const partnersBeforeOpen = (await rows(`SELECT count(*)::int n FROM partners`))[0].n;
+const openRefusal = await applications.createPartnerApplication(referralInput(emailO), { inboundRequestId: (await claim("o2")).id }) as any;
+check(openRefusal.kind === "refused" && openRefusal.reason === "OPEN_APPLICATION", "A mailbox with an open application is refused as OPEN_APPLICATION");
+check((await rows(`SELECT count(*)::int n FROM partners`))[0].n === partnersBeforeOpen && (await rows(`SELECT 1 FROM partner_applications WHERE mailbox=$1`, [emailO])).length === 1, "The OPEN_APPLICATION refusal creates no partner and no second application");
+
+const emailF = `ppl-f-${id}@fixture.invalid`;
+const createdF = await applications.createPartnerApplication(referralInput(emailF), { inboundRequestId: (await claim("f")).id }) as any;
+check((await decide(createdF.application.id, { decision: "decline", expectedRevision: 1, note: "Not a fit." }) as any).ok, "Fixture: an application for a second mailbox is declined");
+await pool.query(`UPDATE partners SET email=$2 WHERE id=$1`, [createdF.partner.id, `ppl-f-moved-${id}@fixture.invalid`]);
+const partnersBeforePrior = (await rows(`SELECT count(*)::int n FROM partners`))[0].n;
+const priorRefusal = await applications.createPartnerApplication(referralInput(emailF), { inboundRequestId: (await claim("f2")).id }) as any;
+check(priorRefusal.kind === "refused" && priorRefusal.reason === "PRIOR_APPLICATION", "A mailbox with a decided earlier application is refused as PRIOR_APPLICATION (not as an open application)");
+check((await rows(`SELECT count(*)::int n FROM partners`))[0].n === partnersBeforePrior && (await rows(`SELECT 1 FROM partner_applications WHERE mailbox=$1`, [emailF])).length === 1, "The PRIOR_APPLICATION refusal creates no partner and no second application");
+check((await rows(`SELECT review_status FROM partner_applications WHERE mailbox=$1`, [emailF]))[0].review_status === "declined", "The earlier decision is untouched by the refused re-application");
+
+// USER_EXISTS: a login (any role) already owns the address and no partner row does.
+const userMailbox = `ppl-user-${id}@fixture.invalid`;
+await pool.query(`INSERT INTO users(email, role, auth_provider) VALUES ($1, 'merchant', 'local')`, [userMailbox]);
+const userRefusal = await applications.createPartnerApplication(referralInput(userMailbox), { inboundRequestId: (await claim("u1")).id }) as any;
+check(userRefusal.kind === "refused" && userRefusal.reason === "USER_EXISTS", "An address that already has a login is refused as USER_EXISTS");
+check((await rows(`SELECT 1 FROM partners WHERE lower(email)=$1`, [userMailbox])).length === 0 && (await rows(`SELECT 1 FROM partner_applications WHERE mailbox=$1`, [userMailbox])).length === 0, "The USER_EXISTS refusal creates no partner and no application");
+check((await rows(`SELECT role FROM users WHERE lower(email)=$1`, [userMailbox]))[0].role === "merchant", "The existing login is untouched and keeps its role");
+check(new Set([exApp, openRefusal, priorRefusal, userRefusal].map((r: any) => r.reason)).size === 4, "The four refusal reasons (existing partner, open application, prior application, existing login) are distinct");
+
 // ── 4. Published referral policy ─────────────────────────────────────────────────────────────────────────────────────
 await pool.query(`DELETE FROM partner_public_policy_versions`);
 check((await policy.getPublishedReferralPolicy()).state === "written_agreement", "With nothing published the projection is the written-agreement default");

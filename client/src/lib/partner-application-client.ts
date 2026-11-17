@@ -7,6 +7,7 @@
  */
 import {
   parsePartnerApplication,
+  partnerLink,
   pickPartnerAttribution,
   PARTNER_APPLICATION_CONSENT,
   PARTNER_APPLICATION_SCHEMA_VERSION,
@@ -53,6 +54,15 @@ export const PARTNER_FIELD_ORDER: Record<PartnerPathId, string[]> = {
 };
 
 const trimmed = (value: string) => value.trim();
+/**
+ * A same-origin partner route that keeps only the allowlisted ref and UTM values of the page the visitor is on, so a
+ * campaign link survives hub -> journey -> application. Nothing outside the allowlist (tokens, URLs, other parameters) is carried.
+ */
+export function partnerRouteWithAttribution(route: string, hash?: string): string {
+  const search = typeof window === "undefined" ? "" : window.location.search;
+  return partnerLink(route, { attribution: pickPartnerAttribution(new URLSearchParams(search)), hash });
+}
+
 const present = <T extends string>(key: string, value: T): Record<string, T> => (trimmed(value) ? { [key]: value } : {});
 
 /** The request body for a path. Only that path's fields are sent, so a hidden field from the other path can never be stored. */

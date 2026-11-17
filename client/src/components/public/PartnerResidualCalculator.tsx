@@ -23,6 +23,7 @@ import {
   type PartnerReferralPolicy,
 } from "@shared/partner-public-content";
 import { trackPartnerEvent } from "@/lib/tracking";
+import { partnerRouteWithAttribution } from "@/lib/partner-application-client";
 
 interface PartnerResidualCalculatorProps {
   /** Published referral policy. Absent or unapproved means the referral result is the written-agreement message. */
@@ -220,7 +221,7 @@ export function PartnerResidualCalculator({ policy = DEFAULT_REFERRAL_POLICY, in
         {PARTNER_RESIDUAL_COPY.disclosure}
       </p>
       <p className="mt-4 text-center">
-        <Link href={PARTNER_PATH_ROUTE[path]} className="inline-flex min-h-11 items-center text-sm font-medium text-primary underline underline-offset-4" data-testid="link-calc-cta">
+        <Link href={partnerRouteWithAttribution(PARTNER_PATH_ROUTE[path])} className="inline-flex min-h-11 items-center text-sm font-medium text-primary underline underline-offset-4" data-testid="link-calc-cta">
           {PARTNER_RESIDUAL_COPY.cta}
         </Link>
       </p>

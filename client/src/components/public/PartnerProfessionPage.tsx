@@ -24,6 +24,7 @@ import {
 } from "@shared/partner-public-content";
 import { partnerLink, pickPartnerAttribution } from "@shared/partner-application";
 import { trackPartnerEvent } from "@/lib/tracking";
+import { partnerRouteWithAttribution } from "@/lib/partner-application-client";
 
 const SHARED_FAQ_IDS = ["referral-compensation", "permission", "calculator", "account", "existing"] as const;
 
@@ -54,7 +55,7 @@ export function PartnerProfessionPage({ id }: { id: PartnerProfessionPageId }) {
           headline={content.heading}
           subheadline={content.body}
           primaryCta={{ label: content.applyCta, href: applyHref, onClick: onApply }}
-          secondaryCta={{ label: "Compare partnership paths", href: PARTNER_ROUTES.hub }}
+          secondaryCta={{ label: "Compare partnership paths", href: partnerRouteWithAttribution(PARTNER_ROUTES.hub) }}
           data-testid={`section-partner-${id}-hero`}
         />
 

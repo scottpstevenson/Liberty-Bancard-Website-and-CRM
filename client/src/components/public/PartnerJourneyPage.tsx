@@ -24,6 +24,7 @@ import {
   type PartnerPathId,
 } from "@shared/partner-public-content";
 import { trackPartnerEvent } from "@/lib/tracking";
+import { partnerRouteWithAttribution } from "@/lib/partner-application-client";
 
 const REFERRAL_FAQ_IDS = ["difference", "referral-compensation", "permission", "continuing", "timing", "account", "existing"] as const;
 const AGENT_FAQ_IDS = ["difference", "base", "agent-all-deals", "continuing", "timing", "account", "existing"] as const;
@@ -87,7 +88,7 @@ export function PartnerJourneyPage({ path, initialProfession }: PartnerJourneyPa
   const comparisonLine: ReactNode = (
     <p className="public-small text-muted-foreground" data-testid="partner-journey-selected-path">
       Applying as: <strong className="text-foreground">{PARTNER_PATH_LABEL[path]}</strong>.{" "}
-      <Link href={PARTNER_PATH_ROUTE[otherPath]} className="underline" data-testid="partner-journey-other-path-inline">
+      <Link href={partnerRouteWithAttribution(PARTNER_PATH_ROUTE[otherPath])} className="underline" data-testid="partner-journey-other-path-inline">
         Looking for the {PARTNER_PATH_LABEL[otherPath].toLowerCase()} path instead?
       </Link>
     </p>
@@ -103,7 +104,7 @@ export function PartnerJourneyPage({ path, initialProfession }: PartnerJourneyPa
           headline={journey.heading}
           subheadline={journey.body}
           primaryCta={{ label: journey.applyCta, href: "#apply", onClick: () => trackPartnerEvent("partner_path_selected", { path, source_page: sourcePage }) }}
-          secondaryCta={{ label: journey.otherPathLink, href: PARTNER_PATH_ROUTE[otherPath] }}
+          secondaryCta={{ label: journey.otherPathLink, href: partnerRouteWithAttribution(PARTNER_PATH_ROUTE[otherPath]) }}
           data-testid={`section-partner-${path}-hero`}
         />
 

@@ -21,6 +21,7 @@ import { AFFILIATE_PAGE } from "@shared/public-affiliate";
 import { PARTNER_ROUTES } from "@shared/partner-public-content";
 import { partnerLink, pickPartnerAttribution } from "@shared/partner-application";
 import { trackPartnerEvent } from "@/lib/tracking";
+import { partnerRouteWithAttribution } from "@/lib/partner-application-client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Users,
@@ -850,7 +851,7 @@ export default function AffiliateProgram() {
               <Link href={applyHref} onClick={onApply} data-testid="button-cta-apply">Apply as a referral partner</Link>
             </Button>
             <Button asChild variant="outline" className="min-h-11">
-              <Link href={PARTNER_ROUTES.hub} data-testid="link-cta-compare-paths">Compare partnership paths</Link>
+              <Link href={partnerRouteWithAttribution(PARTNER_ROUTES.hub)} data-testid="link-cta-compare-paths">Compare partnership paths</Link>
             </Button>
             <Button variant="ghost" className="min-h-11" onClick={openLogin} data-testid="button-cta-login">
               <LogIn className="mr-2 h-4 w-4" aria-hidden="true" /> Affiliate login

@@ -35,6 +35,13 @@ const PUBLIC_ROUTES: Array<{ route: string; hydrated: boolean }> = [
   { route: "/pricing-and-programs", hydrated: true },
   { route: "/industries", hydrated: true },
   { route: "/about-contact", hydrated: true },
+  { route: "/partners", hydrated: true },
+  { route: "/partners/referrals", hydrated: true },
+  { route: "/partners/sales-agents", hydrated: true },
+  { route: "/partners/cpa", hydrated: true },
+  { route: "/partners/bookkeeper", hydrated: true },
+  { route: "/partners/insurance", hydrated: true },
+  { route: "/affiliate", hydrated: true },
   { route: "/learn", hydrated: false },
   { route: "/learn/interchange-plus-pricing", hydrated: false },
 ];

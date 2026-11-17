@@ -906,6 +906,77 @@ async function run(): Promise<void> {
       }
     }
 
+    // Affiliate login regression against the real running app: a legacy affiliate with a stored credential still signs in
+    // through the affiliate login route and reads its own session; a wrong password, an inactive account and a pending
+    // applicant (even one holding a planted credential) do not.
+    {
+      const affTag = `smoke-aff-${Date.now()}`;
+      const affEmail = `${affTag}@example.test`;
+      const affPassword = `A-${randomUUID()}`;
+      const inactiveEmail = `${affTag}-off@example.test`;
+      const pendingEmail = `${affTag}-pend@example.test`;
+      const [legacyAffiliate] = await db.insert(partners).values({
+        companyName: "Smoke Legacy Affiliate", contactName: "Smoke Affiliate", email: affEmail, phone: null,
+        passwordHash: await bcrypt.hash(affPassword, 10), partnerType: "affiliate", affiliateCode: `${affTag}a`.slice(-24),
+        status: "active", commissionPercent: 10,
+      }).returning();
+      const [inactiveAffiliate] = await db.insert(partners).values({
+        companyName: "Smoke Inactive Affiliate", contactName: "Smoke Inactive", email: inactiveEmail, phone: null,
+        passwordHash: await bcrypt.hash(affPassword, 10), partnerType: "affiliate", affiliateCode: `${affTag}i`.slice(-24),
+        status: "inactive", commissionPercent: 10,
+      }).returning();
+      const [pendingAffiliate] = await db.insert(partners).values({
+        companyName: "Smoke Pending Affiliate", contactName: "Smoke Pending", email: pendingEmail, phone: null,
+        passwordHash: await bcrypt.hash(affPassword, 10), partnerType: "referral", affiliateCode: `${affTag}p`.slice(-24),
+        status: "pending", commissionPercent: null,
+      }).returning();
+      const smokeInbound = randomUUID();
+      await db.execute(drizzleSql`WITH ir AS (
+          INSERT INTO inbound_requests (id, idempotency_key, occurrence_key, request_fingerprint, source_category, source_type, source_class, caller_scope, actor_type, manifest_version, manifest_hash)
+          VALUES (${smokeInbound}, ${randomUUID()}, ${randomUUID()}, ${"f".repeat(64)}, 'website_form', 'partner_application', 'public', 'public:smoke', 'public', 'smoke', ${"c".repeat(64)}) RETURNING id)
+        INSERT INTO partner_applications (inbound_request_id, partner_id, mailbox, path, consent_version, consent_text_sha256, consent_purpose, schema_version)
+        SELECT ir.id, ${pendingAffiliate.id}, ${pendingEmail}, 'referral', 'smoke', ${"a".repeat(64)}, 'smoke', 1 FROM ir`);
+      try {
+        const loginAs = (email: string, password: string) => fetch(`${BASE_URL}/api/affiliate/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password }) });
+        const good = await loginAs(affEmail, affPassword);
+        const goodBody = await good.json().catch(() => ({})) as { affiliateCode?: string; email?: string };
+        const goodCookie = ((good.headers as unknown as { getSetCookie: () => string[] }).getSetCookie()).map(c => c.split(";")[0].trim()).filter(Boolean).join("; ");
+        if (good.status !== 200 || goodBody.affiliateCode !== legacyAffiliate.affiliateCode || !goodCookie) { console.log(`✗ affiliate login: a legacy credentialed affiliate expected 200 with its code and a session, got ${good.status}`); failures++; }
+        else console.log("✓ affiliate login: a legacy credentialed affiliate still signs in and receives a session (200)");
+        if (goodCookie) {
+          const session = await fetch(`${BASE_URL}/api/affiliate/session`, { headers: { cookie: goodCookie } });
+          const sessionBody = await session.json().catch(() => ({})) as { affiliateCode?: string };
+          if (session.status !== 200 || sessionBody.affiliateCode !== legacyAffiliate.affiliateCode) { console.log(`✗ affiliate login: the affiliate session read expected 200 with its own code, got ${session.status}`); failures++; }
+          else console.log("✓ affiliate login: the signed-in affiliate reads its own session (200)");
+          const crm = await fetch(`${BASE_URL}/api/contacts`, { headers: { cookie: goodCookie } });
+          if (![401, 403].includes(crm.status)) { console.log(`✗ affiliate login: an affiliate session reached a CRM route (${crm.status})`); failures++; }
+          else console.log(`✓ affiliate login: an affiliate session is refused CRM routes (${crm.status})`);
+        }
+        const wrong = await loginAs(affEmail, "not-the-password");
+        if (wrong.status !== 401) { console.log(`✗ affiliate login: a wrong password expected 401, got ${wrong.status}`); failures++; }
+        else console.log("✓ affiliate login: a wrong password is refused (401)");
+        const off = await loginAs(inactiveEmail, affPassword);
+        if (off.status !== 403) { console.log(`✗ affiliate login: an inactive affiliate expected 403, got ${off.status}`); failures++; }
+        else console.log("✓ affiliate login: an inactive affiliate is refused (403)");
+        const pend = await loginAs(pendingEmail, affPassword);
+        const pendCookie = ((pend.headers as unknown as { getSetCookie: () => string[] }).getSetCookie()).some(c => /connect\.sid/i.test(c) && !/Max-Age=0|Expires=Thu, 01 Jan 197/i.test(c));
+        if (pend.status !== 401 || pendCookie) { console.log(`✗ affiliate login: a pending applicant holding a planted credential expected 401 and no session, got ${pend.status}`); failures++; }
+        else console.log("✓ affiliate login: a pending applicant, even with a planted credential, gets no session (401)");
+        const signup = await fetch(`${BASE_URL}/api/affiliate/signup`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: `${affTag}-new@example.test`, password: "chosen-in-browser-1" }) });
+        const created = await db.execute(drizzleSql`SELECT 1 FROM partners WHERE lower(email) = ${`${affTag}-new@example.test`}`);
+        if (signup.status !== 410 || (created as { rows?: unknown[] }).rows?.length) { console.log(`✗ affiliate signup: expected 410 and no partner row, got ${signup.status}`); failures++; }
+        else console.log("✓ affiliate signup: the retired signup answers 410 and writes nothing");
+      } finally {
+        await db.execute(drizzleSql`DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE lower(email) IN (${affEmail}, ${inactiveEmail}, ${pendingEmail}))`).catch(() => undefined);
+        await db.execute(drizzleSql`DELETE FROM users WHERE lower(email) IN (${affEmail}, ${inactiveEmail}, ${pendingEmail})`).catch(() => undefined);
+        await db.execute(drizzleSql`DELETE FROM partner_applications WHERE partner_id = ${pendingAffiliate.id}`).catch(() => undefined);
+        await db.execute(drizzleSql`DELETE FROM inbound_requests WHERE id = ${smokeInbound}`).catch(() => undefined);
+        await db.delete(partners).where(eq(partners.id, legacyAffiliate.id)).catch(() => undefined);
+        await db.delete(partners).where(eq(partners.id, inactiveAffiliate.id)).catch(() => undefined);
+        await db.delete(partners).where(eq(partners.id, pendingAffiliate.id)).catch(() => undefined);
+      }
+    }
+
     // The public application over HTTP against the real running app: a pending, password-free request with no commission
     // terms and no login, for both paths, replay-safe, and the retired password form refused.
     {

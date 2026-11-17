@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { usePartnerReferralPolicy } from "@/hooks/use-partner-policy";
 import { PARTNER_HUB_HERO, PARTNER_PATH_LABEL, PARTNER_ROUTES } from "@shared/partner-public-content";
 import { trackPartnerEvent } from "@/lib/tracking";
+import { partnerRouteWithAttribution } from "@/lib/partner-application-client";
 
 const SOURCE_PAGE = PARTNER_ROUTES.hub;
 
@@ -44,8 +45,8 @@ export default function ISOPartnerProgram() {
           badge={<span className="public-eyebrow">{PARTNER_HUB_HERO.eyebrow}</span>}
           headline={PARTNER_HUB_HERO.heading}
           subheadline={PARTNER_HUB_HERO.body}
-          primaryCta={{ label: PARTNER_HUB_HERO.primaryCta, href: PARTNER_ROUTES.referral, onClick: () => trackPartnerEvent("partner_path_selected", { path: "referral", source_page: SOURCE_PAGE }) }}
-          secondaryCta={{ label: PARTNER_HUB_HERO.secondaryCta, href: PARTNER_ROUTES.salesAgent, onClick: () => trackPartnerEvent("partner_path_selected", { path: "sales_agent", source_page: SOURCE_PAGE }) }}
+          primaryCta={{ label: PARTNER_HUB_HERO.primaryCta, href: partnerRouteWithAttribution(PARTNER_ROUTES.referral), onClick: () => trackPartnerEvent("partner_path_selected", { path: "referral", source_page: SOURCE_PAGE }) }}
+          secondaryCta={{ label: PARTNER_HUB_HERO.secondaryCta, href: partnerRouteWithAttribution(PARTNER_ROUTES.salesAgent), onClick: () => trackPartnerEvent("partner_path_selected", { path: "sales_agent", source_page: SOURCE_PAGE }) }}
           tertiaryLinks={[{ label: PARTNER_HUB_HERO.signIn, href: PARTNER_ROUTES.login }]}
           data-testid="section-partner-hub-hero"
         />
@@ -80,12 +81,12 @@ export default function ISOPartnerProgram() {
           <PublicSectionHeader id="partner-apply-heading" title="Choose your path." description="Each path has its own short application. There is no password and no account to create." />
           <div className="flex flex-col gap-3 sm:flex-row">
             <Button asChild className="min-h-11">
-              <Link href={PARTNER_ROUTES.referral} onClick={() => trackPartnerEvent("partner_path_selected", { path: "referral", source_page: SOURCE_PAGE })} data-testid="partner-final-cta-referral">
+              <Link href={partnerRouteWithAttribution(PARTNER_ROUTES.referral)} onClick={() => trackPartnerEvent("partner_path_selected", { path: "referral", source_page: SOURCE_PAGE })} data-testid="partner-final-cta-referral">
                 {PARTNER_PATH_LABEL.referral}: refer a business
               </Link>
             </Button>
             <Button asChild variant="outline" className="min-h-11">
-              <Link href={PARTNER_ROUTES.salesAgent} onClick={() => trackPartnerEvent("partner_path_selected", { path: "sales_agent", source_page: SOURCE_PAGE })} data-testid="partner-final-cta-agent">
+              <Link href={partnerRouteWithAttribution(PARTNER_ROUTES.salesAgent)} onClick={() => trackPartnerEvent("partner_path_selected", { path: "sales_agent", source_page: SOURCE_PAGE })} data-testid="partner-final-cta-agent">
                 {PARTNER_PATH_LABEL.sales_agent}: build a portfolio
               </Link>
             </Button>

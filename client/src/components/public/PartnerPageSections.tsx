@@ -17,6 +17,7 @@ import {
   type PartnerReferralPolicy,
 } from "@shared/partner-public-content";
 import { trackPartnerEvent } from "@/lib/tracking";
+import { partnerRouteWithAttribution } from "@/lib/partner-application-client";
 
 /** FAQ structured data built from exactly the answers a page renders, never a longer list than the page shows. */
 export function partnerFaqJsonLd(faqs: readonly PartnerFaq[]) {
@@ -36,8 +37,8 @@ interface PathCardsProps {
 /** The two path cards: equal weight, referral first, an explicit text link as the only action in each card. */
 export function PartnerPathCards({ policy, sourcePage, headingId }: PathCardsProps) {
   const cards: { path: PartnerPathId; icon: typeof Handshake; title: string; body: string; cta: string; href: string; responsibilities: readonly string[] }[] = [
-    { path: "referral", icon: Handshake, title: PARTNER_REFERRAL_CARD.title, body: partnerReferralCardBody(policy), cta: PARTNER_REFERRAL_CARD.cta, href: PARTNER_ROUTES.referral, responsibilities: PARTNER_REFERRAL_CARD.responsibilities },
-    { path: "sales_agent", icon: Briefcase, title: PARTNER_AGENT_CARD.title, body: PARTNER_AGENT_CARD.body, cta: PARTNER_AGENT_CARD.cta, href: PARTNER_ROUTES.salesAgent, responsibilities: PARTNER_AGENT_CARD.responsibilities },
+    { path: "referral", icon: Handshake, title: PARTNER_REFERRAL_CARD.title, body: partnerReferralCardBody(policy), cta: PARTNER_REFERRAL_CARD.cta, href: partnerRouteWithAttribution(PARTNER_ROUTES.referral), responsibilities: PARTNER_REFERRAL_CARD.responsibilities },
+    { path: "sales_agent", icon: Briefcase, title: PARTNER_AGENT_CARD.title, body: PARTNER_AGENT_CARD.body, cta: PARTNER_AGENT_CARD.cta, href: partnerRouteWithAttribution(PARTNER_ROUTES.salesAgent), responsibilities: PARTNER_AGENT_CARD.responsibilities },
   ];
   return (
     <ul className="grid grid-cols-1 gap-6 md:grid-cols-2" aria-labelledby={headingId} data-testid="partner-path-cards">
