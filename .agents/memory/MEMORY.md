@@ -43,7 +43,7 @@
 - [Deal backfill async-runner pattern](deal-backfill-async-runner.md) — Backfill is fire-and-forget; track system_settings progress and retain the priorityBucket A/B orphan guard.
 - [Drizzle partial-index ON CONFLICT](drizzle-partial-index-on-conflict.md) — Drizzle omits targetWhere for partial-index conflicts; use raw SQL with ON CONFLICT ... WHERE.
 - [SLA task idempotency design](sla-task-idempotency.md) — source/automationKey identity columns + partial unique index; phased backfill-before-index rollout.
-- [Migration/publication lessons](migration-memory-index.md) — Journal/hash proof, locks, safe index rollout, legacy constraints, timeouts and production schema ownership.
+- [Migration/publication lessons](migration-memory-index.md) — Journal/hash proof, locks, safe index rollout, legacy constraints, timeouts, production schema ownership; [preflight head staleness](preflight-baseline-staleness.md).
 - [Intake Provenance System](intake-provenance.md) — writeContact() canonical writer; import_executions + contact_source_events; A→B→C DEFERRABLE transaction; all intake paths wired.
 - [Merchant portal access gaps](merchant-portal-access-gaps.md) — Redirect merchants via ProtectedRoute; onboarding uses isAuthenticated plus ownership.
 - [GHL client pitfalls](ghl-fetch-timeout.md) — AbortController per fetch (20s, retryable); email-422s sanitize to terminal skips; pause enforced at each client's fetch helper.
