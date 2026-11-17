@@ -151,6 +151,18 @@ const CASES: GuardCase[] = [
   { method: "GET",  path: "/api/referrals",                  anon: [401], merchant: [403], admin: [200], description: "referrals list" },
   { method: "GET",  path: "/api/commission-tiers",           anon: [401], merchant: [403], admin: [200], description: "commission tiers" },
 
+  // partner-program.ts (application review, published referral policy, introductions)
+  { method: "GET",  path: "/api/partner-applications",       anon: [401], merchant: [403], admin: [200], manager: [200], agent: [403], description: "partner application review list (requireRole admin/manager; read-only)" },
+  { method: "GET",  path: "/api/partner-applications/00000000-0000-4000-8000-000000000000", anon: [401], merchant: [403], admin: [404], manager: [404], agent: [403], description: "partner application detail (requireRole admin/manager; unknown id is 404)" },
+  { method: "POST", path: "/api/partner-applications/00000000-0000-4000-8000-000000000000/decision", anon: [401], merchant: [403], admin: [403], manager: [403], agent: [403], description: "partner application decision (admin only; CSRF required; no body is sent)" },
+  { method: "GET",  path: "/api/partner-policy",             anon: [401], merchant: [403], admin: [200], manager: [403], agent: [403], description: "published referral policy admin view (admin only)" },
+  { method: "POST", path: "/api/partner-policy/drafts",      anon: [401], merchant: [403], admin: [403], manager: [403], agent: [403], description: "referral policy draft (admin only; CSRF required; no body is sent)" },
+  { method: "POST", path: "/api/partner-policy/00000000-0000-4000-8000-000000000000/approve", anon: [401], merchant: [403], admin: [403], manager: [403], agent: [403], description: "referral policy approval (admin only; CSRF required)" },
+  { method: "POST", path: "/api/partner-policy/00000000-0000-4000-8000-000000000000/revoke", anon: [401], merchant: [403], admin: [403], manager: [403], agent: [403], description: "referral policy revoke (admin only; CSRF required)" },
+  { method: "GET",  path: "/api/partner-introductions",      anon: [401], merchant: [403], admin: [200], manager: [200], agent: [403], description: "partner introduction staff review list (requireRole admin/manager; no contact details to partners)" },
+  { method: "GET",  path: "/api/partners/me/introductions",  anon: [401], merchant: [401], admin: [401], manager: [401], agent: [401], description: "partner's own introductions (partner session only; no staff role is a partner principal)" },
+  { method: "POST", path: "/api/partners/me/introductions",  anon: [401], merchant: [403], admin: [403], manager: [403], agent: [403], description: "partner introduction submit (partner session only; CSRF required, so a signed-in non-partner is refused before the handler)" },
+
   // ── AI Observability: audit log list (isDashboardUser) + detail/replay (admin/manager) ──
   { method: "GET",  path: "/api/operator/ai-audit",          anon: [401], merchant: [403], admin: [200], description: "AI audit log list (dashboard users)" },
   { method: "GET",  path: "/api/operator/ai-audit/9999999",  anon: [401], merchant: [403], admin: [404], description: "AI audit detail (admin/manager only)" },

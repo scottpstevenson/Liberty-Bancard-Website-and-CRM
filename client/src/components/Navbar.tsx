@@ -7,6 +7,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import logoBlue from "@/assets/logo-blue-420.png";
 import { PUBLIC_CONTACT_CHANNELS } from "@shared/public-contact-content";
+import { PARTNER_ROUTES } from "@shared/partner-public-content";
 import { trackPhoneCallClick } from "@/lib/analytics";
 import {
   isHomeAnchor,
@@ -57,11 +58,16 @@ function NavAnchor({
   );
 }
 
+/** The partnership family, matched exactly so unrelated /partner-* account routes are never marked as the company group. */
+const PARTNER_FAMILY_PATHS: readonly string[] = [
+  PARTNER_ROUTES.hub, PARTNER_ROUTES.referral, PARTNER_ROUTES.salesAgent, PARTNER_ROUTES.cpa, PARTNER_ROUTES.bookkeeper, PARTNER_ROUTES.insurance,
+];
+
 function isGroupActive(group: PublicNavGroup, location: string): boolean {
   if (group.id === "industries") return location === "/industries" || location.startsWith("/industries/");
   if (group.id === "equipment") return location === "/shop" || location.startsWith("/shop/") || location === "/free-smart-terminal";
   if (group.id === "resources") return ["/learn", "/blog", "/compare-rates", "/faq", "/case-studies", "/savings-calculator"].some((p) => location === p || location.startsWith(`${p}/`));
-  if (group.id === "company") return ["/about-contact", "/why-liberty-bancard", "/partners"].includes(location);
+  if (group.id === "company") return ["/about-contact", "/why-liberty-bancard", ...PARTNER_FAMILY_PATHS].includes(location);
   return group.links.some((l) => !isHomeAnchor(l.href) && location === l.href);
 }
 

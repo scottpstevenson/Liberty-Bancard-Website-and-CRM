@@ -9,10 +9,29 @@
  */
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../db";
-import { inboundRequests, partners, users, userSessions } from "@shared/schema";
+import { inboundRequests, partnerApplications, partners, users, userSessions } from "@shared/schema";
 import type { InsertPartner } from "@shared/schema";
 
 export const PARTNER_EMAIL_IN_USE = "An account with this email already exists.";
+
+/**
+ * Who may hold or obtain a portal credential (login, password reset, invitation).
+ *
+ * A partner created by a public application is a reviewed request: it has no credential and gets none until an
+ * administrator accepts it. So an application that is not accepted (pending, needs information, declined, withdrawn,
+ * superseded) never qualifies, whatever mailbox the applicant controls and whether or not a hash exists. A partner with no
+ * application is a legacy or administrator-created account: it qualifies when it already has a credential or is approved
+ * (active). Existing credentialed accounts keep login and reset access, whatever their later status.
+ */
+export async function partnerMayHoldCredential(
+  partner: { id: number; status: string | null; passwordHash: string | null },
+  executor: Pick<typeof db, "select"> = db,
+): Promise<boolean> {
+  const [application] = await executor.select({ reviewStatus: partnerApplications.reviewStatus })
+    .from(partnerApplications).where(eq(partnerApplications.partnerId, partner.id)).limit(1);
+  if (application) return application.reviewStatus === "accepted";
+  return Boolean(partner.passwordHash) || partner.status === "active";
+}
 export type PartnerAccountRole = "partner" | "affiliate";
 
 export async function createPartnerAccount(

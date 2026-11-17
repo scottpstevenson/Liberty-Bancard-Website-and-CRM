@@ -1,5 +1,10 @@
 import { CrmPage, CrmPageHeader } from "@/components/crm/CrmPresentation";
 import { useState } from "react";
+import { PartnerApplicationsPanel } from "@/components/partner/PartnerApplicationsPanel";
+import { PartnerIntroductionsReview } from "@/components/partner/PartnerIntroductionsReview";
+import { PartnerPolicyPanel } from "@/components/partner/PartnerPolicyPanel";
+import { useAuth } from "@/hooks/use-auth";
+import { useUrlParam } from "@/hooks/use-url-param";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -23,13 +28,20 @@ import { PARTNER_TYPES, REFERRAL_STATUSES } from "@shared/schema";
 import { HelpCenter } from "@/components/HelpCenter";
 import referralVideo from "@/assets/videos/referral-explainer.mp4";
 
+const REFERRAL_TABS = ["partners", "applications", "introductions", "referrals", "tiers", "leaderboard"] as const;
+type ReferralTab = (typeof REFERRAL_TABS)[number];
+
 const partnerFormSchema = z.object({
   companyName: z.string().min(1, "Required"),
   contactName: z.string().optional(),
   email: z.string().email().optional().or(z.literal("")),
   phone: z.string().optional(),
   partnerType: z.string().min(1, "Required"),
-  commissionPercent: z.coerce.number().min(0).max(100).default(10),
+  // No default: terms come from the written agreement. Blank means "not agreed yet" and is sent as no terms.
+  commissionPercent: z.string().optional().refine(
+    (v) => !v || v.trim() === "" || (/^\d{1,3}$/.test(v.trim()) && Number(v.trim()) >= 1 && Number(v.trim()) <= 100),
+    "Enter a whole number from 1 to 100, or leave blank until terms are agreed.",
+  ),
   notes: z.string().optional(),
 });
 
@@ -46,6 +58,23 @@ const referralFormSchema = z.object({
 
 type PartnerFormData = z.infer<typeof partnerFormSchema>;
 type ReferralFormData = z.infer<typeof referralFormSchema>;
+
+/** Shows recorded terms, or "Pending" when none were agreed, and records an explicit whole-number term. No preset values. */
+function PartnerTermsCell({ partnerId, current, onSave, saving }: {
+  partnerId: number; current: number | null; onSave: (id: number, pct: number) => void; saving: boolean;
+}) {
+  const [value, setValue] = useState("");
+  const valid = /^\d{1,3}$/.test(value.trim()) && Number(value.trim()) >= 1 && Number(value.trim()) <= 100;
+  return (
+    <div className="flex items-center gap-2">
+      <span className="min-w-[4.5rem] text-xs" data-testid={`text-commission-${partnerId}`}>{current === null || current === undefined ? "Pending" : `${current}%`}</span>
+      <Input aria-label="Set commission percent" inputMode="numeric" className="h-8 w-16 text-xs" placeholder="%" value={value}
+        onChange={(e) => setValue(e.target.value)} data-testid={`input-commission-${partnerId}`} />
+      <Button size="sm" variant="outline" className="h-8 text-xs" disabled={!valid || saving}
+        onClick={() => { onSave(partnerId, Number(value.trim())); setValue(""); }} data-testid={`button-save-commission-${partnerId}`}>Save</Button>
+    </div>
+  );
+}
 
 function KpiCard({ icon: Icon, label, value, testId }: { icon: typeof Users; label: string; value: string | number; testId: string }) {
   return (
@@ -113,7 +142,7 @@ function ReferralExplainer() {
       title: "Best Practices for Sales Referrals",
       color: "text-amber-600 dark:text-amber-400",
       bg: "bg-amber-100 dark:bg-amber-900",
-      content: "• Lead with value: Tell the merchant we do a free, no-obligation statement review that typically finds $200–$500/month in savings.\n• Warm introductions convert best: A quick email intro or 3-way call dramatically increases close rates.\n• Focus on pain points: Ask if they're happy with their current rates, customer service, or terminal reliability.\n• Quality over quantity: One qualified referral with a processing statement is worth more than ten cold leads.\n• Follow up: Check your referral status here and ask us for updates — engaged partners close more deals.",
+      content: "• Lead with value: Tell the merchant we do a free, no-obligation statement review that is available on request.\n• Warm introductions convert best: A quick email intro or 3-way call dramatically increases close rates.\n• Focus on pain points: Ask if they're happy with their current rates, customer service, or terminal reliability.\n• Quality over quantity: One qualified referral with a processing statement is worth more than ten cold leads.\n• Follow up: Check your referral status here and ask us for updates — engaged partners close more deals.",
     },
     {
       icon: TrendingUp,
@@ -433,7 +462,9 @@ function LeaderboardTab() {
 
 export default function ReferralProgram() {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"partners" | "referrals" | "tiers" | "leaderboard">("partners");
+  const { user: staffUser } = useAuth();
+  const isAdmin = staffUser?.role === "admin";
+  const [activeTab, setActiveTab] = useUrlParam<ReferralTab>("tab", "partners", (raw) => ((REFERRAL_TABS as readonly string[]).includes(raw) ? (raw as ReferralTab) : undefined), { history: "replace" });
   const [isPartnerDialogOpen, setIsPartnerDialogOpen] = useState(false);
   const [isReferralDialogOpen, setIsReferralDialogOpen] = useState(false);
   const [isTierDialogOpen, setIsTierDialogOpen] = useState(false);
@@ -452,7 +483,9 @@ export default function ReferralProgram() {
 
   const createPartner = useMutation({
     mutationFn: async (data: PartnerFormData) => {
-      const res = await apiRequest("POST", "/api/partners", data);
+      const { commissionPercent, ...rest } = data;
+      const terms = commissionPercent && commissionPercent.trim() ? { commissionPercent: Number(commissionPercent.trim()) } : {};
+      const res = await apiRequest("POST", "/api/partners", { ...rest, ...terms });
       return res.json();
     },
     onSuccess: () => {
@@ -487,7 +520,7 @@ export default function ReferralProgram() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/partners"] });
-      toast({ title: "Commission rate updated" });
+      toast({ title: "Commission terms updated" });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -548,7 +581,7 @@ export default function ReferralProgram() {
       email: "",
       phone: "",
       partnerType: "referral",
-      commissionPercent: 10,
+      commissionPercent: "",
       notes: "",
     },
   });
@@ -651,8 +684,8 @@ export default function ReferralProgram() {
                   </div>
                   <FormField control={partnerForm.control} name="commissionPercent" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Commission %</FormLabel>
-                      <FormControl><Input {...field} type="number" min={0} max={100} data-testid="input-partner-commission" /></FormControl>
+                      <FormLabel>Commission % (from the written agreement)</FormLabel>
+                      <FormControl><Input {...field} value={field.value ?? ""} inputMode="numeric" placeholder="Leave blank until terms are agreed" data-testid="input-partner-commission" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
@@ -720,6 +753,20 @@ export default function ReferralProgram() {
           Partners
         </Button>
         <Button
+          variant={activeTab === "applications" ? "default" : "outline"}
+          onClick={() => setActiveTab("applications")}
+          data-testid="tab-applications"
+        >
+          Applications
+        </Button>
+        <Button
+          variant={activeTab === "introductions" ? "default" : "outline"}
+          onClick={() => setActiveTab("introductions")}
+          data-testid="tab-introductions"
+        >
+          Introductions
+        </Button>
+        <Button
           variant={activeTab === "referrals" ? "default" : "outline"}
           onClick={() => setActiveTab("referrals")}
           data-testid="tab-referrals"
@@ -743,6 +790,15 @@ export default function ReferralProgram() {
           Leaderboard
         </Button>
       </div>
+
+      {activeTab === "applications" && (
+        <div className="space-y-4">
+          <PartnerApplicationsPanel />
+          {isAdmin ? <PartnerPolicyPanel /> : null}
+        </div>
+      )}
+
+      {activeTab === "introductions" && <PartnerIntroductionsReview />}
 
       {activeTab === "partners" && (
         <Card>
@@ -808,19 +864,12 @@ export default function ReferralProgram() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Select
-                          defaultValue={String(partner.commissionPercent ?? 10)}
-                          onValueChange={(val) => updatePartnerCommission.mutate({ id: partner.id, commissionPercent: Number(val) })}
-                        >
-                          <SelectTrigger className="w-[70px] h-8 text-xs" data-testid={`select-commission-${partner.id}`}>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {[5, 10, 15, 20, 25, 30].map((pct) => (
-                              <SelectItem key={pct} value={String(pct)}>{pct}%</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <PartnerTermsCell
+                          partnerId={partner.id}
+                          current={partner.commissionPercent}
+                          onSave={(id, pct) => updatePartnerCommission.mutate({ id, commissionPercent: pct })}
+                          saving={updatePartnerCommission.isPending}
+                        />
                       </TableCell>
                       <TableCell>
                         <Badge variant={partner.status === "active" ? "default" : partner.status === "pending" ? "secondary" : "outline"} data-testid={`badge-partner-status-${partner.id}`}>

@@ -13,6 +13,9 @@ import { inboundRequests, notifications } from "@shared/schema";
 import { storage } from "../storage";
 import { createContactLocalFirst, upsertContactSourceEvent } from "./contact-writer";
 import { ensurePartnerCredential } from "./partner-account";
+import { applyConsentCommand } from "./consent-authority";
+import { getApplicationForOccurrence } from "./partner-application";
+import { PARTNER_PATH_LABEL } from "@shared/partner-public-content";
 import { orchestrateInboundRequest, setInboundRequestLifecycle } from "./inbound-request-authority";
 import type { InboundRequest } from "@shared/schema";
 import { describeAckReceiptState } from "./inbound-acknowledgement";
@@ -102,6 +105,31 @@ async function completeLocked(
     logOperationalDiagnostic("partner_application_sync", err, "contact_create_failed", { partnerId: partner.id });
   }
 
+  // The application's own optional marketing box is the only marketing consent this routine can record, and only as
+  // evidence of what the person ticked against the disclosure they were shown. Application-contact permission is not
+  // marketing consent, and nothing here starts any send. The effective time is the application's acceptance time, so a
+  // replay records the same fact (the event key is the occurrence).
+  const application = variant === "partner" ? await getApplicationForOccurrence(inbound.id).catch(() => null) : null;
+  if (localContactId && application?.marketingOptIn && application.marketingDisclosureId) {
+    try {
+      await applyConsentCommand({
+        subject: { type: "contact", id: localContactId },
+        kind: "opt_in",
+        channel: "email",
+        purpose: "outreach",
+        eventNamespace: "partner_application",
+        eventKey: `partner_application:${inbound.id}:email`,
+        source: "website_form",
+        effectiveAt: application.consentAcceptedAt,
+        evidence: { inboundRequestId: inbound.id, disclosureId: application.marketingDisclosureId, surface: "partner_application" },
+        details: { partnerId: partner.id, applicationId: application.id },
+      });
+    } catch (err) {
+      logOperationalDiagnostic("partner_application_consent", err, "marketing_consent_record_failed", { partnerId: partner.id });
+      contactRecorded = false;
+    }
+  }
+
   const assignment = await resolveReviewAssignment("partner_application_request", inbound.sourceReceivedAt ?? new Date());
   const label = (partner.companyName || partner.contactName || "A new applicant").toString().trim().slice(0, 120);
   let reviewNotified = false;
@@ -115,7 +143,7 @@ async function completeLocked(
       title: variant === "affiliate" ? "New affiliate signup to review" : "New partner application to review",
       message: variant === "affiliate"
         ? `${label} signed up as an affiliate.`
-        : `${label} applied as ${(partner.partnerType ?? "referral").replace(/_/g, " ")}.`,
+        : `${label} applied as ${application ? PARTNER_PATH_LABEL[application.path as "referral" | "sales_agent"].toLowerCase() : (partner.partnerType ?? "referral").replace(/_/g, " ")}.`,
       type: "alert",
       inboundRequestId: inbound.id,
       commandKey,
@@ -165,7 +193,12 @@ export async function resumePartnerApplication(
     await setInboundRequestLifecycle(request.id, "failed", "PARTIAL_INTAKE_NO_ACCOUNT");
     return { failed: "PARTIAL_INTAKE_NO_ACCOUNT" };
   }
-  const partner = await storage.getPartnerByEmail(email);
+  // An application-backed occurrence finds its partner through the application row; a legacy occurrence (created before
+  // applications existed) falls back to the captured mailbox.
+  const application = await getApplicationForOccurrence(request.id);
+  const partner = application
+    ? (await storage.getPartner(application.partnerId)) ?? undefined
+    : await storage.getPartnerByEmail(email);
   if (!partner) {
     // Cannot happen for an occurrence bound by account creation; surface it instead of guessing.
     await setInboundRequestLifecycle(request.id, "failed", "BOUND_ACCOUNT_MISSING");
@@ -173,7 +206,8 @@ export async function resumePartnerApplication(
   }
   // Variant follows the recorded account, not the caller, so recovery needs no browser context.
   const effectiveVariant: "partner" | "affiliate" = partner.partnerType === "affiliate" ? "affiliate" : variant;
-  await ensurePartnerCredential(partner, effectiveVariant === "affiliate" ? "affiliate" : "partner");
+  // An application has no credential to restore; only a legacy account that was created with one is repaired.
+  if (!application) await ensurePartnerCredential(partner, effectiveVariant === "affiliate" ? "affiliate" : "partner");
   const done = await completePartnerApplicationLocal(request, partner as PartnerApplicationSubject, effectiveVariant);
   return { state: done.contactRecorded && done.reviewNotified ? "accepted" : "review_required" };
 }

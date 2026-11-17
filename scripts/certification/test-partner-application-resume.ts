@@ -92,11 +92,14 @@ check(privacy.dueAt === "2026-01-04T00:00:00.000Z" && privacy.ownerUserId === ad
 // 5. Source wiring.
 const adminSrc = fs.readFileSync("server/routes/admin.ts", "utf8");
 const importsSrc = fs.readFileSync("server/routes/imports.ts", "utf8");
-const partnersSrc = fs.readFileSync("server/routes/partners.ts", "utf8");
+const programSrc = fs.readFileSync("server/routes/partner-program.ts", "utf8");
 check(/resolveReviewAssignment\("privacy_request"/.test(adminSrc), "The privacy request notification is stamped with the recorded owner and due time");
-check(/claimPublicInbound\(req, res, \["website_form", "partner_application"\]/.test(importsSrc) && /completePartnerApplicationLocal\(inbound, partner as any, "affiliate"\)/.test(importsSrc) && !/\.catch\(\(\) => null\)/.test(importsSrc.slice(importsSrc.indexOf('"/api/affiliate/signup"'), importsSrc.indexOf('"/api/affiliate/login"'))),
-  "Affiliate signup claims the occurrence, uses the shared local completion and no longer swallows the contact failure");
-check(/onReplay/.test(partnersSrc) && /completePartnerApplicationLocal\(inbound, partner as any, "partner"\)/.test(partnersSrc), "Partner application uses the same repeatable completion and resumes on replay");
+const retiredStart = importsSrc.indexOf('"/api/affiliate/signup"');
+const retiredBlock = importsSrc.slice(retiredStart, importsSrc.indexOf('"/api/affiliate/login"'));
+check(retiredStart > 0 && /status\(410\)/.test(retiredBlock) && !/createPartner|passwordHash|bcrypt|upsertUser|req\.login/.test(retiredBlock),
+  "Affiliate signup is retired: it answers 410 and creates no account, password or session");
+check(/claimPublicInbound\(req, res, \["website_form", "partner_application"\]/.test(programSrc) && /onReplay/.test(programSrc) && /resumePartnerApplication\(request, "partner"\)/.test(programSrc) && /completePartnerApplicationLocal\(inbound, created\.partner as any, "partner"\)/.test(programSrc),
+  "Partner application claims the occurrence, uses the same repeatable completion and resumes on replay");
 
 await pool.query(`DELETE FROM system_settings WHERE key=$1`, [policy.INBOUND_REVIEW_POLICY_KEY]);
 console.log(`PARTNER_APPLICATION_RESUME_PASS (${checks} checks)`);

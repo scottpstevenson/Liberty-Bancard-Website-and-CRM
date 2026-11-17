@@ -635,6 +635,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "real partner and onboarding route modules registered in production order; no request, database query or provider call is made",
   },
   {
+    name: "Partner program contracts",
+    script: "scripts/test-partner-program-contracts.ts",
+    capability: "deterministic-integration",
+    providerDenial: "shared application schema, browser payload builder, analytics allowlist and the real partner-program route module registered on an unlistened app; no request, database query, network or provider call is made",
+  },
+  {
     name: "Retained Sunbiz business completion",
     script: "scripts/certification/test-retained-sunbiz-business-completion.ts",
     capability: "deterministic-integration",

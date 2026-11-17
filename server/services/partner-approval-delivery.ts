@@ -49,10 +49,10 @@ export async function enqueueAffiliateWelcome(tx: Tx, partnerId: number) {
  * Applies an operator update to a partner. When the update activates a non-active partner, the invite/welcome intent
  * commits in the same transaction as the status change.
  */
-export async function updatePartnerWithApproval(partnerId: number, updates: Partial<InsertPartner>): Promise<{
+export async function updatePartnerWithApproval(partnerId: number, updates: Partial<InsertPartner>, executor?: Tx): Promise<{
   before: Partner; updated: Partner; approved: boolean; delivery: PartnerApprovalDelivery | null;
 } | null> {
-  return db.transaction(async (tx) => {
+  const run = async (tx: Tx) => {
     const [before] = await tx.select().from(partners).where(eq(partners.id, partnerId)).for("update");
     if (!before) return null;
     const [updated] = await tx.update(partners).set({ ...updates, updatedAt: new Date() }).where(eq(partners.id, partnerId)).returning();
@@ -63,7 +63,10 @@ export async function updatePartnerWithApproval(partnerId: number, updates: Part
       delivery = await enqueueDelivery(tx, partnerId, kind);
     }
     return { before, updated, approved, delivery };
-  });
+  };
+  // A caller that already holds a transaction (the application decision) passes it so the review decision, the terms and the
+  // single invitation intent commit or roll back together.
+  return executor ? run(executor) : db.transaction(run);
 }
 
 // ── Delivery transports (injectable for certification) ──────────────────────

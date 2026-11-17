@@ -12,7 +12,9 @@ function buildPartnerWelcomeEmail(partner: Partner, referralLink: string, portal
   const firstName = (partner.contactName || "").split(" ")[0] || "Partner";
   const companyName = partner.companyName || "your company";
   const affiliateCode = partner.affiliateCode || "";
-  const commissionPercent = partner.commissionPercent ?? 10;
+  // Compensation is whatever the partner's written agreement says. With no recorded terms nothing is promised.
+  const hasTerms = partner.commissionPercent !== null && partner.commissionPercent !== undefined;
+  const commissionPercent = partner.commissionPercent;
 
   const signature = getEmailSignatureHtml("partners", undefined, null);
 
@@ -30,7 +32,9 @@ function buildPartnerWelcomeEmail(partner: Partner, referralLink: string, portal
 
   <p><strong>Your Referral Code</strong>: <code style="background:#f4f4f4;padding:2px 6px;border-radius:3px;font-size:13px;">${affiliateCode}</code></p>
 
-  <p><strong>Your Commission Rate</strong>: <strong>${commissionPercent}%</strong> on every merchant you refer who activates processing.</p>
+  ${hasTerms
+    ? `<p><strong>Your Commission Rate</strong>: <strong>${commissionPercent}%</strong> on every merchant you refer who activates processing.</p>`
+    : `<p><strong>Your Compensation Terms</strong>: your terms are set out in your written agreement with Liberty Bancard.</p>`}
 
   <p><strong>Partner Portal</strong><br/>
   Log in to track your referrals, commissions, and payouts:<br/>
@@ -40,7 +44,7 @@ function buildPartnerWelcomeEmail(partner: Partner, referralLink: string, portal
   <ol>
     <li>Share your referral link or code with business owners</li>
     <li>They apply and start processing — we handle everything</li>
-    <li>You earn ${commissionPercent}% residual commission each month they process</li>
+    <li>${hasTerms ? `You earn ${commissionPercent}% residual commission each month they process` : "Compensation follows your written agreement"}</li>
     <li>Commissions are paid monthly via PayPal</li>
   </ol>
 

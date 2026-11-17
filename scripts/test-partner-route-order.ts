@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import express from "express";
 const {registerPartnersRoutes,numericPartnerIdOnly}=await import("../server/routes/partners");
 const {registerOnboardingStagesRoutes}=await import("../server/routes/onboarding-stages");
+const {registerPartnerProgramRoutes}=await import("../server/routes/partner-program");
 // Production order (server/routes.ts): Partners are registered long before Onboarding Stages.
 const app=express();
 registerPartnersRoutes(app);
+registerPartnerProgramRoutes(app);
 registerOnboardingStagesRoutes(app);
 const layers=((app as any).router.stack as any[]).filter(l=>l.route);
 let checks=0;
@@ -33,6 +35,13 @@ assert.equal((await run(numericPartnerIdOnly,"42")).next,undefined);checks++;
 for(const bad of ["0","99999999999","-1","1e3","12abc","1.5"]){
   const out=await run(numericPartnerIdOnly,bad);
   assert(out.status===400||out.next==="route",`${bad} reached the handler`);checks++;
+}
+// The partner introduction routes sit under /api/partners/me/...; no parameterised sibling may match them first.
+for(const method of ["get","post"] as const){
+  const path="/api/partners/me/introductions";
+  const matching=layers.filter(l=>l.route.methods[method] && l.matchers?.some((m:any)=>m(path)));
+  assert.equal(matching.length,1,`${method} ${path}: expected exactly one matching route, got ${matching.map(l=>l.route.path).join(", ")}`);
+  assert.equal(matching[0].route.path,path);checks++;
 }
 console.log(`Partner route order: ${checks} checks passed`);
 process.exit(0);

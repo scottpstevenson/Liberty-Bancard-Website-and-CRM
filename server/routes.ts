@@ -30,6 +30,7 @@ import { registerActivityRoutes } from "./routes/activity";
 import { registerMerchantsRoutes } from "./routes/merchants";
 import { registerAdminRoutes } from "./routes/admin";
 import { registerPartnersRoutes } from "./routes/partners";
+import { registerPartnerProgramRoutes } from "./routes/partner-program";
 import { registerCrmOperationsRoutes } from "./routes/crm-operations";
 import { registerImportsRoutes } from "./routes/imports";
 import { registerSdrRoutes } from "./routes/sdr";
@@ -164,6 +165,7 @@ export async function registerRoutes(
   registerMerchantsRoutes(app);
   registerAdminRoutes(app);
   registerPartnersRoutes(app);
+  registerPartnerProgramRoutes(app);
   registerCrmOperationsRoutes(app);
   registerImportsRoutes(app);
   registerSdrRoutes(app);

@@ -163,7 +163,8 @@ export function routeOfferDeterministic(contact: Contact): OfferRoutingResult | 
 
   if (
     contact.sourceCategory === "partner" ||
-    contact.landingPage === "/partners"
+    contact.landingPage === "/partners" ||
+    contact.landingPage?.startsWith("/partners/") === true
   ) {
     signals.push(`source_category:${contact.sourceCategory || "partner_landing_page"}`);
     return {

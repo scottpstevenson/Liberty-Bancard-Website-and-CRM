@@ -15,7 +15,6 @@ import { importCordataEnrichment, importFullCorevt, isWorkerRunning, startDailyO
 import { getGhlSyncStatus } from "../services/ghl-sync";
 import { runBulkFastClassification } from "../services/sunbiz-enrichment";
 import { ingestBusiness } from "../services/sdr/dedupe";
-import { syncFormSubmissionToGhl } from "../services/ghl-form-sync";
 import { updateContactLocalFirst, createContactLocalFirst, writeContact } from "../services/contact-writer";
 import { importExecutions, contactSourceEvents, importRowDispositions } from "@shared/schema";
 import { classifyCsvSourceFormat, computeFileHash } from "../services/import-normalizer";
@@ -37,12 +36,9 @@ import fs from "fs";
 import { uploadLarge, normalizePhoneForImport, classifyVerticalForImport } from "./helpers";
 import { uploadTabularLarge } from "../lib/tabular-upload";
 import { recordPewcDecision } from "../services/consent-evidence";
-import { syncAffiliateSignupToGhl } from "../services/ghl-form-sync";
 import { sanitizeFirstName } from "../services/contact-name-utils";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { serverError, logOperationalDiagnostic } from "../utils/server-error";
-import { claimPublicInbound } from "../services/public-inbound-intake";
-import { completePartnerApplicationLocal } from "../services/partner-application-intake";
 import { registerPersistedCsvProcessor, processPersistedCsvImport } from "../services/csv-import-processor";
 import { processCanonicalImportRecoveryTick } from "../services/canonical-import-recovery-worker";
 import { canonicalRecoverableImportAccountingSql } from "../services/canonical-import-recovery-contract";
@@ -50,6 +46,7 @@ import { recordContactBusinessLinkCandidate } from "../services/commercial-link-
 import { importDispositionCompatibility } from "@shared/import-disposition-summary";
 import { claimInboundRequest, orchestrateInboundRequest, setInboundRequestLifecycle } from "../services/inbound-request-authority";
 import { recordWebsiteEmailConsent, validateWebsiteEmailConsent } from "../services/website-email-consent";
+import { partnerMayHoldCredential } from "../services/partner-account";
 
 export function registerImportsRoutes(app: Express) {
   app.get("/api/import-executions/:executionId/ledger", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
@@ -542,117 +539,16 @@ Guidelines:
 
   // /sitemap-blog.xml is registered in server/routes/ssr-routes.ts (canonical).
 
+  // The affiliate signup is retired. It created an active account at a default commission with a browser-chosen password and
+  // an automatic login. Affiliate-style interest now goes through the partner application (reviewed, no password, no terms
+  // until an administrator records them). Existing affiliate accounts keep logging in and reading their dashboard.
   app.post("/api/affiliate/signup", publicLeadRateLimit, async (req, res) => {
-    if (req.query.probe === "1") return res.json({ probe: true, endpoint: "/api/affiliate/signup" });
-    try {
-      const { firstName, lastName, email, phone, companyName, website, howHeard, password } = req.body;
-      if (!firstName || typeof firstName !== "string" || firstName.length > 100) {
-        return res.status(400).json({ message: "Valid first name is required." });
-      }
-      if (!email || typeof email !== "string" || !email.includes("@") || email.length > 200) {
-        return res.status(400).json({ message: "Valid email is required." });
-      }
-      if (!phone || typeof phone !== "string" || phone.length > 30) {
-        return res.status(400).json({ message: "Valid phone number is required." });
-      }
-      if (!password || typeof password !== "string" || password.length < 6) {
-        return res.status(400).json({ message: "Password must be at least 6 characters." });
-      }
-      // Claim the occurrence before any write (password excluded from the fingerprint input). The affiliate signup
-      // shares the partner-application source contract; the applicant does not need a provider contact id for any receipt.
-      const { password: _omitPassword, ...claimPayload } = req.body;
-      const inbound = await claimPublicInbound(req, res, ["website_form", "partner_application"], claimPayload, {
-        onReplay: async (request) => (await import("../services/partner-application-intake")).resumePartnerApplication(request, "affiliate"),
-      });
-      if (!inbound) return;
-      const failSignup = async (status: number, body: Record<string, unknown>) => {
-        await setInboundRequestLifecycle(inbound.id, "failed", `HTTP_${status}`).catch(() => undefined);
-        return res.status(status).json(body);
-      };
-      const existing = await storage.getPartnerByEmail(email.toLowerCase());
-      if (existing) {
-        return failSignup(409, { message: "An affiliate account with this email already exists." });
-      }
-      const existingUser = await authStorage.getUserByEmail(email.toLowerCase());
-      if (existingUser) {
-        return failSignup(409, { message: "An account with this email already exists." });
-      }
-      let code = "";
-      for (let attempt = 0; attempt < 5; attempt++) {
-        code = (firstName.slice(0, 3) + (lastName?.slice(0, 3) || "") + Math.random().toString(36).slice(2, 6)).toLowerCase().replace(/[^a-z0-9]/g, "");
-        const dup = await storage.getPartnerByCode(code);
-        if (!dup) break;
-      }
-      const passwordHash = await bcrypt.hash(password, 12);
-      // Account row, login credential and the occurrence binding commit in one transaction, so a crash can never leave
-      // an account without its credential or an occurrence that cannot find its account.
-      const { createPartnerAccount, PARTNER_EMAIL_IN_USE } = await import("../services/partner-account");
-      let partner;
-      try {
-        partner = await createPartnerAccount({
-          companyName: (companyName || `${firstName} ${lastName || ""}`.trim()).slice(0, 200),
-          contactName: `${firstName} ${lastName || ""}`.trim().slice(0, 200),
-          email: email.toLowerCase().slice(0, 200),
-          phone: phone.slice(0, 30),
-          passwordHash,
-          partnerType: "affiliate",
-          affiliateCode: code,
-          status: "active",
-          commissionPercent: 10,
-          website: website ? String(website).slice(0, 500) : null,
-          howHeard: howHeard ? String(howHeard).slice(0, 500) : null,
-        }, { role: "affiliate", inboundRequestId: inbound.id });
-      } catch (accountErr: any) {
-        if (accountErr?.message === PARTNER_EMAIL_IN_USE) return failSignup(409, { message: "An account with this email already exists." });
-        throw accountErr;
-      }
-      const user = await authStorage.getUserByEmail(email.toLowerCase());
-      if (!user) throw new Error("AFFILIATE_CREDENTIAL_MISSING_AFTER_COMMIT");
-      // Contact (partner source contract), review notification with owner/due time and request orchestration run
-      // through one repeatable routine. A failure is recorded on the occurrence (review_required) and resumed on replay;
-      // it is no longer swallowed. The contact writer records durable provider work, so no immediate GHL id is needed.
-      const completed = await completePartnerApplicationLocal(inbound, partner as any, "affiliate");
-      const affiliateContact = completed.localContactId ? await storage.getContact(completed.localContactId) : null;
-
-      if (affiliateContact) {
-        // Supplemental referral-code form sync is best-effort; the durable projection from the contact writer is the
-        // authoritative handoff. Provider completion belongs to the GHL companion work.
-        syncFormSubmissionToGhl({
-          contactId: affiliateContact.id,
-          leadSource: "affiliate",
-          formData: {
-            lb_referral_code: partner.affiliateCode || "",
-          },
-        }).catch(err => logOperationalDiagnostic("affiliate_signup_sync", err, "form_sync_failed", { partnerId: partner.id }));
-        // The welcome is durable work written with the account (see partner_approval_deliveries): it waits for the provider
-        // contact id and is executed by the delivery worker, so nothing here depends on this request staying alive.
-      }
-      syncAffiliateSignupToGhl({
-        firstName,
-        lastName: lastName || "",
-        email,
-        phone,
-        companyName: companyName || undefined,
-        affiliateCode: partner.affiliateCode || code,
-      }).catch(err => logOperationalDiagnostic("affiliate_signup_sync", err, "affiliate_sync_failed", { partnerId: partner.id }));
-
-      req.logIn(user, (loginErr) => {
-        if (loginErr) {
-          return res.status(201).json({
-            message: "Welcome to the Liberty Bancard Affiliate Program!",
-            affiliateCode: partner.affiliateCode,
-            receipt: { accountCreated: true, contactRecorded: completed.contactRecorded, requestReceipt: inbound.id },
-          });
-        }
-        return res.status(201).json({
-          message: "Welcome to the Liberty Bancard Affiliate Program!",
-          affiliateCode: partner.affiliateCode,
-          receipt: { accountCreated: true, contactRecorded: completed.contactRecorded, requestReceipt: inbound.id },
-        });
-      });
-    } catch (err: any) {
-      serverError(res, err);
-    }
+    if (req.query.probe === "1") return res.json({ probe: true, endpoint: "/api/affiliate/signup", retired: true });
+    return res.status(410).json({
+      code: "AFFILIATE_SIGNUP_RETIRED",
+      message: "Affiliate signup has been replaced by the partner application. Please apply at /partners.",
+      applyAt: "/partners",
+    });
   });
 
   const affiliateLoginRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false, message: { message: "Too many login attempts, please try again later." } });
@@ -668,6 +564,10 @@ Guidelines:
       }
       const valid = await bcrypt.compare(password, partner.passwordHash);
       if (!valid) {
+        return res.status(401).json({ message: "Invalid email or password." });
+      }
+      // Defense in depth: an application that is not accepted never opens a session, even if a credential somehow exists.
+      if (!(await partnerMayHoldCredential(partner))) {
         return res.status(401).json({ message: "Invalid email or password." });
       }
       if (partner.status !== "active") {

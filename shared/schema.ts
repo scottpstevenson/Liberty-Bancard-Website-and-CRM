@@ -4723,6 +4723,100 @@ export const insertReferralSchema = createInsertSchema(referrals).omit({
 export type Referral = typeof referrals.$inferSelect;
 export type InsertReferral = z.infer<typeof insertReferralSchema>;
 
+// Partner program application, introduction and public-policy records (see migrations/0384).
+export const partnerApplications = pgTable("partner_applications", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  inboundRequestId: uuid("inbound_request_id").notNull().references(() => inboundRequests.id),
+  partnerId: integer("partner_id").notNull().references(() => partners.id),
+  mailbox: text("mailbox").notNull(),
+  path: text("path").notNull(),
+  profession: text("profession"),
+  answers: jsonb("answers").notNull().default(sql`'{}'::jsonb`),
+  consentVersion: text("consent_version").notNull(),
+  consentTextSha256: text("consent_text_sha256").notNull(),
+  consentPurpose: text("consent_purpose").notNull(),
+  consentAcceptedAt: timestamp("consent_accepted_at", { withTimezone: true }).notNull().defaultNow(),
+  marketingOptIn: boolean("marketing_opt_in").notNull().default(false),
+  marketingDisclosureId: text("marketing_disclosure_id"),
+  sourcePage: text("source_page"),
+  acquisition: jsonb("acquisition").notNull().default(sql`'{}'::jsonb`),
+  schemaVersion: integer("schema_version").notNull(),
+  reviewStatus: text("review_status").notNull().default("pending_review"),
+  revision: integer("revision").notNull().default(1),
+  decidedBy: text("decided_by"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  decisionNote: text("decision_note"),
+  scheduleReference: text("schedule_reference"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("partner_applications_inbound_request_uidx").on(table.inboundRequestId),
+  uniqueIndex("partner_applications_partner_uidx").on(table.partnerId),
+  uniqueIndex("partner_applications_open_mailbox_uidx").on(table.mailbox).where(sql`review_status IN ('pending_review', 'needs_info')`),
+  index("partner_applications_review_idx").on(table.reviewStatus, sql`created_at DESC`, table.id),
+  check("partner_applications_path_chk", sql`path IN ('referral', 'sales_agent')`),
+  check("partner_applications_status_chk", sql`review_status IN ('pending_review', 'needs_info', 'accepted', 'declined', 'withdrawn', 'superseded')`),
+  check("partner_applications_mailbox_chk", sql`mailbox = lower(mailbox)`),
+  check("partner_applications_marketing_chk", sql`marketing_opt_in = (marketing_disclosure_id IS NOT NULL)`),
+  check("partner_applications_decision_chk", sql`review_status IN ('pending_review', 'needs_info') OR (decided_by IS NOT NULL AND decided_at IS NOT NULL)`),
+]);
+export type PartnerApplication = typeof partnerApplications.$inferSelect;
+
+export const partnerIntroductions = pgTable("partner_introductions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  partnerId: integer("partner_id").notNull().references(() => partners.id),
+  idempotencyKey: text("idempotency_key").notNull(),
+  requestFingerprint: text("request_fingerprint").notNull(),
+  businessName: text("business_name").notNull(),
+  contactName: text("contact_name").notNull(),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  website: text("website"),
+  context: text("context"),
+  contactId: integer("contact_id").references(() => contacts.id),
+  referralId: integer("referral_id").references(() => referrals.id),
+  permissionVersion: text("permission_version").notNull(),
+  permissionTextSha256: text("permission_text_sha256").notNull(),
+  permissionConfirmedAt: timestamp("permission_confirmed_at", { withTimezone: true }).notNull().defaultNow(),
+  submittedByUserId: text("submitted_by_user_id"),
+  reviewState: text("review_state").notNull().default("pending_review"),
+  reviewReason: text("review_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("partner_introductions_partner_key_uidx").on(table.partnerId, table.idempotencyKey),
+  index("partner_introductions_partner_idx").on(table.partnerId, sql`created_at DESC`, table.id),
+  index("partner_introductions_review_idx").on(table.reviewState, sql`created_at DESC`).where(sql`review_state <> 'pending_review'`),
+  check("partner_introductions_state_chk", sql`review_state IN ('pending_review', 'duplicate_review', 'competing_referrer', 'accepted', 'declined')`),
+  check("partner_introductions_reach_chk", sql`contact_email IS NOT NULL OR contact_phone IS NOT NULL`),
+]);
+export type PartnerIntroduction = typeof partnerIntroductions.$inferSelect;
+
+export const partnerPublicPolicyVersions = pgTable("partner_public_policy_versions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  policyKey: text("policy_key").notNull(),
+  version: integer("version").notNull(),
+  sharePercent: integer("share_percent").notNull(),
+  status: text("status").notNull().default("draft"),
+  scheduleReference: text("schedule_reference").notNull(),
+  copyVersion: text("copy_version").notNull(),
+  createdBy: text("created_by").notNull(),
+  approvedBy: text("approved_by"),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  revokedBy: text("revoked_by"),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("partner_public_policy_version_uidx").on(table.policyKey, table.version),
+  uniqueIndex("partner_public_policy_one_approved_uidx").on(table.policyKey).where(sql`status = 'approved'`),
+  check("partner_public_policy_key_chk", sql`policy_key IN ('standard_referral')`),
+  check("partner_public_policy_share_chk", sql`share_percent BETWEEN 1 AND 100`),
+  check("partner_public_policy_status_chk", sql`status IN ('draft', 'approved', 'revoked')`),
+  check("partner_public_policy_approval_chk", sql`status <> 'approved' OR (approved_by IS NOT NULL AND approved_at IS NOT NULL)`),
+  check("partner_public_policy_revocation_chk", sql`status <> 'revoked' OR (revoked_by IS NOT NULL AND revoked_at IS NOT NULL)`),
+]);
+export type PartnerPublicPolicyVersion = typeof partnerPublicPolicyVersions.$inferSelect;
+
 export const PARTNER_TYPES = [
   "referral",
   "affiliate",

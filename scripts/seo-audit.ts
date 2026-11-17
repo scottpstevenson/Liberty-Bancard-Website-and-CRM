@@ -175,6 +175,8 @@ const INDUSTRY_ROUTES: RouteSpec[] = Object.keys(INDUSTRY_DATA).map((slug) => ({
 // NOTE: /partners/insurance-agent does NOT exist — use /partners/insurance.
 const PARTNER_ROUTES: RouteSpec[] = [
   { path: "/partners",            requireCanonical: true },
+  { path: "/partners/referrals",  requireCanonical: true },
+  { path: "/partners/sales-agents", requireCanonical: true },
   { path: "/partners/cpa",        requireCanonical: true },
   { path: "/partners/bookkeeper", requireCanonical: true },
   { path: "/partners/insurance",  requireCanonical: true },
@@ -706,7 +708,7 @@ async function main() {
 
   // ── Wave 12: Partner page title + meta-description uniqueness check ──────────
   console.log("\n── Partner page SEO uniqueness check ──");
-  const PARTNER_PATHS = ["/partners", "/partners/cpa", "/partners/bookkeeper", "/partners/insurance"];
+  const PARTNER_PATHS = ["/partners", "/partners/referrals", "/partners/sales-agents", "/partners/cpa", "/partners/bookkeeper", "/partners/insurance"];
   const partnerTitles: string[] = [];
   const partnerDescs: string[] = [];
   let partnerUniquenessOk = true;

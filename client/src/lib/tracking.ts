@@ -194,6 +194,35 @@ export function trackConversion(type: string, value?: number) {
   }
 }
 
+/**
+ * Partner-program funnel events. Consent-gated like every other analytics event, sent to GA only (never the ad pixel),
+ * and limited to an allowlist of event names and property keys with bounded plain values. No name, email, phone,
+ * company, free text, merchant data, idempotency key or compensation figure is ever a property.
+ */
+export const PARTNER_ANALYTICS_EVENTS = ["partner_path_selected", "partner_application_started", "partner_application_submitted", "partner_calculator_used"] as const;
+export type PartnerAnalyticsEvent = (typeof PARTNER_ANALYTICS_EVENTS)[number];
+export const PARTNER_ANALYTICS_PROPS = ["path", "profession", "source_page", "calculator_path"] as const;
+const PARTNER_PROP_VALUE = /^[a-z0-9_/\-]{1,60}$/;
+
+export function partnerAnalyticsPayload(event: string, props: Record<string, unknown> = {}): { event: PartnerAnalyticsEvent; props: Record<string, string> } | null {
+  if (!(PARTNER_ANALYTICS_EVENTS as readonly string[]).includes(event)) return null;
+  const out: Record<string, string> = {};
+  for (const key of PARTNER_ANALYTICS_PROPS) {
+    const value = props[key];
+    // A slug never carries many digits; a phone-like or id-like value is dropped even when it matches the slug shape.
+    if (typeof value === "string" && PARTNER_PROP_VALUE.test(value) && (value.match(/\d/g) ?? []).length < 5) out[key] = value;
+  }
+  return { event: event as PartnerAnalyticsEvent, props: out };
+}
+
+export function trackPartnerEvent(event: PartnerAnalyticsEvent, props: Record<string, unknown> = {}) {
+  const payload = partnerAnalyticsPayload(event, props);
+  if (!payload) return;
+  if (GA_ID && analyticsConsent) {
+    gtagEvent("event", payload.event, { event_category: "partner_program", ...payload.props });
+  }
+}
+
 export function trackQuizStart() {
   if (GA_ID && analyticsConsent) {
     gtagEvent("event", "quiz_start", {

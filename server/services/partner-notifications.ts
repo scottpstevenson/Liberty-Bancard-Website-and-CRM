@@ -148,12 +148,14 @@ async function sendPartnerGoLiveEmail(
 
   const firstName = (partner.contactName || "").split(" ")[0] || "Partner";
   const portalUrl = `${getBaseUrl()}/partner-portal`;
-  const commissionPercent = partner.commissionPercent ?? 10;
+  const commissionPercent = partner.commissionPercent ?? null;
   const signature = getEmailSignatureHtml("partners", undefined, null);
 
-  const residualNote = estimatedResidual
+  const residualNote = estimatedResidual && commissionPercent !== null
     ? `<p>Based on this merchant's estimated processing volume, your first-month residual commission is approximately <strong>${fmtCurrency(estimatedResidual)}</strong> — and it compounds every month they process.</p>`
-    : `<p>Once this merchant begins processing, you'll start earning residual commissions at your ${commissionPercent}% rate each month.</p>`;
+    : commissionPercent === null
+      ? `<p>Compensation for this merchant follows your written agreement with Liberty Bancard.</p>`
+      : `<p>Once this merchant begins processing, you'll start earning residual commissions at your ${commissionPercent}% rate each month.</p>`;
 
   const html = `
 <div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">

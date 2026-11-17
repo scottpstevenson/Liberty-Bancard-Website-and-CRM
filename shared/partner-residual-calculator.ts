@@ -1,44 +1,62 @@
-// Partner residual income estimator: pure arithmetic and the wording shown with it, used by the React component
-// (client/src/components/public/PartnerResidualCalculator.tsx) and checked by scripts/test-partner-residual-calculator.ts.
+// Partner residual illustration: pure arithmetic and the wording shown with it. Used by the React component
+// (client/src/components/public/PartnerResidualCalculator.tsx), the server-rendered pages and
+// scripts/test-partner-residual-calculator.ts.
 //
-// Monthly income = merchants x average monthly volume x (bps / 10,000) x partner split.
-// Annualized income = monthly income x 12.
+// Eligible monthly portfolio residual = merchants x average monthly card volume x (bps / 10,000).
+// Monthly illustrative partner compensation = eligible residual x approved illustration share / 100.
+// Annualized illustration = monthly x 12.
 //
-// The basis-point figure is the visitor's own assumption about the Liberty residual that is left after processor
-// costs and the processor's share, before the partner split. Nothing here knows an approved yield, an approved split
-// or a portfolio average, which is why the splits are labelled "subject to approved compensation terms" and the
-// disclosure travels with every result.
+// The basis-point figure is the visitor's own assumption about the eligible Liberty residual yield after upstream
+// processor costs and share, before partner allocation. Nothing here knows an approved yield or a portfolio average.
+//
+// The share used for a result comes only from two places: the qualified sales-agent 50% term (approved for public
+// use) and the published referral policy projection (shared/partner-public-content.ts). This module contains no
+// proposed or unapproved referral share. With no approved projection a referral result is the gated message, never
+// a number, a zero or a hidden value. Private fixture rates live only in the test script.
 //
 // No database or server imports: the client bundle imports this file.
 
+import {
+  DEFAULT_REFERRAL_POLICY,
+  REFERRAL_RESULT_GATED_MESSAGE,
+  type PartnerPathId,
+  type PartnerReferralPolicy,
+} from "./partner-public-content";
+
 export const PARTNER_RESIDUAL_BPS = { min: 25, max: 150, step: 1, default: 100 } as const;
 
-export type PartnerResidualTypeId = "sales_agent" | "referral_partner";
+/** Qualified self-sourced full-cycle sales-agent share: the one numeric term approved for public use. */
+export const PARTNER_AGENT_SHARE_PERCENT = 50;
 
-export const PARTNER_RESIDUAL_TYPES: readonly { id: PartnerResidualTypeId; label: string; splitPercent: number }[] = [
-  { id: "sales_agent", label: "Sales Agent", splitPercent: 50 },
-  { id: "referral_partner", label: "Referral Partner", splitPercent: 15 },
+export const PARTNER_RESIDUAL_PATHS: readonly { id: PartnerPathId; label: string }[] = [
+  { id: "referral", label: "Referral partner" },
+  { id: "sales_agent", label: "Sales agent (qualifying self-sourced, full-cycle business)" },
 ];
 
 export const PARTNER_RESIDUAL_DEFAULTS = {
   merchants: "20",
   avgMonthlyVolume: "100000",
-  partnerType: "sales_agent" as PartnerResidualTypeId,
+  path: "referral" as PartnerPathId,
 } as const;
 
-/** Upper bounds keep every product finite and well inside double precision. */
+/** Upper bounds keep every product finite and well inside double precision. Zero is a valid input and gives $0. */
 export const PARTNER_RESIDUAL_LIMITS = {
-  merchants: { min: 1, max: 100_000, label: "Number of active merchants" },
-  avgMonthlyVolume: { min: 1, max: 100_000_000, label: "Average monthly card volume per merchant" },
+  merchants: { min: 0, max: 100_000, label: "Number of active merchants" },
+  avgMonthlyVolume: { min: 0, max: 100_000_000, label: "Average monthly card volume per merchant" },
 } as const;
 
 export const PARTNER_RESIDUAL_COPY = {
-  bpsExplanation:
-    "100 bps = 1% of processing volume, payable to Liberty after processor costs and the processor’s share, before your split.",
-  splitNote: "Sales Agent at 50% or Referral Partner at 15%, subject to approved compensation terms.",
-  formula: "Monthly income = merchants × average monthly volume × (bps ÷ 10,000) × partner split. Annualized income = monthly income × 12.",
+  heading: "Explore a hypothetical portfolio.",
+  yieldLabel: "Eligible Liberty residual yield after upstream processor costs/share, before partner allocation.",
+  yieldHelper: "Basis points describe residual yield here, not a quoted merchant processing rate.",
+  monthlyLabel: "Illustrative monthly compensation",
+  annualLabel: "Illustrative annualized compensation",
+  agentQualification: "Qualifying self-sourced, full-cycle business under a signed compensation schedule.",
+  formula: "Monthly = merchants × average monthly volume × (bps ÷ 10,000) × share. Annualized = monthly × 12.",
   disclosure:
-    "Illustrative scenarios—not verified portfolio averages or guaranteed earnings. The default 100-bps assumption is a generous example. Actual residuals vary by merchant pricing, processing costs, activity, and agreement terms. Annualized income assumes the illustrated monthly level continues for 12 months.",
+    "These figures are hypothetical, not guaranteed earnings or a verified portfolio average. The default 100-basis-point assumption is a generous illustration, not evidence of Liberty’s actual average yield. Actual eligible residual varies with merchant mix, pricing, processor costs/share, activity, eligibility and your agreement. Annualized figures assume the same activity for 12 months and do not model churn or growth. This is not an estimate of Liberty’s net profit.",
+  cta: "Discuss your partnership",
+  gated: REFERRAL_RESULT_GATED_MESSAGE,
 } as const;
 
 export type PartnerResidualField = keyof typeof PARTNER_RESIDUAL_LIMITS;
@@ -71,33 +89,48 @@ export function parsePartnerResidualField(field: PartnerResidualField, raw: stri
   return { kind: "ok", value };
 }
 
-export function partnerResidualSplitPercent(typeId: PartnerResidualTypeId): number {
-  const type = PARTNER_RESIDUAL_TYPES.find((t) => t.id === typeId);
-  if (!type) throw new Error(`Unknown partner type: ${typeId}`);
-  return type.splitPercent;
-}
-
 /** Keeps a bps value inside the slider range; anything non-finite falls back to the default. */
 export function clampPartnerResidualBps(bps: number): number {
   if (!Number.isFinite(bps)) return PARTNER_RESIDUAL_BPS.default;
   return Math.min(PARTNER_RESIDUAL_BPS.max, Math.max(PARTNER_RESIDUAL_BPS.min, bps));
 }
 
+/** Explicit validation of an editable bps value (the slider constrains itself; a typed value does not). */
+export function validatePartnerResidualBps(bps: number): { ok: true } | { ok: false; message: string } {
+  if (!Number.isFinite(bps)) return { ok: false, message: "Enter a number of basis points." };
+  if (!Number.isInteger(bps)) return { ok: false, message: "Basis points must be a whole number." };
+  if (bps < PARTNER_RESIDUAL_BPS.min || bps > PARTNER_RESIDUAL_BPS.max) {
+    return { ok: false, message: `Basis points must be between ${PARTNER_RESIDUAL_BPS.min} and ${PARTNER_RESIDUAL_BPS.max}.` };
+  }
+  return { ok: true };
+}
+
 export type PartnerResidualResult = { monthly: number; annualized: number };
 
 /**
- * merchants x avgMonthlyVolume x (bps / 10,000) x (splitPercent / 100), computed as one division of the integer-valued
+ * merchants x avgMonthlyVolume x (bps / 10,000) x (sharePercent / 100), at full precision as one division of the
  * product so the documented check cases come out exact (20 x $100,000 x 100 bps x 50% = $10,000 a month).
  */
 export function calculatePartnerResidual(input: {
   merchants: number;
   avgMonthlyVolume: number;
   bps: number;
-  splitPercent: number;
+  sharePercent: number;
 }): PartnerResidualResult {
-  const monthly = (input.merchants * input.avgMonthlyVolume * input.bps * input.splitPercent) / (10_000 * 100);
+  const monthly = (input.merchants * input.avgMonthlyVolume * input.bps * input.sharePercent) / (10_000 * 100);
   return { monthly, annualized: monthly * 12 };
 }
+
+/** The partner share the illustration may use for a path, or null when no publishable share exists for it. */
+export function illustrationShareForPath(path: PartnerPathId, policy: PartnerReferralPolicy = DEFAULT_REFERRAL_POLICY): number | null {
+  if (path === "sales_agent") return PARTNER_AGENT_SHARE_PERCENT;
+  return policy.state === "approved" ? policy.sharePercent : null;
+}
+
+export type PartnerIllustration =
+  | { kind: "incomplete" }
+  | { kind: "gated"; message: string }
+  | { kind: "amount"; monthly: number; annualized: number; sharePercent: number; bps: number };
 
 /** Whole dollars when the amount is whole, otherwise dollars and cents. */
 export function formatPartnerResidualUsd(amount: number): string {
@@ -108,4 +141,28 @@ export function formatPartnerResidualUsd(amount: number): string {
     minimumFractionDigits: whole ? 0 : 2,
     maximumFractionDigits: whole ? 0 : 2,
   });
+}
+
+/**
+ * One decision for the whole illustration. A referral path without an approved projection returns the gated message
+ * (no amount at all); an incomplete or invalid input returns "incomplete" rather than a fabricated value.
+ */
+export function illustratePartnerResidual(input: {
+  path: PartnerPathId;
+  merchants: ParsedPartnerResidualField;
+  avgMonthlyVolume: ParsedPartnerResidualField;
+  bps: number;
+  policy?: PartnerReferralPolicy;
+}): PartnerIllustration {
+  const share = illustrationShareForPath(input.path, input.policy ?? DEFAULT_REFERRAL_POLICY);
+  if (share === null) return { kind: "gated", message: PARTNER_RESIDUAL_COPY.gated };
+  if (input.merchants.kind !== "ok" || input.avgMonthlyVolume.kind !== "ok") return { kind: "incomplete" };
+  if (!validatePartnerResidualBps(input.bps).ok) return { kind: "incomplete" };
+  const { monthly, annualized } = calculatePartnerResidual({
+    merchants: input.merchants.value,
+    avgMonthlyVolume: input.avgMonthlyVolume.value,
+    bps: input.bps,
+    sharePercent: share,
+  });
+  return { kind: "amount", monthly, annualized, sharePercent: share, bps: input.bps };
 }

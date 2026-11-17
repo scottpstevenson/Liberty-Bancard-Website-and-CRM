@@ -66,10 +66,11 @@ const EXEMPT_FILES = new Set([
   //   All calls are pre-auth or use reset tokens, not session cookies.
   "client/src/pages/PartnerLogin.tsx",
   // PUBLIC_FLOW: partner portal — partner login, logout, and password reset flows
-  //   All calls are pre-auth or token-authenticated.
+  //   All calls are pre-auth or token-authenticated. The authenticated introduction submission lives in
+  //   components/partner/PartnerIntroductionsTab.tsx, which is scanned (it attaches X-CSRF-Token itself).
   "client/src/pages/PartnerPortal.tsx",
-  // PUBLIC_FLOW: affiliate program — signup, login, logout, track-click
-  //   All calls are public registration/auth flows.
+  // PUBLIC_FLOW: affiliate program — existing-account login, logout, track-click (signup is retired and answers 410)
+  //   All calls are pre-auth or the affiliate's own logout; no staff session cookie is involved.
   "client/src/pages/AffiliateProgram.tsx",
   // PUBLIC_FLOW: partner-branded landing page — contacts/public, statements/upload
   //   Public form submission endpoints, no session cookie required.
@@ -79,8 +80,6 @@ const EXEMPT_FILES = new Set([
   "client/src/components/ChatWidget.tsx",
   // TOKEN_AUTH_FLOW: co-branded proposal viewer — accept via URL token, not session cookie
   "client/src/pages/CoBrandedProposalViewer.tsx",
-  // PUBLIC_FLOW: ISO partner program application — public partner application form
-  "client/src/pages/ISOPartnerProgram.tsx",
   // TOKEN_AUTH_FLOW: NPS survey — token-authenticated submit + public review click tracking
   //   Token comes from email link; no session cookie involved.
   "client/src/pages/NpsSurvey.tsx",

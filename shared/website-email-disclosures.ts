@@ -16,6 +16,7 @@ export const WEBSITE_EMAIL_DISCLOSURE_SURFACES = [
   "get_started_form",
   "free_analysis",
   "newsletter_signup",
+  "partner_application",
 ] as const;
 export type WebsiteEmailDisclosureSurface = (typeof WEBSITE_EMAIL_DISCLOSURE_SURFACES)[number];
 
@@ -50,6 +51,15 @@ export const WEBSITE_EMAIL_DISCLOSURES: readonly WebsiteEmailDisclosure[] = [
     label:
       "Send me the Liberty Bancard newsletter and occasional card-processing tips by email.",
     helper: "You can unsubscribe from any email at any time.",
+  },
+  {
+    id: "partner_application_email_marketing@1",
+    key: "partner_application_email_marketing",
+    version: 1,
+    surfaces: ["partner_application"],
+    label: "I would also like marketing updates from Liberty Bancard.",
+    helper:
+      "Optional. Your application is reviewed whether or not you check this box. Updates are sent by email and you can unsubscribe from any email at any time.",
   },
 ] as const;
 

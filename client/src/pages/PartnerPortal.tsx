@@ -16,6 +16,8 @@ import {
   TrendingDown, Building2, Loader2,
 } from "lucide-react";
 import { captureAuthActionToken } from "@/lib/auth-action-fragment";
+import { PartnerIntroductionsTab } from "@/components/partner/PartnerIntroductionsTab";
+import { formatPartnerTerms } from "@shared/partner-public-content";
 
 type PortalView = "login" | "dashboard" | "forgot" | "reset";
 
@@ -26,7 +28,7 @@ interface PartnerData {
     email: string;
     status: string;
     partnerType: string;
-    commissionPercent: number;
+    commissionPercent: number | null;
     totalPayouts: string | null;
   };
   kpis: {
@@ -160,7 +162,7 @@ function QuickStartTab({ partner, kpis, referralLink, copyLink }: QuickStartTabP
               { icon: <MousePointerClick className="w-4 h-4 text-primary shrink-0" />, tip: "Always use your pre-tagged link so referrals are automatically attributed to your account." },
               { icon: <CalendarDays className="w-4 h-4 text-primary shrink-0" />, tip: "Follow up with referred merchants within 24 hours — your introduction increases approval rates." },
               { icon: <DollarSign className="w-4 h-4 text-primary shrink-0" />, tip: "Merchants processing $20K+/month are your highest-value referrals. Prioritize restaurants, retail, and med-spas." },
-              { icon: <Users className="w-4 h-4 text-primary shrink-0" />, tip: "Your commission is recurring — every month your merchant processes, you earn. Refer more to build a passive income stream." },
+              { icon: <Users className="w-4 h-4 text-primary shrink-0" />, tip: "Earnings follow your written agreement and depend on each merchant being approved and processing. No earnings are guaranteed." },
             ].map((item, i) => (
               <div key={i} className="flex items-start gap-2.5 p-3 bg-muted/30 rounded-lg border border-border/50">
                 {item.icon}
@@ -856,7 +858,7 @@ export default function PartnerPortal() {
                 </div>
                 <div className="ml-auto text-right">
                   <p className="text-xs text-muted-foreground">Your Split</p>
-                  <p className="text-sm font-semibold text-primary">{partner.commissionPercent}%</p>
+                  <p className="text-sm font-semibold text-primary" data-testid="text-partner-terms">{formatPartnerTerms(partner.commissionPercent)}</p>
                 </div>
               </CardContent>
             </Card>
@@ -867,6 +869,7 @@ export default function PartnerPortal() {
                 <TabsTrigger value="quickstart" data-testid="tab-quickstart">Quick Start</TabsTrigger>
                 <TabsTrigger value="pipeline" data-testid="tab-pipeline">My Pipeline</TabsTrigger>
                 <TabsTrigger value="earnings" data-testid="tab-earnings">Earnings</TabsTrigger>
+                <TabsTrigger value="introductions" data-testid="tab-introductions">Introduce a business</TabsTrigger>
                 <TabsTrigger value="merchants" data-testid="tab-merchants">Merchants</TabsTrigger>
                 <TabsTrigger value="collateral" data-testid="tab-collateral">Collateral</TabsTrigger>
                 <TabsTrigger value="account" data-testid="tab-account">Account</TabsTrigger>
@@ -882,6 +885,10 @@ export default function PartnerPortal() {
 
               <TabsContent value="earnings">
                 <PartnerEarningsTab />
+              </TabsContent>
+
+              <TabsContent value="introductions">
+                <PartnerIntroductionsTab partnerCode={partner.code} partnerActive={partner.status === "active"} />
               </TabsContent>
 
               <TabsContent value="merchants">
@@ -1023,7 +1030,7 @@ export default function PartnerPortal() {
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground mb-1">Revenue Share</p>
-                        <p className="text-sm font-medium text-foreground">{partner.commissionPercent}% of net processing revenue</p>
+                        <p className="text-sm font-medium text-foreground">{typeof partner.commissionPercent === "number" ? `${partner.commissionPercent}% of net processing revenue` : "Terms pending: confirmed in your written agreement"}</p>
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground mb-1">Referral Code</p>

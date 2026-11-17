@@ -50,6 +50,8 @@ const Integrations = lazy(() => import("@/pages/Integrations"));
 const FAQ = lazy(() => import("@/pages/FAQ"));
 const AffiliateProgram = lazy(() => import("@/pages/AffiliateProgram"));
 const ISOPartnerProgram = lazy(() => import("@/pages/ISOPartnerProgram"));
+const PartnerReferralApplication = lazy(() => import("@/pages/PartnerReferralApplication"));
+const PartnerSalesAgentApplication = lazy(() => import("@/pages/PartnerSalesAgentApplication"));
 const PartnerCPA = lazy(() => import("@/pages/PartnerCPA"));
 const PartnerBookkeeper = lazy(() => import("@/pages/PartnerBookkeeper"));
 const PartnerInsurance = lazy(() => import("@/pages/PartnerInsurance"));
@@ -522,6 +524,8 @@ function Router() {
         <Route path="/integrations" component={Integrations} />
         <Route path="/faq" component={FAQ} />
         <Route path="/affiliate" component={AffiliateProgram} />
+        <Route path="/partners/referrals" component={PartnerReferralApplication} />
+        <Route path="/partners/sales-agents" component={PartnerSalesAgentApplication} />
         <Route path="/partners/cpa" component={PartnerCPA} />
         <Route path="/partners/bookkeeper" component={PartnerBookkeeper} />
         <Route path="/partners/insurance" component={PartnerInsurance} />

@@ -3,7 +3,7 @@ import { ProbeResult } from "./ghl-sync";
 const PROBE_ENDPOINTS = [
   { path: "/api/contacts/public", label: "public contact form" },
   { path: "/api/merchant-applications/draft", label: "merchant app draft" },
-  { path: "/api/affiliate/signup", label: "affiliate signup" },
+  { path: "/api/partner-apply", label: "partner application" },
   { path: "/api/public/chat/session", label: "live chat session init" },
   { path: "/api/data-requests", label: "data request form" },
   { path: "/api/public/free-analysis", label: "free analysis form" },

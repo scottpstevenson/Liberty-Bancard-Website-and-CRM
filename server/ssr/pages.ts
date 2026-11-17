@@ -763,53 +763,60 @@ export function getAffiliateProgramHtml(): string {
   const schema = {
     "@context": "https://schema.org",
     "@type": "WebPage",
-    name: "Affiliate Program | Earn Residual Income | Liberty Bancard",
-    description: "Refer merchants to Liberty Bancard and earn ongoing residual income. Competitive commissions, real-time tracking, and dedicated affiliate support.",
+    name: AFFILIATE_PAGE.title,
+    description: AFFILIATE_PAGE.description,
     url: `${BASE_URL}/affiliate`,
   };
   const body = `
   <div class="ssr-hero">
     <div class="ssr-hero-inner">
-      <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Affiliate Program</span></div>
-      <div class="ssr-hero-badge">💼 Residual Income Opportunity</div>
+      <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Affiliate and referral accounts</span></div>
+      <div class="ssr-hero-badge">Affiliate and referral accounts</div>
       <h1>${AFFILIATE_PAGE.heading}</h1>
-      <p class="ssr-hero-subtitle">Refer businesses to Liberty Bancard and earn ongoing commissions as long as they process. Real-time tracking, competitive payouts, and dedicated support.</p>
+      <p class="ssr-hero-subtitle">${AFFILIATE_PAGE.intro}</p>
       <div class="ssr-hero-buttons">
-        <a href="/affiliate#signup" class="ssr-btn-primary">💼 Join the Affiliate Program</a>
-        <a href="/free-analysis" class="ssr-btn-outline">📞 Talk to Our Team</a>
+        <a href="/partners/referrals#apply" class="ssr-btn-primary">Apply as a referral partner</a>
+        <a href="/partners" class="ssr-btn-outline">Compare partnership paths</a>
       </div>
     </div>
   </div>
 
   <section class="ssr-section ssr-section-muted">
     <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">How the Affiliate Program Works</h2>
+      <h2 class="ssr-section-heading">Already an affiliate? Nothing changes for you.</h2>
       <div class="ssr-grid-3">
-        <div class="ssr-card" style="text-align:center;">
-          <div style="font-size:2rem;margin-bottom:0.75rem;">1️⃣</div>
-          <div class="ssr-card-title">Sign Up Free</div>
-          <div class="ssr-card-text">Create your affiliate account and get a unique referral code and tracking link. No cost to join.</div>
+        <div class="ssr-card">
+          <div class="ssr-card-title">Your link keeps working</div>
+          <div class="ssr-card-text">Existing affiliate links, codes and history are unchanged. Sign in to reach your dashboard.</div>
         </div>
-        <div class="ssr-card" style="text-align:center;">
-          <div style="font-size:2rem;margin-bottom:0.75rem;">2️⃣</div>
-          <div class="ssr-card-title">Refer Merchants</div>
-          <div class="ssr-card-text">Share your link with businesses that accept credit cards. Restaurants, retail, healthcare, service businesses — any merchant qualifies.</div>
+        <div class="ssr-card">
+          <div class="ssr-card-title">You introduce, Liberty sells</div>
+          <div class="ssr-card-text">Our team handles the statement review, the sales conversation and onboarding.</div>
         </div>
-        <div class="ssr-card" style="text-align:center;">
-          <div style="font-size:2rem;margin-bottom:0.75rem;">3️⃣</div>
-          <div class="ssr-card-title">Earn Ongoing Residuals</div>
-          <div class="ssr-card-text">Earn a commission on every merchant's monthly processing volume — for as long as they're a Liberty Bancard customer.</div>
+        <div class="ssr-card">
+          <div class="ssr-card-title">Terms in writing</div>
+          <div class="ssr-card-text">Compensation is set in your written agreement, not on this page.</div>
         </div>
       </div>
     </div>
   </section>
-  ${ctaSection("Start Earning Today", "Join the Liberty Bancard affiliate program. Free to join, competitive commissions, real-time reporting.")}`;
+
+  <section class="ssr-section ssr-section-dark">
+    <div class="ssr-section-inner ssr-cta-section">
+      <h2>Ready to apply?</h2>
+      <p>Your application is reviewed by Liberty Bancard. We confirm terms in writing before any work begins.</p>
+      <div class="ssr-cta-buttons">
+        <a href="/partners/referrals#apply" class="ssr-btn-primary">Apply as a referral partner</a>
+        <a href="/partners" class="ssr-btn-outline">Compare partnership paths</a>
+      </div>
+    </div>
+  </section>`;
 
   return ssrHtmlShell({
     title: AFFILIATE_PAGE.title,
-    description: "Join the Liberty Bancard affiliate program. Earn ongoing residual income for every merchant you refer. Free to join, competitive commissions, real-time tracking.",
+    description: AFFILIATE_PAGE.description,
     canonical: "/affiliate",
-    keywords: "payment processing affiliate program, merchant services affiliate, residual income payments, refer merchant services, ISO agent program",
+    keywords: "affiliate account, referral partner, payment processing referral",
     schemaJsons: [schema],
     body,
   });

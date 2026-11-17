@@ -13,14 +13,9 @@ import { DateValidationError } from "../utils/date-coerce";
 import { insertPartnerSchema, insertReferralSchema } from "@shared/schema";
 import type { InsertPartner } from "@shared/schema";
 import bcrypt from "bcryptjs";
-import crypto from "crypto";
-import { createContactLocalFirst } from "../services/contact-writer";
-import { createPartnerAccount, PARTNER_EMAIL_IN_USE } from "../services/partner-account";
-import { claimPublicInbound } from "../services/public-inbound-intake";
-import { orchestrateInboundRequest, setInboundRequestLifecycle } from "../services/inbound-request-authority";
-import { describeAckReceiptState } from "../services/inbound-acknowledgement";
-import { syncFormSubmissionToGhl, syncAffiliateSignupToGhl } from "../services/ghl-form-sync";
+import { createPartnerAccount, partnerMayHoldCredential, PARTNER_EMAIL_IN_USE } from "../services/partner-account";
 import { updatePartnerWithApproval, listPartnerDeliveries, resendPartnerDelivery } from "../services/partner-approval-delivery";
+import { getApplicationForPartner } from "../services/partner-application";
 import { isGhlConfigured, sendGhlPartnerTransactionalEmail } from "../services/ghl";
 import { sendSmtpEmail, isSmtpConfigured } from "../services/smtp-email";
 import { logOperationalDiagnostic, serverError } from "../utils/server-error";
@@ -54,6 +49,11 @@ async function consumePartnerPassword(token: string, purpose: "partner_password_
       if (subject.type !== "partner") return false;
       const [partner] = await tx.select().from(partners).where(eq(partners.id, Number(subject.id)));
       if (!partner) return false;
+      // An invitation is only usable while the partner is still approved: a declined, suspended or deactivated partner
+      // cannot complete one that was issued earlier.
+      if (purpose === "partner_invite" && partner.status !== "active") return false;
+      // Neither an invitation nor a reset may create the first credential for an application that is not accepted.
+      if (!(await partnerMayHoldCredential(partner, tx))) return false;
       // Validate all ownership/role invariants before changing either
       // credential record; a false result rolls back the claimed action too.
       const normalizedEmail = partner.email?.toLowerCase();
@@ -113,6 +113,13 @@ export function numericPartnerIdOnly(req: any, res: any, next: (arg?: any) => vo
   next();
 }
 
+/** A recorded commission term is a whole number 1-100. Absent/null means "no terms"; anything else is invalid, never coerced. */
+export function parseCommissionTerms(value: unknown): { ok: true; value: number | null } | { ok: false } {
+  if (value === undefined || value === null) return { ok: true, value: null };
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 100) return { ok: false };
+  return { ok: true, value };
+}
+
 export function registerPartnersRoutes(app: Express) {
   // === PARTNERS (admin) ===
   app.get("/api/partners", isDashboardUser, async (req, res) => {
@@ -139,6 +146,14 @@ export function registerPartnersRoutes(app: Express) {
   app.post("/api/partners", requireRole("admin"), async (req, res) => {
     try {
       const input = insertPartnerSchema.parse(req.body);
+      // No default terms: the column default (10) is never applied to a partner an administrator creates. Terms are either
+      // explicit (1-100) or absent, and an active partner must have them.
+      const terms = parseCommissionTerms(req.body?.commissionPercent);
+      if (!terms.ok) return res.status(400).json({ message: "Commission terms must be a whole number from 1 to 100.", field: "commissionPercent", code: "INVALID_COMMISSION_PERCENT" });
+      input.commissionPercent = terms.value;
+      if (input.status === "active" && terms.value === null) {
+        return res.status(400).json({ message: "Record the commission terms from the written agreement before creating an active partner.", field: "commissionPercent", code: "TERMS_REQUIRED" });
+      }
       const partner = await createPartnerWithCredential(input);
       privatePartnerResponse(res);
       res.status(201).json(toPartnerOperatorRecord(partner));
@@ -154,15 +169,39 @@ export function registerPartnersRoutes(app: Express) {
 
   app.patch("/api/partners/:id", numericPartnerIdOnly, requireRole("admin"), async (req, res) => {
     try {
-      const { status, commissionPercent, notes } = req.body;
+      const { status, commissionPercent, notes } = req.body ?? {};
       const updates: Partial<InsertPartner> = {};
       if (status && ["active", "pending", "suspended", "inactive"].includes(status)) updates.status = status;
-      if (commissionPercent !== undefined) updates.commissionPercent = Math.min(Math.max(0, Number(commissionPercent) || 0), 100);
+      if (commissionPercent !== undefined) {
+        // Never coerce: "abc" or "" must not become 0% terms. Only a whole number 1-100 is a recorded term.
+        const terms = parseCommissionTerms(commissionPercent);
+        if (!terms.ok || terms.value === null) {
+          return res.status(400).json({ message: "Commission terms must be a whole number from 1 to 100.", field: "commissionPercent", code: "INVALID_COMMISSION_PERCENT" });
+        }
+        updates.commissionPercent = terms.value;
+      }
       if (notes !== undefined) updates.notes = String(notes).slice(0, 2000);
 
       const partnerId = Number(req.params.id);
       const existing = await storage.getPartner(partnerId);
       if (!existing) return res.status(404).json({ message: "Not found" });
+
+      if (updates.status === "active" && existing.status !== "active") {
+        // An application-backed partner is approved only through the application decision, which records the terms, the
+        // schedule reference and the decision together. A direct status change would skip that review.
+        const application = await getApplicationForPartner(partnerId);
+        if (application && (application.reviewStatus === "pending_review" || application.reviewStatus === "needs_info")) {
+          return res.status(409).json({ message: "Approve this partner from the application review.", code: "USE_APPLICATION_DECISION" });
+        }
+        // Approving a pending partner requires terms stated in this request; a stored default is not an agreement.
+        if (existing.status === "pending" && updates.commissionPercent === undefined) {
+          return res.status(400).json({ message: "Record the commission terms from the written agreement to approve this partner.", field: "commissionPercent", code: "TERMS_REQUIRED" });
+        }
+        const effectiveTerms = updates.commissionPercent ?? existing.commissionPercent;
+        if (effectiveTerms === null || effectiveTerms === undefined) {
+          return res.status(400).json({ message: "Record the commission terms from the written agreement to activate this partner.", field: "commissionPercent", code: "TERMS_REQUIRED" });
+        }
+      }
 
       // Status change and, on approval, the durable invite/welcome intent commit together; the delivery worker executes it.
       const applied = await updatePartnerWithApproval(partnerId, updates);
@@ -175,6 +214,20 @@ export function registerPartnersRoutes(app: Express) {
             const partnerEmail = updated.email?.trim().toLowerCase();
             if (!partnerEmail) {
               logOperationalDiagnostic("partner_approval_enrollment", new Error("missing partner email"), "no_email", { partnerId });
+              return;
+            }
+
+            // Fail closed: a sequence follows an approval only when the partner's own application recorded the optional
+            // marketing opt-in. Acceptance of an application is not marketing consent.
+            const application = await getApplicationForPartner(partnerId);
+            if (!application?.marketingOptIn) {
+              await (storage as any).createAuditLog({
+                action: "partner_approved_sequence_skip",
+                entityType: "partner",
+                entityId: partnerId,
+                details: { reason: application ? "no_marketing_opt_in" : "no_application_marketing_evidence" },
+                type: "info",
+              });
               return;
             }
 
@@ -248,137 +301,9 @@ export function registerPartnersRoutes(app: Express) {
     }
   });
 
-  // === PUBLIC ISO/PARTNER APPLICATION ===
-  app.post("/api/partner-apply", publicLeadRateLimit, async (req, res) => {
-    try {
-      const {
-        firstName, lastName, email, phone, companyName,
-        numberOfClients, referralType, password,
-      } = req.body;
+  // The public application (POST /api/partner-apply) lives in routes/partner-program.ts: it is a reviewed request with no
+  // password, login or commission terms.
 
-      if (!firstName || typeof firstName !== "string" || firstName.length > 100) {
-        return res.status(400).json({ message: "Valid first name is required." });
-      }
-      if (!email || typeof email !== "string" || !email.includes("@") || email.length > 200) {
-        return res.status(400).json({ message: "Valid email is required." });
-      }
-      if (!phone || typeof phone !== "string" || phone.length > 30) {
-        return res.status(400).json({ message: "Valid phone number is required." });
-      }
-      if (!password || typeof password !== "string" || password.length < 6) {
-        return res.status(400).json({ message: "Password must be at least 6 characters." });
-      }
-
-      // Claim the occurrence before any write. The password is never part of the fingerprint input.
-      const { password: _omitPassword, ...claimPayload } = req.body;
-      const inbound = await claimPublicInbound(req, res, ["website_form", "partner_application"], claimPayload, {
-        onReplay: async (request) => (await import("../services/partner-application-intake")).resumePartnerApplication(request, "partner"),
-      });
-      if (!inbound) return;
-      const failApplication = async (status: number, body: Record<string, unknown>) => {
-        await setInboundRequestLifecycle(inbound.id, "failed", `HTTP_${status}`).catch(() => undefined);
-        return res.status(status).json(body);
-      };
-
-      const existing = await storage.getPartnerByEmail(email.toLowerCase());
-      if (existing) {
-        return failApplication(409, { message: "A partner account with this email already exists." });
-      }
-
-      const existingAuthUser = await authStorage.getUserByEmail(email.toLowerCase());
-      if (existingAuthUser && existingAuthUser.role !== "partner") {
-        return failApplication(409, { message: "An account with this email already exists. Please use a different email address." });
-      }
-
-      let code = "";
-      for (let attempt = 0; attempt < 5; attempt++) {
-        const prefix = (firstName.slice(0, 3) + (lastName?.slice(0, 3) || "") + Math.random().toString(36).slice(2, 6)).toLowerCase().replace(/[^a-z0-9]/g, "");
-        const dup = await storage.getPartnerByCode(prefix);
-        if (!dup) { code = prefix; break; }
-      }
-
-      const passwordHash = await bcrypt.hash(password, 12);
-
-      const partnerTypeMap: Record<string, string> = {
-        iso: "iso_agent",
-        referral: "referral",
-        "white-label": "strategic",
-        cpa: "referral",
-        bookkeeper: "referral",
-        consultant: "referral",
-      };
-      const mappedType = partnerTypeMap[referralType] || "referral";
-
-      const notesText = [
-        numberOfClients ? `Number of clients: ${numberOfClients}` : "",
-        referralType ? `Referral type: ${referralType}` : "",
-      ].filter(Boolean).join(" | ");
-
-      let partner;
-      try {
-        partner = await createPartnerWithCredential({
-        companyName: (companyName || `${firstName} ${lastName || ""}`.trim()).slice(0, 200),
-        contactName: `${firstName} ${lastName || ""}`.trim().slice(0, 200),
-        email: email.toLowerCase().slice(0, 200),
-        phone: phone.slice(0, 30),
-        passwordHash,
-        partnerType: mappedType,
-        affiliateCode: code,
-        status: "pending",
-        commissionPercent: mappedType === "iso_agent" ? 50 : 10,
-        notes: notesText || null,
-        }, inbound.id);
-      } catch (accountErr: any) {
-        if (accountErr?.message === PARTNER_EMAIL_IN_USE) return failApplication(409, { message: "A partner account with this email already exists." });
-        throw accountErr;
-      }
-
-      // Local work (contact via the partner source contract, review notification with owner/due time, request
-      // orchestration) is completed by one repeatable routine, so a replay of a partial occurrence resumes it.
-      const { completePartnerApplicationLocal } = await import("../services/partner-application-intake");
-      const completed = await completePartnerApplicationLocal(inbound, partner as any, "partner");
-      const { localContactId, contactRecorded, reviewNotified, emailReceipt } = completed;
-
-      if (localContactId) {
-        syncFormSubmissionToGhl({
-          contactId: localContactId,
-          leadSource: "iso_partner" as any,
-          formData: {
-            lb_referral_code: partner.affiliateCode || "",
-            partner_type: referralType || mappedType,
-            number_of_clients: numberOfClients || "",
-          },
-        }).catch(err => logOperationalDiagnostic("partner_application_sync", err, "form_sync_failed", { partnerId: partner.id }));
-      }
-
-      syncAffiliateSignupToGhl({
-        firstName,
-        lastName: lastName || "",
-        email,
-        phone,
-        companyName: companyName || undefined,
-        affiliateCode: partner.affiliateCode || code,
-      }).catch(err => logOperationalDiagnostic("partner_application_sync", err, "affiliate_sync_failed", { partnerId: partner.id }));
-
-      return res.status(201).json({
-        message: "Application received. Our team will review it and contact you at the email you provided.",
-        affiliateCode: partner.affiliateCode,
-        partnerType: mappedType,
-        receipt: {
-          applicationRecorded: true,
-          reviewQueued: reviewNotified,
-          contactRecorded,
-          // "queued" = the receipt owner will attempt a receipt email; "not_enabled" = none will be sent.
-          emailReceipt,
-          requestReceipt: inbound.id,
-        },
-      });
-    } catch (err: any) {
-      serverError(res, err);
-    }
-  });
-
-  // === PARTNER PORTAL AUTH ===
   app.post("/api/partner/login", partnerLoginRateLimit, async (req, res) => {
     try {
       const { email, password } = req.body;
@@ -391,6 +316,10 @@ export function registerPartnersRoutes(app: Express) {
       }
       const valid = await bcrypt.compare(password, partner.passwordHash);
       if (!valid) {
+        return res.status(401).json({ message: "Invalid email or password." });
+      }
+      // Defense in depth: an application that is not accepted never opens a session, even if a credential somehow exists.
+      if (!(await partnerMayHoldCredential(partner))) {
         return res.status(401).json({ message: "Invalid email or password." });
       }
       if (partner.partnerType === "affiliate") {
@@ -457,7 +386,9 @@ export function registerPartnersRoutes(app: Express) {
         return res.status(400).json({ message: "Email is required." });
       }
       const partner = await storage.getPartnerByEmail(email.toLowerCase());
-      if (partner) {
+      // The answer is identical for an unknown address and for a partner who may not hold a credential (an application
+      // that is not accepted): no token is issued and nothing reveals which case applied.
+      if (partner && await partnerMayHoldCredential(partner)) {
          const resetAction = await issueAuthAction({
            purpose: "partner_password_reset", subject: { type: "partner", id: partner.id }, ttlMs: 60 * 60 * 1000,
          });
@@ -541,6 +472,10 @@ ${getEmailSignatureHtml("partners")}
       if (!valid) {
         return res.status(401).json({ message: "Invalid email or password." });
       }
+      // Defense in depth: an application that is not accepted never opens a session, even if a credential somehow exists.
+      if (!(await partnerMayHoldCredential(partner))) {
+        return res.status(401).json({ message: "Invalid email or password." });
+      }
 
       let user = await authStorage.getUserByEmail(email.toLowerCase());
       if (!user) {
@@ -604,7 +539,9 @@ ${getEmailSignatureHtml("partners")}
         return res.status(400).json({ message: "Email is required." });
       }
       const partner = await storage.getPartnerByEmail(email.toLowerCase());
-      if (partner) {
+      // The answer is identical for an unknown address and for a partner who may not hold a credential (an application
+      // that is not accepted): no token is issued and nothing reveals which case applied.
+      if (partner && await partnerMayHoldCredential(partner)) {
          const resetAction = await issueAuthAction({
            purpose: "partner_password_reset", subject: { type: "partner", id: partner.id }, ttlMs: 60 * 60 * 1000,
          });
