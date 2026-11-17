@@ -254,3 +254,12 @@ The label `partner_introduction_permission@1` is the stored version of the permi
 - The migration suite (`test-partner-program-migration`) now has 162 checks (was 154) and exit 0: the ledger gets exactly 0384, 0385 and 0386 in order; after a fresh install, an upgrade, the 0385-over-historic-rows case, a partial-schema convergence and a replay, both checks exist and are validated. `check-migration-integrity` passes with the new journal entry.
 
 **Not proven.** The real Publish was not re-run (the owner publishes); production is unchanged. This proves the generated SQL is valid and applies to production's shape, not that Publish will finish or that the production recovery heartbeat clears. After the re-Publish the production read-back in F2 still has to be done.
+
+### F9. After the owner's re-Publish: production read-back (read-only, 2026-11-17 about 19:03 UTC)
+
+This supersedes F2 and the "unpublished" labels in F3, F7 and F8, and the Schema and Live-commit rows at the top.
+
+- Live `/api/health` now reads sha `cce9ba0079567218998b22249f7cad38a1fc5892`, built 2026-11-17T18:43:46Z, publish build id `c210ece1-f35d-477d-8f8f-3fbbe81367ee`. That commit contains the closeout changes, the permission-wording fix and migration 0386. The repository also has a later "Published your App" commit, `06a2e301`, made at 18:44 UTC.
+- Production now has `partner_review_events`, all twelve new `partner_introductions` columns, both indexes (`partner_review_events_subject_idx`, `partner_introductions_completion_idx`), and four check constraints on `partner_introductions`, every one validated (`partner_introductions_completion_chk`, `_decision_chk`, `_reach_chk`, `_state_chk`).
+- The recovery heartbeat (`partner_application_recovery_heartbeat`, stamped 19:02:58 UTC) reports outcome `ok` and its `introductions` entry reads `{"held":0,"examined":0,"completed":0}` with no error; it was `{"error":"Error"}` every minute before.
+- Read through read-only queries only. The production migration journal was not read or changed by me. Not done: signed-in production walk of the review screens, real phones, real email delivery, Safari.
