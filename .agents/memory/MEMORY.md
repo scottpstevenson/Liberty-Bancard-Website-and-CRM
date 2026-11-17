@@ -77,6 +77,7 @@
 - [Dependency-free CRO03C constants module](cro03c-dependency-free-contracts.md) — contracts.ts has zero db import; never import live-execution.ts (eager db import) from DB-less CLI tools.
 - [Task agent isolated branch vs production deploy target](task-agent-isolated-branch.md) — task-agent `main` isn't what Publish deploys from; pushing to `origin` never updates the live app.
 - [Layering a new authority on immutable upstream systems](cro07-controlled-delivery.md) — one-active-chain-per-intent constraint; reply-vs-suppression matrix; CAS-locked decisions.
+- [Publish and NOT VALID checks](publish-not-valid-checks.md) — a NOT VALID check in dev makes Publish generate broken SQL and fail the whole diff; validate via a new migration.
 - [Publish vs dev environment drift](publish-vs-dev-environment-drift.md) — Publish may advance past deployed HEAD; dev/prod DBs differ and can share Redis/BullMQ keys.
 - [Production seed convergence](production-seed-convergence.md) — Missing seeds/hashes; [insert-only seed gap](cro02-production-seed-gap.md).
 - [DB pool/worker contention](db-pool-worker-contention.md) — system-wide 500s/timeouts can be pool exhaustion from shared BullMQ workers, not a regression; isolated pg.Pool ping fast = contention.

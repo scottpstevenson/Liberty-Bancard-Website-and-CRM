@@ -1,7 +1,8 @@
 #!/usr/bin/env tsx
 /**
  * Schema, upgrade, replay and rollback proof for migrations 0384 (partner applications, introductions, public policy) and
- * 0385 (review history, introduction decisions and completion checkpoints), on freshly created disposable PostgreSQL
+ * 0385 (review history, introduction decisions and completion checkpoints) and 0386 (validates 0385's two checks, which Publish
+ * cannot generate SQL for while they are NOT VALID), on freshly created disposable PostgreSQL
  * databases only. The production migrator harness (server/db-migrate.ts) is the only
  * thing that applies migrations.
  *
@@ -14,7 +15,7 @@
  *  4. Partial schema: an interrupted earlier attempt (one table present with a retained row, no ledger row) converges.
  *  3b. 0385 upgrade from a real 0384 head holding historic introductions: the checkpoint backfill marks exactly the steps the
  *     previous code performed, leaves unlinked rows pending, and never touches a partner's referral total.
- *  5. Replay: the whole 0384 and 0385 SQL replayed against retained evidence changes nothing.
+ *  5. Replay: the whole 0384, 0385 and 0386 SQL replayed against retained evidence changes nothing.
  *  6. Rollback rehearsal: the previous build (a clean export of the audited base commit) is run against the upgraded
  *     database holding application, consent, introduction and policy evidence. Its migration harness leaves every row,
  *     table and ledger entry in place, its own legacy application route still runs, and the evidence is byte-identical.
@@ -46,6 +47,10 @@ const hash0384 = crypto.createHash("sha256").update(sql0384).digest("hex");
 const TAG85 = "0385_partner_review_decisions_and_introduction_completion";
 const sql0385 = fs.readFileSync(path.join(migrations, `${TAG85}.sql`), "utf8");
 const hash0385 = crypto.createHash("sha256").update(sql0385).digest("hex");
+const TAG86 = "0386_partner_introduction_checks_validated";
+const sql0386 = fs.readFileSync(path.join(migrations, `${TAG86}.sql`), "utf8");
+const hash0386 = crypto.createHash("sha256").update(sql0386).digest("hex");
+const INTRO_CHECKS_0385 = ["partner_introductions_completion_chk", "partner_introductions_decision_chk"];
 const COLUMNS_0385 = ["revision", "decided_by", "decided_at", "decision_note", "completion_state", "contact_checkpoint_at", "referral_checkpoint_at",
   "notification_checkpoint_at", "count_checkpoint_at", "completion_attempts", "completion_last_attempt_at", "completion_error_code"];
 const BASE_COMMIT = process.env.PARTNER_BASE_COMMIT ?? "70baaffd";
@@ -105,15 +110,21 @@ async function reverseTo0384(client: Client) {
   await client.query(`ALTER TABLE partner_introductions DROP CONSTRAINT IF EXISTS partner_introductions_completion_chk, DROP CONSTRAINT IF EXISTS partner_introductions_decision_chk`);
   await client.query(`DROP INDEX IF EXISTS partner_introductions_completion_idx`);
   for (const column of COLUMNS_0385) await client.query(`ALTER TABLE partner_introductions DROP COLUMN IF EXISTS ${column}`);
-  await client.query(`DELETE FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0385]);
+  await client.query(`DELETE FROM drizzle.__drizzle_migrations WHERE hash IN ($1,$2)`, [hash0385, hash0386]);
 }
 
-/** Reverse exactly what 0384 and 0385 added: the new tables (children first), then both ledger rows. */
+/** Both 0385 checks must be validated: Publish generates malformed SQL for a NOT VALID check, which stopped the whole publication. */
+async function checksAreValidated(client: Client, label: string) {
+  const rows = (await client.query(`SELECT conname, convalidated FROM pg_constraint WHERE conrelid='public.partner_introductions'::regclass AND conname = ANY($1) ORDER BY conname`, [INTRO_CHECKS_0385])).rows;
+  equal(rows.map((r: any) => [r.conname, r.convalidated]), INTRO_CHECKS_0385.map((name) => [name, true]), `${label}: both introduction checks exist and are validated (none is NOT VALID, which Publish cannot generate SQL for)`);
+}
+
+/** Reverse exactly what 0384 to 0386 added: the new tables (children first), then their ledger rows. */
 async function reverseTo0383(client: Client) {
   for (const table of ["partner_review_events", "partner_introductions", "partner_applications", "partner_public_policy_versions"]) {
     await client.query(`DROP TABLE IF EXISTS ${table}`);
   }
-  await client.query(`DELETE FROM drizzle.__drizzle_migrations WHERE hash IN ($1,$2)`, [hash0384, hash0385]);
+  await client.query(`DELETE FROM drizzle.__drizzle_migrations WHERE hash IN ($1,$2,$3)`, [hash0384, hash0385, hash0386]);
 }
 
 /** Run one statement in its own transaction that is always rolled back; return the SQLSTATE it raised ('' if none). */
@@ -220,6 +231,8 @@ try {
     for (const table of NEW_TABLES) ok(await exists(client, table), `fresh install creates ${table}`);
     equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0384])).rowCount, 1, "the ledger records the exact 0384 file hash once");
     equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0385])).rowCount, 1, "the ledger records the exact 0385 file hash once");
+    equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0386])).rowCount, 1, "the ledger records the exact 0386 file hash once");
+    await checksAreValidated(client, "fresh install");
     equal((await client.query(`SELECT column_name FROM information_schema.columns WHERE table_name='partner_introductions' AND column_name = ANY($1) ORDER BY column_name`, [COLUMNS_0385])).rows.map((r: any) => r.column_name),
       [...COLUMNS_0385].sort(), "fresh install adds every 0385 introduction column");
     for (const table of NEW_TABLES) equal(await count(client, table), 0, `${table} starts empty (nothing seeded, nothing approved)`);
@@ -284,7 +297,7 @@ try {
   const historic = await withDb(names.upgrade, async (client) => {
     await reverseTo0383(client);
     for (const table of NEW_TABLES) ok(!(await exists(client, table)), `prior head has no ${table}`);
-    equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash IN ($1,$2)`, [hash0384, hash0385])).rowCount, 0, "prior head has no 0384 or 0385 ledger row");
+    equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash IN ($1,$2,$3)`, [hash0384, hash0385, hash0386])).rowCount, 0, "prior head has no 0384, 0385 or 0386 ledger row");
     return seedLegacy(client);
   });
   const priorLedger = await withDb(names.upgrade, (client) => ledger(client));
@@ -294,8 +307,9 @@ try {
     for (const table of NEW_TABLES) ok(await exists(client, table), `upgrade creates ${table}`);
     const after = await ledger(client);
     equal(after.slice(0, priorLedger.length), priorLedger, "every prior ledger row is retained unchanged");
-    equal(after.length, priorLedger.length + 2, "exactly two ledger rows are added (0384 and 0385)");
-    equal(after.slice(-2).map((r: any) => r.hash), [hash0384, hash0385], "the added rows are the exact 0384 and 0385 hashes, in order");
+    equal(after.length, priorLedger.length + 3, "exactly three ledger rows are added (0384, 0385 and 0386)");
+    equal(after.slice(-3).map((r: any) => r.hash), [hash0384, hash0385, hash0386], "the added rows are the exact 0384, 0385 and 0386 hashes, in order");
+    await checksAreValidated(client, "upgrade");
     equal(await checksums(client, LEGACY_TABLES), beforeChecksums, "partners, referrals, commission tiers, users and contacts are byte-identical before and after the upgrade");
     const rates = (await client.query(`SELECT id, commission_percent, status FROM partners WHERE id = ANY($1) ORDER BY id`, [historic.partners])).rows.map((r: any) => [r.commission_percent, r.status]);
     equal(rates, [[10, "active"], [50, "active"], [10, "pending"], [15, "inactive"]], "every historic partner keeps its exact commission percent and status (10, 50, 10, 15)");
@@ -342,9 +356,12 @@ try {
     equal((await client.query(`SELECT total_referrals FROM partners WHERE id=$1`, [backfillIds.partner])).rows[0].total_referrals, 7, "the partner's referral total is exactly what it was (never incremented by a migration)");
     equal(await count(client, "partner_review_events"), 0, "no review event is invented for historic rows");
     equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0385])).rowCount, 1, "the ledger records the exact 0385 hash once");
+    equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0386])).rowCount, 1, "the ledger records the exact 0386 hash once");
+    await checksAreValidated(client, "0385 upgrade over historic introductions");
     const afterFirst = await checksums(client, [["partner_introductions", "id"]]);
-    for (const part of statements(sql0385)) await client.query(part);
-    equal(await checksums(client, [["partner_introductions", "id"]]), afterFirst, "replaying the 0385 SQL over the backfilled rows changes nothing");
+    for (const part of [...statements(sql0385), ...statements(sql0386)]) await client.query(part);
+    equal(await checksums(client, [["partner_introductions", "id"]]), afterFirst, "replaying the 0385 and 0386 SQL over the backfilled rows changes nothing");
+    await checksAreValidated(client, "after replay");
   });
   await withDb(names.backfill, parity);
 
@@ -360,7 +377,7 @@ try {
     for (const part of wanted) await client.query(part);
     await client.query(`INSERT INTO partner_public_policy_versions(policy_key,version,share_percent,status,schedule_reference,copy_version,created_by) VALUES('standard_referral',7,25,'draft','SCH-PARTIAL','v1','partial-fixture')`);
     ok(await exists(client, "partner_public_policy_versions") && !(await exists(client, "partner_applications")), "partial state: one new table present, the rest absent");
-    equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash IN ($1,$2)`, [hash0384, hash0385])).rowCount, 0, "partial state: no ledger row");
+    equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash IN ($1,$2,$3)`, [hash0384, hash0385, hash0386])).rowCount, 0, "partial state: no ledger row");
   });
   migrate(urlFor(names.partial));
   await withDb(names.partial, async (client) => {
@@ -368,6 +385,8 @@ try {
     equal((await client.query(`SELECT version,schedule_reference FROM partner_public_policy_versions`)).rows.map((r: any) => ({ ...r })), [{ version: 7, schedule_reference: "SCH-PARTIAL" }], "the retained row from the interrupted attempt survives");
     equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0384])).rowCount, 1, "the ledger records 0384 once");
     equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0385])).rowCount, 1, "the ledger records 0385 once");
+    equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0386])).rowCount, 1, "the ledger records 0386 once");
+    await checksAreValidated(client, "partial-schema convergence");
   });
   await withDb(names.partial, parity);
 
@@ -379,8 +398,8 @@ try {
     await client.query(`DELETE FROM partner_review_events`);
     const seeded = await seedEvidence(client);
     const before = await checksums(client, evidenceTables, { inbound_requests: seeded.inbound });
-    for (const part of [...statements(sql0384), ...statements(sql0385)]) await client.query(part);
-    equal(await checksums(client, evidenceTables, { inbound_requests: seeded.inbound }), before, "replaying the 0384 and 0385 SQL against retained application, introduction, review-event and policy rows changes nothing");
+    for (const part of [...statements(sql0384), ...statements(sql0385), ...statements(sql0386)]) await client.query(part);
+    equal(await checksums(client, evidenceTables, { inbound_requests: seeded.inbound }), before, "replaying the 0384, 0385 and 0386 SQL against retained application, introduction, review-event and policy rows changes nothing");
     return seeded;
   });
 

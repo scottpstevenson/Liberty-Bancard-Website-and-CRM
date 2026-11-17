@@ -2723,6 +2723,13 @@
       "when":1800400320000,
       "tag":"0385_partner_review_decisions_and_introduction_completion",
       "breakpoints":true
+    },
+    {
+      "idx":389,
+      "version":"7",
+      "when":1800400330000,
+      "tag":"0386_partner_introduction_checks_validated",
+      "breakpoints":true
     }
   ]
 }
