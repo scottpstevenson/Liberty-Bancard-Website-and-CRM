@@ -22,8 +22,9 @@ import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard"
 await assertDisposableTestInfrastructure({operation:"Role-guard mutation smoke",requireRedis:true});
 const { db } = await import("../server/db");
 import { users } from "../shared/models/auth";
-import { campaignSteps, campaigns, contacts, documents, followUpSequences, sequenceSteps, partnerOrganizations, partnerOrgUsers } from "../shared/schema";
+import { campaignSteps, campaigns, contacts, documents, followUpSequences, sequenceSteps, partnerOrganizations, partnerOrgUsers, partners } from "../shared/schema";
 import { eq, sql as drizzleSql } from "drizzle-orm";
+import { PARTNER_INTRODUCTION_PERMISSION, PARTNER_LEAD_SOURCE_INTERESTS } from "../shared/partner-public-content";
 
 const crmOperationsSource = readFileSync(new URL("../server/routes/crm-operations.ts", import.meta.url), "utf8");
 const contactArchiveStart = crmOperationsSource.indexOf('app.post("/api/contacts/:id/archive"');
@@ -823,6 +824,150 @@ async function run(): Promise<void> {
       } finally {
         await db.delete(partnerOrgUsers).where(eq(partnerOrgUsers.partnerOrgId, partnerOrg.id)).catch(() => undefined);
         await db.delete(partnerOrganizations).where(eq(partnerOrganizations.id, partnerOrg.id)).catch(() => undefined);
+      }
+    }
+
+    // An approved partner session reaches its own introductions (the central partner allowlist must permit exactly this
+    // path), a pending applicant never gets a session, and the same partner is still refused every CRM route.
+    {
+      const partnerTag = `smoke-intro-${Date.now()}`;
+      const partnerLoginEmail = `${partnerTag}@example.test`;
+      const partnerLoginPassword = `P-${randomUUID()}`;
+      const introEmail = `${partnerTag}-biz@example.test`;
+      const [approvedPartner] = await db.insert(partners).values({
+        companyName: "Smoke Intro Partner", contactName: "Smoke Intro", email: partnerLoginEmail, phone: null,
+        passwordHash: await bcrypt.hash(partnerLoginPassword, 10), partnerType: "referral", affiliateCode: partnerTag.slice(-24),
+        status: "active", commissionPercent: 20,
+      }).returning();
+      const [pendingApplicant] = await db.insert(partners).values({
+        companyName: "Smoke Pending", contactName: "Smoke Pending", email: `${partnerTag}-pending@example.test`, phone: null,
+        passwordHash: null, partnerType: "referral", affiliateCode: `${partnerTag}p`.slice(-24), status: "pending", commissionPercent: null,
+      }).returning();
+      try {
+        const cookiesOf = (response: Response) => ((response.headers as unknown as { getSetCookie: () => string[] }).getSetCookie()).map(c => c.split(";")[0].trim()).filter(Boolean).join("; ");
+        const pendingLogin = await fetch(`${BASE_URL}/api/partners/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: `${partnerTag}-pending@example.test`, password: "anything-at-all" }) });
+        if (pendingLogin.status !== 401) { console.log(`✗ partner introductions: a pending applicant login expected 401, got ${pendingLogin.status}`); failures++; }
+        else console.log("✓ partner introductions: a pending applicant cannot sign in (401)");
+
+        const loginResponse = await fetch(`${BASE_URL}/api/partners/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: partnerLoginEmail, password: partnerLoginPassword }) });
+        const partnerSession = cookiesOf(loginResponse);
+        if (loginResponse.status !== 200 || !partnerSession) { console.log(`✗ partner introductions: approved partner fixture login failed: ${loginResponse.status}`); failures++; }
+        else {
+          const csrfResponse = await fetch(`${BASE_URL}/api/csrf-token`, { headers: { cookie: partnerSession } });
+          const csrfToken = ((await csrfResponse.json().catch(() => ({}))) as { token?: string }).token ?? "";
+          const csrfCookie = cookiesOf(csrfResponse);
+          const cookie = csrfCookie ? `${partnerSession}; ${csrfCookie}` : partnerSession;
+          const headers = { "content-type": "application/json", cookie, "x-csrf-token": csrfToken };
+
+          const listBefore = await fetch(`${BASE_URL}/api/partners/me/introductions`, { headers });
+          const listBody = await listBefore.json().catch(() => ({})) as { introductions?: unknown[] };
+          if (listBefore.status !== 200 || !Array.isArray(listBody.introductions)) { console.log(`✗ partner introductions: approved partner GET expected 200 with a list, got ${listBefore.status}`); failures++; }
+          else console.log("✓ partner introductions: an approved partner session can list its own introductions (200)");
+
+          const introKey = randomUUID();
+          const submitBody = { businessName: "Smoke Intro Biz", contactName: "Smoke Owner", contactEmail: introEmail, permissionConfirmed: true, permissionVersion: PARTNER_INTRODUCTION_PERMISSION.version };
+          const submit = await fetch(`${BASE_URL}/api/partners/me/introductions`, { method: "POST", headers: { ...headers, "idempotency-key": introKey }, body: JSON.stringify(submitBody) });
+          const submitJson = await submit.json().catch(() => ({})) as Record<string, unknown>;
+          if (submit.status !== 201 || typeof submitJson.reference !== "string") { console.log(`✗ partner introductions: approved partner POST expected 201 with a reference, got ${submit.status}`); failures++; }
+          else console.log("✓ partner introductions: an approved partner session can submit an introduction (201)");
+          const leaked = JSON.stringify(submitJson).includes(introEmail) || "contactEmail" in submitJson || "commissionPercent" in submitJson;
+          if (leaked) { console.log("✗ partner introductions: the partner-facing response carried contact or commission details"); failures++; }
+          else console.log("✓ partner introductions: the partner-facing response carries no contact or commission details");
+          const replay = await fetch(`${BASE_URL}/api/partners/me/introductions`, { method: "POST", headers: { ...headers, "idempotency-key": introKey }, body: JSON.stringify(submitBody) });
+          if (replay.status !== 200) { console.log(`✗ partner introductions: replay with the same key expected 200, got ${replay.status}`); failures++; }
+          else console.log("✓ partner introductions: replaying the same key returns the same occurrence (200)");
+          const noKey = await fetch(`${BASE_URL}/api/partners/me/introductions`, { method: "POST", headers, body: JSON.stringify(submitBody) });
+          if (noKey.status !== 400) { console.log(`✗ partner introductions: a POST without an idempotency key expected 400, got ${noKey.status}`); failures++; }
+          else console.log("✓ partner introductions: a POST without an idempotency key is refused (400)");
+
+          // The allowlist opens exactly one extra path: everything else a partner could reach in the CRM stays closed.
+          for (const [label, path, method] of [
+            ["contacts list", "/api/contacts", "GET"],
+            ["partners list", "/api/partners", "GET"],
+            ["partner applications", "/api/partner-applications", "GET"],
+            ["staff introduction review", "/api/partner-introductions", "GET"],
+            ["referral policy", "/api/partner-policy", "GET"],
+            ["a sibling introductions path", "/api/partners/me/introductions/extra", "GET"],
+          ] as Array<[string, string, string]>) {
+            const response = await fetch(`${BASE_URL}${path}`, { method, headers });
+            if (![401, 403, 404].includes(response.status)) { console.log(`✗ partner session: ${label} expected a refusal, got ${response.status}`); failures++; }
+            else console.log(`✓ partner session: ${label} refused (${response.status})`);
+          }
+        }
+      } finally {
+        await db.execute(drizzleSql`DELETE FROM notifications WHERE metadata->>'introductionId' IN (SELECT id::text FROM partner_introductions WHERE partner_id = ${approvedPartner.id})`).catch(() => undefined);
+        await db.execute(drizzleSql`DELETE FROM referrals WHERE partner_id = ${approvedPartner.id}`).catch(() => undefined);
+        await db.execute(drizzleSql`DELETE FROM partner_introductions WHERE partner_id = ${approvedPartner.id}`).catch(() => undefined);
+        await db.execute(drizzleSql`DELETE FROM contacts WHERE lower(email) = ${introEmail}`).catch(() => undefined);
+        await db.execute(drizzleSql`DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE lower(email) = ${partnerLoginEmail})`).catch(() => undefined);
+        await db.execute(drizzleSql`DELETE FROM users WHERE lower(email) = ${partnerLoginEmail}`).catch(() => undefined);
+        await db.delete(partners).where(eq(partners.id, approvedPartner.id)).catch(() => undefined);
+        await db.delete(partners).where(eq(partners.id, pendingApplicant.id)).catch(() => undefined);
+      }
+    }
+
+    // The public application over HTTP against the real running app: a pending, password-free request with no commission
+    // terms and no login, for both paths, replay-safe, and the retired password form refused.
+    {
+      const appTag = `smoke-apply-${Date.now()}`;
+      const referralEmail = `${appTag}-ref@example.test`;
+      const agentEmail = `${appTag}-agent@example.test`;
+      const clientLib = await import("../client/src/lib/partner-application-client");
+      const baseValues = { ...clientLib.EMPTY_PARTNER_FORM, fullName: "Smoke Applicant", phone: "305-555-0142", company: "Smoke Applicant Co", contactPermission: true };
+      const referralBody = clientLib.buildPartnerPayload("referral", { ...baseValues, email: referralEmail, profession: "cpa", referralNetwork: "Small business clients" }, { sourcePage: "/partners/referrals", search: "?utm_source=newsletter&utm_campaign=smoke" });
+      const agentBody = clientLib.buildPartnerPayload("sales_agent", { ...baseValues, email: agentEmail, region: "Florida", experience: "Five years of merchant services sales.", prospectingApproach: "Local networking and referrals.", leadSourceInterest: PARTNER_LEAD_SOURCE_INTERESTS[0].id }, { sourcePage: "/partners/sales-agents" });
+      const send = (body: unknown, key: string = randomUUID()) => fetch(`${BASE_URL}/api/partner-apply`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify(body) });
+      try {
+        const referralKey = randomUUID();
+        const referralResponse = await send(referralBody, referralKey);
+        const referralJson = await referralResponse.json().catch(() => ({})) as { success?: boolean; receipt?: { applicationRecorded?: boolean } };
+        const issuedCookie = ((referralResponse.headers as unknown as { getSetCookie: () => string[] }).getSetCookie()).some(c => /connect\.sid|session/i.test(c) && !/Max-Age=0|Expires=Thu, 01 Jan 1970/i.test(c));
+        if (referralResponse.status !== 201 || referralJson.success !== true || referralJson.receipt?.applicationRecorded !== true) { console.log(`✗ partner application: referral submit expected 201 with a receipt, got ${referralResponse.status}`); failures++; }
+        else console.log("✓ partner application: a referral application is received over HTTP (201 with a receipt)");
+        if (issuedCookie) { console.log("✗ partner application: submitting an application issued a session cookie"); failures++; }
+        else console.log("✓ partner application: submitting an application issues no session");
+        const agentResponse = await send(agentBody);
+        if (agentResponse.status !== 201) { console.log(`✗ partner application: sales-agent submit expected 201, got ${agentResponse.status}`); failures++; }
+        else console.log("✓ partner application: a sales-agent application is received over HTTP (201)");
+
+        const stored = await db.execute(drizzleSql`
+          SELECT p.email, p.status, p.password_hash IS NULL AS no_password, p.commission_percent IS NULL AS no_terms,
+                 a.path, a.review_status, a.marketing_opt_in, a.acquisition::text AS acquisition,
+                 (SELECT count(*) FROM users u WHERE lower(u.email) = p.email)::int AS user_rows
+          FROM partners p JOIN partner_applications a ON a.partner_id = p.id
+          WHERE p.email IN (${referralEmail}, ${agentEmail}) ORDER BY p.email`);
+        const rows = (stored as unknown as { rows: Array<Record<string, unknown>> }).rows;
+        const byEmail = new Map(rows.map(r => [String(r.email), r]));
+        const refRow = byEmail.get(referralEmail); const agentRow = byEmail.get(agentEmail);
+        const pendingOk = (r: Record<string, unknown> | undefined, path: string) => Boolean(r) && r!.status === "pending" && r!.no_password === true && r!.no_terms === true && r!.path === path && r!.review_status === "pending_review" && r!.marketing_opt_in === false && r!.user_rows === 0;
+        if (!pendingOk(refRow, "referral")) { console.log(`✗ partner application: stored referral row is not pending/no-password/no-terms/no-login (${JSON.stringify(refRow)})`); failures++; }
+        else console.log("✓ partner application: the stored referral is pending, has no password, no commission terms, no login and no marketing opt-in");
+        if (!pendingOk(agentRow, "sales_agent")) { console.log(`✗ partner application: stored sales-agent row is not pending/no-password/no-terms/no-login (${JSON.stringify(agentRow)})`); failures++; }
+        else console.log("✓ partner application: the stored sales-agent application is pending with the same protections");
+        const acquisition = String(refRow?.acquisition ?? "");
+        if (!/newsletter/.test(acquisition) || /@|commission/i.test(acquisition)) { console.log(`✗ partner application: attribution not stored safely (${acquisition})`); failures++; }
+        else console.log("✓ partner application: campaign attribution is stored without personal or commercial fields");
+
+        const replay = await send(referralBody, referralKey);
+        const afterReplay = await db.execute(drizzleSql`SELECT count(*)::int AS n FROM partners WHERE email = ${referralEmail}`);
+        const partnerRows = Number(((afterReplay as unknown as { rows: Array<{ n: number }> }).rows)[0]?.n);
+        if (![200, 201].includes(replay.status) || partnerRows !== 1) { console.log(`✗ partner application: replaying the same key (status ${replay.status}) left ${partnerRows} partner rows`); failures++; }
+        else console.log("✓ partner application: replaying the same key creates no second partner");
+        const duplicate = await send(referralBody);
+        const duplicateJson = await duplicate.json().catch(() => ({})) as { code?: string };
+        if (duplicate.status !== 409 || duplicateJson.code !== "APPLICATION_NOT_ACCEPTED") { console.log(`✗ partner application: a second submission for the same mailbox expected the uniform 409, got ${duplicate.status}`); failures++; }
+        else console.log("✓ partner application: a second submission for the same mailbox gets the uniform refusal (409)");
+
+        const legacy = await send({ ...(referralBody as Record<string, unknown>), schemaVersion: undefined, password: "chosen-in-browser" });
+        if (legacy.status !== 410) { console.log(`✗ partner application: the retired password form expected 410, got ${legacy.status}`); failures++; }
+        else console.log("✓ partner application: the retired password form is refused (410)");
+        const smuggled = await send({ ...(referralBody as Record<string, unknown>), email: `${appTag}-smuggle@example.test`, commissionPercent: 50 });
+        const smuggledRows = await db.execute(drizzleSql`SELECT count(*)::int AS n FROM partners WHERE email = ${`${appTag}-smuggle@example.test`}`);
+        if (smuggled.status !== 400 || Number(((smuggledRows as unknown as { rows: Array<{ n: number }> }).rows)[0]?.n) !== 0) { console.log(`✗ partner application: a body naming a commission rate expected 400 and no row, got ${smuggled.status}`); failures++; }
+        else console.log("✓ partner application: a body naming a commission rate is refused and creates nothing (400)");
+      } finally {
+        await db.execute(drizzleSql`DELETE FROM partner_applications WHERE mailbox IN (${referralEmail}, ${agentEmail})`).catch(() => undefined);
+        await db.execute(drizzleSql`DELETE FROM partners WHERE email IN (${referralEmail}, ${agentEmail})`).catch(() => undefined);
       }
     }
 

@@ -123,6 +123,8 @@ export async function registerRoutes(
       "/partner/login",
       "/partner/session",
       "/partner/logout",
+      // The partner's own introductions: the handlers authenticate the partner session and require an active partner.
+      "/partners/me/introductions",
     ]);
     const allowed =
       partnerAllowedExact.has(req.path) ||
