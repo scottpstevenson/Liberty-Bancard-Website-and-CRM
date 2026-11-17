@@ -7,7 +7,6 @@
  */
 import {
   PARTNER_COMPARISON_ROWS,
-  PARTNER_INTRODUCTION_PERMISSION,
   PARTNER_REVIEW_DISCLOSURE,
   referralCompensationSentence,
   type PartnerReferralPolicy,
@@ -95,7 +94,7 @@ export function partnerGuideSections(audience: PartnerGuideAudience, policy: Par
         {
           id: "referral-permission",
           title: "Permission before every introduction",
-          body: `Each introduction records your statement that the contact agreed to be introduced (${PARTNER_INTRODUCTION_PERMISSION.version}). It is not the business's marketing consent and it does not sign them up for marketing.`,
+          body: `Each introduction records your statement that the contact agreed to be introduced. It is not the business's marketing consent and it does not sign them up for marketing.`,
         },
         {
           id: "referral-review",

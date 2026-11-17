@@ -203,6 +203,7 @@ Read on 2026-11-17 at 14:28 UTC through read-only queries (no DDL, no writes, jo
 - Shorter headlines on the hub and the profession pages.
 - Dark theme: the shared review-panel links use a colour with enough contrast on the dark background; PRB-08 checks it.
 - The performance script records every sample, not only the median.
+- The raw permission label is replaced by plain wording in the staff detail and the partner guide (F7).
 
 ### F4. Reruns on the closeout artifact
 
@@ -231,4 +232,12 @@ Read on 2026-11-17 at 14:28 UTC through read-only queries (no DDL, no writes, jo
 - **Real email delivery:** not tested. Outbound stayed paused; isolated capture proves routing only.
 - **Owner decisions outstanding:** re-Publish (schema and closeout changes); approval of the generated images; a cleared CPA photograph; the analytics measurement id; the referral percentage policy.
 - **Not run:** Safari/WebKit, real phones, a screen reader, analytics with consent granted, a signed-in production review, real production submissions, the mobile chat launcher, and the notification deep link `?tab=introductions&introduction=<id>`.
-- **Observed, not fixed:** the staff introduction detail shows the raw text `partner_introduction_permission@1` where a readable label belongs.
+- **Fixed after the roster (unpublished, see F7):** the raw permission label `partner_introduction_permission@1` that showed in the staff introduction detail and in the partner referral guide.
+
+### F7. Permission label shown as raw text (found at closeout, fixed after the roster, unpublished)
+
+The label `partner_introduction_permission@1` is the stored version of the permission wording a partner confirms before submitting an introduction. It is meant for the database record. It was visible to readers in two places, both live today: the staff introduction detail ("Introducer permission") and the "Permission before every introduction" card of the partner referral guide.
+
+- Staff detail now reads "The partner confirmed on <date> that this contact agreed to be introduced."; the guide card no longer includes the label. The stored value and the server check that the partner confirmed the current wording are unchanged.
+- New checks: `test-partner-program-contracts` (217 checks, was 216) asserts no guide audience shows the label; `test-partner-review-browser` (still 10 checks) asserts, for each of the three held-introduction states, that staff see the plain statement and not the label.
+- Rerun on the rebuilt tree after this change, each by name through the disposable runner, all exit 0: contracts, SSR pages, page media, review browser, application browser, public claims contract, hydrated parity. The roster in F4 ran before this change; the rest of the roster was not rerun.

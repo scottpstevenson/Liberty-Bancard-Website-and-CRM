@@ -204,7 +204,9 @@ function IntroductionDetailBody({ id, canDecide, onChanged }: { id: string; canD
             {i.completion.attempts > 0 ? ` (${i.completion.attempts} attempt${i.completion.attempts === 1 ? "" : "s"}${i.completion.lastAttemptAt ? `, last ${fmtBusiness(i.completion.lastAttemptAt)}` : ""})` : ""}
           </Field>
           <Field label="Introduced by">{d.partner.company}{d.partner.name ? ` (${d.partner.name})` : ""}</Field>
-          <Field label="Introducer permission">{i.permission.version}, {fmtBusiness(i.permission.confirmedAt)}</Field>
+          <Field label="Introducer permission">
+            <span data-testid="introduction-permission-statement">The partner confirmed on {fmtBusiness(i.permission.confirmedAt)} that this contact agreed to be introduced.</span>
+          </Field>
         </dl>
       </section>
 

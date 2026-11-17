@@ -241,6 +241,8 @@ try {
     const RAW_CODE = /\b[A-Z]{3,}(?:_[A-Z]{2,})+\b/;
     const visible = await text(admin, '[data-testid="partner-introductions-review"]') + " " + await text(admin, '[data-testid="introduction-detail"]');
     assert.ok(!RAW_CODE.test(visible), `${hold.label}: no internal reason code is shown to staff (${(visible.match(RAW_CODE) ?? [""])[0]})`);
+    assert.ok(!/partner_introduction_permission|@\d/.test(visible), `${hold.label}: the stored permission version label is not shown to staff`);
+    assert.ok(/The partner confirmed on .+ that this contact agreed to be introduced\./.test(await text(admin, '[data-testid="introduction-permission-statement"]')), `${hold.label}: staff read a plain statement of who confirmed the permission and when`);
     await new Promise(r => setTimeout(r, 800)); // let the side panel finish sliding in before the picture is taken
     await admin.screenshot(`review-introduction-${hold.state.replace(/_/g, "-")}`);
     const links = await admin.evaluate(`Array.from(document.querySelectorAll('[data-testid="introduction-linked"] a, [data-testid="introduction-evidence"] a')).map(a=>a.getAttribute('href'))`) as string[];
