@@ -160,8 +160,8 @@ function QuickStartTab({ partner, kpis, referralLink, copyLink }: QuickStartTabP
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
             {[
               { icon: <MousePointerClick className="w-4 h-4 text-primary shrink-0" />, tip: "Always use your pre-tagged link so referrals are automatically attributed to your account." },
-              { icon: <CalendarDays className="w-4 h-4 text-primary shrink-0" />, tip: "Follow up with referred merchants within 24 hours — your introduction increases approval rates." },
-              { icon: <DollarSign className="w-4 h-4 text-primary shrink-0" />, tip: "Merchants processing $20K+/month are your highest-value referrals. Prioritize restaurants, retail, and med-spas." },
+              { icon: <CalendarDays className="w-4 h-4 text-primary shrink-0" />, tip: "Keep in touch with the businesses you introduce so they know to expect a call from Liberty Bancard." },
+              { icon: <DollarSign className="w-4 h-4 text-primary shrink-0" />, tip: "Introduce only businesses whose owner or decision-maker agreed to hear from Liberty Bancard." },
               { icon: <Users className="w-4 h-4 text-primary shrink-0" />, tip: "Earnings follow your written agreement and depend on each merchant being approved and processing. No earnings are guaranteed." },
             ].map((item, i) => (
               <div key={i} className="flex items-start gap-2.5 p-3 bg-muted/30 rounded-lg border border-border/50">
@@ -731,7 +731,7 @@ export default function PartnerPortal() {
               <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 mb-6">
                 <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
                   <Clock className="w-4 h-4 shrink-0" />
-                  <span className="text-sm font-medium">Your application is under review. We'll reach out within 1 business day to activate your account and finalize your commission structure.</span>
+                  <span className="text-sm font-medium">Your application is under review. Compensation terms are confirmed in your written agreement before your account is activated.</span>
                 </div>
               </div>
             )}

@@ -30,8 +30,8 @@ const steps = [
   },
   {
     num: "4",
-    title: "Earn on every lead",
-    desc: "When a visitor clicks 'Get My Free Analysis,' they're sent to Liberty Bancard's statement upload page with your referral code pre-filled. Every lead is credited to you.",
+    title: "Leads are tracked to you",
+    desc: "When a visitor clicks 'Get My Free Analysis,' they're sent to Liberty Bancard's statement upload page with your referral code pre-filled, so the introduction can be attributed to you. Attribution is not a payment; any compensation follows your written agreement.",
     code: null,
   },
 ];
@@ -49,8 +49,8 @@ const benefits = [
   },
   {
     icon: TrendingUp,
-    title: "Passive lead generation",
-    desc: "Every visitor who interacts with the widget and clicks through is a warm lead automatically attributed to your referral code.",
+    title: "Carries your referral code",
+    desc: "Visitors who click through from the widget arrive with your referral code, so a qualifying introduction can be attributed to you as your written agreement describes. Attribution is not a promise of leads or earnings.",
   },
   {
     icon: Shield,
@@ -74,7 +74,7 @@ const faqs = [
   },
   {
     q: "How do I know which leads came from my widget?",
-    a: "Every click on the 'Get My Free Analysis' button includes UTM parameters and your referral code in the URL, so all leads are tracked back to your embed automatically.",
+    a: "Every click on the 'Get My Free Analysis' button includes UTM parameters and your referral code in the URL, so leads from your embed can be traced back to it.",
   },
   {
     q: "Do I need to be an approved partner first?",
@@ -106,7 +106,7 @@ export default function PartnerEmbedWidget() {
               Add a Savings Calculator to Your Site — One Script Tag
             </h1>
             <p className="text-lg text-muted-foreground leading-relaxed mb-8 max-w-2xl">
-              Give your website visitors an instant estimate of how much they could save on payment processing. Every click sends a warm lead to Liberty Bancard — with your referral code attached.
+              Give your website visitors an instant estimate of how much they could save on payment processing. Visitors who continue are sent to Liberty Bancard with your referral code attached.
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
               <Button size="lg" className="gap-2 w-full sm:w-auto" data-testid="button-hero-portal" asChild>

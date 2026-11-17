@@ -248,6 +248,76 @@
               "bytes": 78808
             }
           ]
+        },
+        {
+          "name": "partner-body",
+          "width": 1365,
+          "height": 1024,
+          "files": [
+            {
+              "format": "avif",
+              "file": "industry-restaurant-partner-body-320.avif",
+              "width": 320,
+              "height": 240,
+              "bytes": 11482
+            },
+            {
+              "format": "webp",
+              "file": "industry-restaurant-partner-body-320.webp",
+              "width": 320,
+              "height": 240,
+              "bytes": 17140
+            },
+            {
+              "format": "jpg",
+              "file": "industry-restaurant-partner-body-320.jpg",
+              "width": 320,
+              "height": 240,
+              "bytes": 18039
+            },
+            {
+              "format": "avif",
+              "file": "industry-restaurant-partner-body-480.avif",
+              "width": 480,
+              "height": 360,
+              "bytes": 21511
+            },
+            {
+              "format": "webp",
+              "file": "industry-restaurant-partner-body-480.webp",
+              "width": 480,
+              "height": 360,
+              "bytes": 32026
+            },
+            {
+              "format": "jpg",
+              "file": "industry-restaurant-partner-body-480.jpg",
+              "width": 480,
+              "height": 360,
+              "bytes": 35708
+            },
+            {
+              "format": "avif",
+              "file": "industry-restaurant-partner-body-640.avif",
+              "width": 640,
+              "height": 480,
+              "bytes": 33214
+            },
+            {
+              "format": "webp",
+              "file": "industry-restaurant-partner-body-640.webp",
+              "width": 640,
+              "height": 480,
+              "bytes": 47954
+            },
+            {
+              "format": "jpg",
+              "file": "industry-restaurant-partner-body-640.jpg",
+              "width": 640,
+              "height": 480,
+              "bytes": 56172
+            }
+          ]
         }
       ]
     },
@@ -344,6 +414,76 @@
               "width": 800,
               "height": 600,
               "bytes": 48270
+            }
+          ]
+        },
+        {
+          "name": "partner-hero",
+          "width": 1280,
+          "height": 853,
+          "files": [
+            {
+              "format": "avif",
+              "file": "industry-dental-partner-hero-480.avif",
+              "width": 480,
+              "height": 320,
+              "bytes": 11623
+            },
+            {
+              "format": "webp",
+              "file": "industry-dental-partner-hero-480.webp",
+              "width": 480,
+              "height": 320,
+              "bytes": 15240
+            },
+            {
+              "format": "jpg",
+              "file": "industry-dental-partner-hero-480.jpg",
+              "width": 480,
+              "height": 320,
+              "bytes": 20436
+            },
+            {
+              "format": "avif",
+              "file": "industry-dental-partner-hero-720.avif",
+              "width": 720,
+              "height": 480,
+              "bytes": 20604
+            },
+            {
+              "format": "webp",
+              "file": "industry-dental-partner-hero-720.webp",
+              "width": 720,
+              "height": 480,
+              "bytes": 26234
+            },
+            {
+              "format": "jpg",
+              "file": "industry-dental-partner-hero-720.jpg",
+              "width": 720,
+              "height": 480,
+              "bytes": 37623
+            },
+            {
+              "format": "avif",
+              "file": "industry-dental-partner-hero-960.avif",
+              "width": 960,
+              "height": 640,
+              "bytes": 31019
+            },
+            {
+              "format": "webp",
+              "file": "industry-dental-partner-hero-960.webp",
+              "width": 960,
+              "height": 640,
+              "bytes": 39026
+            },
+            {
+              "format": "jpg",
+              "file": "industry-dental-partner-hero-960.jpg",
+              "width": 960,
+              "height": 640,
+              "bytes": 58350
             }
           ]
         }
@@ -444,6 +584,76 @@
               "bytes": 51211
             }
           ]
+        },
+        {
+          "name": "partner-hero",
+          "width": 1280,
+          "height": 853,
+          "files": [
+            {
+              "format": "avif",
+              "file": "industry-med-spa-partner-hero-480.avif",
+              "width": 480,
+              "height": 320,
+              "bytes": 11883
+            },
+            {
+              "format": "webp",
+              "file": "industry-med-spa-partner-hero-480.webp",
+              "width": 480,
+              "height": 320,
+              "bytes": 16128
+            },
+            {
+              "format": "jpg",
+              "file": "industry-med-spa-partner-hero-480.jpg",
+              "width": 480,
+              "height": 320,
+              "bytes": 22012
+            },
+            {
+              "format": "avif",
+              "file": "industry-med-spa-partner-hero-720.avif",
+              "width": 720,
+              "height": 480,
+              "bytes": 21937
+            },
+            {
+              "format": "webp",
+              "file": "industry-med-spa-partner-hero-720.webp",
+              "width": 720,
+              "height": 480,
+              "bytes": 28740
+            },
+            {
+              "format": "jpg",
+              "file": "industry-med-spa-partner-hero-720.jpg",
+              "width": 720,
+              "height": 480,
+              "bytes": 41431
+            },
+            {
+              "format": "avif",
+              "file": "industry-med-spa-partner-hero-960.avif",
+              "width": 960,
+              "height": 640,
+              "bytes": 33918
+            },
+            {
+              "format": "webp",
+              "file": "industry-med-spa-partner-hero-960.webp",
+              "width": 960,
+              "height": 640,
+              "bytes": 44098
+            },
+            {
+              "format": "jpg",
+              "file": "industry-med-spa-partner-hero-960.jpg",
+              "width": 960,
+              "height": 640,
+              "bytes": 65756
+            }
+          ]
         }
       ]
     },
@@ -540,6 +750,76 @@
               "width": 800,
               "height": 600,
               "bytes": 70283
+            }
+          ]
+        },
+        {
+          "name": "partner-hero",
+          "width": 1280,
+          "height": 853,
+          "files": [
+            {
+              "format": "avif",
+              "file": "industry-automotive-partner-hero-480.avif",
+              "width": 480,
+              "height": 320,
+              "bytes": 15869
+            },
+            {
+              "format": "webp",
+              "file": "industry-automotive-partner-hero-480.webp",
+              "width": 480,
+              "height": 320,
+              "bytes": 23352
+            },
+            {
+              "format": "jpg",
+              "file": "industry-automotive-partner-hero-480.jpg",
+              "width": 480,
+              "height": 320,
+              "bytes": 26920
+            },
+            {
+              "format": "avif",
+              "file": "industry-automotive-partner-hero-720.avif",
+              "width": 720,
+              "height": 480,
+              "bytes": 29228
+            },
+            {
+              "format": "webp",
+              "file": "industry-automotive-partner-hero-720.webp",
+              "width": 720,
+              "height": 480,
+              "bytes": 41898
+            },
+            {
+              "format": "jpg",
+              "file": "industry-automotive-partner-hero-720.jpg",
+              "width": 720,
+              "height": 480,
+              "bytes": 51449
+            },
+            {
+              "format": "avif",
+              "file": "industry-automotive-partner-hero-960.avif",
+              "width": 960,
+              "height": 640,
+              "bytes": 46534
+            },
+            {
+              "format": "webp",
+              "file": "industry-automotive-partner-hero-960.webp",
+              "width": 960,
+              "height": 640,
+              "bytes": 62938
+            },
+            {
+              "format": "jpg",
+              "file": "industry-automotive-partner-hero-960.jpg",
+              "width": 960,
+              "height": 640,
+              "bytes": 81627
             }
           ]
         }
@@ -640,6 +920,146 @@
               "bytes": 72297
             }
           ]
+        },
+        {
+          "name": "partner-hero",
+          "width": 1280,
+          "height": 853,
+          "files": [
+            {
+              "format": "avif",
+              "file": "industry-retail-partner-hero-480.avif",
+              "width": 480,
+              "height": 320,
+              "bytes": 15833
+            },
+            {
+              "format": "webp",
+              "file": "industry-retail-partner-hero-480.webp",
+              "width": 480,
+              "height": 320,
+              "bytes": 23472
+            },
+            {
+              "format": "jpg",
+              "file": "industry-retail-partner-hero-480.jpg",
+              "width": 480,
+              "height": 320,
+              "bytes": 27446
+            },
+            {
+              "format": "avif",
+              "file": "industry-retail-partner-hero-720.avif",
+              "width": 720,
+              "height": 480,
+              "bytes": 29140
+            },
+            {
+              "format": "webp",
+              "file": "industry-retail-partner-hero-720.webp",
+              "width": 720,
+              "height": 480,
+              "bytes": 43308
+            },
+            {
+              "format": "jpg",
+              "file": "industry-retail-partner-hero-720.jpg",
+              "width": 720,
+              "height": 480,
+              "bytes": 52864
+            },
+            {
+              "format": "avif",
+              "file": "industry-retail-partner-hero-960.avif",
+              "width": 960,
+              "height": 640,
+              "bytes": 45711
+            },
+            {
+              "format": "webp",
+              "file": "industry-retail-partner-hero-960.webp",
+              "width": 960,
+              "height": 640,
+              "bytes": 65178
+            },
+            {
+              "format": "jpg",
+              "file": "industry-retail-partner-hero-960.jpg",
+              "width": 960,
+              "height": 640,
+              "bytes": 84163
+            }
+          ]
+        },
+        {
+          "name": "partner-body",
+          "width": 1365,
+          "height": 1024,
+          "files": [
+            {
+              "format": "avif",
+              "file": "industry-retail-partner-body-320.avif",
+              "width": 320,
+              "height": 240,
+              "bytes": 9400
+            },
+            {
+              "format": "webp",
+              "file": "industry-retail-partner-body-320.webp",
+              "width": 320,
+              "height": 240,
+              "bytes": 14588
+            },
+            {
+              "format": "jpg",
+              "file": "industry-retail-partner-body-320.jpg",
+              "width": 320,
+              "height": 240,
+              "bytes": 16118
+            },
+            {
+              "format": "avif",
+              "file": "industry-retail-partner-body-480.avif",
+              "width": 480,
+              "height": 360,
+              "bytes": 17809
+            },
+            {
+              "format": "webp",
+              "file": "industry-retail-partner-body-480.webp",
+              "width": 480,
+              "height": 360,
+              "bytes": 27480
+            },
+            {
+              "format": "jpg",
+              "file": "industry-retail-partner-body-480.jpg",
+              "width": 480,
+              "height": 360,
+              "bytes": 31802
+            },
+            {
+              "format": "avif",
+              "file": "industry-retail-partner-body-640.avif",
+              "width": 640,
+              "height": 480,
+              "bytes": 27533
+            },
+            {
+              "format": "webp",
+              "file": "industry-retail-partner-body-640.webp",
+              "width": 640,
+              "height": 480,
+              "bytes": 41524
+            },
+            {
+              "format": "jpg",
+              "file": "industry-retail-partner-body-640.jpg",
+              "width": 640,
+              "height": 480,
+              "bytes": 50245
+            }
+          ]
         }
       ]
     },
@@ -736,6 +1156,76 @@
               "width": 800,
               "height": 600,
               "bytes": 89705
+            }
+          ]
+        },
+        {
+          "name": "partner-hero",
+          "width": 1280,
+          "height": 853,
+          "files": [
+            {
+              "format": "avif",
+              "file": "industry-field-services-partner-hero-480.avif",
+              "width": 480,
+              "height": 320,
+              "bytes": 20131
+            },
+            {
+              "format": "webp",
+              "file": "industry-field-services-partner-hero-480.webp",
+              "width": 480,
+              "height": 320,
+              "bytes": 30310
+            },
+            {
+              "format": "jpg",
+              "file": "industry-field-services-partner-hero-480.jpg",
+              "width": 480,
+              "height": 320,
+              "bytes": 31029
+            },
+            {
+              "format": "avif",
+              "file": "industry-field-services-partner-hero-720.avif",
+              "width": 720,
+              "height": 480,
+              "bytes": 40269
+            },
+            {
+              "format": "webp",
+              "file": "industry-field-services-partner-hero-720.webp",
+              "width": 720,
+              "height": 480,
+              "bytes": 59680
+            },
+            {
+              "format": "jpg",
+              "file": "industry-field-services-partner-hero-720.jpg",
+              "width": 720,
+              "height": 480,
+              "bytes": 63843
+            },
+            {
+              "format": "avif",
+              "file": "industry-field-services-partner-hero-960.avif",
+              "width": 960,
+              "height": 640,
+              "bytes": 63341
+            },
+            {
+              "format": "webp",
+              "file": "industry-field-services-partner-hero-960.webp",
+              "width": 960,
+              "height": 640,
+              "bytes": 93470
+            },
+            {
+              "format": "jpg",
+              "file": "industry-field-services-partner-hero-960.jpg",
+              "width": 960,
+              "height": 640,
+              "bytes": 105522
             }
           ]
         }
@@ -836,6 +1326,76 @@
               "bytes": 65979
             }
           ]
+        },
+        {
+          "name": "partner-body",
+          "width": 1365,
+          "height": 1024,
+          "files": [
+            {
+              "format": "avif",
+              "file": "industry-ecommerce-partner-body-320.avif",
+              "width": 320,
+              "height": 240,
+              "bytes": 8610
+            },
+            {
+              "format": "webp",
+              "file": "industry-ecommerce-partner-body-320.webp",
+              "width": 320,
+              "height": 240,
+              "bytes": 13174
+            },
+            {
+              "format": "jpg",
+              "file": "industry-ecommerce-partner-body-320.jpg",
+              "width": 320,
+              "height": 240,
+              "bytes": 15020
+            },
+            {
+              "format": "avif",
+              "file": "industry-ecommerce-partner-body-480.avif",
+              "width": 480,
+              "height": 360,
+              "bytes": 16608
+            },
+            {
+              "format": "webp",
+              "file": "industry-ecommerce-partner-body-480.webp",
+              "width": 480,
+              "height": 360,
+              "bytes": 24372
+            },
+            {
+              "format": "jpg",
+              "file": "industry-ecommerce-partner-body-480.jpg",
+              "width": 480,
+              "height": 360,
+              "bytes": 29225
+            },
+            {
+              "format": "avif",
+              "file": "industry-ecommerce-partner-body-640.avif",
+              "width": 640,
+              "height": 480,
+              "bytes": 25755
+            },
+            {
+              "format": "webp",
+              "file": "industry-ecommerce-partner-body-640.webp",
+              "width": 640,
+              "height": 480,
+              "bytes": 36980
+            },
+            {
+              "format": "jpg",
+              "file": "industry-ecommerce-partner-body-640.jpg",
+              "width": 640,
+              "height": 480,
+              "bytes": 46150
+            }
+          ]
         }
       ]
     },
@@ -934,6 +1494,146 @@
               "bytes": 76378
             }
           ]
+        },
+        {
+          "name": "partner-hero",
+          "width": 1280,
+          "height": 853,
+          "files": [
+            {
+              "format": "avif",
+              "file": "industry-professional-services-partner-hero-480.avif",
+              "width": 480,
+              "height": 320,
+              "bytes": 18248
+            },
+            {
+              "format": "webp",
+              "file": "industry-professional-services-partner-hero-480.webp",
+              "width": 480,
+              "height": 320,
+              "bytes": 27158
+            },
+            {
+              "format": "jpg",
+              "file": "industry-professional-services-partner-hero-480.jpg",
+              "width": 480,
+              "height": 320,
+              "bytes": 30501
+            },
+            {
+              "format": "avif",
+              "file": "industry-professional-services-partner-hero-720.avif",
+              "width": 720,
+              "height": 480,
+              "bytes": 33731
+            },
+            {
+              "format": "webp",
+              "file": "industry-professional-services-partner-hero-720.webp",
+              "width": 720,
+              "height": 480,
+              "bytes": 49836
+            },
+            {
+              "format": "jpg",
+              "file": "industry-professional-services-partner-hero-720.jpg",
+              "width": 720,
+              "height": 480,
+              "bytes": 59431
+            },
+            {
+              "format": "avif",
+              "file": "industry-professional-services-partner-hero-960.avif",
+              "width": 960,
+              "height": 640,
+              "bytes": 51744
+            },
+            {
+              "format": "webp",
+              "file": "industry-professional-services-partner-hero-960.webp",
+              "width": 960,
+              "height": 640,
+              "bytes": 74958
+            },
+            {
+              "format": "jpg",
+              "file": "industry-professional-services-partner-hero-960.jpg",
+              "width": 960,
+              "height": 640,
+              "bytes": 94434
+            }
+          ]
+        },
+        {
+          "name": "partner-body",
+          "width": 1365,
+          "height": 1024,
+          "files": [
+            {
+              "format": "avif",
+              "file": "industry-professional-services-partner-body-320.avif",
+              "width": 320,
+              "height": 240,
+              "bytes": 9741
+            },
+            {
+              "format": "webp",
+              "file": "industry-professional-services-partner-body-320.webp",
+              "width": 320,
+              "height": 240,
+              "bytes": 14712
+            },
+            {
+              "format": "jpg",
+              "file": "industry-professional-services-partner-body-320.jpg",
+              "width": 320,
+              "height": 240,
+              "bytes": 16631
+            },
+            {
+              "format": "avif",
+              "file": "industry-professional-services-partner-body-480.avif",
+              "width": 480,
+              "height": 360,
+              "bytes": 19030
+            },
+            {
+              "format": "webp",
+              "file": "industry-professional-services-partner-body-480.webp",
+              "width": 480,
+              "height": 360,
+              "bytes": 28208
+            },
+            {
+              "format": "jpg",
+              "file": "industry-professional-services-partner-body-480.jpg",
+              "width": 480,
+              "height": 360,
+              "bytes": 33215
+            },
+            {
+              "format": "avif",
+              "file": "industry-professional-services-partner-body-640.avif",
+              "width": 640,
+              "height": 480,
+              "bytes": 29414
+            },
+            {
+              "format": "webp",
+              "file": "industry-professional-services-partner-body-640.webp",
+              "width": 640,
+              "height": 480,
+              "bytes": 43518
+            },
+            {
+              "format": "jpg",
+              "file": "industry-professional-services-partner-body-640.jpg",
+              "width": 640,
+              "height": 480,
+              "bytes": 53005
+            }
+          ]
         }
       ]
     },
@@ -1009,6 +1709,76 @@
               "width": 1200,
               "height": 800,
               "bytes": 61194
+            }
+          ]
+        },
+        {
+          "name": "partner-hero",
+          "width": 1280,
+          "height": 853,
+          "files": [
+            {
+              "format": "avif",
+              "file": "process-review-hands-partner-hero-480.avif",
+              "width": 480,
+              "height": 320,
+              "bytes": 7424
+            },
+            {
+              "format": "webp",
+              "file": "process-review-hands-partner-hero-480.webp",
+              "width": 480,
+              "height": 320,
+              "bytes": 12300
+            },
+            {
+              "format": "jpg",
+              "file": "process-review-hands-partner-hero-480.jpg",
+              "width": 480,
+              "height": 320,
+              "bytes": 16563
+            },
+            {
+              "format": "avif",
+              "file": "process-review-hands-partner-hero-720.avif",
+              "width": 720,
+              "height": 480,
+              "bytes": 13511
+            },
+            {
+              "format": "webp",
+              "file": "process-review-hands-partner-hero-720.webp",
+              "width": 720,
+              "height": 480,
+              "bytes": 21658
+            },
+            {
+              "format": "jpg",
+              "file": "process-review-hands-partner-hero-720.jpg",
+              "width": 720,
+              "height": 480,
+              "bytes": 30873
+            },
+            {
+              "format": "avif",
+              "file": "process-review-hands-partner-hero-960.avif",
+              "width": 960,
+              "height": 640,
+              "bytes": 20889
+            },
+            {
+              "format": "webp",
+              "file": "process-review-hands-partner-hero-960.webp",
+              "width": 960,
+              "height": 640,
+              "bytes": 32932
+            },
+            {
+              "format": "jpg",
+              "file": "process-review-hands-partner-hero-960.jpg",
+              "width": 960,
+              "height": 640,
+              "bytes": 48044
             }
           ]
         }

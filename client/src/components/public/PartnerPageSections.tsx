@@ -10,8 +10,9 @@ import {
   PARTNER_REFERRAL_CARD,
   PARTNER_REVIEW_DISCLOSURE,
   PARTNER_ROUTES,
-  partnerFaqs,
+  buildPartnerFaqJsonLd,
   partnerReferralCardBody,
+  selectPartnerFaqs,
   type PartnerFaq,
   type PartnerPathId,
   type PartnerReferralPolicy,
@@ -19,14 +20,8 @@ import {
 import { trackPartnerEvent } from "@/lib/tracking";
 import { partnerRouteWithAttribution } from "@/lib/partner-application-client";
 
-/** FAQ structured data built from exactly the answers a page renders, never a longer list than the page shows. */
-export function partnerFaqJsonLd(faqs: readonly PartnerFaq[]) {
-  return {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    mainEntity: faqs.map((faq) => ({ "@type": "Question", name: faq.question, acceptedAnswer: { "@type": "Answer", text: faq.answer } })),
-  };
-}
+/** FAQ structured data built from exactly the answers a page renders (shared with the server documents). */
+export const partnerFaqJsonLd = buildPartnerFaqJsonLd;
 
 interface PathCardsProps {
   policy: PartnerReferralPolicy;
@@ -43,7 +38,7 @@ export function PartnerPathCards({ policy, sourcePage, headingId }: PathCardsPro
   return (
     <ul className="grid grid-cols-1 gap-6 md:grid-cols-2" aria-labelledby={headingId} data-testid="partner-path-cards">
       {cards.map(({ path, icon: Icon, title, body, cta, href, responsibilities }) => (
-        <li key={path} className="public-card flex flex-col p-6 md:p-8" data-testid={`partner-card-${path}`}>
+        <li key={path} className="public-card flex min-w-0 flex-col p-5 md:p-8" data-testid={`partner-card-${path}`}>
           <Icon className="mb-4 h-6 w-6 text-primary" aria-hidden="true" />
           <p className="public-eyebrow mb-1">{PARTNER_PATH_LABEL[path]}</p>
           <h3 className="public-h3 mb-3 text-foreground">{title}</h3>
@@ -52,9 +47,9 @@ export function PartnerPathCards({ policy, sourcePage, headingId }: PathCardsPro
             {responsibilities.map((item) => <li key={item}>{item}</li>)}
           </ul>
           <div className="mt-auto">
-            <Button asChild variant={path === "referral" ? "default" : "outline"} className="min-h-11">
+            <Button asChild variant={path === "referral" ? "default" : "outline"} className="h-auto min-h-11 w-full max-w-full whitespace-normal py-2.5 text-center sm:w-auto">
               <Link href={href} onClick={() => trackPartnerEvent("partner_path_selected", { path, source_page: sourcePage })} data-testid={`partner-card-${path}-cta`}>
-                {cta} <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+                <span className="min-w-0">{cta}</span> <ArrowRight className="ml-2 h-4 w-4 shrink-0" aria-hidden="true" />
               </Link>
             </Button>
           </div>
@@ -107,16 +102,21 @@ export function PartnerComparison({ headingId }: { headingId: string }) {
   );
 }
 
-/** Four steps: a numbered vertical list on phones, 2×2 at md, one row of four at lg. */
-export function PartnerProcess() {
+/** Four steps: a numbered vertical list on phones, 2×2 at md, one row of four at lg. `onInk` is the navy-band variant. */
+export function PartnerProcess({ onInk = false }: { onInk?: boolean }) {
   return (
     <ol className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4" data-testid="partner-process">
       {PARTNER_PROCESS_STEPS.map((step, index) => (
         <li key={step.title} className="flex gap-4 md:block">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-base font-bold text-primary-foreground md:mb-3" aria-hidden="true">{index + 1}</span>
+          <span
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-base font-bold md:mb-3 ${onInk ? "bg-white text-[hsl(var(--liberty-navy))]" : "bg-primary text-primary-foreground"}`}
+            aria-hidden="true"
+          >
+            {index + 1}
+          </span>
           <div>
-            <h3 className="public-card-title mb-1 text-foreground">{step.title}</h3>
-            <p className="public-small text-muted-foreground">{step.body}</p>
+            <h3 className={`public-card-title mb-1 ${onInk ? "text-white" : "text-foreground"}`}>{step.title}</h3>
+            <p className={`public-small ${onInk ? "public-secondary" : "text-muted-foreground"}`}>{step.body}</p>
           </div>
         </li>
       ))}
@@ -125,10 +125,7 @@ export function PartnerProcess() {
 }
 
 /** FAQ list for the whole policy state (or a subset by id). The same list feeds the page's structured data. */
-export function selectedPartnerFaqs(policy: PartnerReferralPolicy, ids?: readonly string[]): readonly PartnerFaq[] {
-  const all = partnerFaqs(policy);
-  return ids ? all.filter((faq) => ids.includes(faq.id)) : all;
-}
+export const selectedPartnerFaqs = selectPartnerFaqs;
 
 export function PartnerFaqList({ faqs, testId = "partner-faq" }: { faqs: readonly PartnerFaq[]; testId?: string }) {
   return (

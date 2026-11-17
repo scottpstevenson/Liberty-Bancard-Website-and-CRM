@@ -442,7 +442,7 @@ export const INSPECTED_ROUTES=[
   "/about-contact","/why-liberty-bancard","/case-studies",
   "/faq","/support","/help","/blog",
   "/compare-rates","/savings-calculator","/compare/square",
-  "/partners","/partners/referrals","/partners/sales-agents","/partners/cpa","/affiliate","/areas-served","/privacy-policy",
+  "/partners","/partners/referrals","/partners/sales-agents","/partners/cpa","/partners/bookkeeper","/partners/insurance","/affiliate","/areas-served","/privacy-policy",
   "/industries","/industries/restaurant-payment-processing","/industries/retail-payment-processing",
   "/industries/healthcare-payment-processing","/industries/auto-repair-payment-processing",
 ];

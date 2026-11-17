@@ -9,6 +9,7 @@ import {
   parsePartnerApplication,
   partnerLink,
   pickPartnerAttribution,
+  resolvePartnerAttribution,
   PARTNER_APPLICATION_CONSENT,
   PARTNER_APPLICATION_SCHEMA_VERSION,
   PARTNER_SOURCE_PAGES,
@@ -54,13 +55,46 @@ export const PARTNER_FIELD_ORDER: Record<PartnerPathId, string[]> = {
 };
 
 const trimmed = (value: string) => value.trim();
+const FIRST_TOUCH_KEY = "lb_partner_first_touch";
+
+/** The session's first allowlisted attribution set seen on a partner route (empty when none, or when storage is unavailable). */
+export function readPartnerFirstTouch(): ReturnType<typeof pickPartnerAttribution> {
+  try {
+    const raw = typeof sessionStorage === "undefined" ? null : sessionStorage.getItem(FIRST_TOUCH_KEY);
+    return raw ? pickPartnerAttribution(JSON.parse(raw) as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
- * A same-origin partner route that keeps only the allowlisted ref and UTM values of the page the visitor is on, so a
- * campaign link survives hub -> journey -> application. Nothing outside the allowlist (tokens, URLs, other parameters) is carried.
+ * Remembers the first allowlisted set a session arrives with on a partner page. First write wins for the whole session;
+ * a later page with different values becomes the CURRENT touch (see resolvePartnerAttribution) but never replaces this.
+ */
+export function capturePartnerFirstTouch(pathname: string, search: string): void {
+  try {
+    if (typeof sessionStorage === "undefined" || !(PARTNER_SOURCE_PAGES as readonly string[]).includes(pathname)) return;
+    if (Object.keys(readPartnerFirstTouch()).length > 0) return;
+    const seen = pickPartnerAttribution(new URLSearchParams(search));
+    if (Object.keys(seen).length > 0) sessionStorage.setItem(FIRST_TOUCH_KEY, JSON.stringify(seen));
+  } catch {
+    // Storage can be blocked; attribution then relies on the current URL only.
+  }
+}
+
+/** The attribution to carry or store right now: current touch if present, else the session's first touch. */
+export function currentPartnerAttribution(search?: string): ReturnType<typeof pickPartnerAttribution> {
+  const current = search ?? (typeof window === "undefined" ? "" : window.location.search);
+  return resolvePartnerAttribution(new URLSearchParams(current), readPartnerFirstTouch());
+}
+
+/**
+ * A same-origin partner route that keeps only the allowlisted ref and UTM values (current touch, else the session's first
+ * touch), so a campaign link survives hub -> journey -> application. Nothing outside the allowlist (tokens, URLs, other
+ * parameters) is carried.
  */
 export function partnerRouteWithAttribution(route: string, hash?: string): string {
-  const search = typeof window === "undefined" ? "" : window.location.search;
-  return partnerLink(route, { attribution: pickPartnerAttribution(new URLSearchParams(search)), hash });
+  return partnerLink(route, { attribution: currentPartnerAttribution(), hash });
 }
 
 const present = <T extends string>(key: string, value: T): Record<string, T> => (trimmed(value) ? { [key]: value } : {});
@@ -69,12 +103,12 @@ const present = <T extends string>(key: string, value: T): Record<string, T> => 
 export function buildPartnerPayload(
   path: PartnerPathId,
   values: PartnerFormValues,
-  context: { sourcePage?: string; search?: string } = {},
+  context: { sourcePage?: string; search?: string; firstTouch?: Record<string, unknown> } = {},
 ): Record<string, unknown> {
   const disclosure = disclosureForSurface("partner_application");
   const marketing = values.marketingOptIn && disclosure ? { marketingOptIn: true, emailDisclosureId: disclosure.id } : {};
   const sourcePage = context.sourcePage && (PARTNER_SOURCE_PAGES as readonly string[]).includes(context.sourcePage) ? { sourcePage: context.sourcePage } : {};
-  const attribution = pickPartnerAttribution(new URLSearchParams(context.search ?? ""));
+  const attribution = resolvePartnerAttribution(new URLSearchParams(context.search ?? ""), context.firstTouch ?? null);
   const common = {
     schemaVersion: PARTNER_APPLICATION_SCHEMA_VERSION,
     path,

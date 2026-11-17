@@ -63,7 +63,7 @@ export function PartnerResidualCalculator({ policy = DEFAULT_REFERRAL_POLICY, in
   const Heading = headingLevel;
 
   return (
-    <div className="bg-primary/5 border border-primary/20 rounded-2xl p-6 md:p-8" data-testid="partner-residual-calculator">
+    <div className="partner-calculator" data-testid="partner-residual-calculator">
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
           <Calculator className="w-5 h-5 text-primary" aria-hidden="true" />
@@ -74,6 +74,8 @@ export function PartnerResidualCalculator({ policy = DEFAULT_REFERRAL_POLICY, in
         </div>
       </div>
 
+      <div className="partner-calculator__layout">
+      <div className="min-w-0">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
         <div>
           <Label htmlFor="partner-input-calc-merchants" className="block mb-2">
@@ -183,22 +185,25 @@ export function PartnerResidualCalculator({ policy = DEFAULT_REFERRAL_POLICY, in
         )}
       </div>
 
+      </div>
+
+      <div className="partner-calculator__result" data-testid="partner-calculator-result">
       {illustration.kind === "gated" ? (
         <div className="rounded-xl border border-border bg-background p-5" data-testid="text-calc-gated" role="status">
           <p className="text-sm text-foreground">{illustration.message}</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4" aria-live="polite" aria-atomic="true">
-          <div className="bg-background rounded-xl border border-border p-5 text-center">
+        <div className="grid grid-cols-1 gap-4" aria-live="polite" aria-atomic="true">
+          <div>
             <p className="text-sm text-muted-foreground mb-1">{PARTNER_RESIDUAL_COPY.monthlyLabel}</p>
-            <p className="text-3xl font-bold text-primary" data-testid="text-calc-monthly">
+            <p className="partner-calculator__figure" data-testid="text-calc-monthly">
               {illustration.kind === "amount" ? formatPartnerResidualUsd(illustration.monthly) : "—"}
             </p>
             <p className="text-xs text-muted-foreground mt-1">per month</p>
           </div>
-          <div className="bg-background rounded-xl border border-border p-5 text-center">
+          <div className="border-t border-border pt-4">
             <p className="text-sm text-muted-foreground mb-1">{PARTNER_RESIDUAL_COPY.annualLabel}</p>
-            <p className="text-3xl font-bold text-green-700" data-testid="text-calc-annual">
+            <p className="partner-calculator__figure" data-testid="text-calc-annual">
               {illustration.kind === "amount" ? formatPartnerResidualUsd(illustration.annualized) : "—"}
             </p>
             <p className="text-xs text-muted-foreground mt-1">monthly × 12, same activity every month</p>
@@ -206,12 +211,12 @@ export function PartnerResidualCalculator({ policy = DEFAULT_REFERRAL_POLICY, in
         </div>
       )}
       {illustration.kind === "incomplete" && (
-        <p className="text-xs text-destructive mt-3 text-center" data-testid="text-calc-incomplete">
+        <p className="text-xs text-destructive mt-3" data-testid="text-calc-incomplete">
           Enter a valid number of merchants and average monthly volume to see an illustration.
         </p>
       )}
 
-      <p className="text-xs text-muted-foreground mt-4 text-center" data-testid="text-calc-formula">
+      <p className="text-xs text-muted-foreground mt-4" data-testid="text-calc-formula">
         {PARTNER_RESIDUAL_COPY.formula}
       </p>
       <p
@@ -220,11 +225,13 @@ export function PartnerResidualCalculator({ policy = DEFAULT_REFERRAL_POLICY, in
       >
         {PARTNER_RESIDUAL_COPY.disclosure}
       </p>
-      <p className="mt-4 text-center">
+      <p className="mt-4">
         <Link href={partnerRouteWithAttribution(PARTNER_PATH_ROUTE[path])} className="inline-flex min-h-11 items-center text-sm font-medium text-primary underline underline-offset-4" data-testid="link-calc-cta">
           {PARTNER_RESIDUAL_COPY.cta}
         </Link>
       </p>
+      </div>
+      </div>
     </div>
   );
 }

@@ -40,14 +40,16 @@ export interface PublicSectionHeaderProps {
   align?: "start" | "center";
   className?: string;
   titleTestId?: string;
+  /** On a dark (`ink`) band: white title, lead paragraph in the light secondary pair the band already defines. */
+  inverse?: boolean;
 }
 
 /** Section heading block: optional eyebrow, one h2 on the contract scale, optional lead paragraph. */
-export function PublicSectionHeader({ id, eyebrow, title, description, as: Heading = "h2", align = "start", className, titleTestId }: PublicSectionHeaderProps) {
+export function PublicSectionHeader({ id, eyebrow, title, description, as: Heading = "h2", align = "start", className, titleTestId, inverse = false }: PublicSectionHeaderProps) {
   return (
     <div className={cn("mb-6 md:mb-8", align === "center" && "mx-auto text-center", "max-w-3xl", className)}>
       {eyebrow && <p className="public-eyebrow mb-2">{eyebrow}</p>}
-      <Heading id={id} className="public-h2 text-foreground" data-testid={titleTestId}>
+      <Heading id={id} className={cn("public-h2", inverse ? "text-white" : "text-foreground")} data-testid={titleTestId}>
         {title}
       </Heading>
       {description && <p className="public-body public-secondary mt-3">{description}</p>}

@@ -8,6 +8,7 @@ import { getPublicNotFoundHtml } from "../ssr/not-found";
 import { getIndustriesHubHtml } from "../ssr/industries-hub";
 import { getOverviewPageHtml } from "../ssr/overview-pages";
 import { getAboutContactHtml } from "../ssr/about-contact";
+import { registerPartnerPageRoutes } from "./partner-pages";
 import { PAYMENT_PROCESSING_PAGE, PRICING_AND_PROGRAMS_PAGE } from "../../shared/public-overview-pages";
 import { ABOUT_CONTACT_PATH } from "../../shared/public-contact-content";
 import {
@@ -311,6 +312,9 @@ export function registerSsrRoutes(app: Express) {
     res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(getBeatSquareStripeHtml());
   });
+
+  // Partnership routes (six documents; wording depends on the published referral policy, so never publicly cached).
+  registerPartnerPageRoutes(app);
 
   app.get("/affiliate", (_req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");

@@ -97,7 +97,7 @@ import {
 
 import { TERMINAL_INQUIRY_PAGE, TERMINAL_INQUIRY_PATH, readTerminalIntent } from "@shared/public-terminal-inquiry";
 import { GET_STARTED_PAGE } from "@shared/public-get-started";
-import { AFFILIATE_PAGE } from "@shared/public-affiliate";
+import { getAffiliatePageHtml } from "./partners";
 
 const BASE_URL = "https://libertybancard.com";
 
@@ -760,66 +760,7 @@ export function getBeatSquareStripeHtml(): string {
 }
 
 export function getAffiliateProgramHtml(): string {
-  const schema = {
-    "@context": "https://schema.org",
-    "@type": "WebPage",
-    name: AFFILIATE_PAGE.title,
-    description: AFFILIATE_PAGE.description,
-    url: `${BASE_URL}/affiliate`,
-  };
-  const body = `
-  <div class="ssr-hero">
-    <div class="ssr-hero-inner">
-      <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Affiliate and referral accounts</span></div>
-      <div class="ssr-hero-badge">Affiliate and referral accounts</div>
-      <h1>${AFFILIATE_PAGE.heading}</h1>
-      <p class="ssr-hero-subtitle">${AFFILIATE_PAGE.intro}</p>
-      <div class="ssr-hero-buttons">
-        <a href="/partners/referrals#apply" class="ssr-btn-primary">Apply as a referral partner</a>
-        <a href="/partners" class="ssr-btn-outline">Compare partnership paths</a>
-      </div>
-    </div>
-  </div>
-
-  <section class="ssr-section ssr-section-muted">
-    <div class="ssr-section-inner">
-      <h2 class="ssr-section-heading">Already an affiliate? Nothing changes for you.</h2>
-      <div class="ssr-grid-3">
-        <div class="ssr-card">
-          <div class="ssr-card-title">Your link keeps working</div>
-          <div class="ssr-card-text">Existing affiliate links, codes and history are unchanged. Sign in to reach your dashboard.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">You introduce, Liberty sells</div>
-          <div class="ssr-card-text">Our team handles the statement review, the sales conversation and onboarding.</div>
-        </div>
-        <div class="ssr-card">
-          <div class="ssr-card-title">Terms in writing</div>
-          <div class="ssr-card-text">Compensation is set in your written agreement, not on this page.</div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="ssr-section ssr-section-dark">
-    <div class="ssr-section-inner ssr-cta-section">
-      <h2>Ready to apply?</h2>
-      <p>Your application is reviewed by Liberty Bancard. We confirm terms in writing before any work begins.</p>
-      <div class="ssr-cta-buttons">
-        <a href="/partners/referrals#apply" class="ssr-btn-primary">Apply as a referral partner</a>
-        <a href="/partners" class="ssr-btn-outline">Compare partnership paths</a>
-      </div>
-    </div>
-  </section>`;
-
-  return ssrHtmlShell({
-    title: AFFILIATE_PAGE.title,
-    description: AFFILIATE_PAGE.description,
-    canonical: "/affiliate",
-    keywords: "affiliate account, referral partner, payment processing referral",
-    schemaJsons: [schema],
-    body,
-  });
+  return getAffiliatePageHtml();
 }
 
 export function getTestimonialsHtml(): string {

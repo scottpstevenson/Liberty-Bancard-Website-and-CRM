@@ -121,7 +121,8 @@ export function PartnerIntroductionsTab({ partnerCode, partnerActive }: { partne
         }),
       });
       const data = await res.json().catch(() => null);
-      if ((res.status === 200 || res.status === 201) && data?.reference) {
+      // 202: the introduction is saved and our side is still finishing recording it (recovery completes it). The partner never resubmits.
+      if ((res.status === 200 || res.status === 201 || res.status === 202) && data?.reference) {
         clearSubmissionKey("partner_introduction", identity);
         setSaved(data as IntroductionView);
         setValues(EMPTY);

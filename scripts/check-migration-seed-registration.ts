@@ -64,6 +64,9 @@ const MIGRATIONS_ROOT = path.join(process.cwd(), "migrations");
  *     runtime code depends on being present to function correctly.
  */
 const KNOWN_EXEMPT_SEEDS: Record<string, { table: string; classification: "historical_one_time" | "not_config_seed"; reason: string }[]> = {
+  "0385_partner_review_decisions_and_introduction_completion.sql": [
+    { table: "partner_introductions", classification: "historical_one_time", reason: "bounded one-time checkpoint backfill for introductions the previous code had already linked to a contact, so the recovery sweep does not redo finished steps; every current introduction writes its own checkpoints in code, the table was created one migration earlier and holds no production rows, and the statement is not production-required configuration." },
+  ],
   "0279_sfp_immutable_cohort_lifecycle.sql": [
     { table: "sfp_cohort_runs", classification: "historical_one_time", reason: "one-time mapping from the legacy status column into cohort_state during the lifecycle schema transition; current cohort writes maintain both fields and the production migration has already been applied." },
   ],

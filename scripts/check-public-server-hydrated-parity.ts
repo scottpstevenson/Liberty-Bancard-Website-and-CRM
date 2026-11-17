@@ -59,6 +59,13 @@ const CRAWLER_BRANCHED_ROUTES = [
 const DEFAULT_ROUTES = [
   "/0-percent-processing",
   "/affiliate",
+  // Partnership routes: the document and the hydrated page read one title/h1 record (shared/partner-page-seo.ts).
+  "/partners",
+  "/partners/referrals",
+  "/partners/sales-agents",
+  "/partners/cpa",
+  "/partners/bookkeeper",
+  "/partners/insurance",
   "/beat-square-stripe",
   "/get-started",
   "/get-started?offer=free-terminal",

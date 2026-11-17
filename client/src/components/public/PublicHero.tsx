@@ -28,8 +28,14 @@ export interface PublicHeroProps {
   tertiaryLinks?: PublicCTADef[];
   /** Small trust-badge strings rendered in a grey row beneath CTAs */
   trustBadges?: string[];
-  /** Optional right-column content (e.g. screenshot or mock card) */
+  /** Optional right-column content (e.g. screenshot or mock card). Desktop only: it is `hidden lg:flex`. */
   rightColumn?: React.ReactNode;
+  /**
+   * Opt-in responsive media (a photograph). Unlike `rightColumn` it is shown at every width: below lg it follows the
+   * actions (text, then actions, then image), from lg it takes the right column of the split. Pages that do not pass it
+   * render exactly as before.
+   */
+  media?: React.ReactNode;
   /** Extra badge/label above the headline */
   badge?: React.ReactNode;
   /** Fine-print / microcopy below the CTA row */
@@ -57,12 +63,14 @@ export function PublicHero({
   tertiaryLinks,
   trustBadges,
   rightColumn,
+  media,
   badge,
   microcopy,
   className,
   "data-testid": testId = "section-hero",
 }: PublicHeroProps) {
   const hasRightCol = Boolean(rightColumn);
+  const hasMedia = Boolean(media);
 
   return (
     <section
@@ -76,7 +84,8 @@ export function PublicHero({
         <div
           className={cn(
             "grid grid-cols-1 gap-10 items-center",
-            hasRightCol && "lg:grid-cols-[1.05fr_0.95fr] lg:gap-16"
+            (hasRightCol || hasMedia) && "lg:grid-cols-[1.05fr_0.95fr] lg:gap-16",
+            hasMedia && "gap-8 lg:gap-12"
           )}
         >
           {/* Left column — message + CTAs */}
@@ -137,6 +146,13 @@ export function PublicHero({
               </div>
             )}
           </div>
+
+          {/* Responsive media (optional, opt-in): follows the actions on phones and tablets, right column from lg */}
+          {hasMedia && (
+            <div className="min-w-0" data-testid="hero-media">
+              {media}
+            </div>
+          )}
 
           {/* Right column (optional) */}
           {hasRightCol && (

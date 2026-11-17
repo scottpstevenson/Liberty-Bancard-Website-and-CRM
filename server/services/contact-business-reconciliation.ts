@@ -7,7 +7,7 @@ import { CONTACT_LINK_UNLINKED_SUNBIZ_NAME_MATCH_SQL } from "./contact-link-cove
 const WORKFLOW = "indexed_contact_business_suggestions_v1";
 const CHECKPOINT_ACTION = "contact_business_reconciliation_checkpoint";
 const PAGE_LIMIT_MAX = 100;
-const SHARED_EMAIL_DOMAINS = new Set([
+export const SHARED_EMAIL_DOMAINS = new Set([
   "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.uk", "outlook.com",
   "hotmail.com", "live.com", "aol.com", "icloud.com", "me.com", "msn.com",
   "proton.me", "protonmail.com", "mail.com", "comcast.net", "att.net",

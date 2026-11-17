@@ -1077,6 +1077,12 @@ function usePageTracking() {
   const [location] = useLocation();
   useEffect(() => {
     captureUTMParams();
+    // Only partnership pages record a first touch. The module (zod schema, form helpers) loads on demand so it stays out
+    // of the main bundle; the exact allowlist check lives in capturePartnerFirstTouch.
+    const { pathname, search } = window.location;
+    if (/^\/(partners|affiliate)(\/|$)/.test(pathname)) {
+      void import("@/lib/partner-application-client").then((m) => m.capturePartnerFirstTouch(pathname, search)).catch(() => {});
+    }
     trackPageView(location);
   }, [location]);
 }

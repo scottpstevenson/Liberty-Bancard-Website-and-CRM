@@ -33,7 +33,7 @@ export const PARTNER_PROFESSION_PAGES: Record<PartnerProfessionPageId, PartnerPr
     profession: "cpa",
     seo: {
       title: "CPA Referral Partners | Liberty Bancard",
-      description: "CPAs who see client processing fees on the P&L can introduce a business to Liberty Bancard with the owner's permission. Liberty handles the sales process. Apply as a referral partner.",
+      description: "CPAs who see client processing fees on the P&L can introduce a business to Liberty Bancard with the owner's permission. Liberty handles the sales process.",
       keywords: "CPA referral partner, accountant partner program, merchant services referral for CPAs",
     },
     badge: "For CPAs and accountants",
@@ -79,7 +79,7 @@ export const PARTNER_PROFESSION_PAGES: Record<PartnerProfessionPageId, PartnerPr
     profession: "bookkeeper",
     seo: {
       title: "Bookkeeper Referral Partners | Liberty Bancard",
-      description: "Bookkeepers who reconcile card-processing statements can introduce a business to Liberty Bancard with the owner's permission. Liberty handles the sales process. Apply as a referral partner.",
+      description: "Bookkeepers who reconcile card-processing statements can introduce a business to Liberty Bancard with the owner's permission. Liberty handles the sales process.",
       keywords: "bookkeeper referral partner, bookkeeper partner program, merchant services referral for bookkeepers",
     },
     badge: "For bookkeepers",
@@ -120,7 +120,7 @@ export const PARTNER_PROFESSION_PAGES: Record<PartnerProfessionPageId, PartnerPr
     profession: "insurance",
     seo: {
       title: "Insurance Agent Referral Partners | Liberty Bancard",
-      description: "Business insurance agents who talk with small-business owners can introduce a business to Liberty Bancard with the owner's permission. Liberty handles the sales process. Apply as a referral partner.",
+      description: "Business insurance agents can introduce a small business to Liberty Bancard with the owner's permission. Liberty handles the sales process.",
       keywords: "insurance agent referral partner, partner program for insurance agents, merchant services referral for insurance agents",
     },
     badge: "For insurance agents",

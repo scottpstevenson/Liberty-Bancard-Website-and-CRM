@@ -260,6 +260,60 @@ export function partnerFaqs(policy: PartnerReferralPolicy): readonly PartnerFaq[
   ];
 }
 
+// ── FAQ selection (shared by the React pages and the server documents) ────────────────────────────────────────────────
+
+export const PARTNER_FAQ_IDS = {
+  referral: ["difference", "referral-compensation", "permission", "continuing", "timing", "account", "existing"],
+  salesAgent: ["difference", "base", "agent-all-deals", "continuing", "timing", "account", "existing"],
+  profession: ["referral-compensation", "permission", "calculator", "account", "existing"],
+} as const;
+
+/** FAQ list for the whole policy state (or a subset by id, in the shared order). */
+export function selectPartnerFaqs(policy: PartnerReferralPolicy, ids?: readonly string[]): readonly PartnerFaq[] {
+  const all = partnerFaqs(policy);
+  return ids ? all.filter((faq) => ids.includes(faq.id)) : all;
+}
+
+/** FAQ structured data built from exactly the answers a page renders, never a longer list than the page shows. */
+export function buildPartnerFaqJsonLd(faqs: readonly PartnerFaq[]) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqs.map((faq) => ({ "@type": "Question", name: faq.question, acceptedAnswer: { "@type": "Answer", text: faq.answer } })),
+  };
+}
+
+// ── Section copy (hub, journeys, profession pages) ──────────────────────────────────────────────────────────────────
+
+export const PARTNER_HUB_SECTIONS = {
+  paths: { heading: "Two ways to partner with Liberty.", description: "Choose the path that matches the work you want to do." },
+  compare: { heading: "How the two paths differ.", description: "Compensation for either path is confirmed in writing before any work begins." },
+  process: { heading: "How it works.", description: "Four steps from choosing a path to working under a written agreement." },
+  calculator: { heading: "See how a portfolio could add up.", description: "An illustration with assumptions you choose. It is not a quote, an average or a promise of earnings." },
+  faq: { heading: "Questions partners ask." },
+  choose: {
+    heading: "Choose your path.",
+    description: "Each path has its own short application. There is no password and no account to create.",
+    referralCta: "Referral partner: refer a business",
+    agentCta: "Sales agent: build a portfolio",
+  },
+} as const;
+
+export const PARTNER_JOURNEY_SECTIONS = {
+  who: { heading: "Who this is for.", description: "People who work closely with business owners. Listing a profession here is not an endorsement of anyone." },
+  rolesReferral: { heading: "Who does what." },
+  rolesAgent: { heading: "What the work involves." },
+  steps: { heading: "What happens next." },
+  applicationDescription: "Your application is reviewed by Liberty Bancard. If it moves forward we confirm terms in writing before any work begins. We do not promise a response time or any earnings.",
+  faq: { heading: "Common questions." },
+} as const;
+
+export const PARTNER_PROFESSION_SECTIONS = {
+  calculator: { heading: "See how a portfolio could add up.", description: "An illustration with assumptions you choose. It is not a quote, an average or a promise of earnings." },
+  next: { heading: "Ready to apply?", description: "The application is short, needs no password and creates no account." },
+  faq: { heading: "Common questions." },
+} as const;
+
 // ── Application inputs shared by the form and the server ────────────────────────────────────────────────────────────
 
 export const PARTNER_PROFESSIONS = [

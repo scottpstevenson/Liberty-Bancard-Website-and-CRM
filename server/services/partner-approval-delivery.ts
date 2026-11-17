@@ -100,7 +100,7 @@ async function defaultSendInvite(partner: Partner, token: string): Promise<Invit
   <p>To activate your partner account, please set your password by clicking the button below:</p>
    <p><a href="${safeUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Set Your Password &amp; Access Your Portal &rarr;</a></p>
    <p>Or copy and paste this link:<br/><span style="font-family:monospace;font-size:12px;color:#555;">${safeUrl}</span></p>
-  <p>This link expires in 72 hours. Once you set your password, you'll have full access to your partner dashboard with referral tracking, commission reports, and marketing materials.</p>
+  <p>This link expires in 72 hours. Once you set your password, you'll be able to sign in to your partner dashboard for referral tracking, the details of your written agreement, and marketing materials.</p>
   <p>Questions? Reply to this email, call us at <a href="tel:9542668214" style="color:#1e3a5f;">954-266-8214</a>, or email <a href="mailto:scott@libertybancard.com" style="color:#1e3a5f;">scott@libertybancard.com</a>.</p>
   <p>Welcome aboard!</p>
 ${getEmailSignatureHtml("partners")}

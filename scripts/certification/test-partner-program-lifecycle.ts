@@ -93,6 +93,52 @@ const concurrentRefused = concurrent.filter((r) => r.status === "fulfilled" && (
 check(concurrentCreated === 1 && concurrentRefused === 5, "Six concurrent applications for one mailbox create exactly one (five refused)");
 check((await rows(`SELECT 1 FROM partner_applications WHERE mailbox=$1`, [emailC])).length === 1 && (await rows(`SELECT 1 FROM partners WHERE lower(email)=$1`, [emailC])).length === 1, "Exactly one application row and one partner row exist for that mailbox");
 
+// ── 1b. Persisted attribution snapshot for every journey (read from the exact occurrence) ─────────────────────────────
+{
+  const sharedApp = await import("../../shared/partner-application");
+  const clientApp = await import("../../client/src/lib/partner-application-client");
+  const ALLOWED = new Set<string>(sharedApp.PARTNER_ATTRIBUTION_KEYS);
+  const referralValues = (email: string, profession = "cpa") => ({ ...clientApp.EMPTY_PARTNER_FORM, fullName: "Journey Fixture", email, phone: "305-555-0142", company: `Journey Co ${id}`, profession, referralNetwork: "Small business clients", contactPermission: true });
+  const agentValues = (email: string) => ({ ...clientApp.EMPTY_PARTNER_FORM, fullName: "Journey Agent", email, phone: "305-555-0188", region: "South Florida", experience: "Five years.", prospectingApproach: "Warm introductions.", leadSourceInterest: "self_sourced", contactPermission: true });
+  const FIRST = { ref: "JNYREF", utm_source: "newsletter", utm_campaign: "fall" };
+  const CURRENT = "?utm_source=podcast&utm_medium=audio&utm_campaign=winter";
+  const journeys: Array<{ name: string; path: "referral" | "sales_agent"; page: string; search: string; first?: Record<string, string>; profession?: string; expect: Record<string, string> }> = [
+    { name: "hub to referral path", path: "referral", page: "/partners/referrals", search: "?ref=JNYREF&utm_source=newsletter&utm_campaign=fall", expect: FIRST },
+    { name: "hub to sales-agent path", path: "sales_agent", page: "/partners/sales-agents", search: "?ref=JNYREF&utm_source=newsletter&utm_campaign=fall", expect: FIRST },
+    { name: "CPA page to application", path: "referral", page: "/partners/referrals", search: "?ref=JNYREF&utm_source=newsletter&utm_campaign=fall&profession=cpa", profession: "cpa", expect: FIRST },
+    { name: "bookkeeper page to application", path: "referral", page: "/partners/referrals", search: "?ref=JNYREF&utm_source=newsletter&utm_campaign=fall&profession=bookkeeper", profession: "bookkeeper", expect: FIRST },
+    { name: "insurance page to application", path: "referral", page: "/partners/referrals", search: "?ref=JNYREF&utm_source=newsletter&utm_campaign=fall&profession=insurance", profession: "insurance", expect: FIRST },
+    { name: "affiliate page to referral path", path: "referral", page: "/partners/referrals", search: "?ref=JNYREF&utm_source=newsletter&utm_campaign=fall", expect: FIRST },
+    { name: "path switch with parameterless URL falls back to the first touch", path: "sales_agent", page: "/partners/sales-agents", search: "", first: FIRST, expect: FIRST },
+    { name: "deep link: the current touch wins as a whole set over the first touch", path: "referral", page: "/partners/referrals", search: CURRENT, first: FIRST, expect: { utm_source: "podcast", utm_medium: "audio", utm_campaign: "winter" } },
+    { name: "no attribution anywhere stores an empty snapshot", path: "referral", page: "/partners/referrals", search: "", expect: {} },
+    { name: "personal data and unknown keys in the URL are excluded", path: "referral", page: "/partners/referrals", search: "?ref=JNYREF&email=pat%40example.com&phone=3055550142&token=secret&utm_source=newsletter&redirect=https%3A%2F%2Fevil.example", expect: { ref: "JNYREF", utm_source: "newsletter" } },
+  ];
+  let n = 0;
+  for (const j of journeys) {
+    const email = `ppl-j${n++}-${id}@fixture.invalid`;
+    const values = j.path === "referral" ? referralValues(email, j.profession ?? "cpa") : agentValues(email);
+    const payload = clientApp.buildPartnerPayload(j.path, values as any, { sourcePage: j.page, search: j.search, firstTouch: j.first });
+    const parsed = sharedApp.parsePartnerApplication(payload);
+    check(parsed.ok, `Journey "${j.name}": the browser-built payload passes the server schema`);
+    const request = await claim(`journey-${n}`);
+    const created = await applications.createPartnerApplication((parsed as any).data, { inboundRequestId: request.id });
+    check(created.kind === "created", `Journey "${j.name}": the application is created`);
+    const [stored] = await rows(`SELECT acquisition, source_page, path, profession FROM partner_applications WHERE inbound_request_id=$1`, [request.id]);
+    const snapshot = stored.acquisition as Record<string, string>;
+    check(JSON.stringify(Object.fromEntries(Object.entries(snapshot).sort())) === JSON.stringify(Object.fromEntries(Object.entries(j.expect).sort())), `Journey "${j.name}": the persisted snapshot on the exact occurrence is ${JSON.stringify(j.expect)}`);
+    check(Object.keys(snapshot).every((k) => ALLOWED.has(k)) && !/@|secret|evil|3055550142/.test(JSON.stringify(snapshot)), `Journey "${j.name}": the snapshot has only allowlisted keys and no personal data, token or URL`);
+    check(stored.path === j.path && stored.source_page === j.page && (j.path === "referral" ? stored.profession === (j.profession ?? "cpa") : stored.profession === null), `Journey "${j.name}": path, source page and profession are stored with it`);
+  }
+  // A hand-crafted request cannot smuggle extra keys past the server: the service re-applies the allowlist.
+  const smuggleEmail = `ppl-smuggle-${id}@fixture.invalid`;
+  const smuggleReq = await claim("smuggle");
+  const smuggled = await applications.createPartnerApplication(referralInput(smuggleEmail, { attribution: { ref: "JNYREF", email: smuggleEmail, phone: "3055550142", commissionPercent: 90, role: "admin", utm_source: "newsletter" } }), { inboundRequestId: smuggleReq.id });
+  check(smuggled.kind === "created", "A crafted body naming extra attribution keys still creates the application");
+  const [smuggledRow] = await rows(`SELECT acquisition FROM partner_applications WHERE inbound_request_id=$1`, [smuggleReq.id]);
+  check(JSON.stringify(Object.keys(smuggledRow.acquisition).sort()) === JSON.stringify(["ref", "utm_source"]), "Negative control: crafted PII, rate and role keys are stripped server-side, only ref and utm_source persist");
+}
+
 // ── 2. Review list and filters ───────────────────────────────────────────────────────────────────────────────────────
 const list = await review.listPartnerApplications(review.normalizeApplicationFilters({ status: "pending_review", pageSize: "50" }));
 check(list.rows.some((r) => r.id === appA.id && r.termsState === "pending"), "The pending application is listed with terms pending");

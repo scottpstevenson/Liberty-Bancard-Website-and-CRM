@@ -21,6 +21,7 @@ import type { InboundRequest } from "@shared/schema";
 import { describeAckReceiptState } from "./inbound-acknowledgement";
 import { resolveReviewAssignment, reviewMetadata } from "./inbound-review-policy";
 import { logOperationalDiagnostic } from "../utils/server-error";
+import { recoverPartnerIntroductions } from "./partner-introductions";
 
 export interface PartnerApplicationSubject {
   id: number;
@@ -260,7 +261,11 @@ export function startPartnerApplicationRecovery(): void {
     running = true;
     try {
       const tally = await recoverPartnerApplications();
-      await storage.setSystemSetting("partner_application_recovery_heartbeat", { at: new Date().toISOString(), outcome: "ok", tally, intervalMs: RECOVERY_INTERVAL_MS });
+      // Same tick, same heartbeat: introductions whose local completion stopped part-way are resumed here (no new timer).
+      let introductions: Awaited<ReturnType<typeof recoverPartnerIntroductions>> | { error: string };
+      try { introductions = await recoverPartnerIntroductions(); }
+      catch (err) { introductions = { error: err instanceof Error ? err.name : "NonError" }; }
+      await storage.setSystemSetting("partner_application_recovery_heartbeat", { at: new Date().toISOString(), outcome: "ok", tally, introductions, intervalMs: RECOVERY_INTERVAL_MS });
     } catch (err) {
       await storage.setSystemSetting("partner_application_recovery_heartbeat", {
         at: new Date().toISOString(), outcome: "error", errorName: err instanceof Error ? err.name : "NonError", intervalMs: RECOVERY_INTERVAL_MS,

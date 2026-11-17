@@ -24,7 +24,9 @@ import {
   EMPTY_PARTNER_FORM,
   PARTNER_FIELD_ORDER,
   buildPartnerPayload,
+  readPartnerFirstTouch,
   partnerReference,
+  partnerRouteWithAttribution,
   submitPartnerApplication,
   validatePartnerPayload,
   type PartnerFormValues,
@@ -109,7 +111,7 @@ export function PartnerApplicationForm({ path, sourcePage, initialProfession }: 
     event.preventDefault();
     if (submitting) return;
     setNotice(null);
-    const payload = buildPartnerPayload(path, values, { sourcePage, search: typeof window === "undefined" ? "" : window.location.search });
+    const payload = buildPartnerPayload(path, values, { sourcePage, search: typeof window === "undefined" ? "" : window.location.search, firstTouch: readPartnerFirstTouch() });
     const found = validatePartnerPayload(path, payload);
     if (Object.keys(found).length > 0) {
       setErrors(found);
@@ -153,7 +155,7 @@ export function PartnerApplicationForm({ path, sourcePage, initialProfession }: 
           </p>
         ) : null}
         <p className="text-sm text-muted-foreground">
-          <Link href={PARTNER_ROUTES.hub} className="underline">Back to partnerships</Link>
+          <Link href={partnerRouteWithAttribution(PARTNER_ROUTES.hub)} className="underline">Back to partnerships</Link>
         </p>
       </div>
     );

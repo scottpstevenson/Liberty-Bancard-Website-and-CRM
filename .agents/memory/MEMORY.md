@@ -176,7 +176,7 @@
 - [Message wording publication](message-wording-publication.md) — draft, publish, activate and receipt enablement are separate; unsendable wording is blocked.
 - [Message copy convergence](message-copy-convergence.md) — wording applied by convergeReviewedCopy, not seeds; one token registry/strict renderer.
 - [Handoff vs provider completion](handoff-vs-completion.md) — missing GHL id = durable wait; projection upsert is the consumable handoff.
-- [Partner intake & review policy](partner-application-review-policy.md) — shared resume routine; owner/due only from recorded policy; no public timing promises.
+- [Partner intake & review policy](partner-application-review-policy.md) — shared resume routine; owner/due only from recorded policy; no public timing promises. See [partner upgrade](partner-program-upgrade.md): no % without approved policy, six SSR routes, first-touch attribution.
 - [Partner approval delivery & binding](partner-approval-delivery-and-binding.md) — same-tx mailbox pin, durable approval rows, review reconcile, HTML-only final preview; tsc/intake-pages baseline failures.
 - [GHL projection authority & webhook effect steps](ghl-projection-generation-authority.md) — CAS, owned-tag deltas, existing-population scope; [webhook steps](webhook-effect-steps.md) stay at-least-once.
 - [GHL persistent approval & handoff](ghl-persistent-approval-and-handoff.md) — sorted-key hashes for jsonb, no auto re-send of unknown enrollments, verified deferral, cancel-vs-claim lock.
@@ -198,4 +198,3 @@
 - [Public site lessons](public-claims-preflight-lessons.md) / [shell](public-shell-hubs-lessons.md) / [W-C closure](wc-closure-correction-lessons.md) / [lab](public-perf-lab-lessons.md) / [title/h1 parity](server-hydrated-parity.md) / [post-Publish pass](wd-post-publish-pv-lessons.md) — lab can't reproduce field CLS; preview re-adds .replit port; Vary: User-Agent.
 - [Territory business counts method](territory-business-counts-method.md) — county is TS-only: group production SQL by geography signature + bit-coded facts, evaluate with resolveBusinessCounty.
 - [CRM repair patterns](crm-workflow-repair-patterns.md) / [Phase 6 closure lessons](phase6-closure-lessons.md) / [QA removal](qa-removal-and-classification-limits.md) / [sandboxed preview images](sandboxed-preview-cross-origin-assets.md) — exact reads, unavailable-never-zero, object guards, baselines, inlined sandbox images.
-- [Partner program upgrade](partner-program-upgrade.md) — No referral % without admin-approved policy; application ≠ credential/consent; route-retirement and targeted-tsc pitfalls.

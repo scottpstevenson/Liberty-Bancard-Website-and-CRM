@@ -4781,6 +4781,20 @@ export const partnerIntroductions = pgTable("partner_introductions", {
   submittedByUserId: text("submitted_by_user_id"),
   reviewState: text("review_state").notNull().default("pending_review"),
   reviewReason: text("review_reason"),
+  // Staff decision evidence and the compare-and-set counter (migration 0385).
+  revision: integer("revision").notNull().default(1),
+  decidedBy: text("decided_by"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  decisionNote: text("decision_note"),
+  // One durable checkpoint per local completion step; completion_state is 'complete' only when every required one is set.
+  completionState: text("completion_state").notNull().default("pending"),
+  contactCheckpointAt: timestamp("contact_checkpoint_at", { withTimezone: true }),
+  referralCheckpointAt: timestamp("referral_checkpoint_at", { withTimezone: true }),
+  notificationCheckpointAt: timestamp("notification_checkpoint_at", { withTimezone: true }),
+  countCheckpointAt: timestamp("count_checkpoint_at", { withTimezone: true }),
+  completionAttempts: integer("completion_attempts").notNull().default(0),
+  completionLastAttemptAt: timestamp("completion_last_attempt_at", { withTimezone: true }),
+  completionErrorCode: text("completion_error_code"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -4789,8 +4803,32 @@ export const partnerIntroductions = pgTable("partner_introductions", {
   index("partner_introductions_review_idx").on(table.reviewState, sql`created_at DESC`).where(sql`review_state <> 'pending_review'`),
   check("partner_introductions_state_chk", sql`review_state IN ('pending_review', 'duplicate_review', 'competing_referrer', 'accepted', 'declined')`),
   check("partner_introductions_reach_chk", sql`contact_email IS NOT NULL OR contact_phone IS NOT NULL`),
+  check("partner_introductions_completion_chk", sql`completion_state IN ('pending', 'held', 'complete')`),
+  check("partner_introductions_decision_chk", sql`review_state NOT IN ('accepted', 'declined') OR (decided_by IS NOT NULL AND decided_at IS NOT NULL)`),
+  index("partner_introductions_completion_idx").on(sql`completion_last_attempt_at NULLS FIRST`, table.createdAt).where(sql`completion_state <> 'complete'`),
 ]);
 export type PartnerIntroduction = typeof partnerIntroductions.$inferSelect;
+
+// Append-only history of staff transitions on applications and introductions (see migrations/0385). Written in the same
+// transaction as the transition; the service only inserts and reads.
+export const partnerReviewEvents = pgTable("partner_review_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  subjectType: text("subject_type").notNull(),
+  subjectId: uuid("subject_id").notNull(),
+  eventType: text("event_type").notNull(),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status").notNull(),
+  fromRevision: integer("from_revision"),
+  toRevision: integer("to_revision"),
+  actorId: text("actor_id").notNull(),
+  note: text("note"),
+  details: jsonb("details").notNull().default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("partner_review_events_subject_idx").on(table.subjectType, table.subjectId, table.createdAt, table.id),
+  check("partner_review_events_subject_chk", sql`subject_type IN ('application', 'introduction')`),
+]);
+export type PartnerReviewEvent = typeof partnerReviewEvents.$inferSelect;
 
 export const partnerPublicPolicyVersions = pgTable("partner_public_policy_versions", {
   id: uuid("id").primaryKey().defaultRandom(),

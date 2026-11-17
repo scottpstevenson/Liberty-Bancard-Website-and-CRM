@@ -9,7 +9,8 @@
  *   npx tsx scripts/check-public-fonts.ts [--base=http://127.0.0.1:5000] [--width=390] [--out=file.json] [--strict]
  *
  * --strict exits non-zero when an element that asks for the display face is not
- * painted with it (silent fallback), when the serif is used outside h1/.display-serif,
+ * painted with it (silent fallback), when the serif is used outside h1/.display-serif (the partnership pages' section
+ * headings, .public-h2 inside .partner-page, are the one other deliberate display moment),
  * when a legacy family (Outfit/DM Sans) is requested, or when the web-font swap itself
  * adds more than 0.02 CLS (total CLS minus CLS with every font request aborted).
  */
@@ -86,7 +87,7 @@ type Sample = { label: string; selector: string; fonts: Array<{ family: string; 
         const res = await s.cdp("Runtime.callFunctionOn", {
           objectId: object.objectId,
           returnByValue: true,
-          functionDeclaration: `function(){const cs=getComputedStyle(this);if(!/^"?Source Serif 4/.test(cs.fontFamily))return null;const r=this.getBoundingClientRect();if(r.width<1||r.height<1||cs.display==='none')return null;return {tag:this.tagName.toLowerCase(),text:(this.textContent||'').trim().slice(0,50),deliberate:!!this.closest('h1,.display-serif')};}`,
+          functionDeclaration: `function(){const cs=getComputedStyle(this);if(!/^"?Source Serif 4/.test(cs.fontFamily))return null;const r=this.getBoundingClientRect();if(r.width<1||r.height<1||cs.display==='none')return null;return {tag:this.tagName.toLowerCase(),text:(this.textContent||'').trim().slice(0,50),deliberate:!!this.closest('h1,.display-serif')||(this.tagName==='H2'&&this.classList.contains('public-h2')&&!!this.closest('.marketing-theme .partner-page'))};}`,
         });
         const v = res.result.value;
         if (!v) continue;

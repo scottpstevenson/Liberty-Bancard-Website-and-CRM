@@ -184,7 +184,7 @@ export default function PartnerBrandedPage() {
     <div className="min-h-screen bg-gray-50">
       <SEO
         title={`${org.name} — Free Merchant Savings Analysis`}
-        description={`Save 20–40% on credit card processing fees. Get your free analysis through ${org.name} powered by Liberty Bancard.`}
+        description={`Get a free, no-obligation statement review through ${org.name}, powered by Liberty Bancard. Your costs depend on your statement and card mix.`}
         path={`/partner/${slug}`}
         noindex={true}
       />
@@ -222,7 +222,7 @@ export default function PartnerBrandedPage() {
             <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
             <h1 className="text-3xl font-bold text-gray-900 mb-3">You're all set!</h1>
             <p className="text-lg text-gray-600 max-w-md mx-auto">
-              We've received your information and will prepare your personalized savings analysis within 24 hours.
+              We've received your information. Our team will review it and follow up with you.
             </p>
             <p className="text-sm text-gray-400 mt-4">Powered by Liberty Bancard</p>
           </div>
@@ -243,7 +243,7 @@ export default function PartnerBrandedPage() {
                 Stop Overpaying on<br />Credit Card Processing
               </h1>
               <p className="text-xl text-gray-600 max-w-2xl mx-auto mb-8">
-                Most businesses save 20–40% when they switch. Get your free, no-obligation savings analysis in minutes.
+                Get a free, no-obligation review of your processing statement. What you could save depends on your current pricing and card mix, which only your statement shows.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
                 <button
@@ -593,7 +593,7 @@ export default function PartnerBrandedPage() {
                   >
                     {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Get My Free Analysis <ArrowRight className="w-4 h-4" /></>}
                   </button>
-                  <p className="text-xs text-center text-gray-400">No commitment. No spam. We'll contact you within 24 hours.</p>
+                  <p className="text-xs text-center text-gray-400">No commitment. No spam. Our team will follow up with you.</p>
                 </div>
               </CardContent>
             </Card>

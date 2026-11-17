@@ -166,9 +166,12 @@ const matrix: Array<[string, string, string[] | null]> = [
   ["get", "/api/partner-applications", ["admin", "manager"]],
   ["get", "/api/partner-applications/:id", ["admin", "manager"]],
   ["post", "/api/partner-applications/:id/decision", ["admin"]],
+  ["post", "/api/partner-applications/:id/reopen", ["admin"]],
   ["get", "/api/partners/me/introductions", ["partner"]],
   ["post", "/api/partners/me/introductions", ["partner"]],
   ["get", "/api/partner-introductions", ["admin", "manager"]],
+  ["get", "/api/partner-introductions/:id", ["admin", "manager"]],
+  ["post", "/api/partner-introductions/:id/decision", ["admin"]],
 ];
 for (const [method, route, roles] of matrix) {
   const layer = find(method, route);
@@ -177,6 +180,8 @@ for (const [method, route, roles] of matrix) {
 }
 ok(!layers.some((l) => ["put", "patch", "delete"].some((m) => l.route.methods[m])), "The partner-program routes expose no PUT/PATCH/DELETE");
 ok(!rolesOf(find("post", "/api/partner-applications/:id/decision")!)!.includes("manager"), "A manager cannot decide an application (read-only role)");
+ok(!rolesOf(find("post", "/api/partner-applications/:id/reopen")!)!.includes("manager"), "A manager cannot reopen an application (read-only role)");
+ok(!rolesOf(find("post", "/api/partner-introductions/:id/decision")!)!.includes("manager"), "A manager cannot decide an introduction (read-only role)");
 ok(!(rolesOf(find("post", "/api/partner-policy/:id/approve")!)!).includes("manager"), "A manager cannot approve compensation wording");
 
 const csrfSrc = read("server/middleware/csrf.ts");
@@ -196,6 +201,8 @@ for (const key of ["partnerId", "commissionPercent", "status", "actorId", "revie
   ok(!introModule.parseIntroductionBody({ ...introBase, [key]: 1 }).ok, `An introduction body naming ${key} is refused`);
 }
 ok(/hasOnlyKeys\(req\.body, DECISION_KEYS\)/.test(programSrc) && /hasOnlyKeys\(req\.body, POLICY_DRAFT_KEYS\)/.test(programSrc), "Decision and policy bodies reject unknown keys");
+ok(/hasOnlyKeys\(req\.body, REOPEN_KEYS\)/.test(programSrc) && /hasOnlyKeys\(req\.body, INTRODUCTION_DECISION_KEYS\)/.test(programSrc), "Reopen and introduction-decision bodies reject unknown keys");
+ok(/decidePartnerIntroduction\(String\(req\.params\.id\), req\.body, actor\)/.test(programSrc) && /reopenPartnerApplication\(String\(req\.params\.id\), req\.body, actor\)/.test(programSrc), "Introduction decisions and reopen take the actor from the session, never the body");
 ok(/actorIdOf\(req\)/.test(programSrc) && !/decidePartnerApplication\([^)]*req\.body\.(actor|userId)/.test(programSrc), "The deciding actor is the session user, never the body");
 ok(/Cache-Control", "no-store"/.test(programSrc), "Staff responses are no-store");
 ok(PARTNER_INTRODUCTION_PERMISSION.text.length > 20 && /does not|not .*consent|permission/i.test(PARTNER_INTRODUCTION_PERMISSION.text), "The introduction permission wording is the introducer's confirmation, not merchant consent");
@@ -212,6 +219,104 @@ const affiliateLoginSrc = importsSrc.slice(importsSrc.indexOf('"/api/affiliate/l
 ok(/partnerMayHoldCredential/.test(affiliateLoginSrc), "Affiliate login checks credential eligibility");
 ok((partnersSrc.match(/await partnerMayHoldCredential\(/g) ?? []).length >= 5, "Both logins, both reset requests and the shared consume path check credential eligibility");
 ok(!/\/api\/partner-apply[^"]*"[^)]*password/i.test(programSrc.slice(0, programSrc.indexOf("registerPartnerProgramRoutes"))), "The application route does not accept a password");
+
+// ── 6. Guide, copy census and review-surface contracts (F06, F08, F09) ──────────────────────────────────────────────
+const guide = await import("../shared/partner-program-guide");
+const content = await import("../shared/partner-public-content");
+const UNSUPPORTED_PROMISE = /(\b20\s?[–-]\s?40\s?%|\bin minutes\b|\bflat[- ]fee\b|\btiered (bonus|commission)|\bstandard referral bonus\b|\bvolume incentives?\b|\bpassive income\b|\bget paid\b|\bwithin (1|one|24)\b|\b(paid|payouts?)[^.]{0,40}\b(1st|monthly|weekly)\b|(?<!not )\bguaranteed (income|earnings|approval)\b|\b\d+\s?%)/i;
+const policies = [content.DEFAULT_REFERRAL_POLICY];
+const guideText = guide.partnerGuideAllText(content.DEFAULT_REFERRAL_POLICY);
+ok(!UNSUPPORTED_PROMISE.test(guideText), "The guide in the default policy state contains no percentage, flat fee, bonus tier, payout date or timing promise");
+ok(!/Add Partner[^.]*(register|terms are set)|terms are set when you register|we handle the sales process[^.]*you just make the introduction/i.test(guideText), "The guide no longer tells people to register through Add Partner or that all participants simply introduce");
+const approved = content.parseReferralPolicy({ state: "approved", version: 3, sharePercent: 27 });
+const approvedText = guide.partnerGuideAllText(approved);
+ok(approved.state === "approved" && /\b27%/.test(approvedText) && !/\b(25|30)\s?%/.test(approvedText), "A referral percentage appears in the guide only from an approved published projection, never a hardcoded number");
+ok(guide.PARTNER_GUIDE_AUDIENCES.length === 4 && guide.PARTNER_GUIDE_AUDIENCES.every((a) => guide.partnerGuideSections(a, content.DEFAULT_REFERRAL_POLICY).length >= 2), "The guide has four audiences, each with its own sections");
+const staffText = guide.partnerGuideSections("staff", content.DEFAULT_REFERRAL_POLICY).map((x) => `${x.body} ${(x.lines ?? []).join(" ")}`).join(" ");
+ok(/pending review/i.test(guideText) && /written agreement/i.test(guideText) && /invitation/i.test(guideText) && /permission/i.test(guideText), "The guide covers application, pending review, written terms, invitation and permitted introductions");
+ok(/no message is sent/i.test(staffText), "The staff guide says marking an application as needing information sends no message");
+ok(policies.length === 1, "Negative control: the census is evaluated on the safe default state");
+ok(UNSUPPORTED_PROMISE.test("Tiered bonuses: Volume incentives when you hit referral milestones.") && UNSUPPORTED_PROMISE.test("Commissions are paid out on the 1st of next month.") && UNSUPPORTED_PROMISE.test("Most businesses save 20–40% when they switch."), "Negative control: the census catches the removed claims");
+const referralPage = read("client/src/pages/dashboard/ReferralProgram.tsx");
+ok(!/Add Partner' button above|Standard referral bonus|Tiered bonuses/.test(referralPage) && /partnerGuideSections\(audience, policy\)/.test(referralPage) && !/referral-explainer\.mp4/.test(referralPage), "The page renders the shared audience-specific guide and not the retired copy or unreviewed video");
+// Census of the other partner-facing surfaces.
+const surfaces: Array<[string, string]> = [
+  ["client/src/pages/PartnerBrandedPage.tsx", "co-branded partner landing page"],
+  ["client/src/pages/PartnerPortal.tsx", "partner portal hints"],
+  ["client/src/pages/PartnerEmbedWidget.tsx", "embed widget page"],
+  ["server/services/partner-welcome.ts", "partner welcome email"],
+  ["server/services/partner-notifications.ts", "partner notification emails"],
+];
+for (const [file, label] of surfaces) {
+  const text = read(file);
+  ok(!/20\s?[–-]\s?40\s?%|\bin minutes\b|passive income|paid monthly via PayPal|paid out on the 1st|within 1 business day|within 24 hours|Payouts are processed on the 1st|compounds every month/i.test(text), `${label} (${file}) has no unsupported savings, timing or payout claim`);
+}
+// The approval invitation never promises compensation.
+ok(!/\d+\s?%|bonus|guarantee/i.test(read("server/services/partner-approval-delivery.ts").slice(read("server/services/partner-approval-delivery.ts").indexOf("defaultSendInvite"), read("server/services/partner-approval-delivery.ts").indexOf("defaultSendInvite") + 2200)), "The approval invitation states no percentage, bonus or guarantee");
+// F06: the relabelled status-only action and the review surfaces.
+const apps = read("client/src/components/partner/PartnerApplicationsPanel.tsx");
+ok(/Mark as needing information/.test(apps) && /Status updated; no message sent\./.test(apps) && !/Request more information|Send this request for more information|More information requested/.test(apps), "The needs-information action is labelled as a status change and never claims a message");
+ok(/Company not provided/.test(apps) && /assignedOwnerName/.test(apps) && /requestHref/.test(apps) && /contactHref/.test(apps) && /ReviewHistory/.test(apps) && /ReopenForm/.test(apps) && !/toLocaleString\(/.test(apps), "The application workspace shows owner names, 'Company not provided', canonical Open links, history, reopen and business time");
+const introUi = read("client/src/components/partner/PartnerIntroductionsReview.tsx");
+ok(/\/decision`/.test(introUi) && /expectedRevision/.test(introUi) && /allowedCommands/.test(introUi) && !/toLocaleString\(/.test(introUi) && /OpenLink/.test(introUi), "The introduction review sends revision-checked decisions, offers server-allowed commands only, uses business time and canonical links");
+ok(/status === 202/.test(read("client/src/components/partner/PartnerIntroductionsTab.tsx")), "The partner introduction form treats a truthful still-processing 202 as received");
+const sharedUi = read("client/src/components/partner/partner-review-shared.tsx");
+ok(/businessZoneNote/.test(sharedUi) && /formatBusinessDateTime/.test(sharedUi) && /\/dashboard\/contacts\/\$\{id\}/.test(sharedUi) && /\/dashboard\/lead-ops\?tab=pipeline&ref=/.test(sharedUi), "Review links point at the existing canonical contact and website-request destinations and times name the business zone");
+
+// ── 7. Attribution precedence and carry-through (F02) ──────────────────────────────────────────────────────────────
+{
+  const store = new Map<string, string>();
+  (globalThis as any).sessionStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
+  const first = "?ref=PARTNER1&utm_source=newsletter&utm_campaign=fall&email=pat%40example.com&token=abc&next=https%3A%2F%2Fevil.example";
+  const none = "?profession=cpa";
+  const other = "?utm_source=podcast&utm_campaign=winter";
+  ok(shared.resolvePartnerAttribution(new URLSearchParams(none), null) && Object.keys(shared.resolvePartnerAttribution(new URLSearchParams(none), null)).length === 0, "With no current and no first touch nothing is stored");
+  // Visiting a non-partner page never starts a first touch.
+  clientLib.capturePartnerFirstTouch("/blog", first);
+  ok(Object.keys(clientLib.readPartnerFirstTouch()).length === 0, "A non-partner page never records a partner first touch");
+  clientLib.capturePartnerFirstTouch("/partners", none);
+  ok(Object.keys(clientLib.readPartnerFirstTouch()).length === 0, "A partner page without allowlisted values records nothing");
+  clientLib.capturePartnerFirstTouch("/partners", first);
+  const ft = clientLib.readPartnerFirstTouch();
+  ok(ft.ref === "PARTNER1" && ft.utm_source === "newsletter" && ft.utm_campaign === "fall" && Object.keys(ft).sort().join(",") === "ref,utm_campaign,utm_source", "First touch keeps only the allowlisted keys: no email, token or redirect target");
+  ok(!/pat@|abc|evil/.test(store.get("lb_partner_first_touch") ?? ""), "The stored first touch contains no personal data, token or URL");
+  clientLib.capturePartnerFirstTouch("/partners/cpa", other);
+  ok(clientLib.readPartnerFirstTouch().utm_source === "newsletter", "First touch is first-write-wins: a later attributed page does not replace it");
+  // Precedence: current set wins whole; no key-by-key merge.
+  const cur = shared.resolvePartnerAttribution(new URLSearchParams(other), ft);
+  ok(cur.utm_source === "podcast" && cur.utm_campaign === "winter" && !("ref" in cur), "The current touch wins as a whole set; the first touch's ref is not merged in");
+  ok(shared.resolvePartnerAttribution(new URLSearchParams(none), ft).ref === "PARTNER1", "With no current values the session's first touch is used");
+  ok(shared.resolvePartnerAttribution(new URLSearchParams("?utm_source=" + encodeURIComponent("<script>alert(1)</script>")), ft).utm_source === "newsletter", "A malformed current value is dropped and the first touch applies");
+  ok(shared.resolvePartnerAttribution(new URLSearchParams("?utm_source=" + "a".repeat(101)), null).utm_source === undefined, "An over-long value is dropped");
+  // Links on a page with no parameters still carry the first touch; links on an attributed page carry that page's set.
+  (globalThis as any).window = { location: { search: none } };
+  const hubLink = clientLib.partnerRouteWithAttribution("/partners/referrals");
+  ok(/^\/partners\/referrals\?/.test(hubLink) && /ref=PARTNER1/.test(hubLink) && /utm_source=newsletter/.test(hubLink) && !/email|token|evil/.test(hubLink), "A link from a parameterless page carries the first touch and nothing else");
+  (globalThis as any).window = { location: { search: other } };
+  const curLink = clientLib.partnerRouteWithAttribution("/partners/sales-agents", "apply");
+  ok(/utm_source=podcast/.test(curLink) && !/ref=/.test(curLink) && curLink.endsWith("#apply"), "A link from an attributed page carries that page's set and the anchor");
+  // The stored snapshot input (the payload) follows the same rule.
+  const snapPayload = (search: string, firstTouch?: Record<string, unknown>) => (clientLib.buildPartnerPayload("sales_agent", agentValues, { sourcePage: "/partners/sales-agents", search, firstTouch }) as any).attribution;
+  ok(JSON.stringify(snapPayload(other, ft)) === JSON.stringify({ utm_source: "podcast", utm_campaign: "winter" }), "The submitted snapshot uses the current touch when present");
+  ok(JSON.stringify(snapPayload(none, ft)) === JSON.stringify({ ref: "PARTNER1", utm_source: "newsletter", utm_campaign: "fall" }), "The submitted snapshot falls back to the first touch");
+  ok(snapPayload(none, {}) === undefined, "No attribution key is sent when there is none");
+  ok(parse(clientLib.buildPartnerPayload("sales_agent", agentValues, { sourcePage: "/partners/sales-agents", search: other, firstTouch: ft })).ok, "A payload carrying attribution passes the server schema");
+  // Negative control: a hand-built payload cannot smuggle PII or unknown keys into the stored snapshot.
+  const smuggled = shared.pickPartnerAttribution({ ref: "PARTNER1", email: "pat@example.com", phone: "305-555-0142", commissionPercent: 90, utm_source: "x", sessionToken: "t" });
+  ok(Object.keys(smuggled).sort().join(",") === "ref,utm_source", "Negative control: PII and unknown keys are stripped by the shared allowlist the server also applies");
+  // Census: every partner CTA / path switch / comparison return / calculator destination goes through the one helper.
+  const plain = /href=\{?["`]\/partners|href: PARTNER_(PATH_ROUTE|ROUTES)|to=\{?PARTNER_/;
+  const ctaFiles = ["client/src/pages/ISOPartnerProgram.tsx", "client/src/components/public/PartnerJourneyPage.tsx", "client/src/components/public/PartnerPageSections.tsx", "client/src/components/public/PartnerResidualCalculator.tsx", "client/src/components/public/PartnerProfessionPage.tsx", "client/src/pages/AffiliateProgram.tsx"];
+  for (const file of ctaFiles) ok(/partnerRouteWithAttribution|currentPartnerAttribution/.test(read(file)), `${file} builds partner links through the bounded attribution helper`);
+  ctaFiles.push("client/src/components/public/PartnerApplicationForm.tsx");
+  const BARE_ALLOWED = /PARTNER_ROUTES\.(login|privacy|contact)\b/;
+  const bare = ctaFiles.flatMap((file) => read(file).split("\n").filter((line) => /href=\{(PARTNER_(PATH_ROUTE|ROUTES)|page\})/.test(line) && !BARE_ALLOWED.test(line)).map((line) => `${file}: ${line.trim().slice(0, 80)}`));
+  ok(bare.length === 0, `No partner path or profession link uses a bare route as its href (${bare.join("; ") || "none"}); only sign-in, privacy and contact are exempt`);
+  ok(plain instanceof RegExp, "Census patterns compile");
+  ok(/capturePartnerFirstTouch\(window\.location\.pathname, window\.location\.search\)/.test(read("client/src/App.tsx")), "The app records the partner first touch on route change");
+  ok(/firstTouch: readPartnerFirstTouch\(\)/.test(read("client/src/components/public/PartnerApplicationForm.tsx")), "The application form submits the resolved (current-or-first) touch");
+  delete (globalThis as any).window; delete (globalThis as any).sessionStorage;
+}
 
 console.log(`Partner program contracts: ${checks} checks passed`);
 process.exit(0);

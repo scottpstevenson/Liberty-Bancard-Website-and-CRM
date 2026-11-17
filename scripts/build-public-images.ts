@@ -19,6 +19,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { HERO_MOBILE_BUDGET, budgetProblems, heroSelectorProblems } from "./lib/public-image-budget";
 import { HOME_HERO_IMAGE } from "../shared/public-home-content";
+import { PARTNER_MEDIA } from "../shared/partner-page-media";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const SRC_DIR = path.join(ROOT, "client/src/assets/images");
@@ -120,6 +121,15 @@ const SOURCES: Source[] = [
     variants: [{ name: "product", crop: { left: 0, top: 0, width: 896, height: 1280 }, widths: [320, 640], flattenJpegOn: "#ffffff" }],
   },
 ];
+
+// Partnership-page crops. shared/partner-page-media.ts owns route, crop, widths and alt text; each entry adds one variant to
+// its (already registered) source, so the registry keeps one provenance record per master.
+for (const media of PARTNER_MEDIA) {
+  const source = SOURCES.find((s) => s.id === media.imageId);
+  if (!source) throw new Error(`${media.route} ${media.role}: image ${media.imageId} is not a registered public image source`);
+  if (source.variants.some((v) => v.name === media.variant)) throw new Error(`${media.imageId} already has a ${media.variant} variant; one source supports one partnership ${media.role} crop`);
+  source.variants.push({ name: media.variant, crop: media.crop, widths: [...media.widths] });
+}
 
 const FORMATS = ["avif", "webp", "jpg"] as const;
 type Format = (typeof FORMATS)[number];

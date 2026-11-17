@@ -390,3 +390,114 @@ a.public-card--brand:hover,
 .marketing-theme [data-testid="footer"] > .bg-accent {
   background-color: hsl(var(--liberty-red));
 }
+
+/* ── Partnership pages: hero and body media ────────────────────────────────────
+   One frame owns the aspect ratio at each width so the picture cannot move the actions or the form while it loads:
+   3:2 on phones (about 190-260 px tall), a wide 2:1 band on tablets, 4:3 beside the copy from 1024 px. The focal point of
+   each crop (shared/partner-page-media.ts) becomes object-position, so the subject stays in the narrower frames. */
+.marketing-theme .partner-media {
+  margin: 0;
+}
+.marketing-theme .partner-media .public-frame {
+  aspect-ratio: 3 / 2;
+  max-width: 24rem;
+  border: 1px solid hsl(var(--public-line));
+  border-bottom: 3px solid hsl(var(--liberty-navy));
+  box-shadow: var(--shadow-card);
+}
+.marketing-theme .partner-media .public-frame--fill img {
+  object-position: var(--partner-focal, 50% 50%);
+}
+.marketing-theme .partner-media-caption {
+  margin-top: 0.5rem;
+  max-width: 24rem;
+}
+@media (min-width: 640px) {
+  .marketing-theme .partner-media--hero .public-frame {
+    aspect-ratio: 2 / 1;
+    max-width: 30rem;
+  }
+  .marketing-theme .partner-media--hero .partner-media-caption {
+    max-width: 30rem;
+  }
+  .marketing-theme .partner-media--body .public-frame {
+    aspect-ratio: 4 / 3;
+    max-width: 24rem;
+  }
+}
+@media (min-width: 1024px) {
+  .marketing-theme .partner-media--hero .public-frame {
+    aspect-ratio: 4 / 3;
+    max-width: none;
+  }
+  .marketing-theme .partner-media--hero .partner-media-caption {
+    max-width: none;
+  }
+  .marketing-theme .partner-media--body .public-frame {
+    max-width: none;
+  }
+}
+.marketing-theme .partner-media--body .public-frame {
+  aspect-ratio: 4 / 3;
+}
+.marketing-theme .public-section--ink .partner-media-caption {
+  color: hsl(214 32% 82%);
+}
+
+/* ── Partnership pages: typography, calculator and form surfaces ───────────────
+   The marketing serif is scoped to the partnership pages' section headings; the page wrapper carries `partner-page`. */
+.marketing-theme .partner-page .public-h2 {
+  font-family: var(--font-marketing-display);
+}
+/* Calculator: inputs 7/12 and a distinct result panel 5/12 from 1024 px; white 12px card, 32px padding on desktop. */
+.marketing-theme .partner-calculator {
+  background-color: hsl(var(--public-surface));
+  border: 1px solid hsl(var(--public-line));
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+}
+.marketing-theme .partner-calculator__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.5rem;
+}
+.marketing-theme .partner-calculator__result {
+  min-width: 0;
+  border-radius: 0.75rem;
+  background-color: hsl(var(--liberty-surface));
+  border: 1px solid hsl(var(--public-line));
+  border-top: 3px solid hsl(var(--liberty-navy));
+  padding: 1.25rem;
+}
+.marketing-theme .partner-calculator__figure {
+  font-size: 2rem;
+  line-height: 2.25rem;
+  font-weight: 700;
+  color: hsl(var(--liberty-navy));
+  overflow-wrap: anywhere;
+}
+@media (min-width: 640px) {
+  .marketing-theme .partner-calculator { padding: 2rem; }
+}
+@media (min-width: 1024px) {
+  .marketing-theme .partner-calculator__layout { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 2rem; align-items: start; }
+  .marketing-theme .partner-calculator__figure { font-size: 2.5rem; line-height: 2.75rem; }
+}
+/* Application form: a white surface on the light band, and a comfortable message box. */
+.marketing-theme .partner-form-surface {
+  background-color: hsl(var(--public-surface));
+  border: 1px solid hsl(var(--public-line));
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+}
+@media (min-width: 640px) {
+  .marketing-theme .partner-form-surface { padding: 2rem; }
+}
+.marketing-theme .partner-page textarea {
+  min-height: 7rem;
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+@media (min-width: 768px) {
+  .marketing-theme .partner-page textarea { min-height: 8rem; }
+}

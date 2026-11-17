@@ -25,6 +25,7 @@ import { FREE_ANALYSIS_PAGE, FREE_ANALYSIS_QUIZ_PAGE } from "./public-free-analy
 import { CALC_COPY } from "./public-cost-calculator";
 import { GET_STARTED_PAGE } from "./public-get-started";
 import { AFFILIATE_PAGE } from "./public-affiliate";
+import { PARTNER_PAGE_SEO, PARTNER_SSR_ROUTES } from "./partner-page-seo";
 
 const CASE_STUDIES_PAGE = proofOverviewPage("case-studies");
 const TESTIMONIALS_PAGE = proofOverviewPage("testimonials");
@@ -37,6 +38,11 @@ export interface SeoRouteDefault {
   noindex?: boolean;
   inSitemap?: boolean;
 }
+
+/** The six partnership routes: title and description come from the one record the React pages and server documents read. */
+const PARTNER_SEO_ROUTE_DEFAULTS: Record<string, SeoRouteDefault> = Object.fromEntries(
+  PARTNER_SSR_ROUTES.map((route) => [route, { title: PARTNER_PAGE_SEO[route].title, description: PARTNER_PAGE_SEO[route].description, keywords: PARTNER_PAGE_SEO[route].keywords, ogTemplate: "default" as const, inSitemap: true }]),
+);
 
 export const SEO_ROUTE_DEFAULTS: Record<string, SeoRouteDefault> = {
   "/": { title: HOME_META.title, description: HOME_META.description, keywords: HOME_META.keywords, ogTemplate: "default", inSitemap: true },
@@ -69,12 +75,7 @@ export const SEO_ROUTE_DEFAULTS: Record<string, SeoRouteDefault> = {
   "/compare/toast": { title: COMPARE_ENTRIES["toast"].metaTitle, description: COMPARE_ENTRIES["toast"].metaDescription, ogTemplate: "compare", inSitemap: true },
   "/compare/paypal": { title: COMPARE_ENTRIES["paypal"].metaTitle, description: COMPARE_ENTRIES["paypal"].metaDescription, ogTemplate: "compare", inSitemap: true },
   "/merchant-application": { title: "Merchant Account Application | Liberty Bancard", description: "Apply for a Liberty Bancard merchant account. Our team reviews your application and contacts you about next steps. E-signature included, no paper forms.", ogTemplate: "service", inSitemap: true },
-  "/partners": { title: "Partnerships — Referral Partners & Sales Agents | Liberty Bancard", description: "Introduce a business that needs payment processing, or build your own portfolio as a sales agent. Compare the two Liberty Bancard partnership paths and apply.", ogTemplate: "default", inSitemap: true },
-  "/partners/referrals": { title: "Referral Partner Program | Liberty Bancard", description: "Introduce businesses that agreed to hear from Liberty Bancard. Our team handles the sales, onboarding and support. Apply as a referral partner.", ogTemplate: "default", inSitemap: true },
-  "/partners/sales-agents": { title: "Become a Sales Agent | Liberty Bancard", description: "Build your own merchant portfolio with Liberty Bancard. Prospect, guide the sale and coordinate onboarding with our team. Apply as a sales agent.", ogTemplate: "default", inSitemap: true },
-  "/partners/cpa": { title: "CPA Referral Partners | Liberty Bancard", description: "CPAs who see client processing fees on the P&L can introduce a business to Liberty Bancard with the owner's permission. Liberty handles the sales process.", ogTemplate: "default", inSitemap: true },
-  "/partners/bookkeeper": { title: "Bookkeeper Referral Partners | Liberty Bancard", description: "Bookkeepers who reconcile card-processing statements can introduce a business to Liberty Bancard with the owner's permission. Liberty handles the sales process.", ogTemplate: "default", inSitemap: true },
-  "/partners/insurance": { title: "Insurance Agent Referral Partners | Liberty Bancard", description: "Business insurance agents who talk with small-business owners can introduce a business to Liberty Bancard with the owner's permission. Liberty handles the sales process.", ogTemplate: "default", inSitemap: true },
+  ...PARTNER_SEO_ROUTE_DEFAULTS,
   "/help": { title: "Help Center — Payment Processing | Liberty Bancard", description: "Find answers to your payment processing questions. Browse articles on account setup, billing, terminals, compliance, and more.", ogTemplate: "default", inSitemap: true },
   "/sales-tools": { title: "Sales Tools Hub | Liberty Bancard", description: "Internal sales tools and collateral hub.", noindex: true },
   // Auth — noindex

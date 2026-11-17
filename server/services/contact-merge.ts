@@ -121,6 +121,9 @@ export const CONTACT_MERGE_MANIFEST: readonly ManifestEntry[] = [
   // This lead pointer is the durable result of promoting a pipeline lead to a
   // CRM contact; reassignment would fabricate or alter that conversion link.
   { key: "master_leads_promoted_contact", table: "master_leads", column: "promoted_contact_id", disposition: "manual_block" },
+  // A partner introduction is append-only review evidence (who introduced whom, the staff decision history and the
+  // completion checkpoints). Reassigning its contact would rewrite that record, so an operator resolves it first.
+  { key: "partner_introductions_contact", table: "partner_introductions", column: "contact_id", disposition: "manual_block" },
   { key: "import_row_dispositions", table: "import_row_dispositions", column: "contact_id", disposition: "immutable_retain" },
   { key: "eligibility_snapshots", table: "eligibility_snapshots", column: "contact_id", disposition: "immutable_retain" },
   { key: "cro03_batch_memberships", table: "cro03_batch_memberships", column: "contact_id", disposition: "immutable_retain" },

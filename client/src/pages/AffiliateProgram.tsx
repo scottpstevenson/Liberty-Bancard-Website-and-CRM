@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PublicHero } from "@/components/public/PublicHero";
 import { PublicSection, PublicSectionHeader } from "@/components/public/PublicSection";
+import { PartnerMedia } from "@/components/public/PartnerHeroMedia";
 import {
   PartnerFaqList,
   PartnerPathCards,
@@ -19,9 +20,9 @@ import { usePartnerReferralPolicy } from "@/hooks/use-partner-policy";
 import { useToast } from "@/hooks/use-toast";
 import { AFFILIATE_PAGE } from "@shared/public-affiliate";
 import { PARTNER_ROUTES } from "@shared/partner-public-content";
-import { partnerLink, pickPartnerAttribution } from "@shared/partner-application";
+import { partnerLink } from "@shared/partner-application";
 import { trackPartnerEvent } from "@/lib/tracking";
-import { partnerRouteWithAttribution } from "@/lib/partner-application-client";
+import { currentPartnerAttribution, partnerRouteWithAttribution } from "@/lib/partner-application-client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Users,
@@ -198,7 +199,7 @@ export default function AffiliateProgram() {
 
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://libertybancard.com";
   const applyHref = partnerLink(PARTNER_ROUTES.referral, {
-    attribution: pickPartnerAttribution(new URLSearchParams(typeof window === "undefined" ? "" : window.location.search)),
+    attribution: currentPartnerAttribution(),
     hash: "apply",
   });
   const faqs = selectedPartnerFaqs(policy, AFFILIATE_FAQ_IDS);
@@ -754,13 +755,14 @@ export default function AffiliateProgram() {
       />
       <Navbar />
 
-      <main className="marketing-surface flex-grow public-main-offset">
+      <main className="marketing-surface partner-page flex-grow public-main-offset">
         <PublicHero
           badge={<span className="public-eyebrow">Affiliate and referral accounts</span>}
           headline={<>{AFFILIATE_PAGE.headingLead} <span className="text-primary">{AFFILIATE_PAGE.headingAccent}</span></>}
           subheadline={AFFILIATE_PAGE.intro}
           primaryCta={{ label: "Apply as a referral partner", href: applyHref, onClick: onApply }}
           secondaryCta={{ label: "Affiliate login", href: "#affiliate-account", onClick: openLogin }}
+          media={<PartnerMedia route={AFFILIATE_PAGE.path} />}
           data-testid="section-affiliate-hero"
         />
 
@@ -768,7 +770,7 @@ export default function AffiliateProgram() {
           <PublicSectionHeader id="affiliate-account-heading" title="Already an affiliate? Nothing changes for you." description="Your account, referral link and history stay exactly as they are. Sign in to reach your dashboard." />
           <ul className="grid grid-cols-1 gap-4 md:grid-cols-3" data-testid="affiliate-account-points">
             {AFFILIATE_ACCOUNT_POINTS.map(({ icon: Icon, title, body }) => (
-              <li key={title} className="public-card p-6">
+              <li key={title} className="public-card min-w-0 p-5 md:p-6">
                 <Icon className="mb-3 h-6 w-6 text-primary" aria-hidden="true" />
                 <h3 className="public-card-title mb-1 text-foreground">{title}</h3>
                 <p className="public-small text-muted-foreground">{body}</p>
@@ -844,17 +846,17 @@ export default function AffiliateProgram() {
           <PartnerFaqList faqs={faqs} testId="affiliate-faq" />
         </PublicSection>
 
-        <PublicSection tone="warm" labelledBy="affiliate-cta-heading" data-testid="section-affiliate-cta">
-          <PublicSectionHeader id="affiliate-cta-heading" title="Ready to apply?" description="Your application is reviewed by Liberty Bancard. We confirm terms in writing before any work begins." />
+        <PublicSection tone="ink" labelledBy="affiliate-cta-heading" className="!py-10" data-testid="section-affiliate-cta">
+          <PublicSectionHeader id="affiliate-cta-heading" inverse title="Ready to apply?" description="Your application is reviewed by Liberty Bancard. We confirm terms in writing before any work begins." />
           <div className="flex flex-col gap-3 sm:flex-row">
-            <Button asChild className="min-h-11">
+            <Button asChild className="h-auto min-h-11 whitespace-normal bg-white py-2.5 text-center text-[hsl(var(--public-ink))] hover:bg-slate-100">
               <Link href={applyHref} onClick={onApply} data-testid="button-cta-apply">Apply as a referral partner</Link>
             </Button>
-            <Button asChild variant="outline" className="min-h-11">
+            <Button asChild variant="outline" className="h-auto min-h-11 whitespace-normal border-white/40 bg-transparent py-2.5 text-center text-white hover:bg-white/10 hover:text-white">
               <Link href={partnerRouteWithAttribution(PARTNER_ROUTES.hub)} data-testid="link-cta-compare-paths">Compare partnership paths</Link>
             </Button>
-            <Button variant="ghost" className="min-h-11" onClick={openLogin} data-testid="button-cta-login">
-              <LogIn className="mr-2 h-4 w-4" aria-hidden="true" /> Affiliate login
+            <Button variant="ghost" className="h-auto min-h-11 whitespace-normal py-2.5 text-white hover:bg-white/10 hover:text-white" onClick={openLogin} data-testid="button-cta-login">
+              <LogIn className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" /> Affiliate login
             </Button>
           </div>
         </PublicSection>

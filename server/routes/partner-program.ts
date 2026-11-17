@@ -33,14 +33,18 @@ import {
   getPartnerApplicationDetail,
   listPartnerApplications,
   normalizeApplicationFilters,
+  reopenPartnerApplication,
 } from "../services/partner-application-review";
 import {
   completePartnerIntroduction,
+  decidePartnerIntroduction,
+  getPartnerIntroductionDetail,
   INTRODUCTION_KEY_PATTERN,
   listIntroductionsForReview,
   listPartnerIntroductionsFor,
   parseIntroductionBody,
   recordPartnerIntroduction,
+  refreshIntroduction,
   toPartnerIntroductionView,
 } from "../services/partner-introductions";
 import { isLegacyPartnerPayload, parsePartnerApplication } from "@shared/partner-application";
@@ -54,6 +58,8 @@ const actorIdOf = (req: Request): string => {
 };
 
 const DECISION_KEYS = new Set(["decision", "expectedRevision", "commissionPercent", "scheduleReference", "note"]);
+const REOPEN_KEYS = new Set(["expectedRevision", "note", "path"]);
+const INTRODUCTION_DECISION_KEYS = new Set(["command", "expectedRevision", "note"]);
 const POLICY_DRAFT_KEYS = new Set(["sharePercent", "scheduleReference", "copyVersion"]);
 const hasOnlyKeys = (body: unknown, allowed: Set<string>) =>
   Boolean(body) && typeof body === "object" && !Array.isArray(body) && Object.keys(body as object).every((k) => allowed.has(k));
@@ -198,6 +204,26 @@ export function registerPartnerProgramRoutes(app: Express) {
     } catch (err) { serverError(res, err, "partner_application_decision"); }
   });
 
+  // Audited staff recovery: an administrator reopens a declined, withdrawn, superseded or needs-information application in
+  // place. The public flow never does this; an email match alone cannot reopen, replace or take over a prior application.
+  app.post("/api/partner-applications/:id/reopen", requireRole("admin"), async (req, res) => {
+    try {
+      if (!hasOnlyKeys(req.body, REOPEN_KEYS)) return res.status(400).json({ code: "INVALID_BODY" });
+      const actor = actorIdOf(req);
+      if (!actor) return res.status(401).json({ message: "Unauthorized" });
+      const result = await reopenPartnerApplication(String(req.params.id), req.body, actor);
+      if (!result.ok) return res.status(result.status).json({ code: result.code });
+      sendStaff(res);
+      res.json({
+        applicationId: result.application.id,
+        reviewStatus: result.application.reviewStatus,
+        revision: result.application.revision,
+        path: result.application.path,
+        partnerStatus: result.partner.status,
+      });
+    } catch (err) { serverError(res, err, "partner_application_reopen"); }
+  });
+
   // === PARTNER INTRODUCTIONS ===
   app.get("/api/partners/me/introductions", isPartnerAuthenticated, async (req, res) => {
     try {
@@ -229,14 +255,21 @@ export function registerPartnerProgramRoutes(app: Express) {
       }
       res.setHeader("Idempotency-Key", key);
       let intro = recorded.introduction;
+      let completionFailed = false;
       try {
         intro = await completePartnerIntroduction(intro.id);
       } catch (error) {
-        // The submission is durable; a retry with the same key resumes the missing work.
+        // The submission is durable and every finished step is checkpointed. The background recovery sweep (and a retry
+        // with the same key) resumes the rest, so this is reported honestly as "recorded, still finishing", never as done.
+        completionFailed = true;
         logOperationalDiagnostic("partner_introduction", error, "completion_failed", { partnerId: partner.id });
+        intro = await refreshIntroduction(intro);
       }
       privatePartnerResponse(res);
-      res.status(recorded.replayed ? 200 : 201).json({ ...toPartnerIntroductionView(intro), replayed: recorded.replayed });
+      const processing = completionFailed || intro.completionState !== "complete";
+      res.status(processing ? 202 : recorded.replayed ? 200 : 201).json({
+        ...toPartnerIntroductionView(intro), replayed: recorded.replayed, processing,
+      });
     } catch (err) { serverError(res, err, "partner_introduction_submit"); }
   });
 
@@ -250,5 +283,29 @@ export function registerPartnerProgramRoutes(app: Express) {
         reviewState: typeof q.reviewState === "string" ? q.reviewState : undefined, page: num(q.page), pageSize: num(q.pageSize),
       }));
     } catch (err) { serverError(res, err, "partner_introduction_review_list"); }
+  });
+
+  // Authorized detail: linked records, identity evidence, completion state and append-only history. Admin and manager read.
+  app.get("/api/partner-introductions/:id", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const detail = await getPartnerIntroductionDetail(String(req.params.id));
+      if (!detail) return res.status(404).json({ message: "Not found" });
+      sendStaff(res);
+      res.json(detail);
+    } catch (err) { serverError(res, err, "partner_introduction_detail"); }
+  });
+
+  // Administrators decide. Actor and time come from the session; the revision must match; the reason is mandatory. A
+  // decision never creates a commission, moves an attribution or merges a company.
+  app.post("/api/partner-introductions/:id/decision", requireRole("admin"), async (req, res) => {
+    try {
+      if (!hasOnlyKeys(req.body, INTRODUCTION_DECISION_KEYS)) return res.status(400).json({ code: "INVALID_BODY" });
+      const actor = actorIdOf(req);
+      if (!actor) return res.status(401).json({ message: "Unauthorized" });
+      const result = await decidePartnerIntroduction(String(req.params.id), req.body, actor);
+      if (!result.ok) return res.status(result.status).json({ code: result.code });
+      sendStaff(res);
+      res.json({ introductionId: result.introduction.id, reviewState: result.introduction.reviewState, revision: result.introduction.revision });
+    } catch (err) { serverError(res, err, "partner_introduction_decision"); }
   });
 }

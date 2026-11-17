@@ -539,6 +539,52 @@ export function ssrHtmlShell({
     .ssr-cta-section { text-align: center; }
     .ssr-cta-section h2 { font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif; font-size: 1.75rem; font-weight: 700; color: #fff; margin-bottom: 1rem; }
     .ssr-cta-section p { color: rgba(255,255,255,0.7); max-width: 36rem; margin: 0 auto 2rem; }
+    /* Partnership documents (server/ssr/partners.ts): photographic hero, page-family section tones, steps on navy */
+    .ssr-hero--partner h1 { font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif; font-size: 2rem; line-height: 2.25rem; max-width: 22ch; letter-spacing: -0.01em; }
+    .ssr-hero--partner .ssr-hero-inner { row-gap: 2rem; }
+    .ssr-partner-media { margin: 0; }
+    .ssr-partner-media .ssr-frame { aspect-ratio: 3 / 2; max-width: 24rem; border: 1px solid #e2e8f0; border-bottom: 3px solid #071D57; }
+    .ssr-partner-media .ssr-frame img { object-position: var(--partner-focal, 50% 50%); }
+    .ssr-partner-media figcaption { margin-top: 0.5rem; max-width: 24rem; font-size: 0.75rem; line-height: 1.125rem; color: #475569; }
+    @media (min-width: 640px) {
+      .ssr-hero--partner .ssr-partner-media--hero .ssr-frame, .ssr-hero--partner .ssr-hero-media .ssr-partner-media--hero .ssr-frame { aspect-ratio: 2 / 1; max-width: 30rem; }
+      .ssr-partner-media--hero figcaption { max-width: 30rem; }
+    }
+    @media (min-width: 1024px) {
+      .ssr-hero--partner h1 { font-size: 3.5rem; line-height: 3.75rem; }
+      .ssr-hero--partner .ssr-hero-inner { grid-template-columns: 1.05fr 0.95fr; column-gap: 3rem; }
+      .ssr-hero--partner .ssr-hero-media .ssr-partner-media--hero .ssr-frame { aspect-ratio: 4 / 3; max-width: none; }
+      .ssr-partner-media--hero figcaption { max-width: none; }
+    }
+    .ssr-section-canvas { background: #fdfcfa; }
+    .ssr-section-warm { background: #f7f2ec; border-top: 1px solid #dbe2ec; border-bottom: 1px solid #dbe2ec; }
+    .ssr-section-light { background: #f4f6fa; border-top: 1px solid #dbe2ec; border-bottom: 1px solid #dbe2ec; }
+    .ssr-section-ink { background: #0f172a; color: #f8fafc; }
+    .ssr-section-ink .ssr-section-heading, .ssr-section-ink .ssr-section-subheading { color: #f8fafc; }
+    .ssr-section-ink .ssr-section-subheading { color: #d3dcea; }
+    .ssr-section-ink .ssr-step-num { background: #fff; color: #071D57; }
+    .ssr-section-ink .ssr-card-title { color: #f8fafc; }
+    .ssr-section-ink .ssr-card-text, .ssr-section-ink .ssr-step-body { color: #d3dcea; }
+    .ssr-section-start .ssr-section-heading, .ssr-section-start .ssr-section-subheading { text-align: left; margin-left: 0; margin-right: 0; }
+    .ssr-section-compact { padding: 2.5rem 0; }
+    .ssr-steps--cols { grid-template-columns: 1fr; }
+    @media (min-width: 768px) { .ssr-steps--cols { grid-template-columns: repeat(2, 1fr); } }
+    @media (min-width: 1024px) { .ssr-steps--cols-4 { grid-template-columns: repeat(4, 1fr); } .ssr-steps--cols-3 { grid-template-columns: repeat(3, 1fr); } }
+    .ssr-steps--cols li { display: block; }
+    .ssr-steps--cols .ssr-step-num { margin-bottom: 0.75rem; }
+    .ssr-step-title { font-weight: 600; font-size: 1.125rem; margin-bottom: 0.25rem; }
+    .ssr-list { margin: 0 0 0 1.25rem; padding: 0; font-size: 0.875rem; color: #334155; line-height: 1.6; }
+    .ssr-partner-split { display: grid; gap: 1.5rem; grid-template-columns: 1fr; }
+    @media (min-width: 768px) { .ssr-partner-split { grid-template-columns: 1fr 1fr; } }
+    .ssr-partner-split .ssr-partner-media { max-width: 24rem; }
+    .ssr-partner-split .ssr-partner-media .ssr-frame { aspect-ratio: 4 / 3; }
+    .ssr-chip-list { display: flex; flex-wrap: wrap; gap: 0.5rem; list-style: none; margin: 0; padding: 0; }
+    .ssr-chip-list li { border: 1px solid #cbd5e1; border-radius: 9999px; padding: 0.5rem 1rem; font-size: 0.875rem; }
+    .ssr-btn-row { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+    .ssr-btn-on-light { display: inline-flex; align-items: center; background: #fff; color: #071D57; padding: 0.75rem 1.75rem; border-radius: 0.5rem; font-size: 1rem; font-weight: 600; border: 1px solid #cbd5e1; }
+    .ssr-btn-on-ink { display: inline-flex; align-items: center; background: #fff; color: #0f172a; padding: 0.75rem 1.75rem; border-radius: 0.5rem; font-size: 1rem; font-weight: 600; }
+    .ssr-calc-result { background: #fff; color: #0f172a; border: 1px solid #dbe2ec; border-radius: 0.75rem; padding: 1.5rem; }
+    .ssr-calc-result .ssr-calc-figure { font-size: 2rem; line-height: 2.25rem; font-weight: 700; color: #071D57; }
     .ssr-cta-buttons { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center; }
 
     /* Crosslinks */

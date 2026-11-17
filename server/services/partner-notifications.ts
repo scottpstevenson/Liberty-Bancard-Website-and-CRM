@@ -152,7 +152,7 @@ async function sendPartnerGoLiveEmail(
   const signature = getEmailSignatureHtml("partners", undefined, null);
 
   const residualNote = estimatedResidual && commissionPercent !== null
-    ? `<p>Based on this merchant's estimated processing volume, your first-month residual commission is approximately <strong>${fmtCurrency(estimatedResidual)}</strong> — and it compounds every month they process.</p>`
+    ? `<p>Based on this merchant's estimated processing volume, your first-month residual commission is approximately <strong>${fmtCurrency(estimatedResidual)}</strong>. Actual amounts depend on collected processing income and your written agreement.</p>`
     : commissionPercent === null
       ? `<p>Compensation for this merchant follows your written agreement with Liberty Bancard.</p>`
       : `<p>Once this merchant begins processing, you'll start earning residual commissions at your ${commissionPercent}% rate each month.</p>`;
@@ -163,7 +163,7 @@ async function sendPartnerGoLiveEmail(
 
   <p>Great news — <strong>${merchantName}</strong>, a merchant you referred, has just gone live with Liberty Bancard! 🎉</p>
 
-  <p>They're now actively processing payments and your residual commission clock has started.</p>
+  <p>They're now live and processing payments.</p>
 
   ${residualNote}
 
@@ -171,7 +171,7 @@ async function sendPartnerGoLiveEmail(
   <ul>
     <li>Commissions accrue monthly as the merchant processes</li>
     <li>You'll receive a monthly earnings summary by email</li>
-    <li>Payouts are processed on the 1st of each month via your preferred payment method</li>
+    <li>Payment timing and method follow your written agreement</li>
   </ul>
 
   <p>
@@ -356,7 +356,7 @@ async function sendMonthlyDigestEmail(
     </tfoot>
   </table>
 
-  <p>Commissions are paid out on the 1st of next month. Keep referring merchants to grow your passive income!</p>
+  <p>Payment timing and method follow your written agreement. Amounts depend on collected processing income.</p>
 
   <p>
     <a href="${portalUrl}"

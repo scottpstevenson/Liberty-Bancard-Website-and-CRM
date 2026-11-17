@@ -45,7 +45,7 @@ function buildPartnerWelcomeEmail(partner: Partner, referralLink: string, portal
     <li>Share your referral link or code with business owners</li>
     <li>They apply and start processing — we handle everything</li>
     <li>${hasTerms ? `You earn ${commissionPercent}% residual commission each month they process` : "Compensation follows your written agreement"}</li>
-    <li>Commissions are paid monthly via PayPal</li>
+    <li>Payment timing and method follow your written agreement</li>
   </ol>
 
   <p><strong>Marketing Resources</strong></p>

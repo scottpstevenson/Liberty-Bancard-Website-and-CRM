@@ -26,7 +26,8 @@ import type { Referral } from "@shared/schema";
 import type { PartnerOperatorRecord as Partner } from "@shared/partner-response";
 import { PARTNER_TYPES, REFERRAL_STATUSES } from "@shared/schema";
 import { HelpCenter } from "@/components/HelpCenter";
-import referralVideo from "@/assets/videos/referral-explainer.mp4";
+import { usePartnerReferralPolicy } from "@/hooks/use-partner-policy";
+import { PARTNER_GUIDE_AUDIENCES, PARTNER_GUIDE_AUDIENCE_LABEL, PARTNER_GUIDE_INTRO, partnerGuideSections, type PartnerGuideAudience } from "@shared/partner-program-guide";
 
 const REFERRAL_TABS = ["partners", "applications", "introductions", "referrals", "tiers", "leaderboard"] as const;
 type ReferralTab = (typeof REFERRAL_TABS)[number];
@@ -119,46 +120,23 @@ function formatPartnerType(type: string): string {
   return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+const GUIDE_ICON: Record<PartnerGuideAudience, typeof PlayCircle> = { applicant: PlayCircle, staff: Target, referral: Handshake, sales_agent: TrendingUp };
+
+/** Audience-specific guide built from the shared approved partner content: no rate card, no bonus tiers, no payout promises. */
 function ReferralExplainer() {
   const [expanded, setExpanded] = useState(false);
-
-  const guides = [
-    {
-      icon: PlayCircle,
-      title: "What Is Liberty Bancard's Referral Program?",
-      color: "text-blue-600 dark:text-blue-400",
-      bg: "bg-blue-100 dark:bg-blue-900",
-      content: "Our referral program lets you earn commissions by connecting businesses with Liberty Bancard's payment processing solutions. Whether you're an ISO agent, bank partner, or business referrer, you earn when your referrals become merchants. We handle the sales process, onboarding, and ongoing support — you just make the introduction.",
-    },
-    {
-      icon: Target,
-      title: "How It Works: Step by Step",
-      color: "text-green-600 dark:text-green-400",
-      bg: "bg-green-100 dark:bg-green-900",
-      content: "1. Register as a partner using the 'Add Partner' button above.\n2. Submit referrals with basic contact details — name, email, phone, and business name.\n3. Our sales team reaches out, reviews their statement, and presents a savings proposal.\n4. When the merchant signs up, your referral status updates to 'Converted.'\n5. You earn your commission based on your agreed-upon structure (flat fee, percentage, or bonus).\n\nTrack everything in real time right here on this dashboard.",
-    },
-    {
-      icon: Star,
-      title: "Best Practices for Sales Referrals",
-      color: "text-amber-600 dark:text-amber-400",
-      bg: "bg-amber-100 dark:bg-amber-900",
-      content: "• Lead with value: Tell the merchant we do a free, no-obligation statement review that is available on request.\n• Warm introductions convert best: A quick email intro or 3-way call dramatically increases close rates.\n• Focus on pain points: Ask if they're happy with their current rates, customer service, or terminal reliability.\n• Quality over quantity: One qualified referral with a processing statement is worth more than ten cold leads.\n• Follow up: Check your referral status here and ask us for updates — engaged partners close more deals.",
-    },
-    {
-      icon: TrendingUp,
-      title: "Commission & Payout Structure",
-      color: "text-emerald-600 dark:text-emerald-400",
-      bg: "bg-emerald-100 dark:bg-emerald-900",
-      content: "• Standard referral bonus: Flat fee per converted merchant (varies by partner agreement).\n• Residual commissions: Ongoing monthly percentage of processing revenue for ISO/agent partners.\n• Tiered bonuses: Volume incentives when you hit referral milestones.\n• Payouts tracked automatically in your Total Payouts column — no chasing checks.\n\nAll commission terms are set when you register as a partner. Contact us to discuss custom structures.",
-    },
-  ];
+  const [audience, setAudience] = useState<PartnerGuideAudience>("staff");
+  const { policy } = usePartnerReferralPolicy();
+  const sections = partnerGuideSections(audience, policy);
 
   return (
     <Card data-testid="referral-explainer">
       <CardContent className="p-4">
         <button
-          className="w-full flex items-center justify-between gap-2"
+          className="w-full flex items-center justify-between gap-2 min-h-11"
           onClick={() => setExpanded(!expanded)}
+          aria-expanded={expanded}
+          aria-controls="explainer-content"
           data-testid="btn-toggle-explainer"
         >
           <div className="flex items-center gap-3">
@@ -166,43 +144,48 @@ function ReferralExplainer() {
               <BookOpen className="w-5 h-5 text-primary" />
             </div>
             <div className="text-left">
-              <p className="text-sm font-semibold">Referral Program Guide & Best Practices</p>
-              <p className="text-xs text-muted-foreground">Learn how to maximize your referral earnings</p>
+              <p className="text-sm font-semibold">Partner Program Guide</p>
+              <p className="text-xs text-muted-foreground">How applications, terms, invitations and introductions work</p>
             </div>
           </div>
           {expanded ? <ChevronUp className="w-5 h-5 text-muted-foreground" /> : <ChevronDown className="w-5 h-5 text-muted-foreground" />}
         </button>
 
         {expanded && (
-          <div className="mt-4 space-y-4" data-testid="explainer-content">
-            <div className="rounded-lg overflow-hidden border bg-black" data-testid="referral-video">
-              <video
-                src={referralVideo}
-                controls
-                className="w-full aspect-video"
-                poster=""
-                preload="metadata"
-                data-testid="video-referral-explainer"
-              >
-                Your browser does not support video playback.
-              </video>
-              <div className="bg-muted/50 px-4 py-2">
-                <p className="text-xs font-medium">Referral Program Overview</p>
-                <p className="text-[11px] text-muted-foreground">Watch this short explainer to learn how to earn commissions by referring merchants to Liberty Bancard.</p>
-              </div>
+          <div id="explainer-content" className="mt-4 space-y-4" data-testid="explainer-content">
+            <p className="text-sm text-muted-foreground" data-testid="guide-intro">{PARTNER_GUIDE_INTRO}</p>
+            <div role="group" aria-label="Guide audience" className="flex flex-wrap gap-2">
+              {PARTNER_GUIDE_AUDIENCES.map((id) => (
+                <Button
+                  key={id}
+                  type="button"
+                  variant={audience === id ? "default" : "outline"}
+                  className="min-h-11"
+                  aria-pressed={audience === id}
+                  onClick={() => setAudience(id)}
+                  data-testid={`guide-audience-${id}`}
+                >
+                  {PARTNER_GUIDE_AUDIENCE_LABEL[id]}
+                </Button>
+              ))}
             </div>
 
-            {guides.map((guide, i) => {
-              const Icon = guide.icon;
+            {sections.map((section) => {
+              const Icon = GUIDE_ICON[audience];
               return (
-                <div key={i} className="border rounded-lg p-4" data-testid={`guide-section-${i}`}>
+                <div key={section.id} className="border rounded-lg p-4" data-testid={`guide-section-${section.id}`}>
                   <div className="flex items-start gap-3">
-                    <div className={`w-9 h-9 rounded-lg ${guide.bg} flex items-center justify-center shrink-0 mt-0.5`}>
-                      <Icon className={`w-4.5 h-4.5 ${guide.color}`} />
+                    <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                      <Icon className="w-4 h-4 text-primary" aria-hidden="true" />
                     </div>
-                    <div>
-                      <h4 className="text-sm font-semibold mb-2">{guide.title}</h4>
-                      <p className="text-sm text-muted-foreground whitespace-pre-line leading-relaxed">{guide.content}</p>
+                    <div className="min-w-0">
+                      <h4 className="text-sm font-semibold mb-2">{section.title}</h4>
+                      <p className="text-sm text-muted-foreground leading-relaxed">{section.body}</p>
+                      {section.lines && section.lines.length > 0 ? (
+                        <ul className="mt-2 space-y-1 text-sm text-muted-foreground leading-relaxed list-none pl-0">
+                          {section.lines.map((line) => <li key={line}>{line}</li>)}
+                        </ul>
+                      ) : null}
                     </div>
                   </div>
                 </div>

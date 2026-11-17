@@ -337,6 +337,11 @@ try {
   const zoomed = await open({ zoom: 2 });
   await zoomed.navigate("/partners");
   await setConsent(zoomed, false);
+  // First touch: this session arrives on the hub with a campaign link, then reaches the journey by a full page load with
+  // NO query string. The allowlisted values must come from the session's first touch, and nothing else may be stored.
+  await zoomed.navigate("/partners?ref=zmfirst1&utm_source=zoomtouch&token=must-not-be-kept&utm_extra=nope");
+  await until(zoomed, `!!document.querySelector('[data-testid="section-partner-hub-hero"]')`, "zoom hub");
+  assert.deepEqual(JSON.parse(await zoomed.evaluate(`sessionStorage.getItem('lb_partner_first_touch')||'null'`) as string), { ref: "zmfirst1", utm_source: "zoomtouch" }, "The session keeps only the allowlisted first-touch values");
   await zoomed.navigate("/partners/referrals");
   await until(zoomed, `!!document.getElementById('partner-referral-fullName')`, "zoomed referral form");
   const zoomShape = await zoomed.evaluate(`({ratio:window.devicePixelRatio,width:window.innerWidth,scrollWidth:document.documentElement.scrollWidth})`) as any;
@@ -359,8 +364,10 @@ try {
   await zoomed.click(`[data-testid="partner-referral-submit"]`);
   await until(zoomed, `!!document.querySelector('[data-testid="partner-referral-success"]')`, "zoomed success");
   await zoomed.screenshot("zoom-success");
-  assert.equal((await applicationFor(PII.zoom.email)).length, 1, "The 200% application is stored once");
-  ok("At 200% zoom the page has no horizontal scrolling, errors and controls stay usable, and an application can be submitted");
+  const zoomRows = await applicationFor(PII.zoom.email);
+  assert.equal(zoomRows.length, 1, "The 200% application is stored once");
+  assert.deepEqual(zoomRows[0].acquisition, { ref: "zmfirst1", utm_source: "zoomtouch" }, `An application submitted from a page with no query string stores the session's first touch, and nothing outside the allowlist (${JSON.stringify(zoomRows[0].acquisition)})`);
+  ok("At 200% zoom the page has no horizontal scrolling, errors and controls stay usable, and an application can be submitted; with no query string it stores the session's first touch (allowlisted keys only)");
 
   // ── 8. The same applications in the CRM review panel, signed in through the real login page ─────────────────────────
   await browser.navigate("/login"); await browser.waitFor(/Sign In/);

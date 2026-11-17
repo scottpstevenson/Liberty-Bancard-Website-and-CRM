@@ -64,6 +64,23 @@ export function pickPartnerAttribution(source: URLSearchParams | Record<string, 
   return out;
 }
 
+/**
+ * Attribution precedence (one rule, used by every link, the application form and the stored snapshot):
+ *   1. CURRENT touch wins: when the page the visitor is on carries any allowlisted value, that whole set is used.
+ *      Sets are never merged key by key, so a stored `ref` can never be paired with a different campaign's UTM values.
+ *   2. Otherwise the session's FIRST touch (the first allowlisted set seen on a partner route) is used, so a visitor who
+ *      wandered to a page without parameters is still attributed to how they arrived.
+ *   3. Otherwise nothing is stored. Personal data, unknown keys and malformed values never survive `pickPartnerAttribution`.
+ */
+export function resolvePartnerAttribution(
+  current: URLSearchParams | Record<string, unknown> | null | undefined,
+  firstTouch: URLSearchParams | Record<string, unknown> | null | undefined,
+): Partial<Record<PartnerAttributionKey, string>> {
+  const now = pickPartnerAttribution(current);
+  if (Object.keys(now).length > 0) return now;
+  return pickPartnerAttribution(firstTouch);
+}
+
 /** Builds a same-origin partner path with only allowlisted attribution and an allowlisted profession. */
 export function partnerLink(path: string, params?: { attribution?: Partial<Record<PartnerAttributionKey, string>>; profession?: string | null; hash?: string }): string {
   const query = new URLSearchParams();

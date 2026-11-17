@@ -1,7 +1,8 @@
 #!/usr/bin/env tsx
 /**
- * Schema, upgrade, replay and rollback proof for migration 0384 (partner applications, introductions, public policy), on
- * freshly created disposable PostgreSQL databases only. The production migrator harness (server/db-migrate.ts) is the only
+ * Schema, upgrade, replay and rollback proof for migrations 0384 (partner applications, introductions, public policy) and
+ * 0385 (review history, introduction decisions and completion checkpoints), on freshly created disposable PostgreSQL
+ * databases only. The production migrator harness (server/db-migrate.ts) is the only
  * thing that applies migrations.
  *
  *  1. Fresh install through the harness; exact ledger hash; harness re-run leaves the ledger unchanged.
@@ -11,7 +12,9 @@
  *     ledger row removed (an emulated 0383 head, stated as such). Legacy partner, referral and commission-tier rows are
  *     checksummed before and after; the migration changes none of them, creates no application, opens nothing.
  *  4. Partial schema: an interrupted earlier attempt (one table present with a retained row, no ledger row) converges.
- *  5. Replay: the whole 0384 SQL replayed against retained evidence changes nothing.
+ *  3b. 0385 upgrade from a real 0384 head holding historic introductions: the checkpoint backfill marks exactly the steps the
+ *     previous code performed, leaves unlinked rows pending, and never touches a partner's referral total.
+ *  5. Replay: the whole 0384 and 0385 SQL replayed against retained evidence changes nothing.
  *  6. Rollback rehearsal: the previous build (a clean export of the audited base commit) is run against the upgraded
  *     database holding application, consent, introduction and policy evidence. Its migration harness leaves every row,
  *     table and ledger entry in place, its own legacy application route still runs, and the evidence is byte-identical.
@@ -35,17 +38,22 @@ if (/(prod|production|live)/i.test(source.pathname)) throw new Error("Refusing n
 const root = new URL(sourceUrl);
 root.pathname = "/postgres";
 const nonce = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
-const names = { clean: `test_pp_clean_${nonce}`, upgrade: `test_pp_upgrade_${nonce}`, partial: `test_pp_partial_${nonce}`, rollback: `test_pp_rollback_${nonce}` };
+const names = { clean: `test_pp_clean_${nonce}`, upgrade: `test_pp_upgrade_${nonce}`, backfill: `test_pp_backfill_${nonce}`, partial: `test_pp_partial_${nonce}`, rollback: `test_pp_rollback_${nonce}` };
 const migrations = path.join(process.cwd(), "migrations");
 const TAG = "0384_partner_applications_introductions_policy";
 const sql0384 = fs.readFileSync(path.join(migrations, `${TAG}.sql`), "utf8");
 const hash0384 = crypto.createHash("sha256").update(sql0384).digest("hex");
+const TAG85 = "0385_partner_review_decisions_and_introduction_completion";
+const sql0385 = fs.readFileSync(path.join(migrations, `${TAG85}.sql`), "utf8");
+const hash0385 = crypto.createHash("sha256").update(sql0385).digest("hex");
+const COLUMNS_0385 = ["revision", "decided_by", "decided_at", "decision_note", "completion_state", "contact_checkpoint_at", "referral_checkpoint_at",
+  "notification_checkpoint_at", "count_checkpoint_at", "completion_attempts", "completion_last_attempt_at", "completion_error_code"];
 const BASE_COMMIT = process.env.PARTNER_BASE_COMMIT ?? "70baaffd";
 let checks = 0;
 function ok(condition: unknown, label: string) { assert.ok(condition, label); checks++; console.log(`  ✓ ${label}`); }
 function equal<T>(actual: T, expected: T, label: string) { assert.deepEqual(actual, expected, label); checks++; console.log(`  ✓ ${label}`); }
 
-const NEW_TABLES = ["partner_applications", "partner_introductions", "partner_public_policy_versions"] as const;
+const NEW_TABLES = ["partner_applications", "partner_introductions", "partner_public_policy_versions", "partner_review_events"] as const;
 const LEGACY_TABLES: Array<[string, string]> = [["partners", "id"], ["referrals", "id"], ["commission_tiers", "id"], ["users", "id"], ["contacts", "id"]];
 
 function urlFor(name: string) { const value = new URL(sourceUrl!); value.pathname = `/${name}`; return value.toString(); }
@@ -91,12 +99,21 @@ async function checksums(client: Client, tables: Array<[string, string]>, only: 
   return out;
 }
 
-/** Reverse exactly what 0384 added: three new tables (children first), then the ledger row. */
+/** Reverse exactly what 0385 added (the review-event table and the introduction columns, constraints and index), then its ledger row. */
+async function reverseTo0384(client: Client) {
+  await client.query(`DROP TABLE IF EXISTS partner_review_events`);
+  await client.query(`ALTER TABLE partner_introductions DROP CONSTRAINT IF EXISTS partner_introductions_completion_chk, DROP CONSTRAINT IF EXISTS partner_introductions_decision_chk`);
+  await client.query(`DROP INDEX IF EXISTS partner_introductions_completion_idx`);
+  for (const column of COLUMNS_0385) await client.query(`ALTER TABLE partner_introductions DROP COLUMN IF EXISTS ${column}`);
+  await client.query(`DELETE FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0385]);
+}
+
+/** Reverse exactly what 0384 and 0385 added: the new tables (children first), then both ledger rows. */
 async function reverseTo0383(client: Client) {
-  for (const table of ["partner_introductions", "partner_applications", "partner_public_policy_versions"]) {
+  for (const table of ["partner_review_events", "partner_introductions", "partner_applications", "partner_public_policy_versions"]) {
     await client.query(`DROP TABLE IF EXISTS ${table}`);
   }
-  await client.query(`DELETE FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0384]);
+  await client.query(`DELETE FROM drizzle.__drizzle_migrations WHERE hash IN ($1,$2)`, [hash0384, hash0385]);
 }
 
 /** Run one statement in its own transaction that is always rolled back; return the SQLSTATE it raised ('' if none). */
@@ -184,10 +201,13 @@ async function seedEvidence(client: Client) {
   const policy = (await client.query(
     `INSERT INTO partner_public_policy_versions(policy_key,version,share_percent,status,schedule_reference,copy_version,created_by)
      VALUES('standard_referral',1,25,'draft','SCH-EVIDENCE','v1','evidence-fixture') RETURNING id`)).rows[0].id;
-  return { partner, inbound, application, approvedPartner, introduction, policy };
+  const event = (await client.query(
+    `INSERT INTO partner_review_events(subject_type,subject_id,event_type,from_status,to_status,from_revision,to_revision,actor_id,note)
+     VALUES('application',$1,'needs_info','pending_review','needs_info',1,2,'evidence-admin','Evidence note') RETURNING id`, [application])).rows[0].id;
+  return { partner, inbound, application, approvedPartner, introduction, policy, event };
 }
 
-const evidenceTables: Array<[string, string]> = [["partner_applications", "id"], ["partner_introductions", "id"], ["partner_public_policy_versions", "id"], ["inbound_requests", "id"]];
+const evidenceTables: Array<[string, string]> = [["partner_applications", "id"], ["partner_introductions", "id"], ["partner_public_policy_versions", "id"], ["partner_review_events", "id"], ["inbound_requests", "id"]];
 
 const baseDir = path.join(os.tmpdir(), `partner-base-${nonce}`);
 try {
@@ -199,6 +219,9 @@ try {
   const cleanLedger = await withDb(names.clean, async (client) => {
     for (const table of NEW_TABLES) ok(await exists(client, table), `fresh install creates ${table}`);
     equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0384])).rowCount, 1, "the ledger records the exact 0384 file hash once");
+    equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0385])).rowCount, 1, "the ledger records the exact 0385 file hash once");
+    equal((await client.query(`SELECT column_name FROM information_schema.columns WHERE table_name='partner_introductions' AND column_name = ANY($1) ORDER BY column_name`, [COLUMNS_0385])).rows.map((r: any) => r.column_name),
+      [...COLUMNS_0385].sort(), "fresh install adds every 0385 introduction column");
     for (const table of NEW_TABLES) equal(await count(client, table), 0, `${table} starts empty (nothing seeded, nothing approved)`);
     return ledger(client);
   });
@@ -239,6 +262,11 @@ try {
     equal(await errCode(client, `INSERT INTO partner_introductions(partner_id,idempotency_key,request_fingerprint,business_name,contact_name,contact_email,permission_version,permission_text_sha256,review_state) VALUES($1,$2,'f','b','c','x@example.test','v','h','bogus')`, [evidence.approvedPartner, crypto.randomUUID()]), "23514", "an unknown introduction review state is rejected by the database");
     const intro = (await client.query(`SELECT idempotency_key FROM partner_introductions WHERE id=$1`, [evidence.introduction])).rows[0].idempotency_key;
     equal(await errCode(client, `INSERT INTO partner_introductions(partner_id,idempotency_key,request_fingerprint,business_name,contact_name,contact_email,permission_version,permission_text_sha256) VALUES($1,$2,'f','b','c','x@example.test','v','h')`, [evidence.approvedPartner, intro]), "23505", "the same partner and idempotency key cannot create a second introduction");
+    equal(await errCode(client, `INSERT INTO partner_review_events(subject_type,subject_id,event_type,to_status,actor_id) VALUES('contact',$1,'x','y','a')`, [crypto.randomUUID()]), "23514", "a review event for an unknown subject type is rejected by the database");
+    equal(await errCode(client, `INSERT INTO partner_review_events(subject_type,subject_id,event_type,to_status) VALUES('application',$1,'x','y')`, [crypto.randomUUID()]), "23502", "a review event with no actor is rejected by the database");
+    equal(await errCode(client, `UPDATE partner_introductions SET completion_state='half' WHERE id=$1`, [evidence.introduction]), "23514", "an unknown completion state is rejected by the database");
+    equal(await errCode(client, `UPDATE partner_introductions SET review_state='accepted' WHERE id=$1`, [evidence.introduction]), "23514", "an accepted introduction without a decider and time is rejected by the database");
+    equal(await errCode(client, `UPDATE partner_introductions SET review_state='declined', decided_by='admin', decided_at=now() WHERE id=$1`, [evidence.introduction]), "", "a declined introduction with a decider and time is accepted");
     const policyInsert = `INSERT INTO partner_public_policy_versions(policy_key,version,share_percent,status,schedule_reference,copy_version,created_by,approved_by,approved_at) VALUES('standard_referral',$1,$2,$3,'SCH','v1','t',$4,$5)`;
     equal(await errCode(client, policyInsert, [2, 0, "draft", null, null]), "23514", "a referral share of 0 is rejected by the database");
     equal(await errCode(client, policyInsert, [3, 101, "draft", null, null]), "23514", "a referral share above 100 is rejected by the database");
@@ -256,7 +284,7 @@ try {
   const historic = await withDb(names.upgrade, async (client) => {
     await reverseTo0383(client);
     for (const table of NEW_TABLES) ok(!(await exists(client, table)), `prior head has no ${table}`);
-    equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0384])).rowCount, 0, "prior head has no 0384 ledger row");
+    equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash IN ($1,$2)`, [hash0384, hash0385])).rowCount, 0, "prior head has no 0384 or 0385 ledger row");
     return seedLegacy(client);
   });
   const priorLedger = await withDb(names.upgrade, (client) => ledger(client));
@@ -266,8 +294,8 @@ try {
     for (const table of NEW_TABLES) ok(await exists(client, table), `upgrade creates ${table}`);
     const after = await ledger(client);
     equal(after.slice(0, priorLedger.length), priorLedger, "every prior ledger row is retained unchanged");
-    equal(after.length, priorLedger.length + 1, "exactly one ledger row is added");
-    equal(after[after.length - 1].hash, hash0384, "the added row is the exact 0384 hash");
+    equal(after.length, priorLedger.length + 2, "exactly two ledger rows are added (0384 and 0385)");
+    equal(after.slice(-2).map((r: any) => r.hash), [hash0384, hash0385], "the added rows are the exact 0384 and 0385 hashes, in order");
     equal(await checksums(client, LEGACY_TABLES), beforeChecksums, "partners, referrals, commission tiers, users and contacts are byte-identical before and after the upgrade");
     const rates = (await client.query(`SELECT id, commission_percent, status FROM partners WHERE id = ANY($1) ORDER BY id`, [historic.partners])).rows.map((r: any) => [r.commission_percent, r.status]);
     equal(rates, [[10, "active"], [50, "active"], [10, "pending"], [15, "inactive"]], "every historic partner keeps its exact commission percent and status (10, 50, 10, 15)");
@@ -276,6 +304,49 @@ try {
     equal(legacy.rows[0].commission_percent, 10, "a legacy raw-SQL partner insert still works and still receives the column default");
   });
   await withDb(names.upgrade, parity);
+
+  // ── 3b. 0385 upgrade from a real 0384 head holding historic introductions ──
+  console.log("\n[3b] 0385 upgrade from a 0384 head with historic introductions");
+  await admin(async (client) => { await client.query(`CREATE DATABASE "${names.backfill}" TEMPLATE "${names.clean}"`); });
+  const backfillIds = await withDb(names.backfill, async (client) => {
+    await reverseTo0384(client);
+    ok(await exists(client, "partner_introductions") && !(await exists(client, "partner_review_events")), "the 0384 head has the introduction table and no review-event table");
+    equal((await client.query(`SELECT 1 FROM information_schema.columns WHERE table_name='partner_introductions' AND column_name = ANY($1)`, [COLUMNS_0385])).rowCount, 0, "the 0384 head has none of the 0385 introduction columns");
+    const partner = (await client.query(`INSERT INTO partners(company_name,email,status,total_referrals) VALUES('Backfill Introducer',$1,'active',7) RETURNING id`, [`pp-backfill-${nonce}@example.test`])).rows[0].id;
+    const contact = async (tag: string) => (await client.query(`INSERT INTO contacts(first_name,last_name,email,phone,record_class) VALUES('Back','${tag}',$1,$2,'test') RETURNING id`,
+      [`pp-backfill-${tag}-${nonce}@example.test`, `+1558${String(Math.floor(Math.random() * 1e7)).padStart(7, "0")}`])).rows[0].id;
+    const referral = async (contactId: number, tag: string) => (await client.query(`INSERT INTO referrals(partner_id,contact_id,referred_name,status) VALUES($1,$2,$3,'pending') RETURNING id`, [partner, contactId, `Backfill ${tag}`])).rows[0].id;
+    const intro = async (tag: string, contactId: number | null, referralId: number | null, reviewState = "pending_review") => (await client.query(
+      `INSERT INTO partner_introductions(partner_id,idempotency_key,request_fingerprint,business_name,contact_name,contact_email,permission_version,permission_text_sha256,contact_id,referral_id,review_state)
+       VALUES($1,$2,'f','Backfill ' || $3,'Cal',$4,'v1',$5,$6,$7,$8) RETURNING id`,
+      [partner, crypto.randomUUID(), tag, `pp-backfill-${tag}-${nonce}@example.test`, "b".repeat(64), contactId, referralId, reviewState])).rows[0].id as string;
+    const cA = await contact("a"); const rA = await referral(cA, "a"); const a = await intro("a", cA, rA);
+    await client.query(`INSERT INTO notifications(command_key,channel,title,message) VALUES($1,'in_app','Backfill notice','Backfill notice')`, [`partner-introduction:${a}:review`]);
+    const cB = await contact("b"); const rB = await referral(cB, "b"); const b = await intro("b", cB, rB);
+    const cC = await contact("c"); const c = await intro("c", cC, null, "duplicate_review");
+    const d = await intro("d", null, null);
+    return { partner, a, b, c, d };
+  });
+  const backfillLegacyBefore = await withDb(names.backfill, (client) => checksums(client, [["partners", "id"], ["referrals", "id"], ["contacts", "id"]]));
+  migrate(urlFor(names.backfill));
+  await withDb(names.backfill, async (client) => {
+    const row = async (id: string) => (await client.query(
+      `SELECT completion_state, revision, decided_by, contact_checkpoint_at IS NOT NULL AS contact_done, referral_checkpoint_at IS NOT NULL AS referral_done,
+              count_checkpoint_at IS NOT NULL AS count_done, notification_checkpoint_at IS NOT NULL AS notification_done, completion_attempts
+         FROM partner_introductions WHERE id=$1`, [id])).rows[0];
+    equal(await row(backfillIds.a), { completion_state: "complete", revision: 1, decided_by: null, contact_done: true, referral_done: true, count_done: true, notification_done: true, completion_attempts: 0 }, "a historic introduction with contact, referral and notification is marked complete");
+    equal(await row(backfillIds.b), { completion_state: "pending", revision: 1, decided_by: null, contact_done: true, referral_done: true, count_done: true, notification_done: false, completion_attempts: 0 }, "a historic introduction with no notification keeps only that step pending (recovery creates it)");
+    equal(await row(backfillIds.c), { completion_state: "pending", revision: 1, decided_by: null, contact_done: true, referral_done: true, count_done: true, notification_done: false, completion_attempts: 0 }, "a historic held duplicate with a contact and no referral is not invented a referral; only its notification is pending");
+    equal(await row(backfillIds.d), { completion_state: "pending", revision: 1, decided_by: null, contact_done: false, referral_done: false, count_done: false, notification_done: false, completion_attempts: 0 }, "a historic introduction with no contact stays fully pending and resumes from the first step");
+    equal(await checksums(client, [["partners", "id"], ["referrals", "id"], ["contacts", "id"]]), backfillLegacyBefore, "the backfill changes no partner (including its referral total), referral or contact row");
+    equal((await client.query(`SELECT total_referrals FROM partners WHERE id=$1`, [backfillIds.partner])).rows[0].total_referrals, 7, "the partner's referral total is exactly what it was (never incremented by a migration)");
+    equal(await count(client, "partner_review_events"), 0, "no review event is invented for historic rows");
+    equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0385])).rowCount, 1, "the ledger records the exact 0385 hash once");
+    const afterFirst = await checksums(client, [["partner_introductions", "id"]]);
+    for (const part of statements(sql0385)) await client.query(part);
+    equal(await checksums(client, [["partner_introductions", "id"]]), afterFirst, "replaying the 0385 SQL over the backfilled rows changes nothing");
+  });
+  await withDb(names.backfill, parity);
 
   // ── 4. Partial schema from an interrupted earlier attempt ──
   console.log("\n[4] Partial schema from an interrupted earlier attempt");
@@ -289,13 +360,14 @@ try {
     for (const part of wanted) await client.query(part);
     await client.query(`INSERT INTO partner_public_policy_versions(policy_key,version,share_percent,status,schedule_reference,copy_version,created_by) VALUES('standard_referral',7,25,'draft','SCH-PARTIAL','v1','partial-fixture')`);
     ok(await exists(client, "partner_public_policy_versions") && !(await exists(client, "partner_applications")), "partial state: one new table present, the rest absent");
-    equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0384])).rowCount, 0, "partial state: no ledger row");
+    equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash IN ($1,$2)`, [hash0384, hash0385])).rowCount, 0, "partial state: no ledger row");
   });
   migrate(urlFor(names.partial));
   await withDb(names.partial, async (client) => {
     for (const table of NEW_TABLES) ok(await exists(client, table), `convergence creates or keeps ${table}`);
     equal((await client.query(`SELECT version,schedule_reference FROM partner_public_policy_versions`)).rows.map((r: any) => ({ ...r })), [{ version: 7, schedule_reference: "SCH-PARTIAL" }], "the retained row from the interrupted attempt survives");
     equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0384])).rowCount, 1, "the ledger records 0384 once");
+    equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0385])).rowCount, 1, "the ledger records 0385 once");
   });
   await withDb(names.partial, parity);
 
@@ -304,10 +376,11 @@ try {
   await admin(async (client) => { await client.query(`CREATE DATABASE "${names.rollback}" TEMPLATE "${names.upgrade}"`); });
   const evidence = await withDb(names.rollback, async (client) => {
     await client.query(`DELETE FROM partner_public_policy_versions`);
+    await client.query(`DELETE FROM partner_review_events`);
     const seeded = await seedEvidence(client);
     const before = await checksums(client, evidenceTables, { inbound_requests: seeded.inbound });
-    for (const part of statements(sql0384)) await client.query(part);
-    equal(await checksums(client, evidenceTables, { inbound_requests: seeded.inbound }), before, "replaying the 0384 SQL against retained application, introduction and policy rows changes nothing");
+    for (const part of [...statements(sql0384), ...statements(sql0385)]) await client.query(part);
+    equal(await checksums(client, evidenceTables, { inbound_requests: seeded.inbound }), before, "replaying the 0384 and 0385 SQL against retained application, introduction, review-event and policy rows changes nothing");
     return seeded;
   });
 
