@@ -223,8 +223,13 @@ function hubBody(policy: PartnerReferralPolicy, faqs: readonly PartnerFaq[]): st
       secondary: { label: PARTNER_HUB_HERO.secondaryCta, href: PARTNER_ROUTES.salesAgent },
       tertiary: { label: PARTNER_HUB_HERO.signIn, href: PARTNER_ROUTES.login },
     }),
-    partnerSection("canvas", null, "partner-paths-heading", `${partnerHeading("partner-paths-heading", PARTNER_HUB_SECTIONS.paths.heading, PARTNER_HUB_SECTIONS.paths.description)}
-${pathCards(policy, "partner-paths-heading")}`),
+    partnerSection("canvas", null, "partner-paths-heading", `      <div class="ssr-partner-lead" data-partner-paths-lead>
+        <div>
+${partnerHeading("partner-paths-heading", PARTNER_HUB_SECTIONS.paths.heading, PARTNER_HUB_SECTIONS.paths.description)}
+        </div>
+        ${mediaFigure(PARTNER_ROUTES.hub, "body")}
+      </div>
+${pathCards(policy, "partner-paths-heading")}`, "ssr-section-start"),
     partnerSection("light", null, "partner-compare-heading", `${partnerHeading("partner-compare-heading", PARTNER_HUB_SECTIONS.compare.heading, PARTNER_HUB_SECTIONS.compare.description)}
 ${comparisonTable("partner-compare-heading")}`),
     partnerSection("ink", null, "partner-process-heading", `${partnerHeading("partner-process-heading", PARTNER_HUB_SECTIONS.process.heading, PARTNER_HUB_SECTIONS.process.description)}

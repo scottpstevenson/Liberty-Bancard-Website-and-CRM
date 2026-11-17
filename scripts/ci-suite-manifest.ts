@@ -662,6 +662,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "reads the committed image derivatives and manifest and renders the shared picture model in-process; no server, database, network or provider I/O",
   },
   {
+    name: "Partner hub React page renders its registered body image (lazy, beside the path explanation)",
+    script: "scripts/test-partner-hub-react-media.ts",
+    capability: "deterministic-static",
+    providerDenial: "renders the React hub page in-process with react-dom/server and a local query client; no server, database, network or provider I/O",
+  },
+  {
     name: "Retained Sunbiz business completion",
     script: "scripts/certification/test-retained-sunbiz-business-completion.ts",
     capability: "deterministic-integration",

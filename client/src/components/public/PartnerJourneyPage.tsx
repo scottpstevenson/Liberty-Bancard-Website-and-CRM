@@ -9,7 +9,6 @@ import { PartnerApplicationForm } from "@/components/public/PartnerApplicationFo
 import { PartnerMedia } from "@/components/public/PartnerHeroMedia";
 import {
   PartnerFaqList,
-  PartnerReviewDisclosure,
   partnerFaqJsonLd,
   selectedPartnerFaqs,
 } from "@/components/public/PartnerPageSections";
@@ -146,7 +145,7 @@ export function PartnerJourneyPage({ path, initialProfession }: PartnerJourneyPa
             <div className="lg:col-span-5">
               <PublicSectionHeader id="partner-application-heading" title={journey.formHeading} description={PARTNER_JOURNEY_SECTIONS.applicationDescription} />
               {comparisonLine}
-              <div className="mt-4"><PartnerReviewDisclosure /></div>
+              {/* The review-process qualification is shown once, beside the submit button in the form footer. */}
             </div>
             <div className="partner-form-surface min-w-0 lg:col-span-7" data-testid={`partner-${path}-application-surface`}>
               <PartnerApplicationForm path={path} sourcePage={sourcePage} initialProfession={initialProfession} />

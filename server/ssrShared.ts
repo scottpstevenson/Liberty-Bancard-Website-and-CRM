@@ -576,6 +576,11 @@ export function ssrHtmlShell({
     .ssr-list { margin: 0 0 0 1.25rem; padding: 0; font-size: 0.875rem; color: #334155; line-height: 1.6; }
     .ssr-partner-split { display: grid; gap: 1.5rem; grid-template-columns: 1fr; }
     @media (min-width: 768px) { .ssr-partner-split { grid-template-columns: 1fr 1fr; } }
+    .ssr-partner-lead { display: grid; gap: 1.5rem; grid-template-columns: 1fr; margin-bottom: 2rem; }
+    @media (min-width: 768px) { .ssr-partner-lead { grid-template-columns: minmax(0, 1fr) 20rem; column-gap: 2.5rem; align-items: end; } }
+    @media (min-width: 1024px) { .ssr-partner-lead { grid-template-columns: minmax(0, 1fr) 24rem; } }
+    .ssr-partner-lead .ssr-section-subheading { margin-bottom: 0; }
+    .ssr-partner-lead .ssr-partner-media .ssr-frame { aspect-ratio: 4 / 3; }
     .ssr-partner-split .ssr-partner-media { max-width: 24rem; }
     .ssr-partner-split .ssr-partner-media .ssr-frame { aspect-ratio: 4 / 3; }
     .ssr-chip-list { display: flex; flex-wrap: wrap; gap: 0.5rem; list-style: none; margin: 0; padding: 0; }

@@ -7,10 +7,12 @@
  * (scripts/test-partner-page-media.ts), so the picture a crawler or a slow connection receives is the picture the page
  * shows after it loads.
  *
- * Provenance. Every source below is a W-D generated editorial scene already registered in
- * client/src/lib/public-imagery.ts (provenance "generated", approval "owner-review-pending"; master, prompt and checksum in
- * docs/media/w-d-asset-pack-2026-11-10). They are synthetic illustrations, not photographs of real people, customers,
- * partners or Liberty staff, and the visible caption says so. No image is purchased, hot-linked or newly generated here.
+ * Provenance. Every source below is a generated editorial scene registered in client/src/lib/public-imagery.ts
+ * (provenance "generated", approval "owner-review-pending"). Most are W-D scenes (master, prompt and checksum in
+ * docs/media/w-d-asset-pack-2026-11-10); the bookkeeper and insurance heroes were generated on 2026-11-17 because the W-D
+ * set has no scene for those audiences (docs/media/partner-program-scenes-2026-11-17). They are synthetic illustrations,
+ * not photographs of real people, customers, partners or Liberty staff, and the visible caption says so. No image is
+ * purchased or hot-linked.
  *
  * Fit. `scene` means the picture shows the subject the route wants. `approximate` means the cleared set has no picture of
  * that exact scene, the closest cleared scene is used, and `gap` names the picture that would replace it. An approximate
@@ -100,14 +102,12 @@ export const PARTNER_MEDIA: readonly PartnerMediaEntry[] = [
     "Hands filling in a checklist beside a calculator and a closed laptop on a desk.",
     "Overhead desk view of a record review, no faces",
     "approximate", "A cleared photograph of an accountant and a business client reviewing ordinary business figures."),
-  hero(PARTNER_ROUTES.bookkeeper, "industry-dental", 150, 30, { x: 50, y: 35 },
-    "A clinic front-desk coordinator going through a folder with a visitor at the reception counter.",
-    "Office staff and a visitor going through a folder of records",
-    "approximate", "A cleared photograph of a bookkeeper and a business owner reviewing operational records."),
-  hero(PARTNER_ROUTES.insurance, "industry-field-services", 100, 20, { x: 50, y: 30 },
-    "A service technician showing a tablet to a homeowner outside a house.",
-    "A professional advising a client on site with a tablet",
-    "approximate", "A cleared photograph of an insurance professional advising a business owner in a business setting."),
+  hero(PARTNER_ROUTES.bookkeeper, "partner-bookkeeper-review", 128, 40, { x: 50, y: 36 },
+    "Two adults going over a printed report at a desk in the back office of a small bakery.",
+    "A professional going through a small business's records with its owner, in the owner's own workplace"),
+  hero(PARTNER_ROUTES.insurance, "partner-insurance-advice", 128, 30, { x: 50, y: 30 },
+    "Two adults going over a printed summary in an open binder at a table in a flooring showroom.",
+    "A professional reviewing a coverage summary with a business owner in the owner's own showroom"),
   hero(PARTNER_ROUTES.affiliate, "industry-retail", 128, 20, { x: 50, y: 30 },
     "A record-shop owner and a customer at the shop counter.",
     "Small-business owner and a customer at the counter, the relationship an affiliate refers"),

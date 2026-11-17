@@ -116,6 +116,9 @@ const PACK_DIR = "docs/media/w-d-asset-pack-2026-11-10";
 const MASTER_DIR = "client/src/assets/images/w-d";
 interface PackAsset { id: string; master: string; sha256: string }
 const pack = JSON.parse(read(`${PACK_DIR}/asset-manifest.json`)) as { assets: PackAsset[] };
+/** Two partnership-page scenes generated 2026-11-17 (bookkeeper and insurance heroes); same record shape as the W-D pack. */
+const PARTNER_SCENES_DIR = "docs/media/partner-program-scenes-2026-11-17";
+const partnerScenes = JSON.parse(read(`${PARTNER_SCENES_DIR}/asset-manifest.json`)) as { assets: (PackAsset & { original: { file: string; sha256: string } })[] };
 interface ManifestFile { format: "avif" | "webp" | "jpg"; file: string; width: number; height: number; bytes: number }
 interface ManifestEntry { id: string; source: string; sourceSha256: string; variants: { name: string; width: number; height: number; files: ManifestFile[] }[] }
 const manifest = JSON.parse(read("client/src/lib/public-imagery.manifest.json")) as { entries: ManifestEntry[] };
@@ -145,13 +148,30 @@ passes("pack provenance records are kept in the repository", () => {
   }
 });
 
+const assertPartnerScenes = (hashOf: (rel: string) => string, exists: (rel: string) => boolean): void => {
+  ensure(partnerScenes.assets.length === 2, `partner scene manifest lists ${partnerScenes.assets.length} assets, expected 2`);
+  for (const f of ["asset-manifest.json", "generation-record.json", "PARTNER-SCENES-HANDOFF.md"]) ensure(exists(`${PARTNER_SCENES_DIR}/${f}`), `${PARTNER_SCENES_DIR}/${f} is missing`);
+  const prompts = JSON.parse(read(`${PARTNER_SCENES_DIR}/generation-record.json`)) as { id: string; prompt: string }[];
+  for (const asset of partnerScenes.assets) {
+    const rel = `client/src/assets/images/${asset.master}`;
+    ensure(exists(rel) && hashOf(rel) === asset.sha256, `${asset.id}: master is missing or differs from its manifest`);
+    const original = `${PARTNER_SCENES_DIR}/${asset.original.file}`;
+    ensure(exists(original) && hashOf(original) === asset.original.sha256, `${asset.id}: the unmodified generated original is missing or changed`);
+    ensure(prompts.some((p) => p.id === asset.id && p.prompt.length > 200), `${asset.id}: its generation prompt is not recorded`);
+  }
+};
+const fileExists = (rel: string): boolean => fs.existsSync(path.join(ROOT, rel));
+passes("partnership scenes: masters in the repository match their manifest; unmodified originals and prompts are kept", () => assertPartnerScenes(sha256, fileExists));
+negative("a partnership scene master that was re-saved", () => assertPartnerScenes((rel) => (rel.includes("partner-bookkeeper") && rel.includes("client/src") ? "0".repeat(64) : sha256(rel)), fileExists));
+negative("a partnership scene whose original was removed", () => assertPartnerScenes(sha256, (rel) => !rel.includes("/original/") && fileExists(rel)));
+
 const assertRegistryProvenance = (records: Record<string, (typeof PUBLIC_IMAGE_RECORDS)[PublicImageId]>, entries: readonly ManifestEntry[]): void => {
   const generated = Object.values(records).filter((r) => r.provenance === "generated");
-  ensure(generated.length === 11, `expected 11 generated records (10 scenes/process + terminal), found ${generated.length}`);
+  ensure(generated.length === 13, `expected 13 generated records (10 scenes/process + terminal + 2 partnership scenes), found ${generated.length}`);
   for (const record of generated) {
     const g = record.generation;
     ensure(!!g, `${record.id}: generated record has no generation block`);
-    const asset = pack.assets.find((a) => a.id === g!.assetId);
+    const asset = pack.assets.find((a) => a.id === g!.assetId) ?? partnerScenes.assets.find((a) => a.id === g!.assetId);
     ensure(!!asset, `${record.id}: asset ${g!.assetId} is not in the pack manifest`);
     ensure(g!.sha256 === asset!.sha256, `${record.id}: registry sha256 differs from the pack manifest`);
     ensure(g!.approval === "owner-review-pending", `${record.id}: approval is ${g!.approval}`);

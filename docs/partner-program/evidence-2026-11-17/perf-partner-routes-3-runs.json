@@ -1,0 +1,397 @@
+{
+  "base": "http://127.0.0.1:6100",
+  "label": "partner-closeout",
+  "runs": 3,
+  "budgets": {
+    "lcpMs": 2500,
+    "cls": 0.1
+  },
+  "profile": "390x844 DPR2, CPU x4, 1.6Mbps/150ms, cold cache",
+  "results": [
+    {
+      "route": "/partners",
+      "runs": 3,
+      "status": "within budget",
+      "lcpMs": 1764,
+      "cls": 0.0001,
+      "totalBytes": 958289,
+      "imageBytes": 83613,
+      "imageRequests": 6,
+      "invalidReasons": [],
+      "samples": [
+        {
+          "run": 1,
+          "lcpMs": 12736,
+          "cls": 0.031,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 12736,
+            "cls": 0.030569497886045138
+          },
+          "totalBytes": 2469554,
+          "imageBytes": 158026,
+          "imageRequests": 9
+        },
+        {
+          "run": 2,
+          "lcpMs": 1764,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1764,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 958289,
+          "imageBytes": 83613,
+          "imageRequests": 6
+        },
+        {
+          "run": 3,
+          "lcpMs": 1740,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1740,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 958289,
+          "imageBytes": 83613,
+          "imageRequests": 6
+        }
+      ]
+    },
+    {
+      "route": "/partners/referrals",
+      "runs": 3,
+      "status": "within budget",
+      "lcpMs": 988,
+      "cls": 0.0007,
+      "totalBytes": 912985,
+      "imageBytes": 38309,
+      "imageRequests": 5,
+      "invalidReasons": [],
+      "samples": [
+        {
+          "run": 1,
+          "lcpMs": 988,
+          "cls": 0.001,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 988,
+            "cls": 0.000669574272498314
+          },
+          "totalBytes": 912985,
+          "imageBytes": 38309,
+          "imageRequests": 5
+        },
+        {
+          "run": 2,
+          "lcpMs": 956,
+          "cls": 0.001,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 956,
+            "cls": 0.000669574272498314
+          },
+          "totalBytes": 912985,
+          "imageBytes": 38309,
+          "imageRequests": 5
+        },
+        {
+          "run": 3,
+          "lcpMs": 1040,
+          "cls": 0.001,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1040,
+            "cls": 0.000669574272498314
+          },
+          "totalBytes": 912985,
+          "imageBytes": 38309,
+          "imageRequests": 5
+        }
+      ]
+    },
+    {
+      "route": "/partners/sales-agents",
+      "runs": 3,
+      "status": "within budget",
+      "lcpMs": 1220,
+      "cls": 0.0123,
+      "totalBytes": 920276,
+      "imageBytes": 45600,
+      "imageRequests": 5,
+      "invalidReasons": [],
+      "samples": [
+        {
+          "run": 1,
+          "lcpMs": 952,
+          "cls": 0.013,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 952,
+            "cls": 0.012556661265153465
+          },
+          "totalBytes": 920276,
+          "imageBytes": 45600,
+          "imageRequests": 5
+        },
+        {
+          "run": 2,
+          "lcpMs": 1220,
+          "cls": 0.012,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1220,
+            "cls": 0.012286523962474637
+          },
+          "totalBytes": 920276,
+          "imageBytes": 45600,
+          "imageRequests": 5
+        },
+        {
+          "run": 3,
+          "lcpMs": 1472,
+          "cls": 0.012,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1472,
+            "cls": 0.012286523962474637
+          },
+          "totalBytes": 920276,
+          "imageBytes": 45600,
+          "imageRequests": 5
+        }
+      ]
+    },
+    {
+      "route": "/partners/cpa",
+      "runs": 3,
+      "status": "within budget",
+      "lcpMs": 1592,
+      "cls": 0.0001,
+      "totalBytes": 930610,
+      "imageBytes": 55934,
+      "imageRequests": 6,
+      "invalidReasons": [],
+      "samples": [
+        {
+          "run": 1,
+          "lcpMs": 1592,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1592,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 930610,
+          "imageBytes": 55934,
+          "imageRequests": 6
+        },
+        {
+          "run": 2,
+          "lcpMs": 1564,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1564,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 930610,
+          "imageBytes": 55934,
+          "imageRequests": 6
+        },
+        {
+          "run": 3,
+          "lcpMs": 1676,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1676,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 930610,
+          "imageBytes": 55934,
+          "imageRequests": 6
+        }
+      ]
+    },
+    {
+      "route": "/partners/bookkeeper",
+      "runs": 3,
+      "status": "within budget",
+      "lcpMs": 1024,
+      "cls": 0.0322,
+      "totalBytes": 942431,
+      "imageBytes": 67755,
+      "imageRequests": 6,
+      "invalidReasons": [],
+      "samples": [
+        {
+          "run": 1,
+          "lcpMs": 1024,
+          "cls": 0.032,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1024,
+            "cls": 0.03215437055705202
+          },
+          "totalBytes": 942431,
+          "imageBytes": 67755,
+          "imageRequests": 6
+        },
+        {
+          "run": 2,
+          "lcpMs": 1040,
+          "cls": 0.032,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1040,
+            "cls": 0.03215437055705202
+          },
+          "totalBytes": 942431,
+          "imageBytes": 67755,
+          "imageRequests": 6
+        },
+        {
+          "run": 3,
+          "lcpMs": 1004,
+          "cls": 0.032,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1004,
+            "cls": 0.03215437055705202
+          },
+          "totalBytes": 942431,
+          "imageBytes": 67755,
+          "imageRequests": 6
+        }
+      ]
+    },
+    {
+      "route": "/partners/insurance",
+      "runs": 3,
+      "status": "within budget",
+      "lcpMs": 1728,
+      "cls": 0.0001,
+      "totalBytes": 943166,
+      "imageBytes": 68490,
+      "imageRequests": 6,
+      "invalidReasons": [],
+      "samples": [
+        {
+          "run": 1,
+          "lcpMs": 1728,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1728,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 943166,
+          "imageBytes": 68490,
+          "imageRequests": 6
+        },
+        {
+          "run": 2,
+          "lcpMs": 1256,
+          "cls": 0.032,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1256,
+            "cls": 0.03215437055705202
+          },
+          "totalBytes": 943166,
+          "imageBytes": 68490,
+          "imageRequests": 6
+        },
+        {
+          "run": 3,
+          "lcpMs": 1908,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1908,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 943166,
+          "imageBytes": 68490,
+          "imageRequests": 6
+        }
+      ]
+    },
+    {
+      "route": "/affiliate",
+      "runs": 3,
+      "status": "within budget",
+      "lcpMs": 1120,
+      "cls": 0.0155,
+      "totalBytes": 920188,
+      "imageBytes": 45512,
+      "imageRequests": 5,
+      "invalidReasons": [],
+      "samples": [
+        {
+          "run": 1,
+          "lcpMs": 932,
+          "cls": 0.015,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 932,
+            "cls": 0.015487906816086215
+          },
+          "totalBytes": 920188,
+          "imageBytes": 45512,
+          "imageRequests": 5
+        },
+        {
+          "run": 2,
+          "lcpMs": 1120,
+          "cls": 0.015,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1120,
+            "cls": 0.015487906816086215
+          },
+          "totalBytes": 920188,
+          "imageBytes": 45512,
+          "imageRequests": 5
+        },
+        {
+          "run": 3,
+          "lcpMs": 1276,
+          "cls": 0.015,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1276,
+            "cls": 0.014992737509639645
+          },
+          "totalBytes": 920188,
+          "imageBytes": 45512,
+          "imageRequests": 5
+        }
+      ]
+    }
+  ]
+}

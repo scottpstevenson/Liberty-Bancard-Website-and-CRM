@@ -389,6 +389,8 @@ export const MANDATORY_SUITES: Suite[] = [
     script: "scripts/test-partner-ssr-pages.ts", timeoutSecs: 180 },
   { name: "Partner page imagery manifest (hero and body derivatives, alt text, crops, picture model parity)",
     script: "scripts/test-partner-page-media.ts", timeoutSecs: 180 },
+  { name: "Partner hub React page renders its registered body image (lazy, beside the path explanation)",
+    script: "scripts/test-partner-hub-react-media.ts", timeoutSecs: 180 },
   { name: "Retained Sunbiz business completion",
     script: "scripts/certification/test-retained-sunbiz-business-completion.ts",
     timeoutSecs: 180, requiresDisposableTestDatabase: true },

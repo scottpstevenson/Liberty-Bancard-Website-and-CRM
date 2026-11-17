@@ -42,7 +42,7 @@ import {
   parseReferralPolicy,
   type PartnerReferralPolicy,
 } from "../shared/partner-public-content";
-import { PARTNER_MEDIA_CAPTION } from "../shared/partner-page-media";
+import { PARTNER_MEDIA_CAPTION, partnerMediaFor } from "../shared/partner-page-media";
 import { AFFILIATE_PAGE } from "../shared/public-affiliate";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -152,6 +152,36 @@ try {
     ok(high <= 2, `${route}: at most the logo and the hero ask for high priority (${high})`);
   }
   ok(PARTNER_SSR_ROUTES.slice(3).every((r) => /partner-media--body/.test(pages.get(r)!)), "the three profession pages carry an editorial body image");
+
+  console.log("Hub body image: rendered in the document, beside the path explanation");
+  const hubEntry = partnerMediaFor(PARTNER_ROUTES.hub, "body");
+  /** Problems with the rendered hub document's body image; shared by the real check and its negative controls. */
+  const hubBodyImageProblems = (html: string): string[] => {
+    const problems: string[] = [];
+    const figures = [...html.matchAll(/<figure class="ssr-partner-media ssr-partner-media--body"[\s\S]*?<\/figure>/g)].map((m) => m[0]);
+    if (figures.length !== 1) return [`the hub renders ${figures.length} body figures, expected 1`];
+    const figure = figures[0];
+    if (!figure.includes(`data-partner-media-route="${PARTNER_ROUTES.hub}"`)) problems.push("the figure does not name the hub route");
+    const img = figure.match(/<img [^>]*>/)?.[0] ?? "";
+    if (!img.includes(`alt="${escHtml(hubEntry.alt)}"`)) problems.push("the image does not carry the registered alt text");
+    if (!/loading="lazy"/.test(img) || /fetchpriority/.test(img)) problems.push("the body image is not lazy");
+    if (!/width="\d+" height="\d+"/.test(img)) problems.push("the body image has no intrinsic dimensions");
+    if (!new RegExp(`/images/public/${hubEntry.imageId}-${hubEntry.variant}-\\d+\\.(avif|webp|jpg)`).test(figure)) problems.push("the figure does not use the registered partner-body derivative");
+    if (!figure.includes(escHtml(PARTNER_MEDIA_CAPTION))) problems.push("the illustrative-scene caption is missing");
+    const section = html.match(/<section class="ssr-section[^"]*"[^>]*aria-labelledby="partner-paths-heading">[\s\S]*?<\/section>/)?.[0] ?? "";
+    if (!section.includes(figure)) problems.push("the image is not inside the path-explanation section");
+    const at = section.indexOf(figure);
+    const cards = section.indexOf("data-partner-path-cards");
+    const heading = section.indexOf('id="partner-paths-heading"');
+    if (!(heading >= 0 && at > heading && cards > at)) problems.push("the image does not sit between the path heading and the path cards");
+    if (!/class="ssr-partner-lead"/.test(section)) problems.push("the heading and image are not composed as one lead row");
+    return problems;
+  };
+  const hubDoc = pages.get(PARTNER_ROUTES.hub)!;
+  ok(hubBodyImageProblems(hubDoc).length === 0, `hub: the registered body image (${hubEntry.imageId}) is rendered once, lazy, in the path section ${hubBodyImageProblems(hubDoc).join("; ")}`);
+  ok(hubBodyImageProblems(hubDoc.replace(/<figure class="ssr-partner-media ssr-partner-media--body"[\s\S]*?<\/figure>/, "")).length > 0, "negative control: a hub document without the body image is caught");
+  ok(hubBodyImageProblems(hubDoc.replace(/(<figure class="ssr-partner-media ssr-partner-media--body"[\s\S]*?<img [^>]*?)loading="lazy"/, "$1loading=\"eager\"")).length > 0, "negative control: an eager body image is caught");
+  ok(hubBodyImageProblems(hubDoc.replace(/aria-labelledby="partner-paths-heading"/, 'aria-labelledby="partner-other-heading"')).length > 0, "negative control: an image outside the path section is caught");
 
   console.log("Section rhythm, navy band, anchors");
   for (const route of PARTNER_SSR_ROUTES) {

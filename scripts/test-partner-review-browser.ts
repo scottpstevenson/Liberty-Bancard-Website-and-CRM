@@ -160,6 +160,7 @@ try {
   assert.ok(/Eastern|ET\b|business time/i.test(await text(admin, '[data-testid="business-time-note"]')), "Times are labelled with the business zone");
   const submitted = await text(admin, '[aria-label="Submitted answers"]');
   assert.ok(/CPA or accountant/.test(submitted) && !/^cpa$/m.test(submitted) && !/^email$/m.test(submitted), `Submitted answers show the applicant's wording, not stored identifiers (${submitted.replace(/\s+/g, " ").slice(0, 200)})`);
+  await new Promise(r => setTimeout(r, 800)); // let the side panel finish sliding in before the picture is taken
   await admin.screenshot("review-application-detail");
   ok("The application detail shows the company state, a canonical request link, the URL-backed selection and business-zone time");
 
@@ -204,6 +205,7 @@ try {
   const historyText = await text(admin, '[data-testid="review-history"]');
   for (const expectation of [/Marked as needing information/, /Declined/, /Returned to review/, /Applicant replied with their client count/]) assert.ok(expectation.test(historyText), `The history lists ${expectation}`);
   assert.equal(await count(`SELECT 1 FROM partner_review_events WHERE subject_type='application' AND subject_id=$1`, [flow.application.id]), 3, "Three append-only events are stored for the application");
+  await new Promise(r => setTimeout(r, 800));
   await admin.screenshot("review-application-reopened");
   ok("A declined application is returned to review through the audited form with a required reason; the same row is reused and the history lists all three transitions");
 
@@ -282,6 +284,45 @@ try {
   assert.ok(/Only an administrator can decide/.test(await text(manager, '[data-testid="introduction-read-only"]')) && !(await exists(manager, '[data-testid="introduction-decision-form"]')), "A manager sees the introduction with no decision control");
   assert.equal(decisionRequests(manager).length, 0, "The manager's browser made no decision call");
   ok("A manager can read applications and introductions with their evidence but is offered no decision or reopen control");
+
+  // ── 4b. Dark theme: the shared review links stay readable on populated screens ──────────────────────────────────────
+  // Contrast is computed from the rendered page (the colour of each link against the layers actually painted behind it), on
+  // screens that really contain the links: an application with its request link, and an introduction with its contact links.
+  await admin.evaluate("localStorage.setItem('liberty-theme','dark')");
+  const DARK_CONTRAST = `(()=>{
+    const parse=(c)=>{const m=c.match(/rgba?\\(([^)]+)\\)/);if(!m)return null;const p=m[1].split(/[ ,\\/]+/).filter(Boolean).map(Number);return {r:p[0],g:p[1],b:p[2],a:p.length>3?p[3]:1}};
+    const over=(top,bottom)=>({r:top.r*top.a+bottom.r*(1-top.a),g:top.g*top.a+bottom.g*(1-top.a),b:top.b*top.a+bottom.b*(1-top.a),a:1});
+    const backdrop=(el)=>{const layers=[];for(let e=el;e;e=e.parentElement){const c=parse(getComputedStyle(e).backgroundColor);if(c&&c.a>0){layers.push(c);if(c.a>=0.999)break}}
+      let acc={r:255,g:255,b:255,a:1};for(let i=layers.length-1;i>=0;i--)acc=over(layers[i],acc);return acc};
+    const lum=(c)=>{const f=(v)=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4)};return 0.2126*f(c.r)+0.7152*f(c.g)+0.0722*f(c.b)};
+    const ratio=(a,b)=>{const hi=Math.max(a,b),lo=Math.min(a,b);return (hi+0.05)/(lo+0.05)};
+    const rows=Array.from(document.querySelectorAll('[data-testid^="link-open-"], [data-testid="introduction-linked"] a, [data-testid="introduction-evidence"] a')).filter(a=>{const r=a.getBoundingClientRect();return r.width>0&&r.height>0}).map(a=>{
+      const fg=parse(getComputedStyle(a).color);const bg=backdrop(a);const text=over(fg,bg);
+      return {label:(a.getAttribute('data-testid')||a.textContent||'').trim().slice(0,40),ratio:Math.round(ratio(lum(text),lum(bg))*100)/100}});
+    return {dark:document.documentElement.classList.contains('dark'),rows};
+  })()`;
+  const darkScreens: { label: string; url: string; ready: string }[] = [
+    { label: "application with its request link", url: `/dashboard/referral-program?tab=applications&appStatus=all&application=${noCompany.application.id}`, ready: `!!document.querySelector('[data-testid="link-open-request"]')` },
+    { label: "introduction with its contact links", url: `/dashboard/referral-program?tab=introductions&introState=all&introduction=${dupIntro.id}`, ready: `!!document.querySelector('[data-testid="introduction-detail"] a[href^="/dashboard/contacts/"]')` },
+  ];
+  const darkReport: { screen: string; links: { label: string; ratio: number }[] }[] = [];
+  for (const screen of darkScreens) {
+    await admin.navigate(screen.url);
+    await until(admin, screen.ready, `dark: ${screen.label}`);
+    await new Promise(r => setTimeout(r, 800));
+    const result = await admin.evaluate(DARK_CONTRAST) as { dark: boolean; rows: { label: string; ratio: number }[] };
+    assert.ok(result.dark, `The dark theme is applied on the ${screen.label} screen`);
+    assert.ok(result.rows.length >= 1, `The ${screen.label} screen shows at least one review link to measure`);
+    const weak = result.rows.filter(r => r.ratio < 4.5);
+    assert.deepEqual(weak, [], `Dark theme: every review link on the ${screen.label} screen has 4.5:1 text contrast (${result.rows.map(r => `${r.label} ${r.ratio}`).join("; ")})`);
+    darkReport.push({ screen: screen.label, links: result.rows });
+    await admin.screenshot(`review-dark-${screen.label.split(" ")[0]}`);
+  }
+  // Negative control: the measurement itself catches the old light-theme blue on the dark surface.
+  const oldBlue = await admin.evaluate(`(()=>{const a=document.querySelector('[data-testid^="link-open-"],[data-testid="introduction-detail"] a');a.classList.remove('dark:text-blue-300');a.style.color='rgb(29, 78, 216)';return null})()`).then(() => admin.evaluate(DARK_CONTRAST)) as { rows: { ratio: number }[] };
+  assert.ok(oldBlue.rows.some(r => r.ratio < 4.5), "Negative control: the old blue-700 link on the dark surface is reported below 4.5:1");
+  await admin.evaluate("localStorage.setItem('liberty-theme','light')");
+  ok(`In the dark theme every shared review link on the populated application and introduction screens keeps at least 4.5:1 contrast (${darkReport.map(d => `${d.screen}: ${d.links.map(l => l.ratio).join("/")}`).join("; ")})`);
 
   // ── 5. Narrow screen ──────────────────────────────────────────────────────────────────────────────────────────────
   await admin.call("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });

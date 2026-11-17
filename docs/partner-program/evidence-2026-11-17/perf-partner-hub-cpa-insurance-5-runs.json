@@ -1,0 +1,261 @@
+{
+  "base": "http://127.0.0.1:6100",
+  "label": "partner-closeout-rerun",
+  "runs": 5,
+  "budgets": {
+    "lcpMs": 2500,
+    "cls": 0.1
+  },
+  "profile": "390x844 DPR2, CPU x4, 1.6Mbps/150ms, cold cache",
+  "results": [
+    {
+      "route": "/partners",
+      "runs": 5,
+      "status": "within budget",
+      "lcpMs": 1836,
+      "cls": 0.0001,
+      "totalBytes": 958289,
+      "imageBytes": 83613,
+      "imageRequests": 6,
+      "invalidReasons": [],
+      "samples": [
+        {
+          "run": 1,
+          "lcpMs": 1236,
+          "cls": 0.031,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1236,
+            "cls": 0.030569497886045138
+          },
+          "totalBytes": 2469554,
+          "imageBytes": 158026,
+          "imageRequests": 9
+        },
+        {
+          "run": 2,
+          "lcpMs": 1908,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1908,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 958289,
+          "imageBytes": 83613,
+          "imageRequests": 6
+        },
+        {
+          "run": 3,
+          "lcpMs": 1760,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1760,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 958289,
+          "imageBytes": 83613,
+          "imageRequests": 6
+        },
+        {
+          "run": 4,
+          "lcpMs": 1856,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1856,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 958289,
+          "imageBytes": 83613,
+          "imageRequests": 6
+        },
+        {
+          "run": 5,
+          "lcpMs": 1836,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1836,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 958289,
+          "imageBytes": 83613,
+          "imageRequests": 6
+        }
+      ]
+    },
+    {
+      "route": "/partners/cpa",
+      "runs": 5,
+      "status": "within budget",
+      "lcpMs": 1624,
+      "cls": 0.0001,
+      "totalBytes": 930610,
+      "imageBytes": 55934,
+      "imageRequests": 6,
+      "invalidReasons": [],
+      "samples": [
+        {
+          "run": 1,
+          "lcpMs": 1596,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1596,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 930610,
+          "imageBytes": 55934,
+          "imageRequests": 6
+        },
+        {
+          "run": 2,
+          "lcpMs": 1624,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1624,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 930610,
+          "imageBytes": 55934,
+          "imageRequests": 6
+        },
+        {
+          "run": 3,
+          "lcpMs": 1656,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1656,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 930610,
+          "imageBytes": 55934,
+          "imageRequests": 6
+        },
+        {
+          "run": 4,
+          "lcpMs": 1716,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1716,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 930610,
+          "imageBytes": 55934,
+          "imageRequests": 6
+        },
+        {
+          "run": 5,
+          "lcpMs": 1612,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1612,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 930610,
+          "imageBytes": 55934,
+          "imageRequests": 6
+        }
+      ]
+    },
+    {
+      "route": "/partners/insurance",
+      "runs": 5,
+      "status": "within budget",
+      "lcpMs": 1120,
+      "cls": 0.0322,
+      "totalBytes": 943166,
+      "imageBytes": 68490,
+      "imageRequests": 6,
+      "invalidReasons": [],
+      "samples": [
+        {
+          "run": 1,
+          "lcpMs": 1792,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1792,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 943166,
+          "imageBytes": 68490,
+          "imageRequests": 6
+        },
+        {
+          "run": 2,
+          "lcpMs": 984,
+          "cls": 0.032,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 984,
+            "cls": 0.03215437055705202
+          },
+          "totalBytes": 943166,
+          "imageBytes": 68490,
+          "imageRequests": 6
+        },
+        {
+          "run": 3,
+          "lcpMs": 1120,
+          "cls": 0.032,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1120,
+            "cls": 0.03215437055705202
+          },
+          "totalBytes": 943166,
+          "imageBytes": 68490,
+          "imageRequests": 6
+        },
+        {
+          "run": 4,
+          "lcpMs": 1776,
+          "cls": 0,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 1776,
+            "cls": 0.00005136989876284255
+          },
+          "totalBytes": 943166,
+          "imageBytes": 68490,
+          "imageRequests": 6
+        },
+        {
+          "run": 5,
+          "lcpMs": 964,
+          "cls": 0.032,
+          "valid": true,
+          "verdict": {
+            "valid": true,
+            "lcpMs": 964,
+            "cls": 0.03215437055705202
+          },
+          "totalBytes": 943166,
+          "imageBytes": 68490,
+          "imageRequests": 6
+        }
+      ]
+    }
+  ]
+}

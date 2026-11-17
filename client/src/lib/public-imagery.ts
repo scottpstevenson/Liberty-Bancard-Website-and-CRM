@@ -41,6 +41,8 @@ export type PublicImageId =
   | "industry-ecommerce"
   | "industry-professional-services"
   | "process-review-hands"
+  | "partner-bookkeeper-review"
+  | "partner-insurance-advice"
   | "equipment-concept-terminal-upright"
   | "product-clover-flex-3"
   | "product-pax-a920"
@@ -168,6 +170,24 @@ export const PUBLIC_IMAGE_RECORDS: Record<PublicImageId, PublicImageRecord> = {
     provenance: "generated",
     note: "Why Liberty process inset. Overhead process image with no faces; the pictured hands are not presented as Liberty staff and the checklist carries no figures.",
     generation: { assetId: "10-review-process", sha256: "ed4c4f415769dddd5e341c97174bca7db4c7ec20c2fc623d3ca035b06673d817", record: "docs/media/w-d-asset-pack-2026-11-10/generation-record.json", approval: "owner-review-pending" },
+  },
+  "partner-bookkeeper-review": {
+    id: "partner-bookkeeper-review",
+    alt: "Two adults going over a printed report at a desk in the back office of a small bakery.",
+    label: "Records review with a business owner",
+    usage: "illustrative",
+    provenance: "generated",
+    note: "Bookkeeper partnership page hero. Generated editorial scene (owner review pending) made for the partnership pages because the cleared W-D set has no bookkeeper scene; invented people, not a photograph of a real business, customer, partner or Liberty staff. The report shows no readable figures and no payment equipment is pictured.",
+    generation: { assetId: "p01-bookkeeper-records-review", sha256: "2bcbf73dc6650d8632082596aa923145e754ea3c2460da05fab5ddb1b1e394e7", record: "docs/media/partner-program-scenes-2026-11-17/generation-record.json", approval: "owner-review-pending" },
+  },
+  "partner-insurance-advice": {
+    id: "partner-insurance-advice",
+    alt: "Two adults going over a printed summary in an open binder at a table in a flooring showroom.",
+    label: "Coverage review with a business owner",
+    usage: "illustrative",
+    provenance: "generated",
+    note: "Insurance partnership page hero. Generated editorial scene (owner review pending) made for the partnership pages because the cleared W-D set has no insurance-advice scene; invented people, not a photograph of a real business, customer, partner or Liberty staff. The summary shows no readable figures and no payment equipment is pictured.",
+    generation: { assetId: "p02-insurance-coverage-review", sha256: "2fa7f498984a1557a67a46677b89644e869106628c56ba698d068da078b0c660", record: "docs/media/partner-program-scenes-2026-11-17/generation-record.json", approval: "owner-review-pending" },
   },
   "equipment-concept-terminal-upright": {
     id: "equipment-concept-terminal-upright",

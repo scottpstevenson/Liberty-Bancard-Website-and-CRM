@@ -1,0 +1,74 @@
+{
+  "created": "2026-11-17",
+  "count": 2,
+  "status": "candidate partner-program scenes; generated, not deployed-approved, owner review pending",
+  "note": "Generated editorial scenes replacing the bookkeeper and insurance hero pictures that the 2026-11-17 live re-audit found off-target. Synthetic images of invented people; not photographs of real people, customers, partners or Liberty staff. The generator returned 1024 x 1024 squares, so each master is a 1024 x 683 window of the original resized to 1536 x 1024 (Lanczos); the original is kept unmodified beside it.",
+  "assets": [
+    {
+      "id": "p01-bookkeeper-records-review",
+      "title": "Records review with a business owner (bakery back office)",
+      "master": "partner/partner-bookkeeper-review.png",
+      "type": "generated-editorial",
+      "usage": "illustrative",
+      "provenance": "generated-with-imagegen",
+      "alt": "Two adults going over a printed report at a desk in the back office of a small bakery.",
+      "route": "/partners/bookkeeper",
+      "placement": "Bookkeeper page hero",
+      "focalPoint": "50% 36%",
+      "width": 1536,
+      "height": 1024,
+      "sha256": "2bcbf73dc6650d8632082596aa923145e754ea3c2460da05fab5ddb1b1e394e7",
+      "original": {
+        "file": "original/partner-bookkeeper-review.png",
+        "width": 1024,
+        "height": 1024,
+        "sha256": "ff6b47750c8cd13c36691e6a642eec8904404a780da1cde3ca5985656ff5c47b"
+      },
+      "framing": {
+        "windowInOriginal": {
+          "left": 0,
+          "top": 130,
+          "width": 1024,
+          "height": 683
+        },
+        "resizeTo": "1536x1024",
+        "kernel": "lanczos3"
+      },
+      "approval": "owner-review-pending",
+      "intendedAudience": "Stands for a bookkeeper going through a small business's records with its owner. The alt text describes only what is visible; it does not claim the people are bookkeepers."
+    },
+    {
+      "id": "p02-insurance-coverage-review",
+      "title": "Coverage review with a business owner (flooring showroom)",
+      "master": "partner/partner-insurance-advice.png",
+      "type": "generated-editorial",
+      "usage": "illustrative",
+      "provenance": "generated-with-imagegen",
+      "alt": "Two adults going over a printed summary in an open binder at a table in a flooring showroom.",
+      "route": "/partners/insurance",
+      "placement": "Insurance page hero",
+      "focalPoint": "50% 30%",
+      "width": 1536,
+      "height": 1024,
+      "sha256": "2fa7f498984a1557a67a46677b89644e869106628c56ba698d068da078b0c660",
+      "original": {
+        "file": "original/partner-insurance-advice.png",
+        "width": 1024,
+        "height": 1024,
+        "sha256": "29688741e27031186b285519cc640a3e75ee4551dbbd976fa9481055d9ec07e7"
+      },
+      "framing": {
+        "windowInOriginal": {
+          "left": 0,
+          "top": 190,
+          "width": 1024,
+          "height": 683
+        },
+        "resizeTo": "1536x1024",
+        "kernel": "lanczos3"
+      },
+      "approval": "owner-review-pending",
+      "intendedAudience": "Stands for an insurance agent reviewing a coverage summary with a business owner. The alt text describes only what is visible; it does not claim the people are insurance agents."
+    }
+  ]
+}

@@ -313,7 +313,12 @@ ok(/businessZoneNote/.test(sharedUi) && /formatBusinessDateTime/.test(sharedUi) 
   const bare = ctaFiles.flatMap((file) => read(file).split("\n").filter((line) => /href=\{(PARTNER_(PATH_ROUTE|ROUTES)|page\})/.test(line) && !BARE_ALLOWED.test(line)).map((line) => `${file}: ${line.trim().slice(0, 80)}`));
   ok(bare.length === 0, `No partner path or profession link uses a bare route as its href (${bare.join("; ") || "none"}); only sign-in, privacy and contact are exempt`);
   ok(plain instanceof RegExp, "Census patterns compile");
-  ok(/capturePartnerFirstTouch\(window\.location\.pathname, window\.location\.search\)/.test(read("client/src/App.tsx")), "The app records the partner first touch on route change");
+  // The client module loads on demand (it stays out of the main bundle), and only partnership paths reach it.
+  const appSource = read("client/src/App.tsx");
+  const firstTouchCall = (src: string) => /const \{ pathname, search \} = window\.location;[\s\S]{0,200}\^\\\/\(partners\|affiliate\)[\s\S]{0,200}import\("@\/lib\/partner-application-client"\)\.then\(\(m\) => m\.capturePartnerFirstTouch\(pathname, search\)\)/.test(src);
+  ok(firstTouchCall(appSource), "The app records the partner first touch on route change, loading the client module on demand for partnership paths only");
+  ok(!firstTouchCall(appSource.replace("capturePartnerFirstTouch(pathname, search)", "noop()")), "Negative control: an app that stops recording the first touch is caught");
+  ok(!/^import [^;]*partner-application-client/m.test(appSource), "The partner client module is not statically imported by the app shell (main bundle stays small)");
   ok(/firstTouch: readPartnerFirstTouch\(\)/.test(read("client/src/components/public/PartnerApplicationForm.tsx")), "The application form submits the resolved (current-or-first) touch");
   delete (globalThis as any).window; delete (globalThis as any).sessionStorage;
 }

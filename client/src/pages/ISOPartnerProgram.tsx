@@ -57,7 +57,11 @@ export default function ISOPartnerProgram() {
         />
 
         <PublicSection labelledBy="partner-paths-heading" data-testid="section-partner-paths">
-          <PublicSectionHeader id="partner-paths-heading" title={PARTNER_HUB_SECTIONS.paths.heading} description={PARTNER_HUB_SECTIONS.paths.description} />
+          {/* The path explanation leads with its picture: heading and lead on the left, the illustrative scene beside it from 768 px. */}
+          <div className="mb-8 grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,1fr)_20rem] md:items-end md:gap-10 lg:grid-cols-[minmax(0,1fr)_24rem]" data-testid="partner-paths-lead">
+            <PublicSectionHeader id="partner-paths-heading" className="mb-0 md:mb-0" title={PARTNER_HUB_SECTIONS.paths.heading} description={PARTNER_HUB_SECTIONS.paths.description} />
+            <PartnerMedia route={PARTNER_ROUTES.hub} role="body" />
+          </div>
           <PartnerPathCards policy={policy} sourcePage={SOURCE_PAGE} headingId="partner-paths-heading" />
         </PublicSection>
 

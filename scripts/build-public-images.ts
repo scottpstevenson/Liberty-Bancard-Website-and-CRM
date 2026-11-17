@@ -82,6 +82,10 @@ const SOURCES: Source[] = [
     file: "w-d/10-review-process.png", // 1536x1024
     variants: [{ name: "wide", crop: { left: 0, top: 0, width: 1536, height: 1024 }, widths: [480, 800, 1200] }],
   },
+  // Partnership-page scenes generated for /partners/bookkeeper and /partners/insurance (docs/media/partner-program-scenes-2026-11-17).
+  // Each master is a 3:2 window of the generated square resized to 1536x1024, so the partnership crops below are cut from it.
+  { id: "partner-bookkeeper-review", file: "partner/partner-bookkeeper-review.png", variants: [] }, // 1536x1024
+  { id: "partner-insurance-advice", file: "partner/partner-insurance-advice.png", variants: [] }, // 1536x1024
   {
     // Upright terminal concept with real alpha: AVIF/WebP keep it, the JPEG fallback is flattened on the white card it sits on.
     id: "equipment-concept-terminal-upright",

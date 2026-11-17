@@ -52,10 +52,10 @@ export function ReviewHistory({ events, statusLabel }: { events: ReviewHistoryEv
   );
 }
 
-/** A destination link that meets the 44 px target size and names its destination. */
+/** A destination link that meets the 44 px target size and names its destination. Blue-700 is for the light theme; blue-300 keeps 4.5:1 on the dark card surface. */
 export function OpenLink({ href, children, testId }: { href: string; children: React.ReactNode; testId?: string }) {
   return (
-    <Link href={href} className="inline-flex min-h-11 items-center gap-1 text-sm text-blue-700 underline-offset-2 hover:underline" data-testid={testId}>
+    <Link href={href} className="inline-flex min-h-11 items-center gap-1 text-sm text-blue-700 underline-offset-2 hover:underline dark:text-blue-300" data-testid={testId}>
       {children}<ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
     </Link>
   );

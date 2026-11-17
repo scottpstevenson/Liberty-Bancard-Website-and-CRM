@@ -1,0 +1,5324 @@
+{
+ "generatedAt": "2026-11-17T17:32:22.409Z",
+ "method": "One launcher run of the whole roster on the final artifact; each non-passing suite then run alone on a pre-repair export (base) and, where the first comparison did not settle it, again on a final-tree export (rerun). Receipts are the SHA-256 of each suite's log block plus its failure evidence lines; full logs were kept outside the repository.",
+ "baseSha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+ "finalSha": "389d4169 (published HEAD) plus the uncommitted closeout edits that the roster ran on",
+ "rerunSha": "throwaway export of the final working tree (commit 24228e17, tree identical to the working tree after the roster, built)",
+ "roster": {
+  "startedAt": "2026-11-17T14:41:22Z",
+  "finishedAt": "2026-11-17T16:18:24Z",
+  "launcherExit": 1,
+  "suitesRun": 294
+ },
+ "totals": {
+  "passed": 234,
+  "failed": 56,
+  "notRunOptIn": 4,
+  "byDisposition": {
+   "environment-transient": 4,
+   "explicit opt-in": 4,
+   "matched baseline": 52,
+   "passed": 234
+  }
+ },
+ "limits": [
+  "Evidence lines are extracted from log text. A suite is 'matched baseline' when every failure line of the final run also appears (after masking numbers, ids, ports and database names) in the pre-repair run of the same suite. A final run that fails for an additional reason that prints no recognizable failure line would not be detected by this comparison.",
+  "The launcher counts the four explicit opt-in suites as child failures; they are listed as 'explicit opt-in', not as passed or failed.",
+  "Full logs are not committed (they hold database names and ports). Each record carries the SHA-256 of its log block and the failure lines.",
+  "Two suites (c1 browser, the d-v contact-actor browser) are not clean pass/fail signals on any tree: see their notes."
+ ],
+ "suites": [
+  {
+   "script": "scripts/test-stage3-c3-contracts.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "c5f4707b206b25af562cb9eda0d213fb211df489880d0fec88eb46c875589ae0",
+    "logBytes": 7675,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c3-sequences.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "27c89e7da55d428b22b6a643342fb501abd617b544e4b57950f0be604c892d9c",
+    "logBytes": 8522,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c3-roles.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "1a5742a21083b0139a827a4fe87d2bf77f843fa79cc69b3f8ea671e70742604a",
+    "logBytes": 28997,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c3-backlog-command.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "4faede808981736cf96a27307a03b7b919a93bb4d9bc26f70646949b1c29e89f",
+    "logBytes": 8542,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c3-open-deals.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "4bc68a93686ab8693a579c0b7e5944ba9e3f61d839bc987c2567356202e4b945",
+    "logBytes": 11615,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c3-prospects.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "097efb5e34b1c5014f499ce6291322d31932ee39f9352a51f1b65eca27acf4f1",
+    "logBytes": 8508,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c3-post-commit.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "71ddfd77cb6b5fa6640936410043e465e70b5436f82d87bbd703f45929ab3b7c",
+    "logBytes": 9107,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c3-browser.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "d68fc508182ea680f7e297fb41d602d9a2e1ee6e24305679af3dc157bf08b9c6",
+    "logBytes": 44223,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage4c1-browser.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "a1421b994cbd628009834c2e8b44f945a1640a2500dde375e0cd63ec69c71308",
+    "logBytes": 13744,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage4c2-workspace-browser.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "63e9eb77eaa88b2069533eb09b007a3ccf1e0de5ec77c3beebed1f5a210c91ee",
+    "logBytes": 23637,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c3-browser-sequences.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "TypeError: Cannot set properties of undefined (setting 'status') @ scripts/fixtures/private-stage3-browser.ts:91:46",
+    "evidence": [
+     "TypeError: Cannot set properties of undefined (setting 'status') @ scripts/fixtures/private-stage3-browser.ts:91:46"
+    ],
+    "logSha256": "7c7e3ebbd784c64d6c6c81ed377958f3746b525a2f29a5da131d7e5d3e702991",
+    "logBytes": 9301,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "pass",
+    "firstError": null,
+    "evidenceKind": null,
+    "evidence": [],
+    "logSha256": "9a95774ce4ddb5b9ab77d6f4bcaa90dc2d573e8c225e0ca6e952c352c527adaf",
+    "logBytes": 9655
+   },
+   "rerun": {
+    "sha": "throwaway export of the final working tree (commit 24228e17, tree identical to the working tree after the roster, built)",
+    "result": "pass",
+    "firstError": null,
+    "evidenceKind": null,
+    "evidence": [],
+    "logSha256": "d653f73e755390988feae3460e5d74d704a3598521a4f341d6825136421a71fa",
+    "logBytes": 9657
+   },
+   "disposition": "environment-transient",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c3-browser-campaigns.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "b3dd98bbeee8ae8f14b18be24e3476c3cd7c6aed90feb3af9dedd9c4de4d39b2",
+    "logBytes": 14961,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c3-mounted.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "8179bfd095743ced1385698010ac7300d70503dd360e6d5893c09a3690e348c9",
+    "logBytes": 7870,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c5-route-inventory.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "d1a7c48cbd9fd3cb8172953c6a6795c8c1004ed41c70b25787b52eba2cf5c17d",
+    "logBytes": 7675,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c5-diagnostics.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "ef78b46448f635396ee5648c72da39c0dc76e84a94eb49dd3f3fe3d1661d69cb",
+    "logBytes": 7649,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-ghl-ownership-readiness.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "3f3b770f21fa1f8ea679fe9327530accd2d9a0f533bf148839da4609fc62a5b8",
+    "logBytes": 7701,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-d-hub-tabs.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "1382eaab475c9c52d8f67ff118eabe9d46faf7ca27ccc91576745a95cf9a2f84",
+    "logBytes": 7617,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-d-r2-contracts.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "AssertionError [ERR_ASSERTION]: Every listed industry page is server-rendered; only an unknown industry slug answers 404 (no fall-through to the client app) @ scripts/test-stage3-d-r2-contracts.ts:9:59",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: Every listed industry page is server-rendered; only an unknown industry slug answers 404 (no fall-through to the client app) @ scripts/test-stage3-d-r2-contracts.ts:9:59"
+    ],
+    "logSha256": "34773b21e424e9565e0fd7bf107d693045864efb0ffbe6457a2600778ea98fae",
+    "logBytes": 11481,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: Every listed industry page is server-rendered; only an unknown industry slug answers 404 (no fall-through to the client app) @ scripts/test-stage3-d-r2-contracts.ts:9:59",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: Every listed industry page is server-rendered; only an unknown industry slug answers 404 (no fall-through to the client app) @ scripts/test-stage3-d-r2-contracts.ts:9:59"
+    ],
+    "logSha256": "fa0ec9e0880f5f8f912ccce388530e31aca833c79191132faa5ad058422d9551",
+    "logBytes": 12578
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-d-v-contracts.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "ff21cec8e09c7ce2aae8ff5af46b99fc5153840a0290a83a7411192c4307a4a2",
+    "logBytes": 9776,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-retained-contact-core.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "571bb1fe1b02db55aa5969eebf6f7c95ff0f5c0ee07fb95ee910ed8a69426242",
+    "logBytes": 8271,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-d-r2-headings.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "4dca9f2cf25b7498b090dfa08e4b87d553e661340288d1943ee041270f13f093",
+    "logBytes": 9455,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-company-search-authority.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "3fb0338fd915d61119ff7c63bdf5395448f4d4fbea56096e6bdd7f1bf48cf463",
+    "logBytes": 8745,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c5-resources.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "b8cda1eaa2ef16e71ce683fc0fcc75acc649e5f2af8a129b65cec085902629c1",
+    "logBytes": 7629,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c5-sidebar.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "ba1edcfe157bf182ce4cd57902397d4948015a45a7a84cc76dbf1b73bdcb7868",
+    "logBytes": 7599,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c5-mounted.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "FAIL client/src/pages/dashboard/GhlSettings.test.tsx",
+    "evidence": [
+     "FAIL client/src/pages/dashboard/GhlSettings.test.tsx",
+     "TypeError: Cannot read properties of undefined (reading 'length') @ client/src/components/dashboard/ContentWorkspace.tsx:127:105"
+    ],
+    "logSha256": "4de05ff1ddd1477b4b2a2a3c2d36a57580bc48882f2ae17980da6ced86feb79f",
+    "logBytes": 9095,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "FAIL client/src/pages/dashboard/GhlSettings.test.tsx",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "FAIL client/src/pages/dashboard/GhlSettings.test.tsx",
+     "TypeError: Cannot read properties of undefined (reading 'length') @ client/src/components/dashboard/ContentWorkspace.tsx:127:105"
+    ],
+    "logSha256": "57eb03db93cbc78f0700b3cb8132a53e424cd5e48c29d5b3cfce192777fb09ff",
+    "logBytes": 10186
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c5-panels.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "8de86cf21a485aea29c96322b33547fc6a3778149d4828d588bf8bc45fa44b40",
+    "logBytes": 16161,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c5-role-negative-requests.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "785fb0ee89b14c4ce56c88f28f95389fb1b42daba8bfaea81ce614f8160a9450",
+    "logBytes": 53039,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-d-v-landmarks-browser.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "3892ef9b02e751811998a5a5bb3871431eee7b7614adb141e331685278a81673",
+    "logBytes": 8908,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-d-v-partner-response.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "bd011a5d75f5f4174b684d764414420795b80f7d12268ee91b5db42cc233d09f",
+    "logBytes": 14940,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-db-transaction-begin-release.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "cb91d2f60349b92b4c9ef77139a486af0460db6232690e03ca32fbd5e108d53d",
+    "logBytes": 7966,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-d-v-mailbox-and-stats.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "b9104fea1644d539f72c3b2ad85004405e81c8c34c31fc583c1685e495b8c1b2",
+    "logBytes": 14434,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-d-v-partner-browser.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "53301099b378a0996757dad46e2efe8a0fe2b30c965933e8ee2f1e5d0e04bd21",
+    "logBytes": 9685,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-partner-application-browser.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "08bc8e4c7c32fc50f09f0ed80139bf922abdd6ada3dfdf3eee637a325c0b3116",
+    "logBytes": 17680,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-partner-review-browser.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "0f6fcba2e68a47bc572efdf82069bb592ed527ed229fb87d2bd6cc8aec885258",
+    "logBytes": 19638,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-d-v-contact-core-browser.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "8279484e7e3a20d15b0a145fdb489dfc23f452b0286b1475c17cf5256aeea97b",
+    "logBytes": 8882,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-d-v-contact-actor-browser.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "AssertionError [ERR_ASSERTION]: Client inputs differ from the serving version",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: Client inputs differ from the serving version"
+    ],
+    "logSha256": "4970d4eac4018a8e746017695f4c88d3bee2c202ec34957500d7fff6d7eb8768",
+    "logBytes": 53295,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "Error: Command failed: git cat-file -t cafc77ab1ba7c5a834a84fa000299524516aa626 @ scripts/test-stage3-d-v-contact-actor-browser.ts:26:36",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "Error: Command failed: git cat-file -t cafc77ab1ba7c5a834a84fa000299524516aa626 @ scripts/test-stage3-d-v-contact-actor-browser.ts:26:36"
+    ],
+    "logSha256": "ebc1403091233b7992a7eaba501718f309d2681b9aa84206a37317623e652111",
+    "logBytes": 9904
+   },
+   "rerun": {
+    "sha": "throwaway export of the final working tree (commit 24228e17, tree identical to the working tree after the roster, built)",
+    "result": "fail",
+    "firstError": "Error: Command failed: git cat-file -t cafc77ab1ba7c5a834a84fa000299524516aa626 @ scripts/test-stage3-d-v-contact-actor-browser.ts:26:36",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "Error: Command failed: git cat-file -t cafc77ab1ba7c5a834a84fa000299524516aa626 @ scripts/test-stage3-d-v-contact-actor-browser.ts:26:36"
+    ],
+    "logSha256": "9a3cc254d204934054974084ad650fa17bda4117a739d155226ce68aac7780ef",
+    "logBytes": 9891
+   },
+   "disposition": "matched baseline",
+   "note": "The suite pins one serving commit and compares the client inputs (client, shared, migrations, package files) with it. On the pre-repair export it stops one step earlier because the throwaway export has no history (git cat-file of the pinned commit fails); on the real repository the pre-repair commit 49b5f39a differs from the pinned commit in 538 of those inputs and the closeout working tree in 625, so it fails the same comparison on any current tree. The message differs, the cause is the same."
+  },
+  {
+   "script": "scripts/test-stage3-d-v-cohort-browser.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "2667010cc6fa2633b1b778175bc6088a917ed8c14e0c25c8e29d400f25215515",
+    "logBytes": 9207,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-d-v-data-health-browser.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "9a3cfa1c8edb6c9803db2adade7479e18edc2c43929a0e5a59078d29526c64a4",
+    "logBytes": 10427,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-d-v-exports.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "3bb166e4b6e36629f602d70ae6794b3c3df30fce2503acd06f46327f2b840850",
+    "logBytes": 9381,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-dead-letter-archive.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "9e292366c711d94420c6dbe58a61d0d4a06cbc9f62db7aa6a70ab49c92b544ce",
+    "logBytes": 9286,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c5-ghl-stored-run.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "633428daedd0206aa83c2bbd5838b2b6ca9346c368a076ef548e1f29c526b30e",
+    "logBytes": 8787,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c5-walk.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "d10bf328b485db2da1f72fc4d0680a5d92e3fa438d046509212d005a13c77d12",
+    "logBytes": 92569,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c5-performance.ts",
+   "final": {
+    "result": "not_run_opt_in",
+    "evidenceKind": null,
+    "evidence": [],
+    "firstError": null,
+    "logSha256": "ab518e124063af63b93ff482eebda81b5900fc8b5d38ee97076f6524965b2f43",
+    "logBytes": 7710,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "Error: Build the pre-C5 client into generated-artifacts/c5-baseline-client first (git worktree at 1422503b, npx vite build, copy dist/public) @ scripts/test-stage3-c5-performance.ts:12:69",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "Error: Build the pre-C5 client into generated-artifacts/c5-baseline-client first (git worktree at 1422503b, npx vite build, copy dist/public) @ scripts/test-stage3-c5-performance.ts:12:69"
+    ],
+    "logSha256": "5da6bec0b64250047221d9f96b4e7db5c818de3f65dd0b2b2fe229bdabcb48aa",
+    "logBytes": 9366
+   },
+   "rerun": null,
+   "disposition": "explicit opt-in",
+   "note": "Opt-in by design: needs a pre-C5 client build in generated-artifacts first. Not run by the roster and not run here."
+  },
+  {
+   "script": "scripts/test-stage4d-calendar-performance.ts",
+   "final": {
+    "result": "not_run_opt_in",
+    "evidenceKind": null,
+    "evidence": [],
+    "firstError": null,
+    "logSha256": "617196169f1aeb08cd4d0943814402a5ad438a6ba621719f6d693cdee99d9e45",
+    "logBytes": 7731,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "Error: Build the pre-4D client into generated-artifacts/s4d-baseline-client first (git archive e112d19e, vite build) @ scripts/test-stage4d-calendar-performance.ts:14:73",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "Error: Build the pre-4D client into generated-artifacts/s4d-baseline-client first (git archive e112d19e, vite build) @ scripts/test-stage4d-calendar-performance.ts:14:73"
+    ],
+    "logSha256": "deff716bd19d637f59f8bb0241c1e1fee09b2080a6ca7a49638cab9a99231a2c",
+    "logBytes": 9374
+   },
+   "rerun": null,
+   "disposition": "explicit opt-in",
+   "note": "Opt-in by design: needs a pre-4D client build first. Not run by the roster and not run here."
+  },
+  {
+   "script": "scripts/test-stage3-c5-browser.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "0443b3c73b6cdd399cb6821b8330906ca2815930911ca5797aebf7384aceed85",
+    "logBytes": 8504,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-website-email-browser.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "a7f1f04629400eeda85e73f0573745856bc32082ed2a5b279fa1ba7b0d4430ed",
+    "logBytes": 28992,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-website-email-migration.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "AssertionError [ERR_ASSERTION]: upgrade creates website_lifecycle_config_revisions @ scripts/test-website-email-migration.ts:39:57",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: upgrade creates website_lifecycle_config_revisions @ scripts/test-website-email-migration.ts:39:57"
+    ],
+    "logSha256": "9f13d457ff870869dd099ac5abe3b5eb9f50966b9608f35f4fb5d543aac8681c",
+    "logBytes": 12901,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: upgrade creates website_lifecycle_config_revisions @ scripts/test-website-email-migration.ts:39:57",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: upgrade creates website_lifecycle_config_revisions @ scripts/test-website-email-migration.ts:39:57"
+    ],
+    "logSha256": "640665469fc6ad236d82331558e5b397e817ccad32cf5f1a7b8245d4f70c3154",
+    "logBytes": 14000
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-website-email-publish-check.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "8b91c89f9b3f8fc036b2d8b6ee50e5247c4a20db094650a4a7405341e9b7f933",
+    "logBytes": 11855,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c4-contracts.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "f60184101020b0a6b1d1f8da7090f3ea4f32c9bca5bc7dd48b30a5d3c1a0f4b4",
+    "logBytes": 7697,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c4-actions.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "6482e848133bfc6cf64f8268c50ff8788540c1df3732d7addc57d7297a349a7e",
+    "logBytes": 13305,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c4-browser.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "throw new Error(`${hint} (${error instanceof Error ? error.message : String(error)})`);",
+    "evidence": [
+     "throw new Error(`${hint} (${error instanceof Error ? error.message : String(error)})`);",
+     "Error: Baseline build /home/runner/workspace/generated-artifacts/c4-performance-baseline is missing or stale. Rebuild it with: npx tsx scripts/build-c4-performance-baseline.ts (ENOENT: no such file or directory, open '/home/runner/workspace/generated-artifacts/c4-performance-baseline/dist/candidate- @ scripts/fixtures/c4-performance-baseline.ts:56:11"
+    ],
+    "logSha256": "02a2173d28b5b9da774f96e64c3042e3c37df228d28111af6a017a5442e9e18e",
+    "logBytes": 34050,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "throw new Error(`${hint} (${error instanceof Error ? error.message : String(error)})`);",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "throw new Error(`${hint} (${error instanceof Error ? error.message : String(error)})`);",
+     "Error: Baseline build /tmp/baseline-49b5f39a/generated-artifacts/c4-performance-baseline is missing or stale. Rebuild it with: npx tsx scripts/build-c4-performance-baseline.ts (ENOENT: no such file or directory, open '/tmp/baseline-49b5f39a/generated-artifacts/c4-performance-baseline/dist/candidate- @ scripts/fixtures/c4-performance-baseline.ts:56:11"
+    ],
+    "logSha256": "712b8d52869cec1a5ca63fd182cbef0f0d701f8ffa7e632c73d609704f045b8f",
+    "logBytes": 35158
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c4-health-browser.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "fc1deb84587d35ce6985944ee50484bb70ae9e048724c15f562193300046c0b5",
+    "logBytes": 8655,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-c2-postmerge-repairs.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "236acf386d35d9775e33d70cb3512e1486d3bed67e28bec911cd78a5851c0335",
+    "logBytes": 7812,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-c2-postmerge-browser.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "throw new Error(`UI condition not reached: ${expression}`);",
+    "evidence": [
+     "throw new Error(`UI condition not reached: ${expression}`);",
+     "Error: UI condition not reached: !!document.querySelector('[data-testid=\"calendar-day-2026-10-20\"]') && !document.querySelector('[data-testid=\"card-invalid-date-events\"]') @ scripts/test-c2-postmerge-browser.ts:46:9"
+    ],
+    "logSha256": "fdf9c14b0b1ed7d59d1d9366b1221af60d40717450a9e73c762a81a1efbde08c",
+    "logBytes": 9342,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "throw new Error(`UI condition not reached: ${expression}`);",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "throw new Error(`UI condition not reached: ${expression}`);",
+     "Error: UI condition not reached: !!document.querySelector('[data-testid=\"calendar-day-2026-10-20\"]') && !document.querySelector('[data-testid=\"card-invalid-date-events\"]') @ scripts/test-c2-postmerge-browser.ts:46:9"
+    ],
+    "logSha256": "8aabfc7d798b132857f04b7563b928ccf8996afb2713b01be090dad8609e25cb",
+    "logBytes": 10438
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-c2-contact-header.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "9e993a336eea435820fcece8dfdf1030db5078eb6343e43508a9381d8f3bd54f",
+    "logBytes": 11097,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-toast-viewport-layout.mjs",
+   "final": {
+    "result": "pass",
+    "logSha256": "b8aae81fcdf6597999dfd4d99035c7746738dbc3e31ee7cb6aa2dccb5c737c6a",
+    "logBytes": 7930,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c1-query-runtime.mjs",
+   "final": {
+    "result": "pass",
+    "logSha256": "c13608775b486b78179469ebdc7ec0f332722e60463cd67f52183758a58f87f3",
+    "logBytes": 7824,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c2-contracts.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "c2f13eb042a457f221a18083ff71bf183e05aa8f41543cabf5eae6e9dd9e12a2",
+    "logBytes": 7716,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-public-claims-contract.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "ea60b192051eed108db8459c2c7c0ff37127144d706b15b9569fd384cd5953eb",
+    "logBytes": 8711,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-public-shell-contract.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "5d4f5f627ffcd1ef16846a3ef63be6ebee85d2c37fbbe28504cb69569d8d2669",
+    "logBytes": 8101,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-wd-locations-contract.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "FAIL the server routes answer an invalid key with 404, not the app shell: getLocationHtml(req.params.city, req.params.industry) does not 404 on a miss",
+    "evidence": [
+     "FAIL the server routes answer an invalid key with 404, not the app shell: getLocationHtml(req.params.city, req.params.industry) does not 404 on a miss"
+    ],
+    "logSha256": "ee3790eb2e866ae5f13d540fa4c5d64c9dd9e14be8de3d3dfe58c9ffe30ba826",
+    "logBytes": 7750,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "FAIL the server routes answer an invalid key with 404, not the app shell: getLocationHtml(req.params.city, req.params.industry) does not 404 on a miss",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "FAIL the server routes answer an invalid key with 404, not the app shell: getLocationHtml(req.params.city, req.params.industry) does not 404 on a miss"
+    ],
+    "logSha256": "e928677c589b96f59f34e65f157e4ae5aa776bfd82e4a6ef12a186f91cb9e302",
+    "logBytes": 8848
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-wd-industries-contract.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "FAIL the server route 404s an unknown slug and no longer falls through for listed ones: route does not 404 on a miss",
+    "evidence": [
+     "FAIL the server route 404s an unknown slug and no longer falls through for listed ones: route does not 404 on a miss"
+    ],
+    "logSha256": "8ede7fa7563db46cbb57ed2b90a0bd0592e8c0ce536765cbaa36a8cfb8b984a5",
+    "logBytes": 7720,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "FAIL the server route 404s an unknown slug and no longer falls through for listed ones: route does not 404 on a miss",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "FAIL the server route 404s an unknown slug and no longer falls through for listed ones: route does not 404 on a miss"
+    ],
+    "logSha256": "0b1953678501d1762234521e59a2dc4cd25d4a17d76ca29d79e86c35935ca1df",
+    "logBytes": 8818
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-wd-content-contract.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "146ba1e284f1937eeb574baa262949a74eb03d5aaeed673f9d446c2a8124fb93",
+    "logBytes": 7650,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-partner-residual-calculator.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "fbf71c244b49a9ee72d4cbae3148831f506e930d8b51bc670c1c8efa4ff175ba",
+    "logBytes": 16755,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-wd-media-contract.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "25e1abd777aabf30d7c51bc489b4aa5f5dd6ca6903192085e3cc614144a99eb6",
+    "logBytes": 7636,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-public-shell-browser.mjs",
+   "final": {
+    "result": "pass",
+    "logSha256": "35a7593f53582d877c234e2f0e1d1a76a80c6f0241cbcb53e18275751b370d0f",
+    "logBytes": 9301,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c2-actions.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "AssertionError [ERR_ASSERTION]: absent selected-task handler is explicitly blocked: {\"message\":\"Not found\",\"code\":\"CRM_OBJECT_NOT_FOUND\"} @ scripts/test-stage3-c2-actions.ts:53:10",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: absent selected-task handler is explicitly blocked: {\"message\":\"Not found\",\"code\":\"CRM_OBJECT_NOT_FOUND\"} @ scripts/test-stage3-c2-actions.ts:53:10"
+    ],
+    "logSha256": "ef1f5d259528f6206f425204112d73354987eb60ddc17e33df8e3c841982cbff",
+    "logBytes": 9444,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: absent selected-task handler is explicitly blocked: {\"message\":\"Not found\",\"code\":\"CRM_OBJECT_NOT_FOUND\"} @ scripts/test-stage3-c2-actions.ts:53:10",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: absent selected-task handler is explicitly blocked: {\"message\":\"Not found\",\"code\":\"CRM_OBJECT_NOT_FOUND\"} @ scripts/test-stage3-c2-actions.ts:53:10"
+    ],
+    "logSha256": "10a01e995d7febaedc4a73976c707af41a8e1ff670a0d09e9ebc21fa18798a41",
+    "logBytes": 10535
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c2-browser.mjs",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "AssertionError [ERR_ASSERTION]: Compiled visual/performance defects remain; collected observations are not acceptance",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: Compiled visual/performance defects remain; collected observations are not acceptance"
+    ],
+    "logSha256": "d625ea373caf3a378b05e6ac0acd896bb57f02ea3894856228ec778e619eabda",
+    "logBytes": 250884,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: Compiled visual/performance defects remain; collected observations are not acceptance",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: Compiled visual/performance defects remain; collected observations are not acceptance"
+    ],
+    "logSha256": "2258bcf0a9cd24f5b3ccd9c3d8f5cfe7ff722ac1cedd79f6a998c26154fe588a",
+    "logBytes": 251938
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c1-foundation.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "8456bce2a58be29810925998e3717b6409e7345e11bc3053d41da99e1315a75d",
+    "logBytes": 7701,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-legacy-alias-matrix.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "2274afc0f70fa4ce0af1ed739c6a45c64ddca60e522b621c42a270f015ee2d11",
+    "logBytes": 7690,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-mobile-continuity.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "74dfc9a793c124795b013976c6491ff93419bd535b5a702e03b89e15c17eb753",
+    "logBytes": 7721,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-inventory-reads.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "adda79d23fa9562b6e5acc3acb80057e1b9c2abfe5875ff890108bd64f96f1c2",
+    "logBytes": 8222,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-inventory-set-reads.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "535c8c4485504cf0d9870426c9bd80223570d36ac045fcef7394a0129f86e678",
+    "logBytes": 8246,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-backlog-lanes.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "46b6c7623281ab9769823dc405558bc919863d956027f5cb6d999b8fa2df4075",
+    "logBytes": 13210,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-website-lane-draft.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "ee3c8f0cdf7c3b5265532919ae92a79645a1196a16016c7022040aee885297fc",
+    "logBytes": 7715,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-provenance-and-record-class.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "7db33c3a9e5146511b4573e2f89af7294ef5cd22bf192c0feb52144f6419058a",
+    "logBytes": 8028,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-task-evidence.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "8b50166cecfddbb1e315a623be7b0d44e786b1cb07b30c4a86f685bb1d6a3c07",
+    "logBytes": 7996,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-intake-cohorts.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "ebd0f982b741288095b1c38de6d82709935d1587e8dddfc048050d18ebebe3f0",
+    "logBytes": 10448,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-contact-header-task.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "f7c4d4b9153c620b146dab2e9788d5af6f4a127e6fcee5e58067a975788773a1",
+    "logBytes": 7986,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-notification-targets.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "f187397e2f0ff180920d6aaa99fa75566c974da2dfcda982257367de6c34dcfe",
+    "logBytes": 17062,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-mounted.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "b6e698a699ed630b9749688bdc2edefcadbf1a02a4f81d7edfc7a0777bcc6f93",
+    "logBytes": 7987,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-email-lane-states.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "8ab4f56d3acc84e8996118e113285b508aa96062ed949945b4733fae0b2bc8e0",
+    "logBytes": 7692,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-count-contract.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "71d755d09869c639141054507190ef4085c5b406627aebb1d45cc5e259db2ac8",
+    "logBytes": 7726,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-work-presentation.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "1832cac23d71ed2188debd1fb0b5070936033e244437ff096fd03b09adf516dd",
+    "logBytes": 7750,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-contact-and-applications.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "c45c459b604e350c2bbdff4a3cd2a0f060b714dd8498bde0f7c9314d1b4fd6c2",
+    "logBytes": 7764,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-today-pipeline-reports.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "ce4d3f84bc6d289a7226c97dae8b06ba46c75f22e87c4bbddd4e4cd782d9a70d",
+    "logBytes": 7761,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-workspace-identity.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "5c112baeacae864bc71d4be2ef656531d2c4b47d80d9a8eedf2890fc531783fe",
+    "logBytes": 7748,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-browser.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "a4d9fe41ba916af269a4c33f0630cfaaec9d6e8fc2db267424716344853949ec",
+    "logBytes": 117711,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-phase6-populated-journeys.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "db70a9a5e1347839061d5afda3dff8c91131808cda319b81db4c18c937be6b5b",
+    "logBytes": 15499,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-c1-browser.mjs",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "Error: ENOENT: no such file or directory, open 'client/public/images/public/industry-dental-partner-hero-480.avif'",
+    "evidence": [
+     "Error: ENOENT: no such file or directory, open 'client/public/images/public/industry-dental-partner-hero-480.avif'"
+    ],
+    "logSha256": "f69d3c2ea860ca57e31ecb6fe0def992f399185d35d0189e55f045958e0fc13c",
+    "logBytes": 8409,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: [data-testid=\"input-edit-firstname\"]: real pointer target unavailable {\"rect\":{\"x\":280,\"y\":273,\"width\":144,\"height\":44},\"viewport\":{\"width\":1440,\"height\":1000},\"pointerEvents\":\"auto\",\"hit\":{\"tag\":\"INPUT\",\"role\":null,\"testId\":\"input-edit-firstname\"}} @ scripts/fixtures/private-stage3-browser.ts:179:16",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: [data-testid=\"input-edit-firstname\"]: real pointer target unavailable {\"rect\":{\"x\":280,\"y\":273,\"width\":144,\"height\":44},\"viewport\":{\"width\":1440,\"height\":1000},\"pointerEvents\":\"auto\",\"hit\":{\"tag\":\"INPUT\",\"role\":null,\"testId\":\"input-edit-firstname\"}} @ scripts/fixtures/private-stage3-browser.ts:179:16"
+    ],
+    "logSha256": "9b605aec2e22c6c2a1aa6c32a6316e90af62b3de54eeb38b4dcf74d3d8aeeb65",
+    "logBytes": 11270
+   },
+   "rerun": {
+    "sha": "throwaway export of the final working tree (commit 24228e17, tree identical to the working tree after the roster, built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: [data-testid=\"input-edit-firstname\"]: real pointer target unavailable {\"reason\":\"absent\"} @ scripts/fixtures/private-stage3-browser.ts:179:16",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: [data-testid=\"input-edit-firstname\"]: real pointer target unavailable {\"reason\":\"absent\"} @ scripts/fixtures/private-stage3-browser.ts:179:16"
+    ],
+    "logSha256": "b75db99fc97a35d4896c2ac0b40fb7372d2009dacba8e58313797cad67dd5ba2",
+    "logBytes": 11096
+   },
+   "disposition": "matched baseline",
+   "note": "Two separate facts. (1) In the roster run the suite stopped on a missing derivative file (industry-dental-partner-hero-480.avif): it lists files with git ls-files --cached, which still names the 18 replaced hero files that were deleted in the uncommitted working tree. That is an artifact of the uncommitted deletion, not a product defect, and it disappears once the deletion is committed. (2) Run alone ten times per tree on clean exports, the suite fails at the same assertion and call site on both trees (the contact editor input 'input-edit-firstname' has no stable real pointer target): pre-repair 3 of 10 runs passed, final tree 2 of 10. Both diagnostic variants (element present with unstable geometry; element absent) occur on both trees. The main bundle is 835,142 bytes before and 835,615 after. Not a partner regression; also not a clean pass.",
+   "extra": {
+    "repeatRunsOnCleanExports": {
+     "baseline-49b5f39a": [
+      {
+       "run": 1,
+       "result": "fail",
+       "failureMode": "element present, geometry unstable",
+       "logSha256": "a67063ba207d280b9b4a7f2cf614971ba635b161a8ee54e0512e79404d45e019"
+      },
+      {
+       "run": 2,
+       "result": "fail",
+       "failureMode": "element present, geometry unstable",
+       "logSha256": "d8c08b81b91423e9eea6cb063a1d9210cdbf55d428281c872873d5ec35637e64"
+      },
+      {
+       "run": 3,
+       "result": "pass",
+       "failureMode": null,
+       "logSha256": "5b2a8b8523d8ac15f857dfd63ca06724a8f8a18abf9dde4db87ad65de26f8f4b"
+      },
+      {
+       "run": 4,
+       "result": "fail",
+       "failureMode": "element present, geometry unstable",
+       "logSha256": "643ca8c4ae4c3a84143774207359f14271d9da42b6ef18807f5facc7b1228152"
+      },
+      {
+       "run": 5,
+       "result": "pass",
+       "failureMode": null,
+       "logSha256": "39f12402d9d539f9664d326466a24ab80dec5f3f96b21b802906743d3328730f"
+      },
+      {
+       "run": 6,
+       "result": "fail",
+       "failureMode": "element present, geometry unstable",
+       "logSha256": "ccfa337b452f8a07a2faa85abcaddb77f59d509e24742560de8cf7e511101ade"
+      },
+      {
+       "run": 7,
+       "result": "pass",
+       "failureMode": null,
+       "logSha256": "bbff7948e738189115bb28739ec3e24dea965f5a7d753af5c7a6e55506fcb708"
+      },
+      {
+       "run": 8,
+       "result": "fail",
+       "failureMode": "element present, geometry unstable",
+       "logSha256": "fc7133a0eaa673e7ee7bdd3b746fd3ebc0da4fee453f743c27891479dd5d1cef"
+      },
+      {
+       "run": 9,
+       "result": "fail",
+       "failureMode": "element absent",
+       "logSha256": "18e0e3a53251656f68ec449aa453c7a45b18f00128ee230578a7f2c1d693ffe3"
+      }
+     ],
+     "final-export": [
+      {
+       "run": 1,
+       "result": "fail",
+       "failureMode": "element present, geometry unstable",
+       "logSha256": "8dc1057496344a433ef53745248842e71e3581b5afb775824a0aa278dd6b3559"
+      },
+      {
+       "run": 2,
+       "result": "fail",
+       "failureMode": "element absent",
+       "logSha256": "c5799276db3eb5c9b805c6ee76b5894a4d8af9a4d6dba862e31f565f60f6d29c"
+      },
+      {
+       "run": 3,
+       "result": "fail",
+       "failureMode": "element present, geometry unstable",
+       "logSha256": "bcd01e1043a08dd9133cdc995c6aea7e5cc8ac90c6d3a66d90feffcf86ab3f1d"
+      },
+      {
+       "run": 4,
+       "result": "fail",
+       "failureMode": "element present, geometry unstable",
+       "logSha256": "3dba822d74147fd53cd5df0389c178d6cca3e8130fef1ff4b368a1c37d3345f2"
+      },
+      {
+       "run": 5,
+       "result": "fail",
+       "failureMode": "element present, geometry unstable",
+       "logSha256": "e99812e6d5c620cd33e601d2c6ae665b3a906a71a5a0cc5cc7668d869d807a08"
+      },
+      {
+       "run": 6,
+       "result": "pass",
+       "failureMode": null,
+       "logSha256": "fcf9006f87386da65f112352264eab9d435d6c31eee31ca01ae4fa63fc9a99c7"
+      },
+      {
+       "run": 7,
+       "result": "fail",
+       "failureMode": "element present, geometry unstable",
+       "logSha256": "d5b38302584a5e224ae6b45fa0af38d463dbf56ca1948a93dbb86bb3b3354a75"
+      },
+      {
+       "run": 8,
+       "result": "fail",
+       "failureMode": "element absent",
+       "logSha256": "33b9633faf0aac05706bbfcfff32b7d2ad0176b49bd826d855b882a204365ad0"
+      },
+      {
+       "run": 9,
+       "result": "pass",
+       "failureMode": null,
+       "logSha256": "2faeeecc9603c1cbaf84b23a9bf1f38df0b88422148b8d8ca5330f322071bc1a"
+      }
+     ]
+    },
+    "firstSingleRunNotIncluded": "The first single-suite run on each tree (both failed) is the receipt in this record; the nine repeats above were run afterwards, so each tree has ten runs in total."
+   }
+  },
+  {
+   "script": "scripts/certification/test-canonical-transaction-leases.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "e7c16745fb71282cec0aabb526ff803e48910fbf6579d60b44e57e1faca03966",
+    "logBytes": 21472,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-canonical-transaction-retry.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "8d28010a1ed4d41bf9cd897b1e23279203730c121ac7472c34852e31d38884ef",
+    "logBytes": 9407,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-audited-retained-import-recovery.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 0 !== 58 @ scripts/run-retained-import-recovery-disposable.ts:28:21",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 0 !== 58 @ scripts/run-retained-import-recovery-disposable.ts:28:21",
+     "Error: RETAINED_CERTIFICATION_FAILED:scripts/certification/test-audited-retained-import-recovery.ts:1 @ scripts/run-retained-import-recovery-disposable.ts:28:21"
+    ],
+    "logSha256": "8be0480a5fb86bf07cf8b260084c53372685d9b11c168b6c9f468a43726d9686",
+    "logBytes": 15255,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 0 !== 58 @ scripts/run-retained-import-recovery-disposable.ts:28:21",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 0 !== 58 @ scripts/run-retained-import-recovery-disposable.ts:28:21",
+     "Error: RETAINED_CERTIFICATION_FAILED:scripts/certification/test-audited-retained-import-recovery.ts:1 @ scripts/run-retained-import-recovery-disposable.ts:28:21"
+    ],
+    "logSha256": "90d0d792df78c5bdfe9199c3422b8104fb4bb29ef454d6a9d69c125c9b7f165f",
+    "logBytes": 15808
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-canonical-address-preparation-owner-repair.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "22b475c420ed3a019503333dd3d0ddedf7fa008a9fa03c92f34e6e10d22f0c68",
+    "logBytes": 23371,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-canonical-registry-originals.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "63322cbf80a3396a91a425f856fb8fcda2bebb0155006c7c4446ea91304ea0f7",
+    "logBytes": 8143,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-canonical-registry-projection.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "AssertionError [ERR_ASSERTION]: Concurrent local workers fulfill all supported registry records @ scripts/certification/test-canonical-registry-projection.ts:21:44",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: Concurrent local workers fulfill all supported registry records @ scripts/certification/test-canonical-registry-projection.ts:21:44"
+    ],
+    "logSha256": "df76587e535934a27e979b9448c9de70aea1a4211bc26284a172021a38575b65",
+    "logBytes": 8657,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: Concurrent local workers fulfill all supported registry records @ scripts/certification/test-canonical-registry-projection.ts:21:44",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: Concurrent local workers fulfill all supported registry records @ scripts/certification/test-canonical-registry-projection.ts:21:44"
+    ],
+    "logSha256": "fdc7e96c8d663efaee113d8e2cd17cc57bd76c6072505e8c9251e36d3f16e252",
+    "logBytes": 9776
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-canonical-source-outbox.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "49168c55a39c5e1147e91168c2c2435d98060e2fdaa02a397404272e84c30e82",
+    "logBytes": 8177,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-canonical-projection-coverage.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "c43b680a1d51dbce11b016669f8db50314f860f2004c4fc3e67134d73055e996",
+    "logBytes": 12603,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-crm-contact-link-automation.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "throw new Error(",
+    "evidence": [
+     "throw new Error(",
+     "Error: [SelectiveProfile] Suppressed job tick could not be deferred; retrying via BullMQ backoff. @ server/services/queue-manager.ts:1937:17"
+    ],
+    "logSha256": "5cdd8fd4d5b8e7f532532bb69dbb6403c7dcc700eac4d665f448d5cb7186e4ed",
+    "logBytes": 9455,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "throw new Error(",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "throw new Error(",
+     "Error: [SelectiveProfile] Suppressed job tick could not be deferred; retrying via BullMQ backoff. @ server/services/queue-manager.ts:1937:17"
+    ],
+    "logSha256": "820b730a8f285a4cf2f9499d0ef035c2ea348509cc81b56e098b4c944f27d371",
+    "logBytes": 10572
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-canonical-provider-import.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "✗ Canonical provider intake and recovery (exit 143; spawnSync /nix/store/k6wnq86zjb42sm845vgv795cwsnwvj07-nodejs-slim-22.23.4/bin/node ETIMEDOUT)",
+    "evidence": [
+     "✗ Canonical provider intake and recovery (exit 143; spawnSync /nix/store/k6wnq86zjb42sm845vgv795cwsnwvj07-nodejs-slim-22.23.4/bin/node ETIMEDOUT)"
+    ],
+    "logSha256": "a43a7e5e0999ed0c91792cdf33acd1da7caa25306db0c57ca79a9e400d2fee36",
+    "logBytes": 17824,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "✗ Canonical provider intake and recovery (exit 143; spawnSync /nix/store/k6wnq86zjb42sm845vgv795cwsnwvj07-nodejs-slim-22.23.4/bin/node ETIMEDOUT)",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "✗ Canonical provider intake and recovery (exit 143; spawnSync /nix/store/k6wnq86zjb42sm845vgv795cwsnwvj07-nodejs-slim-22.23.4/bin/node ETIMEDOUT)"
+    ],
+    "logSha256": "44edf264688127339179079d736a160d0a6086e59b54521f4097ab81a0cf9772",
+    "logBytes": 18937
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-canonical-recipient-preparation.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "7a4b6800f7d1430d7b85ae1c77f88dc3e627eea926039652a188178f39ccb39b",
+    "logBytes": 10621,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-recipient-preparation-lane-reserve.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "fb713fa229c98a4a031ce0660321c462505267cacc0b0fdc6531b8602c9a6906",
+    "logBytes": 8183,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-preparation-upload-cohort.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "a17e53c9043d97c578cc17a9e7febbad8fba6a0bc81170afcf069430750e7b65",
+    "logBytes": 9684,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-sfp-geography-recovery.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "429d01901f7354a9901f6fe211b9ae13627d3ef8463005fd254982f73704a430",
+    "logBytes": 8144,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-zerobounce-ambiguous-recovery.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "53a1778697ab2474aeeb2fd9bce1ab53660937634cbdcd93d9369da9ebae2297",
+    "logBytes": 9290,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-zerobounce-ambiguous-recovery-worker.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "906091cca3a2ec7923d8801ab73f3b6696daa58b5c6b59eedd8ba1505bcada7f",
+    "logBytes": 8222,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-domain-location-assignment.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "0127b6424857cbac46b15f9a01b9f63a9e6228d70fd8da4cf6a761c2385efafa",
+    "logBytes": 8175,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-data-health-reconcile.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "649a357ee8628c5a6c7994a14db1e73682998113b276cb750471b3d36f9a58b6",
+    "logBytes": 8673,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-pipeline-metric-contract.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "5be57a6e98d027369d772a3e5ec14decd8182fcc3c4ec3caab54249f918d589a",
+    "logBytes": 9960,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-serper-contact-page-stage.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "d73fd873816a3d65d135068c088cfd5ffb99f71abb80aad78b31767bb1ba8b17",
+    "logBytes": 8104,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-partner-route-order.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "6a9842459e491c9d0da91fc06d188f639785934bd87903cd4b379254efcce445",
+    "logBytes": 7904,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-partner-program-contracts.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "1155295ffd9327103a6cc786458600153c7d97feb0771adcc6e30cade9f89e2d",
+    "logBytes": 7915,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-partner-ssr-pages.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "c35ed788d04546fa0291d9362041017c3e7c2ce687fcf78a9aeadb9bd9d4e89e",
+    "logBytes": 25078,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-partner-page-media.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "0b4c43f326f9f09733735c2d0367ee9023262806a301fa78f00ea612bb7bd91c",
+    "logBytes": 17550,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-partner-hub-react-media.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "6db35d9808a9e4fc7194e0abeb64f1d13b9f35147128a6fe1f16071baf55bdf5",
+    "logBytes": 8145,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-retained-sunbiz-business-completion.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "68685dcaea266884df80ada5761381e60e2bceddb22f520568472cf606c4da10",
+    "logBytes": 8401,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-effective-vertical-projection-slicing.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "978e77d705ccc2f750b5d305e4db24a0bef82b7c570da1cbd45b9c3a84ea9c67",
+    "logBytes": 14344,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certification/test-canonical-address-validation.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "0a67049b1d228f16c6cddeb0023324710843cd7582ab156587a87489eb3a0c30",
+    "logBytes": 8216,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-a-authority.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 0 !== null @ scripts/stage3-a-read-fixtures.ts:181:10",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 0 !== null @ scripts/stage3-a-read-fixtures.ts:181:10"
+    ],
+    "logSha256": "aa0eb606809141019fe381d770cb3afd166d05c6371e88ef2b3b3e28ba6f6080",
+    "logBytes": 11012,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 0 !== null @ scripts/stage3-a-read-fixtures.ts:181:10",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 0 !== null @ scripts/stage3-a-read-fixtures.ts:181:10"
+    ],
+    "logSha256": "c7a14daffeaa41fcc9de852c3c546f83fb13446196626101d44ca61d3e73e19a",
+    "logBytes": 12111
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-b-source-contracts.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "5d277e12c2dc274fad19bf2db66361d07a35189466a00206a182b05f7b93b224",
+    "logBytes": 7826,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-b-offline.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "40c1aa57a750624fca7bb2072a2a6362e971cc01e428e27443d86b269f387977",
+    "logBytes": 7813,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-b-inbox-work.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "933a49ccd33118c89a31fd1c72816019baebeeaad9a5b1332ffdd79e9c02453a",
+    "logBytes": 9541,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-b-notifications.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "d1487098f5b95d7e362dbbb14f668318ae45645bee588dc0cdf5272215c40350",
+    "logBytes": 8792,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-b-lifecycle.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "AssertionError [ERR_ASSERTION]: {\"error\":\"MISSING_IDEMPOTENCY_KEY\"} @ scripts/test-stage3-b-lifecycle.ts:48:10",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: {\"error\":\"MISSING_IDEMPOTENCY_KEY\"} @ scripts/test-stage3-b-lifecycle.ts:48:10"
+    ],
+    "logSha256": "f9125bac1bb30cfccd56d8c8a92a3bc116aa4478931cb33a364fbf47216255f4",
+    "logBytes": 8912,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: {\"error\":\"MISSING_IDEMPOTENCY_KEY\"} @ scripts/test-stage3-b-lifecycle.ts:48:10",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: {\"error\":\"MISSING_IDEMPOTENCY_KEY\"} @ scripts/test-stage3-b-lifecycle.ts:48:10"
+    ],
+    "logSha256": "20b9ab019a6667394a16aff8deafd42770e6cf3edccde0a6bc4a501ad7d11fda",
+    "logBytes": 10007
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-b-context.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "828916e0ffcca5fbc2673fec0abc45fcdcce58af75737a4dce184afe57fde0ab",
+    "logBytes": 8816,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-b-sequences.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "52534b6ce394b8f752a2b52c7accdfaf186febfaa581f72fe5be7eb34eb583a9",
+    "logBytes": 8756,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-b-invitations.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "85328e70ff825235a6c4a8dcd1272b012d56105dfe18703c3d204fc67b943322",
+    "logBytes": 8716,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-b-intake.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "445a36d4f8781c228b02dc1ad370d00982cafde49c75a480264b691c5a3a7d2c",
+    "logBytes": 11174,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-b-browser.ts",
+   "final": {
+    "result": "not_run_opt_in",
+    "evidenceKind": null,
+    "evidence": [],
+    "firstError": null,
+    "logSha256": "ea1a60597cddcea3fe161907f4dcd52d5e7abb4f10a4e13b1421541ab0bc9464",
+    "logBytes": 7680,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: [data-testid=\"button-compose-email-contact\"]",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: [data-testid=\"button-compose-email-contact\"]"
+    ],
+    "logSha256": "6372ac318253976baebdcdc9448402e2e98838283c19c38f3f271a459bcfbe47",
+    "logBytes": 10091
+   },
+   "rerun": {
+    "sha": "throwaway export of the final working tree (commit 24228e17, tree identical to the working tree after the roster, built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: [data-testid=\"button-compose-email-contact\"]",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: [data-testid=\"button-compose-email-contact\"]"
+    ],
+    "logSha256": "4b105e6e6439eb23fa232bd7f0e7c57f7b60cf353772cb5fc75ca7ea8cd93bd4",
+    "logBytes": 10082
+   },
+   "disposition": "explicit opt-in",
+   "note": "Opt-in. Run explicitly on both trees it fails at the same selector (button-compose-email-contact, scripts/fixtures/private-stage3-browser.ts:149)."
+  },
+  {
+   "script": "scripts/test-stage3-b-auth-continuations.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "4a694912486951509e5568e18d0332c325a39991e946667490faa70f06e21fdc",
+    "logBytes": 8877,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-b-drafts.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "e6e24d44e4417ff2e839a5c264ac9f2c2e442a89f752019cf77c4ce8c8da7de5",
+    "logBytes": 12125,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-b-accounts.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "367b0a2145314ab41125e960a3c0849db774fb1dd7a610cdcff53913d394e821",
+    "logBytes": 10750,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-b-work-commands.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "dda4355b4b2f7d5352b03f6e162fe07de9ab253ed56537b775d2b2cc3ca37826",
+    "logBytes": 12115,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-b-work-adapters.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "60cec82f1a93fa810a0d2d191ad6830452be1e9c9855abe096fd339c37f386c2",
+    "logBytes": 9930,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-ssr-style-isolation.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "3636d9a984dead32ae1fa18e7485abf9e958ae620ac62f6983f8953f3ae841b5",
+    "logBytes": 7634,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-drizzle-begin-release.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "09b7deaf9ea324d72111665249a6e214dd0d5d2ea5d452016346ce54049df0c6",
+    "logBytes": 7684,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-ghl-inbound-pagination.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "a903658d7872cd6ce51443cee254deee35f393659e5d9b29f815fc34b4fb3e30",
+    "logBytes": 7665,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-ghl-inbound-sync.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "70cbcc779be2b7d5f6e6f99ea46af7a5d3800c0f54f8d335c8c83d1ce12b2453",
+    "logBytes": 7787,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-ghl-inbound-route-guards.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "4b3b076becdbf4116daa8559c9da15e1960193bd6f94336f19c910dd0e6bc9d6",
+    "logBytes": 8238,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-ghl-inbound-sync-integration.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "7b50cf262393914d96b4e355512b7d929c884cb1fb382ddc59b0e53b201fcf3d",
+    "logBytes": 13366,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-ghl-inbound-ui-render.mjs",
+   "final": {
+    "result": "pass",
+    "logSha256": "b4d6cb79c7daa5e6e2b716e8a7333e817f23e44ee9302369a8fcf945d1c93191",
+    "logBytes": 8211,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage3-a-runtime-render.mjs",
+   "final": {
+    "result": "pass",
+    "logSha256": "ba7b7cdc7333e10237e7e6a5d3401e29f2fcd73e82ff9686876378c61a33763a",
+    "logBytes": 7873,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage4a-ui-render.mjs",
+   "final": {
+    "result": "pass",
+    "logSha256": "466b79e4ab6eb5e83d267c2fe9da7abfd35ea1cfafd73fff33bec6b808c8b276",
+    "logBytes": 9523,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-http-client-error.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "f2c87c9094217fd5e6c48861ec83af531162f0623c84134c25396225e95aec83",
+    "logBytes": 8095,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/check-migration-integrity.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "b85d7fcc85fb67895aff4c30933f55783e61de941ca329ddc05e0408d55c607b",
+    "logBytes": 68425,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-sfp-pipeline-correction.mjs",
+   "final": {
+    "result": "pass",
+    "logSha256": "19fbbcd9f37fe43118985e79a244a3fef97ab0eaf53e949c1f6f9e8904149dd0",
+    "logBytes": 9179,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/check-processor-kill-lines.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "faf463d1b5b894c3c8675aff1de2a09c86a39dc8f2c62c5c480a1faf8e34d8cc",
+    "logBytes": 10185,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-payarc-revenue-reads.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "4cb26e4d56fd9f15d26cceb594211fdd129685d0c2c37ab40169daaffbc239e4",
+    "logBytes": 14026,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/check-dependency-policy.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "ea6b90a4f0315e76081580754090b2fa28e08e902e11bcfa47adf524dec544b7",
+    "logBytes": 7737,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/check-migration-seed-registration.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "[check-migration-seed-registration] FAIL — 3 unregistered seed write(s): FAIL 0360_downgrade_undated_valid_email_status.sql: UPDATE INTO/SET contacts has no registered convergence target in server/services/production-seed-convergence",
+    "evidence": [
+     "[check-migration-seed-registration] FAIL — 3 unregistered seed write(s): FAIL 0360_downgrade_undated_valid_email_status.sql: UPDATE INTO/SET contacts has no registered convergence target in server/services/production-seed-convergence",
+     "FAIL 0360_downgrade_undated_valid_email_status.sql: UPDATE INTO/SET contacts has no registered convergence target in server/services/production-seed-convergence.ts and no exemption entry in scripts/check-migration-seed-registration.ts's KNOWN_EXEMPT_SEEDS. If this write seeds production-required con",
+     "FAIL 0376_ghl_webhook_effect_steps_and_appointment_booked_owner.sql: UPDATE INTO/SET ghl_appointment_state has no registered convergence target in server/services/production-seed-convergence.ts and no exemption entry in scripts/check-migration-seed-registration.ts's KNOWN_EXEMPT_SEEDS. If this write",
+     "FAIL 0381_stage5_condition_chase_versioning.sql: UPDATE INTO/SET underwriting_condition_chases has no registered convergence target in server/services/production-seed-convergence.ts and no exemption entry in scripts/check-migration-seed-registration.ts's KNOWN_EXEMPT_SEEDS. If this write seeds produ"
+    ],
+    "logSha256": "8f6dd7f7fc8f6ff04ddab258326c2224b7b08a508a6f06464527c6ca45d6a0bb",
+    "logBytes": 25282,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "[check-migration-seed-registration] FAIL — 3 unregistered seed write(s): FAIL 0360_downgrade_undated_valid_email_status.sql: UPDATE INTO/SET contacts has no registered convergence target in server/services/production-seed-convergence",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "[check-migration-seed-registration] FAIL — 3 unregistered seed write(s): FAIL 0360_downgrade_undated_valid_email_status.sql: UPDATE INTO/SET contacts has no registered convergence target in server/services/production-seed-convergence",
+     "FAIL 0360_downgrade_undated_valid_email_status.sql: UPDATE INTO/SET contacts has no registered convergence target in server/services/production-seed-convergence.ts and no exemption entry in scripts/check-migration-seed-registration.ts's KNOWN_EXEMPT_SEEDS. If this write seeds production-required con",
+     "FAIL 0376_ghl_webhook_effect_steps_and_appointment_booked_owner.sql: UPDATE INTO/SET ghl_appointment_state has no registered convergence target in server/services/production-seed-convergence.ts and no exemption entry in scripts/check-migration-seed-registration.ts's KNOWN_EXEMPT_SEEDS. If this write",
+     "FAIL 0381_stage5_condition_chase_versioning.sql: UPDATE INTO/SET underwriting_condition_chases has no registered convergence target in server/services/production-seed-convergence.ts and no exemption entry in scripts/check-migration-seed-registration.ts's KNOWN_EXEMPT_SEEDS. If this write seeds produ"
+    ],
+    "logSha256": "4a59d39b59ac82f147f745c742b7994c1b0b0861d3e7fdd9784bca41b9b2b07f",
+    "logBytes": 25899
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-dependency-policy-evidence.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "e81cf7bcf3ecc5b2c591dc07e0f960cee6ff4d0385abf95cf201bbdc640a35e3",
+    "logBytes": 7704,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-dependency-lifecycle.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "fa42cd26c43e4015cea496f65cf65e73604fb52fa180a45fa49991d926999c3e",
+    "logBytes": 9371,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-inventory-artifact-dependencies.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "7c3cd82b7f6fa8794cd821222cabd258c82f9c0f13b1c9b0c05882cd36d5dd31",
+    "logBytes": 7742,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/dependency-audit-policy.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "throw new Error(`npm audit policy rejected ${summary.critical} critical and ${summary.high} high findings`);",
+    "evidence": [
+     "throw new Error(`npm audit policy rejected ${summary.critical} critical and ${summary.high} high findings`);",
+     "Error: npm audit policy rejected 0 critical and 6 high findings @ scripts/dependency-audit-policy.ts:28:11"
+    ],
+    "logSha256": "0c1258e89f9198a28d27b6ff9e5cd951e0afc58bb9ec1cf6e25eadd71fd2bd9d",
+    "logBytes": 8377,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "throw new Error(`npm audit policy rejected ${summary.critical} critical and ${summary.high} high findings`);",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "throw new Error(`npm audit policy rejected ${summary.critical} critical and ${summary.high} high findings`);",
+     "Error: npm audit policy rejected 0 critical and 6 high findings @ scripts/dependency-audit-policy.ts:28:11"
+    ],
+    "logSha256": "cf86a9a3a0df87e790fbbb4677a15f0d8d980fd2e0c65804ebf07c467916626c",
+    "logBytes": 9471
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-dependency-audit-policy.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "3f9e97e5c893dffe8905c41bddd8489319319f4e68ccdd2cbd4d0197ee796b39",
+    "logBytes": 7718,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-bt12-revenue-state-reconciliation.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "suite-specific-output",
+    "firstError": "BT-12 authority guard failed:",
+    "evidence": [
+     "BT-12 authority guard failed:",
+     "- unresolved send-boundary tokens must fail closed"
+    ],
+    "logSha256": "e11b9abf336d6def1a4039dbc222902e05064465b553ca6779a8582bd7395fdf",
+    "logBytes": 7729,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "BT-12 authority guard failed:",
+    "evidenceKind": "suite-specific-output",
+    "evidence": [
+     "BT-12 authority guard failed:",
+     "- unresolved send-boundary tokens must fail closed"
+    ],
+    "logSha256": "0fd2d9dcf297ba26603f3e1cd46095fd8847ec5f42bc412fa1c7f07c1fb11537",
+    "logBytes": 8839
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-sfp-disposable-certification.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "SFP disposable certification FAILED: AssertionError [ERR_ASSERTION]: [VFC-01b] the implementation diff is isolated to Task #1999 audit artifacts and owned source paths (278 changed paths; unexpected=.agents/memory/partner-program-upgrade.md,client/public/images/public/industry-dental-partner-hero-48",
+    "evidence": [
+     "SFP disposable certification FAILED: AssertionError [ERR_ASSERTION]: [VFC-01b] the implementation diff is isolated to Task #1999 audit artifacts and owned source paths (278 changed paths; unexpected=.agents/memory/partner-program-upgrade.md,client/public/images/public/industry-dental-partner-hero-48"
+    ],
+    "logSha256": "16e094f480c204d86e37e97518186e8fe1e7b2add49d87f5c7502ec99b052fae",
+    "logBytes": 48305,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "SFP disposable certification FAILED: AssertionError [ERR_ASSERTION]: [VFC-01b] the implementation diff is isolated to Task #1999 audit artifacts and owned source paths (159 changed paths; unexpected=docs/certification/stage3-c1/browser/attempt.json,docs/certification/stage3-c1/browser/last-requests.",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "SFP disposable certification FAILED: AssertionError [ERR_ASSERTION]: [VFC-01b] the implementation diff is isolated to Task #1999 audit artifacts and owned source paths (159 changed paths; unexpected=docs/certification/stage3-c1/browser/attempt.json,docs/certification/stage3-c1/browser/last-requests."
+    ],
+    "logSha256": "5bae01e31a964681116be4734f01d29308cdbc52e545ae6b96133786da04aa20",
+    "logBytes": 42058
+   },
+   "rerun": {
+    "sha": "throwaway export of the final working tree (commit 24228e17, tree identical to the working tree after the roster, built)",
+    "result": "fail",
+    "firstError": "SFP disposable certification FAILED: AssertionError [ERR_ASSERTION]: [VFC-01b] the implementation diff is isolated to Task #1999 audit artifacts and owned source paths (3 changed paths; unexpected=docs/certification/stage3-c1/browser/attempt.json,docs/certification/stage3-c1/browser/last-requests.js",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "SFP disposable certification FAILED: AssertionError [ERR_ASSERTION]: [VFC-01b] the implementation diff is isolated to Task #1999 audit artifacts and owned source paths (3 changed paths; unexpected=docs/certification/stage3-c1/browser/attempt.json,docs/certification/stage3-c1/browser/last-requests.js"
+    ],
+    "logSha256": "53102c7f3a07acea3254f698e2e76d2be5df70bd5bc040cc50a6d1e0ccde7f8a",
+    "logBytes": 31869
+   },
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-sfp1999-postmerge-audit-certification.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "868f061ec0589ddd94655e20ea656ba0e86c166fff50f0abe341b36cb89f192a",
+    "logBytes": 15401,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-sfp2000-disposable-certification.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "AssertionError [ERR_ASSERTION]: [T2K-03setup-transport] the seeded candidate reached the injected fake transport after normal provider governance @ scripts/test-sfp2000-disposable-certification.ts:68:10",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: [T2K-03setup-transport] the seeded candidate reached the injected fake transport after normal provider governance @ scripts/test-sfp2000-disposable-certification.ts:68:10"
+    ],
+    "logSha256": "1993c0c1a48b6c27d9a560ccd9cdcbd236c1e970176cbe075e43a9dc5fa602b6",
+    "logBytes": 10213,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: [T2K-03setup-transport] the seeded candidate reached the injected fake transport after normal provider governance @ scripts/test-sfp2000-disposable-certification.ts:68:10",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: [T2K-03setup-transport] the seeded candidate reached the injected fake transport after normal provider governance @ scripts/test-sfp2000-disposable-certification.ts:68:10"
+    ],
+    "logSha256": "bbef8deee14a5ae5bf3c0856590cc6ed21fb6b428ef92f04a4bfa7e956d7d979",
+    "logBytes": 11322
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-sfp2001-campaign-staging-certification.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "✗ [SFP2001-17] initial current selected sources each retain an exact, subject-bound direct or reused completed ZeroBounce receipt and current source pin: initial current selected sources each retain an exact, subject-bound direct or reused completed ZeroBounce receipt and current source pin",
+    "evidence": [
+     "✗ [SFP2001-17] initial current selected sources each retain an exact, subject-bound direct or reused completed ZeroBounce receipt and current source pin: initial current selected sources each retain an exact, subject-bound direct or reused completed ZeroBounce receipt and current source pin",
+     "AssertionError [ERR_ASSERTION]: fixture eligibility must retain its exact current-run direct or reused provider operation @ scripts/test-sfp2001-campaign-staging-certification.ts:617:12"
+    ],
+    "logSha256": "42f37ac15f6352e840d25c6859c1d2bc2c9ece4edca9da31acddee390d14dabc",
+    "logBytes": 16949,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "✗ [SFP2001-17] initial current selected sources each retain an exact, subject-bound direct or reused completed ZeroBounce receipt and current source pin: initial current selected sources each retain an exact, subject-bound direct or reused completed ZeroBounce receipt and current source pin",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "✗ [SFP2001-17] initial current selected sources each retain an exact, subject-bound direct or reused completed ZeroBounce receipt and current source pin: initial current selected sources each retain an exact, subject-bound direct or reused completed ZeroBounce receipt and current source pin",
+     "AssertionError [ERR_ASSERTION]: fixture eligibility must retain its exact current-run direct or reused provider operation @ scripts/test-sfp2001-campaign-staging-certification.ts:617:12"
+    ],
+    "logSha256": "b75895240da756a772c8410047c1f3772d16d1910cd6af1bab5d9f5ad8cf11ee",
+    "logBytes": 18064
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-sfp1999-final-closeout.mjs",
+   "final": {
+    "result": "pass",
+    "logSha256": "6db90da694c0b3e9cc68516fd21842bb00282db41df19efc522fd47f48eca87d",
+    "logBytes": 8302,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-sfp-ui-idempotency-persistence.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "bea9bee4cb79c210fd7d553d4ea0ebc49521b0834f92aedb1ee03e20f86c3855",
+    "logBytes": 8598,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-fresh-snapshot-completion.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "f10489c96cc69a44f134cc73eb964042a1ca2ad2ec49db4a728f540ce895f541",
+    "logBytes": 8580,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-bt12-revenue-state-reconciliation-integration.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "5e271b4319f82d4ab155ed162243620a4f16e502a71ee5311f133b59b83b797d",
+    "logBytes": 8201,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/check-contact-identity-writers.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "bbc3696e45adeea4be00a321a118d4b68649446770be11b93238bb5e5ba69d38",
+    "logBytes": 7774,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-canonical-intake-authority.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "9dcb962b42c73b1b36ab060aa72ccbf08fbbc6144122fc12861fbea02faa001c",
+    "logBytes": 7791,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-import-reconciliation.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "f86db8c57162d9a3077c90bc3cdbc2beaec6baff7f7ab10c651556c11316aa07",
+    "logBytes": 35847,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/check-contact-merge-manifest.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "suite-specific-output",
+    "firstError": "[contact-merge-manifest] disposable database confirmed: test_sfp2060_check_contact_merge_manifes_e7cf78ae41db",
+    "evidence": [
+     "[contact-merge-manifest] disposable database confirmed: test_sfp2060_check_contact_merge_manifes_e7cf78ae41db",
+     "Contact merge manifest check failed:",
+     "- schema FK missing from disposition manifest: contact_email_prefilter.contact_id",
+     "- schema FK missing from disposition manifest: contact_business_link_dispositions.contact_id",
+     "- schema FK missing from disposition manifest: contact_link_acceptance_members.contact_id",
+     "- schema FK missing from disposition manifest: data_delete_requests.subject_contact_id",
+     "- schema FK missing from disposition manifest: inbound_acknowledgements.recipient_contact_id",
+     "- schema FK missing from disposition manifest: contact_business_first_party_link_evidence.contact_id",
+     "- schema FK missing from disposition manifest: free_discovery_materialization_outcomes.contact_id",
+     "- schema FK missing from disposition manifest: website_lifecycle_intents.contact_id",
+     "- schema FK missing from disposition manifest: website_lifecycle_admissions.contact_id",
+     "- schema FK missing from disposition manifest: website_email_send_receipts.contact_id",
+     "- schema FK missing from disposition manifest: website_inbound_evidence.contact_id",
+     "- unclassified live contacts FK: data_delete_requests.subject_contact_id",
+     "- unclassified live contacts FK: contact_email_prefilter.contact_id",
+     "- unclassified live contacts FK: contact_business_first_party_link_evidence.contact_id",
+     "- unclassified live contacts FK: free_discovery_materialization_outcomes.contact_id",
+     "- unclassified live contacts FK: contact_business_link_dispositions.contact_id",
+     "- unclassified live contacts FK: contact_link_acceptance_members.contact_id",
+     "- unclassified live contacts FK: inbound_acknowledgements.recipient_contact_id",
+     "- unclassified live contacts FK: website_inbound_evidence.contact_id",
+     "- unclassified live contacts FK: website_lifecycle_intents.contact_id",
+     "- unclassified live contacts FK: website_lifecycle_admissions.contact_id",
+     "- unclassified live contacts FK: website_email_send_receipts.contact_id"
+    ],
+    "logSha256": "c59f24a2c4fb96a47d5a72cedfcd93f4c3dd2e873ce30e62d0a40a4244ddce8e",
+    "logBytes": 9671,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "[contact-merge-manifest] disposable database confirmed: test_sfp2060_check_contact_merge_manifes_72e981b60d4d",
+    "evidenceKind": "suite-specific-output",
+    "evidence": [
+     "- unclassified live contacts FK: data_delete_requests.subject_contact_id",
+     "- unclassified live contacts FK: contact_email_prefilter.contact_id",
+     "- unclassified live contacts FK: contact_business_first_party_link_evidence.contact_id",
+     "- unclassified live contacts FK: free_discovery_materialization_outcomes.contact_id",
+     "- unclassified live contacts FK: contact_business_link_dispositions.contact_id",
+     "- unclassified live contacts FK: contact_link_acceptance_members.contact_id",
+     "- unclassified live contacts FK: inbound_acknowledgements.recipient_contact_id",
+     "- unclassified live contacts FK: website_inbound_evidence.contact_id",
+     "- unclassified live contacts FK: website_lifecycle_intents.contact_id",
+     "- unclassified live contacts FK: website_lifecycle_admissions.contact_id",
+     "- unclassified live contacts FK: website_email_send_receipts.contact_id",
+     "- unclassified live contacts FK: partner_introductions.contact_id"
+    ],
+    "logSha256": "ff85d1965e32bde72c41a275286991a9239051d363885a036655f5d8bf003f13",
+    "logBytes": 10921
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-canonical-identity-merge.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "bd3d75356070c5403d2ced399cae8caef71e4e4429c164558322a9b89ba90423",
+    "logBytes": 11899,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/scan-csrf-fetch.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "d748040ab71ad65729d7dd5e1f7e64011369a0b8ae23ed2a6d18eee6909240bd",
+    "logBytes": 21995,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/scan-tracked-files.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "f68942073268fbc6bff55fd04a99113516d08f53498663c9bafd64354cfd6be2",
+    "logBytes": 7830,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-scan-tracked-files.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "d0a3315c26e03c3eec064441c5dfc539e2cff7f9640083980a3a00fd1838ef15",
+    "logBytes": 9800,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-security-controls.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "ba15e78574534457d1e938cf35ee2ed08d1f43e3fe05cc2ca7ff6d0cb2a50023",
+    "logBytes": 12285,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-rvr03-security-static.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "26ba76aef95944c6397c0a84babf0fe526766788fb551b3a3cdb8f6a6833eb48",
+    "logBytes": 9072,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "server/tests/auth-actions.source.test.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "997a006c891a14d77b2a0e77f315d059a26826dc6b9c25d8dd63e64a50dce3fb",
+    "logBytes": 7653,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "server/tests/auth-actions.integration.test.ts",
+   "final": {
+    "result": "not_run_opt_in",
+    "evidenceKind": null,
+    "evidence": [],
+    "firstError": null,
+    "logSha256": "88867d4308e41ea56c6c6a6f6ac7050e2f868d530e67ae61e06f82cd4f61a989",
+    "logBytes": 7714,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "pass",
+    "firstError": null,
+    "evidenceKind": null,
+    "evidence": [],
+    "logSha256": "050f2e73e742a0b0e937f5521c297c24b59965b0a3b1d9e2cf6f66f29973ff40",
+    "logBytes": 8769
+   },
+   "rerun": {
+    "sha": "throwaway export of the final working tree (commit 24228e17, tree identical to the working tree after the roster, built)",
+    "result": "pass",
+    "firstError": null,
+    "evidenceKind": null,
+    "evidence": [],
+    "logSha256": "b70cde596c5a4c6105fb8be902b9c17e22b7da9b53d96f73df91dbe909c776c0",
+    "logBytes": 8768
+   },
+   "disposition": "explicit opt-in",
+   "note": "Opt-in. Run explicitly on the pre-repair export and on the final tree: passes on both."
+  },
+  {
+   "script": "server/tests/og-cache-hardening.test.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "090e7b841689f6ae99de09f123dd5ca8584c3c23f88ecf4a479daa6dcd2acb12",
+    "logBytes": 8919,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/release-artifact-gate.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "release-artifact-gate: FAIL — /nix/store/k6wnq86zjb42sm845vgv795cwsnwvj07-nodejs-slim-22.23.4/bin/node node_modules/typescript/bin/tsc --noEmit exited 1",
+    "evidence": [
+     "release-artifact-gate: FAIL — /nix/store/k6wnq86zjb42sm845vgv795cwsnwvj07-nodejs-slim-22.23.4/bin/node node_modules/typescript/bin/tsc --noEmit exited 1"
+    ],
+    "logSha256": "1befeabf543068a54dc094bc904da216519a889e07bdce896dc4c246edd09015",
+    "logBytes": 13069,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "release-artifact-gate: FAIL — /nix/store/k6wnq86zjb42sm845vgv795cwsnwvj07-nodejs-slim-22.23.4/bin/node node_modules/typescript/bin/tsc --noEmit exited 2",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "release-artifact-gate: FAIL — /nix/store/k6wnq86zjb42sm845vgv795cwsnwvj07-nodejs-slim-22.23.4/bin/node node_modules/typescript/bin/tsc --noEmit exited 2"
+    ],
+    "logSha256": "a75985c7fe2aeb7894a6061adb0f6837a02974d88cb80bc5e6928bcca215cd76",
+    "logBytes": 14159
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-merchant-migration-safety.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "ec4fa97b16c434a8b15fc1e2fd4dc930961ca429381f015f01af2e8d37dd20a6",
+    "logBytes": 15161,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/check-queue-compliance.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "faf0b83422f85a8bb5041c45ec82c4ccd05b6167c9545db65e3a553b9557ac66",
+    "logBytes": 8588,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/compliance-scan.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "c7afe56c1134ae998b321f45da98ea51c7311f4c2fdb0893260c4c69585e98e7",
+    "logBytes": 46072,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-ghl-route-pause-gates-1629.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "✗ all current target route files are represented — reviewed=server/routes/sdr.ts, server/routes/admin.ts, server/routes/deals.ts, server/routes/documents.ts, server/routes/partners.ts, server/routes/partner-orgs.ts, server/routes/conversation-ai-config.ts",
+    "evidence": [
+     "✗ all current target route files are represented — reviewed=server/routes/sdr.ts, server/routes/admin.ts, server/routes/deals.ts, server/routes/documents.ts, server/routes/partners.ts, server/routes/partner-orgs.ts, server/routes/conversation-ai-config.ts"
+    ],
+    "logSha256": "8e058d4da9b5a9e435a921fb6f42fdb2d880ec5d439b3da481114574171f92bd",
+    "logBytes": 12352,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "✗ all current target route files are represented — reviewed=server/routes/sdr.ts, server/routes/admin.ts, server/routes/deals.ts, server/routes/documents.ts, server/routes/partners.ts, server/routes/partner-orgs.ts, server/routes/conversation-ai-config.ts",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "✗ all current target route files are represented — reviewed=server/routes/sdr.ts, server/routes/admin.ts, server/routes/deals.ts, server/routes/documents.ts, server/routes/partners.ts, server/routes/partner-orgs.ts, server/routes/conversation-ai-config.ts"
+    ],
+    "logSha256": "d79faf792247ab75aeb70d66f79ed26da709562ec8c32b896bb0b0baa9db3e50",
+    "logBytes": 13454
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-sender-policy.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "e8088609e2daab9d24d7672f509ed04e163e13fa141724c173b97ba9c4033e9e",
+    "logBytes": 15754,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/scan-serper-raw-fetch.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "dd12f974ff6538fc82c3586bdfd04dc420e036f249c424ef6725ac9d745e7e0c",
+    "logBytes": 7709,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/scan-paid-provider-adapters.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "bd458f68c46849fb76a0a395c9ef39bbc02957dab9272a9b8e05e666b7f0fb38",
+    "logBytes": 7706,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/check-free-enrichment-columns.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "4ec1e72d8905c814cd037f5acffd236af85cfbf8a541486987b953024000d6f8",
+    "logBytes": 9367,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-provider-readiness-controls.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "d0869804bf3af269e4e062eddce87beb9bad9fe84406b148326078be22e15175",
+    "logBytes": 7673,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-serper-gateway.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "✗ exactly one probe executed — fetches=2",
+    "evidence": [
+     "✗ exactly one probe executed — fetches=2",
+     "✗ one ok, rest blocked — ok=2 blocked=6"
+    ],
+    "logSha256": "40ec88b41047bc8bdadd7ba106fb7e4504c976c3b5f8c61e82d743564b60bf88",
+    "logBytes": 13759,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "pass",
+    "firstError": null,
+    "evidenceKind": null,
+    "evidence": [],
+    "logSha256": "c14e3f83a7ddca6d287710f31fb166195626d58363b6312a17c64d3281efc920",
+    "logBytes": 14816
+   },
+   "rerun": {
+    "sha": "throwaway export of the final working tree (commit 24228e17, tree identical to the working tree after the roster, built)",
+    "result": "pass",
+    "firstError": null,
+    "evidenceKind": null,
+    "evidence": [],
+    "logSha256": "ceb9357c72c8db4b628f5bcc34901ed470d3c354b8b12bd1aa86d130b667740d",
+    "logBytes": 14771
+   },
+   "disposition": "environment-transient",
+   "note": null
+  },
+  {
+   "script": "scripts/test-serper-business-identity.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "18520cb1705ae371fea3d955ef20c48ccebbca22cd09d94dd0bf633dc306e00f",
+    "logBytes": 12341,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-sequence-compliance.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "✗ PEWC contact email allowed before opt-out — Marketing email validation blocked — mismatched_email_token",
+    "evidence": [
+     "✗ PEWC contact email allowed before opt-out — Marketing email validation blocked — mismatched_email_token",
+     "✗ PEWC contact: email allowed (flags on) — Marketing email validation blocked — mismatched_email_token",
+     "✗ email ghlPermissionPayload.lb_email_allowed=true — {\"lb_email_allowed\":false,\"lb_manual_call_allowed\":true,\"lb_sms_allowed\":false,\"lb_voice_ai_allowed\":false,\"lb_ringless_vm_allowed\":false,\"lb_channel_block_reason\":\"Marketing email validation blocked — mismatched_email_token\",\"lb_next_best_action\"",
+     "✗ otherwise email-contactable fixture passes the independent contactability gate — Marketing email validation blocked — mismatched_email_token",
+     "✗ canonical fence independently identifies missing cohort authority",
+     "✗ declared email fixture independently passes email contactability — Marketing email validation blocked — mismatched_email_token",
+     "✗ declared email-only channels do not bypass the canonical cohort fence",
+     "✗ Before unsubscribe: email allowed for warm contact — Marketing email validation blocked — mismatched_email_token",
+     "✗ Case 29: audit log sequence_step_deferred_daily_cap written — found=0",
+     "✗ Case 34B: sequence_step_deferred_daily_cap audit log written for deferred enrollment — found=0",
+     "✗ Case 36B: valid emailStatus contact NOT blocked by contactability for email status — found 1 contactability block(s) for emailStatus='valid' contact",
+     "✗ Sequence compliance tests FAILED."
+    ],
+    "logSha256": "aa6a5762154c0e4395449986f61670574fc38047db7ebde51bf0ce717df12d55",
+    "logBytes": 41249,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "✗ PEWC contact email allowed before opt-out — Marketing email validation blocked — mismatched_email_token",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "✗ PEWC contact email allowed before opt-out — Marketing email validation blocked — mismatched_email_token",
+     "✗ PEWC contact: email allowed (flags on) — Marketing email validation blocked — mismatched_email_token",
+     "✗ email ghlPermissionPayload.lb_email_allowed=true — {\"lb_email_allowed\":false,\"lb_manual_call_allowed\":true,\"lb_sms_allowed\":false,\"lb_voice_ai_allowed\":false,\"lb_ringless_vm_allowed\":false,\"lb_channel_block_reason\":\"Marketing email validation blocked — mismatched_email_token\",\"lb_next_best_action\"",
+     "✗ otherwise email-contactable fixture passes the independent contactability gate — Marketing email validation blocked — mismatched_email_token",
+     "✗ canonical fence independently identifies missing cohort authority",
+     "✗ declared email fixture independently passes email contactability — Marketing email validation blocked — mismatched_email_token",
+     "✗ declared email-only channels do not bypass the canonical cohort fence",
+     "✗ Before unsubscribe: email allowed for warm contact — Marketing email validation blocked — mismatched_email_token",
+     "✗ Case 29: audit log sequence_step_deferred_daily_cap written — found=0",
+     "✗ Case 34B: sequence_step_deferred_daily_cap audit log written for deferred enrollment — found=0",
+     "✗ Case 36B: valid emailStatus contact NOT blocked by contactability for email status — found 1 contactability block(s) for emailStatus='valid' contact",
+     "✗ Sequence compliance tests FAILED."
+    ],
+    "logSha256": "145c82346633f29e5c324829c9f535e6d095fecc98d6b98264702a987a29dc97",
+    "logBytes": 43212
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-sequence-terminalization-race.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "194a1989dd1667d918d71843fa635a933b211ef1f8be91ce5c47d595d60aa60a",
+    "logBytes": 8007,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-contactability.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "✗ cold scraped can receive email — Marketing email validation blocked — mismatched_email_token",
+    "evidence": [
+     "✗ cold scraped can receive email — Marketing email validation blocked — mismatched_email_token",
+     "✗ SMS STOP does not block email",
+     "✗ DNC reason does not block email",
+     "✗ Florida: email NOT blocked solely by FL state",
+     "✗ ghlPermissionPayload: email allowed for cold contact",
+     "✗ Case 2: email-only tier — email channel allowed — Marketing email validation blocked — mismatched_email_token"
+    ],
+    "logSha256": "84966b9f9a8d2e4a71c0c1c0d8a8651ba2ded7e7ab9eba8ad686a0ae7fada60f",
+    "logBytes": 15650,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "✗ cold scraped can receive email — Marketing email validation blocked — mismatched_email_token",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "✗ cold scraped can receive email — Marketing email validation blocked — mismatched_email_token",
+     "✗ SMS STOP does not block email",
+     "✗ DNC reason does not block email",
+     "✗ Florida: email NOT blocked solely by FL state",
+     "✗ ghlPermissionPayload: email allowed for cold contact",
+     "✗ Case 2: email-only tier — email channel allowed — Marketing email validation blocked — mismatched_email_token"
+    ],
+    "logSha256": "7c3d1712bede35408ee541ccc98292270d30b76570cb8f1580c6a142407f58f3",
+    "logBytes": 16735
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-commercial-classification.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "52c8dfcea0815b9e0f285e44433c03d7e173c96c9b6757407bb90fd6c00fb428",
+    "logBytes": 10685,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-new-lead-enrollment-policy.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "✗ B9: no candidate audit log written for test deal: expected new_lead_auto_enrollment_candidate_detected",
+    "evidence": [
+     "✗ B9: no candidate audit log written for test deal: expected new_lead_auto_enrollment_candidate_detected",
+     "✗ B22: no candidate audit log written for null-vertical deal with __unknown__ mapping",
+     "✗ B23: null-vertical deal NOT enrolled into __unknown__ seq: enrollments=[]"
+    ],
+    "logSha256": "e98cd981839d60b73bc0f11082d98d5203ab6c90f3d5964b7bd2de086493ca2c",
+    "logBytes": 26136,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "✗ B9: no candidate audit log written for test deal: expected new_lead_auto_enrollment_candidate_detected",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "✗ B9: no candidate audit log written for test deal: expected new_lead_auto_enrollment_candidate_detected",
+     "✗ B22: no candidate audit log written for null-vertical deal with __unknown__ mapping",
+     "✗ B23: null-vertical deal NOT enrolled into __unknown__ seq: enrollments=[]"
+    ],
+    "logSha256": "a0b020c5199e9f87491967cc19e38d9c25969627731c070d7263aa3e6d5ad556",
+    "logBytes": 27155
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-intake-provenance.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "95cb92e2069fafbcd8c7d64238e1f79538dd48b05d0f6e7ca48e3e0e4db61b64",
+    "logBytes": 10511,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-speed-to-lead.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "d7bdfbe6f0c40e4d6e457c9ad2447da5664e6ff18169473bb6c57b5ddfb24b76",
+    "logBytes": 10921,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-lifecycle.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "1466f2f0c9e76b3e6d48b2f3e51de987a4bfa0fe4373f941e2601f43598ae90d",
+    "logBytes": 11042,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/sfp-certification.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "✗ 2d. sfp-validation.ts uses the audited openSfpCandidatePlaintext() boundary for decryption (not masked_value direct): Must call verifyEmail with decrypted realEmail",
+    "evidence": [
+     "✗ 2d. sfp-validation.ts uses the audited openSfpCandidatePlaintext() boundary for decryption (not masked_value direct): Must call verifyEmail with decrypted realEmail",
+     "✗ 2e. sfp-validation.ts never passes masked_value to ZeroBounce transport: Must call verifyEmail with realEmail, not masked_value",
+     "✗ 7f. Fake transport received REAL decrypted emails, never masked_value (positive proof): Transport must have been invoked at least once",
+     "✗ 7j. Verified named contact validates with typed source pins and fake transport: Only the real contact address reaches the injected fake transport"
+    ],
+    "logSha256": "de895d9d279222cfb4aeb901d1974cc7d4689a1dd4e88042462d100ba3fc15ad",
+    "logBytes": 16120,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "✗ 2d. sfp-validation.ts uses the audited openSfpCandidatePlaintext() boundary for decryption (not masked_value direct): Must call verifyEmail with decrypted realEmail",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "✗ 2d. sfp-validation.ts uses the audited openSfpCandidatePlaintext() boundary for decryption (not masked_value direct): Must call verifyEmail with decrypted realEmail",
+     "✗ 2e. sfp-validation.ts never passes masked_value to ZeroBounce transport: Must call verifyEmail with realEmail, not masked_value",
+     "✗ 7f. Fake transport received REAL decrypted emails, never masked_value (positive proof): Transport must have been invoked at least once",
+     "✗ 7j. Verified named contact validates with typed source pins and fake transport: Only the real contact address reaches the injected fake transport"
+    ],
+    "logSha256": "3f69a328d82bf790a29800bd6c1c26613ced245806e11a89c7c0905e17239fc2",
+    "logBytes": 17201
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-transport-dispatch.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "✗ Unhandled error: Sequence must be live and paused/draft before changing its steps",
+    "evidence": [
+     "✗ Unhandled error: Sequence must be live and paused/draft before changing its steps"
+    ],
+    "logSha256": "b2e86704aa2ee2ce32f8653afb3e819915bfcf35caf27a2fa995b3eeb6e1cce3",
+    "logBytes": 14690,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "✗ Unhandled error: Sequence must be live and paused/draft before changing its steps",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "✗ Unhandled error: Sequence must be live and paused/draft before changing its steps"
+    ],
+    "logSha256": "1a215293684c742eebabddeb5a6f3e244ae21d11f7498ff9aef6b1b2d263b3b7",
+    "logBytes": 15783
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-ghl-webhooks.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "7bf679a62dff7c7358716abdae3849f9bae001b4cbaa8f995ccc137bba908f5f",
+    "logBytes": 20443,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-ghl-decoupling.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "e3ec671f9ce48b668cd9a3ad93fa64a5d653058e20160a0444aa873e4dcb17e4",
+    "logBytes": 12360,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-appointment-statement.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "22f4f58820898368d01578d1805900d003d7bb29f5c484cc328bfad53628fc04",
+    "logBytes": 22995,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-ghl-sync-exact-lookups.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "58841a9de16c0f99b601e658745ee453ec3dfaac0be5c52426bf5cca6aeceb72",
+    "logBytes": 8471,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-bullmq-resilience.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "ac5bd1ececf441f4468a8901aceb16e13765074159a335840a87c015d45aee7b",
+    "logBytes": 14093,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stale-job-lock.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "9672621f19f721e373880dd5b0e89b0e8896b7e990bfa212bc21808d52b719a3",
+    "logBytes": 9579,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "server/tests/statement-command-worker.test.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "3602a0aad883c7db3a83358f4f2a07d6dc79769ed91db73793b646242073a3f2",
+    "logBytes": 10072,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-redis-topology.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "0137d2578cffa2d9d0c419db9beaaf90bfd1a1ef65f3342722a69971011a0f27",
+    "logBytes": 14534,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-sunbiz-timeout.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "52786a116a9cc0199d1c0db065cb99b2e1993d0a65ebda0ae80f25c538845627",
+    "logBytes": 22726,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-commercial-classification-static.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "780be7f58a21d911fd3e58c4b4d9250e3f5d2746f54ab528430186b9b33d78f7",
+    "logBytes": 9778,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cleanup-guard.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "1e29ad1f3f50b278923a7e46733a77e7c8441cab27883de62edcbc047852fb5a",
+    "logBytes": 8188,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro01-revenue-contract-static.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "0f785b10c6927b6873b5c8b4bcadfe6edde2d72d0924fc09654fd3d47aa1094a",
+    "logBytes": 7834,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro01-revenue-contract-integration.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "f6990f259c67b7b499eeaac387661f59dedf6d89fe5809b82bf1cec0bec008d3",
+    "logBytes": 7827,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/check-cro02-authority.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "Error: CRO02_AUTHORITY_FAILURE: provider readiness and pre-spend imports but never calls authorizeCommercialUse @ scripts/check-cro02-authority.ts:68:21",
+    "evidence": [
+     "Error: CRO02_AUTHORITY_FAILURE: provider readiness and pre-spend imports but never calls authorizeCommercialUse @ scripts/check-cro02-authority.ts:68:21"
+    ],
+    "logSha256": "7752f2ee34dc49a01a8f6008b37d60561d43a2368798ee77b140675341943342",
+    "logBytes": 8322,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "Error: CRO02_AUTHORITY_FAILURE: provider readiness and pre-spend imports but never calls authorizeCommercialUse @ scripts/check-cro02-authority.ts:68:21",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "Error: CRO02_AUTHORITY_FAILURE: provider readiness and pre-spend imports but never calls authorizeCommercialUse @ scripts/check-cro02-authority.ts:68:21"
+    ],
+    "logSha256": "ea190e9179ca9d4c2034f208e067173b74842b3997eb91ff51106171b31b3c3d",
+    "logBytes": 9411
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro02-integration.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "8873d9132cb01d9a7f6cad542a0c98f6ea69b7157dde7ceade40a4ae015ac830",
+    "logBytes": 19378,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro02-http.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "3b9f174193cf651bb28d111a71a33a85ce9f025565f351261a3b9cefaf4f6617",
+    "logBytes": 19003,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03-static.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "966533d0ced3ac25da9aaeadd0b89c4d4294dd608ffc0f9ce154b33a2a23de9f",
+    "logBytes": 9213,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03a-static.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "4b39110213b261c7afd2afd4195747f20da77b874ae67d3906f521d72f7bf889",
+    "logBytes": 8476,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03b-static.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "95adf03884f63531edba25c77fc10a30ed0a4a01b7e84fbb8665dd77135c1af7",
+    "logBytes": 8437,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03c-static.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 1 !== 4 @ scripts/test-cro03c-static.ts:246:8",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 1 !== 4 @ scripts/test-cro03c-static.ts:246:8"
+    ],
+    "logSha256": "59ab8079bfd429062681fddc33b2da43c61488ab0a998ff61818c812c720d9df",
+    "logBytes": 8197,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 1 !== 4 @ scripts/test-cro03c-static.ts:246:8",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 1 !== 4 @ scripts/test-cro03c-static.ts:246:8"
+    ],
+    "logSha256": "c463ab2bd34d143a9efe06fcbbe0b59aab5a7ebbfc715935fc10449295309f25",
+    "logBytes": 9280
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03d-ceremony-static.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "d15fcd5a5f5b3ad7ecb49e4745c28a61efe522597904f06a0f579da394692beb",
+    "logBytes": 8481,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03c-initial-continuation-static.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "e7309bdb2228d4a1562335c783b81f4d294048d5b26a87928262386a7def2d90",
+    "logBytes": 7726,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03c-worker-static.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "2d087bfd442568ee928076f64d1f6ff62c8a8f187664db1437b8bf3e22c9ff96",
+    "logBytes": 7682,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro05a-static.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "6a9fec760ef862af5f4551b53638ef4ebb3d6a5f6adfb33f23828d140d1cf2d3",
+    "logBytes": 9372,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-website-email-contracts.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "d6c29eb195adbe0262d43d768ecc807cffba6396446acb78aa35161951ff61c1",
+    "logBytes": 12251,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "server/tests/inbound-request-lifecycle.test.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "68ab21f0be98f607a8f52c9933ff3b262b49fc4b06b7ec8798e8e70662f1c70a",
+    "logBytes": 7812,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro05a-nonpublic-static.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "413fe9ce36ad3ae025ea6281934642bec873e846569f56eddf11275bfcb130ef",
+    "logBytes": 7704,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03c-integration.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "throw new Error(\"CRO03C_WORKER_FLEET_INVALID\");",
+    "evidence": [
+     "throw new Error(\"CRO03C_WORKER_FLEET_INVALID\");",
+     "Error: CRO03C_WORKER_FLEET_INVALID @ server/services/cro03/live-execution.ts:1692:11"
+    ],
+    "logSha256": "66c646503a7cd474010dc0bc442fbafae250f2ba97581c0dd2def46629306262",
+    "logBytes": 8908,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "throw new Error(\"CRO03C_WORKER_FLEET_INVALID\");",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "throw new Error(\"CRO03C_WORKER_FLEET_INVALID\");",
+     "Error: CRO03C_WORKER_FLEET_INVALID @ server/services/cro03/live-execution.ts:1692:11"
+    ],
+    "logSha256": "6aa594c75f65d821e085226b91e1c729eab75d1f2ebe2fbfff9eba7f2bd58b57",
+    "logBytes": 10001
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03c-provider-executors.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "f602ce7c0dd3b03190d2766be9bd002c5ff920019a9b2d3ec93b9346a1b34e46",
+    "logBytes": 7780,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-mi09-pricing-seed-integration.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "22504053846d0e1704122013e0605ebc643883c020f2465bbe399a784e717bf0",
+    "logBytes": 8745,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03c-openai-bundle-static.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "c2dae7aa43b4dc668b3dfee724ea9350dd5ff099a65dac4fee03387ce207049e",
+    "logBytes": 8216,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03b-integration.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "throw new Error(\"CRO03B_ACTIVE_RECIPE_WRITE_FENCED\");",
+    "evidence": [
+     "throw new Error(\"CRO03B_ACTIVE_RECIPE_WRITE_FENCED\");",
+     "Error: CRO03B_ACTIVE_RECIPE_WRITE_FENCED @ server/services/cro03/admission-service.ts:264:9"
+    ],
+    "logSha256": "fb4c86496f09df734aa6293cf3b800add74f79537435ae12db0c3c0ff378a2e4",
+    "logBytes": 8647,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "throw new Error(\"CRO03B_ACTIVE_RECIPE_WRITE_FENCED\");",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "throw new Error(\"CRO03B_ACTIVE_RECIPE_WRITE_FENCED\");",
+     "Error: CRO03B_ACTIVE_RECIPE_WRITE_FENCED @ server/services/cro03/admission-service.ts:264:9"
+    ],
+    "logSha256": "53b379afe731e725753b1be5dd72d78be6add59aaef20a7701962a53d5ec49ec",
+    "logBytes": 9740
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/certify-cro03b-csv-handoff.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "AssertionError [ERR_ASSERTION]: Admin user required for certification @ scripts/certify-cro03b-csv-handoff.ts:106:1",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: Admin user required for certification @ scripts/certify-cro03b-csv-handoff.ts:106:1"
+    ],
+    "logSha256": "d10cb847815d6cb8f2651ef867235d86d2cbdab9b29221b972e7b4efcf34a07f",
+    "logBytes": 8457,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: Admin user required for certification @ scripts/certify-cro03b-csv-handoff.ts:106:1",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: Admin user required for certification @ scripts/certify-cro03b-csv-handoff.ts:106:1"
+    ],
+    "logSha256": "ab0d1b9f0d3a55a4505661fc6482ba050cd4cea8c549c761542eaba3eecd3a4b",
+    "logBytes": 9554
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03-ledger-convergence.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "[test-cro03-ledger-convergence] FAIL: - Immutability guard did not reject a raw UPDATE after convergence recreated the trigger — the guard is not actually active.",
+    "evidence": [
+     "[test-cro03-ledger-convergence] FAIL: - Immutability guard did not reject a raw UPDATE after convergence recreated the trigger — the guard is not actually active."
+    ],
+    "logSha256": "f9d04e3e65cd327df9a53e643efdb2978bc52e8f8906849fde800eccc68b8cd1",
+    "logBytes": 9603,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "[test-cro03-ledger-convergence] FAIL: - Immutability guard did not reject a raw UPDATE after convergence recreated the trigger — the guard is not actually active.",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "[test-cro03-ledger-convergence] FAIL: - Immutability guard did not reject a raw UPDATE after convergence recreated the trigger — the guard is not actually active."
+    ],
+    "logSha256": "6623dc5002d4cd504dfa8a2e050b3781fb530c991889e53d3a170f261166f694",
+    "logBytes": 10702
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-seed-convergence-verifier-integrity.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "[test-seed-convergence-verifier-integrity] FAIL — 1 assertion(s): FAIL commercial_membership_revisions: no existing row to delete for this test",
+    "evidence": [
+     "[test-seed-convergence-verifier-integrity] FAIL — 1 assertion(s): FAIL commercial_membership_revisions: no existing row to delete for this test",
+     "FAIL commercial_membership_revisions: no existing row to delete for this test"
+    ],
+    "logSha256": "d4a5f3f0b12f85ca4c964f9a52d5c7960e82a4dc8f6d2076e03616cbbf66e2b7",
+    "logBytes": 8247,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "[test-seed-convergence-verifier-integrity] FAIL — 1 assertion(s): FAIL commercial_membership_revisions: no existing row to delete for this test",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "[test-seed-convergence-verifier-integrity] FAIL — 1 assertion(s): FAIL commercial_membership_revisions: no existing row to delete for this test",
+     "FAIL commercial_membership_revisions: no existing row to delete for this test"
+    ],
+    "logSha256": "7ec74562df1a8d7b55e7784776b30a48701fde782e37a89173a0b3c36e9c6893",
+    "logBytes": 9358
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/check-cro03b-legacy-writers.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "8d6ccf691a240b4c45e164f5f4c7b2bb8b7ca595615ae6aaf8d5a11706592bcc",
+    "logBytes": 7662,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03-ledger-drift-repair.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "a42604949100caa31f609a1a029e88601eff333c6e391eb0705a22d9c73ad1d5",
+    "logBytes": 7703,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cr04-authority-static.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "900b502fd49adfe06badc9efaec12eb353959a357f65e2efca8743275aaff368",
+    "logBytes": 7657,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-reporting-boundaries.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "3ad1eb798700a12b5a41fcdbf91156a91e21852e78af89f45d428c8d6856f5c2",
+    "logBytes": 8421,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-task1721-inbox-statement-structure.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "c331ac5725e80a895f325d0e356c7f981d764f7c0d45f340b9646944efbf0fe5",
+    "logBytes": 7717,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-task1720-dlq-alert-static.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "840b10d6d657559ca829ad5b9bb53febd896d34b871d5966d75c6575a43a0566",
+    "logBytes": 7684,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cr06-governance.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "1dbdc5f9a98aa6cd417494b7f66554def05c4654f9df54e3624a63d6ebf501c9",
+    "logBytes": 8077,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "server/tests/cr06-promotional-boundary-inventory.source.test.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "AssertionError [ERR_ASSERTION]: CR-06 active enrollment writer inventory changed; classify and fence every new boundary before updating this reviewed inventory",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: CR-06 active enrollment writer inventory changed; classify and fence every new boundary before updating this reviewed inventory"
+    ],
+    "logSha256": "5571c39d5bcc70a50e9fcb4a8701ac94862cd81fd970d0d2575bef9de8847584",
+    "logBytes": 10711,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: CR-06 active enrollment writer inventory changed; classify and fence every new boundary before updating this reviewed inventory",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: CR-06 active enrollment writer inventory changed; classify and fence every new boundary before updating this reviewed inventory"
+    ],
+    "logSha256": "1979f18d1cbc417c681852c5940ea3c4af5363d1601e924895c4dcbca971b1c9",
+    "logBytes": 11834
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "server/tests/cr06-feedback-strict.source.test.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "286f33666e1593465a8a5138c73045a38df2ee24f37235f1eee5d00567e232e1",
+    "logBytes": 7715,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cr06-disposable-certification.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "AssertionError [ERR_ASSERTION]: authority-owned current provider evidence qualifies the exact email generation @ scripts/test-cr06-disposable-certification.ts:31:10",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: authority-owned current provider evidence qualifies the exact email generation @ scripts/test-cr06-disposable-certification.ts:31:10"
+    ],
+    "logSha256": "62dcb9e7e24eb4280b2eddcb3363401615921fef6cd42cc9876e6f01341886c3",
+    "logBytes": 14796,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: authority-owned current provider evidence qualifies the exact email generation @ scripts/test-cr06-disposable-certification.ts:31:10",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: authority-owned current provider evidence qualifies the exact email generation @ scripts/test-cr06-disposable-certification.ts:31:10"
+    ],
+    "logSha256": "de9b0a5dd74bd3843b23312d223bae0b33cfe0e767c5b49baa799d658fbb35f3",
+    "logBytes": 15904
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cr06-http-authorization.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "1945ebb5b4239b416a1d875d599066b259e1a321bfc1ee0d5208fe816bcb0d3e",
+    "logBytes": 15888,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cr06-migration-upgrade.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "9e632bc4a66eb639e13b7bc99a788cafa494bfda8757d66bc30dde1ab50f0fa5",
+    "logBytes": 7734,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro07-disposable-certification.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "AssertionError [ERR_ASSERTION]: fixture contact has valid current provider evidence @ scripts/test-cro07-disposable-certification.ts:32:10",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: fixture contact has valid current provider evidence @ scripts/test-cro07-disposable-certification.ts:32:10"
+    ],
+    "logSha256": "7f533b79a08c0246ce2d4aa6ca5cf95261c001532b02605e3ea136275994cfae",
+    "logBytes": 9576,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: fixture contact has valid current provider evidence @ scripts/test-cro07-disposable-certification.ts:32:10",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: fixture contact has valid current provider evidence @ scripts/test-cro07-disposable-certification.ts:32:10"
+    ],
+    "logSha256": "4f09fc14747794a41a3b8dcff74ab14d02b99fc257a4818641ea0a657f000c83",
+    "logBytes": 10682
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-apollo-organization-resolution.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "46826540e1e154968924911ca1512bdf5d44001189c8617e4d6584bb2d2e2d12",
+    "logBytes": 7979,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/scan-cro03-client-endpoints.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "694a50fd22283367cae11483aa07339feefa94201322b376da129bde07f38f20",
+    "logBytes": 7693,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03-integration.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "Error: Unapproved provider caller: server/services/cro03/enrichment-factory.ts -> apollo @ server/services/provider-manifest.ts:335:56",
+    "evidence": [
+     "Error: Unapproved provider caller: server/services/cro03/enrichment-factory.ts -> apollo @ server/services/provider-manifest.ts:335:56"
+    ],
+    "logSha256": "c9bc08e34892205c41ec2951172fc89444fdd27637233bce44b747edee9c3003",
+    "logBytes": 9598,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "Error: Unapproved provider caller: server/services/cro03/enrichment-factory.ts -> apollo @ server/services/provider-manifest.ts:335:56",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "Error: Unapproved provider caller: server/services/cro03/enrichment-factory.ts -> apollo @ server/services/provider-manifest.ts:335:56"
+    ],
+    "logSha256": "7c0f898f485927619a42fe4576df10888c1595b751e6a2cc7bf6f62f910a321f",
+    "logBytes": 10688
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03-http-authorization.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "AssertionError [ERR_ASSERTION]: handoff fixture requires source occurrence and qualification policy @ scripts/test-cro03-http-authorization.ts:168:12",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: handoff fixture requires source occurrence and qualification policy @ scripts/test-cro03-http-authorization.ts:168:12"
+    ],
+    "logSha256": "15a96bc80657b2639ec2292011af551567962e2c88a5aa35ba6e84673297bc3c",
+    "logBytes": 15034,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: handoff fixture requires source occurrence and qualification policy @ scripts/test-cro03-http-authorization.ts:168:12",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: handoff fixture requires source occurrence and qualification policy @ scripts/test-cro03-http-authorization.ts:168:12"
+    ],
+    "logSha256": "02975eeffae0ac8670a8e359e08781b8cb92d3abf3f2197a95b6c5ed4e030b2d",
+    "logBytes": 16131
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/smoke-role-guards.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "1a4bba466e1f082eb2ce65dd78c6347dd4ef62ed0e41205a082a2f5918e5c224",
+    "logBytes": 144943,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-session-validity-fail-closed.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "cfbe1267fe9ead36b2561539c276e1fafce3201be54f7f801bff105c91a6f760",
+    "logBytes": 9842,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-crm-operator-experience.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "AssertionError [ERR_ASSERTION]: server/routes/crm-operations.ts must contain db.select().from(tasks).where(eq(tasks.contactId, contactId)) @ scripts/test-crm-operator-experience.ts:21:10",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: server/routes/crm-operations.ts must contain db.select().from(tasks).where(eq(tasks.contactId, contactId)) @ scripts/test-crm-operator-experience.ts:21:10"
+    ],
+    "logSha256": "81328a15be2b596ce3ff9edd7bd5447ac0b2acd6ace71810fdc44ce66babf10c",
+    "logBytes": 14488,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "AssertionError [ERR_ASSERTION]: server/routes/crm-operations.ts must contain db.select().from(tasks).where(eq(tasks.contactId, contactId)) @ scripts/test-crm-operator-experience.ts:21:10",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "AssertionError [ERR_ASSERTION]: server/routes/crm-operations.ts must contain db.select().from(tasks).where(eq(tasks.contactId, contactId)) @ scripts/test-crm-operator-experience.ts:21:10"
+    ],
+    "logSha256": "c794c5fc23703aa09a147ac458b6706a6f978961a5b8f3ac4e61e8af8900c02c",
+    "logBytes": 15587
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro01-provider-denial.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "3aa1ab9da6a60895e979a472b0fbb0d9abd573e6d97e1182568500c0a69ca6c2",
+    "logBytes": 15521,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-reconciliation-classifier.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "8d67ad9a5a915fd4616520796e950edf4645d65a5ddfe14b81f4e66dcdde1aec",
+    "logBytes": 11630,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-reconciliation-certification.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "suite-specific-output",
+    "firstError": "[Cert] Connected to test database.",
+    "evidence": [
+     "[Cert] Connected to test database.",
+     "[Cert] Setting up minimal schema...",
+     "[Cert] Applying 0227_contact_reconciliation.sql...",
+     "[Cert] 0227_contact_reconciliation.sql — objects already exist, continuing.",
+     "[Cert] Applying 0228_fix_recon_active_index.sql...",
+     "[Cert] 0228_fix_recon_active_index.sql applied.",
+     "[Cert] Applying 0229_fix_proposal_status_reverted.sql...",
+     "[Cert] 0229_fix_proposal_status_reverted.sql applied.",
+     "[Cert] Seeding test data...",
+     "Fatal error in reconciliation certification: null value in column \"selector_hash\" of relation \"contact_census_runs\" violates not-null constraint"
+    ],
+    "logSha256": "7ac0e5e0092daf645b112bd57a2ecac1f192916b1727e72375714a0ac8f6816c",
+    "logBytes": 8342,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "[Cert] Connected to test database.",
+    "evidenceKind": "suite-specific-output",
+    "evidence": [
+     "[Cert] Connected to test database.",
+     "[Cert] Setting up minimal schema...",
+     "[Cert] Applying 0227_contact_reconciliation.sql...",
+     "[Cert] 0227_contact_reconciliation.sql — objects already exist, continuing.",
+     "[Cert] Applying 0228_fix_recon_active_index.sql...",
+     "[Cert] 0228_fix_recon_active_index.sql applied.",
+     "[Cert] Applying 0229_fix_proposal_status_reverted.sql...",
+     "[Cert] 0229_fix_proposal_status_reverted.sql applied.",
+     "[Cert] Seeding test data...",
+     "Fatal error in reconciliation certification: null value in column \"selector_hash\" of relation \"contact_census_runs\" violates not-null constraint"
+    ],
+    "logSha256": "6fca11967b165f6e236584dbe4881b1bba436dba923009dd8dbab1fd273939c6",
+    "logBytes": 9445
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-reconciliation-performance.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "afbeef01dfde5911deed666f0afb8213fb7c67f95ace77b4eda6ca194dc6f2fc",
+    "logBytes": 9338,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/check-api-coverage.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "8f08bf7a050c188d8a5932f7ed9dcb55113bf68ecebf064d0975674729d6195a",
+    "logBytes": 7672,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-live-health.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "356d37595e8f91a0a05927f75bcc282c0cbebebb0641761556a2bc007ade45e7",
+    "logBytes": 15491,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/seo-audit.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "✗ /support  errors: hydrated title is empty; hydrated page has 0 canonical links, expected 1; no page-specific description after hydration (only the shell default)",
+    "evidence": [
+     "✗ /support  errors: hydrated title is empty; hydrated page has 0 canonical links, expected 1; no page-specific description after hydration (only the shell default)",
+     "✗ /help/getting-started/setting-up-your-merchant-account  errors: hydrated title is empty; hydrated page has 0 canonical links, expected 1; no page-specific description after hydration (only the shell default)",
+     "✗ 82/84 indexable client-rendered pages carry a compliant hydrated title, one h1, a self-canonical and a page-specific description"
+    ],
+    "logSha256": "e5cf01196732e575f79e6e02f23c0790912ada0703311f2eb582e888558e6f7b",
+    "logBytes": 39466,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "✗ [200] /partners/insurance [client-rendered]  errors: SPA defaults: description long (169>165)",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "✗ [200] /partners/insurance [client-rendered]  errors: SPA defaults: description long (169>165)",
+     "✗ /support  errors: hydrated title is empty; hydrated page has 0 canonical links, expected 1; no page-specific description after hydration (only the shell default)",
+     "✗ 89/90 indexable client-rendered pages carry a compliant hydrated title, one h1, a self-canonical and a page-specific description"
+    ],
+    "logSha256": "960a4c388ad3c0422d8febe48461e0f1f51fb39c7481aa6ef3752172dff203a8",
+    "logBytes": 41315
+   },
+   "rerun": {
+    "sha": "throwaway export of the final working tree (commit 24228e17, tree identical to the working tree after the roster, built)",
+    "result": "fail",
+    "firstError": "✗ /support  errors: hydrated title is empty; hydrated page has 0 canonical links, expected 1; no page-specific description after hydration (only the shell default)",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "✗ /support  errors: hydrated title is empty; hydrated page has 0 canonical links, expected 1; no page-specific description after hydration (only the shell default)",
+     "✗ 83/84 indexable client-rendered pages carry a compliant hydrated title, one h1, a self-canonical and a page-specific description"
+    ],
+    "logSha256": "1ebd3fb97b2c839c52ca9f4a449a50bf4081bbcf990d7bb37c2c2dc5ca6301b6",
+    "logBytes": 39981
+   },
+   "disposition": "matched baseline",
+   "note": "In the roster run two client-rendered pages failed hydrated metadata: /support and /help/getting-started/setting-up-your-merchant-account. Rerun alone on the final tree only /support fails (83 of 84 client-rendered pages pass), so the help-article failure did not reproduce (hydration timing). /support fails identically on the pre-repair export. The pre-repair export also failed /partners/insurance (description 169 characters against a 165 limit); the repair fixed that and the six partner routes are now server-rendered, which is why the counts changed from 89/90 to 83/84."
+  },
+  {
+   "script": "scripts/build-public-images.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "1052613c2a46ff6fc50495fafc160fd3046c05d9f15532c771815f442a6a0285",
+    "logBytes": 7726,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/check-public-site-mobile.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "suite-specific-output",
+    "firstError": "3:56:49 PM [express] GET /api/public/testimonials/approved 200 in 5ms",
+    "evidence": [
+     "3:56:49 PM [express] GET /api/public/testimonials/approved 200 in 5ms",
+     "3:58:37 PM [express] GET /api/public/testimonials/approved 304 in 3ms",
+     "4:00:22 PM [express] GET /api/public/testimonials/approved 304 in 3ms",
+     "4:02:08 PM [express] GET /api/public/testimonials/approved 304 in 3ms",
+     "light 390  /                                                    h=9368   ok",
+     "light 390  /payment-processing                                  h=5430   ok",
+     "light 390  /pricing-and-programs                                h=6308   ok",
+     "light 390  /learn                                               h=10675  ok",
+     "light 390  /learn/interchange-plus-pricing                      h=6502   ok",
+     "light 390  /free-analysis                                       h=3023   ok",
+     "light 390  /upload-statement                                    h=6634   ok",
+     "light 390  /estimate                                            h=3854   ok",
+     "light 390  /get-started                                         h=3172   ok",
+     "light 390  /0-percent-processing                                h=10578  ok",
+     "light 390  /free-smart-terminal                                 h=8638   ok",
+     "light 390  /shop                                                h=6416   ok",
+     "light 390  /about-contact                                       h=4822   ok",
+     "light 390  /why-liberty-bancard                                 h=5506   ok",
+     "light 390  /case-studies                                        h=3242   ok",
+     "light 390  /faq                                                 h=6309   ok",
+     "light 390  /support                                             h=3788   ok",
+     "light 390  /help                                                h=5477   ok",
+     "light 390  /blog                                                h=7219   ok",
+     "light 390  /compare-rates                                       h=9039   ok",
+     "light 390  /savings-calculator                                  h=7752   ok",
+     "light 390  /compare/square                                      h=5467   ok",
+     "light 390  /partners                                            h=844    main:0 targets<44:1",
+     "light 390  /partners/referrals                                  h=6473   ok",
+     "light 390  /partners/sales-agents                               h=6111   ok",
+     "light 390  /partners/cpa                                        h=844    main:0 targets<44:1",
+     "light 390  /partners/bookkeeper                                 h=844    main:0 targets<44:1",
+     "light 390  /partners/insurance                                  h=844    main:0 targets<44:1",
+     "light 390  /affiliate                                           h=5574   ok",
+     "light 390  /areas-served                                        h=12965  ok",
+     "light 390  /privacy-policy                                      h=10059  ok",
+     "light 390  /industries                                          h=4429   ok",
+     "light 390  /industries/restaurant-payment-processing            h=5978   ok",
+     "light 390  /industries/retail-payment-processing                h=5924   ok",
+     "light 390  /industries/healthcare-payment-processing            h=5676   ok",
+     "light 390  /industries/auto-repair-payment-processing           h=5902   ok",
+     "light 1440 /                                                    h=6195   ok",
+     "light 1440 /payment-processing                                  h=3675   ok",
+     "light 1440 /pricing-and-programs                                h=4151   ok",
+     "light 1440 /learn                                               h=8196   ok",
+     "light 1440 /learn/interchange-plus-pricing                      h=4289   ok",
+     "light 1440 /free-analysis                                       h=2125   ok",
+     "light 1440 /upload-statement                                    h=5174   ok",
+     "light 1440 /estimate                                            h=2882   ok",
+     "light 1440 /get-started                                         h=2334   ok",
+     "light 1440 /0-percent-processing                                h=6674   ok",
+     "light 1440 /free-smart-terminal                                 h=5061   ok",
+     "light 1440 /shop                                                h=3134   ok",
+     "light 1440 /about-contact                                       h=3350   ok",
+     "light 1440 /why-liberty-bancard                                 h=4078   ok",
+     "light 1440 /case-studies                                        h=2331   ok",
+     "light 1440 /faq                                                 h=4593   ok",
+     "light 1440 /support                                             h=2498   ok",
+     "light 1440 /help                                                h=3298   ok",
+     "light 1440 /blog                                                h=3511   ok",
+     "light 1440 /compare-rates                                       h=5023   ok",
+     "light 1440 /savings-calculator                                  h=5444   ok",
+     "light 1440 /compare/square                                      h=3918   ok",
+     "light 1440 /partners                                            h=900    main:0",
+     "light 1440 /partners/referrals                                  h=4955   ok",
+     "light 1440 /partners/sales-agents                               h=4755   ok",
+     "light 1440 /partners/cpa                                        h=900    main:0",
+     "light 1440 /partners/bookkeeper                                 h=900    main:0",
+     "light 1440 /partners/insurance                                  h=900    main:0",
+     "light 1440 /affiliate                                           h=3705   ok",
+     "light 1440 /areas-served                                        h=5048   ok",
+     "light 1440 /privacy-policy                                      h=6359   ok",
+     "light 1440 /industries                                          h=2221   ok",
+     "light 1440 /industries/restaurant-payment-processing            h=3667   ok",
+     "light 1440 /industries/retail-payment-processing                h=3601   ok",
+     "light 1440 /industries/healthcare-payment-processing            h=3601   ok",
+     "light 1440 /industries/auto-repair-payment-processing           h=3601   ok",
+     "dark  390  /                                                    h=9368   ok",
+     "dark  390  /payment-processing                                  h=5430   ok",
+     "dark  390  /pricing-and-programs                                h=6308   ok",
+     "dark  390  /learn                                               h=10675  ok",
+     "dark  390  /learn/interchange-plus-pricing                      h=6502   ok",
+     "dark  390  /free-analysis                                       h=3023   ok",
+     "dark  390  /upload-statement                                    h=6634   ok",
+     "dark  390  /estimate                                            h=3854   ok",
+     "dark  390  /get-started                                         h=3172   ok",
+     "dark  390  /0-percent-processing                                h=10578  ok",
+     "dark  390  /free-smart-terminal                                 h=8638   ok",
+     "dark  390  /shop                                                h=6416   ok",
+     "dark  390  /about-contact                                       h=4822   ok",
+     "dark  390  /why-liberty-bancard                                 h=5506   ok",
+     "dark  390  /case-studies                                        h=3242   ok",
+     "dark  390  /faq                                                 h=6309   ok",
+     "dark  390  /support                                             h=3788   ok",
+     "dark  390  /help                                                h=5477   ok",
+     "dark  390  /blog                                                h=7219   ok",
+     "dark  390  /compare-rates                                       h=9039   ok",
+     "dark  390  /savings-calculator                                  h=7752   ok",
+     "dark  390  /compare/square                                      h=5467   ok",
+     "dark  390  /partners                                            h=844    main:0 targets<44:1",
+     "dark  390  /partners/referrals                                  h=6473   ok",
+     "dark  390  /partners/sales-agents                               h=6111   ok",
+     "dark  390  /partners/cpa                                        h=844    main:0 targets<44:1",
+     "dark  390  /partners/bookkeeper                                 h=844    main:0 targets<44:1",
+     "dark  390  /partners/insurance                                  h=844    main:0 targets<44:1",
+     "dark  390  /affiliate                                           h=5574   ok",
+     "dark  390  /areas-served                                        h=12965  ok",
+     "dark  390  /privacy-policy                                      h=10059  ok",
+     "dark  390  /industries                                          h=4429   ok",
+     "dark  390  /industries/restaurant-payment-processing            h=5978   ok",
+     "dark  390  /industries/retail-payment-processing                h=5924   ok",
+     "dark  390  /industries/healthcare-payment-processing            h=5676   ok",
+     "dark  390  /industries/auto-repair-payment-processing           h=5902   ok",
+     "dark  1440 /                                                    h=6195   ok",
+     "dark  1440 /payment-processing                                  h=3675   ok",
+     "dark  1440 /pricing-and-programs                                h=4151   ok",
+     "dark  1440 /learn                                               h=8196   ok",
+     "dark  1440 /learn/interchange-plus-pricing                      h=4289   ok",
+     "dark  1440 /free-analysis                                       h=2125   ok",
+     "dark  1440 /upload-statement                                    h=5174   ok",
+     "dark  1440 /estimate                                            h=2882   ok",
+     "dark  1440 /get-started                                         h=2334   ok",
+     "dark  1440 /0-percent-processing                                h=6674   ok",
+     "dark  1440 /free-smart-terminal                                 h=5061   ok",
+     "dark  1440 /shop                                                h=3134   ok",
+     "dark  1440 /about-contact                                       h=3350   ok",
+     "dark  1440 /why-liberty-bancard                                 h=4078   ok",
+     "dark  1440 /case-studies                                        h=2331   ok",
+     "dark  1440 /faq                                                 h=4593   ok",
+     "dark  1440 /support                                             h=2498   ok",
+     "dark  1440 /help                                                h=3298   ok",
+     "dark  1440 /blog                                                h=3511   ok",
+     "dark  1440 /compare-rates                                       h=5023   ok",
+     "dark  1440 /savings-calculator                                  h=5444   ok",
+     "dark  1440 /compare/square                                      h=3918   ok",
+     "dark  1440 /partners                                            h=900    main:0",
+     "dark  1440 /partners/referrals                                  h=4955   ok",
+     "dark  1440 /partners/sales-agents                               h=4755   ok",
+     "dark  1440 /partners/cpa                                        h=900    main:0",
+     "dark  1440 /partners/bookkeeper                                 h=900    main:0",
+     "dark  1440 /partners/insurance                                  h=900    main:0",
+     "dark  1440 /affiliate                                           h=3705   ok",
+     "dark  1440 /areas-served                                        h=5048   ok",
+     "dark  1440 /privacy-policy                                      h=6359   ok",
+     "dark  1440 /industries                                          h=2221   ok",
+     "dark  1440 /industries/restaurant-payment-processing            h=3667   ok",
+     "dark  1440 /industries/retail-payment-processing                h=3601   ok",
+     "dark  1440 /industries/healthcare-payment-processing            h=3601   ok",
+     "dark  1440 /industries/auto-repair-payment-processing           h=3601   ok",
+     "144 page states, 16 with findings. Report: generated-artifacts/public-site/run/report.json"
+    ],
+    "logSha256": "60c7bda2a97973fd4af66cdb9a5d4d903c36a472ebbf9de6dd168c2814a828ff",
+    "logBytes": 33699,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "4:04:37 PM [express] GET /api/public/testimonials/approved 200 in 12ms",
+    "evidenceKind": "suite-specific-output",
+    "evidence": [
+     "dark  1440 /partners/referrals                                  h=4793   ok",
+     "dark  1440 /partners/sales-agents                               h=4507   ok",
+     "dark  1440 /partners/cpa                                        h=900    main:0",
+     "dark  1440 /affiliate                                           h=3674   ok",
+     "dark  1440 /areas-served                                        h=5048   ok",
+     "dark  1440 /privacy-policy                                      h=6359   ok",
+     "dark  1440 /industries                                          h=2221   ok",
+     "dark  1440 /industries/restaurant-payment-processing            h=3667   ok",
+     "dark  1440 /industries/retail-payment-processing                h=3601   ok",
+     "dark  1440 /industries/healthcare-payment-processing            h=3601   ok",
+     "dark  1440 /industries/auto-repair-payment-processing           h=3601   ok",
+     "136 page states, 16 with findings. Report: generated-artifacts/public-site/run/report.json"
+    ],
+    "logSha256": "3bde8d094ab894403c5f79023df4b23ed5fc36cb7beb1e9681f651cae93e9797",
+    "logBytes": 33779
+   },
+   "rerun": {
+    "sha": "throwaway export of the final working tree (commit 24228e17, tree identical to the working tree after the roster, built)",
+    "result": "pass",
+    "firstError": null,
+    "evidenceKind": null,
+    "evidence": [],
+    "logSha256": "ab45c66ef8a1d893a7e9e5c570136b61865e05f91b4c7331a2a0b7d9825c51ee",
+    "logBytes": 35473
+   },
+   "disposition": "environment-transient",
+   "note": "In the roster run the hub and the CPA, bookkeeper and insurance pages showed no main landmark within the 1.2 s settle window at 390 and 1440 wide (the pre-repair single run had the same symptom on /partners, /partners/cpa, /estimate and /support). Rerun alone on the final tree twice: exit 0 both times, 144 states, none flagged. The suite is sensitive to load; the passing reruns are the evidence for the partner pages."
+  },
+  {
+   "script": "scripts/check-public-shell-design.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "Error: Inspected target navigated or closed @ scripts/lib/public-site-browser.ts:69:43",
+    "evidence": [
+     "Error: Inspected target navigated or closed @ scripts/lib/public-site-browser.ts:69:43"
+    ],
+    "logSha256": "61b5eb2eb555613d5f8aa7736c457ad632734e2bd1c74d93845438ad4120bf9e",
+    "logBytes": 15026,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "pass",
+    "firstError": null,
+    "evidenceKind": null,
+    "evidence": [],
+    "logSha256": "08f4eaad46c5b0b2949cc3b1d8cb34fcfd02b9ac32c243eee3a5e3a8537d21c4",
+    "logBytes": 36841
+   },
+   "rerun": {
+    "sha": "throwaway export of the final working tree (commit 24228e17, tree identical to the working tree after the roster, built)",
+    "result": "pass",
+    "firstError": null,
+    "evidenceKind": null,
+    "evidence": [],
+    "logSha256": "fcd707616929f09a1870a9601e6d47379ebb21f0a2a8de8e5a968805a354aa08",
+    "logBytes": 37202
+   },
+   "disposition": "environment-transient",
+   "note": null
+  },
+  {
+   "script": "scripts/check-public-fonts.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "9bbd2131ee59706f8486c8c0bcf24e04a953d066f7a4dd03261278e69c2a7a16",
+    "logBytes": 21851,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/check-public-overlay.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "9c0f2ae7423a7505a538ae2396049c88ddfd561d4c17eac651b6bcc9218e7654",
+    "logBytes": 17171,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/check-public-server-hydrated-parity.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "067b607916f413963701315cd3d220f57ca3a324784ff284bd43e9b529f9864e",
+    "logBytes": 19503,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/check-wd-pv-browser.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "33c5a02e6b8aca6b220a67648935ea585d14a5d9a3622cd30d6dea20c91e37f9",
+    "logBytes": 25961,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-chat-business-hours.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "d362cee6fcc8250fda28fc73968b0c62074b45205507e58516fce941a3a16857",
+    "logBytes": 17321,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-pause-fence.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "✗ outbound_pause_control row exists",
+    "evidence": [
+     "✗ outbound_pause_control row exists",
+     "[test-pause-fence] FAIL — 1 check(s) failed."
+    ],
+    "logSha256": "e02d5d14c73429a8ba365b6df8992266ab3cde85c7677c1cb26a84212ef2ad51",
+    "logBytes": 10076,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "✗ outbound_pause_control row exists",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "✗ outbound_pause_control row exists",
+     "[test-pause-fence] FAIL — 1 check(s) failed."
+    ],
+    "logSha256": "7111c322a11f90565d3e88f8f4a7fa743e53050f5d6cc8c8a168d70420c7c91d",
+    "logBytes": 11155
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-outbound-pause-authority.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "✗ server/routes/toolkit.ts is MISSING pause authority gate — provider I/O can bypass the pause",
+    "evidence": [
+     "✗ server/routes/toolkit.ts is MISSING pause authority gate — provider I/O can bypass the pause",
+     "✗ toolkit.ts SMS reply: no registerInflight() call found in server/routes/toolkit.ts",
+     "[test-outbound-pause-authority] FAIL"
+    ],
+    "logSha256": "166305c71260f800a21363fe1c26d84bc1d35ac27021d8ec98dd50922b0d8623",
+    "logBytes": 16820,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "✗ server/routes/toolkit.ts is MISSING pause authority gate — provider I/O can bypass the pause",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "✗ server/routes/toolkit.ts is MISSING pause authority gate — provider I/O can bypass the pause",
+     "✗ toolkit.ts SMS reply: no registerInflight() call found in server/routes/toolkit.ts",
+     "[test-outbound-pause-authority] FAIL"
+    ],
+    "logSha256": "559b00759ee3a7355b2eff9fa24718af3eaac34ffa2e2569427c18f75459757b",
+    "logBytes": 17920
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-slack-pause-boundary.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "4114c2aed3451468fc3f596642f238c021eef5bf24f76e6759c568abaee1ce60",
+    "logBytes": 7718,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-outbound-boundary-1626.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "Test run crashed: TypeError: Cannot read properties of undefined (reading 'epoch') @ scripts/test-outbound-boundary-1626.ts:176:42",
+    "evidence": [
+     "Test run crashed: TypeError: Cannot read properties of undefined (reading 'epoch') @ scripts/test-outbound-boundary-1626.ts:176:42"
+    ],
+    "logSha256": "4f0d11ddd40aa7674ef5c18e1fd9a3568126574e2574232d26a275783c9a4eb2",
+    "logBytes": 9687,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "Test run crashed: TypeError: Cannot read properties of undefined (reading 'epoch') @ scripts/test-outbound-boundary-1626.ts:176:42",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "Test run crashed: TypeError: Cannot read properties of undefined (reading 'epoch') @ scripts/test-outbound-boundary-1626.ts:176:42"
+    ],
+    "logSha256": "bc5d5e8b193dd1f111bb623035e944dd3205e691b5baf80fd89159bb239c6a10",
+    "logBytes": 10785
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-email-signatures.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "f7c4890ce1fffdb476bc5a305cb984de09078e261fd37b6ff506e88642c70e2a",
+    "logBytes": 16441,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-arbitration.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "f8c90db9a8e8431744ed7667be1e410507ba0cbf693aebd14f14ccfff2c43b58",
+    "logBytes": 10917,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-statement-acquisition.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "✗ Upload-chain GHL projection remains held with no projection request",
+    "evidence": [
+     "✗ Upload-chain GHL projection remains held with no projection request",
+     "✗ Upload-chain merchant confirmation is held without external delivery"
+    ],
+    "logSha256": "4a46f287cc7b61e14e41d49bd5195a386a9cf49faa5ea688839b072a9535926c",
+    "logBytes": 20082,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "✗ Upload-chain GHL projection remains held with no projection request",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "✗ Upload-chain GHL projection remains held with no projection request",
+     "✗ Upload-chain merchant confirmation is held without external delivery"
+    ],
+    "logSha256": "a62a6be398942a1734ce51a6b33303a9a2a7d07c4eb118d0649ce51045c7ae2e",
+    "logBytes": 21183
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-channel-orchestrator.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "e7ad207ee1c0cad077e8b41bc2391a2115e41af7054e130f005052ef86796558",
+    "logBytes": 14701,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-nba.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "✗ actionType is CALL_PROSPECT or SEND_EMAIL",
+    "evidence": [
+     "✗ actionType is CALL_PROSPECT or SEND_EMAIL",
+     "✗ actionType is CONTACT_AT_RISK_MERCHANT",
+     "✗ urgency is critical",
+     "✗ humanRequired is true",
+     "✗ actionType is SEND_PROPOSAL",
+     "✗ urgency is critical",
+     "✗ reasonCode is do_not_contact",
+     "✗ reasonCode is closed_lost_no_action",
+     "✗ Fixture contact appears in priority queue",
+     "✗ reasonCode is appointment_pending",
+     "✗ [isolation] epoch not advanced by test suite"
+    ],
+    "logSha256": "ab170b0f82fbb23526e7cc408285c55e8075c864fb21a33c624b4cf8b1f54ade",
+    "logBytes": 10031,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "✗ actionType is CALL_PROSPECT or SEND_EMAIL",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "✗ actionType is CALL_PROSPECT or SEND_EMAIL",
+     "✗ actionType is CONTACT_AT_RISK_MERCHANT",
+     "✗ urgency is critical",
+     "✗ humanRequired is true",
+     "✗ actionType is SEND_PROPOSAL",
+     "✗ urgency is critical",
+     "✗ reasonCode is do_not_contact",
+     "✗ reasonCode is closed_lost_no_action",
+     "✗ Fixture contact appears in priority queue",
+     "✗ reasonCode is appointment_pending",
+     "✗ [isolation] epoch not advanced by test suite"
+    ],
+    "logSha256": "48da6dd33666def5492456896a787ddc32539eb55387b1a2640bbd55f8f5bf81",
+    "logBytes": 11094
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/test-ai-assistant-boundaries.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "5e6f616785bdbe1e553d0e94fb23055d138615bd2ca9449f7ec95119eab4827b",
+    "logBytes": 17569,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-forms.ts",
+   "final": {
+    "result": "fail",
+    "evidenceKind": "strong-lines",
+    "firstError": "✗ Statement upload returns 2xx (not rate-limited — run from a fresh IP or wait 15 min if 429) — status=415 body={\"error\":\"STATEMENT_FILE_TYPE_UNSUPPORTED\",\"message\":\"Upload a PDF, JPEG or PNG statement.\"}",
+    "evidence": [
+     "✗ Statement upload returns 2xx (not rate-limited — run from a fresh IP or wait 15 min if 429) — status=415 body={\"error\":\"STATEMENT_FILE_TYPE_UNSUPPORTED\",\"message\":\"Upload a PDF, JPEG or PNG statement.\"}",
+     "✗ Contact created after statement upload — email=qa-release-test-stmt-1794931951424-817m79ssg0e@libertybancard.test",
+     "✗ Form integration tests FAILED."
+    ],
+    "logSha256": "c70d7f47c894575e647144c7b3baa41a7b68e02e14632cbb4e4770eb172ceb10",
+    "logBytes": 41986,
+    "childExit": null
+   },
+   "launcherCountedAsFailure": true,
+   "base": {
+    "sha": "49b5f39a (pre-repair HEAD; exported to a throwaway repository and built)",
+    "result": "fail",
+    "firstError": "✗ Statement upload returns 2xx (not rate-limited — run from a fresh IP or wait 15 min if 429) — status=415 body={\"error\":\"STATEMENT_FILE_TYPE_UNSUPPORTED\",\"message\":\"Upload a PDF, JPEG or PNG statement.\"}",
+    "evidenceKind": "strong-lines",
+    "evidence": [
+     "✗ Statement upload returns 2xx (not rate-limited — run from a fresh IP or wait 15 min if 429) — status=415 body={\"error\":\"STATEMENT_FILE_TYPE_UNSUPPORTED\",\"message\":\"Upload a PDF, JPEG or PNG statement.\"}",
+     "✗ Contact created after statement upload — email=qa-release-test-stmt-1794932300580-qyhqmrr2leg@libertybancard.test",
+     "✗ Form integration tests FAILED."
+    ],
+    "logSha256": "e7ab0bc4256057288437e6134e919d30e01890d4f93b85cdc6ab9fdf062494b0",
+    "logBytes": 43142
+   },
+   "rerun": null,
+   "disposition": "matched baseline",
+   "note": null
+  },
+  {
+   "script": "scripts/smoke-portfolio.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "ca3d3a76d8a64ff04f960b84094bdea9eb31981e1ded439831cf9a953e414a4c",
+    "logBytes": 16076,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/smoke-golive-gate.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "b24368e1c3cd412905660d1203be055f5657fb0e320ea10d4306c9fc10a4473b",
+    "logBytes": 20267,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/smoke-attrition-cooldown.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "261c2a7188118a0ae00a3024f80b5c8bdb89d47e71bdf96d5cbca05c4a9c3ce4",
+    "logBytes": 9391,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-backlog-preview.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "52da0f18169bf8c6e544184174a5ae3be0e607e6f012630b9c8797cedaa0fd58",
+    "logBytes": 15468,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-import-idempotency.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "8623aaf696ca29da5d85b7c7435ad0949f3f71aa6559b7bb5bdd70431925962a",
+    "logBytes": 19907,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/certify-cro03a-autowire.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "ddb59ceacf4b4ec4a83b277931c14608b7c24de843bd95e9f8ade584669b4ef5",
+    "logBytes": 10229,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03a-geography.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "620f8a6ba599c962b73cd4a897baeb3ee83dfccaf8ee584050a7570914e7ae93",
+    "logBytes": 7796,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03a-batch-equivalence.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "0bb625930b394a580b2c4a0330139a6612886e4f49dcf7be079d5440b0d02fbe",
+    "logBytes": 8722,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03a-batch-performance.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "b148eb3f5987eb2ce6782c8685db9c7425f5f0340033434e10729645cab458f7",
+    "logBytes": 9860,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-cro03a-policy-comparison.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "d9326c8be5d85897e0f2c996817d719a433899e827be223a5a5488b3971b281a",
+    "logBytes": 8749,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-identity-crosswalk.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "81ccda58899dff78475ec487a9a1237dcf878b9fff415cc663ccb8b82d7e1162",
+    "logBytes": 27774,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage4c1-cta-contract.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "9c6960a8b1a1c5d98962b130ac3bc440813b49ecf95a5304a71b43086852a25d",
+    "logBytes": 12710,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage4c1-premium-drafts.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "e8f4279826934e8b0dfe6f73ef1b49f0daf4be1f697d30f4e7daf4a706700b1a",
+    "logBytes": 9223,
+    "childExit": null
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  },
+  {
+   "script": "scripts/test-stage4c1-workspace-navigation.ts",
+   "final": {
+    "result": "pass",
+    "logSha256": "e8144984acc4330b460f51d1d76845a94f88287356108d570ffcb924241ae4ab",
+    "logBytes": 42269,
+    "childExit": 0
+   },
+   "base": null,
+   "rerun": null,
+   "disposition": "passed",
+   "note": null
+  }
+ ]
+}

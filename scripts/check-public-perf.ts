@@ -44,7 +44,8 @@ const median=(values:number[])=>{
 };
 
 type RouteStatus="within budget"|"over budget"|"invalid";
-interface RouteResult{route:string;status:RouteStatus;lcpMs:number|null;cls:number|null;totalBytes:number;imageBytes:number;imageRequests:number;runs:number;invalidReasons:string[]}
+interface SampleRecord{run:number;lcpMs:number|null;cls:number|null;valid:boolean;verdict:SampleVerdict;totalBytes:number;imageBytes:number;imageRequests:number}
+interface RouteResult{route:string;status:RouteStatus;lcpMs:number|null;cls:number|null;totalBytes:number;imageBytes:number;imageRequests:number;runs:number;invalidReasons:string[];samples:SampleRecord[]}
 
 async function main(){
   const base=arg("base","http://127.0.0.1:6000").replace(/\/$/,"");
@@ -60,6 +61,7 @@ async function main(){
     for(const route of routes){
       const verdicts:SampleVerdict[]=[];
       const transfer:{totalBytes:number;imageBytes:number;imageRequests:number}[]=[];
+      const samples:SampleRecord[]=[];
       for(let i=0;i<runs;i++){
         const session=await browser.newSession({width:390,height:844,mobile:true,deviceScaleFactor:2,colorScheme:"light",
           blockUrlParts:["leadconnectorhq.com","google-analytics","googletagmanager","facebook.net"],
@@ -74,14 +76,19 @@ async function main(){
           try{await session.goto(`${base}${route}`,{settleMs:4000});}catch{timedOut=true;}
           const perf=timedOut?{lcp:null,cls:0,clsObserved:true}:await session.evaluate<{lcp:unknown;cls:unknown;clsObserved:unknown}>("window.__perf");
           const readiness=timedOut?{ready:false}:await session.evaluate<{ready:boolean}>(PERF_READINESS_SOURCE);
-          verdicts.push(classifySample({lcp:perf.lcp,cls:perf.cls,clsObserved:perf.clsObserved,ready:readiness.ready,navigationTimedOut:timedOut}));
+          const verdict=classifySample({lcp:perf.lcp,cls:perf.cls,clsObserved:perf.clsObserved,ready:readiness.ready,navigationTimedOut:timedOut});
+          verdicts.push(verdict);
           const requests=session.requests();
           const images=requests.filter(r=>r.type==="Image"||/^image\//.test(r.mime??""));
-          transfer.push({
+          const sample={
             totalBytes:requests.reduce((sum,r)=>sum+(r.encodedBytes??0),0),
             imageBytes:images.reduce((sum,r)=>sum+(r.encodedBytes??0),0),
             imageRequests:images.length,
-          });
+          };
+          transfer.push(sample);
+          // Every cold sample is kept in the report (not only the median), so a reader can see the spread and any invalid run.
+          samples.push({run:i+1,lcpMs:typeof perf.lcp==="number"?Math.round(perf.lcp):null,cls:typeof perf.cls==="number"?Math.round(perf.cls*1000)/1000:null,
+            valid:verdict.valid,verdict,...sample});
         }finally{
           await session.close();
         }
@@ -96,6 +103,7 @@ async function main(){
         imageBytes:Math.round(median(transfer.map(t=>t.imageBytes))),
         imageRequests:Math.round(median(transfer.map(t=>t.imageRequests))),
         invalidReasons:summary.invalidReasons,
+        samples,
       });
     }
   }finally{

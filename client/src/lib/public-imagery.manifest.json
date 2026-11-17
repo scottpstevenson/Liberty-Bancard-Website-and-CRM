@@ -416,76 +416,6 @@
               "bytes": 48270
             }
           ]
-        },
-        {
-          "name": "partner-hero",
-          "width": 1280,
-          "height": 853,
-          "files": [
-            {
-              "format": "avif",
-              "file": "industry-dental-partner-hero-480.avif",
-              "width": 480,
-              "height": 320,
-              "bytes": 11623
-            },
-            {
-              "format": "webp",
-              "file": "industry-dental-partner-hero-480.webp",
-              "width": 480,
-              "height": 320,
-              "bytes": 15240
-            },
-            {
-              "format": "jpg",
-              "file": "industry-dental-partner-hero-480.jpg",
-              "width": 480,
-              "height": 320,
-              "bytes": 20436
-            },
-            {
-              "format": "avif",
-              "file": "industry-dental-partner-hero-720.avif",
-              "width": 720,
-              "height": 480,
-              "bytes": 20604
-            },
-            {
-              "format": "webp",
-              "file": "industry-dental-partner-hero-720.webp",
-              "width": 720,
-              "height": 480,
-              "bytes": 26234
-            },
-            {
-              "format": "jpg",
-              "file": "industry-dental-partner-hero-720.jpg",
-              "width": 720,
-              "height": 480,
-              "bytes": 37623
-            },
-            {
-              "format": "avif",
-              "file": "industry-dental-partner-hero-960.avif",
-              "width": 960,
-              "height": 640,
-              "bytes": 31019
-            },
-            {
-              "format": "webp",
-              "file": "industry-dental-partner-hero-960.webp",
-              "width": 960,
-              "height": 640,
-              "bytes": 39026
-            },
-            {
-              "format": "jpg",
-              "file": "industry-dental-partner-hero-960.jpg",
-              "width": 960,
-              "height": 640,
-              "bytes": 58350
-            }
-          ]
         }
       ]
     },
@@ -1158,76 +1088,6 @@
               "bytes": 89705
             }
           ]
-        },
-        {
-          "name": "partner-hero",
-          "width": 1280,
-          "height": 853,
-          "files": [
-            {
-              "format": "avif",
-              "file": "industry-field-services-partner-hero-480.avif",
-              "width": 480,
-              "height": 320,
-              "bytes": 20131
-            },
-            {
-              "format": "webp",
-              "file": "industry-field-services-partner-hero-480.webp",
-              "width": 480,
-              "height": 320,
-              "bytes": 30310
-            },
-            {
-              "format": "jpg",
-              "file": "industry-field-services-partner-hero-480.jpg",
-              "width": 480,
-              "height": 320,
-              "bytes": 31029
-            },
-            {
-              "format": "avif",
-              "file": "industry-field-services-partner-hero-720.avif",
-              "width": 720,
-              "height": 480,
-              "bytes": 40269
-            },
-            {
-              "format": "webp",
-              "file": "industry-field-services-partner-hero-720.webp",
-              "width": 720,
-              "height": 480,
-              "bytes": 59680
-            },
-            {
-              "format": "jpg",
-              "file": "industry-field-services-partner-hero-720.jpg",
-              "width": 720,
-              "height": 480,
-              "bytes": 63843
-            },
-            {
-              "format": "avif",
-              "file": "industry-field-services-partner-hero-960.avif",
-              "width": 960,
-              "height": 640,
-              "bytes": 63341
-            },
-            {
-              "format": "webp",
-              "file": "industry-field-services-partner-hero-960.webp",
-              "width": 960,
-              "height": 640,
-              "bytes": 93470
-            },
-            {
-              "format": "jpg",
-              "file": "industry-field-services-partner-hero-960.jpg",
-              "width": 960,
-              "height": 640,
-              "bytes": 105522
-            }
-          ]
         }
       ]
     },
@@ -1779,6 +1639,160 @@
               "width": 960,
               "height": 640,
               "bytes": 48044
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "partner-bookkeeper-review",
+      "source": "client/src/assets/images/partner/partner-bookkeeper-review.png",
+      "sourceSha256": "2bcbf73dc6650d8632082596aa923145e754ea3c2460da05fab5ddb1b1e394e7",
+      "variants": [
+        {
+          "name": "partner-hero",
+          "width": 1280,
+          "height": 853,
+          "files": [
+            {
+              "format": "avif",
+              "file": "partner-bookkeeper-review-partner-hero-480.avif",
+              "width": 480,
+              "height": 320,
+              "bytes": 12831
+            },
+            {
+              "format": "webp",
+              "file": "partner-bookkeeper-review-partner-hero-480.webp",
+              "width": 480,
+              "height": 320,
+              "bytes": 17976
+            },
+            {
+              "format": "jpg",
+              "file": "partner-bookkeeper-review-partner-hero-480.jpg",
+              "width": 480,
+              "height": 320,
+              "bytes": 23050
+            },
+            {
+              "format": "avif",
+              "file": "partner-bookkeeper-review-partner-hero-720.avif",
+              "width": 720,
+              "height": 480,
+              "bytes": 23554
+            },
+            {
+              "format": "webp",
+              "file": "partner-bookkeeper-review-partner-hero-720.webp",
+              "width": 720,
+              "height": 480,
+              "bytes": 31252
+            },
+            {
+              "format": "jpg",
+              "file": "partner-bookkeeper-review-partner-hero-720.jpg",
+              "width": 720,
+              "height": 480,
+              "bytes": 43767
+            },
+            {
+              "format": "avif",
+              "file": "partner-bookkeeper-review-partner-hero-960.avif",
+              "width": 960,
+              "height": 640,
+              "bytes": 35051
+            },
+            {
+              "format": "webp",
+              "file": "partner-bookkeeper-review-partner-hero-960.webp",
+              "width": 960,
+              "height": 640,
+              "bytes": 45080
+            },
+            {
+              "format": "jpg",
+              "file": "partner-bookkeeper-review-partner-hero-960.jpg",
+              "width": 960,
+              "height": 640,
+              "bytes": 67453
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "partner-insurance-advice",
+      "source": "client/src/assets/images/partner/partner-insurance-advice.png",
+      "sourceSha256": "2fa7f498984a1557a67a46677b89644e869106628c56ba698d068da078b0c660",
+      "variants": [
+        {
+          "name": "partner-hero",
+          "width": 1280,
+          "height": 853,
+          "files": [
+            {
+              "format": "avif",
+              "file": "partner-insurance-advice-partner-hero-480.avif",
+              "width": 480,
+              "height": 320,
+              "bytes": 12289
+            },
+            {
+              "format": "webp",
+              "file": "partner-insurance-advice-partner-hero-480.webp",
+              "width": 480,
+              "height": 320,
+              "bytes": 17256
+            },
+            {
+              "format": "jpg",
+              "file": "partner-insurance-advice-partner-hero-480.jpg",
+              "width": 480,
+              "height": 320,
+              "bytes": 23177
+            },
+            {
+              "format": "avif",
+              "file": "partner-insurance-advice-partner-hero-720.avif",
+              "width": 720,
+              "height": 480,
+              "bytes": 22408
+            },
+            {
+              "format": "webp",
+              "file": "partner-insurance-advice-partner-hero-720.webp",
+              "width": 720,
+              "height": 480,
+              "bytes": 30222
+            },
+            {
+              "format": "jpg",
+              "file": "partner-insurance-advice-partner-hero-720.jpg",
+              "width": 720,
+              "height": 480,
+              "bytes": 43538
+            },
+            {
+              "format": "avif",
+              "file": "partner-insurance-advice-partner-hero-960.avif",
+              "width": 960,
+              "height": 640,
+              "bytes": 33461
+            },
+            {
+              "format": "webp",
+              "file": "partner-insurance-advice-partner-hero-960.webp",
+              "width": 960,
+              "height": 640,
+              "bytes": 43260
+            },
+            {
+              "format": "jpg",
+              "file": "partner-insurance-advice-partner-hero-960.jpg",
+              "width": 960,
+              "height": 640,
+              "bytes": 67455
             }
           ]
         }

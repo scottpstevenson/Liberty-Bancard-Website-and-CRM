@@ -83,6 +83,18 @@ const CHECK = String.raw`(async()=>{
   result.h2NonSerif=sectionH2.filter(h=>!/Source Serif/i.test(getComputedStyle(h).fontFamily)).map(h=>h.textContent.trim().slice(0,30));
   result.cardH2=h2s.filter(h=>!h.classList.contains('public-h2')).map(h=>h.textContent.trim().slice(0,30));
   result.h1Serif=/Source Serif/i.test(getComputedStyle(document.querySelector('h1')).fontFamily);
+  // Editorial body image (lazy, below the first screen): decoded and visible once scrolled to, inside its own section, and on the
+  // hub placed beside the path-explanation heading from 768 px (the composition added in the closeout).
+  const bodyFig=main?main.querySelector('figure[data-testid="partner-media-body"]'):null;
+  if(bodyFig){const bi=bodyFig.querySelector('img');const br=bodyFig.getBoundingClientRect();const sec=bodyFig.closest('section');
+    const head=sec?sec.querySelector('h2'):null;const hr=head?head.getBoundingClientRect():null;
+    result.body={decoded:!!bi&&bi.complete&&bi.naturalWidth>0,loading:bi?bi.getAttribute('loading'):null,fetchpriority:bi?bi.getAttribute('fetchpriority'):null,
+      src:bi?(bi.currentSrc||'').split('/').pop():null,alt:bi?bi.getAttribute('alt'):null,width:Math.round(br.width),height:Math.round(br.height),
+      captionVisible:!!bodyFig.querySelector('figcaption')&&bodyFig.querySelector('figcaption').getBoundingClientRect().height>0,
+      inSection:!!sec,sectionId:sec?sec.getAttribute('data-testid'):null,
+      besideHeading:hr?(br.left>=hr.right-2||Math.abs((br.top+br.height/2)-(hr.top+hr.height/2))<br.height):null,
+      inline:hr?br.left>=hr.right-2:null};
+  }else result.body=null;
   result.docHeight=document.documentElement.scrollHeight;
   return result})()`;
 
@@ -90,7 +102,7 @@ const SCROLL_ALL = String.raw`(async()=>{const h=document.documentElement.scroll
   window.scrollTo(0,0);await new Promise(r=>setTimeout(r,300));
   const imgs=[...document.images].filter(i=>i.getBoundingClientRect().width>0);return {images:imgs.length,undecoded:imgs.filter(i=>!(i.complete&&i.naturalWidth>0)).map(i=>(i.currentSrc||i.src).split('/').pop())}})()`;
 
-interface Row { route: string; width: number; failures: string[]; hero: any; navySections: number | null; navyMinContrast: number | null; docHeight: number }
+interface Row { route: string; width: number; failures: string[]; hero: any; body?: any; navySections: number | null; navyMinContrast: number | null; docHeight: number }
 const rows: Row[] = [];
 
 async function main() {
@@ -122,6 +134,20 @@ async function main() {
           if (width >= 1024 && !r.hero.rightOfHeading) failures.push("desktop hero image is not beside the heading");
           if (width < 768 && (r.hero.height < 150 || r.hero.height > 320)) failures.push(`phone hero image is ${r.hero.height}px tall (expected about 180-260)`);
         }
+        const expectsBody = route !== "/partners/referrals" && route !== "/partners/sales-agents" && route !== "/affiliate";
+        if (expectsBody && !r.body) failures.push("no editorial body image on this page");
+        if (r.body) {
+          if (!r.body.decoded) failures.push(`body image not decoded (${r.body.src})`);
+          if (r.body.loading !== "lazy" || r.body.fetchpriority) failures.push("body image is not lazy");
+          if (!r.body.alt) failures.push("body image has no alt text");
+          if (!r.body.captionVisible) failures.push("body image has no visible illustrative-scene caption");
+          if (width < 500 && r.body.width > width) failures.push(`body image is wider than the viewport (${r.body.width})`);
+          if (route === "/partners") {
+            if (r.body.sectionId !== "section-partner-paths") failures.push(`hub body image is in ${r.body.sectionId}, not the path-explanation section`);
+            if (width >= 768 && !r.body.inline) failures.push("hub body image is not beside the path-explanation heading");
+            if (width >= 768 && r.body.width < 280) failures.push(`hub body image is only ${r.body.width}px wide`);
+          }
+        }
         if (scrolled.undecoded.length) failures.push(`undecoded images after scrolling the page: ${scrolled.undecoded.slice(0, 3).join(", ")}`);
         if (!r.navyBeforeFooter) failures.push("no navy section before the footer");
         if (r.navyMinContrast !== null && r.navyMinContrast < 4.5) failures.push(`inverse text contrast ${r.navyMinContrast} on navy (${r.lowContrast.join("; ")})`);
@@ -130,7 +156,7 @@ async function main() {
         if (!r.h1Serif) failures.push("h1 is not in the marketing serif");
         const errors = session.consoleErrors().filter((e) => !/Failed to load resource|net::ERR/i.test(e));
         if (errors.length) failures.push(`console errors: ${errors.slice(0, 2).join(" | ").slice(0, 160)}`);
-        rows.push({ route, width, failures, hero: r.hero, navySections: r.navySections, navyMinContrast: r.navyMinContrast, sectionH2: r.sectionH2, cardH2: r.cardH2, docHeight: r.docHeight });
+        rows.push({ route, width, failures, hero: r.hero, body: r.body, navySections: r.navySections, navyMinContrast: r.navyMinContrast, sectionH2: r.sectionH2, cardH2: r.cardH2, docHeight: r.docHeight });
         if (SHOTS[width]) {
           await session.evaluate("window.scrollTo(0,0)");
           await session.screenshot(path.join(out, `${slug(route)}-${width}-hero.png`));
