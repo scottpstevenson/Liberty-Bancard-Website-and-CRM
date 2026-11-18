@@ -47,6 +47,8 @@ try{
   await browser!.evaluate(`document.documentElement.classList.toggle('dark',${dark})`);
   check(!await browser!.evaluate('document.documentElement.scrollWidth>innerWidth+1'),`Shared budget layout fits ${width}px ${dark?'dark':'light'}`);
  }
+ await browser!.evaluate('document.querySelector("[aria-labelledby=scheduled-discovery-heading] div[role=status]").scrollIntoView({block:"center"})');
+ check(await browser!.evaluate('(()=>{const r=document.querySelector("[aria-labelledby=scheduled-discovery-heading] div[role=status]").getBoundingClientRect();return r.top>=120&&r.bottom<innerHeight})()'),'Budget screenshot captures the visible shared allowance card');
  await browser!.screenshot('admin-shared-budget');
  await open('manager',390);await browser!.click('[data-testid="discovery-schedule-settings"]');
  check(await browser!.evaluate('document.querySelector("[data-testid=input-outs-monthly-budget]").disabled===true'),'Manager sees the shared cap as read-only');
