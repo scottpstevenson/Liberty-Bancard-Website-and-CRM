@@ -11871,7 +11871,7 @@ export const discoverySchedules = pgTable("discovery_schedules", {
  dailyDispatchCount:integer("daily_dispatch_count").notNull().default(1),timezone:text("timezone").notNull().default("America/New_York"),
  repeatDays:integer("repeat_days").notNull().default(30),workerHeartbeatAt:timestamp("worker_heartbeat_at",{withTimezone:true}),
  lastError:text("last_error"),updatedBy:text("updated_by"),updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().defaultNow(),
-},t=>[check("discovery_schedules_id_check",sql`${t.id}`),check("discovery_schedules_daily_dispatch_count_check",sql`${t.dailyDispatchCount} BETWEEN 1 AND 1000`),check("discovery_schedules_repeat_days_check",sql`${t.repeatDays} BETWEEN 1 AND 365`)]);
+},t=>[check("discovery_schedules_id_check",sql`${t.id} = true`),check("discovery_schedules_daily_dispatch_count_check",sql`${t.dailyDispatchCount} BETWEEN 1 AND 1000`),check("discovery_schedules_repeat_days_check",sql`${t.repeatDays} BETWEEN 1 AND 365`)]);
 export const discoveryDefinitions=pgTable("discovery_definitions",{
  id:uuid("id").primaryKey().defaultRandom(),programId:uuid("program_id").notNull().references(()=>sfpPrograms.id),
  programPin:text("program_pin").notNull(),revision:integer("revision").notNull().default(1),vertical:text("vertical").notNull(),
@@ -11889,7 +11889,7 @@ export const discoveryArtifacts=pgTable("discovery_artifacts",{
 },t=>[check("discovery_artifacts_content_hash_check",sql`${t.contentHash} ~ '^[a-f0-9]{64}$'`),check("discovery_artifacts_rows_check",sql`jsonb_typeof(${t.rows})='array' AND jsonb_array_length(${t.rows})<=100`),check("discovery_artifacts_raw_count_check",sql`${t.rawCount} BETWEEN 0 AND 100`)]);
 export const discoveryLane=pgTable("discovery_lane",{
  id:boolean("id").primaryKey().default(true),runId:uuid("run_id").unique().references(()=>discoveryRuns.id),token:uuid("token"),acquiredAt:timestamp("acquired_at",{withTimezone:true}),updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().defaultNow(),
-},t=>[check("discovery_lane_id_check",sql`${t.id}`),check("discovery_lane_check",sql`(${t.runId} IS NULL)=(${t.token} IS NULL)`)]);
+},t=>[check("discovery_lane_id_check",sql`${t.id} = true`),check("discovery_lane_check",sql`(${t.runId} IS NULL)=(${t.token} IS NULL)`)]);
 export const discoveryCoverage=pgTable("discovery_coverage",{
  id:uuid("id").primaryKey().defaultRandom(),definitionId:uuid("definition_id").notNull().references(()=>discoveryDefinitions.id),definitionRevision:integer("definition_revision").notNull(),areaType:text("area_type").notNull(),areaKey:text("area_key").notNull(),coveredThrough:timestamp("covered_through",{withTimezone:true}).notNull(),actorId:text("actor_id").notNull(),reference:text("reference"),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
 },t=>[index("discovery_coverage_exact_area_idx").on(t.definitionId,t.definitionRevision,t.areaType,t.areaKey,t.coveredThrough),check("discovery_coverage_definition_revision_check",sql`${t.definitionRevision}>0`)]);

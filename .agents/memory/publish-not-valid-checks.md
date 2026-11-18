@@ -7,4 +7,6 @@ A CHECK constraint that is `NOT VALID` in the development database makes Publish
 
 **Why:** A partner migration added two checks `NOT VALID`; the owner's Publish dialog showed the broken statements, and production never received the table, 12 columns, 2 indexes or the checks. Validating the constraints in development (empty table) made the generated SQL correct.
 
+A second trigger, same symptom ("syntax error at or near CHECK"): a check that is just a bare boolean column (`id boolean ... CHECK(id)`) is stored as `CHECK (id)`, and Publish emits `CHECK (CHECK (id))`. Rewriting it as `CHECK (id = true)` (stored `CHECK ((id = true))`) round-trips; same meaning for a NOT NULL key. Production startup skips the journal, so the new migration only repairs development's catalog, which is what Publish reads.
+
 **How to apply:** Do not create `NOT VALID` checks in any migration that Publish must carry. Before asking for a Publish, run the schema-diff tool and read every statement for balanced parentheses; `select ... from pg_constraint where not convalidated` in development should return nothing. Fix with a new append-only migration that validates (never edit an applied migration), then apply the generated statements to a disposable database in production's current shape to prove they run.
