@@ -64,9 +64,15 @@ try {
 
   const fields=(version:number,role="manager")=>({commandId:randomUUID(),expectedVersion:version,expectedActorId:h.userId(role),expectedAccountVersion:1});
   const editorSteps=(rows:any[])=>rows.map((s,index)=>({id:s.id,stepOrder:index+1,actionType:s.actionType,delayDays:s.delayDays,delayHours:s.delayHours,
-    subject:s.subject,body:s.body,config:s.config ?? null,variantBSubject:s.variantBSubject ?? null,variantBBody:s.variantBBody ?? null,abTestConfig:s.abTestConfig ?? null}));
+    subject:s.subject,body:s.body,config:s.config ?? null}));
   const version=(await h.pool.query("SELECT version FROM follow_up_sequences WHERE id=$1",[id])).rows[0].version as number;
 
+  // Phase 7 retires generic experiment/result editing, including full-editor DTO echoes.
+  for(const [key,value] of Object.entries({variantBSubject:'forged challenger',variantBBody:'forged body',abTestConfig:{splitRatio:10},abTestResults:{winnerSelected:'B'}})){
+    const rows=editorSteps(steps);rows[0]={...rows[0],[key]:value} as typeof rows[number];
+    const rejected=await h.request('manager','PUT',`/api/sequences/${id}`,{...fields(version),name:'forged',steps:rows});
+    assert.equal(rejected.status,400,`generic editor must reject ${key}`);
+  }
   // Edit with full typed steps: ids and advanced config survive.
   const editFields=fields(version);
   const edit={...editFields,name:"C3 fixture sequence (edited)",description:"fixture",triggerType:"manual",steps:editorSteps(steps)};

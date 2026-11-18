@@ -123,6 +123,21 @@ for (const invalid of [
   { ...design, method: "unsupported" },
 ])
   check(!phase7DesignSchema.safeParse(invalid).success);
+check(
+  !phase7DesignSchema.safeParse({
+    ...design,
+    arms: { A: arm, B: { ...arm, subject: "   " } },
+  }).success,
+);
+check(
+  !phase7DesignSchema.safeParse({
+    ...design,
+    arms: {
+      A: { ...arm, subject: "Subject  line" },
+      B: { ...arm, subject: "Subject line" },
+    },
+  }).success,
+);
 // Real send-path interpolator, including the prior stale-source assertion's negative control.
 const values = {
   firstName: "Alex",

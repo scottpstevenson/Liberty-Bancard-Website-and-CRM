@@ -5,7 +5,7 @@ export const phase7ArmSchema = z
   .object({
     artifactId: z.string().uuid(),
     contentHash: z.string().regex(/^[a-f0-9]{64}$/),
-    subject: z.string().min(1).max(500),
+    subject: z.string().trim().min(1).max(500),
     bodyHash: z.string().regex(/^[a-f0-9]{64}$/),
     senderPolicy: z.literal("cold_outreach"),
     cadenceHash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -53,7 +53,10 @@ export const phase7DesignSchema = z
   })
   .strict()
   .superRefine((v, ctx) => {
-    if (v.arms.A.subject === v.arms.B.subject)
+    if (
+      v.arms.A.subject.replace(/\s+/g, " ") ===
+      v.arms.B.subject.replace(/\s+/g, " ")
+    )
       ctx.addIssue({ code: "custom", message: "Subjects must differ" });
     if (
       v.arms.A.bodyHash !== v.arms.B.bodyHash ||
