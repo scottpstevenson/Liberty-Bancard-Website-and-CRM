@@ -235,6 +235,13 @@ export async function authorizeSequenceDispatch(params: {
     await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [
       communicationContactLockKey(params.contactId).toString(),
     ]);
+    // The existing contact reply lock remains first. Then lock the experiment before authorizing I/O.
+    const experimentBinding=await client.query(`SELECT e.id,e.state,e.collection_ends_at,e.design_hash,a.design_hash AS assigned_hash
+      FROM cro07_attempt_bindings b JOIN cro07_subject_assignments a ON a.id=b.assignment_id
+      JOIN cro07_experiments e ON e.id=a.experiment_id WHERE b.outbound_log_id=$1 FOR SHARE OF e`,[params.attemptId]);
+    if(experimentBinding.rows.some(e=>e.state!=="collecting"||e.design_hash!==e.assigned_hash||new Date(e.collection_ends_at).getTime()<=Date.now())) {
+      await client.query("ROLLBACK");return {outcome:"NOT_AUTHORIZED"};
+    }
     const result = await client.query<{ id: number }>(`
       UPDATE outbound_send_log AS send_attempt
       SET status = 'dispatching',
@@ -289,19 +296,20 @@ export async function markSendSent(params: {
   providerMessageId?: string;
   fromAddress?: string;
 }): Promise<void> {
+  const client=await pool.connect();
   try {
-    await db.execute(sql`
-      UPDATE outbound_send_log
-      SET status = 'sent',
-          sent_at = NOW(),
-          updated_at = NOW(),
-          provider_message_id = COALESCE(${params.providerMessageId ?? null}, provider_message_id),
-          from_address = COALESCE(${params.fromAddress ?? null}, from_address)
-      WHERE idempotency_key = ${params.idempotencyKey}
-    `);
-  } catch (err) {
-    console.warn("[SendLog] markSendSent error (non-fatal):", err);
-  }
+    await client.query("BEGIN");
+    const prior=(await client.query(`SELECT provider_message_id FROM outbound_send_log WHERE idempotency_key=$1 FOR UPDATE`,[params.idempotencyKey])).rows[0];
+    if(prior?.provider_message_id&&params.providerMessageId&&prior.provider_message_id!==params.providerMessageId)throw new Error('SEND_RECEIPT_PROVIDER_ID_CONFLICT');
+    await client.query(`UPDATE outbound_send_log SET status=CASE WHEN status IN ('delivered','bounced','complained') THEN status ELSE 'sent' END,sent_at=COALESCE(sent_at,now()),updated_at=now(),
+      provider_message_id=COALESCE($2,provider_message_id),from_address=COALESCE($3,from_address) WHERE idempotency_key=$1`,
+      [params.idempotencyKey,params.providerMessageId??null,params.fromAddress??null]);
+    await client.query(`INSERT INTO cro07_receipt_exposures(assignment_id,outbound_log_id,provider_message_id,rendered_hash,occurred_at)
+      SELECT b.assignment_id,l.id,l.provider_message_id,f.envelope_hash,l.sent_at FROM cro07_attempt_bindings b
+      JOIN cro07_attempt_envelopes f ON f.outbound_log_id=b.outbound_log_id JOIN outbound_send_log l ON l.id=b.outbound_log_id WHERE l.idempotency_key=$1 AND l.provider_message_id IS NOT NULL AND l.sent_at IS NOT NULL ON CONFLICT DO NOTHING`,[params.idempotencyKey]);
+    await client.query("COMMIT");
+  } catch(err) {await client.query("ROLLBACK");console.warn("[SendLog] definitive receipt persistence unavailable; reconcile before retry",err);throw err;}
+  finally{client.release();}
 }
 
 /** Mark a send as failed. */

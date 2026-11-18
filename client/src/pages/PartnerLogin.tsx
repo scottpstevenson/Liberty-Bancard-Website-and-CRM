@@ -155,7 +155,7 @@ export default function PartnerLogin() {
     return (
       <>
       <SEO title="Partner Sign In" description="Sign in to your Liberty Bancard partner portal." noindex />
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <main className="auth-page min-h-screen flex items-center justify-center bg-background p-4">
         <div className="w-full max-w-md space-y-6">
           <div className="flex flex-col items-center gap-3">
             <Link href="/">
@@ -169,9 +169,9 @@ export default function PartnerLogin() {
 
           <Card>
             <CardHeader className="space-y-1">
-              <CardTitle className="text-2xl text-center" data-testid="text-set-password-title">
+              <h1 className="font-semibold leading-none tracking-tight text-2xl text-center" data-testid="text-set-password-title">
                 {resetSuccess ? "Password Set!" : "Create Your Password"}
-              </CardTitle>
+              </h1>
               <CardDescription className="text-center">
                 {resetSuccess
                   ? "Your account is ready. You can now log in to your partner portal."
@@ -235,7 +235,7 @@ export default function PartnerLogin() {
             </CardContent>
           </Card>
         </div>
-      </div>
+      </main>
       </>
     );
   }
@@ -244,7 +244,7 @@ export default function PartnerLogin() {
     return (
       <>
       <SEO title="Partner Sign In" description="Sign in to your Liberty Bancard partner portal." noindex />
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <main className="auth-page min-h-screen flex items-center justify-center bg-background p-4">
         <div className="w-full max-w-md space-y-6">
           <div className="flex flex-col items-center gap-3">
             <Link href="/">
@@ -258,9 +258,9 @@ export default function PartnerLogin() {
 
           <Card>
             <CardHeader className="space-y-1">
-              <CardTitle className="text-2xl text-center" data-testid="text-reset-title">
+              <h1 className="font-semibold leading-none tracking-tight text-2xl text-center" data-testid="text-reset-title">
                 {resetSuccess ? "Password Reset!" : "Set New Password"}
-              </CardTitle>
+              </h1>
               <CardDescription className="text-center">
                 {resetSuccess
                   ? "Your password has been updated. You can now log in."
@@ -327,7 +327,7 @@ export default function PartnerLogin() {
             </CardContent>
           </Card>
         </div>
-      </div>
+      </main>
       </>
     );
   }
@@ -336,7 +336,7 @@ export default function PartnerLogin() {
     return (
       <>
       <SEO title="Partner Sign In" description="Sign in to your Liberty Bancard partner portal." noindex />
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <main className="auth-page min-h-screen flex items-center justify-center bg-background p-4">
         <div className="w-full max-w-md space-y-6">
           <div className="flex flex-col items-center gap-3">
             <Link href="/">
@@ -350,9 +350,9 @@ export default function PartnerLogin() {
 
           <Card>
             <CardHeader className="space-y-1">
-              <CardTitle className="text-2xl text-center" data-testid="text-forgot-title">
+              <h1 className="font-semibold leading-none tracking-tight text-2xl text-center" data-testid="text-forgot-title">
                 {forgotSubmitted ? "Check Your Email" : "Reset Your Password"}
-              </CardTitle>
+              </h1>
               <CardDescription className="text-center">
                 {forgotSubmitted
                   ? "If an account with that email exists, we've sent a reset link. Check your inbox."
@@ -402,7 +402,7 @@ export default function PartnerLogin() {
             </CardContent>
           </Card>
         </div>
-      </div>
+      </main>
       </>
     );
   }
@@ -410,7 +410,7 @@ export default function PartnerLogin() {
   return (
     <>
     <SEO title="Partner Sign In" description="Sign in to your Liberty Bancard partner portal." noindex />
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <main className="auth-page min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-6">
         <div className="flex flex-col items-center gap-3">
           <Link href="/">
@@ -425,7 +425,7 @@ export default function PartnerLogin() {
 
         <Card>
           <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl text-center" data-testid="text-partner-login-title">Partner Sign In</CardTitle>
+            <h1 className="font-semibold leading-none tracking-tight text-2xl text-center" data-testid="text-partner-login-title">Partner Sign In</h1>
             <CardDescription className="text-center">
               Access your partner dashboard, referrals, and commission reports
             </CardDescription>
@@ -519,7 +519,7 @@ export default function PartnerLogin() {
           </Link>
         </p>
       </div>
-    </div>
+    </main>
     </>
   );
 }

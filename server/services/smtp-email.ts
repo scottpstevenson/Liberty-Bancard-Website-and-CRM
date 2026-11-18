@@ -181,6 +181,7 @@ async function sendSmtpEmailCore(params: {
    * capability is open. Cannot be combined with a seed or marketing purpose.
    */
   inboundAck?: { effectId: string; attemptToken: string };
+  phase7Attempt?: { idempotencyKey: string };
 }): Promise<SmtpSendResult> {
   // CRO-03C initial-batch continuations are evidence-only. This is a canonical
   // SMTP boundary, so an inherited fence records and terminalizes the attempt.
@@ -313,6 +314,7 @@ async function _sendSmtpEmailInner(params: {
   contactId?: number;
   commercialPurpose?: "marketing_outreach" | "transactional_response";
   inboundAck?: { effectId: string; attemptToken: string };
+  phase7Attempt?: { idempotencyKey: string };
 }, complianceConfig?: Awaited<ReturnType<typeof getCommercialComplianceConfig>>): Promise<SmtpSendResult> {
   const transport = getTransporter();
   if (!transport) {
@@ -380,6 +382,11 @@ async function _sendSmtpEmailInner(params: {
     console.log(`[SMTP] EMAIL_OVERRIDE_TO active — redirecting to ${redactToken(overrideTo)} (original: ${redactToken(params.to)})`);
   }
 
+  if(params.phase7Attempt){
+    if(overrideTo)return {success:false,error:'CRO07_DELIVERY_OVERRIDE_ACTIVE',outcome:'unsent'};
+    try{const {bindPhase7FinalEnvelope}=await import('./sequence-ab-authority');await bindPhase7FinalEnvelope({idempotencyKey:params.phase7Attempt.idempotencyKey,to:effectiveTo,subject:effectiveSubject,html:params.html,text:params.text,from:fromAddress,replyTo:replyToAddress,headers});}
+    catch(e){return {success:false,error:e instanceof Error?e.message:'CRO07_FINAL_ENVELOPE_UNAVAILABLE',outcome:'unsent'};}
+  }
   try {
     const info = await transport.sendMail({
       // Cold outreach shows the sender policy's person name (Scott Stevenson); the mailbox address is unchanged.

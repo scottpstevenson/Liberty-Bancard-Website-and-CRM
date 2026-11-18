@@ -3707,6 +3707,13 @@ export const insertSequenceStepSchema = createInsertSchema(sequenceSteps).omit({
 });
 
 export type SequenceStep = typeof sequenceSteps.$inferSelect;
+/** Generic editing never grants experiment/result/approval authority. */
+export const editableSequenceStepSchema = insertSequenceStepSchema.pick({
+  stepOrder: true, actionType: true, delayDays: true, delayHours: true,
+  subject: true, body: true, templateId: true, config: true,
+}).strict();
+export type EditableSequenceStep = z.infer<typeof editableSequenceStepSchema>;
+
 export type InsertSequenceStep = z.infer<typeof insertSequenceStepSchema>;
 
 export interface AbTestConfig {
@@ -9850,6 +9857,9 @@ export const cro07AttributionEdges = pgTable("cro07_attribution_edges", {
 // Frozen experiment design + guarded decision. A winner never edits approved
 // CR-06 content — it only produces a newVersionHandoffId for a fresh draft.
 export const cro07Experiments = pgTable("cro07_experiments", {
+  phase7Design: jsonb("phase7_design"), revision: integer("revision").notNull().default(1),
+  collectionEndsAt: timestamp("collection_ends_at", {withTimezone:true}), maturityEndsAt: timestamp("maturity_ends_at", {withTimezone:true}),
+  evaluationLeaseToken: uuid("evaluation_lease_token"), evaluationLeaseExpiresAt: timestamp("evaluation_lease_expires_at", {withTimezone:true}),
   id: uuid("id").primaryKey().defaultRandom(),
   key: text("key").notNull().unique(),
   hypothesis: text("hypothesis").notNull(),
@@ -9872,7 +9882,7 @@ export const cro07Experiments = pgTable("cro07_experiments", {
   newVersionHandoffKey: text("new_version_handoff_key"),
   designHash: text("design_hash").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+},t=>[check('cro07_experiments_revision_check',sql`${t.revision}>0`),uniqueIndex('cro07_one_collecting_step').on(sql`(${t.phase7Design}->>'stepId')`).where(sql`${t.state}='collecting' AND ${t.phase7Design} IS NOT NULL`)]);
 export type Cro07Experiment = typeof cro07Experiments.$inferSelect;
 
 // Durable per-arm sample counters, updated only via atomic increments.
@@ -11452,3 +11462,390 @@ export const websiteInboundEvidence = pgTable("website_inbound_evidence", {
   check("website_inbound_evidence_state_chk", sql`state IN ('applied', 'unapplied')`),
 ]);
 export type WebsiteInboundEvidence = typeof websiteInboundEvidence.$inferSelect;
+
+// Phase 7 canonical evidence. Provider receipts remain typed validated relations; no message bodies are stored here.
+export const cro07SubjectAssignments = pgTable(
+  "cro07_subject_assignments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    experimentId: uuid("experiment_id")
+      .notNull()
+      .references(() => cro07Experiments.id, { onDelete: "restrict" }),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "restrict" }),
+    arm: text("arm").notNull(),
+    designHash: text("design_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("cro07_subject_assignments_experiment_id_business_id_key").on(
+      t.experimentId,
+      t.businessId,
+    ),
+    check("cro07_subject_assignments_arm_check", sql`${t.arm} IN ('A','B')`),
+    check(
+      "cro07_subject_assignments_design_hash_check",
+      sql`${t.designHash} ~ '^[a-f0-9]{64}$'`,
+    ),
+  ],
+);
+export const cro07ReceiptExposures = pgTable(
+  "cro07_receipt_exposures",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    assignmentId: uuid("assignment_id")
+      .notNull()
+      .references(() => cro07SubjectAssignments.id, { onDelete: "restrict" }),
+    outboundLogId: integer("outbound_log_id")
+      .notNull()
+      .unique("cro07_receipt_exposures_outbound_log_id_key"),
+    providerMessageId: text("provider_message_id").notNull(),
+    renderedHash: text("rendered_hash").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("cro07_receipt_exposures_assignment_id_provider_message_id_key").on(
+      t.assignmentId,
+      t.providerMessageId,
+    ),
+    check(
+      "cro07_receipt_exposures_rendered_hash_check",
+      sql`${t.renderedHash} ~ '^[a-f0-9]{64}$'`,
+    ),
+    index("cro07_exposures_assignment_idx").on(t.assignmentId, t.occurredAt),
+  ],
+);
+export const cro07VerifiedOutcomes = pgTable(
+  "cro07_verified_outcomes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    exposureId: uuid("exposure_id")
+      .notNull()
+      .references(() => cro07ReceiptExposures.id, { onDelete: "restrict" }),
+    receiptKind: text("receipt_kind").notNull(),
+    receiptId: text("receipt_id").notNull(),
+    kind: text("kind").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("cro07_verified_outcomes_receipt_kind_receipt_id_kind_key").on(
+      t.receiptKind,
+      t.receiptId,
+      t.kind,
+    ),
+    check(
+      "cro07_verified_outcomes_kind_check",
+      sql`${t.kind} IN ('qualified_reply','reply','open','click','hard_bounce','complaint','opt_out','unknown','automated','ambiguous')`,
+    ),
+  ],
+);
+export const cro07EvaluationSnapshots = pgTable(
+  "cro07_evaluation_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    experimentId: uuid("experiment_id")
+      .notNull()
+      .references(() => cro07Experiments.id, { onDelete: "restrict" }),
+    experimentRevision: integer("experiment_revision").notNull(),
+    designHash: text("design_hash").notNull(),
+    horizon: timestamp("horizon", { withTimezone: true }).notNull(),
+    snapshot: jsonb("snapshot").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique(
+      "cro07_evaluation_snapshots_experiment_id_design_hash_horizon_key",
+    ).on(t.experimentId, t.designHash, t.horizon),
+  ],
+);
+export const cro07ExperimentCommands = pgTable(
+  "cro07_experiment_commands",
+  {
+    actorId: text("actor_id").notNull(),
+    commandId: uuid("command_id").notNull(),
+    experimentId: uuid("experiment_id")
+      .notNull()
+      .references(() => cro07Experiments.id, { onDelete: "restrict" }),
+    payloadHash: text("payload_hash").notNull(),
+    result: jsonb("result").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.actorId, t.commandId] })],
+);
+export const conversionJourneyEvidence = pgTable(
+  "conversion_journey_evidence",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceType: text("source_type").notNull(),
+    sourceId: text("source_id").notNull(),
+    sourceVersion: integer("source_version").notNull(),
+    stage: text("stage").notNull(),
+    businessId: integer("business_id").references(() => businesses.id, {
+      onDelete: "restrict",
+    }),
+    contactId: integer("contact_id").references(() => contacts.id, {
+      onDelete: "restrict",
+    }),
+    dealId: integer("deal_id").references(() => deals.id, {
+      onDelete: "restrict",
+    }),
+    journeyKey: text("journey_key"),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    ingestedAt: timestamp("ingested_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    dimensions: jsonb("dimensions")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    recordClass: text("record_class").notNull(),
+  },
+  (t) => [
+    unique("conversion_journey_evidence_occurrence_key").on(
+      t.sourceType,
+      t.sourceId,
+      t.sourceVersion,
+      t.stage,
+    ),
+    check(
+      "conversion_journey_evidence_source_version_check",
+      sql`${t.sourceVersion}>0`,
+    ),
+    check(
+      "conversion_journey_evidence_stage_check",
+      sql`${t.stage} IN ('lead','engaged','statement_requested','statement_received','proposal_sent','application','closed_won')`,
+    ),
+    check(
+      "conversion_journey_evidence_record_class_check",
+      sql`${t.recordClass} IN ('production','test','unknown')`,
+    ),
+    index("conversion_evidence_cohort_idx")
+      .on(t.stage, t.occurredAt, t.journeyKey)
+      .where(sql`${t.recordClass}='production'`),
+    index("conversion_evidence_journey_idx").on(t.journeyKey, t.occurredAt),
+  ],
+);
+export const conversionEvidenceCheckpoints = pgTable(
+  "conversion_evidence_checkpoints",
+  {
+    sourceType: text("source_type").primaryKey(),
+    cursorValue: text("cursor_value"),
+    observedAt: timestamp("observed_at", { withTimezone: true }),
+    status: text("status").notNull(),
+    reason: text("reason").notNull(),
+  },
+  (t) => [
+    check(
+      "conversion_evidence_checkpoints_status_check",
+      sql`${t.status} IN ('unavailable','partial','complete')`,
+    ),
+  ],
+);
+
+// SQL-only legacy A/B objects from migration 0162, retained as history rather than a second experiment owner.
+export const sequenceStepAbAssignments = pgTable(
+  "sequence_step_ab_assignments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    enrollmentId: integer("enrollment_id")
+      .notNull()
+      .references(() => sequenceEnrollments.id, { onDelete: "cascade" }),
+    sequenceStepId: integer("sequence_step_id")
+      .notNull()
+      .references(() => sequenceSteps.id, { onDelete: "cascade" }),
+    configHash: text("config_hash").notNull(),
+    variant: text("variant").notNull(),
+    eligibilitySnapshot: jsonb("eligibility_snapshot").notNull(),
+    deliveryLogId: integer("delivery_log_id"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique("sequence_step_ab_assignments_one_variant").on(
+      t.enrollmentId,
+      t.sequenceStepId,
+    ),
+    check(
+      "sequence_step_ab_assignments_variant_check",
+      sql`${t.variant} IN ('A','B')`,
+    ),
+    index("sequence_step_ab_assignments_step_idx").on(
+      t.sequenceStepId,
+      t.configHash,
+    ),
+  ],
+);
+export const sequenceAbEvaluationRuns = pgTable("sequence_ab_evaluation_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  runKey: text("run_key").notNull().unique(),
+  state: text("state").notNull().default("accepted"),
+  leaseToken: uuid("lease_token"),
+  leaseExpiresAt: timestamp("lease_expires_at"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  error: text("error"),
+  snapshot: jsonb("snapshot"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export const sequenceAbWinnerDecisions = pgTable(
+  "sequence_ab_winner_decisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sequenceStepId: integer("sequence_step_id")
+      .notNull()
+      .references(() => sequenceSteps.id, { onDelete: "cascade" }),
+    configHash: text("config_hash").notNull(),
+    winner: text("winner").notNull(),
+    evaluationSnapshot: jsonb("evaluation_snapshot").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique("sequence_ab_winner_decisions_unique").on(
+      t.sequenceStepId,
+      t.configHash,
+    ),
+    check(
+      "sequence_ab_winner_decisions_winner_check",
+      sql`${t.winner} IN ('A','B')`,
+    ),
+  ],
+);
+export const cro07AttemptBindings = pgTable(
+  "cro07_attempt_bindings",
+  {
+    outboundLogId: integer("outbound_log_id").primaryKey(),
+    assignmentId: uuid("assignment_id")
+      .notNull()
+      .references(() => cro07SubjectAssignments.id, { onDelete: "restrict" }),
+    renderedHash: text("rendered_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check(
+      "cro07_attempt_bindings_rendered_hash_check",
+      sql`${t.renderedHash} ~ '^[a-f0-9]{64}$'`,
+    ),
+  ],
+);
+
+export const cro07AttemptEnvelopes = pgTable(
+  "cro07_attempt_envelopes",
+  {
+    outboundLogId: integer("outbound_log_id")
+      .primaryKey()
+      .references(() => cro07AttemptBindings.outboundLogId, {
+        onDelete: "restrict",
+      }),
+    envelopeHash: text("envelope_hash").notNull(),
+    senderAccount: text("sender_account").notNull(),
+    replyAccount: text("reply_account").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check(
+      "cro07_attempt_envelopes_envelope_hash_check",
+      sql`${t.envelopeHash} ~ '^[a-f0-9]{64}$'`,
+    ),
+  ],
+);
+
+export const cro07MailboxReceipts = pgTable(
+  "cro07_mailbox_receipts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountHash: text("account_hash").notNull(),
+    providerMessageId: text("provider_message_id").notNull(),
+    exposureId: uuid("exposure_id").references(() => cro07ReceiptExposures.id, {
+      onDelete: "restrict",
+    }),
+    kind: text("kind").notNull(),
+    reason: text("reason").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }),
+    evidenceHash: text("evidence_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("cro07_mailbox_receipts_account_hash_provider_message_id_key").on(
+      t.accountHash,
+      t.providerMessageId,
+    ),
+    check(
+      "cro07_mailbox_receipts_kind_check",
+      sql`${t.kind} IN ('reply','automated','unknown')`,
+    ),
+  ],
+);
+export const cro07ReplyQualifications = pgTable(
+  "cro07_reply_qualifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    receiptId: uuid("receipt_id")
+      .notNull()
+      .unique("cro07_reply_qualifications_receipt_id_key")
+      .references(() => cro07MailboxReceipts.id, { onDelete: "restrict" }),
+    classification: text("classification").notNull(),
+    reason: text("reason").notNull(),
+    actorId: text("actor_id").notNull(),
+    commandId: uuid("command_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check(
+      "cro07_reply_qualifications_classification_check",
+      sql`${t.classification} IN ('qualified','not_qualified')`,
+    ),
+  ],
+);
+
+export const cro07ProviderReceipts = pgTable(
+  "cro07_provider_receipts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    source: text("source").notNull(),
+    providerEventId: text("provider_event_id").notNull(),
+    accountHash: text("account_hash").notNull(),
+    exposureId: uuid("exposure_id").references(() => cro07ReceiptExposures.id, {
+      onDelete: "restrict",
+    }),
+    contactId: integer("contact_id").references(() => contacts.id, {
+      onDelete: "restrict",
+    }),
+    eventType: text("event_type").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    payloadHash: text("payload_hash").notNull(),
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("cro07_provider_receipts_source_provider_event_id_key").on(
+      t.source,
+      t.providerEventId,
+    ),
+    check(
+      "cro07_provider_receipts_event_type_check",
+      sql`${t.eventType} IN ('delivered','hard_bounce','complaint','explicit_unsubscribe','open','click')`,
+    ),
+  ],
+);

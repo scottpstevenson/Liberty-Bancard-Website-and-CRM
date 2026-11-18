@@ -2,14 +2,14 @@ import {createHash} from "node:crypto";
 import {and,asc,eq,sql} from "drizzle-orm";
 import {z} from "zod";
 import {db} from "../db";
-import {users,followUpSequences,sequenceCommandReceipts,sequenceSteps,insertSequenceStepSchema,type InsertFollowUpSequence} from "@shared/schema";
+import {users,followUpSequences,sequenceCommandReceipts,sequenceSteps,insertSequenceStepSchema,editableSequenceStepSchema,type InsertFollowUpSequence} from "@shared/schema";
 import {workPrincipalFields,WorkCommandError,type WorkActor} from "./work-item-command";
 import {auditChange} from "./audit-change";
 export const sequenceCommandFields=z.object({commandId:z.string().uuid(),expectedVersion:z.number().int().positive(),
   expectedActorId:z.string().min(1),expectedAccountVersion:z.number().int().positive().optional()}).strict();
-export const sequenceEditorSteps=z.array(insertSequenceStepSchema.omit({sequenceId:true}).extend({
+export const sequenceEditorSteps=z.array(editableSequenceStepSchema.extend({
   id:z.number().int().positive().optional(),stepOrder:z.number().int().positive(),
-})).max(100);
+}).strict()).max(100);
 export async function commandSequence(actor:WorkActor,id:number,operation:"edit"|"toggle"|"retire"|"restore",
   fields:z.infer<typeof sequenceCommandFields>,updates:Partial<InsertFollowUpSequence>={},editorSteps?:z.infer<typeof sequenceEditorSteps>) {
   const hash=createHash("sha256").update(JSON.stringify([actor,id,operation,fields,updates,editorSteps])).digest("hex");

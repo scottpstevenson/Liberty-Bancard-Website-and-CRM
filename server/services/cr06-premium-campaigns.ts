@@ -660,6 +660,7 @@ export async function preflightCr06(
   const warnings: string[] = [];
   const unavailable: string[] = [];
   if (!rows.program) blockers.push("PROGRAM_NOT_FOUND");
+  else if (rows.program.document?.phase7Only) blockers.push("PHASE7_REVIEW_PACKAGE_NOT_A_DELIVERY_PROGRAM");
   else if (rows.program.governance_state !== "approved_inactive") blockers.push("PROGRAM_NOT_APPROVED_INACTIVE");
   if (!rows.approval) blockers.push("APPROVAL_SNAPSHOT_MISSING");
   if (!rows.cohort) blockers.push("COHORT_NOT_FOUND");
@@ -1465,4 +1466,56 @@ export async function getCr06Run(runId: string) {
 
 export function assertCr06DispatchUnavailable(): never {
   throw new Error("CR06_FINAL_DISPATCH_NOT_AUTHORIZED");
+}
+/** Governed NEW draft handoff. Called in the experiment decision transaction; never updates an approved artifact. */
+export async function createCr06ExperimentDraft(input:{client:any;parentArtifactId:string;identityKey:string;actorId:string;subject:string;experimentId:string}){
+ const c=input.client;await c.query('SELECT pg_advisory_xact_lock(hashtext($1))',[input.identityKey]);
+ const winner=(await c.query(`SELECT * FROM cr06_artifacts WHERE id=$1 AND artifact_kind='content_version' AND governance_state='approved_inactive' AND retired_at IS NULL FOR SHARE`,[input.parentArtifactId])).rows[0];
+ if(!winner)throw new Error('CRO07_APPROVED_ARM_REQUIRED');
+ const oldSequence=(await c.query(`SELECT * FROM cr06_artifacts WHERE id=$1 AND artifact_kind='sequence_version' FOR SHARE`,[winner.parent_artifact_id])).rows[0];
+ const oldProgram=oldSequence?(await c.query(`SELECT * FROM cr06_artifacts WHERE id=$1 AND artifact_kind='program' FOR SHARE`,[oldSequence.parent_artifact_id])).rows[0]:null;
+ if(!oldProgram?.document.phase7Only)throw new Error('CRO07_HANDOFF_FAMILY_REQUIRED');
+ const family=(await c.query(`WITH RECURSIVE f AS(SELECT * FROM cr06_artifacts WHERE id=$1 UNION ALL SELECT a.* FROM cr06_artifacts a JOIN f ON a.parent_artifact_id=f.id)SELECT * FROM f ORDER BY artifact_kind,identity_key`,[oldProgram.id])).rows;
+ if(family.length!==7||family.some((a:any)=>a.governance_state!=='approved_inactive'))throw new Error('CRO07_APPROVED_FAMILY_REQUIRED');
+ const followups=['touch_2','touch_3'].map(role=>family.find((a:any)=>a.document.phase7?.role===role));
+ const document={...oldProgram.document,name:`Phase 7 result review — ${oldProgram.document.vertical}`,handoffOnly:true,experimentId:input.experimentId,sourceProgramId:oldProgram.id,winningContentId:winner.id,proposedTouches:[{subject:input.subject,body:winner.document.body},...followups.map((a:any)=>({subject:a.document.subject,body:a.document.body}))],publication:'requires_existing_paired_SFP_publisher_and_new_review'};
+ const prior=(await c.query(`SELECT * FROM cr06_artifacts WHERE identity_key=$1 AND artifact_kind='program'`,[input.identityKey])).rows[0];if(prior){if(prior.content_hash!==hashCr06(document))throw new Error('CRO07_HANDOFF_CONFLICT');return prior;}
+ const clone=async(old:any,key:string,parent:string|null,doc:any)=>(await c.query(`INSERT INTO cr06_artifacts(identity_key,artifact_kind,record_class,purpose,governance_state,version,parent_artifact_id,document,content_hash,created_by)VALUES($1,$2,'production','cold_marketing','draft',1,$3,$4,$5,$6)RETURNING *`,[key,old.artifact_kind,parent,JSON.stringify(doc),hashCr06(doc),input.actorId])).rows[0];
+ const root=await clone(oldProgram,input.identityKey,null,document),sequence=await clone(oldSequence,input.identityKey+'-sequence',root.id,{...oldSequence.document,handoffOnly:true,sourceArtifactId:oldSequence.id});
+ for(const a of family.filter((a:any)=>a.artifact_kind==='content_version'))await clone(a,input.identityKey+'-'+a.document.phase7.role,sequence.id,{...a.document,handoffOnly:true,sourceArtifactId:a.id,selectedForHandoff:a.id===winner.id});
+ const manual=family.find((a:any)=>a.artifact_kind==='manual_task_definition');await clone(manual,input.identityKey+'-review',root.id,{...manual.document,handoffOnly:true,sourceArtifactId:manual.id});
+ return root;
+}
+
+/** Phase 7 review package uses the existing CR-06 artifact, hash, approval and topology owners.
+ * Four content artifacts mean control/challenger touch 1 plus touches 2/3, not a four-email cadence.
+ * This review-only package cannot enter the legacy preparation/delivery path.
+ */
+export async function createCr06Phase7ReviewPackage(input:{client:any;key:string;actorId:string;vertical:string;sourceSequenceId:number;challengerSubject:string;followupBodies:[string,string]}){
+ const {lintCopy}=await import('./message-copy-lint');const c=input.client;
+ await c.query('SELECT pg_advisory_xact_lock(hashtext($1))',[input.key]);
+ const {readPhase7SourceBinding}=await import('./phase7-content-binding');const sourceBinding=await readPhase7SourceBinding(c,input.sourceSequenceId);
+ if(sourceBinding.vertical!==input.vertical)throw new Error('CRO07_VERTICAL_BINDING_MISMATCH');
+ const source=(await c.query(`SELECT * FROM follow_up_sequences WHERE id=$1 AND retired_at IS NULL AND status IN ('paused','draft') FOR SHARE`,[input.sourceSequenceId])).rows[0];
+ if(!source)throw new Error('CRO07_SOURCE_SEQUENCE_NOT_REVIEWABLE');
+ const steps=(await c.query(`SELECT * FROM sequence_steps WHERE sequence_id=$1 ORDER BY step_order FOR SHARE`,[source.id])).rows;
+ if(steps.length!==3||steps.some((s:any)=>s.action_type!=='email'))throw new Error('CRO07_THREE_TOUCH_SOURCE_REQUIRED');
+ const {experimentDigest}=await import('./cro07-experiments');const cadence=steps.map((s:any)=>({step_order:s.step_order,delay_days:s.delay_days,delay_hours:s.delay_hours}));
+ const cadenceHash=experimentDigest(cadence),first=steps[0];
+ const docs=[{...first,subject:first.subject,role:'control',body:first.body},{...first,subject:input.challengerSubject,role:'challenger',body:first.body},
+  {...steps[1],role:'touch_2',body:input.followupBodies[0]},{...steps[2],role:'touch_3',body:input.followupBodies[1]}];
+ for(const d of docs)if(lintCopy(`${d.subject}\n${d.body}`,'workflow').length)throw new Error('CRO07_COPY_LINT_HOLD');
+ const requestHash=experimentDigest({vertical:input.vertical,sourceSequenceId:input.sourceSequenceId,challengerSubject:input.challengerSubject,followupBodies:input.followupBodies});
+ const prior=(await c.query(`SELECT * FROM cr06_artifacts WHERE identity_key=$1 AND artifact_kind='program' ORDER BY version DESC LIMIT 1`,[input.key])).rows[0];
+ if(prior){const family=(await c.query(`WITH RECURSIVE f AS(SELECT * FROM cr06_artifacts WHERE id=$1 UNION ALL SELECT a.* FROM cr06_artifacts a JOIN f ON a.parent_artifact_id=f.id)SELECT * FROM f`,[prior.id])).rows;
+  const currentSource=experimentDigest(steps.map((s:any)=>({id:s.id,subject:s.subject,body:s.body,delay_days:s.delay_days,delay_hours:s.delay_hours})));
+  if(prior.document.sourceHash!==currentSource||prior.document.requestHash!==requestHash||experimentDigest(prior.document.sourceBinding)!==experimentDigest(sourceBinding))throw new Error('CRO07_SOURCE_DRAFT_CONFLICT');return {program:prior,family,source,steps,cadenceHash};}
+ const insert=async(identity:string,kind:string,parent:string|null,document:any)=>(await c.query(`INSERT INTO cr06_artifacts(identity_key,artifact_kind,record_class,purpose,governance_state,version,parent_artifact_id,document,content_hash,created_by)
+ VALUES($1,$2,'production','cold_marketing','review_ready',1,$3,$4,$5,$6)RETURNING *`,[identity,kind,parent,JSON.stringify(document),hashCr06(document),input.actorId])).rows[0];
+ const sourceHash=experimentDigest(steps.map((s:any)=>({id:s.id,subject:s.subject,body:s.body,delay_days:s.delay_days,delay_hours:s.delay_hours})));
+ const program=await insert(input.key,'program',null,{name:`Phase 7 — ${input.vertical}`,vertical:input.vertical,phase7Only:true,sourceSequenceId:source.id,sourceVersion:source.version,sourceBinding,sourceHash,requestHash,selection:'volume_based_pilot_not_conversion_winner',cadenceMeaning:'relative delays; no cadence change',channels:['email']});
+ const seq=await insert(input.key+'-sequence','sequence_version',program.id,{sourceSequenceId:source.id,cadence,variantRoles:['control','challenger','touch_2','touch_3'],phase7Only:true});
+ const family=[program,seq];for(const d of docs)family.push(await insert(input.key+'-'+d.role,'content_version',seq.id,{subject:d.subject,paragraphs:d.body.split('\n\n'),body:d.body,phase7:{role:d.role,sourceBinding,sourceStepId:d.id,bodyHash:experimentDigest({body:d.body}),cadenceHash},reviewedOnly:true}));
+ family.push(await insert(input.key+'-review','manual_task_definition',program.id,{action:'copy_review_only',createsTask:false,phase7Only:true}));
+ return {program,family,source,steps,cadenceHash};
 }

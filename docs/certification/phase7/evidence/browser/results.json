@@ -1,0 +1,93 @@
+{
+  "identity": {
+    "sourceHead": "361886ebde082c1d5e16a5cea7a13b54ce7b99c7",
+    "inputHash": "556f1b9cff35e5504a9dcf967c681a3271a4a5deb7911af6671c45e491ff618f",
+    "outputHash": "bf998be61e33849a15fe1cd6efaf0dd064b4a8331b670c8d8bf3920465e7cd04"
+  },
+  "checks": 41,
+  "results": [
+    {
+      "view": "funnel",
+      "width": 320,
+      "theme": "light",
+      "mounted": true,
+      "overflow": false,
+      "requestCount": 0
+    },
+    {
+      "view": "funnel",
+      "width": 320,
+      "theme": "dark",
+      "mounted": true,
+      "overflow": false,
+      "requestCount": 0
+    },
+    {
+      "view": "funnel",
+      "width": 390,
+      "theme": "light",
+      "mounted": true,
+      "overflow": false,
+      "requestCount": 0
+    },
+    {
+      "view": "funnel",
+      "width": 390,
+      "theme": "dark",
+      "mounted": true,
+      "overflow": false,
+      "requestCount": 0
+    },
+    {
+      "view": "funnel",
+      "width": 454,
+      "theme": "light",
+      "mounted": true,
+      "overflow": false,
+      "requestCount": 0
+    },
+    {
+      "view": "funnel",
+      "width": 454,
+      "theme": "dark",
+      "mounted": true,
+      "overflow": false,
+      "requestCount": 0
+    },
+    {
+      "view": "funnel",
+      "width": 768,
+      "theme": "light",
+      "mounted": true,
+      "overflow": false,
+      "requestCount": 1
+    },
+    {
+      "view": "funnel",
+      "width": 768,
+      "theme": "dark",
+      "mounted": true,
+      "overflow": false,
+      "requestCount": 1
+    },
+    {
+      "view": "funnel",
+      "width": 1280,
+      "theme": "light",
+      "mounted": true,
+      "overflow": false,
+      "requestCount": 0
+    },
+    {
+      "view": "funnel",
+      "width": 1280,
+      "theme": "dark",
+      "mounted": true,
+      "overflow": false,
+      "requestCount": 0
+    }
+  ],
+  "webkit": "not_exercised",
+  "phone": "not_exercised",
+  "limits": "Disposable fixture scale, empty real reporting scope. Unrelated report sources explicitly unavailable."
+}

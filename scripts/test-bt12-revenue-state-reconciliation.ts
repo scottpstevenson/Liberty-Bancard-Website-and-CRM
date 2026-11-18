@@ -34,13 +34,13 @@ expect(queueManager.includes("DEAL_STAGE_EFFECTS") && queueManager.includes("CHA
 expect(!sequenceWorker.includes("Math.random() * 100 < splitRatio"), "sequence variants must not be randomly reselected");
 expect(sequenceWorker.includes("getOrCreateSequenceAbAssignment"), "sequence variants require immutable assignment");
 expect(!sequenceWorker.includes('void import("./ab-test-worker")'), "sequence sends must not launch competing A/B evaluation");
-expect(abWorker.includes("sequence_ab_evaluation_runs") && abWorker.includes("lease_token"), "A/B evaluation requires a persisted fenced lease");
+expect(abWorker.includes("evaluateCro07Experiment") && read("server/services/cro07-experiments.ts").includes("evaluation_lease_token=$2 AND evaluation_lease_expires_at>clock_timestamp() AND revision=$3"), "A/B evaluation uses the canonical fenced experiment owner");
 expect(campaigns.includes("AB_RESULTS_SERVER_OWNED") && campaigns.includes('requireRole("admin", "manager")'), "A/B mutation must be retired and trigger privileged");
 expect(!chargebacks.includes("getDefaultProcessor") && chargebacks.includes("enqueueChargebackSubmission"), "chargeback route must enqueue instead of provider I/O");
 expect(chargebacks.includes("Idempotency-Key"), "chargeback submission requires idempotency key");
 expect(mids.includes("createMerchantMid") && mids.includes("updateMerchantMid"), "merchant MID routes must use MID authority");
 expect(admin.includes("createMerchantMid") && admin.includes("updateMerchantMid"), "admin MID routes must use MID authority");
-expect(sequenceWorker.includes("Outbound blocked: unresolved template placeholder"), "unresolved send-boundary tokens must fail closed");
+expect(sequenceWorker.includes("interpolateSequenceText") && read("scripts/test-phase7-contracts.ts").includes("unresolved template placeholder"), "unresolved send-boundary tokens must fail closed through the actual renderer");
 
 if (failures.length) {
   console.error("BT-12 authority guard failed:");

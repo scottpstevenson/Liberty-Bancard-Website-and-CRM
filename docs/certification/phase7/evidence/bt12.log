@@ -1,0 +1,2 @@
+BT-12 authority guard failed:
+- unresolved send-boundary tokens must fail closed

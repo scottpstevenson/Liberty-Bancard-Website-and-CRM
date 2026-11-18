@@ -45,7 +45,7 @@ export default function Signup() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <main className="auth-page min-h-screen flex items-center justify-center bg-background p-4">
       <SEO title="Create Account" description="Create a Liberty Bancard account to access your merchant dashboard, statement reviews, and processing tools." path="/signup" noindex />
       <div className="w-full max-w-md space-y-6">
         <div className="flex flex-col items-center gap-3">
@@ -60,7 +60,7 @@ export default function Signup() {
 
         <Card>
           <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl text-center" data-testid="text-signup-title">Sign Up</CardTitle>
+            <h1 className="font-semibold leading-none tracking-tight text-2xl text-center" data-testid="text-signup-title">Sign Up</h1>
             <CardDescription className="text-center">
               Create your account to get started
             </CardDescription>
@@ -204,6 +204,6 @@ export default function Signup() {
           <Link href="/privacy-policy" className="underline">Privacy Policy</Link>
         </p>
       </div>
-    </div>
+    </main>
   );
 }

@@ -39,7 +39,7 @@ interface ChannelRow {
   prevPeriodCount: number;
   thisWeek: number;
   lastWeek: number;
-  conversionRate: number;
+  conversionRate: number | null;
   sparkline: SparkPoint[];
 }
 
@@ -81,6 +81,7 @@ const CHANNEL_LABELS: Record<string, string> = {
   haro: "HARO",
   youtube: "YouTube",
   direct: "Direct",
+  unknown: "Unknown / unattributed",
   other: "Other",
 };
 
@@ -159,7 +160,7 @@ function Sparkline({ data }: { data: SparkPoint[] }) {
           />
           <RechartsTooltip
             contentStyle={{ fontSize: 11, padding: "2px 6px" }}
-            formatter={(v: number) => [v, "signups"]}
+            formatter={(v: number) => [v, "production contacts created"]}
             labelFormatter={(l: string) => `Week of ${l}`}
           />
         </LineChart>
@@ -296,7 +297,7 @@ export default function GrowthKPI() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold">Growth KPI Dashboard</h2>
-          <p className="text-sm text-muted-foreground">Weekly signups by channel vs. 1,000/week target</p>
+          <p className="text-sm text-muted-foreground">Production contacts created by source. Imported contacts are not verified website signups. The 1,000/week planning reference is unapproved and conflicts with the acquisition plan’s 1,000/month reference.</p>
         </div>
         <div className="flex gap-2 flex-wrap" data-testid="time-range-toggle">
           {TIME_RANGES.map(range => (
@@ -325,7 +326,7 @@ export default function GrowthKPI() {
                   c.prevPeriodCount,
                   c.thisWeek,
                   c.lastWeek,
-                  c.conversionRate.toFixed(2),
+                  c.conversionRate==null?"Unavailable":c.conversionRate.toFixed(2),
                   c.sparkline.map(s => s.count).join("|"),
                 ].join(",")
               );
@@ -358,7 +359,7 @@ export default function GrowthKPI() {
                 <span className="text-xs text-muted-foreground">of {target.toLocaleString()} / wk</span>
               </div>
             </div>
-            <p className="text-sm font-medium mt-2">This Week's Signups</p>
+            <p className="text-sm font-medium mt-2">Production Contacts This Week</p>
             <div className="flex items-center gap-2 mt-1">
               {isLoading ? <Skeleton className="h-5 w-16" /> : <WeekOverWeekBadge change={weekOverWeekChange} />}
               <span className="text-xs text-muted-foreground">vs last week</span>
@@ -366,12 +367,12 @@ export default function GrowthKPI() {
           </CardContent>
         </Card>
 
-        {/* Target Progress */}
+        {/* Planning Reference Progress */}
         <Card data-testid="card-target-progress">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <Target className="w-4 h-4 text-primary" />
-              Target Progress
+              Planning Reference Progress
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -388,7 +389,7 @@ export default function GrowthKPI() {
                   />
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {Math.max(target - thisWeekTotal, 0).toLocaleString()} signups to goal
+                  {Math.max(target - thisWeekTotal, 0).toLocaleString()} contacts below planning reference
                 </p>
               </>
             )}
@@ -468,8 +469,8 @@ export default function GrowthKPI() {
                         <td className="px-3 py-3 text-right font-semibold" data-testid={`text-channel-period-${ch.channel}`}>{ch.periodCount}</td>
                         <td className="px-3 py-3 text-right text-muted-foreground" data-testid={`text-channel-prev-${ch.channel}`}>{ch.prevPeriodCount}</td>
                         <td className="px-3 py-3 text-right">
-                          <Badge variant={ch.conversionRate > 0 ? "secondary" : "outline"} data-testid={`badge-channel-conv-${ch.channel}`}>
-                            {ch.conversionRate}%
+                          <Badge variant={(ch.conversionRate ?? 0) > 0 ? "secondary" : "outline"} data-testid={`badge-channel-conv-${ch.channel}`}>
+                            {ch.conversionRate==null?"—":`${ch.conversionRate}%`}
                           </Badge>
                         </td>
                         <td className="px-4 py-2 text-right">

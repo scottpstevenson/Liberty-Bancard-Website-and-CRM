@@ -1,0 +1,231 @@
+{
+  "status": "REVIEW_DRAFTS_ONLY",
+  "selectionHold": "Current signed-in eligibility readback is unavailable. These are three complete wording/design candidates from the prior installed-copy sample, not a certified top-three choice. Construction/Trades/Home Services had 488 distinct paused membership contacts versus Beauty/Spa 481 in the earlier inventory; neither number establishes currently eligible businesses. Run the existing readiness authority and replace candidates as its top three qualified-business volumes require. The UI prepares all current pinned verticals through the same owner.",
+  "drafts": [
+    {
+      "vertical": "Healthcare",
+      "selectionState": "provisional_review_candidate_not_verified_top_three",
+      "sourceSequenceId": 1154,
+      "sourceVersion": "must_be_re_read_through_current_package_owner",
+      "source": "earlier read-only CRM audit on 2026-11-17; no fresh eligibility read is claimed",
+      "cadenceMeaning": "Relative delays 0/3/5 days, approximately day 0/3/8; actual send windows and all safety gates still apply.",
+      "touches": [
+        {
+          "touch": 1,
+          "sourceStepId": 20125,
+          "subject": "A processing review for {{companyName}}",
+          "body": "Hi {{firstName}},\n\nI’m reaching out from Liberty Bancard about payment processing at {{companyName}}. We can review your patient-payment processing statement and explain its fees.\n\nThe review separates network costs, processor markup and fixed fees. There’s no obligation to switch, and we’ll tell you if your current pricing is already competitive.\n\nWould you be interested in a free statement review? A quick reply is all I need to get started.",
+          "relativeDelayDays": 0,
+          "relativeDelayHours": 0
+        },
+        {
+          "touch": 2,
+          "sourceStepId": 20126,
+          "subject": "A clearer breakdown of your processing fees",
+          "body": "Hello,\n\nFollowing up on my note about patient-payment processing at {{companyName}}. A statement review can separate network costs, processor markup and fixed fees using the same transaction volume.\n\nIf a breakdown would be useful, you can request a review at https://libertybancard.com/upload-statement. Please use the secure form rather than emailing financial documents.",
+          "relativeDelayDays": 3,
+          "relativeDelayHours": 0
+        },
+        {
+          "touch": 3,
+          "sourceStepId": 20127,
+          "subject": "Should I close the loop?",
+          "body": "Hello,\n\nThis is my final follow-up about reviewing patient-payment processing at {{companyName}}. If a fee breakdown would help later, you can request a review at https://libertybancard.com/upload-statement.\n\nNo need to reply if the timing is not right.",
+          "relativeDelayDays": 5,
+          "relativeDelayHours": 0
+        }
+      ],
+      "subjectTest": {
+        "state": "unbound_review_draft",
+        "controlSubject": "A processing review for {{companyName}}",
+        "challengerSubject": "Patient-payment processing at {{companyName}}",
+        "sharedFirstBody": "Hi {{firstName}},\n\nI’m reaching out from Liberty Bancard about payment processing at {{companyName}}. We can review your patient-payment processing statement and explain its fees.\n\nThe review separates network costs, processor markup and fixed fees. There’s no obligation to switch, and we’ll tell you if your current pricing is already competitive.\n\nWould you be interested in a free statement review? A quick reply is all I need to get started.",
+        "onlySubjectDiffers": true,
+        "allocation": "50/50 canonical business; no overlapping collecting experiment",
+        "minPerArm": 6000,
+        "collectionDays": 28,
+        "outcomeMaturityDays": 14,
+        "primaryMetric": "verified_qualified_reply_rate",
+        "method": "fisher_exact_two_sided_v1",
+        "alpha": 0.05,
+        "comparisonFamilySize": 3,
+        "planning": {
+          "baselineRate": 0.02,
+          "minimumDetectableEffect": 0.01,
+          "power": 0.8,
+          "assumptionNotObserved": true
+        },
+        "approvalBinding": "CRO07 draft command resolves current paired SFP pin and CR06 content IDs; this file invents no approved artifact ID.",
+        "admissions": 0,
+        "sends": 0
+      },
+      "createDraftPayload": {
+        "key": "phase7-review-1154",
+        "vertical": "Healthcare",
+        "sourceSequenceId": 1154,
+        "challengerSubject": "Patient-payment processing at {{companyName}}",
+        "followupBodies": [
+          "Hello,\n\nFollowing up on my note about patient-payment processing at {{companyName}}. A statement review can separate network costs, processor markup and fixed fees using the same transaction volume.\n\nIf a breakdown would be useful, you can request a review at https://libertybancard.com/upload-statement. Please use the secure form rather than emailing financial documents.",
+          "Hello,\n\nThis is my final follow-up about reviewing patient-payment processing at {{companyName}}. If a fee breakdown would help later, you can request a review at https://libertybancard.com/upload-statement.\n\nNo need to reply if the timing is not right."
+        ]
+      },
+      "reviewNotes": [
+        "First-touch body preserved, so initial experiment changes subject only.",
+        "Broad Healthcare remains Healthcare; no invented Dental/Med Spa narrowing.",
+        "No numeric savings, equipment entitlement, turnaround, regulatory guarantee, testimonial or invented familiarity.",
+        "First touch requests a reply; follow-ups use the first-party secure statement intake.",
+        "Use shared SMTP branded preview for all touches, both subjects, missing-name and missing-company cases."
+      ]
+    },
+    {
+      "vertical": "Automotive",
+      "selectionState": "provisional_review_candidate_not_verified_top_three",
+      "sourceSequenceId": 1153,
+      "sourceVersion": "must_be_re_read_through_current_package_owner",
+      "source": "earlier read-only CRM audit on 2026-11-17; no fresh eligibility read is claimed",
+      "cadenceMeaning": "Relative delays 0/3/5 days, approximately day 0/3/8; actual send windows and all safety gates still apply.",
+      "touches": [
+        {
+          "touch": 1,
+          "sourceStepId": 20122,
+          "subject": "Payment processing at {{companyName}}",
+          "body": "Hi {{firstName}},\n\nI’m reaching out from Liberty Bancard about payment processing at {{companyName}}. We can review how your repair invoices and day-to-day card payments are priced.\n\nThe review separates network costs, processor markup and fixed fees. There’s no obligation to switch, and we’ll tell you if your current pricing is already competitive.\n\nWould you be interested in a free statement review? A quick reply is all I need to get started.",
+          "relativeDelayDays": 0,
+          "relativeDelayHours": 0
+        },
+        {
+          "touch": 2,
+          "sourceStepId": 20123,
+          "subject": "A clearer breakdown of your processing fees",
+          "body": "Hello,\n\nFollowing up on my note about card-paid repair invoices at {{companyName}}. A statement review can separate network costs, processor markup and fixed fees using the same transaction volume.\n\nIf a breakdown would be useful, you can request a review at https://libertybancard.com/upload-statement. Please use the secure form rather than emailing financial documents.",
+          "relativeDelayDays": 3,
+          "relativeDelayHours": 0
+        },
+        {
+          "touch": 3,
+          "sourceStepId": 20124,
+          "subject": "Should I close the loop?",
+          "body": "Hello,\n\nThis is my final follow-up about reviewing card-paid repair invoices at {{companyName}}. If a fee breakdown would help later, you can request a review at https://libertybancard.com/upload-statement.\n\nNo need to reply if the timing is not right.",
+          "relativeDelayDays": 5,
+          "relativeDelayHours": 0
+        }
+      ],
+      "subjectTest": {
+        "state": "unbound_review_draft",
+        "controlSubject": "Payment processing at {{companyName}}",
+        "challengerSubject": "A review of repair-invoice card fees",
+        "sharedFirstBody": "Hi {{firstName}},\n\nI’m reaching out from Liberty Bancard about payment processing at {{companyName}}. We can review how your repair invoices and day-to-day card payments are priced.\n\nThe review separates network costs, processor markup and fixed fees. There’s no obligation to switch, and we’ll tell you if your current pricing is already competitive.\n\nWould you be interested in a free statement review? A quick reply is all I need to get started.",
+        "onlySubjectDiffers": true,
+        "allocation": "50/50 canonical business; no overlapping collecting experiment",
+        "minPerArm": 6000,
+        "collectionDays": 28,
+        "outcomeMaturityDays": 14,
+        "primaryMetric": "verified_qualified_reply_rate",
+        "method": "fisher_exact_two_sided_v1",
+        "alpha": 0.05,
+        "comparisonFamilySize": 3,
+        "planning": {
+          "baselineRate": 0.02,
+          "minimumDetectableEffect": 0.01,
+          "power": 0.8,
+          "assumptionNotObserved": true
+        },
+        "approvalBinding": "CRO07 draft command resolves current paired SFP pin and CR06 content IDs; this file invents no approved artifact ID.",
+        "admissions": 0,
+        "sends": 0
+      },
+      "createDraftPayload": {
+        "key": "phase7-review-1153",
+        "vertical": "Automotive",
+        "sourceSequenceId": 1153,
+        "challengerSubject": "A review of repair-invoice card fees",
+        "followupBodies": [
+          "Hello,\n\nFollowing up on my note about card-paid repair invoices at {{companyName}}. A statement review can separate network costs, processor markup and fixed fees using the same transaction volume.\n\nIf a breakdown would be useful, you can request a review at https://libertybancard.com/upload-statement. Please use the secure form rather than emailing financial documents.",
+          "Hello,\n\nThis is my final follow-up about reviewing card-paid repair invoices at {{companyName}}. If a fee breakdown would help later, you can request a review at https://libertybancard.com/upload-statement.\n\nNo need to reply if the timing is not right."
+        ]
+      },
+      "reviewNotes": [
+        "First-touch body preserved, so initial experiment changes subject only.",
+        "Broad Healthcare remains Healthcare; no invented Dental/Med Spa narrowing.",
+        "No numeric savings, equipment entitlement, turnaround, regulatory guarantee, testimonial or invented familiarity.",
+        "First touch requests a reply; follow-ups use the first-party secure statement intake.",
+        "Use shared SMTP branded preview for all touches, both subjects, missing-name and missing-company cases."
+      ]
+    },
+    {
+      "vertical": "Beauty/Spa",
+      "selectionState": "provisional_review_candidate_not_verified_top_three",
+      "sourceSequenceId": 1155,
+      "sourceVersion": "must_be_re_read_through_current_package_owner",
+      "source": "earlier read-only CRM audit on 2026-11-17; no fresh eligibility read is claimed",
+      "cadenceMeaning": "Relative delays 0/3/5 days, approximately day 0/3/8; actual send windows and all safety gates still apply.",
+      "touches": [
+        {
+          "touch": 1,
+          "sourceStepId": 20128,
+          "subject": "Payment processing at {{companyName}}",
+          "body": "Hi {{firstName}},\n\nI’m reaching out from Liberty Bancard about payment processing at {{companyName}}. We can review how your card payments, tips and any recurring charges are priced.\n\nThe review separates network costs, processor markup and fixed fees. There’s no obligation to switch, and we’ll tell you if your current pricing is already competitive.\n\nWould you be interested in a free statement review? A quick reply is all I need to get started.",
+          "relativeDelayDays": 0,
+          "relativeDelayHours": 0
+        },
+        {
+          "touch": 2,
+          "sourceStepId": 20129,
+          "subject": "A clearer breakdown of your processing fees",
+          "body": "Hello,\n\nFollowing up on my note about card payments, tips and any recurring charges at {{companyName}}. A statement review can separate network costs, processor markup and fixed fees using the same transaction volume.\n\nIf a breakdown would be useful, you can request a review at https://libertybancard.com/upload-statement. Please use the secure form rather than emailing financial documents.",
+          "relativeDelayDays": 3,
+          "relativeDelayHours": 0
+        },
+        {
+          "touch": 3,
+          "sourceStepId": 20130,
+          "subject": "Should I close the loop?",
+          "body": "Hello,\n\nThis is my final follow-up about reviewing card payments, tips and any recurring charges at {{companyName}}. If a fee breakdown would help later, you can request a review at https://libertybancard.com/upload-statement.\n\nNo need to reply if the timing is not right.",
+          "relativeDelayDays": 5,
+          "relativeDelayHours": 0
+        }
+      ],
+      "subjectTest": {
+        "state": "unbound_review_draft",
+        "controlSubject": "Payment processing at {{companyName}}",
+        "challengerSubject": "A review of card payments and tips",
+        "sharedFirstBody": "Hi {{firstName}},\n\nI’m reaching out from Liberty Bancard about payment processing at {{companyName}}. We can review how your card payments, tips and any recurring charges are priced.\n\nThe review separates network costs, processor markup and fixed fees. There’s no obligation to switch, and we’ll tell you if your current pricing is already competitive.\n\nWould you be interested in a free statement review? A quick reply is all I need to get started.",
+        "onlySubjectDiffers": true,
+        "allocation": "50/50 canonical business; no overlapping collecting experiment",
+        "minPerArm": 6000,
+        "collectionDays": 28,
+        "outcomeMaturityDays": 14,
+        "primaryMetric": "verified_qualified_reply_rate",
+        "method": "fisher_exact_two_sided_v1",
+        "alpha": 0.05,
+        "comparisonFamilySize": 3,
+        "planning": {
+          "baselineRate": 0.02,
+          "minimumDetectableEffect": 0.01,
+          "power": 0.8,
+          "assumptionNotObserved": true
+        },
+        "approvalBinding": "CRO07 draft command resolves current paired SFP pin and CR06 content IDs; this file invents no approved artifact ID.",
+        "admissions": 0,
+        "sends": 0
+      },
+      "createDraftPayload": {
+        "key": "phase7-review-1155",
+        "vertical": "Beauty/Spa",
+        "sourceSequenceId": 1155,
+        "challengerSubject": "A review of card payments and tips",
+        "followupBodies": [
+          "Hello,\n\nFollowing up on my note about card payments, tips and any recurring charges at {{companyName}}. A statement review can separate network costs, processor markup and fixed fees using the same transaction volume.\n\nIf a breakdown would be useful, you can request a review at https://libertybancard.com/upload-statement. Please use the secure form rather than emailing financial documents.",
+          "Hello,\n\nThis is my final follow-up about reviewing card payments, tips and any recurring charges at {{companyName}}. If a fee breakdown would help later, you can request a review at https://libertybancard.com/upload-statement.\n\nNo need to reply if the timing is not right."
+        ]
+      },
+      "reviewNotes": [
+        "First-touch body preserved, so initial experiment changes subject only.",
+        "Broad Healthcare remains Healthcare; no invented Dental/Med Spa narrowing.",
+        "No numeric savings, equipment entitlement, turnaround, regulatory guarantee, testimonial or invented familiarity.",
+        "First touch requests a reply; follow-ups use the first-party secure statement intake.",
+        "Use shared SMTP branded preview for all touches, both subjects, missing-name and missing-company cases."
+      ]
+    }
+  ]
+}

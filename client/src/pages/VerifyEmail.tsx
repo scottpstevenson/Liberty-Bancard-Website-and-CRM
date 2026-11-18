@@ -43,11 +43,11 @@ export default function VerifyEmail() {
   }, [token]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4" data-testid="verify-email-page">
+    <main className="auth-page min-h-screen flex items-center justify-center bg-background p-4" data-testid="verify-email-page">
       <SEO title="Verify Your Email" description="Verify your Liberty Bancard email address to activate your account." path="/verify-email" noindex />
       <Card className="w-full max-w-md" data-testid="verify-email-card">
         <CardHeader className="text-center">
-          <CardTitle data-testid="verify-email-title">Email Verification</CardTitle>
+          <h1 className="text-2xl font-semibold leading-none tracking-tight" data-testid="verify-email-title">Email Verification</h1>
         </CardHeader>
         <CardContent className="flex flex-col items-center gap-4">
           {state === "loading" && (
@@ -83,6 +83,6 @@ export default function VerifyEmail() {
           )}
         </CardContent>
       </Card>
-    </div>
+    </main>
   );
 }

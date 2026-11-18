@@ -17,7 +17,7 @@ import { resolvePolicy, NON_COLD_GMAIL_SENDER_CATEGORY } from "./sender-policy";
 import { sfpLaunchRenderContext, renderSfpLaunchSubject, renderSfpLaunchBodyHtml } from "./sfp-launch-render";
 import { SFP_LAUNCH_SEQUENCE_FAMILY_PREFIX } from "./cro03/sfp-launch-content";
 import { hashEmailToken } from "./provider-readiness-control";
-import { getOrCreateSequenceAbAssignment, recordSequenceAbDelivery } from "./sequence-ab-authority";
+import { getOrCreateSequenceAbAssignment, recordSequenceAbDelivery, resolvePhase7StepExperiment, bindPhase7Dispatch } from "./sequence-ab-authority";
 import { authorizeCommercialUseBatch } from "./commercial-resolution";
 import {
   classifyCr06SequencePurpose,
@@ -1295,31 +1295,16 @@ export async function processSequenceEnrollments(
 
         switch (step.actionType) {
           case "email": {
-            const abConfig = (step.abTestConfig as AbTestConfig | null);
-            const abEnabled = !!(step.variantBSubject || step.variantBBody);
-
-            const existing = (step.abTestResults as Partial<AbTestResults> | null) ?? {};
-            const currentWinner: string | null = existing.winnerSelected ?? null;
-
-            let chosenVariant: "A" | "B" = "A";
-            let subjectToSend = step.subject;
-            let bodyToSend = step.body;
-
-            if (abEnabled) {
-              if (currentWinner) {
-                chosenVariant = currentWinner as "A" | "B";
-              } else {
-                chosenVariant = await getOrCreateSequenceAbAssignment({
-                  enrollmentId: enrollment.id, stepId: step.id, splitRatio: abConfig?.splitRatio ?? 50,
-                  config: { abConfig, subjectA: step.subject, bodyA: step.body, subjectB: step.variantBSubject, bodyB: step.variantBBody },
-                  eligibilitySnapshot: { contactId: enrollment.contactId, sequenceId: sequence.id, stepId: step.id, lifecycleState: contact?.lifecycleState ?? null, consentTier: contact?.consentTier ?? null, recordClass: contact?.recordClass ?? "unknown" },
-                });
-              }
-              if (chosenVariant === "B") {
-                subjectToSend = step.variantBSubject ?? step.subject;
-                bodyToSend = step.variantBBody ?? step.body;
-              }
-            }
+            const phase7Experiment = await resolvePhase7StepExperiment(step.id);
+            const abEnabled = !!phase7Experiment;
+            if(phase7Experiment&&!sfpLaunchStep)throw new Error("CRO07_UNSUPPORTED_TRANSPORT_CONTENT");
+            if (!phase7Experiment && (step.variantBSubject || step.variantBBody || step.abTestConfig)) throw new Error("CRO07_LEGACY_UNVERIFIED");
+            const chosenVariant = phase7Experiment ? await getOrCreateSequenceAbAssignment({
+              enrollmentId: enrollment.id, stepId: step.id, splitRatio: 50,
+              config: {experimentId: phase7Experiment.id}, eligibilitySnapshot: {},
+            }) : "A";
+            const subjectToSend = phase7Experiment ? phase7Experiment.phase7_design.arms[chosenVariant].subject : step.subject;
+            const bodyToSend = step.body;
 
             const sigType = resolveSignatureType((sequence.triggerConfig as any) || {});
             const emailBody = sfpLaunchStep
@@ -1673,6 +1658,7 @@ export async function processSequenceEnrollments(
               let emailDispatchAuthorized = false;
               let canonicalSmtpOutcome: "unsent" | "uncertain" | null = null;
               const authorizeClaimedEmailDispatch = async (): Promise<boolean> => {
+                if (phase7Experiment) await bindPhase7Dispatch({enrollmentId:enrollment.id,stepId:step.id,idempotencyKey:emailIdemKey,subject:interpolatedSubject,body:emailBody});
                 if (!decideCr06PromotionalLifecycle({
                   boundary: "sequence_transport",
                   purpose: cr06Purpose,
@@ -1787,6 +1773,7 @@ export async function processSequenceEnrollments(
                     contactId: enrollment.contactId,
                     unsubscribeUrl,
                     unsubscribeMailto: "Scott@mail.libertybancard.com",
+                    ...(phase7Experiment?{phase7Attempt:{idempotencyKey:emailIdemKey}}:{}),
                   });
                   if (!result.success) {
                     if (canonicalCapacityPath) canonicalSmtpOutcome = result.outcome === "unsent" ? "unsent" : "uncertain";
@@ -1906,68 +1893,16 @@ export async function processSequenceEnrollments(
             });
             if (abEnabled && emailLog) await recordSequenceAbDelivery({ enrollmentId: enrollment.id, stepId: step.id, deliveryLogId: emailLog.id });
 
-            if (abEnabled && stepExecuted && !currentWinner) {
-              const stepLogs = await storage.getEmailLogsByStepId(step.id);
-              const meta = (l: { metadata: unknown }) => l.metadata as Record<string, unknown> | null;
-              const variantASent = stepLogs.filter(l => meta(l)?.abVariant === "A" && l.status === "sent").length;
-              const variantBSent = stepLogs.filter(l => meta(l)?.abVariant === "B" && l.status === "sent").length;
-              const aOpens = stepLogs.filter(l => meta(l)?.abVariant === "A" && l.openedAt != null).length;
-              const bOpens = stepLogs.filter(l => meta(l)?.abVariant === "B" && l.openedAt != null).length;
-              const aClicks = stepLogs.filter(l => meta(l)?.abVariant === "A" && l.clickedAt != null).length;
-              const bClicks = stepLogs.filter(l => meta(l)?.abVariant === "B" && l.clickedAt != null).length;
-              const aReplies = stepLogs.filter(l => meta(l)?.abVariant === "A" && l.repliedAt != null).length;
-              const bReplies = stepLogs.filter(l => meta(l)?.abVariant === "B" && l.repliedAt != null).length;
-              const totalSent = variantASent + variantBSent;
-              const minSampleSize = abConfig?.minSampleSize ?? 100;
-              const winnerCriteria = abConfig?.winnerCriteria ?? "open_rate";
 
-              let winnerSelected: string | null = null;
-              let winnerAt: string | null = existing.winnerAt ?? null;
-              let statisticallySignificant = false;
-              if (totalSent >= minSampleSize) {
-                const successA = winnerCriteria === "reply_rate" ? aReplies : winnerCriteria === "click_rate" ? aClicks : aOpens;
-                const successB = winnerCriteria === "reply_rate" ? bReplies : winnerCriteria === "click_rate" ? bClicks : bOpens;
-                const pPooled = variantASent + variantBSent > 0 ? (successA + successB) / (variantASent + variantBSent) : 0;
-                if (pPooled > 0 && pPooled < 1 && variantASent >= 5 && variantBSent >= 5) {
-                  const se = Math.sqrt(pPooled * (1 - pPooled) * (1 / variantASent + 1 / variantBSent));
-                  const p1 = variantASent > 0 ? successA / variantASent : 0;
-                  const p2 = variantBSent > 0 ? successB / variantBSent : 0;
-                  if (se > 0 && Math.abs((p1 - p2) / se) >= 1.96) {
-                    statisticallySignificant = true;
-                    winnerSelected = p1 >= p2 ? "A" : "B";
-                    winnerAt = new Date().toISOString();
-                  }
-                }
-              }
-
-              // Evaluator execution is scheduler/admin-command owned. Sending
-              // records exposure only and must not fire a competing evaluator.
-            }
             break;
           }
 
           case "sms": {
-            const abConfig = (step.abTestConfig as AbTestConfig | null);
-            const abEnabled = !!(step.variantBBody);
-
-            const existing = (step.abTestResults as Partial<AbTestResults> | null) ?? {};
-            const currentWinner: string | null = existing.winnerSelected ?? null;
-
-            let chosenVariant: "A" | "B" = "A";
-            let bodyToSend = step.body;
-
-            if (abEnabled) {
-              if (currentWinner) {
-                chosenVariant = currentWinner as "A" | "B";
-              } else {
-                chosenVariant = await getOrCreateSequenceAbAssignment({
-                  enrollmentId: enrollment.id, stepId: step.id, splitRatio: abConfig?.splitRatio ?? 50,
-                  config: { abConfig, bodyA: step.body, bodyB: step.variantBBody },
-                  eligibilitySnapshot: { contactId: enrollment.contactId, sequenceId: sequence.id, stepId: step.id, lifecycleState: contact?.lifecycleState ?? null, consentTier: contact?.consentTier ?? null, recordClass: contact?.recordClass ?? "unknown" },
-                });
-              }
-              if (chosenVariant === "B") bodyToSend = step.variantBBody ?? step.body;
-            }
+            // Initial governed tests are email subject-only. Unsupported legacy SMS tests remain held history.
+            const abEnabled = false;
+            const chosenVariant = "A";
+            const bodyToSend = step.body;
+            if(step.variantBBody || step.abTestConfig) throw new Error("CRO07_SMS_EXPERIMENT_UNSUPPORTED");
 
             // ── Per-channel pause gate (SMS) ──────────────────────────────────
             // FAIL-CLOSED: null/undefined (unset) → paused. Only explicit "false"
@@ -2147,36 +2082,7 @@ export async function processSequenceEnrollments(
             });
             if (abEnabled && smsLog) await recordSequenceAbDelivery({ enrollmentId: enrollment.id, stepId: step.id, deliveryLogId: smsLog.id });
 
-            if (abEnabled && stepExecuted && !currentWinner) {
-              const stepLogs = await storage.getEmailLogsByStepId(step.id);
-              const meta = (l: { metadata: unknown }) => l.metadata as Record<string, unknown> | null;
-              const abLogs = stepLogs.filter(l => meta(l)?.type === "sms" && meta(l)?.abVariant);
-              const variantASent = abLogs.filter(l => meta(l)?.abVariant === "A" && l.status === "sent").length;
-              const variantBSent = abLogs.filter(l => meta(l)?.abVariant === "B" && l.status === "sent").length;
-              const aReplies = abLogs.filter(l => meta(l)?.abVariant === "A" && l.repliedAt != null).length;
-              const bReplies = abLogs.filter(l => meta(l)?.abVariant === "B" && l.repliedAt != null).length;
-              const totalSent = variantASent + variantBSent;
-              const minSampleSize = abConfig?.minSampleSize ?? 100;
 
-              let winnerSelected: string | null = null;
-              let winnerAt: string | null = existing.winnerAt ?? null;
-              let statisticallySignificant = false;
-              if (totalSent >= minSampleSize) {
-                const pPooled = variantASent + variantBSent > 0 ? (aReplies + bReplies) / (variantASent + variantBSent) : 0;
-                if (pPooled > 0 && pPooled < 1 && variantASent >= 5 && variantBSent >= 5) {
-                  const se = Math.sqrt(pPooled * (1 - pPooled) * (1 / variantASent + 1 / variantBSent));
-                  const p1 = variantASent > 0 ? aReplies / variantASent : 0;
-                  const p2 = variantBSent > 0 ? bReplies / variantBSent : 0;
-                  if (se > 0 && Math.abs((p1 - p2) / se) >= 1.96) {
-                    statisticallySignificant = true;
-                    winnerSelected = p1 >= p2 ? "A" : "B";
-                    winnerAt = new Date().toISOString();
-                  }
-                }
-              }
-
-              // Evaluator execution is scheduler/admin-command owned.
-            }
             break;
           }
 

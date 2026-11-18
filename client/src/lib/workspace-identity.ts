@@ -129,6 +129,9 @@ export function resolveWorkspaceIdentity(role: string, location: string): Worksp
       tabHref = `${path}?${rule.tabParam}=${selected}`;
     }
   }
+  if(path==="/dashboard/reporting" && single(params,"tab")==="growth" && single(params,"growthView")==="conversion-funnel"){
+    tabLabel="Conversion Funnel";tabHref="/dashboard/reporting?tab=growth&growthView=conversion-funnel";
+  }
   let recordLabel: string | null = record?.label ?? null;
   if (!recordLabel && path === "/dashboard/pipeline") {
     const deal = single(params, "id") ?? single(params, "dealId");

@@ -6828,13 +6828,13 @@ function StatementUploadFailuresPanel() {
 function ConversionPanel() {
   const [days, setDays] = useState(30);
 
-  const { data: funnelData, isLoading: funnelLoading } = useQuery<{
+  const { data: funnelData, isLoading: funnelLoading,isError:funnelError } = useQuery<{
     funnel: { stage: string; eventName: string; count: number }[];
     byEvent: Record<string, number>;
     days: number;
   }>({
     queryKey: ["/api/analytics/conversion-funnel", days],
-    queryFn: () => fetch(`/api/analytics/conversion-funnel?days=${days}`).then(r => r.json()),
+    queryFn: async () => {const r=await fetch(`/api/analytics/conversion-funnel?days=${days}`,{credentials:"include"});if(!r.ok)throw new Error("Activity observations unavailable");const v=await r.json();if(!Array.isArray(v.funnel)||v.funnel.some((x:any)=>!Number.isFinite(x.count)||x.count<0))throw new Error("Activity observation shape unavailable");return v;},
   });
 
   const { data: utmData, isLoading: utmLoading } = useQuery<{
@@ -6896,28 +6896,29 @@ function ConversionPanel() {
 
       <Card data-testid="card-conversion-funnel">
         <CardHeader>
-          <CardTitle className="text-sm font-medium">Conversion Funnel (last {days} days)</CardTitle>
+          <CardTitle className="text-sm font-medium">Website & CRM event activity (last {days} days)</CardTitle>
         </CardHeader>
         <CardContent>
+          <p className="text-xs text-muted-foreground mb-3">Independent event observations, including unclassified legacy events. Bars are scaled to the largest count and are not conversion rates. <a href="/dashboard/reporting?tab=growth&growthView=conversion-funnel" className="underline">Open the business journey funnel</a>.</p>
           {funnelLoading ? (
-            <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading funnel…</div>
-          ) : (
+            <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading activity…</div>
+          ) : funnelError?<p role="status">Activity source unavailable; no zero result is inferred.</p>:(
             <div className="space-y-3">
               {funnelRows.map((row, i) => {
-                const topCount = funnelRows[0]?.count ?? 1;
+                const topCount = Math.max(0,...funnelRows.map(r=>r.count));
                 const pct = topCount > 0 ? Math.round((row.count / topCount) * 100) : 0;
                 return (
                   <div key={row.eventName} data-testid={`funnel-row-${row.eventName}`}>
                     <div className="flex items-center justify-between mb-1 text-sm">
                       <span className="font-medium">{row.stage}</span>
-                      <span className="text-muted-foreground">{row.count.toLocaleString()} <span className="text-xs">({pct}%)</span></span>
+                      <span className="text-muted-foreground">{row.count.toLocaleString()}</span>
                     </div>
                     <Progress value={pct} className="h-2" />
                   </div>
                 );
               })}
               {funnelRows.length === 0 && (
-                <p className="text-sm text-muted-foreground">No conversion events recorded yet.</p>
+                <p className="text-sm text-muted-foreground">No activity observations recorded in this window.</p>
               )}
             </div>
           )}

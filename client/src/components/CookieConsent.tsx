@@ -76,13 +76,13 @@ export function CookieConsent() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" onClick={acceptAll} data-testid="button-cookie-accept">
+                  <Button className="min-h-11" size="sm" onClick={acceptAll} data-testid="button-cookie-accept">
                     Accept All
                   </Button>
-                  <Button size="sm" variant="outline" onClick={rejectNonEssential} data-testid="button-cookie-reject">
+                  <Button className="min-h-11" size="sm" variant="outline" onClick={rejectNonEssential} data-testid="button-cookie-reject">
                     Reject Non-Essential
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setShowPrefs(true)} data-testid="button-cookie-manage">
+                  <Button className="min-h-11" size="sm" variant="ghost" onClick={() => setShowPrefs(true)} data-testid="button-cookie-manage">
                     <Settings className="w-3.5 h-3.5 mr-1" />
                     Manage Preferences
                   </Button>
@@ -116,11 +116,11 @@ export function CookieConsent() {
                   ))}
                 </div>
                 <div className="flex gap-2">
-                  <Button size="sm" onClick={savePrefs} data-testid="button-cookie-save-prefs">
+                  <Button className="min-h-11" size="sm" onClick={savePrefs} data-testid="button-cookie-save-prefs">
                     <Check className="w-3.5 h-3.5 mr-1" />
                     Save Preferences
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setShowPrefs(false)}>
+                  <Button className="min-h-11" size="sm" variant="ghost" onClick={() => setShowPrefs(false)}>
                     Back
                   </Button>
                 </div>

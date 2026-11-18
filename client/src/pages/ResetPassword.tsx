@@ -49,7 +49,7 @@ export default function ResetPassword() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <main className="auth-page min-h-screen flex items-center justify-center bg-background p-4">
       <SEO title="Set a New Password" description="Choose a new password for your Liberty Bancard account using your secure reset link." path="/reset-password" noindex />
       <div className="w-full max-w-md space-y-6">
         <div className="flex flex-col items-center gap-3">
@@ -60,7 +60,7 @@ export default function ResetPassword() {
 
         <Card>
           <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl text-center" data-testid="text-reset-password-title">Reset Password</CardTitle>
+            <h1 className="font-semibold leading-none tracking-tight text-2xl text-center" data-testid="text-reset-password-title">Reset Password</h1>
             <CardDescription className="text-center">
               Enter your new password below
             </CardDescription>
@@ -158,6 +158,6 @@ export default function ResetPassword() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </main>
   );
 }

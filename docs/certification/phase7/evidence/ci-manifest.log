@@ -1,0 +1,607 @@
+
+── CI Suite Capability Manifest ────────────────────────────────
+
+
+  DETERMINISTIC-STATIC (97 suites):
+    scripts/test-stage3-c3-contracts.ts
+      providers: pure codecs and source assertions only; no DB, server, browser or provider; not mounted-behavior or request/readback proof
+    scripts/test-stage3-c3-mounted.ts
+      providers: jsdom mounted components with injected fetch; no real session, DB, server or provider; not role-matrix or request/readback proof
+    scripts/test-stage3-c4-contracts.ts
+      providers: source/codec only; no DB, browser, server or provider
+    scripts/test-stage3-c5-route-inventory.ts
+      providers: real Express 5 registration in-process; no DB, server listen, browser or provider
+    scripts/test-stage3-c5-diagnostics.ts
+      providers: DTO decoders and source assertions; no DB, browser, server or provider
+    scripts/test-ghl-ownership-readiness.ts
+      providers: registry census and source assertions; no DB, browser, server or provider
+    scripts/test-stage3-d-hub-tabs.ts
+      providers: URL codec and source assertions; no DB, browser, server or provider
+    scripts/test-stage3-d-r2-contracts.ts
+      providers: source and CSS assertions; no DB, browser, server or provider
+    scripts/test-retained-contact-core.ts
+      providers: pure state helper; no DB, browser, server or provider
+    scripts/test-stage3-d-r2-headings.ts
+      providers: jsdom mounted primitives; no DB, server, session or provider
+    scripts/test-stage3-c5-resources.ts
+      providers: codec, decoder, reader-state and source assertions; no DB, browser, server or provider
+    scripts/test-stage3-c5-sidebar.ts
+      providers: pure sidebar data against the generated route registry; no DB, browser, server or provider
+    scripts/test-stage3-c5-mounted.ts
+      providers: jsdom mounted GHL Integration Hub with injected fetch; no real session, DB, server or provider; reproduces no live stall
+    scripts/test-stage3-d-v-contracts.ts
+      providers: pure helpers, source assertions and predicate construction only; no DB, server, browser or provider
+    scripts/test-c2-postmerge-repairs.ts
+      providers: AST/helpers/injected callbacks only; not registered-handler or browser proof
+    scripts/test-stage3-c2-contracts.ts
+      providers: Pure codecs/time windows/provider payloads and temporary output tamper tests; no DB or provider I/O
+    scripts/test-public-claims-contract.ts
+      providers: Loads shared claim modules and server HTML builders, scans source files and the built client bundle; no server, DB, network or provider I/O
+    scripts/test-public-shell-contract.ts
+      providers: Loads shared content modules and server HTML builders, reads source files; no server, DB, network or provider I/O
+    scripts/test-wd-locations-contract.ts
+      providers: Loads the shared location contract, client hubs and server builders; reads source files; no server, DB, network or provider I/O
+    scripts/test-wd-industries-contract.ts
+      providers: Loads shared industry content and server industry builders; reads source files; no server, DB, network or provider I/O
+    scripts/test-wd-content-contract.ts
+      providers: Loads the cost calculator, proof projection and server HTML builders; reads source files; no server, DB, network or provider I/O
+    scripts/test-partner-residual-calculator.ts
+      providers: Loads the partner calculator arithmetic and renders the page component in-process; reads source files; no server, DB, network or provider I/O
+    scripts/test-wd-media-contract.ts
+      providers: Reads the committed masters, manifest and derivatives, renders React and server emitters in-process; no server, DB, network or provider I/O
+    scripts/test-stage3-c1-query-runtime.mjs
+      providers: Mounted jsdom hooks and injected delayed fetch; no real sessions, DB or providers
+    scripts/test-stage3-c1-foundation.ts
+      providers: Pure complete-set/codecs/portable hashes; no DB, transport or action claims
+    scripts/test-stage3-b-offline.ts
+      providers: Pure injected storage/transport/actor tests; no DB import or network
+    scripts/test-stage3-b-source-contracts.ts
+      providers: Pure retention/consent and source assertions; no DB import or network
+    scripts/test-ssr-style-isolation.ts
+      providers: Local shell/PostCSS assertions only; no DB, server or network
+    scripts/test-drizzle-begin-release.ts
+      providers: fake pool client; no database round trip, server, browser or provider
+    scripts/test-ghl-inbound-pagination.ts
+      providers: pure parser and source assertions; no service/DB imports, no network
+    scripts/test-ghl-inbound-ui-render.mjs
+      providers: React server render fixtures; no API requests, browser interactions or DB
+    scripts/test-stage3-a-runtime-render.mjs
+      providers: 27 typed configuration/pause permutations plus unavailable-read render; no probe, send or DB
+    scripts/test-stage4c1-cta-contract.ts
+      providers: pure resolver, token and lint functions plus static source reads; no DB, network, provider or send
+    scripts/test-stage4c1-premium-drafts.ts
+      providers: specification file read, pure checks and the SFP renderer on sample data; no DB, network, provider or send
+    scripts/test-stage4c1-workspace-navigation.ts
+      providers: URL codec, cadence arithmetic, classifier and draft validator only; modules that hold a lazy DB pool are imported but never queried; no network, provider or send
+    scripts/test-stage4a-ui-render.mjs
+      providers: React server render fixtures; no API requests, browser interactions or DB
+    scripts/test-http-client-error.ts
+      providers: loopback socket only; no DB, provider or send
+    scripts/test-sfp-pipeline-correction.mjs
+      providers: pure source and migration scan; no DB, network, server, or provider transport
+    scripts/check-processor-kill-lines.ts
+      providers: pure source scan; no DB, no providers, no server
+    scripts/test-payarc-revenue-reads.ts
+      providers: fake read transport and stubbed global fetch; no DB, no network, no provider credentials
+    scripts/test-cro03a-static.ts
+      providers: pure source adapters, geography, fit, and source-boundary scans; no providers
+    scripts/test-cro03a-geography.ts
+      providers: pure geography evaluator; no DB, no providers
+    scripts/test-bt12-revenue-state-reconciliation.ts
+      providers: source-backed authority guard; no providers
+    scripts/test-fresh-snapshot-completion.ts
+      providers: pure migration-boundary behavior with a fake SQL client; no providers or database
+    scripts/test-sfp1999-final-closeout.mjs
+      providers: pure source scan for settlement, budget, and evidence-gap contracts; no DB, network, server, or provider transport
+    scripts/test-sfp-ui-idempotency-persistence.ts
+      providers: real-renders the panel in jsdom with fetch stubbed to reject; no network, database, or provider calls of any kind
+    scripts/check-contact-identity-writers.ts
+      providers: source-only transactional writer ownership scan
+    scripts/test-canonical-intake-authority.ts
+      providers: source-backed authority boundary checks; no providers
+    scripts/test-partner-page-media.ts
+      providers: reads the committed image derivatives and manifest and renders the shared picture model in-process; no server, database, network or provider I/O
+    scripts/test-partner-hub-react-media.ts
+      providers: renders the React hub page in-process with react-dom/server and a local query client; no server, database, network or provider I/O
+    scripts/test-canonical-transaction-retry.ts
+      providers: injected transaction callbacks only; no database connection or provider transport
+    scripts/check-migration-integrity.ts
+      providers: none (pure file scan)
+    scripts/check-dependency-policy.ts
+      providers: offline root lock/source/integrity scan; no providers
+    scripts/check-migration-seed-registration.ts
+      providers: pure file scan of migrations/*.sql plus a static import of SEED_TARGETS; no DB queries, no providers
+    scripts/test-dependency-policy-evidence.ts
+      providers: synthetic lock fixtures only; no network or providers
+    scripts/test-dependency-lifecycle.ts
+      providers: loads local installed modules only; no network or providers
+    scripts/test-inventory-artifact-dependencies.ts
+      providers: synthetic bundle source only; no network or providers
+    scripts/test-dependency-audit-policy.ts
+      providers: synthetic audit JSON only; no network or providers
+    scripts/test-provider-readiness-controls.ts
+      providers: pure manifest and eligibility decisions; no transport is constructed
+    scripts/scan-paid-provider-adapters.ts
+      providers: source-only URL/import scanner; no providers
+    scripts/scan-tracked-files.ts
+      providers: none (pure file scan)
+    scripts/test-scan-tracked-files.ts
+      providers: synthetic local Git repositories only; no database, network, or provider transports
+    scripts/test-security-controls.ts
+      providers: isolated Express fixture and pure renderer/source checks; no providers
+    scripts/test-rvr03-security-static.ts
+      providers: synthetic source fixtures and deterministic lexical callsite scan; no providers
+    server/tests/auth-actions.source.test.ts
+      providers: source and schema contract assertions only; no database or providers
+    server/tests/og-cache-hardening.test.ts
+      providers: isolated temporary filesystem cache and pure helpers; no providers
+    scripts/test-cr04-authority-static.ts
+      providers: source and migration contract assertions only; no database, network, queues, or providers
+    scripts/test-reporting-boundaries.ts
+      providers: source-only role, metric, URL-state, and exactness assertions; no database, network, queues, or providers
+    scripts/test-task1721-inbox-statement-structure.ts
+      providers: source and migration authority assertions only; no database, network, queues, or providers
+    scripts/test-task1720-dlq-alert-static.ts
+      providers: pure sanitizer and source contract assertions; no database, network, queues, or providers
+    scripts/test-slack-pause-boundary.ts
+      providers: injected authority and webhook spy; no database, network, queues, or providers
+    server/tests/cr06-promotional-boundary-inventory.source.test.ts
+      providers: source-only exhaustive enrollment and release mutation inventory; no database, queues, network, or providers
+    server/tests/cr06-feedback-strict.source.test.ts
+      providers: source-only strict feedback allowlist, replay, terminalization, and immutable-history assertions; no database, network, queues, or providers
+    scripts/test-merchant-migration-safety.ts
+      providers: none (pure AST/file check)
+    scripts/check-queue-compliance.ts
+      providers: source and logical queue ownership manifest validation only; no providers
+    scripts/compliance-scan.ts
+      providers: none (pure AST/file scan)
+    scripts/scan-csrf-fetch.ts
+      providers: none (pure file scan)
+    scripts/test-ghl-route-pause-gates-1629.ts
+      providers: none (pure code scan — no runtime calls)
+    scripts/test-sender-policy.ts
+      providers: none (pure code scan — no runtime calls)
+    scripts/scan-serper-raw-fetch.ts
+      providers: none (pure AST scan)
+    scripts/check-api-coverage.ts
+      providers: none (pure file scan)
+    scripts/test-commercial-classification-static.ts
+      providers: none (pure authority, route, schema, and migration scan)
+    scripts/test-cleanup-guard.ts
+      providers: child processes refuse before any database mutation
+    scripts/test-cro01-revenue-contract-static.ts
+      providers: source-only revenue authority contract; no provider transports
+    scripts/test-serper-business-identity.ts
+      providers: Serper: fake gateway injected; no DB, no real HTTP
+    scripts/check-cro02-authority.ts
+      providers: source-backed shadow authority check; no providers
+    scripts/test-cro03-static.ts
+      providers: injected transports and source checks only; live provider/network transport denied
+    scripts/test-cro03b-static.ts
+      providers: source and injected-transport checks only; live provider/public network transport denied
+    scripts/test-cro03d-ceremony-static.ts
+      providers: pure scope/signing tool; no database, network, or provider transport; ephemeral key material confined to local temp dirs
+    scripts/test-cro03c-initial-continuation-static.ts
+      providers: source and migration contract only; no database, queue, network, or provider transport
+    scripts/test-cro05a-static.ts
+      providers: source, schema, and migration certification only; no database, queue, network, or provider transport
+    scripts/test-website-email-contracts.ts
+      providers: pure functions and source assertions only; no database, queue, network, or provider transport
+    scripts/test-cro05a-nonpublic-static.ts
+      providers: source classification only; no database, queue, network, or provider transport
+    scripts/check-cro03b-legacy-writers.ts
+      providers: source-only canonical-writer inventory; no providers, database, queues, or network
+    scripts/scan-cro03-client-endpoints.ts
+      providers: source-only endpoint scan; no provider transport
+    scripts/build-public-images.ts
+      providers: local image files only in check mode; no DB, server, browser or provider
+    scripts/test-reconciliation-classifier.ts
+      providers: pure-function classifier; no database, network, or provider
+
+  DETERMINISTIC-INTEGRATION (152 suites):
+    scripts/test-stage3-c3-sequences.ts
+      providers: guarded disposable PG/isolated Redis; actual sessions/CSRF and strict schemas; no enrollment, send or external call
+    scripts/test-stage3-c3-backlog-command.ts
+      providers: guarded disposable PG and private Redis; producer-only BullMQ queue, no worker, provider, send or enrollment
+    scripts/test-stage3-c3-open-deals.ts
+      providers: guarded disposable PG/isolated Redis; one pinned deal population; no send, enrollment or external call
+    scripts/test-stage3-c3-roles.ts
+      providers: guarded disposable PG/isolated Redis; actual sessions/CSRF; denied commands only, no effect, no external call
+    scripts/test-stage3-c3-prospects.ts
+      providers: guarded disposable PG/isolated Redis; actual sessions; read-only route, no external call
+    scripts/test-stage3-c3-post-commit.ts
+      providers: guarded disposable PG/isolated Redis; actual sessions/CSRF; local policy setting only, no enrollment, send or external call
+    scripts/test-stage5-public-journey.ts
+      providers: private listener, actual merchant routes only (other /api answers 501), disposable database; no provider, send or MID path
+    scripts/test-stage3-c3-browser.ts
+      providers: private compiled client, actual admin session, disposable readers; unregistered sources answer 501; no provider, enrollment or send path; admin desktop only
+    scripts/test-stage3-c3-browser-sequences.ts
+      providers: private compiled client, real sessions for seven roles, disposable database; only campaigns routes registered; no enrollment, activation, send or provider path
+    scripts/test-stage3-c3-browser-campaigns.ts
+      providers: private compiled client, manager session, disposable database; draft campaign create and signature edit only; no activation, enrollment, queueing or send path
+    scripts/test-stage4c1-browser.ts
+      providers: private compiled client, real admin session, disposable database; campaigns and templates-settings routes only; draft save/discard and read-only previews; no publish, activation, enrollment, send or provider path
+    scripts/test-stage4c2-workspace-browser.ts
+      providers: private compiled client, real admin/agent sessions, disposable database; calendar, contacts, deals, workflows and appointment-read routes only; provider appointment read is an injected fixture and booking commands use a fake provider; no live provider, send or enrollment path
+    scripts/test-company-search-authority.ts
+      providers: guarded disposable PG; no Redis, provider, send or enrollment
+    scripts/test-stage3-c5-panels.ts
+      providers: private compiled client, real admin session, disposable migrated database; real handlers for permissions/queue-holds/readiness/knowledge reads; GHL incoming-sync is an owned stub; provider egress denied by the fixture; no write is submitted to a real handler
+    scripts/test-stage3-c5-walk.ts
+      providers: private compiled client, real sessions for six roles, disposable migrated database; real handlers for admin/knowledge/documents/permissions/integrations/content/information-flow/sdr, other sources answer 501; read-only; provider egress denied by the fixture; accessibility tree and keyboard, not a screen reader
+    scripts/test-stage3-c5-role-negative-requests.ts
+      providers: real route modules and guards, real persisted admin/manager/agent sessions, disposable migrated database; admin-only routes requested as manager, agent and unauthenticated and must deny; provider egress denied by the fixture
+    scripts/test-stage3-d-v-data-health-browser.ts
+      providers: private compiled client, real admin/manager/agent sessions, disposable migrated database; real admin route module with a real post-commit response loss; provider egress denied by the fixture
+    scripts/test-stage3-d-v-landmarks-browser.ts
+      providers: private compiled client, disposable migrated database; partner routes unregistered so the read answers 501; read-only; provider egress denied by the fixture
+    scripts/test-stage3-d-v-partner-response.ts
+      providers: real registered partner handlers, fake credential values, disposable migrated database; every role; provider egress denied by the fixture
+    scripts/test-db-transaction-begin-release.ts
+      providers: stub client on the real pool.connect path; no database statement is executed and no provider is called
+    scripts/test-stage3-d-v-mailbox-and-stats.ts
+      providers: real handlers and transactions on a disposable migrated database; provider egress denied by the fixture
+    scripts/test-stage3-d-v-partner-browser.ts
+      providers: private compiled client, real partner handlers, disposable migrated database; success, empty, forbidden and unavailable states; provider egress denied by the fixture
+    scripts/test-partner-application-browser.ts
+      providers: private compiled client, real partner and application-review handlers, disposable migrated database; analytics tag and every external host blocked by the private browser; provider egress denied by the fixture
+    scripts/test-partner-review-browser.ts
+      providers: private compiled client, real partner review handlers, disposable migrated database; every external host blocked by the private browser; provider egress denied by the fixture
+    scripts/test-stage3-d-v-contact-core-browser.ts
+      providers: private compiled client, real Contact component with deferred section responses, disposable migrated database; provider egress denied by the fixture
+    scripts/test-stage3-d-v-contact-actor-browser.ts
+      providers: private compiled client, real persisted sessions and auth revalidation, disposable migrated database; test-only in-page fetch hold; provider egress denied by the fixture
+    scripts/test-stage3-d-v-cohort-browser.ts
+      providers: private compiled client, real Tasks and Pipeline pages and registered routes, disposable migrated database; read-only URL cohort navigation; provider egress denied by the fixture
+    scripts/test-stage3-d-v-exports.ts
+      providers: real export handlers and shared read predicates, disposable migrated database; read-only; provider egress denied by the fixture
+    scripts/test-dead-letter-archive.ts
+      providers: real review-queue routes and guards, real persisted admin/manager/agent sessions, disposable migrated database; no provider is called
+    scripts/test-stage3-c5-ghl-stored-run.ts
+      providers: private compiled client, real incoming-sync handlers and service on a disposable database with persisted production-sized runs; GHL contact pages come from an in-process fake, egress is denied by the fixture; outbound stays paused
+    scripts/test-stage3-c5-performance.ts
+      providers: Explicit disposable certification: serves the pre-C5 client (built locally into generated-artifacts) and the candidate against the same loopback API/DB; no provider calls
+    scripts/test-stage4d-calendar-performance.ts
+      providers: Explicit disposable certification: serves the pre-4D client (built locally into generated-artifacts) and the candidate against the same loopback API/DB; no provider calls
+    scripts/test-stage3-c5-browser.ts
+      providers: private compiled client, real sessions for admin/manager/agent, disposable database; every non-session API answers 501; navigation and read-only observation only; no write, send or provider path
+    scripts/test-website-email-migration.ts
+      providers: freshly created disposable PostgreSQL databases and the production migration harness only; no provider, network, production database or control is touched
+    scripts/test-partner-program-migration.ts
+      providers: freshly created disposable PostgreSQL databases, the production migration harness and a temporary export of the audited base commit only; no provider, network, production database or control is touched
+    scripts/test-website-email-publish-check.ts
+      providers: real website-email status route and the read-only check library on a disposable database; the command-line check runs as a child against the same disposable database; only catalog SELECTs, the test alone widens the CHECK, no provider, network or production database is touched; outbound pause is not modified
+    scripts/test-website-email-browser.ts
+      providers: private compiled client, real sessions, disposable database; real website-email, public-intake and sequence handlers; every other API answers 501; never opens the lane, sends, probes a provider, unpauses, activates or enrolls
+    scripts/test-stage3-c4-actions.ts
+      providers: guarded disposable PG/Redis; denied external transport; simulated delayed ledger states, no native execution
+    scripts/test-stage3-c4-browser.ts
+      providers: private compiled client/authenticated disposable readers and local preparation POST/readback/retry; named source faults, scoped report/Calendar/agent links, Review Queue native overlay keys and 304 route/panel role surfaces; control appearances remain untested actions, external/native transport denied
+    scripts/test-stage3-c4-health-browser.ts
+      providers: private compiled admin Health read/source handlers only; isolated PG/Redis, actual session and named 503s; non-seeding config GET; other sources explicit 501, computation/native/external denied; not whole C4
+    scripts/test-c2-postmerge-browser.ts
+      providers: guarded disposable PG/Redis/private Chromium; actual handlers, external transport denied
+    scripts/test-c2-contact-header.ts
+      providers: guarded disposable PG/Redis/private Chromium; provider attempts denied before egress
+    scripts/test-toast-viewport-layout.mjs
+      providers: Vite/private Chromium loopback fixture; no DB, login or providers
+    scripts/test-public-shell-browser.mjs
+      providers: Private disposable DB/Redis; compiled client; actual empty-profile password sign-in to the fixture only; all non-loopback browser/server fetch denied
+    scripts/test-stage3-c2-actions.ts
+      providers: Disposable DB and reserved private Redis before imports; actual sessions/CSRF/object guards; outbound/public egress denied
+    scripts/test-stage3-c2-browser.mjs
+      providers: Compiled current candidate; private migrated DB/Redis, actual fresh browser sign-in/CSRF and real handlers; public egress denied. Full-workload timeout 1200s; useful-list 2500ms and local-input 200ms gates unchanged
+    scripts/test-stage3-c1-browser.mjs
+      providers: Private disposable DB/Redis; actual empty-profile UI login, real handlers; all non-loopback browser/server fetch denied
+    scripts/test-stage3-b-auth-continuations.ts
+      providers: Guarded disposable DB and Redis; fake all account-security/MFA transports; actual current auth handlers/sessions
+    scripts/test-stage3-b-browser.ts
+      providers: Explicit disposable browser certification requires current client build and compatible Chromium; real persisted sessions, loopback-only network
+    scripts/test-stage3-b-intake.ts
+      providers: Canonical disposable DB and isolated Redis; real public/session handlers; zero external calls, held effects
+    scripts/test-stage3-b-invitations.ts
+      providers: Guarded disposable infrastructure; fake invitation mail dependency; actual auth sessions/CSRF; no real mail
+    scripts/test-stage3-b-sequences.ts
+      providers: Guarded disposable DB/isolated Redis; actual sessions/CSRF; no enrollment admitted or external effects
+    scripts/test-stage3-b-context.ts
+      providers: Guarded disposable DB/isolated Redis and actual sessions/CSRF; fake extraction; no external calls
+    scripts/test-stage3-b-lifecycle.ts
+      providers: Guarded disposable DB and reserved Redis, actual sessions/CSRF, external calls denied; no deletion executed
+    scripts/test-stage3-b-notifications.ts
+      providers: Pre-import disposable DB/isolated Redis guard; actual sessions/CSRF; external fetch denied
+    scripts/test-stage3-b-inbox-work.ts
+      providers: Pre-import disposable DB/isolated Redis guard; actual persisted sessions/CSRF; all external fetch denied
+    scripts/test-stage3-b-drafts.ts
+      providers: Pre-import disposable DB/Redis guard; local password/session/CSRF handlers; provider fetch denied
+    scripts/test-stage3-b-accounts.ts
+      providers: Pre-import disposable DB/Redis guard; actual local sessions/CSRF; outbound fetch denied; no auth mail invoked
+    scripts/test-stage3-b-work-commands.ts
+      providers: Pre-import disposable DB/Redis guard; registered session/CSRF handlers; fake native transport; all external fetch denied
+    scripts/test-stage3-b-work-adapters.ts
+      providers: Pre-import disposable DB/Redis guard; direct actual GHL ingestion with fixture payload; registered terminal sessions; isolated SLA seam, no worker tick or external calls
+    scripts/test-stage3-a-authority.ts
+      providers: pre-import disposable DB guard; actual local password sessions and ephemeral loopback server; provider fetches denied
+    scripts/test-ghl-inbound-sync.ts
+      providers: pre-import disposable DB guard; DB-bound service sanitizer/source assertions only, not HTTP/session proof
+    scripts/test-ghl-inbound-route-guards.ts
+      providers: pre-import disposable DB guard; registered middleware/validation only, not persisted sessions
+    scripts/test-ghl-inbound-sync-integration.ts
+      providers: disposable DB; fake GHL GETs and actual loopback redirect server; no provider POST/PATCH/send/enrollment
+    scripts/test-cro03a-batch-equivalence.ts
+      providers: guarded disposable source receipts; qualification-service batch processor vs per-item evaluator; no HTTP server or provider transport
+    scripts/test-cro03a-batch-performance.ts
+      providers: batch processor timing, idempotency, crash-resume, cancellation; no GHL/SMTP
+    scripts/test-cro03a-policy-comparison.ts
+      providers: seeds source occurrences and a draft policy document in the server DB; comparison service is read-only (no activateCro03aPolicy() call); no GHL, SMTP, or live provider transport
+    scripts/test-bt12-revenue-state-reconciliation-integration.ts
+      providers: requires TEST_DATABASE_URL disposable database; no provider transports are constructed
+    scripts/test-sfp-disposable-certification.ts
+      providers: requires TEST_DATABASE_URL disposable database; classifier/geography resolver are pure functions; program is never activated and no free-discovery/paid-waterfall/validation/campaign-staging call is made; no provider transports are constructed
+    scripts/test-sfp1999-postmerge-audit-certification.ts
+      providers: requires TEST_DATABASE_URL disposable database; runs real migrations and database guards with CRO03 provider transport unset; no provider or outreach calls
+    scripts/test-sfp2000-disposable-certification.ts
+      providers: requires TEST_DATABASE_URL disposable database with a network-denied fake provider boundary; ZeroBounce validated via injected transport only; proves unified free+paid candidate consumption, real-vs-masked decryption, freshness reuse, snapshot-bound execute, atomic finalization, and the Task-2001 staging fence; no live provider or outreach calls
+    scripts/test-sfp2001-campaign-staging-certification.ts
+      providers: requires TEST_DATABASE_URL disposable database; validates free/paid ready_held staging, exact command replay, payload mismatch, stale-snapshot rejection, migration-state compatibility, and no-send import boundaries; no live provider, outreach, or GHL calls
+    scripts/certification/test-website-intake-handoff.ts
+      providers: disposable PostgreSQL and isolated Redis; real multipart route with deny-by-default provider egress; no send, queue consumer, GHL or paid provider call; outbound pause stays paused
+    scripts/certification/test-public-wc-intake.ts
+      providers: disposable PostgreSQL and isolated Redis; real public JSON and multipart routes plus the real Lead Ops and statement-handoff reads with deny-by-default provider egress; no send, queue consumer, GHL or paid provider call; outbound pause stays paused
+    scripts/certification/test-statement-upload-queue-capability.ts
+      providers: disposable PostgreSQL and isolated Redis; real BullMQ producer with the physical queue paused before any job is added, so nothing is consumed, processed or sent; deny-by-default provider egress
+    scripts/certification/test-public-wc-intake-browser.ts
+      providers: private compiled client, anonymous visitor and actual admin/manager/agent sessions, disposable PostgreSQL and isolated Redis; real public JSON, support and multipart routes with the real Lead Ops and statement-handoff reads, other /api answers 501; browser-side fault injection runs the real request first; deny-by-default provider egress; no send, queue consumer, GHL or paid provider call
+    scripts/certification/test-website-intake-handoff-browser.ts
+      providers: private compiled client, actual admin/manager/agent sessions, disposable PostgreSQL and isolated Redis; real multipart route, other /api answers 501, fixture-supplied inbox payload; deny-by-default provider egress; no send, queue consumer, GHL or paid provider call
+    scripts/certification/test-canonical-address-validation.ts
+      providers: disposable PostgreSQL only; no provider transport or network calls
+    scripts/certification/test-canonical-recipient-preparation.ts
+      providers: disposable PostgreSQL with fatal external-network denial; no send or provider operations
+    scripts/certification/test-recipient-preparation-lane-reserve.ts
+      providers: disposable PostgreSQL with fatal external-network denial; no send or provider operations
+    scripts/certification/test-preparation-upload-cohort.ts
+      providers: disposable PostgreSQL with fatal external-network denial; no send or provider operations
+    scripts/certification/test-sfp-geography-recovery.ts
+      providers: disposable PostgreSQL with fatal external-network denial; website reads are injected, no provider operations
+    scripts/certification/test-zerobounce-ambiguous-recovery.ts
+      providers: claim, preview and authorization code on a disposable migrated database with fixture operations; provider network egress is denied and counted
+    scripts/certification/test-zerobounce-ambiguous-recovery-worker.ts
+      providers: real validation worker with an injected fake provider on a disposable migrated database; provider network egress is denied and counted
+    scripts/certification/test-domain-location-assignment.ts
+      providers: pure database policy evaluation and the audited relationship writer on a disposable migrated database; no provider, send or enrollment path is reachable
+    scripts/certification/test-data-health-reconcile.ts
+      providers: database-only governed commands on a disposable migrated database; no provider, send, enrollment or scheduling path is reachable
+    scripts/certification/test-pipeline-metric-contract.ts
+      providers: database-only metric reads on a disposable migrated database; no provider, send, enrollment or scheduling path is reachable
+    scripts/certification/test-serper-contact-page-stage.ts
+      providers: injected fake Serper transport and page reader on a disposable migrated database; provider network egress is denied and counted
+    scripts/test-partner-route-order.ts
+      providers: real partner and onboarding route modules registered in production order; no request, database query or provider call is made
+    scripts/test-partner-program-contracts.ts
+      providers: shared application schema, browser payload builder, analytics allowlist and the real partner-program route module registered on an unlistened app; no request, database query, network or provider call is made
+    scripts/test-partner-ssr-pages.ts
+      providers: the real partner page route module mounted on an Express app bound to an ephemeral loopback port with an injected policy reader; no database, provider or external host is contacted
+    scripts/certification/test-retained-sunbiz-business-completion.ts
+      providers: disposable PostgreSQL with fatal external-network denial; no send or provider operations
+    scripts/certification/test-effective-vertical-projection-slicing.ts
+      providers: disposable PostgreSQL with fatal external-network denial; no send or provider operations
+    scripts/certification/test-audited-retained-import-recovery.ts
+      providers: private migrated PostgreSQL with fatal external transport denial; no paid providers or sends
+    scripts/certification/test-canonical-transaction-leases.ts
+      providers: private PostgreSQL with external transport denied; native lock, timeout and token-negative fixtures only
+    scripts/certification/test-canonical-provider-import.ts
+      providers: disposable PostgreSQL with fatal network denial; canonical local intake only
+    scripts/certification/test-canonical-projection-coverage.ts
+      providers: disposable PostgreSQL with fatal network denial; no paid queues, cohorts or messages
+    scripts/certification/test-canonical-source-outbox.ts
+      providers: disposable PostgreSQL with fatal network denial; no purchases, cohorts or messages
+    scripts/certification/test-canonical-registry-projection.ts
+      providers: disposable PostgreSQL with fatal network denial; local businesses only
+    scripts/certification/test-canonical-registry-originals.ts
+      providers: disposable PostgreSQL with fatal network denial; original encrypted rows only
+    scripts/certification/test-canonical-address-preparation-owner-repair.ts
+      providers: disposable PostgreSQL with fatal network denial; schema-only owner delivery
+    scripts/certification/test-crm-contact-link-automation.ts
+      providers: disposable PostgreSQL and private runtime fixtures; no provider I/O
+    scripts/check-contact-merge-manifest.ts
+      providers: PostgreSQL catalog inspection only; no providers
+    scripts/test-canonical-identity-merge.ts
+      providers: GHL_TRANSPORT_FAILFAST=true; no provider calls
+    scripts/sfp-certification.ts
+      providers: seeds/cleans its own canonical businesses in the server DB; ZeroBounce validated via fake transport injection (no live ZB key); no GHL/SMTP/campaign/sequence writes; asserts zero-outreach on every staging call
+    scripts/test-cro03-ledger-convergence.ts
+      providers: no provider calls (DB-only fixture proving the seed-convergence repair coexists with the real cro03_ledger_immutable/cro03_ledger_lineage_guard triggers and unique indexes)
+    scripts/test-seed-convergence-verifier-integrity.ts
+      providers: no provider calls (DB-only fixture that deletes/substitutes each tightened canonical seed row, bypassing that table's own immutability trigger for the duration of the test, and asserts verifyProductionSeedConvergence flips to critical, then restores original state)
+    scripts/check-free-enrichment-columns.ts
+      providers: EXPLAIN dry-runs only; no enrichment adapters, GHL, SMTP, Serper, or paid providers
+    server/tests/auth-actions.integration.test.ts
+      providers: TEST_DATABASE_URL disposable PostgreSQL schema only; no providers
+    scripts/test-cr06-governance.ts
+      providers: loads the DB-bound CR-06 service graph against disposable PostgreSQL; provider denial proves content/cadence/rendering assertions create no provider traffic
+    scripts/test-cr06-disposable-certification.ts
+      providers: disposable PostgreSQL and suite-isolated Redis only; certification wrapper denies all provider and public-network transports, and CR-06 dispatch is unavailable
+    scripts/test-cr06-migration-upgrade.ts
+      providers: two freshly created disposable PostgreSQL databases; production migration harness only and no providers
+    scripts/test-cro07-disposable-certification.ts
+      providers: disposable PostgreSQL and suite-isolated Redis only; denied-by-default transport adapter never accepts a real send, CR-06 dispatch remains unavailable, and no provider or public-network transport is invoked
+    scripts/test-serper-gateway.ts
+      providers: Serper: fake transports injected by test
+    scripts/test-sunbiz-timeout.ts
+      providers: Sunbiz: disposable PostgreSQL only; no real network
+    scripts/test-import-idempotency.ts
+      providers: PostgreSQL catalog/storage contract on disposable infrastructure; no providers
+    scripts/test-commercial-classification.ts
+      providers: no provider calls; isolated Postgres only
+    scripts/test-intake-provenance.ts
+      providers: GHL: GHL_TRANSPORT_FAILFAST=true
+    scripts/test-lifecycle.ts
+      providers: no provider calls (lifecycle state transitions only)
+    scripts/test-transport-dispatch.ts
+      providers: GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true
+    scripts/test-ghl-webhooks.ts
+      providers: GHL: no outbound calls (inbound webhook parsing only)
+    scripts/test-ghl-decoupling.ts
+      providers: GHL: shadow-mode test; GHL_TRANSPORT_FAILFAST=true
+    scripts/test-appointment-statement.ts
+      providers: GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true
+    scripts/test-ghl-sync-exact-lookups.ts
+      providers: GHL: GHL_TRANSPORT_FAILFAST=true; >500-row fixtures are written to the disposable DB only and removed in finally
+    scripts/test-bullmq-resilience.ts
+      providers: Redis: uses test prefix; no provider calls
+    scripts/test-stale-job-lock.ts
+      providers: PostgreSQL registry rows use unique test job names; no providers
+    server/tests/statement-command-worker.test.ts
+      providers: intentionally missing protected objects; statement chain and all providers are unreachable
+    scripts/test-redis-topology.ts
+      providers: Redis topology is inspected through an isolated test run; no providers
+    scripts/test-email-signatures.ts
+      providers: SMTP: outboundGlobalPaused=true (no real sends)
+    scripts/test-arbitration.ts
+      providers: no provider calls (arbitration decision logic only)
+    scripts/test-channel-orchestrator.ts
+      providers: GHL: GHL_TRANSPORT_FAILFAST=true; transport: fake adapters
+    scripts/smoke-attrition-cooldown.ts
+      providers: no provider calls (DB suppression logic only)
+    scripts/test-backlog-preview.ts
+      providers: disposable PostgreSQL fixtures and injected source failures; no providers
+    scripts/test-cro01-revenue-contract-integration.ts
+      providers: TEST_DATABASE_URL disposable PostgreSQL TEMP tables with rollback; no providers
+    scripts/test-cro02-integration.ts
+      providers: disposable database graph/import contract only; no providers
+    scripts/test-cro03c-static.ts
+      providers: loads the DB-bound live-execution graph only against disposable PostgreSQL; realistic secret names run with denied provider/public transport
+    scripts/test-cro03c-worker-static.ts
+      providers: loads the DB-bound live-execution graph against disposable PostgreSQL; SafeEgress transport is injected and provider/public transport remains denied
+    server/tests/inbound-request-lifecycle.test.ts
+      providers: pre-import disposable DB guard for the authority import graph; lifecycle decision assertions only, not persisted-effect proof; no provider transport
+    scripts/test-cro03c-integration.ts
+      providers: disposable PostgreSQL and suite-isolated Redis; all provider and public-network transport is denied
+    scripts/test-cro03c-provider-executors.ts
+      providers: loads the DB-bound live provider executor graph against disposable PostgreSQL; no provider client method is invoked
+    scripts/test-mi09-pricing-seed-integration.ts
+      providers: disposable PostgreSQL only; no provider client, HTTP transport, queue, or scheduler is touched
+    scripts/test-cro03c-openai-bundle-static.ts
+      providers: pre-import disposable DB guard for the eager service graph; constructor/approval/validator unit assertions only, not dispatch proof; no provider transport
+    scripts/test-cro03b-integration.ts
+      providers: database-backed certification mode suppresses queue transport; provider/public network transport remains denied
+    scripts/certify-cro03b-csv-handoff.ts
+      providers: database-backed certification mode; all external recipe stages (public-web, rdap, jsonld, serper, outscraper, openai, apollo) are recorded as transport_denied with zero units; no live GHL, SMTP, or provider call is made; Paths D/E/F exercise the real DBPR-HR adapter path, cross-source dedup via resolveOrganization() phone/name+location matching, and concurrent projection race; Path G certifies CRO03B_COUNTY_FIPS_CONFLICT guard with real DB rows — all without any live provider transport
+    scripts/test-cro03-ledger-drift-repair.ts
+      providers: approved staging/test PostgreSQL transaction only; migration replay is rolled back and no provider transport is constructed
+    scripts/test-apollo-organization-resolution.ts
+      providers: loads the DB-bound SDR Apollo graph against disposable PostgreSQL; transport is mocked and the production wrapper is verified fail-closed
+    scripts/test-cro03-integration.ts
+      providers: disposable PostgreSQL and isolated Redis; provider and public-network transport denied by certification wrapper
+    scripts/test-session-validity-fail-closed.ts
+      providers: pre-import disposable DB guard; real guards with authStorage monkey-patched in-process, not persisted-session proof; no server or provider transport
+    scripts/test-sequence-terminalization-race.ts
+      providers: no provider calls (disposable DB race only)
+    scripts/test-reconciliation-certification.ts
+      providers: disposable PostgreSQL only; no network or provider transports
+    scripts/test-reconciliation-performance.ts
+      providers: disposable PostgreSQL only; no network or provider transports
+    scripts/certify-cro03a-autowire.ts
+      providers: disposable PostgreSQL only; no provider transports, no network, no live DB
+
+  SERVER-REQUIRED (24 suites):
+    scripts/test-import-reconciliation.ts
+      providers: server-backed import fixtures; outbound providers are fail-closed
+    scripts/test-identity-crosswalk.ts
+      providers: read-only evidence sweep; no GHL/SMTP/OpenAI calls; BACKGROUND_JOB_PROFILE=off enforced
+    scripts/test-cr06-http-authorization.ts
+      providers: localhost isolated-test-auth requests only; CR-06 release remains unavailable and no provider transport is invoked
+    scripts/test-contactability.ts
+      providers: GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true
+    scripts/test-speed-to-lead.ts
+      providers: GHL: GHL_TRANSPORT_FAILFAST=true; outboundGlobalPaused=true
+    scripts/test-cro02-http.ts
+      providers: localhost contract only; no provider transport is invoked
+    scripts/test-cro03-http-authorization.ts
+      providers: localhost authorization contract; CRO-03 providers remain disabled
+    scripts/test-crm-operator-experience.ts
+      providers: no provider calls (two-agent ownership fixture and response-contract regression scan)
+    scripts/test-sequence-compliance.ts
+      providers: GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true
+    scripts/test-new-lead-enrollment-policy.ts
+      providers: GHL: GHL_TRANSPORT_FAILFAST=true
+    scripts/smoke-role-guards.ts
+      providers: none (HTTP role-gate testing only)
+    scripts/seo-audit.ts
+      providers: none (same-origin GETs of public pages and read-only Chromium navigation; vendor hosts blocked, no submit or provider call)
+    scripts/check-public-site-mobile.ts
+      providers: read-only Chromium navigation of public pages; vendor chat hosts blocked, no form submit, booking, upload or message
+    scripts/check-public-shell-design.ts
+      providers: read-only Chromium navigation of public pages and the two sign-in pages; vendor chat hosts blocked, no sign-in, form submit, booking, upload or message
+    scripts/check-public-fonts.ts
+      providers: read-only Chromium navigation of public pages; vendor hosts blocked, no submit or provider call
+    scripts/check-public-overlay.ts
+      providers: read-only Chromium probes; vendor chat hosts blocked and never opened, no session created, no submit or provider call
+    scripts/check-public-server-hydrated-parity.ts
+      providers: read-only Chromium navigation and same-origin GETs of public pages; vendor hosts blocked, no submit or provider call
+    scripts/check-wd-pv-browser.ts
+      providers: read-only Chromium navigation; types into local calculator and application fields only, never submits; vendor hosts blocked, no provider call
+    scripts/test-statement-acquisition.ts
+      providers: GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: persisted pause
+    scripts/test-nba.ts
+      providers: no provider calls (startup-initialized pause state + NBA decision engine only)
+    scripts/test-outbound-pause-authority.ts
+      providers: no provider calls (startup-seeded pause-authority state machine only)
+    scripts/test-outbound-boundary-1626.ts
+      providers: GHL: dummy in-process config + rejecting fetch spy; SMTP: persisted pause
+    scripts/test-pause-fence.ts
+      providers: no provider calls (startup-seeded pause-control rows only)
+    scripts/test-cro01-provider-denial.ts
+      providers: localhost isolated-test-auth requests only; denied PUT returns before provider or queue work
+
+  SERVER-OPTIONAL (6 suites):
+    scripts/test-live-health.ts
+      note: Requires OpenAI key (AI probe) and live Redis; skip in CI
+    scripts/test-chat-business-hours.ts
+      note: Tests live-mode AI handoff timing; requires real server config
+    scripts/test-ai-assistant-boundaries.ts
+      note: Tests live AI provider responses; requires OpenAI key
+    scripts/test-forms.ts
+      note: GHL isolated via GHL_TRANSPORT_FAILFAST; requires ADMIN credentials
+    scripts/smoke-portfolio.ts
+      note: Ownership boundary tests; requires ADMIN + agent credentials
+    scripts/smoke-golive-gate.ts
+      note: 422 gate and admin override tests; requires ADMIN credentials
+
+  EXTERNAL-SECURITY (1 suite):
+    scripts/dependency-audit-policy.ts
+      providers: public npm advisory registry only; no application providers
+
+  WRITABLE-BUILD (1 suite):
+    scripts/release-artifact-gate.ts
+      providers: local typecheck/build/artifact scan only; no provider calls
+
+  Total: 281 suites classified
+  ✓ No duplicate script entries in manifest
+  ✓ No server-optional/server-required overlap
+  ✓ All deterministic suites have provider denial documentation
+
+  Comparing manifest against scripts/pre-deploy.ts MANDATORY_SUITES:
+  ✗ MANIFEST GAP: 'scripts/test-phase6-legacy-alias-matrix.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-mobile-continuity.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-inventory-reads.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-inventory-set-reads.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-backlog-lanes.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-website-lane-draft.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-provenance-and-record-class.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-task-evidence.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-intake-cohorts.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-contact-header-task.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-notification-targets.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-mounted.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-email-lane-states.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-count-contract.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-work-presentation.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-contact-and-applications.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-today-pipeline-reports.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-workspace-identity.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-browser.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✗ MANIFEST GAP: 'scripts/test-phase6-populated-journeys.ts' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST
+  ✓ No stale manifest entries (every manifest script is in MANDATORY_SUITES or declared in CERTIFICATION_FIXTURE_SUITES)
+
+✗ Suite manifest INVALID: 1 error(s)

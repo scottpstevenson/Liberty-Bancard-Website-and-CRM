@@ -771,114 +771,14 @@ try {
     JSON.stringify(taxonomyAfterReplay) === JSON.stringify(taxonomyAfterInsert),
   "canonical taxonomy registration only adds missing versioned events, preserves existing rows, and is idempotent");
 
-  // ── Governed experiments: never publish, never touch CR-06 content ─────
-  const experimentKey = `cro07-cert-experiment-${nonce}`;
-  const experiment = await experiments.freezeCro07Experiment({
-    key: experimentKey, hypothesis: "Certification hypothesis", metric: "reply_rate",
-    populationDefinition: { segment: "certification" }, allocation: { a: 0.5, b: 0.5 },
-    versions: { a: { copy: "A" }, b: { copy: "B" } }, minSampleSize: 10, minDurationDays: 0,
-    confidenceRule: { method: "two_sample_z", alpha: 0.05 }, guardrails: [{ metric: "complaint_rate", maxDegradationPct: 10 }],
-    frozenBy: actor.actorId,
-  });
-  // Freezing is a one-time act: a resubmission under the SAME key with a
-  // DIFFERENT design (e.g. an added arm / changed allocation) must be
-  // rejected outright, never silently accepted as if it were a replay —
-  // otherwise a second call could add arms or change the population after
-  // the design was already frozen, without a new experiment or approval.
-  await rejects(
-    () => experiments.freezeCro07Experiment({
-      key: experimentKey, hypothesis: "Certification hypothesis", metric: "reply_rate",
-      populationDefinition: { segment: "certification" }, allocation: { a: 0.4, b: 0.3, c: 0.3 },
-      versions: { a: { copy: "A" }, b: { copy: "B" }, c: { copy: "C" } }, minSampleSize: 10, minDurationDays: 0,
-      confidenceRule: { method: "two_sample_z", alpha: 0.05 }, guardrails: [{ metric: "complaint_rate", maxDegradationPct: 10 }],
-      frozenBy: actor.actorId,
-    }),
-    "CRO07_EXPERIMENT_DESIGN_MISMATCH",
-    "resubmitting an existing experiment key with a changed design (an added arm) is rejected, not silently merged in",
-  );
-  const armsAfterMismatchAttempt = await pool.query(
-    "SELECT arm FROM cro07_experiment_samples WHERE experiment_id=$1 ORDER BY arm", [experiment.id],
-  );
-  check(armsAfterMismatchAttempt.rows.length === 2 && armsAfterMismatchAttempt.rows.map((r: any) => r.arm).join(",") === "a,b",
-    "a rejected design-mismatch resubmission never adds sample rows for the extra requested arm");
-  // An identical resubmission (byte-identical design, same hash) is still a
-  // safe, idempotent no-op replay.
-  const identicalReplay = await experiments.freezeCro07Experiment({
-    key: experimentKey, hypothesis: "Certification hypothesis", metric: "reply_rate",
-    populationDefinition: { segment: "certification" }, allocation: { a: 0.5, b: 0.5 },
-    versions: { a: { copy: "A" }, b: { copy: "B" } }, minSampleSize: 10, minDurationDays: 0,
-    confidenceRule: { method: "two_sample_z", alpha: 0.05 }, guardrails: [{ metric: "complaint_rate", maxDegradationPct: 10 }],
-    frozenBy: actor.actorId,
-  });
-  check(identicalReplay.id === experiment.id, "an identical resubmission under the same key remains a safe idempotent replay");
-
-  await experiments.startCro07Experiment(experiment.id);
-  await rejects(
-    () => experiments.decideCro07Experiment({ experimentId: experiment.id, decision: "winner_a", decidedBy: actor.actorId }),
-    "CRO07_INSUFFICIENT_SAMPLE",
-    "an experiment cannot be decided before its frozen minimum sample size is reached",
-  );
-  for (let i = 0; i < 12; i++) {
-    await experiments.recordCro07ExperimentSample({
-      experimentId: experiment.id, arm: i % 2 === 0 ? "a" : "b", success: i % 3 === 0,
-      eventKey: `cert-exposure-${nonce}-${i}`, source: "cro07_attribution_certification",
-    });
-  }
-  // A replayed/duplicate event identity must never double-count — proves
-  // sample ingestion cannot be inflated by a caller retrying (or forging)
-  // the same event twice.
-  const beforeReplaySample = await pool.query(
-    "SELECT exposure_count FROM cro07_experiment_samples WHERE experiment_id=$1 AND arm='a'", [experiment.id],
-  );
-  const replayedSample = await experiments.recordCro07ExperimentSample({
-    experimentId: experiment.id, arm: "a", success: true,
-    eventKey: `cert-exposure-${nonce}-0`, source: "cro07_attribution_certification",
-  });
-  const afterReplaySample = await pool.query(
-    "SELECT exposure_count FROM cro07_experiment_samples WHERE experiment_id=$1 AND arm='a'", [experiment.id],
-  );
-  check((replayedSample as any).replayed === true && afterReplaySample.rows[0].exposure_count === beforeReplaySample.rows[0].exposure_count,
-    "a duplicate experiment sample event identity is deduped and never double-counted");
-  const decision = await experiments.decideCro07Experiment({ experimentId: experiment.id, decision: "winner_a", decidedBy: actor.actorId });
-  check(decision.state === "decided" && typeof decision.new_version_handoff_key === "string",
-    "a decided winner produces only an opaque new-version handoff key");
-  const artifactsAfterExperiment = await pool.query("SELECT * FROM cr06_artifacts WHERE id=$1", [program.rows[0].id]);
-  check(JSON.stringify(artifactsAfterExperiment.rows[0]) === JSON.stringify(programBefore.rows[0]),
-    "the governed growth loop never mutates approved CR-06 artifact content");
-
-  // Two concurrent decide calls on the SAME eligible experiment must never
-  // both succeed — the row lock + compare-and-set WHERE clause must let
-  // exactly one call transition the experiment, with the other rejected
-  // for no longer being in a decidable state (never silently overwriting
-  // the first decision's winner/handoff key).
-  const concurrentExperimentKey = `cro07-cert-experiment-concurrent-${nonce}`;
-  const concurrentExperiment = await experiments.freezeCro07Experiment({
-    key: concurrentExperimentKey, hypothesis: "Concurrency certification hypothesis", metric: "reply_rate",
-    populationDefinition: { segment: "certification" }, allocation: { a: 0.5, b: 0.5 },
-    versions: { a: { copy: "A" }, b: { copy: "B" } }, minSampleSize: 4, minDurationDays: 0,
-    confidenceRule: { method: "two_sample_z", alpha: 0.05 }, guardrails: [{ metric: "complaint_rate", maxDegradationPct: 10 }],
-    frozenBy: actor.actorId,
-  });
-  await experiments.startCro07Experiment(concurrentExperiment.id);
-  for (let i = 0; i < 4; i++) {
-    await experiments.recordCro07ExperimentSample({
-      experimentId: concurrentExperiment.id, arm: i % 2 === 0 ? "a" : "b", success: true,
-      eventKey: `cert-concurrent-exposure-${nonce}-${i}`, source: "cro07_attribution_certification",
-    });
-  }
-  const concurrentOutcomes = await Promise.allSettled([
-    experiments.decideCro07Experiment({ experimentId: concurrentExperiment.id, decision: "winner_a", decidedBy: `${actor.actorId}-racer-1` }),
-    experiments.decideCro07Experiment({ experimentId: concurrentExperiment.id, decision: "winner_b", decidedBy: `${actor.actorId}-racer-2` }),
-  ]);
-  const concurrentFulfilled = concurrentOutcomes.filter((o) => o.status === "fulfilled");
-  const concurrentRejected = concurrentOutcomes.filter((o) => o.status === "rejected");
-  check(concurrentFulfilled.length === 1 && concurrentRejected.length === 1
-    && /CRO07_EXPERIMENT_NOT_DECIDABLE/.test(String((concurrentRejected[0] as PromiseRejectedResult).reason)),
-    "two concurrent decide calls on one experiment never both succeed — exactly one wins and the other is rejected as no longer decidable");
-  const concurrentFinal = await pool.query("SELECT decision, new_version_handoff_key FROM cro07_experiments WHERE id=$1", [concurrentExperiment.id]);
-  check(concurrentFinal.rows[0].decision === (concurrentFulfilled[0] as PromiseFulfilledResult<any>).value.decision
-    && typeof concurrentFinal.rows[0].new_version_handoff_key === "string",
-    "the experiment's persisted decision matches exactly the one call that actually won the race, never a merged or overwritten state");
+  // Phase 7 replaces caller-chosen sample counters and unversioned designs. Positive allocation, receipt,
+  // evaluation fencing and qualified-outcome coverage live in the registered test-phase7-integration suite.
+  const legacyDesign={key:`cro07-cert-experiment-${nonce}`,hypothesis:'Legacy design',metric:'reply_rate',populationDefinition:{segment:'certification'},allocation:{a:0.5,b:0.5},versions:{a:{copy:'A'},b:{copy:'B'}},minSampleSize:10,minDurationDays:0,confidenceRule:{method:'two_sample_z',alpha:0.05},guardrails:[],frozenBy:actor.actorId};
+  await rejects(()=>experiments.freezeCro07Experiment(legacyDesign),'VERSIONED_COMMAND_REQUIRED','unversioned legacy design cannot authorize collection');
+  await rejects(()=>experiments.recordCro07ExperimentSample({experimentId:randomUUID(),arm:'a',success:true,eventKey:'forged-'+nonce,source:'arbitrary'}),'RECEIPT_REQUIRED','caller-chosen success counter and idempotency key are not message evidence');
+  await rejects(()=>experiments.decideCro07Experiment({experimentId:randomUUID(),decision:'winner_a',decidedBy:actor.actorId}),'VERSIONED_COMMAND_REQUIRED','unversioned winner cannot create a content handoff');
+  const artifactsAfterExperiment=await pool.query('SELECT * FROM cr06_artifacts WHERE id=$1',[program.rows[0].id]);
+  check(JSON.stringify(artifactsAfterExperiment.rows[0])===JSON.stringify(programBefore.rows[0]),'rejected legacy experiment commands preserve approved CR-06 content');
 
   // ── Final CR-06 boundary re-check ───────────────────────────────────────
   await rejects(async () => cr06.assertCr06DispatchUnavailable(), "CR06_FINAL_DISPATCH_NOT_AUTHORIZED",

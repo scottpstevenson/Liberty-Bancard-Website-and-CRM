@@ -2,12 +2,13 @@ import { useLocation, useSearch } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Reporting from "./Reporting";
 import GrowthKPI from "./GrowthKPI";
+import ConversionFunnel from "./ConversionFunnel";
 import WinLoss from "./WinLoss";
 import OutreachAnalytics from "./OutreachAnalytics";
 import OperationsReport from "./OperationsReport";
 import FinancialHub from "./FinancialHub";
-import { selectValue, safeParams, safeContextKeys, destinationUrl, financialViews,revenueFilterKeys,preserveRevenueFilters } from "@/lib/crm-destination-state";
-import { CrmPage, CrmPageHeader } from "@/components/crm/CrmPresentation";
+import { selectValue, safeParams, safeContextKeys, destinationUrl, financialViews,growthViews,funnelFilterKeys,revenueFilterKeys,preserveRevenueFilters } from "@/lib/crm-destination-state";
+import { CrmPage, CrmPageHeader, CrmDataState } from "@/components/crm/CrmPresentation";
 
 const VALID_TABS = ["overview", "growth", "win-loss", "outreach-analytics", "operations", "financial"] as const;
 type Tab = typeof VALID_TABS[number];
@@ -16,6 +17,8 @@ export default function ReportingHub() {
   const search = useSearch();
   const state = selectValue(new URLSearchParams(search), "tab", VALID_TABS, "overview");
   const tab = state.value;
+  const growthState=selectValue(new URLSearchParams(search),"growthView",growthViews,"channel-kpis");
+  const effectiveTab=tab==="growth"&&growthState.value==="conversion-funnel"?"conversion-funnel":tab;
   const salesViews = ["overview", "growth", "win-loss"] as const;
   const activeArea = salesViews.includes(tab as typeof salesViews[number])
     ? "sales"
@@ -24,10 +27,12 @@ export default function ReportingHub() {
     : "financial";
   const [, navigate] = useLocation();
   const goTab = (v: string) => {
-    if (!(VALID_TABS as readonly string[]).includes(v)) return;
-    const params = safeParams(search, [...safeContextKeys, "financialTab", "revenueView","outreachView",...revenueFilterKeys]);
+    if (!(VALID_TABS as readonly string[]).includes(v) && v!=="conversion-funnel") return;
+    const params = safeParams(search, [...safeContextKeys, "financialTab", "revenueView","outreachView","outreachExperiment","growthView",...funnelFilterKeys,...revenueFilterKeys]);
     preserveRevenueFilters(search,params);
     params.set("tab", v);
+    if(v==="conversion-funnel"){params.set("tab","growth");params.set("growthView","conversion-funnel");}
+    else if(v==="growth")params.set("growthView","channel-kpis");
     if (v !== "financial") {params.delete("financialTab");params.delete("revenueView");}
     else params.set("financialTab", selectValue(new URLSearchParams(search), "financialTab", financialViews, "revenue").value);
     navigate(destinationUrl("/dashboard/reporting", params, window.location.hash));
@@ -43,7 +48,7 @@ export default function ReportingHub() {
   return (
     <CrmPage className="space-y-5">
       <CrmPageHeader title="Reports" description="Business performance, outreach, operations and financial views in the same authorized scope." />
-      <Tabs value={tab} onValueChange={goTab} className="space-y-4 min-w-0">
+      <Tabs value={effectiveTab} onValueChange={goTab} className="space-y-4 min-w-0">
         {state.issues.length > 0 && <p className="rounded-md border-l-2 border-destructive bg-muted px-3 py-2 text-sm" role="status">{state.issues[0].reason}</p>}
         <nav aria-label="Report areas" className="grid grid-cols-2 gap-2 border-b pb-3 md:grid-cols-4">
           <button type="button" data-testid="tab-reporting-sales-area" aria-pressed={activeArea === "sales"} onClick={() => goArea("sales")}
@@ -67,11 +72,13 @@ export default function ReportingHub() {
           <TabsList aria-label="Sales and growth views" className="h-auto w-full justify-start gap-1 border-b bg-transparent p-0 pb-3">
             <TabsTrigger value="overview" data-testid="tab-reporting-overview">Overview</TabsTrigger>
             <TabsTrigger value="growth" data-testid="tab-reporting-growth">Growth Metrics</TabsTrigger>
+            <TabsTrigger value="conversion-funnel" data-testid="tab-reporting-conversion-funnel">Conversion Funnel</TabsTrigger>
             <TabsTrigger value="win-loss" data-testid="tab-reporting-win-loss">Win/Loss</TabsTrigger>
           </TabsList>
         )}
         <TabsContent value="overview"><Reporting /></TabsContent>
-        <TabsContent value="growth"><GrowthKPI /></TabsContent>
+        <TabsContent value="growth">{growthState.issues.length?<CrmDataState state="conflict" message="Invalid growth view; no alternate report was requested."/>:<GrowthKPI />}</TabsContent>
+        <TabsContent value="conversion-funnel">{growthState.issues.length?<CrmDataState state="conflict" message="Invalid growth view; no cohort was requested."/>:<ConversionFunnel />}</TabsContent>
         <TabsContent value="win-loss"><WinLoss /></TabsContent>
         <TabsContent value="outreach-analytics"><OutreachAnalytics /></TabsContent>
         <TabsContent value="operations"><OperationsReport /></TabsContent>

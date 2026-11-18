@@ -1,5 +1,18 @@
+import { easternDayStart, nextDate } from "../../../shared/conversion-funnel";
 import { db } from "../../db";
-import { dailyFunnelMetrics, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrMerchants, deals, businesses, sendingIdentities, identityPerformanceDaily, leadSources, contacts } from "@shared/schema";
+import {
+  dailyFunnelMetrics,
+  sdrLeadState,
+  sdrLeadEvents,
+  sdrChannelAttempts,
+  sdrMerchants,
+  deals,
+  businesses,
+  sendingIdentities,
+  identityPerformanceDaily,
+  leadSources,
+  contacts,
+} from "@shared/schema";
 import type { DailyFunnelMetrics } from "@shared/schema";
 import { eq, sql, and, gte, lte } from "drizzle-orm";
 // CRO-02 observation runs via the CRO02_OBSERVATION BullMQ job — not called inline here.
@@ -8,199 +21,369 @@ import { ratePercent, type RateEvidence } from "@shared/rate-evidence";
 let aggregationInterval: ReturnType<typeof setInterval> | null = null;
 
 function getEstDateString(date?: Date): string {
-  return (date || new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  return (date || new Date()).toLocaleDateString("en-CA", {
+    timeZone: "America/New_York",
+  });
 }
 
 import { countSdrEventKinds, type SdrEventKind } from "./event-kinds";
 
 export async function aggregateDailyMetrics(dateStr?: string): Promise<void> {
-  const targetDate = dateStr || getEstDateString(new Date(Date.now() - 24 * 60 * 60 * 1000));
+  const targetDate =
+    dateStr || getEstDateString(new Date(Date.now() - 24 * 60 * 60 * 1000));
   console.log(`[FunnelMetrics] Aggregating metrics for ${targetDate}...`);
 
   try {
-    const startOfDay = new Date(`${targetDate}T00:00:00-05:00`);
-    const endOfDay = new Date(`${targetDate}T23:59:59-05:00`);
+    await db.transaction(
+      async (db) => {
+        // These retained columns store UTC in timestamp-without-time-zone. ISO strings avoid node-pg serializing Dates in the process timezone.
+        const startOfDay = easternDayStart(targetDate).toISOString();
+        const endOfDay = easternDayStart(nextDate(targetDate)).toISOString();
+        const dimensionKey = (row: {
+          vertical: string | null;
+          state?: string | null;
+          sourceType?: string | null;
+        }) =>
+          JSON.stringify([
+            row.vertical ?? "unknown",
+            row.state ?? "unknown",
+            row.sourceType ?? "unknown",
+          ]);
 
-    await db.delete(dailyFunnelMetrics).where(eq(dailyFunnelMetrics.date, targetDate));
+        await db
+          .delete(dailyFunnelMetrics)
+          .where(eq(dailyFunnelMetrics.date, targetDate));
 
-    const leadsCreated = await db.select({
-      vertical: sdrLeadState.vertical,
-      state: sdrLeadState.state,
-      sourceType: sdrLeadState.sourceType,
-      count: sql<number>`count(*)`,
-    }).from(sdrLeadState).innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId)).where(
-      sql`${contacts.recordClass} = 'production'
-          AND ${sdrLeadState.createdAt} >= ${startOfDay} AND ${sdrLeadState.createdAt} <= ${endOfDay}`
-    ).groupBy(sdrLeadState.vertical, sdrLeadState.state, sdrLeadState.sourceType);
+        const leadsCreated = await db
+          .select({
+            vertical: sdrLeadState.vertical,
+            state: sdrLeadState.state,
+            sourceType: sdrLeadState.sourceType,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(sdrLeadState)
+          .innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId))
+          .where(
+            sql`${contacts.recordClass} = 'production'
+          AND ${sdrLeadState.createdAt} >= ${startOfDay} AND ${sdrLeadState.createdAt} < ${endOfDay}`,
+          )
+          .groupBy(
+            sdrLeadState.vertical,
+            sdrLeadState.state,
+            sdrLeadState.sourceType,
+          );
 
-    const enrichedLeads = await db.select({
-      vertical: sdrLeadState.vertical,
-      count: sql<number>`count(*)`,
-    }).from(sdrLeadState).innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId)).where(
-      sql`${contacts.recordClass} = 'production'
-          AND ${sdrLeadState.createdAt} >= ${startOfDay} AND ${sdrLeadState.createdAt} <= ${endOfDay}
-          AND (${sdrLeadState.email} IS NOT NULL OR ${sdrLeadState.phone} IS NOT NULL)`
-    ).groupBy(sdrLeadState.vertical);
+        const enrichedLeads = await db
+          .select({
+            vertical: sdrLeadState.vertical,
+            state: sdrLeadState.state,
+            sourceType: sdrLeadState.sourceType,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(sdrLeadState)
+          .innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId))
+          .where(
+            sql`${contacts.recordClass} = 'production'
+          AND ${sdrLeadState.createdAt} >= ${startOfDay} AND ${sdrLeadState.createdAt} < ${endOfDay}
+          AND (${sdrLeadState.email} IS NOT NULL OR ${sdrLeadState.phone} IS NOT NULL)`,
+          )
+          .groupBy(
+            sdrLeadState.vertical,
+            sdrLeadState.state,
+            sdrLeadState.sourceType,
+          );
 
-    const enrichedByVertical: Record<string, number> = {};
-    for (const row of enrichedLeads) {
-      enrichedByVertical[row.vertical || "_all"] = row.count;
-    }
+        const enrichedByVertical: Record<string, number> = {};
+        for (const row of enrichedLeads) {
+          enrichedByVertical[dimensionKey(row)] = row.count;
+        }
 
-    const hotLeads = await db.select({
-      vertical: sdrLeadState.vertical,
-      count: sql<number>`count(*)`,
-    }).from(sdrLeadState).innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId)).where(
-      sql`${contacts.recordClass} = 'production'
-          AND ${sdrLeadState.createdAt} >= ${startOfDay} AND ${sdrLeadState.createdAt} <= ${endOfDay}
-          AND ${sdrLeadState.priorityBucket} = 'A'`
-    ).groupBy(sdrLeadState.vertical);
+        const hotLeads = await db
+          .select({
+            vertical: sdrLeadState.vertical,
+            state: sdrLeadState.state,
+            sourceType: sdrLeadState.sourceType,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(sdrLeadState)
+          .innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId))
+          .where(
+            sql`${contacts.recordClass} = 'production'
+          AND ${sdrLeadState.createdAt} >= ${startOfDay} AND ${sdrLeadState.createdAt} < ${endOfDay}
+          AND ${sdrLeadState.priorityBucket} = 'A'`,
+          )
+          .groupBy(
+            sdrLeadState.vertical,
+            sdrLeadState.state,
+            sdrLeadState.sourceType,
+          );
 
-    const hotByVertical: Record<string, number> = {};
-    for (const row of hotLeads) {
-      hotByVertical[row.vertical || "_all"] = row.count;
-    }
+        const hotByVertical: Record<string, number> = {};
+        for (const row of hotLeads) {
+          hotByVertical[dimensionKey(row)] = row.count;
+        }
 
-    const warmLeads = await db.select({
-      vertical: sdrLeadState.vertical,
-      count: sql<number>`count(*)`,
-    }).from(sdrLeadState).innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId)).where(
-      sql`${contacts.recordClass} = 'production'
-          AND ${sdrLeadState.createdAt} >= ${startOfDay} AND ${sdrLeadState.createdAt} <= ${endOfDay}
-          AND ${sdrLeadState.priorityBucket} = 'B'`
-    ).groupBy(sdrLeadState.vertical);
+        const warmLeads = await db
+          .select({
+            vertical: sdrLeadState.vertical,
+            state: sdrLeadState.state,
+            sourceType: sdrLeadState.sourceType,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(sdrLeadState)
+          .innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId))
+          .where(
+            sql`${contacts.recordClass} = 'production'
+          AND ${sdrLeadState.createdAt} >= ${startOfDay} AND ${sdrLeadState.createdAt} < ${endOfDay}
+          AND ${sdrLeadState.priorityBucket} = 'B'`,
+          )
+          .groupBy(
+            sdrLeadState.vertical,
+            sdrLeadState.state,
+            sdrLeadState.sourceType,
+          );
 
-    const warmByVertical: Record<string, number> = {};
-    for (const row of warmLeads) {
-      warmByVertical[row.vertical || "_all"] = row.count;
-    }
+        const warmByVertical: Record<string, number> = {};
+        for (const row of warmLeads) {
+          warmByVertical[dimensionKey(row)] = row.count;
+        }
 
-    const channelAttempts = await db.select({
-      channel: sdrChannelAttempts.channel,
-      count: sql<number>`count(*)`,
-      replies: sql<number>`count(case when ${sdrChannelAttempts.repliedAt} is not null then 1 end)`,
-    }).from(sdrChannelAttempts)
-      .innerJoin(sdrLeadState, eq(sdrLeadState.id, sdrChannelAttempts.leadStateId))
-      .innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId))
-      .where(
-      sql`${contacts.recordClass} = 'production'
-          AND ${sdrChannelAttempts.sentAt} >= ${startOfDay} AND ${sdrChannelAttempts.sentAt} <= ${endOfDay}`
-    ).groupBy(sdrChannelAttempts.channel);
+        const channelAttempts = await db
+          .select({
+            vertical: sdrLeadState.vertical,
+            state: sdrLeadState.state,
+            sourceType: sdrLeadState.sourceType,
+            channel: sdrChannelAttempts.channel,
+            count: sql<number>`count(*)::int`,
+            replies: sql<number>`count(case when ${sdrChannelAttempts.repliedAt} is not null then 1 end)::int`,
+          })
+          .from(sdrChannelAttempts)
+          .innerJoin(
+            sdrLeadState,
+            eq(sdrLeadState.id, sdrChannelAttempts.leadStateId),
+          )
+          .innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId))
+          .where(
+            sql`${contacts.recordClass} = 'production'
+          AND ${sdrChannelAttempts.sentAt} >= ${startOfDay} AND ${sdrChannelAttempts.sentAt} < ${endOfDay}`,
+          )
+          .groupBy(
+            sdrChannelAttempts.channel,
+            sdrLeadState.vertical,
+            sdrLeadState.state,
+            sdrLeadState.sourceType,
+          );
 
-    let totalEmails = 0, totalSms = 0, totalCalls = 0, totalReplies = 0;
-    for (const ch of channelAttempts) {
-      if (ch.channel === "email") { totalEmails = ch.count; totalReplies += ch.replies; }
-      if (ch.channel === "sms") { totalSms = ch.count; totalReplies += ch.replies; }
-      if (ch.channel === "call") { totalCalls = ch.count; }
-    }
+        let totalEmails = 0,
+          totalSms = 0,
+          totalCalls = 0,
+          totalReplies = 0;
+        for (const ch of channelAttempts) {
+          if (ch.channel === "email") {
+            totalEmails += ch.count;
+            totalReplies += ch.replies;
+          }
+          if (ch.channel === "sms") {
+            totalSms += ch.count;
+            totalReplies += ch.replies;
+          }
+          if (ch.channel === "call") {
+            totalCalls += ch.count;
+          }
+        }
 
-    const meetingsBooked = await db.select({
-      count: sql<number>`count(*)`,
-    }).from(sdrLeadEvents)
-      .innerJoin(sdrLeadState, eq(sdrLeadState.id, sdrLeadEvents.leadStateId))
-      .innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId))
-      .where(
-      sql`${contacts.recordClass} = 'production'
+        const meetingsBooked = await db
+          .select({
+            vertical: sdrLeadState.vertical,
+            state: sdrLeadState.state,
+            sourceType: sdrLeadState.sourceType,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(sdrLeadEvents)
+          .innerJoin(
+            sdrLeadState,
+            eq(sdrLeadState.id, sdrLeadEvents.leadStateId),
+          )
+          .innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId))
+          .where(
+            sql`${contacts.recordClass} = 'production'
           AND ${sdrLeadEvents.eventType} IN ('meeting_booked', 'booking')
-          AND ${sdrLeadEvents.createdAt} >= ${startOfDay} AND ${sdrLeadEvents.createdAt} <= ${endOfDay}`
-    );
+          AND ${sdrLeadEvents.createdAt} >= ${startOfDay} AND ${sdrLeadEvents.createdAt} < ${endOfDay}`,
+          )
+          .groupBy(
+            sdrLeadState.vertical,
+            sdrLeadState.state,
+            sdrLeadState.sourceType,
+          );
 
-    const statementsReceived = await db.select({
-      count: sql<number>`count(*)`,
-    }).from(sdrLeadState).innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId)).where(
-      sql`${contacts.recordClass} = 'production'
-          AND ${sdrLeadState.currentStage} = 'STATEMENT_RECEIVED' AND ${sdrLeadState.updatedAt} >= ${startOfDay} AND ${sdrLeadState.updatedAt} <= ${endOfDay}`
-    );
+        const statementsReceived = await db
+          .select({
+            vertical: sdrLeadState.vertical,
+            state: sdrLeadState.state,
+            sourceType: sdrLeadState.sourceType,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(sdrLeadState)
+          .innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId))
+          .where(
+            sql`${contacts.recordClass} = 'production'
+          AND ${sdrLeadState.currentStage} = 'STATEMENT_RECEIVED' AND ${sdrLeadState.updatedAt} >= ${startOfDay} AND ${sdrLeadState.updatedAt} < ${endOfDay}`,
+          )
+          .groupBy(
+            sdrLeadState.vertical,
+            sdrLeadState.state,
+            sdrLeadState.sourceType,
+          );
 
-    const proposalsSent = await db.select({
-      count: sql<number>`count(*)`,
-    }).from(sdrLeadState).innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId)).where(
-      sql`${contacts.recordClass} = 'production'
-          AND ${sdrLeadState.currentStage} = 'PROPOSAL_SENT' AND ${sdrLeadState.updatedAt} >= ${startOfDay} AND ${sdrLeadState.updatedAt} <= ${endOfDay}`
-    );
+        const proposalsSent = await db
+          .select({
+            vertical: sdrLeadState.vertical,
+            state: sdrLeadState.state,
+            sourceType: sdrLeadState.sourceType,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(sdrLeadState)
+          .innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId))
+          .where(
+            sql`${contacts.recordClass} = 'production'
+          AND ${sdrLeadState.currentStage} = 'PROPOSAL_SENT' AND ${sdrLeadState.updatedAt} >= ${startOfDay} AND ${sdrLeadState.updatedAt} < ${endOfDay}`,
+          )
+          .groupBy(
+            sdrLeadState.vertical,
+            sdrLeadState.state,
+            sdrLeadState.sourceType,
+          );
 
-    const closedWon = await db.select({
-      count: sql<number>`count(*)`,
-    }).from(deals).where(
-      sql`${deals.stage} = 'Closed Won' AND ${deals.recordClass} = 'production' AND ${deals.closedAt} >= ${startOfDay} AND ${deals.closedAt} <= ${endOfDay}`
-    );
+        const closedWon = await db
+          .select({
+            count: sql<number>`count(*)::int`,
+          })
+          .from(deals)
+          .where(
+            sql`${deals.stage} = 'Closed Won' AND ${deals.recordClass} = 'production' AND ${deals.closedAt} >= ${startOfDay} AND ${deals.closedAt} < ${endOfDay}`,
+          );
 
-    const closedLost = await db.select({
-      count: sql<number>`count(*)`,
-    }).from(deals).where(
-      sql`${deals.stage} = 'Closed Lost' AND ${deals.recordClass} = 'production' AND ${deals.closedAt} >= ${startOfDay} AND ${deals.closedAt} <= ${endOfDay}`
-    );
+        const closedLost = await db
+          .select({
+            count: sql<number>`count(*)::int`,
+          })
+          .from(deals)
+          .where(
+            sql`${deals.stage} = 'Closed Lost' AND ${deals.recordClass} = 'production' AND ${deals.closedAt} >= ${startOfDay} AND ${deals.closedAt} < ${endOfDay}`,
+          );
 
-    const groups = new Map<string, any>();
+        const groups = new Map<string, any>();
+        const group = (row: {
+          vertical?: string | null;
+          state?: string | null;
+          sourceType?: string | null;
+        }) => {
+          const key = dimensionKey({
+            vertical: row.vertical ?? null,
+            state: row.state,
+            sourceType: row.sourceType,
+          });
+          if (!groups.has(key))
+            groups.set(key, {
+              date: targetDate,
+              vertical: row.vertical ?? "unknown",
+              state: row.state ?? "unknown",
+              sourceType: row.sourceType ?? "unknown",
+              leadsFound: 0,
+              leadsEnriched: 0,
+              hotCreated: 0,
+              warmCreated: 0,
+              emailsSent: 0,
+              smsSent: 0,
+              callsMade: 0,
+              replies: 0,
+              meetingsBooked: 0,
+              statementsReceived: 0,
+              proposalsSent: 0,
+              closedWon: 0,
+              closedLost: 0,
+            });
+          return groups.get(key)!;
+        };
+        for (const [rows, field] of [
+          [leadsCreated, "leadsFound"],
+          [enrichedLeads, "leadsEnriched"],
+          [hotLeads, "hotCreated"],
+          [warmLeads, "warmCreated"],
+          [meetingsBooked, "meetingsBooked"],
+          [statementsReceived, "statementsReceived"],
+          [proposalsSent, "proposalsSent"],
+        ] as const)
+          for (const r of rows) group(r)[field] += r.count;
+        for (const r of channelAttempts) {
+          const g = group(r);
+          if (r.channel === "email") {
+            g.emailsSent += r.count;
+            g.replies += r.replies;
+          }
+          if (r.channel === "sms") {
+            g.smsSent += r.count;
+            g.replies += r.replies;
+          }
+          if (r.channel === "call") g.callsMade += r.count;
+        }
+        // These retained deal totals have no durable SDR message/source chain. Keep them in an explicit unknown group.
+        if ((closedWon[0]?.count ?? 0) || (closedLost[0]?.count ?? 0)) {
+          const g = group({});
+          g.closedWon = closedWon[0]?.count ?? 0;
+          g.closedLost = closedLost[0]?.count ?? 0;
+        }
 
-    for (const row of leadsCreated) {
-      const key = `${row.vertical || "_all"}|${row.state || "_all"}|${row.sourceType || "_all"}`;
-      if (!groups.has(key)) {
-        groups.set(key, {
+        await db.insert(dailyFunnelMetrics).values({
           date: targetDate,
-          vertical: row.vertical || null,
-          state: row.state || null,
-          sourceType: row.sourceType || null,
-          leadsFound: 0,
-          leadsEnriched: 0,
-          hotCreated: 0,
-          warmCreated: 0,
-          emailsSent: 0,
-          smsSent: 0,
-          callsMade: 0,
-          replies: 0,
-          meetingsBooked: 0,
-          statementsReceived: 0,
-          proposalsSent: 0,
-          closedWon: 0,
-          closedLost: 0,
+          vertical: null,
+          state: null,
+          sourceType: null,
+          leadsFound: leadsCreated.reduce((s, r) => s + r.count, 0),
+          leadsEnriched: Object.values(enrichedByVertical).reduce(
+            (s, v) => s + v,
+            0,
+          ),
+          hotCreated: Object.values(hotByVertical).reduce((s, v) => s + v, 0),
+          warmCreated: Object.values(warmByVertical).reduce((s, v) => s + v, 0),
+          emailsSent: totalEmails,
+          smsSent: totalSms,
+          callsMade: totalCalls,
+          replies: totalReplies,
+          meetingsBooked: meetingsBooked.reduce((n, r) => n + r.count, 0),
+          statementsReceived: statementsReceived.reduce(
+            (n, r) => n + r.count,
+            0,
+          ),
+          proposalsSent: proposalsSent.reduce((n, r) => n + r.count, 0),
+          closedWon: closedWon[0]?.count || 0,
+          closedLost: closedLost[0]?.count || 0,
         });
-      }
-      const g = groups.get(key)!;
-      g.leadsFound += row.count;
-      g.leadsEnriched = enrichedByVertical[row.vertical || "_all"] || 0;
-      g.hotCreated = hotByVertical[row.vertical || "_all"] || 0;
-      g.warmCreated = warmByVertical[row.vertical || "_all"] || 0;
-    }
 
-    await db.insert(dailyFunnelMetrics).values({
-      date: targetDate,
-      vertical: null,
-      state: null,
-      sourceType: null,
-      leadsFound: leadsCreated.reduce((s, r) => s + r.count, 0),
-      leadsEnriched: Object.values(enrichedByVertical).reduce((s, v) => s + v, 0),
-      hotCreated: Object.values(hotByVertical).reduce((s, v) => s + v, 0),
-      warmCreated: Object.values(warmByVertical).reduce((s, v) => s + v, 0),
-      emailsSent: totalEmails,
-      smsSent: totalSms,
-      callsMade: totalCalls,
-      replies: totalReplies,
-      meetingsBooked: meetingsBooked[0]?.count || 0,
-      statementsReceived: statementsReceived[0]?.count || 0,
-      proposalsSent: proposalsSent[0]?.count || 0,
-      closedWon: closedWon[0]?.count || 0,
-      closedLost: closedLost[0]?.count || 0,
-    });
+        for (const row of groups.values()) {
+          await db.insert(dailyFunnelMetrics).values(row);
+        }
 
-    for (const row of groups.values()) {
-      await db.insert(dailyFunnelMetrics).values(row);
-    }
-
-    // Store a read-only classification reconciliation marker with source and
-    // excluded counts. Aggregate detail remains production-only by policy.
-    const classCounts = await db.select({
-      recordClass: contacts.recordClass,
-      count: sql<number>`count(*)`,
-    }).from(contacts).groupBy(contacts.recordClass);
-    const sourceRowCount = classCounts.reduce((sum, row) => sum + Number(row.count), 0);
-    const productionCount = classCounts
-      .filter((row) => row.recordClass === "production")
-      .reduce((sum, row) => sum + Number(row.count), 0);
-    const unknownCount = classCounts
-      .filter((row) => row.recordClass === "unknown")
-      .reduce((sum, row) => sum + Number(row.count), 0);
-    await db.execute(sql`
+        // Store a read-only classification reconciliation marker with source and
+        // excluded counts. Aggregate detail remains production-only by policy.
+        const classCounts = await db
+          .select({
+            recordClass: contacts.recordClass,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(contacts)
+          .groupBy(contacts.recordClass);
+        const sourceRowCount = classCounts.reduce(
+          (sum, row) => sum + Number(row.count),
+          0,
+        );
+        const productionCount = classCounts
+          .filter((row) => row.recordClass === "production")
+          .reduce((sum, row) => sum + Number(row.count), 0);
+        const unknownCount = classCounts
+          .filter((row) => row.recordClass === "unknown")
+          .reduce((sum, row) => sum + Number(row.count), 0);
+        await db.execute(sql`
       INSERT INTO commercial_aggregate_lineage
         (aggregate_type, aggregate_key, policy_version, source_row_count,
          production_count, excluded_count, unknown_count, lineage_hwm, computed_at)
@@ -209,7 +392,12 @@ export async function aggregateDailyMetrics(dateStr?: string): Promise<void> {
          ${productionCount}, ${sourceRowCount - productionCount}, ${unknownCount}, ${endOfDay}, now())
     `);
 
-    console.log(`[FunnelMetrics] Aggregated ${groups.size + 1} metric rows for ${targetDate}`);
+        console.log(
+          `[FunnelMetrics] Aggregated ${groups.size + 1} metric rows for ${targetDate}`,
+        );
+      },
+      { isolationLevel: "repeatable read" },
+    );
   } catch (err) {
     console.error("[FunnelMetrics] Aggregation error:", err);
     throw err;

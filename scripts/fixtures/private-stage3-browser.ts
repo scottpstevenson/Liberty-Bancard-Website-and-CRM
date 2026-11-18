@@ -1,3 +1,4 @@
+import {existsSync} from "node:fs";
 import assert from "node:assert/strict";
 import {spawn} from "node:child_process";
 import {mkdtemp,readFile,rm,mkdir,writeFile} from "node:fs/promises";
@@ -15,7 +16,7 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
       partition:{default_zoom_level:{x:Math.log(options.zoom)/Math.log(1.2)}},
     }));
   }
-  const process=spawn("/repl/tools/bin/chromium",["--headless","--no-sandbox","--disable-gpu",
+  const process=spawn((existsSync("/repl/tools/bin/chromium")?"/repl/tools/bin/chromium":"/usr/bin/chromium"),["--headless","--no-sandbox","--disable-gpu",
     ...(options.singleProcess?["--no-zygote","--single-process"]:[]),
     "--disable-dev-shm-usage",
     "--window-size=1440,1000",

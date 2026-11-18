@@ -289,6 +289,9 @@ export async function pollMailboxOnce(overrides: Partial<ReaderDeps> = {}): Prom
           receivedAt: msg.data.internalDate ? new Date(Number(msg.data.internalDate)) : null,
           headers: headersFrom(msg.data.payload?.headers, labelIds),
         };
+        // The authenticated reader supplies account ownership and exact message headers. No address-only experiment attribution.
+        const {ingestPhase7MailboxReceipt}=await import('./phase7-feedback');
+        await ingestPhase7MailboxReceipt(account,meta);
         const result = await applyMailboxMessage(account, meta, deps.now());
         if (result === "applied") out.applied++;
         else if (result === "unapplied") out.unapplied++;

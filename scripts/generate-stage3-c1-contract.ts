@@ -113,7 +113,7 @@ function componentPolicies(component:string) {
 const specialQueries: Record<string,string[]> = {
   "/dashboard/contacts":["tab","search","sort","archived","status","recordClass","limit","offset","churnRisk","noOutreach","blocked","emailHealth","assignedToMe","vertical","tag","contactedToday","hasAssignee","leadSource","lifecycle","stale","recentlyUpdated","neverContacted","notContactedIn30","noDeal","createdThisWeek"],
   "/dashboard/contacts-leads":["tab","search","sort","archived","status","recordClass","limit","offset","churnRisk","noOutreach","blocked","emailHealth","assignedToMe","vertical","tag","contactedToday","hasAssignee","leadSource","lifecycle","stale","recentlyUpdated","neverContacted","notContactedIn30","noDeal","createdThisWeek"],
-  "/dashboard/reporting":["tab","financialTab","selectionIssue","revenueView","revenueQuery","revenueParentContactId","revenuePeriod","outreachView"],
+  "/dashboard/reporting":["tab","financialTab","selectionIssue","revenueView","revenueQuery","revenueParentContactId","revenuePeriod","outreachView","outreachExperiment","growthView","funnelStart","funnelEnd","funnelVertical","funnelRep","funnelSource","funnelCampaign","funnelBreakdown","funnelStage","funnelAsOf","funnelCursor"],
   "/dashboard/financial-hub":["tab","financialTab","selectionIssue","revenueView","revenueQuery","revenueParentContactId","revenuePeriod"],
   "/dashboard/merchant-risk":["tab","healthView"],
   "/dashboard/merchant-health":["healthView"],

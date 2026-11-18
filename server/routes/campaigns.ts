@@ -7,7 +7,7 @@ import { logAiCall } from "../services/ai-audit-logger";
 import { storage } from "../storage";
 import { z } from "zod";
 import { DateValidationError } from "../utils/date-coerce";
-import { contacts, followUpSequences, sequenceEnrollments, sequenceSteps, insertFollowUpSequenceSchema, insertSequenceEnrollmentSchema, insertSequenceStepSchema } from "@shared/schema";
+import { contacts, followUpSequences, sequenceEnrollments, sequenceSteps, insertFollowUpSequenceSchema, insertSequenceEnrollmentSchema, insertSequenceStepSchema, editableSequenceStepSchema } from "@shared/schema";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
 import { getCampaignAnalytics, startCampaignPreviewAsync, getCampaignPreviewState } from "../services/campaign-engine";
 import { validateGhlWebhookSignature } from "../services/ghl";
@@ -24,6 +24,7 @@ import { applyConsentCommand, recordReachabilityObservation } from "../services/
 import { decideCr06SequenceLifecycle } from "../services/cr06-promotional-lifecycle-decision";
 
 interface AbTestResultRow {
+  measurementStatus:"legacy_unverified_history";dispatchSupported:false;
   sequenceId: number;
   sequenceName: string;
   stepId: number;
@@ -106,18 +107,14 @@ function denyManagerOwnership(res: Response) {
 function registerAbTestResultsReader(app: Express) {
   app.get("/api/sequences/ab-test-results", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const sequences = (await storage.getFollowUpSequences())
-        .filter(sequence => canMutateOwnedCampaignObject(req, sequence.createdBy));
-      const results: AbTestResultRow[] = [];
-      for (const seq of sequences) {
-        const steps = await storage.getSequenceSteps(seq.id);
-        for (const step of steps) {
-          const cfg = step.abTestConfig as AbTestConfig | null;
-          if (cfg && (step.variantBSubject || step.variantBBody)) {
-            const r = (step.abTestResults as Partial<AbTestResults>) || {};
+      const actor=req.user as any;
+      const facts=(await pool.query(`SELECT q.id AS "sequenceId",q.name AS "sequenceName",s.id,s.step_order AS "stepOrder",s.action_type AS "actionType",s.subject,s.body,s.variant_b_subject AS "variantBSubject",s.variant_b_body AS "variantBBody",s.ab_test_config AS "abTestConfig",s.ab_test_results AS "abTestResults" FROM follow_up_sequences q JOIN sequence_steps s ON s.sequence_id=q.id WHERE ($1::boolean OR q.created_by=$2 OR q.created_by=$3) AND s.ab_test_config IS NOT NULL AND (s.variant_b_subject IS NOT NULL OR s.variant_b_body IS NOT NULL) ORDER BY q.id,s.step_order,s.id`,[actor?.role==='admin',String(actor?.id??''),String(actor?.email??'')])).rows;
+      const results:AbTestResultRow[]=[];
+      for(const row of facts){const step=row,cfg=step.abTestConfig as AbTestConfig,r=(step.abTestResults??{}) as Partial<AbTestResults>;
             results.push({
-              sequenceId: seq.id,
-              sequenceName: seq.name ?? "",
+              measurementStatus:'legacy_unverified_history',dispatchSupported:false,
+              sequenceId: row.sequenceId,
+              sequenceName: row.sequenceName ?? "",
               stepId: step.id,
               stepOrder: step.stepOrder ?? 1,
               actionType: step.actionType ?? "email",
@@ -129,22 +126,20 @@ function registerAbTestResultsReader(app: Express) {
                 winnerCriteria: cfg.winnerCriteria ?? "open_rate",
               },
               abTestResults: {
-                variantASent: r.variantASent ?? 0,
-                variantBSent: r.variantBSent ?? 0,
-                aOpens: r.aOpens ?? 0,
-                bOpens: r.bOpens ?? 0,
-                aClicks: r.aClicks ?? 0,
-                bClicks: r.bClicks ?? 0,
-                aReplies: r.aReplies ?? 0,
-                bReplies: r.bReplies ?? 0,
+                variantASent: r.variantASent ?? undefined,
+                variantBSent: r.variantBSent ?? undefined,
+                aOpens: r.aOpens ?? undefined,
+                bOpens: r.bOpens ?? undefined,
+                aClicks: r.aClicks ?? undefined,
+                bClicks: r.bClicks ?? undefined,
+                aReplies: r.aReplies ?? undefined,
+                bReplies: r.bReplies ?? undefined,
                 winnerSelected: r.winnerSelected ?? null,
                 winnerAt: r.winnerAt ?? null,
                 startedAt: r.startedAt ?? null,
                 statisticallySignificant: r.statisticallySignificant,
               },
             });
-          }
-        }
       }
       res.json(results);
     } catch (err: any) {
@@ -184,7 +179,7 @@ export function registerCampaignsRoutes(app: Express) {
     createdBy: true,
   }).strict();
   const sequenceUpdateSchema = sequenceCreateSchema.partial().strict();
-  const sequenceStepCreateSchema = insertSequenceStepSchema.omit({ sequenceId: true }).strict();
+  const sequenceStepCreateSchema = editableSequenceStepSchema;
   const sequenceStepUpdateSchema = sequenceStepCreateSchema.partial().strict();
   // === CAMPAIGNS ===
   app.get("/api/campaigns", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
@@ -1636,7 +1631,7 @@ export function registerCampaignsRoutes(app: Express) {
     res.status(410).json({ code: "AB_RESULTS_SERVER_OWNED", message: "A/B results are computed from immutable delivery facts." });
   });
 
-  app.post("/api/sequences/trigger-ab-check", requireRole("admin", "manager"), async (_req, res) => {
+  app.post("/api/sequences/trigger-ab-check", requireRole("admin"), async (_req, res) => {
     try {
       const result = await checkAbTestWinners();
       res.json({ message: "A/B test check complete", ...result });

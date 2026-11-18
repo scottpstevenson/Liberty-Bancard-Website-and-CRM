@@ -254,11 +254,7 @@ export default function Sequences() {
     subject: s.subject || null,
     body: s.body || null,
     config: s.config ?? null,
-    variantBSubject: s.variantBEnabled ? (s.variantBSubject || null) : null,
-    variantBBody: s.variantBEnabled ? (s.variantBBody || null) : null,
-    abTestConfig: s.variantBEnabled
-      ? (s.abTestConfig || { splitRatio: 50, minSampleSize: 100, winnerCriteria: "open_rate" })
-      : null,
+
   });
 
   const createMutation = useMutation({
@@ -477,9 +473,7 @@ export default function Sequences() {
       const editorSteps=steps.map((s,index)=>({
         ...(s.id?{id:s.id}:{}),stepOrder:index+1,actionType:s.actionType,delayDays:s.delayDays,delayHours:s.delayHours,
         subject:s.subject || null,body:s.body || null,config:s.config || null,
-        variantBSubject:s.variantBEnabled?(s.variantBSubject || null):null,
-        variantBBody:s.variantBEnabled?(s.variantBBody || null):null,
-        abTestConfig:s.variantBEnabled?(s.abTestConfig || {splitRatio:50,minSampleSize:100,winnerCriteria:"open_rate"}):null,
+
       }));
       await apiRequest("PUT", `/api/sequences/${editingSeq.id}`,sequenceIntents.payload(`edit:${editingSeq.id}`,{
         expectedVersion:editingSeq.version,
@@ -1366,102 +1360,12 @@ export default function Sequences() {
                           </p>
                         )}
 
-                        {supportsABTest(step.actionType) && (
-                          <div className="mt-3 border-t pt-3">
-                            <div className="flex items-center justify-between gap-2 mb-2">
-                              <div className="flex items-center gap-2">
-                                <FlaskConical className="w-4 h-4 text-purple-500" />
-                                <span className="text-sm font-medium">A/B Test</span>
-                                <Badge variant="outline" className="text-xs">Beta</Badge>
-                              </div>
-                              <Switch
-                                checked={!!step.variantBEnabled}
-                                onCheckedChange={v => updateStep(index, { variantBEnabled: v })}
-                                data-testid={`switch-ab-test-${index}`}
-                              />
-                            </div>
-
-                            {step.variantBEnabled && (
-                              <div className="space-y-3 mt-2 pl-1">
-                                <div className="p-3 rounded-md bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 space-y-2">
-                                  <Label className="text-xs font-semibold text-purple-700 dark:text-purple-300 block">Variant B</Label>
-                                  {step.actionType === "email" && (
-                                    <>
-                                      <Input
-                                        placeholder="Variant B subject line"
-                                        value={step.variantBSubject || ""}
-                                        onChange={e => updateStep(index, { variantBSubject: e.target.value })}
-                                        data-testid={`input-variant-b-subject-${index}`}
-                                      />
-                                      <Textarea
-                                        placeholder="Variant B email body..."
-                                        value={step.variantBBody || ""}
-                                        onChange={e => updateStep(index, { variantBBody: e.target.value })}
-                                        className="min-h-[80px]"
-                                        data-testid={`input-variant-b-body-${index}`}
-                                      />
-                                    </>
-                                  )}
-                                  {step.actionType === "sms" && (
-                                    <Textarea
-                                      placeholder="Variant B SMS message..."
-                                      value={step.variantBBody || ""}
-                                      onChange={e => updateStep(index, { variantBBody: e.target.value })}
-                                      className="min-h-[60px]"
-                                      data-testid={`input-variant-b-sms-${index}`}
-                                    />
-                                  )}
-                                </div>
-
-                                <div className="grid grid-cols-3 gap-2">
-                                  <div className="space-y-1">
-                                    <Label className="text-xs">Traffic Split (A%)</Label>
-                                    <Input
-                                      type="number"
-                                      min={10}
-                                      max={90}
-                                      value={step.abTestConfig?.splitRatio ?? 50}
-                                      onChange={e => updateStep(index, {
-                                        abTestConfig: { ...step.abTestConfig!, splitRatio: Number(e.target.value) }
-                                      })}
-                                      data-testid={`input-ab-split-${index}`}
-                                    />
-                                    <p className="text-xs text-muted-foreground">B gets {100 - (step.abTestConfig?.splitRatio ?? 50)}%</p>
-                                  </div>
-                                  <div className="space-y-1">
-                                    <Label className="text-xs">Min Sample</Label>
-                                    <Input
-                                      type="number"
-                                      min={10}
-                                      value={step.abTestConfig?.minSampleSize ?? 100}
-                                      onChange={e => updateStep(index, {
-                                        abTestConfig: { ...step.abTestConfig!, minSampleSize: Number(e.target.value) }
-                                      })}
-                                      data-testid={`input-ab-sample-${index}`}
-                                    />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <Label className="text-xs">Winner By</Label>
-                                    <Select
-                                      value={step.abTestConfig?.winnerCriteria ?? "open_rate"}
-                                      onValueChange={v => updateStep(index, {
-                                        abTestConfig: { ...step.abTestConfig!, winnerCriteria: v as "open_rate" | "reply_rate" }
-                                      })}
-                                    >
-                                      <SelectTrigger data-testid={`select-ab-criteria-${index}`}>
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="open_rate">Open Rate</SelectItem>
-                                        <SelectItem value="reply_rate">Reply Rate</SelectItem>
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
+                        {supportsABTest(step.actionType) && <div className="mt-3 border-t pt-3 space-y-2">
+                          <p className="text-sm font-medium">Governed subject experiments</p>
+                          <p className="text-xs text-muted-foreground">Experimental fields and results are managed by the reviewed design. Sequence edits cannot change an arm or select a winner.</p>
+                          <a className="inline-flex items-center min-h-11 underline text-sm" href="/dashboard/reporting?tab=outreach-analytics&outreachView=ab-testing">Open A/B Testing in Reports</a>
+                          {step.variantBEnabled&&<details><summary className="min-h-11 cursor-pointer text-sm">Legacy variants · read-only history</summary><p className="text-sm whitespace-pre-wrap break-words">{step.variantBSubject}</p><pre className="text-xs whitespace-pre-wrap break-words">{step.variantBBody}</pre></details>}
+                        </div>}
                       </CardContent>
                     </Card>
                   </div>
@@ -1902,7 +1806,7 @@ function SequenceStepsView({ sequenceId, enrollments }: { sequenceId: number; en
                       {step.subject && <span className="text-xs text-muted-foreground truncate">- {step.subject}</span>}
                       {hasABTest && (
                         <Badge variant="outline" className="text-xs shrink-0 border-purple-400 text-purple-600 dark:text-purple-400">
-                          <FlaskConical className="w-3 h-3 mr-1" /> A/B
+                          <FlaskConical className="w-3 h-3 mr-1" /> Legacy A/B
                         </Badge>
                       )}
                       {step.actionType === "call_reminder" && (

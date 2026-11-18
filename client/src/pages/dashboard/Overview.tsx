@@ -377,7 +377,7 @@ export default function Overview() {
     retry: false,
   });
 
-  const { data: funnelData } = useQuery<{ totalLeads: number; totalDeals: number; funnel: FunnelStep[] }>({
+  const { data: funnelData,isLoading:funnelLoading,isError:funnelError } = useQuery<{ totalLeads: number; totalDeals: number; funnel: FunnelStep[] }>({
     queryKey: ["/api/analytics/conversion-funnel"],
     refetchInterval: 60000,
   });
@@ -1218,11 +1218,12 @@ export default function Overview() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Target className="w-4 h-4 text-green-600" />
-                  Conversion Funnel (30d)
+                  Website & CRM event activity (30d)
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {funnelData?.funnel && funnelData.funnel.length > 0 ? (
+                <p className="text-xs text-muted-foreground mb-3">Independent event observations, including unclassified legacy events; no joined conversion cohort. <a className="underline" href="/dashboard/reporting?tab=growth&growthView=conversion-funnel">Open the business journey funnel</a>.</p>
+                {funnelLoading?<p role="status">Loading activity observations…</p>:funnelError?<p role="status">Activity source unavailable; no zero counts are inferred.</p>:funnelData?.funnel && funnelData.funnel.length > 0 ? (
                   <div className="space-y-2">
                     {funnelData.funnel.map((step) => (
                       <div key={step.stage} className="space-y-1" data-testid={`funnel-step-${step.stage.toLowerCase().replace(/\s+/g, "-")}`}>
@@ -1234,12 +1235,12 @@ export default function Overview() {
                       </div>
                     ))}
                     <div className="pt-2 flex gap-4 text-xs text-muted-foreground">
-                      <span>{funnelData.totalLeads} total leads</span>
-                      <span>{funnelData.totalDeals} total deals</span>
+                      <span>{funnelData.totalLeads} current contact records</span>
+                      <span>{funnelData.totalDeals} current deal records</span>
                     </div>
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">No funnel data available</p>
+                  <p className="text-sm text-muted-foreground">No activity observations available</p>
                 )}
               </CardContent>
             </Card>

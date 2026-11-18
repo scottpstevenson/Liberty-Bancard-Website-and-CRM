@@ -30,7 +30,7 @@ export default function ForgotPassword() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <main className="auth-page min-h-screen flex items-center justify-center bg-background p-4">
       <SEO title="Reset Your Password" description="Reset your Liberty Bancard password. We'll send a secure link to your registered email address." path="/forgot-password" noindex />
       <div className="w-full max-w-md space-y-6">
         <div className="flex flex-col items-center gap-3">
@@ -41,7 +41,7 @@ export default function ForgotPassword() {
 
         <Card>
           <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl text-center" data-testid="text-forgot-password-title">Forgot Password</CardTitle>
+            <h1 className="font-semibold leading-none tracking-tight text-2xl text-center" data-testid="text-forgot-password-title">Forgot Password</h1>
             <CardDescription className="text-center">
               Enter your email address and we'll send you a link to reset your password
             </CardDescription>
@@ -109,6 +109,6 @@ export default function ForgotPassword() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </main>
   );
 }

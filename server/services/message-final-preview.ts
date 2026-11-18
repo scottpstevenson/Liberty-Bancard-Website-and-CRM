@@ -96,7 +96,7 @@ async function composeGmailFinal(subject: string | null, withSignature: string, 
   };
 }
 
-export async function previewStepForTransport(input: { subject: string | null; body: string; transport: StepPreviewTransport; purpose?: StepPreviewPurpose }): Promise<StepPreviewResult> {
+export async function previewStepForTransport(input: { subject: string | null; body: string; transport: StepPreviewTransport; purpose?: StepPreviewPurpose; persona?: "populated"|"missing_name"|"missing_company" }): Promise<StepPreviewResult> {
   const { renderEmailPartsForPurpose, renderEmailHtmlForPurpose } = await import("./can-spam-footer");
   const { inspectPresentation } = await import("./email-presentation");
   const { getCommercialComplianceConfig } = await import("./can-spam-footer");
@@ -112,7 +112,7 @@ export async function previewStepForTransport(input: { subject: string | null; b
     const { RenderError } = await import("./message-render");
     let subject: string, bodyHtml: string;
     try {
-      const ctx = sfpLaunchRenderContext(SAMPLE);
+      const ctx = sfpLaunchRenderContext(input.persona==="missing_company"?{...SAMPLE,companyName:null}:input.persona==="missing_name"?{...SAMPLE,firstName:null,lastName:null}:SAMPLE);
       subject = renderSfpLaunchSubject(input.subject, ctx);
       bodyHtml = renderSfpLaunchBodyHtml(input.body, ctx);
     } catch (err) {

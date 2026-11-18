@@ -501,3 +501,17 @@ a.public-card--brand:hover,
 @media (min-width: 768px) {
   .marketing-theme .partner-page textarea { min-height: 8rem; }
 }
+
+/* Phase 7 residual audit: real controls keep 44px targets in the existing public shell.
+   Native checkbox/radio/switch visuals retain their size; their associated labels own the target. */
+.marketing-theme button:not([role="checkbox"]):not([role="radio"]):not([role="switch"]),
+.marketing-theme input:not(.sr-only):not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+.marketing-theme select {
+  min-height: 2.75rem;
+}
+.marketing-theme button:not([role="checkbox"]):not([role="radio"]):not([role="switch"]) { min-width: 2.75rem; }
+
+@media (max-width: 767px) {
+  .marketing-theme input:not(.sr-only):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+  .marketing-theme textarea, .marketing-theme select { font-size: 1rem; }
+}

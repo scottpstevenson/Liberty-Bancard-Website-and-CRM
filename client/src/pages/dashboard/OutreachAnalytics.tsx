@@ -1,8 +1,6 @@
-import { useMutation } from "@tanstack/react-query";
+import GovernedExperiments from "./GovernedExperiments";
 import { useCrmQuery as useQuery } from "@/hooks/use-crm-query";
 import { CrmDataState } from "@/components/crm/CrmPresentation";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -56,171 +54,7 @@ function getCampaignStatusBadge(status: string | null | undefined) {
   }
 }
 
-interface ABTestResult {
-  sequenceId: number;
-  sequenceName: string;
-  stepId: number;
-  stepOrder: number;
-  actionType: string;
-  variantA: { subject?: string; body?: string };
-  variantB: { subject?: string; body?: string };
-  abTestConfig: { splitRatio: number; minSampleSize: number; winnerCriteria: string };
-  abTestResults: {
-    variantASent?: number;
-    variantBSent?: number;
-    aOpens?: number;
-    bOpens?: number;
-    aClicks?: number;
-    bClicks?: number;
-    aReplies?: number;
-    bReplies?: number;
-    winnerSelected?: string | null;
-    winnerAt?: string | null;
-    statisticallySignificant?: boolean;
-  };
-}
-
-function ABTestCard({ test }: { test: ABTestResult }) {
-  const r = test.abTestResults;
-  const rate = (numerator: number | undefined, denominator: number | undefined) =>
-    denominator != null && denominator > 0 && numerator != null ? ((numerator / denominator) * 100).toFixed(1) : "—";
-  const aOpenRate = rate(r.aOpens, r.variantASent);
-  const bOpenRate = rate(r.bOpens, r.variantBSent);
-  const aClickRate = rate(r.aClicks, r.variantASent);
-  const bClickRate = rate(r.bClicks, r.variantBSent);
-  const aReplyRate = rate(r.aReplies, r.variantASent);
-  const bReplyRate = rate(r.bReplies, r.variantBSent);
-  const winnerCriteria = test.abTestConfig.winnerCriteria;
-  const aConversionRate = winnerCriteria === "reply_rate" ? aReplyRate : winnerCriteria === "click_rate" ? aClickRate : aOpenRate;
-  const bConversionRate = winnerCriteria === "reply_rate" ? bReplyRate : winnerCriteria === "click_rate" ? bClickRate : bOpenRate;
-  const conversionLabel = winnerCriteria === "reply_rate" ? "Reply Rate" : winnerCriteria === "click_rate" ? "Click Rate" : "Open Rate";
-  const totalSent = (r.variantASent ?? 0) + (r.variantBSent ?? 0);
-  const minSample = test.abTestConfig.minSampleSize;
-  const hasWinner = !!r.winnerSelected;
-  const isRunning = !hasWinner && totalSent < minSample;
-  const isReadyForWinner = !hasWinner && totalSent >= minSample;
-
-  return (
-    <Card data-testid={`ab-test-card-${test.stepId}`}>
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-2 flex-wrap">
-          <div>
-            <CardTitle className="text-sm font-semibold">{test.sequenceName}</CardTitle>
-            <p className="text-xs text-muted-foreground mt-0.5">Step {test.stepOrder} · {test.actionType}</p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {hasWinner && (
-              <Badge variant="default" className="bg-green-600 gap-1" data-testid={`badge-ab-winner-${test.stepId}`}>
-                <Trophy className="w-3 h-3" /> Winner: {r.winnerSelected}
-              </Badge>
-            )}
-            {hasWinner && r.statisticallySignificant && (
-              <Badge variant="outline" className="gap-1 text-green-700 border-green-400 text-[10px]" data-testid={`badge-ab-sig-${test.stepId}`}>
-                95% confidence
-              </Badge>
-            )}
-            {isRunning && (
-              <Badge variant="outline" className="gap-1 text-yellow-600 border-yellow-400" data-testid={`badge-ab-running-${test.stepId}`}>
-                <Clock className="w-3 h-3" /> Running ({totalSent}/{minSample} sent)
-              </Badge>
-            )}
-            {isReadyForWinner && (
-              <Badge variant="outline" className="gap-1 text-blue-600 border-blue-400" data-testid={`badge-ab-ready-${test.stepId}`}>
-                Ready to pick winner
-              </Badge>
-            )}
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
-          <div className={`rounded-lg border p-3 ${r.winnerSelected === "A" ? "border-green-400 bg-green-50 dark:bg-green-950/20" : ""}`} data-testid={`ab-variant-a-${test.stepId}`}>
-            <div className="flex items-center gap-1 mb-2">
-              <span className="text-xs font-bold">Variant A</span>
-              {r.winnerSelected === "A" && <Trophy className="w-3 h-3 text-green-600" />}
-            </div>
-            {test.variantA.subject && (
-              <p className="text-xs text-muted-foreground truncate mb-1" title={test.variantA.subject}>
-                "{test.variantA.subject}"
-              </p>
-            )}
-            <div className="grid grid-cols-2 gap-1 text-xs">
-              <div>
-                <span className="text-muted-foreground">Sent</span>
-                <p className="font-semibold" data-testid={`text-ab-a-sent-${test.stepId}`}>{r.variantASent ?? "—"}</p>
-              </div>
-              <div className="col-span-2 border-t pt-1 mt-1">
-                <span className="text-muted-foreground font-medium">Conversion Rate ({conversionLabel})</span>
-                <p className="font-bold text-sm text-primary" data-testid={`text-ab-a-conversion-${test.stepId}`}>{aConversionRate}{aConversionRate !== "—" ? "%" : ""}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Open Rate</span>
-                <p className="font-semibold" data-testid={`text-ab-a-open-${test.stepId}`}>{aOpenRate}{aOpenRate !== "—" ? "%" : ""}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Click Rate</span>
-                <p className="font-semibold" data-testid={`text-ab-a-click-${test.stepId}`}>{aClickRate}{aClickRate !== "—" ? "%" : ""}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Reply Rate</span>
-                <p className="font-semibold" data-testid={`text-ab-a-reply-${test.stepId}`}>{aReplyRate}{aReplyRate !== "—" ? "%" : ""}</p>
-              </div>
-            </div>
-          </div>
-          <div className={`rounded-lg border p-3 ${r.winnerSelected === "B" ? "border-green-400 bg-green-50 dark:bg-green-950/20" : ""}`} data-testid={`ab-variant-b-${test.stepId}`}>
-            <div className="flex items-center gap-1 mb-2">
-              <span className="text-xs font-bold">Variant B</span>
-              {r.winnerSelected === "B" && <Trophy className="w-3 h-3 text-green-600" />}
-            </div>
-            {test.variantB.subject && (
-              <p className="text-xs text-muted-foreground truncate mb-1" title={test.variantB.subject}>
-                "{test.variantB.subject}"
-              </p>
-            )}
-            <div className="grid grid-cols-2 gap-1 text-xs">
-              <div>
-                <span className="text-muted-foreground">Sent</span>
-                <p className="font-semibold" data-testid={`text-ab-b-sent-${test.stepId}`}>{r.variantBSent ?? "—"}</p>
-              </div>
-              <div className="col-span-2 border-t pt-1 mt-1">
-                <span className="text-muted-foreground font-medium">Conversion Rate ({conversionLabel})</span>
-                <p className="font-bold text-sm text-primary" data-testid={`text-ab-b-conversion-${test.stepId}`}>{bConversionRate}{bConversionRate !== "—" ? "%" : ""}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Open Rate</span>
-                <p className="font-semibold" data-testid={`text-ab-b-open-${test.stepId}`}>{bOpenRate}{bOpenRate !== "—" ? "%" : ""}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Click Rate</span>
-                <p className="font-semibold" data-testid={`text-ab-b-click-${test.stepId}`}>{bClickRate}{bClickRate !== "—" ? "%" : ""}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Reply Rate</span>
-                <p className="font-semibold" data-testid={`text-ab-b-reply-${test.stepId}`}>{bReplyRate}{bReplyRate !== "—" ? "%" : ""}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-          <span>Split: {test.abTestConfig.splitRatio}% A / {100 - test.abTestConfig.splitRatio}% B</span>
-          <span>·</span>
-          <span>Min sample: {minSample}</span>
-          <span>·</span>
-          <span>Winner by: {winnerCriteria === "open_rate" ? "Open Rate" : winnerCriteria === "click_rate" ? "Click Rate" : "Reply Rate"}</span>
-          {r.winnerAt && (
-            <>
-              <span>·</span>
-              <span>Decided: {new Date(r.winnerAt).toLocaleDateString()}</span>
-            </>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 export default function OutreachAnalytics() {
-  const { toast } = useToast();
   const child=useC4RetainedSelection("/dashboard/reporting","outreachView",outreachViews,"campaigns");
 
   const { data: campaigns, isLoading: campaignsLoading, isError: campaignsError, refetch: retryCampaigns } = useQuery<Campaign[]>({
@@ -246,27 +80,6 @@ export default function OutreachAnalytics() {
     },
   });
 
-  const { data: abTestResults, isLoading: abLoading, isError: abError, refetch: retryAb } = useQuery<ABTestResult[]>({
-    queryKey: ["/api/sequences/ab-test-results"],
-  });
-
-  const refreshAbMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/sequences/trigger-ab-check");
-      return res.json();
-    },
-    onSuccess: (data: { checked: number; updated: number; winnersSelected: number }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sequences/ab-test-results"] });
-      toast({
-        title: "A/B tests refreshed",
-        description: `Checked ${data.checked} test${data.checked !== 1 ? "s" : ""}. ${data.winnersSelected > 0 ? `${data.winnersSelected} winner${data.winnersSelected !== 1 ? "s" : ""} selected.` : "No new winners yet."}`,
-      });
-    },
-    onError: (err: Error) => {
-      toast({ title: "A/B refresh failed", description: err.message, variant: "destructive" });
-    },
-  });
-
   const campaignMetricsAvailable = !!campaigns && campaigns.every(c =>
     [c.totalSent, c.totalOpened, c.totalReplied, c.totalBounced].every(value => typeof value === "number"&&Number.isFinite(value)&&value>=0),
   );
@@ -287,9 +100,6 @@ export default function OutreachAnalytics() {
         return dateB - dateA;
       })
     : [];
-
-  const activeTests = (abTestResults || []).filter(t => !t.abTestResults.winnerSelected);
-  const completedTests = (abTestResults || []).filter(t => !!t.abTestResults.winnerSelected);
 
   return (
     <div className="space-y-6">
@@ -329,7 +139,7 @@ export default function OutreachAnalytics() {
             <Eye className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-open-rate">{openRate}%</div>
+            <div className="text-2xl font-bold" data-testid="text-open-rate">{openRate === "—" ? "—" : `${openRate}%`}</div>
             <p className="text-xs text-muted-foreground mt-1">{totalOpened ?? "—"} opened</p>
           </CardContent>
         </Card>
@@ -340,7 +150,7 @@ export default function OutreachAnalytics() {
             <MessageCircle className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-reply-rate">{replyRate}%</div>
+            <div className="text-2xl font-bold" data-testid="text-reply-rate">{replyRate === "—" ? "—" : `${replyRate}%`}</div>
             <p className="text-xs text-muted-foreground mt-1">{totalReplied ?? "—"} replied</p>
           </CardContent>
         </Card>
@@ -351,7 +161,7 @@ export default function OutreachAnalytics() {
             <AlertTriangle className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-bounce-rate">{bounceRate}%</div>
+            <div className="text-2xl font-bold" data-testid="text-bounce-rate">{bounceRate === "—" ? "—" : `${bounceRate}%`}</div>
             <p className="text-xs text-muted-foreground mt-1">{totalBounced ?? "—"} bounced</p>
           </CardContent>
         </Card>
@@ -365,9 +175,6 @@ export default function OutreachAnalytics() {
           <TabsTrigger value="ab-testing" data-testid="tab-ab-testing">
             <FlaskConical className="w-3.5 h-3.5 mr-1.5" />
             A/B Testing
-            {!abLoading&&!abError&&abTestResults&&activeTests.length > 0 && (
-              <Badge variant="secondary" className="ml-1.5 text-xs">{activeTests.length}</Badge>
-            )}
           </TabsTrigger>
           <TabsTrigger value="messages" data-testid="tab-messages">Recent Messages</TabsTrigger>
         </TabsList>
@@ -432,8 +239,8 @@ export default function OutreachAnalytics() {
                           <TableCell className="text-right" data-testid={`text-campaign-opened-${campaign.id}`}>{cOpened ?? "—"}</TableCell>
                           <TableCell className="text-right" data-testid={`text-campaign-replied-${campaign.id}`}>{cReplied ?? "—"}</TableCell>
                           <TableCell className="text-right" data-testid={`text-campaign-bounced-${campaign.id}`}>{cBounced ?? "—"}</TableCell>
-                          <TableCell className="text-right" data-testid={`text-campaign-open-rate-${campaign.id}`}>{cOpenRate}%</TableCell>
-                          <TableCell className="text-right" data-testid={`text-campaign-reply-rate-${campaign.id}`}>{cReplyRate}%</TableCell>
+                          <TableCell className="text-right" data-testid={`text-campaign-open-rate-${campaign.id}`}>{cOpenRate === "—" ? "—" : `${cOpenRate}%`}</TableCell>
+                          <TableCell className="text-right" data-testid={`text-campaign-reply-rate-${campaign.id}`}>{cReplyRate === "—" ? "—" : `${cReplyRate}%`}</TableCell>
                         </TableRow>
                       );
                     })
@@ -445,59 +252,7 @@ export default function OutreachAnalytics() {
         </TabsContent>
 
         <TabsContent value="ab-testing" className="mt-4 space-y-4" data-testid="tab-content-ab-testing">
-          <div className="flex justify-end">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => refreshAbMutation.mutate()}
-              disabled={refreshAbMutation.isPending}
-              className="gap-2"
-              data-testid="button-refresh-ab"
-            >
-              <FlaskConical className="w-3.5 h-3.5" />
-              {refreshAbMutation.isPending ? "Checking..." : "Refresh A/B Data"}
-            </Button>
-          </div>
-          {abError ? <CrmDataState state="unavailable" message="A/B results unavailable; this is not a no-tests result." onRetry={()=>void retryAb()}/> : abLoading ? (
-            <div className="space-y-4">
-              {[1, 2].map(i => <Skeleton key={i} className="h-48 w-full" />)}
-            </div>
-          ) : (!abTestResults || abTestResults.length === 0) ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <FlaskConical className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground mb-2">No A/B tests configured</p>
-                <p className="text-sm text-muted-foreground">
-                  When creating or editing a sequence step, toggle "A/B Test" on email or SMS steps to add a variant and start testing.
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <>
-              {activeTests.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-yellow-500" />
-                    Active Tests ({activeTests.length})
-                  </h3>
-                  <div className="space-y-3">
-                    {activeTests.map(t => <ABTestCard key={t.stepId} test={t} />)}
-                  </div>
-                </div>
-              )}
-              {completedTests.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                    <Trophy className="w-4 h-4 text-green-500" />
-                    Completed Tests ({completedTests.length})
-                  </h3>
-                  <div className="space-y-3">
-                    {completedTests.map(t => <ABTestCard key={t.stepId} test={t} />)}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
+          <GovernedExperiments/>
         </TabsContent>
 
         <TabsContent value="messages" className="mt-4">

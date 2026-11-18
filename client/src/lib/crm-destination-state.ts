@@ -43,6 +43,8 @@ export const onboardingViews = ["overview", "board"] as const;
 export const applicationStatuses = ["all","submitted","under_review","approved","declined","draft","in_progress","withdrawn"] as const;
 export const boardingViews = ["submissions","mid-registry"] as const;
 export const boardingStatuses = ["all","submitted","under_review","more_info_needed","approved","declined"] as const;
+export const growthViews = ["channel-kpis","conversion-funnel"] as const;
+export const funnelFilterKeys=["funnelStart","funnelEnd","funnelVertical","funnelRep","funnelSource","funnelCampaign","funnelBreakdown","funnelStage","funnelAsOf","funnelCursor"] as const;
 export const outreachViews = ["campaigns","ab-testing","messages"] as const;
 export const leaderboardMetrics = ["deals","revenue","proposals","calls","responseRate","closeRate","contacts"] as const;
 export const leaderboardPeriods = ["week","month","quarter","all"] as const;
@@ -122,7 +124,7 @@ export function retainedSelectionUrl<T extends string>(path:string,search:string
   allowed:readonly T[],value:T,legacyKey?:string,resetPaging=true) {
   if(!allowed.includes(value))throw new Error(`Invalid ${key} selection`);
   const routeKeys=path==="/dashboard/reporting"
-    ? ["tab","outreachView","financialTab","revenueView",...revenueFilterKeys]
+    ? ["tab","outreachView","outreachExperiment","growthView",...funnelFilterKeys,"financialTab","revenueView",...revenueFilterKeys]
     : path==="/dashboard/leaderboard"?["metric","period"]
     : path==="/dashboard/boarding"?["status","view"]
     : path==="/dashboard/merchant-applications"?["status"]
@@ -132,13 +134,13 @@ export function retainedSelectionUrl<T extends string>(path:string,search:string
   const params=safeParams(search,[...safeContextKeys,...routeKeys,...(!resetPaging?["page","offset","cursor"]:[])]);
   if(legacyKey && legacyKey!==key)params.delete(legacyKey);
   params.set(key,value);
-  if(path==="/dashboard/reporting")params.set("tab","outreach-analytics");
+  if(path==="/dashboard/reporting")params.set("tab",key==="growthView"?"growth":"outreach-analytics");
   return destinationUrl(path,params,hash);
 }
 export function outreachAliasUrl(search:string,hash:string) {
   const params=safeParams(search,safeContextKeys);
   // Preserve invalid/conflicting child values for explicit destination rejection.
-  for(const value of new URLSearchParams(search).getAll("outreachView"))params.append("outreachView",value);
+  for(const key of ["outreachView","outreachExperiment"])for(const value of new URLSearchParams(search).getAll(key))params.append(key,value);
   params.set("tab","outreach-analytics");
   return destinationUrl("/dashboard/reporting",params,hash);
 }

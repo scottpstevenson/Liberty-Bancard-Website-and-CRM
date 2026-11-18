@@ -464,7 +464,7 @@ export default function Estimate() {
               >
                 For the exact line-item breakdown (and to identify the cost drivers), upload a statement.
               </p>
-              <Button className="gap-2" asChild>
+              <Button className="gap-2 max-w-full h-auto min-h-11 whitespace-normal text-center" asChild>
                 <Link href="/upload-statement" data-testid="link-education-upload-statement">
                   <Upload className="w-4 h-4" />
                   Upload Statement (Exact Breakdown)

@@ -15,6 +15,7 @@
  *     in force, is logged loudly and is audited, so nothing is weakened or silently skipped.
  */
 import pg from "pg";
+import {PHASE7_NATIVE_ENTRY} from "./phase7.generated";
 import { FIRST_PARTY_STAGED_EMAIL_NATIVE_ENTRY } from "./first-party-staged-email.generated";
 
 export interface NativeObjectEntry {
@@ -26,7 +27,7 @@ export interface NativeObjectEntry {
   verifySql: string;
 }
 
-export const NATIVE_OBJECT_MANIFEST: readonly NativeObjectEntry[] = [FIRST_PARTY_STAGED_EMAIL_NATIVE_ENTRY];
+export const NATIVE_OBJECT_MANIFEST: readonly NativeObjectEntry[] = [FIRST_PARTY_STAGED_EMAIL_NATIVE_ENTRY,PHASE7_NATIVE_ENTRY];
 
 export type NativeObjectStatus =
   | "already_current" | "installed" | "skipped_locked"

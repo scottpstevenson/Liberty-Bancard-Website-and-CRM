@@ -1,3 +1,5 @@
+import {easternDate,easternDayStart} from "../../shared/conversion-funnel";
+import {registerConversionFunnelRoutes} from "./conversion-funnel";
 import { storedAmountNumericRawSql } from "../utils/amount-sql";
 import type { Express } from "express";
 import { readTaskMetrics, taskReadPredicate } from "../services/task-read-authority";
@@ -21,6 +23,7 @@ import { readPipelineAnalytics, readLifecycleDistribution, contactReadPredicate,
 export function registerAnalyticsRoutes(app: Express, readOptions?: {
   leaderboardQuery?:(source:"callLogs"|"creatorEvents",query:string)=>Promise<{rows:any[]}>;
 }) {
+  registerConversionFunnelRoutes(app);
 
   // === SALES TOOL CLICK TRACKING ===
   app.post("/api/analytics/tool-click", publicLeadRateLimit, async (req, res) => {
@@ -530,11 +533,8 @@ export function registerAnalyticsRoutes(app: Express, readOptions?: {
 
       // Monday-anchored ISO week start
       const getWeekStart = (date: Date): Date => {
-        const d = new Date(date);
-        const day = d.getDay();
-        d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
-        d.setHours(0, 0, 0, 0);
-        return d;
+        const day=easternDate(date),utc=new Date(day+'T00:00:00Z'),weekday=utc.getUTCDay();
+        utc.setUTCDate(utc.getUTCDate()+(weekday===0?-6:1-weekday));return easternDayStart(utc.toISOString().slice(0,10));
       };
 
       const currentWeekStart = getWeekStart(now);
@@ -543,17 +543,17 @@ export function registerAnalyticsRoutes(app: Express, readOptions?: {
       const weekStarts: Date[] = [];
       for (let i = fetchWeeks - 1; i >= 0; i--) {
         const ws = new Date(currentWeekStart);
-        ws.setDate(ws.getDate() - i * 7);
-        weekStarts.push(ws);
+        const calendar=new Date(easternDate(ws)+"T00:00:00Z");calendar.setUTCDate(calendar.getUTCDate()-i*7);
+        weekStarts.push(easternDayStart(calendar.toISOString().slice(0,10)));
       }
 
       const windowStart = weekStarts[0];
 
-      const CHANNELS = ["linkedin", "reddit", "partner", "gbp", "affiliate", "newsletter", "haro", "youtube", "direct", "other"];
+      const CHANNELS = ["linkedin", "reddit", "partner", "gbp", "affiliate", "newsletter", "haro", "youtube", "direct", "unknown", "other"];
 
       // Normalise utm_source / lead_source to a canonical channel name
       const normalizeSource = (src: string | null | undefined): string => {
-        if (!src) return "direct";
+        if (!src) return "unknown";
         const s = src.toLowerCase().trim().replace(/^utm:/, "");
         if (s.includes("linkedin")) return "linkedin";
         if (s.includes("reddit")) return "reddit";
@@ -563,15 +563,16 @@ export function registerAnalyticsRoutes(app: Express, readOptions?: {
         if (s.includes("newsletter") || s.includes("email")) return "newsletter";
         if (s.includes("haro")) return "haro";
         if (s.includes("youtube") || s.includes("video")) return "youtube";
-        if (s === "direct" || s === "" || s === "none") return "direct";
+        if (s === "direct") return "direct";
+        if (s === "" || s === "none") return "unknown";
         return "other";
       };
 
       // ── Raw-SQL: contacts by week bucket (windowed) ────────────────────────
       const [contactRows, dealRows, allTimeContactRows] = await Promise.all([
-        pool.query<{ week_start: Date; utm_source: string | null; lead_source: string | null; count: string }>(`
+        pool.query<{ week_start: string; utm_source: string | null; lead_source: string | null; count: string }>(`
           SELECT
-            date_trunc('week', created_at) AS week_start,
+            to_char(date_trunc('week', created_at AT TIME ZONE 'America/New_York'),'YYYY-MM-DD') AS week_start,
             utm_source,
             lead_source,
             COUNT(*)::text AS count
@@ -606,7 +607,7 @@ export function registerAnalyticsRoutes(app: Express, readOptions?: {
       contactRows.rows.forEach(row => {
         const ch = normalizeSource(row.utm_source || row.lead_source);
         const canonCh = CHANNELS.includes(ch) ? ch : "other";
-        const rowWeek = new Date(row.week_start);
+        const rowWeek = easternDayStart(row.week_start);
         for (let i = 0; i < weekStarts.length; i++) {
           if (rowWeek.getTime() === weekStarts[i].getTime()) {
             weeklyByChannel[canonCh][i] += parseInt(row.count, 10);
@@ -675,7 +676,7 @@ export function registerAnalyticsRoutes(app: Express, readOptions?: {
         // Conversion rate: lead → deal (all-time deals / all-time contacts, consistent scope)
         const atLeads = allTimeLeads[ch] || 0;
         const { deals, won } = dealsByChannel[ch];
-        const conversionRate = atLeads > 0 ? Math.round((deals / atLeads) * 100) : 0;
+        const conversionRate = atLeads > 0 ? Math.round((deals / atLeads) * 100) : null;
 
         return {
           channel: ch,
@@ -698,6 +699,8 @@ export function registerAnalyticsRoutes(app: Express, readOptions?: {
         prevWeekTotal,
         weekOverWeekChange,
         target: 1000,
+        metricDefinition:"production_contacts_created_not_verified_signups",
+        targetStatus:"unapproved_planning_reference_weekly_1000_conflicts_with_acquisition_monthly_1000",
         displayWeeks,
         channels,
         weekLabels,
@@ -1170,7 +1173,7 @@ export function registerAnalyticsRoutes(app: Express, readOptions?: {
       }
 
       const funnel = [
-        { stage: "Phone CTA Clicks",      eventName: "phone_cta_click",             count: byEvent["phone_cta_click"] ?? 0 },
+        { stage: "Phone CTA Clicks",      eventName: "phone_call_click",             count: byEvent["phone_call_click"] ?? 0 },
         { stage: "Booking CTA Clicks",    eventName: "booking_cta_click",           count: byEvent["booking_cta_click"] ?? 0 },
         { stage: "Forms Submitted",       eventName: "form_submitted",              count: byEvent["form_submitted"] ?? 0 },
         { stage: "Deals Created",         eventName: "deal_created",                count: byEvent["deal_created"] ?? 0 },
@@ -1183,6 +1186,7 @@ export function registerAnalyticsRoutes(app: Express, readOptions?: {
       ];
 
       res.json({
+        metricKind:"activity_counts_not_cohort_conversion",
         funnel,
         byEvent,
         days,

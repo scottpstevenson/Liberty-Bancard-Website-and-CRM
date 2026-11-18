@@ -1,0 +1,501 @@
+2163 - Phase 7 Conversion Optimization
+What & Why
+Build all of Phase 7 (conversion optimization) in one task by extending the experiment, content, reporting and public-site systems that already exist. It has four tracks: (P7-1) trustworthy A/B experiments, (P7-2) a vertical copy audit with three refreshed verticals, (P7-3) one authoritative seven-stage funnel report with attribution, and (P7-4) public mobile completion.
+Why now: a preflight against live code and read-only production data confirmed the external audit's main findings. A/B infrastructure already exists but cannot be trusted for decisions. Winner adoption bypasses frozen assignment, results can be written through generic step edits, experiment samples are arbitrary counters, frozen rules are not enforced, and no real exposure data exists yet. The existing "funnel" is an event-count chart, not a cohort funnel. Replacing these systems would duplicate them, so the work repairs and connects them.
+This task authorizes engineering, draft content, isolated-database migrations and certification, and a publish-ready result. It does not authorize any send, outbound unpause, enrollment/campaign release, provider spend, native GHL workflow install, Gmail connection, production reclassification, historical replay, or automatic winner promotion. Real campaign results, the 90-day observation requirement, owner-supplied evidence and real-device checks keep their true status as separate acceptance rows.
+Preflight verdict: APPROVED FOR BUILD — CORRECTIONS INCORPORATED. No conflicting authority, unsafe provisioning assumption or missing prerequisite blocks building. The verified findings and corrections are under "Preflight verification" below. The full controlling specification (the attached audit with corrections applied) follows it and must be treated as part of this plan.
+Done looks like
+Every generic step create/update/full-editor path refuses result, counter, approval and actor fields. A forged payload changes no stored result and no sender choice.
+One canonical experiment owner: a frozen, canonically hashed two-arm design bound to approved content versions (subject-only for the first tests). Stable business-level allocation. Frozen minimums per arm, minimum duration, maturity window and guardrails are enforced. A stopped, cancelled, revoked or superseded experiment can never produce a winner handoff.
+Exposure is recorded only from a definitive sent/accepted receipt tied to the final rendered content hash. Failed-then-retried sends count exactly once without rewriting history. Verified outcomes (reply, click, open, bounce, complaint, opt-out) attach to real message/provider IDs, never to a caller-supplied key.
+One evaluator path (scheduler, manual and SLA callers all enter it) with writes fenced by lease and experiment revision. A fixed-horizon statistical method with independent calculation fixtures. A recommendation only: a human accepts it through a version-bound decision, which creates a NEW draft version through the existing content owner and changes no live recipient.
+Complete installed-copy inventory with IDs, versions and hashes, and review-ready drafts for the top three verticals (ranked from verified data, or labelled as a volume-based pilot selection if evidence is insufficient). Three complete subject-test designs exist as drafts with previews of both arms, a dry-run population report, no admissions and no sends.
+One versioned cohort-funnel read contract (Lead → Engaged → Statement Requested → Statement Received → Proposal Sent → Application → Closed Won) with drilldown, breakdowns by vertical/rep/source/campaign, protected full export, honest unknown/unlinked/unavailable states, and America/New_York day boundaries. Existing Today, Growth, Operations, SDR and Outreach readers are reconciled or relabelled so no two panels claim the same metric with different hidden populations.
+Reports and Sequences UI extended inside the existing eleven-entry workspace with namespaced URL state, branded layouts, all read/error/permission states, and certified widths and modes.
+Public mobile residual checks re-run on the final build across all inspected public routes, with truthful provenance and image records. A real-device/WebKit pass is either done or left as NOT EXERCISED with an exact checklist.
+Every P7-01–P7-48 row has a disposition with failing-before/passing-after evidence and negative controls. Required gates are registered in both pre-deploy and CI manifests. The Phase 7 certification record is complete, with engineering, merged, published, schema-verified, live-readback, copy-review, live-experiment, measurement and device acceptance kept as separate states.
+Zero unauthorized sends, admissions, automatic winner promotions, provider spend or unrelated production changes. The owner receives one precise publish/approval handoff.
+Out of scope
+Any production send, outbound unpause, campaign or enrollment release, provider call or spend, native GHL workflow install, or Gmail connection.
+Starting a live experiment, admitting recipients, or automatically promoting a winner. Experiment admission stays a separate owner action.
+Fabricated results, backdated start times, synthetic data imported to satisfy acceptance, or invented best-performing verticals.
+Rebuilding the A/B system, CRO-07, the image pipeline, the consent/eligibility engine, the content ledger, or the CRM shell. Adding a new top-level Growth application.
+Editing approved website follow-up revisions 7–10 or their saved mappings, rewriting any applied migration (including 0162, 0207–0212 and 0383–0386), or using schema-push to stamp history.
+Enabling the broad operations, full or outreach background profiles. Broad SLA/operations activation and commercial-graph trigger repair stay separate unless a Phase 7 path directly needs them.
+Treating Closed Won volume, projected residual or modeled savings as earned revenue, or creating a new financial-revenue source.
+Waiving the 90-day live-measurement prerequisite. It is recorded, not skipped.
+Old overlapping draft "A/B test cold outreach subject lines" is superseded by this task; do not build from it.
+Steps
+Preflight record and schema plan — Recapture the baseline at task start (HEAD, merge base, dirty files, migration head, runtime versions, serving build, open PRs), finalize the verified-fact table, writer/route/job census, metric dictionary, owner map and causal fix matrix, and correct stale premises in the Phase 7 record. Freeze an additive schema and migration design that reserves numbers after the then-current head and reconciles the SQL-only A/B tables with the model and the startup native-object installer.
+Experiment integrity repairs — Make generic step create/update/full-editor/storage paths refuse result and counter fields, validate and canonically hash frozen designs (arms, weights, per-arm minimums, supported method), and enforce frozen minimums, duration, maturity and guardrails in sample and decision paths. Retire the arbitrary-sample route in favor of verified receipts, fence evaluator writes by lease and experiment revision, and route the manual trigger and both SLA callers through one non-sending evaluator owner.
+Assignment → exposure → outcome → evaluation chain — Allocate at the declared stable unit (canonical business for cold outreach) before content is chosen, bind both arms to approved content versions through the existing package/content owner, and remove the winner-adoption bypass in the email and SMS branches. Record exposure from definitive receipts (including failed-then-retried sends), bridge verified outcomes with deduplication and unknown/late/ambiguous buckets, implement the fixed-horizon evaluation with human decision and new-version handoff, and verify the rendered subject and hash reach the transport.
+Vertical copy audit and three drafts — Inventory every installed campaign, sequence, template and SFP package with stable IDs, versions, hashes and owner disposition, rank verticals from verified data (or declare a volume-based pilot), and produce complete revised drafts for the top three using the existing approved cadence as baseline. Prepare three reviewable subject-test designs with previews, dry-run population reports and ready/held reasons, created idempotently through the normal owners with no admissions.
+Cohort funnel, attribution and reporting — Add durable, replayable milestone evidence for all seven stages (same-transaction outbox where a source lacks one), a versioned cohort query and read contract with the declared coverage/unknown/unlinked fields, dimensions, drilldown and protected CSV export on Eastern-time boundaries. Fix retained aggregation (fixed offset, delete-then-insert) and reconcile or relabel the existing Today, Growth, Operations, SDR and Outreach readers.
+CRM UI and navigation — Add the Conversion Funnel view and extend the A/B Testing and Sequences surfaces for design/readiness, both-arm preview, results, run history and decisions, using namespaced URL state, existing Liberty tokens, readable table equivalents, distinct state wording, revision-conflict handling, and role-correct visibility. Keep the eleven-entry sidebar and offer no second experiment launch path.
+Public mobile completion — Re-run the existing public visibility, claims, SEO, image, consent and intake checks on the final candidate across all inspected routes and widths and modes, measure matched lab LCP/CLS on the named pages, record the terminal-image disposition, and fix real defects. Provide an exact WebKit/real-phone checklist and mark that acceptance row NOT EXERCISED if it cannot be run here.
+Certification, publish handoff and records — Run the full certification matrix on provider-denied disposable PostgreSQL/Redis with negative controls, compare failures with an untouched baseline copy, register new checks in both manifests, run the pre-deploy roster and production build, write the Phase 7 certification record and roadmap update, and prepare the publish and rollback handoff. After the owner publishes, do GET-only signed-in and public readback and bind it to the serving build.
+Relevant files
+server/services/cro07-experiments.ts
+server/routes/cro07.ts
+server/services/sequence-ab-authority.ts
+server/services/ab-test-worker.ts
+server/services/sequence-worker.ts:1296-1330,1899-1945,1950-1970,2140-2150
+server/services/sequence-command.ts
+server/services/sequence-step-interpolation.ts
+server/services/sla-worker.ts:612-619,1346
+server/routes/campaigns.ts:183-190,1630-1646
+server/storage/automation.ts
+shared/schema.ts:3680-3715,9852-9900
+migrations/0162_revenue_state_reconciliation.sql
+server/native-objects/reconciler.ts
+server/services/analytics-events.ts
+shared/analytics-events.ts
+server/routes/analytics.ts:1141-1195
+server/routes/acquisition.ts
+server/routes/public.ts:401-790
+server/services/sdr/funnel-metrics.ts:16-120
+server/services/cr06-premium-campaigns.ts
+server/services/stored-sequence-copy-adoption.ts
+server/services/sfp-launch-render.ts
+server/services/message-token-registry.ts
+server/services/message-cta-contract.ts
+server/services/message-copy-lint.ts
+server/data/public-claim-evidence.ts
+server/services/statement-upload-chain.ts
+server/services/deal-stage-service.ts
+server/services/proposal-engine.ts
+server/services/merchant-application-service.ts
+server/services/public-inbound-intake.ts
+server/services/inbound-request-authority.ts
+client/src/pages/dashboard/Sequences.tsx
+client/src/pages/dashboard/OutreachAnalytics.tsx
+client/src/pages/dashboard/OperationsReport.tsx
+client/src/pages/dashboard/ReportingHub.tsx
+client/src/pages/dashboard/GrowthKPI.tsx
+client/src/pages/dashboard/Overview.tsx
+client/src/lib/crm-destination-state.ts
+client/src/styles/crm-theme.css
+client/src/lib/public-imagery.ts
+client/src/lib/public-imagery.manifest.json
+client/src/pages/ZeroPercent.tsx
+scripts/lib/public-site-browser.ts:438-447
+scripts/check-public-site-mobile.ts
+scripts/pre-deploy.ts
+scripts/ci-suite-manifest.ts
+scripts/test-bt12-revenue-state-reconciliation.ts
+scripts/test-bt12-revenue-state-reconciliation-integration.ts
+scripts/test-cro07-disposable-certification.ts
+.agents/memory/publish-not-valid-checks.md
+.agents/memory/native-object-reconciler.md
+Preflight verification
+Method: read the complete relevant source files, git grep caller census, and read-only SQL against the production database (SELECT only; no trigger-ab-check, test-send, experiment start/sample/decision, aggregate job, provider call or release was run). Production values are as of November 17, 2026. The external audit's signed-in UI observations (Appendix A) were not re-captured by this preflight and stay labelled as external observations; the build must re-capture them.
+Live baseline (controls over the external audit's section 2 table)
+Item	Live-verified value
+Workspace HEAD / origin main	361886eb (Nov 17, 2026 19:04 UTC, partner program ledger update)
+Serving build	cce9ba00, built 2026-11-17T18:43Z (the audit's 2119c203 and main c3a82771 are superseded)
+Migration journal	390 entries, final index 389, tag 0386_partner_introduction_checks_validated. The audit's "386 entries / 0382" is stale: 0383 (Sunbiz) and 0384–0386 (partner platform) landed since. Next free number is 0387; recheck immediately before reserving.
+Production migration ledger tail	id 644
+Runtime	Node v22.23.4, npm 10.9.9 (declared engines >=22.22.0 <23)
+Public inspected routes	36 (the audit said 31)
+Open PR #11	Not re-checkable without network git; recheck at task start
+Certification folder	docs/certification/phase7 does not exist yet
+Verified fact claims V01–V16 (live result)
+ID	Result	Live evidence
+V01	CONFIRMED (premise false)	Variant fields on steps, assignment/evaluator/decision tables, A/B tab, CRO-07 experiment tables all exist and the three SQL-only tables are present in production
+V02	CONFIRMED (stale)	Production has 131 sequences (108 not retired; 31 active, 100 paused, 0 draft) and 523 steps; an A/B Testing view already exists; 0 steps have variant B, A/B config, results or a winner
+V03	CONFIRMED (partial)	The old results POST returns 410, but the step create/update schemas and the full-editor step schema are derived from the insert schema that omits only id and createdAt, so they accept results, config and variant fields; the command writes the step payload directly
+V04	CONFIRMED	Email and SMS branches read the stored winner from mutable step results and use it before the immutable assignment lookup; the evaluator writes those mutable results. A post-send block in the email branch also computes a winner and discards it (dead code to remove)
+V05	CONFIRMED (partial)	Run key is a five-minute time bucket; the lease guards only the final run-state update, not the decision insert or result projection. Production: 418 runs (361 completed, 28 failed, 13 accepted, 16 stranded in running with expired leases); last run 2026-09-05, so the evaluator is not active in production now. Stranded rows never recover because bucket keys are never reused
+V06	CONFIRMED	The sample function has only the admin route and the disposable certification as callers; production has 0 experiments and 0 experiment events
+V07	CONFIRMED	Sample route takes an arm, a success boolean and an optional guardrail boolean, deduplicated only by caller-chosen key
+V08	CONFIRMED	Guardrail stop is hardcoded (at least 20 exposures and over 20% breach) and ignores frozen guardrails; decision accepts winner_a/winner_b with no confidence-rule calculation; a stopped_guardrail experiment skips sample/duration checks and still mints a winner handoff key. Also: production cro07 experiment tables have no CHECK constraints on state or decision and no triggers; min sample is total across arms, not per arm; freeze hash is key-order dependent
+V09	CONFIRMED (premise false)	Today and Command Center funnel, Growth KPI, Operations ratios, SDR funnel metrics and Outreach Analytics all exist
+V10	CONFIRMED	The conversion-funnel route groups analytics events by name and counts contacts and deals separately; there is no linked cohort
+V11	CONFIRMED (partial)	Analytics writes swallow errors; production analytics has 97 rows and 0 carry an event id. The public statement-upload route records form_submitted but no statement_received; the last statement_received row is 2026-07-24. Production has no proposal_sent, closed_won, appointment_booked, booking_cta_click or call_booked events
+V12	CONFIRMED	Operations states reply attribution is unavailable until an authoritative sequence-to-reply relationship exists
+V13	CONFIRMED (unproven)	0 experiments and 0 configured A/B steps; no conversion evidence to rank verticals. The audit's Healthcare/Automotive/Beauty-Spa membership order is a lead only; recount at build time
+V14	CONFIRMED (stale)	The image manifest holds 640 px AVIF/WebP/JPG derivatives for both terminal products and the zero-percent page uses the imagery registry. Payload and rendered-source measurement still to be done in the build
+V15	CONFIRMED	The imagery registry distinguishes generated from unverified provenance and illustrative usages; no licence record exists for the original product shots
+V16	CONFIRMED	No authoritative exposure coverage: the outbound send log is empty and the 1,707 historical outbound email rows (2026-02-10 to 2026-04-02) include 0 with sent status. Calendar age is not 90 days of usable data
+Additional findings from live verification (not in the audit)
+Today funnel Phone stage is always zero. The route reads phone_cta_click but the server writes phone_call_click; production has 5 phone_call_click rows and no phone_cta_click rows. Fix or relabel while reconciling the funnel readers.
+Assignment is not business-level. The assignment key is (enrollment, step), the bucket hashes enrollment:step:config, and config hashes use non-canonical JSON serialization in three places (assignment authority, evaluator, experiment freeze).
+Link-once gap confirmed. The delivery log is bound only while null, so a failed first attempt is bound and a later successful retry is never linked.
+Evaluator has three call sites in three files: the manual trigger route, the SLA periodic loop and the SLA cycle. The manual trigger and the evaluator scan every sequence with no ownership scoping, and the experiment list/detail GETs return all experiments to managers.
+SQL-only A/B tables exist in production with unique, foreign-key and check constraints but no immutability triggers. They are absent from the model file. Production has 0 assignments and 0 decisions. Native triggers/functions are installed by the startup native-object installer, not by Publish.
+Retained aggregation defects confirmed. The SDR daily aggregation uses a fixed -05:00 offset and a delete-then-insert rebuild.
+Stale BT-12 guard reproduced live. The guard fails with exactly one failure, "unresolved send-boundary tokens must fail closed". The wording now lives in the pure interpolation module. Update with a real renderer/dispatch negative test, not by deleting the requirement.
+Registration points confirmed. BT-12, CRO-07 disposable certification, and the public-mobile checks are registered in both pre-deploy and CI manifests; new Phase 7 behavior checks must be added to both.
+The Outreach view list is a fixed set (campaigns, ab-testing, messages) in the destination-state module; the funnel view must be added there consistently with aliases and workspace identity.
+Verified design tokens in the CRM theme match the specification: light background 40 33% 98%, accent 221 78% 48%, brand red 0 72% 47%, IBM Plex Sans.
+Build-time constraints carried from project memory
+Never leave a CHECK constraint NOT VALID in a migration (Publish generates broken SQL). Validate through a new migration.
+Functions and triggers are delivered by the startup native-object installer, not Publish. Any new immutability guard needs a generator-produced manifest entry with preflight, verification and disposable-DB certification (fresh, replay, drift refusal, missing prerequisites, concurrent replicas).
+Never edit an applied migration. Dev and production databases differ and the production schema is owned by Publish plus the native-object installer.
+Paid and provider paths must stay denied in tests. Fixture suites must run only against disposable PostgreSQL/Redis.
+Authoritative specification (the attached audit, corrected)
+The text below is the attached Phase 7 master preflight and build document, heading levels lowered one step. Where it conflicts with the "Preflight verification" section above, the verification section controls. Everything else in it is required scope.
+Prepared November 16, 2026. Repository: scottpstevenson/Liberty-Bancard-Website-and-CRM.
+Use: Attach this file to ONE Replit task. Run preflight, incorporate corrections, build all authorized engineering scope, certify it, and prepare the normal publish handoff. Keep the work in one task with internal checkpoints. Do not return another roadmap instead of implementing it.
+Outcome: Complete Phase 7's experiment, vertical-copy, funnel-reporting and public-mobile engineering work end to end, extending existing Liberty authorities. Leave three subject tests and three vertical refreshes reviewable and ready for a separately authorized live run. Real campaign results, elapsed observation periods, owner-supplied evidence and actual-device checks must retain their real status.
+External audit conclusion: Ready for Replit preflight with the corrections below incorporated. This is not production acceptance or outbound release approval. Current code already contains A/B infrastructure, CRO-07 experiment records, several reporting paths, versioned content tools and public-image derivatives. Building replacements from the old roadmap would duplicate those systems.
+1. MODE AND AUTHORIZATION
+Operate in inspect → reconcile → implement → certify → prepare publish → verify published reads when available mode.
+The requested task authorizes the engineering work, draft content, migrations developed and rehearsed in an isolated database, tests, documentation, and a concrete publish-ready result. It does not authorize a production send, outbound unpause, campaign or enrollment release, provider spend, native GHL workflow installation, Gmail connection, production business/contact reclassification, historical-message replay or automatic promotion of a winning version. Follow the project's established deployment process. If Publish requires the owner's action, finish every preceding step and provide one precise publish handoff.
+Do not turn on the broad operations profile to obtain A/B evaluation. It includes unrelated SLA, reminder and messaging work. Do not activate or disable any existing enrichment, GHL sync or other production profile as part of this task.
+Draft creation is not wording approval. Wording approval is not publication. Publication is not experiment admission. Experiment admission is not dispatch permission. Deployment never changes those distinctions.
+2. EXACT BASELINE AND STALE BASELINE RULE
+Externally recaptured baseline (superseded by the live baseline in the Preflight verification section above: HEAD 361886eb, serving build cce9ba00, journal 390 entries / final index 389 / tag 0386, Node 22.23.4, npm 10.9.9):
+Item	Evidence
+GitHub main	c3a8277160269554210dfc903e48947adcafd76c
+Main tree	4f8eb75cb9f0b10112bae107190001c89302960b
+Production health SHA	2119c203cf6b3746881b0cdde2b8e3d14b337f26
+Production builtAt	2026-11-15T18:54:38.529Z
+Production publishBuildId	a7dbaf13-cc92-4ca9-afe1-282c3575ab4c
+Source relationship	Main is a publication metadata commit over the serving SHA, with zero changed files
+Repository tree census	4,925 entries; recursive tree not truncated
+Migration journal	386 entries; final index 385, tag 0382_website_email_lifecycle
+Declared runtime	Node >=22.22.0 and <23; npm 10.9.4
+Open PR observed	#11, Yelp scraper repair, server/services/sdr/apify.ts; no direct Phase 7 file overlap observed
+These are evidence, not instructions to use an old checkout. At task start fetch current main read-only, record branch, HEAD, merge base, ahead/behind, dirty files, relevant dependency merges, current migration head, runtime versions and serving identity. Read applicable AGENTS.md files. Preserve unrelated work; use a clean checkout/worktree where necessary. No destructive reset of a dirty workspace.
+Recheck open PRs and migration reservations immediately before finalizing migrations. The repository journal is not proof that production applied SQL-only tables, constraints or triggers. Replit Publish schema sync and migration-runner behavior must be inspected separately.
+3. AUDIT COVERAGE AND HONEST LIMITS
+This external audit inventoried the complete repository tree, performed repository-wide symbol searches, retrieved 112 relevant source/configuration/migration/test/document files, and traced Phase 7's principal writers, readers, sequence worker, A/B evaluator, CRO-07 functions, content authorities, reporting routes and public-media contract.
+Signed-in administrator read-only walkthrough on November 16 UTC covered Today, Campaigns → Sequences, Reports → Outreach → Campaigns and A/B Testing, Reports → Growth, Reports → Operations, Outbound Readiness, and the CRO-07 experiment-list/status GETs. A public read inspected /0-percent-processing and its terminal-image sources.
+This is a full Phase 7 scope audit, not a claim that every unrelated repository file was line-reviewed or every CRM screen/role/device was certified. No full build, full pre-deploy roster, disposable database suite, production SQL query-plan audit, live send, WebKit pass or real-phone test was run by the external auditor. The tests and production readback required below close those evidence gaps during this task.
+One existing source guard was executed against the exact retrieved baseline: scripts/test-bt12-revenue-state-reconciliation.ts. It failed its literal-source assertion that sequence-worker.ts contains the unresolved-placeholder error wording. That wording now exists in sequence-step-interpolation.ts, called by the worker. This source assertion is stale; the run does not prove a dispatch defect. Update the assertion only with a real renderer/dispatch negative test, not by deleting the safety requirement.
+4. CORRECTED VERIFIED FACT CLAIMS
+ID	Roadmap or inherited premise	Verdict and current reality	Build consequence
+V01	No A/B infrastructure exists	FALSE. Sequence variant fields/UI, assignment table, evaluator, result UI and CRO-07 experiments exist	Integrate and repair; do not create a third system
+V02	75+ sequences need a new testing UI	STALE. Live catalog says 131 listed; A/B tab already exists and says no configured tests	Recount and extend existing UI
+V03	Results are server-owned because the old results POST is retired	PARTIAL. That route returns 410, but generic create/update step schemas and sequenceEditorSteps derive from insertSequenceStepSchema, which includes abTestResults	Reject result fields on every generic mutation path
+V04	Existing winner selection is safe to use for Phase 7	FALSE for this scope. The evaluator updates mutable step results, and the sender uses winnerSelected before immutable assignment lookup	Remove automatic winner adoption; bind delivery to approved experiment/content versions
+V05	One persisted evaluator run means only one evaluator can write	PARTIAL. Run keys are five-minute buckets; projection/decision writes are not fenced by the lease that only guards final run completion	Serialize/fence the decision and projection writes themselves
+V06	CRO-07 counters are connected to real sequence exposures/outcomes	NOT IMPLEMENTED end to end. Repository search finds the sample function, admin route and certification caller, not production feedback/attribution callers	Add a verified receipt-to-experiment bridge
+V07	Any sample idempotency key proves a real event	FALSE. The sample route accepts a key and booleans; the function deduplicates but does not establish the referenced occurrence's reality/arm/content membership	Resolve a trusted durable event; do not accept arbitrary counters
+V08	Frozen CRO-07 rules control decisions	PARTIAL. Counter code has a hardcoded guardrail threshold. Decision code accepts winner_a/winner_b without calculating the stored confidence rule; stopped_guardrail can bypass minimum sample/duration checks	Enforce frozen rules and prohibit promoting a stopped experiment
+V09	No funnel reports are visible	FALSE. Today event counts, Growth KPI, Operations ratios, SDR funnels and Outreach Analytics already exist	Add one authoritative cohort funnel; reconcile meanings and consumers
+V10	Existing event-count chart is a cohort funnel	FALSE. conversion-funnel groups analytics_events by name; contacts/deals are counted separately, without the same linked cohort	Preserve as activity counts or relabel; implement actual cohort transitions
+V11	Event collection is complete and reliable	PARTIAL. Best-effort analytics writes swallow errors; major writers omit durable eventId; current public statement route records form submission without a statement_received event there	Derive from canonical facts with durable projection/reconciliation; verify every stage writer
+V12	Reply attribution is available	FALSE in current Operations UI. It explicitly reports unavailable until an authoritative sequence-to-reply relationship exists	Build the relationship before showing reply conversion rates
+V13	Top three converting verticals can be selected now	UNPROVEN. No experiment records, no configured A/B tests; loaded campaign cards show zero sends, with paused outreach	Rank from verified data; if insufficient, label a volume-based pilot selection
+V14	Public terminal images still require the proposed PNG conversion	STALE. Live /0-percent-processing uses product-clover-flex-3-product-640.jpg and product-pax-a920-product-640.jpg; image manifest/derivatives exist	Verify budget and retire stale task text; do not rebuild the image pipeline
+V15	All images have the same unverified provenance	FALSE. public-imagery.ts distinguishes generated illustrative imagery and unverified product images	Preserve exact provenance; never invent licensing or merchant endorsement
+V16	Full Phase 7 business acceptance is possible immediately	FALSE. Roadmap calls for stable outreach, solid CRM and at least 90 days of outbound data; live release/transport prerequisites are unmet	Finish engineering now; retain a separate live-measurement acceptance state
+All source-only findings require failing-before/passing-after isolated proof. No exploit or mutation was attempted in production.
+5. CANONICAL OWNER MAP AND CHANGE SITES
+Capability	Existing authority to extend	Required integration
+Frozen experiment design/state	server/services/cro07-experiments.ts; cro07_experiments and related tables	Canonical Phase 7 experiment identity, design, lifecycle and human decision
+Legacy assignment/exposure records	sequence-ab-authority.ts; migration 0162 tables	Bind to the canonical experiment and immutable approved content; retain legacy history
+Evaluation	ab-test-worker.ts; SLA callers; campaign trigger-ab-check route	One evaluator path and fenced projection, with no content adoption
+Actual delivery	sequence-worker.ts, outbound-send-log, ChannelOrchestrator and existing SFP launch checks	Preserve all existing permission, pause, cap, content and reply-stop boundaries
+Sequence commands	sequence-command.ts and routes/campaigns.ts	Strict editable fields; actor/version/idempotency checks; pinned package refusals
+Governed content	cr06-premium-campaigns.ts; stored-sequence-copy-adoption.ts; current SFP paired publication; versioned templates	Draft/version adoption through the proper owner only
+Rendered wording/links	sequence-step-interpolation.ts; message-token-registry; message-cta-contract.ts; sfp-launch-render.ts	The same renderer for preview, approval hash and sending
+CRM milestones	inbound-request-authority, public-inbound-intake, statement-upload-chain, deal-stage-service, proposal-engine, merchant-application-service/status	Canonical business facts, not browser claims
+Analytics compatibility	analytics-events.ts, shared/analytics-events.ts, routes/analytics.ts	Versioned definitions and recoverable projection; preserve truthful legacy readers
+Attribution	immutable source/request relations, CRO-07 attribution, communication feedback and verified provider receipts	Event-to-contact/business/deal/sequence/campaign mapping with evidence
+Reporting	routes/acquisition.ts, routes/analytics.ts, services/sdr/funnel-metrics.ts; revenue/task read authorities	Shared population, permissions, snapshot and denominator contracts
+CRM UI	ReportingHub.tsx, OutreachAnalytics.tsx, Sequences.tsx, OperationsReport.tsx	Extend the eleven-entry Liberty workspace
+Mobile/public presentation	public-imagery.ts and manifest, public-site-browser.ts, check-public-site-mobile.ts; existing W-D contracts	Reuse the shipped image/content/public shell
+Do not repurpose CRO-07's denied transport adapter as a shortcut sender. Do not build another eligibility engine, contact source, campaign queue, consent authority, content ledger or generalized CRM redesign.
+6. COMPLETE REQUIREMENT LEDGER
+Track each ID independently in docs/certification/phase7/requirements.md.
+IDs	Independently testable requirements
+P7-01 / P7-02 / P7-03	Current source/serving baseline; schema/applied-object census; route/worker/writer/consumer census
+P7-04 / P7-05 / P7-06	Strict server-owned results; immutable design and content; one canonical experiment binding
+P7-07 / P7-08 / P7-09	Stable allocation unit; approved subject-only variants; pre-dispatch assignment and safety
+P7-10 / P7-11 / P7-12	Receipt-backed exposure; verified separate outcome; deduplicated/recoverable projection
+P7-13 / P7-14 / P7-15	Frozen evaluation rules; lease/decision fencing; human promotion into a new approved version
+P7-16 / P7-17 / P7-18	Guardrail stop; privacy/role ownership; all existing send gates retained
+P7-19 / P7-20 / P7-21	Entire installed-copy audit; ranked three-vertical refresh; shared branded preview and CTA validation
+P7-22 / P7-23 / P7-24	Three frozen subject-test designs; data sufficiency and run-duration status; real results report without fabricated outcomes
+P7-25 / P7-26 / P7-27	Explicit funnel unit/cohort; seven-stage evidence map; occurrence versus entity dedupe
+P7-28 / P7-29 / P7-30	Complete milestone writer coverage; attributable dimensions; historical reconciliation with unknowns
+P7-31 / P7-32 / P7-33	Same-filter drilldown/export; existing reader compatibility; permission and snapshot consistency
+P7-34 / P7-35 / P7-36	Reports/Sequences UI reconciliation; mobile/accessibility/URL continuity; all read/error states
+P7-37 / P7-38 / P7-39	Public mobile matrix; image/claim provenance and budgets; deployed source-bound readback
+P7-40 / P7-41 / P7-42	Performance and no N+1; one non-sending job owner; restart/recovery/concurrency tests
+P7-43 / P7-44 / P7-45	Fresh/upgrade migration proof; CI/pre-deploy registration; exact release/rollback evidence
+P7-46 / P7-47 / P7-48	Phase 6 dependency status; separate engineering/live acceptance; current roadmap and owner handoff
+No row is satisfied by UI presence or a source-string match alone.
+7. REQUIRED PREFLIGHT BEFORE IMPLEMENTATION
+Inspect complete relevant files, not just grep excerpts. Produce a VFC and causal fix matrix covering every row above. Classify findings confirmed, partial, stale, implemented, missing or unavailable. Reverify this audit against current main.
+Read-only production preflight must capture:
+Current package/sequence/template/workflow inventory by stable ID and version, distinct step/membership counts, retirement/classification and canonical owner. Do not equate names that look like tests with test records.
+Existing experiment designs, legacy assignments, linked exposure records, evaluator/decision rows and any historical result projections. Show whether required SQL-only tables and constraints actually exist.
+Observation coverage by time, channel, sender, program, source and vertical: earliest/latest authoritative exposure, days with trustworthy coverage, unlinked outcomes and reconciliation backlog. Calendar age alone is not 90 days of usable outbound data.
+Frozen/current content hashes, approval state, paired SFP campaign/sequence pins, and whether preview matches dispatch for both arms.
+Current pause/readiness controls, selected background profile, active evaluator owner, and task/phase dependencies. Record presence/state without exposing secrets.
+Definitions and callers of every existing funnel/response/revenue metric touched. Identify capped reads and synthetic/archived/nonproduction contamination.
+Do not execute trigger-ab-check, test-send, aggregate jobs, experiment start/sample/decision, admission, provider re-probe or release merely to inspect status. Use isolated infrastructure for mutations.
+8. SCHEMA AND MIGRATION CONTRACT
+Extend the existing CRO-07 authority and legacy record bridge additively. Freeze the schema design in preflight; reserve fresh migration numbers after the then-current head. Do not rewrite 0162, 0207–0212 or any applied migration. Preflight correction: the journal head is now 0386 (390 entries), so also never edit 0383–0386; reserve numbers after the then-current head and recheck immediately before reserving.
+Required durable relationships include experiment/design version → approved sequence/package version → arm → stable allocation subject → assignment → dispatch attempt → confirmed exposure → verified outcome → evaluation snapshot → human decision → new-version handoff.
+Use foreign keys or an explicitly validated typed relation appropriate to existing IDs; unique identities; immutable design/content hashes; finite states; timestamps; actor IDs; optimistic versions; durable command receipts; and relevant indexes. Use canonical serialization for hashes.
+The existing sequence_step_ab_assignments, sequence_ab_evaluation_runs and sequence_ab_winner_decisions are SQL-defined in 0162 but not declared as tables in shared/schema.ts at the audited baseline. Inspect actual provisioning: do not assume Publish installed them. Reconcile model/SQL/native-object authority narrowly and prove the required tables, constraints and immutability guards on fresh and upgraded databases.
+Legacy records remain historical. Unbound old assignments/results must be labelled legacy/unverified and excluded from new decisions. No guessed experiment membership, fabricated historical events or destructive contact cleanup.
+Test fresh apply, upgrade from current head, replay/apply-twice according to the real migration runner, interrupted projection recovery, and rollback compatibility. Do not use db:push to stamp history or silently erase migration disagreement.
+9. EXPERIMENT DESIGN AND SUBJECT TEST SCOPE
+Use CRO-07 as the canonical experiment owner. Add the necessary typed sequence/package binding; legacy A/B columns and result readers become compatibility projections/adapters, not a competing decision source.
+Freeze: hypothesis; purpose/program/channel; eligible population; canonical vertical; allocation unit; supported source exclusions; sender policy; arm weights; immutable content version/hash per arm; primary metric; secondary metrics; denominator; minimum per-arm sample; minimum collection duration; outcome-maturity window; planned evaluation points; confidence method; exclusions/contamination rules; guardrails; owner/approver and approval revision.
+For initial Phase 7 subject tests, both email bodies, sender policy, CTA, audience rules and cadence must be identical between arms. Only the subject changes. SMS/body/multivariate tests are not silently included because the legacy UI allows them. Retain existing unsupported tests as labelled history; do not delete them.
+Use a validated two-arm design. Reject empty arms, mismatched arm/version keys, invalid weights, unsupported statistics, zero or nonsensical minimums, mixed program/channel cohorts and unapproved content. A frozen design cannot be edited in place.
+10. ASSIGNMENT AND DELIVERY INTEGRATION
+Allocate at one documented durable unit. For cold outreach prefer canonical business identity so two contacts from the same business cannot contaminate arms. If an allowed program uses a person-level unit, declare and enforce it. Unresolved business identities are held rather than guessed from email domains.
+Persist deterministic allocation keyed by experiment/version and allocation subject before selecting message content. Retries, actor changes, restarts, edited contact fields and new memberships must not switch arms. Retain the enrollment/step delivery relationship.
+Repair the current bypass where sequence-worker reads step.abTestResults.winnerSelected and skips immutable assignment. A result recommendation must never change another recipient's content selection. Reject arbitrary variant values. A frozen assignment/config mismatch holds with a readable reason.
+Current SFP package content is pinned and normally rendered through the SFP launch owner. Prove that the subject chosen for an experiment is the subject actually rendered and hashed at that dispatch boundary; merely setting generic variantBSubject is insufficient. Both arms must have a supported approved version binding through the existing package/content owner. Do not disable the package hash guard or edit only one half of a campaign/sequence pair.
+Keep every existing lifecycle, record-class, territory, DBPR exclusion, suppression, consent/contactability, validation freshness, reply-stop, content-approval, sender, channel/global pause, release/capacity, idempotency and transport check. Revalidate experiment authority immediately before I/O as well. An experiment never grants send authority.
+11. EXPOSURE, OUTCOME AND FEEDBACK INTEGRITY
+Assignment is not exposure. A blocked or skipped step, failed transport, pending attempt or unknown dispatch is not a delivered message.
+Join the frozen assignment to the canonical outbound attempt and immutable final content hash, then record exposure from a definitive accepted/sent receipt using the repository's documented transport semantics. Distinguish provider accepted from confirmed delivered; do not invent delivery where the transport cannot prove it.
+Repair the link-once gap: recordSequenceAbDelivery currently binds the first email_log ID even when that log is failed. A failed attempt followed by a successful retry must produce the correct exposure without repointing historical evidence or double-counting.
+Tie replies, clicks, opens, bounces, complaints, opt-outs and later CRM conversions to actual message/provider IDs and verified receipt ownership. No nearest-time/email/name matching as authoritative attribution. Unmatched, ambiguous and late feedback stays separately visible and reconcilable.
+Model exposure and later outcomes separately. A reply arriving later must not add a second exposure; a duplicate receipt must add neither. Calculate distinct-subject successes at the frozen analysis unit. Missing telemetry is unknown, not zero. Bot/security-scanner clicks, automated replies and privacy-proxied opens must not be presented as human intent; report their measurement limits.
+Do not keep the current manual sample route as a way to submit arbitrary success/breach booleans. Retire it or require a real typed durable receipt that the server validates belongs to that experiment, arm, frozen content, population and event type. A caller-chosen idempotency string is not evidence.
+12. EVALUATION AND HUMAN PROMOTION
+Use one canonical evaluator for scheduler and manual requests. The visible action must say Evaluate results, not Refresh, if it writes a run/decision. A normal Refresh is GET-only.
+Honor the frozen minimum per arm, minimum duration and outcome maturity. A two-week initial test cannot select a winner on day one because 100 total messages were observed. Define and implement one supported fixed-horizon statistical method appropriate to the endpoint, with independent calculation fixtures. Do not repeatedly apply the legacy z threshold every five minutes and call the result a valid completed experiment. Report sample-ratio imbalance, exclusions, absolute rates, denominators, effect/uncertainty and reasons for inconclusive results.
+Choose a business-relevant primary metric such as verified qualified reply rate; opens can remain diagnostic where measured. Store the actual method/version used. Never compare arms using mixed denominators or count one message outcome several times.
+Fence the writes to samples/projections/decisions under a current lease token and locked experiment revision. Current five-minute run keys allow different buckets to overlap; checking the lease only while finishing the run is insufficient. Prove no old evaluator can overwrite results after expiry/recovery.
+Results produce a recommendation and immutable evaluation snapshot. An authorized human may accept it only through a version-bound decision command. Adoption creates a NEW draft/version through the existing CR-06/SFP owner; it does not rewrite approved content, prior assignments or live recipients. Publication/admission/release stay separate.
+13. GUARDRAILS AND CANCELLATION
+Use the frozen guardrail definitions; remove the mismatch between arbitrary design metrics and the hardcoded 20%-after-20 rule. Define each guardrail's receipt source, denominator, threshold and minimum evidence. Integrate existing delivery safety controls without creating another suppression system.
+An experiment in stopped_guardrail, cancelled, revoked, schema-unavailable or superseded state cannot select or promote a winner. Fix decideCro07Experiment so stopped_guardrail cannot bypass evidence requirements and mint a winner handoff.
+Stop is database-backed and immediately prevents new experimental dispatch under that authority, including workers that have already claimed but not dispatched. Never resend to complete a sample. Unknown in-flight dispatch follows existing reconciliation/quarantine semantics.
+A stop/cancel/evaluate action is idempotent and audited, with current actor/account/version checks. A failure must leave a recoverable, truthful state.
+14. COMPLETE VERTICAL COPY AUDIT AND REFRESH
+Audit all installed campaign/sequence/email-template wording and current SFP packages, not only seed modules. Produce a stable ID/version/hash inventory, provenance and owner disposition. Credit the existing Stage 4C1 inventory, premium five-touch drafts and stored-copy adoption; recheck installed state rather than assuming those drafts were adopted.
+Review vertical specificity, subject, body, offer/claims, CTA, personalisation tokens, signature, sender/reply address, cumulative cadence, unsubscribe, mobile rendering, broken/retired links, and lifecycle/program suitability. Separate cold acquisition, requested follow-up, opted-in nurture, operational/onboarding and historical/retired copy.
+Refresh the top three verticals based on trustworthy conversion data with denominators and minimum evidence. If that evidence is insufficient, explicitly use the top three eligible-volume pilots. Live paused sequence membership counts observed here rank Healthcare, Automotive, then Beauty/Spa above the other current SFP families; these are a lead only, not proven conversion winners. Recount current eligible businesses and approvals before selecting.
+Provide complete revised sequences for the selected three verticals using the existing approved cadence as baseline. Do not adopt the older proposed five-touch cadence automatically. Explain any proposed change and keep it draft until approved.
+Healthcare, Dental and Med Spa wording must reflect the actual canonical taxonomy and the specific audience; do not rename a broad Healthcare cohort to Dental/Med Spa or invent sensitive information about merchants. Keep DBPR-derived exclusions and the existing territory/ICP rules.
+No unsupported savings, funding times, equipment entitlement, regulatory guarantees, fabricated testimonials, personal familiarity, urgency or unverified statements about the recipient. Use the existing claim-evidence and message-copy-lint authorities. A preview must show actual resolved tokens and links and explain unavailable fields instead of inventing values.
+15. LIBERTY BRANDING AND CONTENT ADOPTION
+Use the existing Liberty logo/signature, sender-policy categories, token registry, claim evidence and final renderer. No Oveeo branding or parallel template system.
+Preview every refreshed touch and both subject arms with populated and missing-data fixtures. The same approved content hash must reach the final transport envelope. Include the existing compliance footer, reply path, unsubscribe treatment and exact first-party CTA purpose.
+Respect SFP paired campaign/sequence publication, generic sequence command versions, template publication and plan-hash-bound stored-copy adoption. No seed-time mass rewrite, direct SQL body replacement or edit of already approved website revisions.
+Preserve website revisions 7–10 and their saved mappings unless a separately reviewed change is explicitly part of a new draft/version. Their prior approval does not approve newly refreshed cold outreach or an experiment. Request receipts remain separate from both website follow-up programs.
+16. FIRST THREE SUBJECT TESTS AND DATA SUFFICIENCY
+Prepare three complete reviewable designs, one for each selected vertical, with control/challenger subjects, common body and CTA, exact eligible population, stable allocation rule, minimum per-arm sample rationale, two-week minimum collection plan, maturity window, primary metric, guardrails, exclusions and stop conditions.
+Create them as drafts/frozen-review-ready records through the normal UI/API owner, with no admissions or sends. Include a dry-run population report and why each design is ready or held. Draft keys and repeated task execution must not create duplicate experiments.
+Implement the run/results report now. Initially it should honestly say no observations, not started or insufficient data. Do not create fake production results, backdate started_at or import synthetic certification data to satisfy first-three-test acceptance.
+The roadmap's 90-day prerequisite remains recorded for live optimization. It does not prevent building and testing this infrastructure now. It is not silently waived by this task. Capture the real observation coverage and state the exact later condition for live execution and analysis.
+17. AUTHORITATIVE SEVEN-STAGE FUNNEL
+Implement the Phase 7 journey:
+Lead → Engaged → Statement Requested → Statement Received → Proposal Sent → Application → Closed Won.
+Preserve all seven required milestones. If an existing application contract separates Application Started and Application Submitted, expose both as labelled sub-stages without silently changing the seven-stage denominator contract.
+Declare the analysis unit and cohort before writing SQL. For sales acquisition, use a canonical business sales journey with stable related contact/deal/request identities; a request occurrence or campaign delivery can be a drilldown fact, not an extra merchant. If a supported path lacks a canonical business link, include an explicit unresolved bucket and coverage count rather than guessing a join or dropping it.
+Define cohort entry and observation end separately. Provide an event-activity view and a cohort-conversion view with distinct labels. Stages require durable evidence and time ordering. Reopened deals, repeat statements, multiple contacts, repeated form submissions, reassigned reps and multiple deals per business must have declared rules and fixtures.
+Keep per-stage raw observations, qualified unique journeys, linked/unlinked evidence and out-of-order/missing-stage paths visible. Do not invent earlier stage timestamps merely because a journey reached a later stage. Show adjacent conversion and entry-to-stage conversion only with valid comparable denominators; display unavailable or not applicable where they are not comparable.
+18. MILESTONE EVIDENCE AND WRITER COVERAGE
+Preflight must finish this writer-to-evidence map and implement every missing bridge:
+Milestone	Canonical evidence required
+Lead	Accepted eligible acquisition/journey occurrence and retained source; keep discovered/imported contacts separate from inbound signups
+Engaged	Verified attributable human reply or recorded qualified interaction; exclude opens alone, delivery notices, out-of-office, bounce and opt-out
+Statement Requested	Durable request/task/action record or confirmed request message; not a current lifecycle label alone
+Statement Received	Saved protected upload/document occurrence with retained request linkage; separate receipt, analysis status and financial contents
+Proposal Sent	Definitive proposal/send occurrence; generating or previewing a proposal is not sending
+Application	Durable canonical application intake/status transition; sub-stage started/submitted only where supported
+Closed Won	Canonical deal-stage transition receipt and identity; not activation, earned revenue, processor approval or a forecast
+Trace current public intake, recoverable 202 acceptance, replay/resume, statement-chain, deal-stage, proposal, merchant-application and verified webhook paths. Existing recordAnalyticsEvent calls without eventId and best-effort writes cannot be the sole authority.
+Prefer replayable projections from existing immutable business facts. Where a source lacks a durable milestone, add a narrowly scoped outbox/evidence emission in the same transaction as its canonical change. Do not introduce a second business-action owner. Projection outage must not turn a committed request into a failed customer submission.
+Assign stable occurrence/event keys and source versions. Handle duplicate, delayed, reordered, missing and malformed events; retries must reconcile instead of losing data or double-counting. Browser analytics may count activity, but cannot certify statement receipt, booked appointment, application or won deal. The public booking-confirmed GET must not be treated as an authoritative booking receipt.
+19. ATTRIBUTION AND DIMENSIONS
+Support filtering and grouping by canonical vertical, rep, acquisition source and campaign; include sequence, experiment/arm, program and channel where evidence permits.
+Freeze acquisition-source and experiment dimensions at the relevant occurrence. Distinguish rep at acquisition, rep at milestone and current owner; name the selected report mode. Keep accepted vertical/version provenance; do not derive historical verticals from mutable labels without saying so.
+Campaign attribution requires an actual durable chain from campaign/version and message to response/journey. Missing UTM is Unknown/unattributed, not automatically Direct. UTM free text is attribution input, not a permission or a verified campaign relationship. Partner/referral attribution precedence must remain unchanged.
+Link by canonical IDs and verified relations. Resolve merged/archived identities through the existing authority with history preserved. Ambiguous links cannot enter a winning test or attributed conversion numerator.
+Do not present Closed Won volume, projected monthly residual or modeled savings as earned revenue. No new financial-revenue source is created by Phase 7.
+20. REPORTING API, FILTERS AND EXPORTS
+Extend the reporting owner with one versioned read contract used by the funnel chart, breakdown table, drilldowns and CSV. Suggested routes are under the existing analytics/reporting namespace; finalize exact names in preflight.
+Return metricDefinitionVersion, cohort unit/predicate, date/timezone window, observation end, filters, actor scope, asOf, snapshot semantics, source coverage, unknown/unlinked/excluded counts, read completeness and data-quality reasons.
+Use America/New_York business-day boundaries with half-open UTC intervals, including DST. Fix the current fixed -05:00 and delete-then-insert aggregation behavior on any retained path used by this report. Do not copy those semantics into the new funnel.
+Bound all date/range, filter, ordering, cursor and export parameters. Invalid input is 400. Missing permissions do not return zero aggregates. Full totals must come from complete scoped queries, not the first loaded page.
+Drilldowns must reproduce their displayed count under the same snapshot/filter semantics. Exports must cover every authorized matching row with stable order/cursor and a protected export path; a paginated visible table is not a full export. Escape CSV spreadsheet formulas and redact protected/private fields.
+Reconcile Today conversion-funnel, Operations current ratios, Growth signup labels/unknown sources, SDR snapshot funnels, Outreach loaded-campaign metrics and SequenceReport. Preserve valid existing metrics; rename or deprecate misleading overlap. Route old callers to compatible truthful responses. No two panels may claim the same metric while using different undisclosed populations.
+21. CRM NAVIGATION AND UI CONTRACT
+Keep the eleven global sidebar destinations. Extend existing Reports and Campaigns areas; do not add a new top-level Growth application.
+Navigation contract:
+Destination	Required behavior
+Reports → Sales & Growth → Conversion Funnel	New cohort funnel, breakdowns, evidence, filter-preserving drilldown/export
+Reports → Outreach → A/B Testing	Existing results location extended for design/readiness, samples, evaluation and decision history
+Campaigns → Sequences / existing Content workspace	Edit approved-owner drafts and preview both arms; direct link to the associated experiment
+Reports → Operations	Keep operational denominators and show links to cohort funnel where relevant
+Outbound Readiness	Display prerequisites and holds; never offer a second experiment launch bypass
+Use namespaced URL state, including existing outreachView; add a funnel view consistently with crm-destination-state, workspace identity and aliases. Preserve date, cohort, vertical, rep, source, campaign, experiment and pagination filters across reload, Back/Forward, copy-link and drilldown return. No duplicate tabs/query keys or silent reset.
+Page order: title and purpose; concise pause/readiness/coverage status; filter bar; seven-stage funnel; breakdown table; evidence/limitations and export. Charts require a readable equivalent table.
+A/B detail: design/version; control and challenger preview; content approval and release readiness; allocation and sample/maturity status; rates and uncertainty; guardrails; run history; explicit human decision/new-version handoff.
+Give loading, empty, not started, insufficient sample, partial, stale, unavailable, unauthorized, conflict, stopped and completed states distinct wording. No zero fallback on a failed read. Disable only the affected action with a reason. Retain unsaved edits and detect revision conflicts across polling/multi-tab use.
+22. EXACT LIBERTY DESIGN TOKENS AND RESPONSIVE REQUIREMENTS
+Reuse client/src/styles/crm-theme.css and CrmPresentation components. No new global palette, font system or dark-by-default shell.
+Property	Existing contract to retain
+Body/display	IBM Plex Sans; Mono only for technical IDs
+Light background / foreground	HSL 40 33% 98% / 222 47% 11%
+Card	White
+Accent / brand red	HSL 221 78% 48% / 0 72% 47%
+Spacing	4, 8, 12, 16, 24, 32 px tokens
+Page	Max-width 1280 px; 12 px mobile gutter, 24 px from 640 px
+Title / section / body / label / metric	24/32, 18/24, 14/20, 12/16, 28/32 px
+Targets / radii	At least 44 px targets; 6 px controls; 8 px surfaces
+Editors	96 px minimum textarea; prose editor 200 px; 16 px inputs on phones
+Dark/focus/charts	Existing dark overrides, ring, chart tokens and reduced-motion rules
+Use a four/six-column filter grid only where it fits; stack it on phones. Tables use tabular numerals, explicit units and sortable named headers. Let data tables scroll within their container or transform to labelled cards; never mask body overflow to hide a defect.
+Certify 320, 390, 454, 768 and 1280 px, native 200% zoom, light/dark, keyboard and screen-reader names, single main/h1, contrast, empty/error and populated states. Modals/drawers use the current themed portal, focus management and scroll bounds. No clipped actions or sticky toolbar covering the screen.
+23. P7-4 PUBLIC MOBILE COMPLETION
+Credit the existing mobile shell, public image builder/manifest, responsive derivatives and W-D post-publish work. Do not reopen completed public copy as a new redesign.
+Re-run the existing public visibility check against the final candidate and serving build. Cover the 36 INSPECTED_ROUTES (preflight correction: the external audit counted 31) in scripts/lib/public-site-browser.ts at 320, 390, 454, 768 and 1280 px in light/dark, plus full-page scrolling, menus, footer, chat/cookie overlays, form controls, long text and 200% zoom. Use isolated recording adapters to prove form/consent/replay behavior; do not submit production forms.
+Recheck fonts, image loading, dimensions/srcset/fallback, mobile tap targets, h1/main, contrast and horizontal overflow. Measure matched cold/warm lab LCP/CLS on final source for Home, free-analysis, upload-statement, estimate, get-started and 0-percent-processing. Use the existing lab targets (LCP <=2.5 s, CLS <=0.1), document viewport/network/CPU/cache and all runs, and distinguish lab from field evidence.
+The current terminal product derivatives already satisfy the old pipeline-conversion premise. Verify actual payload and rendered source, record the disposition and remove stale roadmap claims. Preserve generated/illustrative and unverified product provenance. Verify rights only from actual supplied evidence. A missing verified merchant photograph is an owner input; use the existing truthful illustration/text fallback rather than fabricate one.
+Run WebKit where available and a real iPhone/device pass for safe area, dynamic bars, keyboard, large text and orientation. Chromium emulation does not satisfy this row. If the environment cannot supply it, deliver the exact device checklist, URLs and expected results, finish other work and leave this acceptance row NOT EXERCISED. Do not record an owner deferral that was never given.
+24. ROLE, PRIVACY AND ABUSE BOUNDARIES
+Preserve actual single-company CRM ownership semantics. Admin may manage experiment policy and decisions; managers may access only their permitted objects unless an explicit existing authority grants broader aggregate access. Agents receive only the currently authorized scoped data and cannot start/decide experiments or mutate counters. Merchant, affiliate, partner and anonymous actors get no employee analytics or experiment controls.
+Enforce ownership in every server reader, export, evaluation target, draft binding and drilldown, not only UI hiding. The current manual evaluator scans all sequences; an owned-manager request must not become an organization-wide command.
+Use authenticated actor/account epoch and version from the server, CSRF on browser mutations, strict request schemas, row/version locks, idempotency receipts and an audit entry committed with mutation. Reject result/counter/approval/actor spoofing in direct step POST/PUT, sequence full editor and legacy endpoints.
+Analytics metadata must use an allowlist with bounded values and safe paths. Never store or export financial document contents, credentials, email/message bodies or uncontrolled query-string PII in the measurement ledger. Public telemetry cannot supply trusted contact/deal identity or arbitrary CRM milestones. Preserve cookie-consent behavior and separate necessary transactional records from optional marketing telemetry.
+Test null/missing/invalid identity, forged source receipt, cross-owner access, revoked actor, stale auth epoch, CSRF absence, replay and oversized/unbounded requests.
+25. CONCURRENCY, RECOVERY AND ONE JOB OWNER
+Use database uniqueness/transactions and durable cursor/checkpoints for facts/projections; process-local flags are insufficient. Group membership is frozen once. One business cannot be allocated to both arms; one receipt cannot become two exposures/outcomes; a lease-lost worker cannot write a result; a stopped experiment cannot dispatch.
+If asynchronous projection/evaluation is needed, give it a narrow non-sending capability. Scheduler and manual commands enter the same worker/lease authority. Remove the competing A/B calls from full SLA/legacy interval paths narrowly or make them use that same fenced owner. Do not enable operations, full or outreach profiles.
+Demonstrate restart, concurrent evaluator buckets, expired lease, revoked actor, Redis outage, database timeout, lost HTTP response, crash before/after definitive dispatch and ambiguous transport recovery. Unknown dispatch must not be replayed to get a measurement.
+Fix transactional aggregation where retained: do not delete a day's visible report then insert rows one at a time. Readers get one completed generation or a truthful unavailable/partial state; failed rebuild leaves the last complete generation with its timestamp.
+26. PERFORMANCE AND PHASE 6 DEPENDENCY
+Use bounded SQL/set reads, indexes justified by real query plans, stable pagination and one declared snapshot strategy. No N+1 per lead/message/contact or materialization of the entire contact table in an HTTP handler. No provider calls on a report GET.
+Measure first read, repeated read and selective filters on a disposable dataset shaped like production, then signed-in read-only production after publication. State row counts, cache semantics, database/pool conditions, query plans, p50/p95 and error rates. Define and test the report deadline before build; do not lengthen a timeout to manufacture a pass.
+Phase 6 Backlog remains an explicit dependency observation: the last independent live load returned BACKLOG_DEADLINE_EXCEEDED; retry succeeded. Launch Inventory loaded. Do not claim Phase 6 fully closed or block all safe Phase 7 build work because of it. Reverify current source and coordinate with any existing repair task. If that repair has not landed, document its status rather than silently widening this task into another enrichment redesign.
+Missing commercial-graph triggers and broad operations/SLA activation remain separate operational issues unless directly required by the audited Phase 7 paths. No production repair or broad worker activation is authorized here.
+27. REQUIRED END-TO-END CERTIFICATION
+Use provider-denied disposable PostgreSQL/Redis and recording transports. Never point a fixture suite at development/production by accident. For each defect record failing-before and passing-after evidence; include a negative control proving the assertion detects the defect.
+Area	Required proof
+Result ownership	Direct/full-editor/create/update result injection refused; no stored winner/counters changed
+Assignment	Same business across contacts/retries/workers stays one arm; config change holds; concurrency produces one assignment
+Dispatch	Approved selected subject/hash reaches real final renderer/transport adapter; every pause/content/consent/reply gate blocks; no automatic winner adoption
+Exposure	Failed-first/successful-retry, ambiguous send, duplicate receipt and crash recovery produce correct immutable exposure
+Feedback	Signed verified outcome, forged/foreign/stale receipt, automated reply, delayed/out-of-order/replayed outcome; no new denominator on reply
+Evaluation	Both-arm minimums, duration, maturity, known statistical fixtures, no early repeated-peeking winner, imbalance and unsupported method
+Guardrail	Frozen threshold enforced; stop races dispatch; stopped experiment cannot mint winner handoff
+Lease	Concurrent time buckets, expiry/recovery and stale writer cannot overwrite the current run/decision/projection
+Content	Complete three-vertical drafts; both arms render; token/link/claim failures hold; pinned package pair cannot drift; website approvals untouched
+Funnel	Every required milestone across real handlers; replayed intake, recoverable 202, repeat upload, multiple contacts/deals, reopen, missing stage and dedup
+Attribution	One receipt maps only to its bound campaign/experiment/journey; unlinked/ambiguous unknowns remain visible
+Reporting	Filter/table/chart/drilldown/export reconcile; no capped total; mixed source/rep/vertical; production/test/archived exclusions; zero vs unavailable
+Time	UTC half-open windows, ET midnight, both DST changes, foreign browser timezone
+Authorization	Admin/manager/agent and public/merchant/affiliate/partner matrix; ownership, account change, CSRF and IDOR
+UI	Full populated and unavailable journeys, saved URL/Back/reload, multi-tab edit conflict, mobile widths, dark/light/zoom/keyboard
+Public	Existing mobile/claims/SEO/image/font/consent/intake suites plus final-build performance and device evidence status
+Provisioning	Fresh and upgrade databases, actual model/SQL parity, missing SQL-only objects fail closed, rollback/read compatibility
+Run relevant existing gates, including BT-12 source and integration, CRO-07 disposable, reporting boundaries, Stage 3 C3 sequence/role/browser, Stage 4A metric truth, Stage 4C1 copy/render/publication, Stage 4D reply journey, Phase 6 count/today/reporting contracts, website-email lifecycle and public-mobile/content/SEO gates.
+Discover exact current commands; run the required pre-deploy roster/manifest checks and production build on the final tree. Run changed-file type diagnostics and any whole-project typecheck required by current repository instructions. A standing repository restriction must be reported, not bypassed.
+The external audit did not rerun these suites. Historical Phase 6 notes list six old failures plus test-contactability; that is not a current waiver. Compare any failing gate against an untouched copy of the exact task baseline. Fix task-caused and task-affected failures. Record unchanged baseline failures and every later unexecuted assertion without concealing them.
+28. REQUIRED GREP AND CENSUS GATES
+Use rg/rg --files first in the full checkout. Save command, scope, match count, reviewed count and disposition for each:
+All writers/readers of abTestResults, winnerSelected, sequence_step_ab_assignments, sequence_ab_winner_decisions and CRO-07 experiment tables.
+All calls to checkAbTestWinners, recordCro07ExperimentSample, getOrCreateSequenceAbAssignment and recordSequenceAbDelivery, including SLA/interval/manual/startup paths.
+Every direct provider/email/SMS/GHL workflow/enrollment call reachable from changed code and every affected pause/release check.
+recordAnalyticsEvent/recordCrmEvent callers, direct analytics_events writes, milestone constants and canonical action writers.
+All conversion-funnel, growth-kpi, Operations, SDR funnel, A/B and export consumers/aliases.
+Step create/update/full-edit schemas and body-supplied actor/result/approval fields.
+Fixture/synthetic/test/archived/unknown data paths; best-effort catches; delete-then-insert aggregates; hardcoded -05:00 boundaries.
+New test registration in both pre-deploy and CI suite manifests; public image source/derivative/provenance references; old duplicate Phase 7 roadmap assertions.
+A zero result is not proof until the search covers every relevant code root and alternate symbol/SQL form. No new mutation path may bypass the canonical owners in section 5.
+29. INTERNAL IMPLEMENTATION CHECKPOINTS
+Complete these within this same task:
+Freeze baseline, requirements, complete census, metric dictionary, ownership and schema plan. Correct stale premises in place.
+Repair generic result writes, experiment validation/stop/decision and evaluator fences; add receipt bindings and content-version integration.
+Implement assignment → real rendered message → definitive exposure → verified outcome → evaluation → reviewed new-version handoff in isolated infrastructure.
+Complete the installed-copy inventory, three vertical drafts and first three subject designs through the actual content UI/owners.
+Implement durable milestone projection, authoritative cohort queries, dimensions, exports and old-reader reconciliation.
+Finish Reports/Sequences navigation, branded layouts and all error/readiness/permission states.
+Complete public-mobile residual checks, correct actual defects and retire already-fixed requirements.
+Run the final candidate certification and required roster, update the record, prepare publish/rollback, then bind read-only post-publish proof when the owner publishes.
+Routine implementation choices do not require owner approval. If a real owner-only decision/input is missing, finish all independent scope first and present one concrete review packet containing exact draft/version IDs, what is held, why, and the action required.
+30. ROLLOUT, PUBLISH AND ROLLBACK
+Deploy only through the established project workflow. Record the exact final commit, tested source/output identities, migration contract, serving SHA/build, health, and worker generation. Recheck current main before merge; resolve collisions without copying stale generated artifacts.
+Default production state: no experiment admissions, no sends, no automatic promotion and no unrelated schedule/profile changes. Existing outbound/channel pauses and approved website mappings remain as read.
+After Publish, perform signed-in GET-only checks of the actual new UI and APIs, draft/result readers, empty and data-quality states, filters/drilldowns/export authorization, existing report compatibility, and public mobile smoke against the serving source. Do not use a production send to prove engineering completion.
+Rollback must stop only Phase 7 admissions/projection/evaluation, preserve immutable exposure/decision history and revert to the last compatible reader/content binding. Never delete receipts, reallocate recipients, undo business records or unpause a lane. Rehearse compatibility and resume from checkpoints without blind replays.
+31. COMPLETION STATUS AND REQUIRED REPOSITORY ARTIFACTS
+Create/update:
+docs/certification/phase7/README.md — exact identity, audit, implementation and separate acceptance states.
+requirements.md — P7-01 through P7-48 individually disposed.
+authority-and-census.md — writers/routes/jobs, schema parity, grep counts and causal fix matrix.
+metric-dictionary.md — stage/unit/cohort/dimensions/denominators/coverage, historical limitations and compatibility.
+copy-review.md — whole inventory, selected three-vertical drafts, exact versions and first three test designs.
+evidence/ — machine-readable test, browser, performance, role, concurrency, migration and publication receipts, labelled by source/build/environment.
+live-run-and-device-acceptance.md — remaining real observation/device/approval inputs, exact runbook and status.
+The repository's master audit roadmap — Phase 7 current implementation/measurement status, stale-premise corrections and Phase 6 dependency link.
+Use distinct completion labels:
+Layer	Completion condition
+Engineering complete	All implementation and isolated acceptance rows pass on the final source
+Merged	Exact reviewed change is in current main
+Published	Serving source identity contains that change
+Schema verified	Required production object definitions/provisioning recorded
+Live readback verified	Signed-in/public non-sending journeys checked on that serving build
+Copy/test designs review-ready	Complete drafts with IDs, hashes, previews, selection rationale and approval status
+Live experiment authorized	Separate owner approval and all actual prerequisites satisfied
+Measurement complete	Real collection duration, mature samples, valid analysis and result report exist
+Device acceptance	Actual WebKit/phone results or honest NOT EXERCISED; no invented owner deferral
+Engineering completion does not require keeping a task open for 90 days, and it does not declare live optimization successful. Close the engineering task when its required evidence is complete; retain the genuine measurement/device/owner-input rows in the same acceptance record until performed. Do not mark the entire Phase 7 business objective proven with fixture results.
+32. FINAL RESPONSE AND BUILD DIRECTIVE
+First return a preflight verdict: APPROVED FOR BUILD, APPROVED FOR BUILD — CORRECTIONS INCORPORATED, or PREFLIGHT BLOCKED — DO NOT BUILD. A missing implementation is not by itself a preflight blocker. A conflicting authority, unsafe provisioning assumption or missing prerequisite for a particular effect is.
+When preflight is executable, proceed with all authorized build/certification work in this task. Do not stop after another plan. Do not send, activate or spend to obtain evidence.
+Final response must contain:
+Exact baseline/final/serving identities and migration head.
+What now works across each of P7-1, P7-2, P7-3 and P7-4.
+All P7-01–48 dispositions with evidence and any unexecuted part.
+Existing work credited and obsolete roadmap statements corrected.
+Three vertical drafts and three subject-test designs, with IDs/hashes and preview/approval status.
+Cohort definitions, source coverage and observed limits; no invented best-performing vertical.
+Tests actually run, final results, negative controls, baseline comparisons and missing environment inputs.
+Publication/schema/live readback status and rollback readiness.
+Explicit confirmation of zero unauthorized sends, admissions, automatic winner promotions, provider spend and unrelated production changes.
+One concrete owner action packet for any remaining publication, draft approval, real-device or live-experiment step.
+Build directive: Complete the entire Phase 7 engineering scope above through the existing Liberty authorities, validate the actual end-to-end paths, and produce a publish-ready result with truthful separate live acceptance. Do not create more implementation tasks for foreseeable work inside this contract.
+APPENDIX A — EXTERNAL LIVE AUDIT RECEIPTS
+All observations below are read-only, November 16, 2026, approximately 15:50–15:59 UTC (09:50–09:59 Costa Rica; UI business times may display Eastern).
+Surface	Observed state	Meaning
+Today	Production sales deal count 1; seven-day new leads 1; current event chart includes 5 forms and 5 deals; lifecycle count briefly unavailable	Event chart and current operational counts have different populations
+Campaigns → Sequences	131 listed; summary 0 emails sent, 407 active and 552 completed memberships; explicit send-readiness distinctions	Counts are UI observations, not an all-time immutable delivery census
+Website follow-up panel	Approved revisions 7–10 mapped to Estimate, Get Started, Free Analysis and Newsletter; legacy revision 1 retired with two unsupported non-email steps	Preserve this existing approved work
+Reports → Outreach	20 loaded campaigns; loaded sends 0; rate denominators unavailable; existing A/B tab says no tests configured	Credit existing UI and partial-load labels
+CRO-07 experiment GET	[]	No governed experiment records returned
+CRO-07 status GET	productionConnected false; sendingEnabled false; authorized false; outreach PAUSED	A code-complete label does not establish a connected live experiment path
+Growth	Existing signup target/cards, channel table and UTM builder; current 12-week Direct bucket 6,670	Current source normalizer maps missing source to Direct; label/attribution needs reconciliation
+Operations	Explicit current deal-to-lead ratios, 2,804 lead cohort, Unknown vertical; reply attribution explicitly unavailable	No valid basis to announce top converting verticals
+Operations paused SFP sequences	Healthcare 1,090; Automotive 495; Beauty/Spa 400; Construction/Trades/Home Services 391; Fitness/Recreation 288 memberships, plus separately listed launch copies	Membership volume is not conversion performance or launch eligibility
+Outbound Readiness	Global pause on; Gmail OAuth incomplete; cold domain/sender unverified; website lane closed, revision 1, daily limit 0, no sender	Task must finish engineering without silently activating sending
+Public zero-percent page	Branded current copy and first-party upload CTAs; terminal image sources are 640px product JPG derivatives	Old PNG-pipeline item is stale; mobile/device and rights acceptance remain distinct
+APPENDIX B — REPOSITORY CENSUS AND TEST RECEIPT
+Repository-wide GitHub code search at the audited main returned complete, non-truncated result sets:
+Search term	Files matched	Reviewed disposition
+recordAnalyticsEvent	16	Current server service/callers identified; documentation treated as historical context
+recordCrmEvent	1	Alias in analytics-events.ts, no separate production owner
+checkAbTestWinners	3	ab-test-worker.ts, campaigns route, sla-worker.ts; inspect both scheduled and legacy callers
+recordCro07ExperimentSample	3	Definition, admin route, disposable certification; no production automatic bridge found
+sequence_ab_evaluation_runs	4	SQL migration, evaluator and two BT-12 tests
+conversion-funnel	11	Live route/Overview consumer plus historical receipts/test references
+recordSequenceAbDelivery	2	Authority and worker; both email and SMS branches in worker
+statement_received	22	Event constants, SDR/storage/lifecycle/action/test paths; must distinguish semantic definitions
+Exact local rg-equivalent regex census across the retrieved relevant server tree (not claimed as a whole-repository textual scan):
+Pattern	Occurrences	Disposition
+updateSequenceStepAbTestResults(	2	Storage definition plus evaluator caller
+getOrCreateSequenceAbAssignment(	3	Definition plus email and SMS callers
+recordSequenceAbDelivery(	3	Definition plus email and SMS callers
+recordCro07ExperimentSample(	2	Definition plus admin caller
+recordAnalyticsEvent(	24	Definition/log string and traced production callers
+analytics route registrations in routes/analytics.ts	22	Readers and public/admin event surfaces require contract-specific handling
+Executed baseline command: node --experimental-strip-types scripts/test-bt12-revenue-state-reconciliation.ts, from the retrieved baseline source. Host Node v24.22.1 was used for this source-only check; it is not the declared production runtime. Exit 1: “unresolved send-boundary tokens must fail closed.” The current pure interpolator contains the error text and fails unresolved tokens; the test still searches the worker file. No full build, DB test or functional dispatch pass is implied.
+The pre-deploy and CI manifests already register BT-12, CRO-07 disposable certification, reporting boundaries, premium draft and public-mobile checks. Extend them with actual new Phase 7 behavior checks.
+APPENDIX C — REQUIRED FIX EFFECTIVENESS PROOFS
+Finding	Causal change site	Competing paths to cover	Required failing-before/passing-after evidence
+Generic result injection	Editable step schemas and sequenceEditorSteps/command owner	Step create, step update, full sequence edit, legacy result route, storage callers	A forged result payload cannot change results or sender choice
+Auto-adoption/mutable experiment	Worker winner branch, assignment/version binding, evaluator projection	Email/SMS legacy branches and SFP renderer/pinned packages	A recommendation never changes later delivery absent a new approved version
+Failed-attempt exposure gap	Assignment-to-attempt/receipt bridge	Failed-first, recovery and ambiguous transport paths	Later confirmed send counts exactly once without rewriting failed evidence
+Missing trusted samples	CRO-07 sample owner and verified feedback/projection	Admin corrections and provider/CRM sources	Fake event refused; real replay deduped; later outcome does not add exposure
+Unenforced decision/guardrail rules	CRO-07 validation/evaluator/decision	Stopped/cancelled/manual/expired-lease paths	Stopped experiment and insufficient/misallocated data cannot produce a winner handoff
+Evaluator fencing	Per-experiment transaction/lease and projection writes	Different five-minute run buckets, manual and SLA/legacy callers	Old worker cannot write after lease loss, including midway through a scan
+Misleading funnel/dimensions	Versioned cohort query and milestone evidence projection	Today/Operations/Growth/SDR/export readers and public milestones	Known linked fixture cohort reconciles; untrusted/missing facts stay unknown
+Fragile aggregation/time	Retained report projection generation and ET interval authority	Daily rebuild, retry and foreground reads	Failure preserves a complete prior generation; DST fixture counts stay correct
+Stale public task	Existing image/mobile contract and roadmap	SSR/hydrated image consumers and device acceptance	Serving derivatives and measured final build credited; untested device state retained
+Do not claim these fixes are already proved. They are the mandatory implementation verification contract.

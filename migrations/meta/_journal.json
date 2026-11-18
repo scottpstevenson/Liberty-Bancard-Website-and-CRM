@@ -2730,6 +2730,13 @@
       "when":1800400330000,
       "tag":"0386_partner_introduction_checks_validated",
       "breakpoints":true
+    },
+    {
+      "idx": 390,
+      "version": "7",
+      "when": 1800400330001,
+      "tag": "0387_phase7_conversion_integrity",
+      "breakpoints": true
     }
   ]
 }

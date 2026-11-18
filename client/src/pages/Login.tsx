@@ -70,7 +70,7 @@ export default function Login() {
 
   if (mfaRequired) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <main className="auth-page min-h-screen flex items-center justify-center bg-background p-4">
         <div className="w-full max-w-md space-y-6">
           <div className="flex flex-col items-center gap-3">
             <Link href="/">
@@ -84,7 +84,7 @@ export default function Login() {
 
           <Card>
             <CardHeader className="space-y-1">
-              <CardTitle className="text-2xl text-center" data-testid="text-mfa-title">Verify Your Identity</CardTitle>
+              <h1 className="font-semibold leading-none tracking-tight text-2xl text-center" data-testid="text-mfa-title">Verify Your Identity</h1>
               <CardDescription className="text-center">
                 Enter the 6-digit code from your authenticator app, or use a backup code.
               </CardDescription>
@@ -157,12 +157,12 @@ export default function Login() {
             </CardContent>
           </Card>
         </div>
-      </div>
+      </main>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <main className="auth-page min-h-screen flex items-center justify-center bg-background p-4">
       <SEO title="Sign In" description="Sign in to your Liberty Bancard merchant or partner dashboard to manage your payment processing account." path="/login" noindex />
       <div className="w-full max-w-md space-y-6">
         <div className="flex flex-col items-center gap-3">
@@ -177,7 +177,7 @@ export default function Login() {
 
         <Card>
           <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl text-center" data-testid="text-login-title">Sign In</CardTitle>
+            <h1 className="font-semibold leading-none tracking-tight text-2xl text-center" data-testid="text-login-title">Sign In</h1>
             <CardDescription className="text-center">
               Enter your credentials to access your account
             </CardDescription>
@@ -254,6 +254,6 @@ export default function Login() {
           <Link href="/privacy-policy" className="underline">Privacy Policy</Link>
         </p>
       </div>
-    </div>
+    </main>
   );
 }
