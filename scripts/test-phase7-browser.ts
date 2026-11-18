@@ -273,10 +273,12 @@ try {
         const tabs = [...document.querySelectorAll('[role="tablist"][aria-label="Sales and growth views"] [role="tab"]')].map(rect);
         const assistant = document.querySelector('[data-testid="dashboard-data-agent"]');
         const vertical = document.querySelector('#funnel-vertical');
-        return {tabsPresent:tabs.length===4,tabsOverlap:tabs.some((a,i)=>tabs.slice(i+1).some(b=>overlap(a,b))),
+        const headerControls=[...document.querySelectorAll('header button,header a,header input')].map(rect).filter(r=>r.width>0&&r.height>0);
+        return {headerOverlap:headerControls.some((a,i)=>headerControls.slice(i+1).some(b=>overlap(a,b))),tabsPresent:tabs.length===4,tabsOverlap:tabs.some((a,i)=>tabs.slice(i+1).some(b=>overlap(a,b))),
           assistantPresent:!!assistant,verticalPresent:!!vertical,
           assistantCoversVertical:!!assistant&&!!vertical&&overlap(rect(assistant),rect(vertical))};
       })()`);
+      ok(!geometry.headerOverlap,"header controls do not overlap at " + width + " " + theme);
       ok(geometry.tabsPresent&&!geometry.tabsOverlap, "report tabs remain separate at " + width + " " + theme);
       ok(geometry.assistantPresent&&geometry.verticalPresent&&!geometry.assistantCoversVertical,
         "closed reporting assistant leaves Vertical usable at " + width + " " + theme);

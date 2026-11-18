@@ -891,12 +891,12 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
         </Sidebar>
 
         <div className="flex flex-col flex-1 overflow-hidden">
-          <header className="h-14 bg-background border-b flex items-center justify-between gap-2 sm:gap-4 px-3 sm:px-6 sticky top-0 z-50">
+          <header className="min-h-14 shrink-0 bg-background border-b flex flex-wrap items-center justify-between gap-2 sm:gap-4 px-3 py-2 sm:h-14 sm:flex-nowrap sm:px-6 sm:py-0 sticky top-0 z-50">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               <SidebarTrigger data-testid="button-sidebar-toggle" className="shrink-0" />
               <WorkspaceTitle role={role} location={location} search={layoutSearch} fallbackLabel={currentLabel} className="font-display font-semibold text-base sm:text-lg truncate" />
             </div>
-            <div className="flex items-center gap-1 sm:gap-2 min-w-0">
+            <div className="flex w-full flex-wrap items-center justify-between gap-1 sm:w-auto sm:flex-nowrap sm:gap-2 min-w-0">
               {isMobile && mobileDesktopOptOut && (
                 <Button variant="ghost" className="h-11 w-11 shrink-0 p-0" aria-label="Use mobile layout" title="Use mobile layout" data-testid="button-use-mobile-layout"
                   onClick={() => { localStorage.removeItem("prefer_desktop"); window.location.reload(); }}>
