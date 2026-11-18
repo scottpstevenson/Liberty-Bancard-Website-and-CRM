@@ -35,6 +35,7 @@ const h=await stage3BHttpFixture(async app=>{
     ["workflows","registerWorkflowsRoutes"],
     ["churn","registerChurnRoutes"],
     ["campaigns","registerCampaignsRoutes"],
+    ["cro07","registerCro07Routes"],
     ["terminal-economics","registerTerminalEconomicsRoutes"],
   ]) {const module=await import(`../server/routes/${file}.ts`);module[fn](app,file==="crm-operations" ? {
     onboardingPreparationAfterStep:async(step:string)=>{
@@ -563,9 +564,9 @@ try {
   await b.waitFor(/Campaign reporting is unavailable/);
   for(const child of ["campaigns","ab-testing","messages"])
     assert.equal(await b.evaluate(`!!document.querySelector('[data-testid="tab-${child}"]')`),true);
-  await b.click('[data-testid="tab-ab-testing"]');await b.waitFor(/No A\/B tests configured/);
-  b.failRead("/api/sequences/ab-test-results",{exact:true});
-  await b.call("Page.reload");await b.waitFor(/A\/B results unavailable/);
+  await b.click('[data-testid="tab-ab-testing"]');await b.waitFor(/No governed experiments/);
+  b.failRead("/api/admin/cro07/experiments",{exact:true});
+  await b.call("Page.reload");await b.waitFor(/Experiment evidence unavailable/);
   await b.click('[data-testid="tab-messages"]');
   b.failRead("/api/outbound-messages",{exact:true});
   await b.call("Page.reload");await b.waitFor(/Message source unavailable/);
