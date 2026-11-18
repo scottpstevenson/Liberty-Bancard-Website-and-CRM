@@ -2758,6 +2758,13 @@
       "when": 1800400330004,
       "tag": "0390_discovery_monthly_budget",
       "breakpoints": true
+    },
+    {
+      "idx": 394,
+      "version": "7",
+      "when": 1800400330005,
+      "tag": "0391_contact_scoring_active_index",
+      "breakpoints": true
     }
   ]
 }

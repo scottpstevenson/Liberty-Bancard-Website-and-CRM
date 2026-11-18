@@ -133,6 +133,18 @@ try {
     linked.status === "applied",
     "fixture uses the guarded canonical linking owner",
   );
+  // The 0109 bootstrap must retain the 0067 scoring coalescing contract.
+  const {requestContactLeadScoring}=await import('../server/services/contact-lead-scoring-trigger');
+  await Promise.all([requestContactLeadScoring(contact.id,'phase7_fixture_a'),requestContactLeadScoring(contact.id,'phase7_fixture_b')]);
+  const scoring=(await pool.query(`SELECT requested_generation,status FROM contact_lead_scoring_jobs
+    WHERE contact_id=$1 AND status NOT IN ('completed','contact_not_found','failed_terminal')`,[contact.id])).rows;
+  ok(scoring.length===1&&scoring[0].requested_generation===2&&scoring[0].status==='deferred_queue_unavailable',
+    'concurrent scoring requests persist one deferred job with both generations');
+  await pool.query(`INSERT INTO contact_lead_scoring_jobs(contact_id,status) VALUES($1,'completed')`,[contact.id]);
+  ok(Number((await pool.query('SELECT count(*) n FROM contact_lead_scoring_jobs WHERE contact_id=$1',[contact.id])).rows[0].n)===2,
+    'terminal scoring history remains separate from the active job');
+  await assert.rejects(pool.query(`INSERT INTO contact_lead_scoring_jobs(contact_id,status) VALUES($1,'pending_enqueue')`,[contact.id]),
+    (error:any)=>error.code==='23505');n++;
   const deal = await one(
     `INSERT INTO deals(contact_id,name,pipeline,stage,record_class) VALUES($1,$2,'sales','New Lead','production') RETURNING id`,
     [contact.id, prefix],

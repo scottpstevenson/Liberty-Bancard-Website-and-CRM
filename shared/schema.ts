@@ -8015,6 +8015,8 @@ export const contactLeadScoringJobs = pgTable("contact_lead_scoring_jobs", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 }, (table) => [
+  uniqueIndex("contact_lead_scoring_jobs_active_unique_idx").on(table.contactId)
+    .where(sql`${table.status} NOT IN ('completed', 'contact_not_found', 'failed_terminal')`),
   index("contact_lead_scoring_jobs_contact_id_idx").on(table.contactId),
   index("contact_lead_scoring_jobs_status_idx").on(table.status),
 ]);

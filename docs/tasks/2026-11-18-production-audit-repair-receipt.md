@@ -22,6 +22,8 @@ The database-backed production outbound read at **18:53:17 UTC** reports **pause
 - Current-package readiness prefers the unique current version; multiple current versions explicitly block rather than selecting an arbitrary historical row. UI now renders copy flags as review candidates, keeps narrow reporting tabs separate, reserves phone space for the reporting assistant, fixes dark link colors, restores mobile-layout switching and preserves allowlisted calendar deep-link state.
 - Three migration-scanner omissions were traced to their actual SQL and runtime owners: legacy validation cleanup (0360), existing booked-effect receipt backfill (0376), and already-sent chase version labeling (0381). Classified them as historical/non-configuration transitions; no SQL history was changed or replayed.
 
+- Traced the nonfatal 42P10 scoring warning through the real contact writer. Migration 0067 defined the active-job partial unique index, but the 0109 fresh snapshot and current schema omitted it. Additive 0391 and the schema restore that exact writer contract without rewriting historical SQL or deleting jobs. Concurrent requests must persist one active row with both generations, while terminal history remains separate. Before eventual production delivery, inspect for duplicate active jobs; none may be silently discarded.
+
 ## $50 monthly Task 2161 budget
 
 Matt specified **$50/month** and preparation with paid searches off. Additive migration **0390** and its matching declarative schema prepare a default $50 ceiling. It covers Task 2161 scheduled searches and manual previews, not unrelated enrichment or searches made directly in Outscraper. Budget scope clarification is pending; do not describe this as a vendor-account-wide cap.
@@ -43,7 +45,10 @@ Confirmed focused results so far:
 - Task 2161 persistence: 75 checks, including real monthly-budget contention, schema parity, narrow BullMQ worker heartbeat with schedule off, downstream fake-provider/native validation and retained import lineage. HTTP ownership/auth/CSRF fixture: 35 checks; no real provider requests.
 - Quiet static suite succeeds through the repaired CI wrapper. Migration integrity and queue compliance pass.
 - Latest advisory read: **0 high, 0 critical, 16 moderate, 1 low**. Advisory totals can change independently of the lockfile. Moderate/low findings have not been represented as fixed.
-- Compiled browser verification and final source-bound checks are in progress; see the completion update below. Initial Air browser attempts failed because the fixture only recognized Linux Chromium paths. The helper now also supports the installed Mac Chrome executable with a fresh temporary profile, never the user's profile.
+- Fresh Linux source-bound install, typecheck and production-recipe build pass at application commit `7501a009`. Compiled Phase 7 browser: 71 checks, including explicit tab separation and assistant/Vertical non-overlap across five widths and both themes. Calendar/source-filter/run-history browser: 187 checks. Partner application browser: 11 checks, three real 201 submissions and signed-in pending-review readback. Analytics with consent granted is not proven because this private build has no measurement ID.
+- Linux batch: 6/6 passed (three browser suites, Task 2161 persistence/HTTP, Phase 7 integration and migration upgrade); zero setup/teardown/shared-launcher failures. The Air could not complete this Linux-oriented browser fixture: the attempted Mac executable fallback timed out on control calls and was removed. Linux evidence uses fresh private Chromium profiles.
+- Merchant validation/security service assertions: 273 passed, zero failed, under a private socket-only PostgreSQL target and provider denial. `npm audit --audit-level=high` exits 0. Migration seed-registration scanner passes after the three explicit classifications.
+- The added 0391 scoring repair passes real concurrent coalescing/terminal-history/unique-guard assertions. Phase 7 integration now passes 55 checks; upgrade parity including 0391 also passes. Final committed-source confirmation follows below.
 
 ## Operational dependencies
 
