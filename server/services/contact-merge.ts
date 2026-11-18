@@ -22,6 +22,7 @@ export type ManifestEntry = {
 export const CONTACT_MERGE_MANIFEST: readonly ManifestEntry[] = [
   // Historical conversion/provider observations keep the original recipient;
   // a contact merge must never rewrite who an event actually described.
+  { key: "contact_lead_scoring_jobs", table: "contact_lead_scoring_jobs", column: "contact_id", disposition: "immutable_retain" },
   { key: "conversion_journey_evidence", table: "conversion_journey_evidence", column: "contact_id", disposition: "immutable_retain" },
   { key: "cro07_provider_receipts", table: "cro07_provider_receipts", column: "contact_id", disposition: "immutable_retain" },
   { key: "website_email_send_receipts", table: "website_email_send_receipts", column: "contact_id", disposition: "immutable_retain" },
@@ -38,7 +39,7 @@ export const CONTACT_MERGE_MANIFEST: readonly ManifestEntry[] = [
   { key: "website_lifecycle_intents", table: "website_lifecycle_intents", column: "contact_id", disposition: "manual_block" },
   { key: "website_lifecycle_admissions", table: "website_lifecycle_admissions", column: "contact_id", disposition: "manual_block" },
   ...["calendar_events","call_logs","chargebacks","co_branded_proposals","contact_ai_cache","contact_companies",
-    "contact_lead_scoring_jobs","deals","documents","enrichment_runs","equipment_orders","equipment_shipments",
+    "deals","documents","enrichment_runs","equipment_orders","equipment_shipments",
     "ghl_activity_log","health_alerts","inbox_items","lead_sources","live_chats","merchant_applications",
     "merchant_health_scores","merchant_mids","merchant_profiles","merchant_residuals","mid_daily_stats",
     "nps_responses","promotional_enrollment_jobs","prospects","rate_review_requests","referrals",
@@ -348,6 +349,9 @@ async function buildPreviewData(executor: any, survivorContactId: number, deprec
     WHERE contact_id = ${deprecatedContactId} AND status IN ('active','paused') LIMIT 1
   `))[0];
   if (activeEnrollment) conflicts.push("ACTIVE_ENROLLMENT_REQUIRES_REVIEW");
+  const activeScoring = rows(await executor.execute(sql`SELECT 1 FROM contact_lead_scoring_jobs
+    WHERE contact_id=${deprecatedContactId} AND status NOT IN ('completed','contact_not_found','failed_terminal') LIMIT 1`))[0];
+  if(activeScoring) conflicts.push("ACTIVE_SCORING_REQUIRES_REVIEW");
   // statement_proposals has a partial unique index on deal_id. A blind
   // transfer could turn two valid proposal records into an opaque database
   // error, so surface the exact conflict during review and block execution.

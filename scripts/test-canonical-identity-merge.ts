@@ -84,11 +84,14 @@ async function main() {
     await db.execute(sql`INSERT INTO cro07_provider_receipts
       (source,provider_event_id,account_hash,contact_id,event_type,occurred_at,payload_hash,reason)
       VALUES ('sendgrid',${`merge:${nonce}`},${'a'.repeat(64)},${deprecated.id},'open',now(),${'b'.repeat(64)},'merge_fixture')`);
+    await db.execute(sql`INSERT INTO contact_lead_scoring_jobs(contact_id,status) VALUES(${deprecated.id},'completed')`);
     const historicalEvidence = async () => (await db.execute(sql`
       SELECT 'journey' kind,id::text,contact_id,md5(row_to_json(t)::text) hash
       FROM conversion_journey_evidence t WHERE contact_id=${deprecated.id}
       UNION ALL SELECT 'provider',id::text,contact_id,md5(row_to_json(t)::text)
       FROM cro07_provider_receipts t WHERE contact_id=${deprecated.id}
+      UNION ALL SELECT 'scoring',id::text,contact_id,md5(row_to_json(t)::text)
+      FROM contact_lead_scoring_jobs t WHERE contact_id=${deprecated.id}
       ORDER BY kind,id`) as any).rows;
     const evidenceBefore = await historicalEvidence();
     assert(evidenceBefore.some((r:any)=>r.kind==='journey') && evidenceBefore.some((r:any)=>r.kind==='provider'),
@@ -142,6 +145,17 @@ async function main() {
     assert(replay.id === completed.id, "replay returns the existing durable operation");
     assert(JSON.stringify(await historicalEvidence())===JSON.stringify(evidenceBefore),
       "preview, execution and replay retain original Phase 7 subjects and complete evidence bytes");
+
+    const scoringSurvivor=await makeContact("scoring-survivor",`bt07-score-${nonce}@example.test`);
+    const scoringDeprecated=await makeContact("scoring-deprecated",`BT07-score-${nonce}@example.test`);
+    await db.execute(sql`INSERT INTO contact_lead_scoring_jobs(contact_id,status) VALUES(${scoringDeprecated.id},'deferred_queue_unavailable')`);
+    const scoringPreview=await merge.previewContactMerge({survivorContactId:scoringSurvivor.id,deprecatedContactId:scoringDeprecated.id,
+      idempotencyKey:crypto.randomUUID(),actorId:"bt07-admin",actorRole:"admin",fieldDecisions:{email:"survivor",phone:"survivor"}});
+    operationIds.push(scoringPreview.operationId);
+    assert(scoringPreview.conflicts.includes("ACTIVE_SCORING_REQUIRES_REVIEW"),"active per-contact scoring blocks merge before work can move or collide");
+    let scoringApprovalRejected=false;
+    try{await merge.approveContactMerge(scoringPreview.operationId,"bt07-admin");}catch{scoringApprovalRejected=true;}
+    assert(scoringApprovalRejected,"active scoring merge hold cannot be approved away");
 
     // Different classes must be terminally blocked during preview, and a blocked
     // operation cannot be promoted by the approval transition.
