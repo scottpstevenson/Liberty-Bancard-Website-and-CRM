@@ -60,7 +60,7 @@ export async function stage3BHttpFixture(register: (app: Express) => Promise<voi
   try {
     for (const role of roles) await pool.query(`INSERT INTO users(id,email,password_hash,role,auth_provider,email_verified)
       VALUES($1,$2,$3,$4,'local',NOW())`, [userId(role), email(role), passwordHash, role === "other" ? "agent" : role]);
-    const app = express(); app.use(express.json()); app.use(cookieParser());
+    const app = express(); app.use(express.json({verify:(req,_res,buf)=>{(req as any).rawBody=buf;}})); app.use(cookieParser());
     await setupAuth(app,authDependencies); registerAuthRoutes(app);
     app.get("/api/csrf-token", csrfTokenEndpoint);
     // Same order as production: session/auth and CSRF (setupAuth), then the

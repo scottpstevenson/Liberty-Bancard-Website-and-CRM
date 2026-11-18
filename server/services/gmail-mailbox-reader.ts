@@ -76,6 +76,7 @@ export async function openMailboxReader(): Promise<{ ok: true; account: string }
     VALUES (${account}, 'active', ${fingerprint(account)}, now())
     ON CONFLICT (account_email) DO UPDATE
       SET state = 'active', history_cursor = NULL, last_error = NULL, lease_token = NULL, lease_expires_at = NULL,
+      phase7_generation=gen_random_uuid(),phase7_history_complete=false,last_success_at=NULL,
           account_fingerprint = ${fingerprint(account)}, updated_at = now()
   `);
   return { ok: true, account };
@@ -264,7 +265,7 @@ export async function pollMailboxOnce(overrides: Partial<ReaderDeps> = {}): Prom
       const profile = await gmail.users.getProfile({ userId: "me" });
       const historyId = profile.data.historyId;
       if (!historyId) return fail("PROFILE_HISTORY_ID_MISSING", "error");
-      await release(sql`history_cursor = ${String(historyId)}, account_fingerprint = ${fingerprint(account)}, last_success_at = now(), last_error = NULL`);
+      await release(sql`history_cursor = ${String(historyId)}, account_fingerprint = ${fingerprint(account)}, last_success_at = now(), last_error = NULL,phase7_history_complete=true`);
       return tally("initialized");
     }
 
@@ -301,11 +302,11 @@ export async function pollMailboxOnce(overrides: Partial<ReaderDeps> = {}): Prom
       // Every message of this page is durably applied or recorded as evidence: only now may the cursor move.
       pageToken = res.data.nextPageToken ?? undefined;
       cursor = pageToken ? (lastRecordId ?? cursor) : String(res.data.historyId ?? lastRecordId ?? cursor);
-      await db.execute(sql`UPDATE gmail_mailbox_reader_state SET history_cursor = ${cursor}, updated_at = now() WHERE account_email = ${account} AND lease_token = ${token}`);
+      await db.execute(sql`UPDATE gmail_mailbox_reader_state SET history_cursor = ${cursor}, phase7_history_complete=false, updated_at = now() WHERE account_email = ${account} AND lease_token = ${token}`);
       if (!pageToken) break;
     }
     // A remaining page token is fine: the cursor already sits at the last durably applied record, so the next tick continues.
-    await release(sql`history_cursor = ${cursor}, last_success_at = now(), last_error = NULL`);
+    await release(sql`history_cursor = ${cursor}, last_success_at = now(), last_error = NULL,phase7_history_complete=${!pageToken}`);
     return out;
   } catch (error) {
     const status = Number((error as { code?: unknown; response?: { status?: unknown } })?.response?.status ?? (error as { code?: unknown })?.code);

@@ -1,4 +1,5 @@
 /** Compiled CRM, real persisted sessions and local Chromium; providers denied by the shared owned fixture. */
+import { generateKeyPairSync, sign } from "node:crypto";
 import assert from "node:assert/strict";
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -64,6 +65,99 @@ try {
     (await h.request("manager", "GET", "/api/admin/cro07/phase7/inventory"))
       .status === 403,
     "full installed-copy audit remains admin scoped",
+  );
+  const feedbackStatus = await h.request(
+    "admin",
+    "GET",
+    "/api/admin/cro07/phase7/feedback-status",
+  );
+  ok(
+    feedbackStatus.status === 200 && feedbackStatus.body.ready === false,
+    "feedback readiness read is truthful while measurement is disabled",
+  );
+  ok(
+    (
+      await h.request(
+        "manager",
+        "GET",
+        "/api/admin/cro07/phase7/feedback-status",
+      )
+    ).status === 403,
+    "provider configuration readiness remains admin scoped",
+  );
+  ok(
+    (await h.request("anonymous", "POST", "/api/webhooks/cro07/sendgrid", []))
+      .status === 401,
+    "public SendGrid ingress refuses unsigned requests",
+  );
+  const sgKeys = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  process.env.SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY = sgKeys.publicKey
+    .export({ format: "der", type: "spki" })
+    .toString("base64");
+  const sgEvents = [
+    {
+      sg_event_id: "browser-fixture-processed",
+      event: "processed",
+      email: "fixture@example.test",
+      "smtp-id": "<browser-fixture@example.test>",
+      sg_message_id: "browser-fixture-provider",
+      timestamp: Math.floor(Date.now() / 1000),
+    },
+  ];
+  const sgStamp = String(Math.floor(Date.now() / 1000)),
+    sgSignature = sign(
+      "sha256",
+      Buffer.concat([
+        Buffer.from(sgStamp),
+        Buffer.from(JSON.stringify(sgEvents)),
+      ]),
+      sgKeys.privateKey,
+    ).toString("base64"),
+    sgHeaders = {
+      "X-Twilio-Email-Event-Webhook-Timestamp": sgStamp,
+      "X-Twilio-Email-Event-Webhook-Signature": sgSignature,
+    };
+  const sgReceived = await h.request(
+    "anonymous",
+    "POST",
+    "/api/webhooks/cro07/sendgrid",
+    sgEvents,
+    false,
+    sgHeaders,
+  );
+  ok(
+    sgReceived.status === 200 && sgReceived.body.applied === 0,
+    "actual public raw-body ingress verifies SendGrid ECDSA without a browser session or fabricated exposure",
+  );
+  ok(
+    (
+      await h.request(
+        "anonymous",
+        "POST",
+        "/api/webhooks/cro07/sendgrid",
+        sgEvents,
+        false,
+        sgHeaders,
+      )
+    ).status === 200,
+    "signed HTTP retries are idempotently acknowledged",
+  );
+  ok(
+    (
+      await h.request(
+        "anonymous",
+        "POST",
+        "/api/webhooks/cro07/sendgrid",
+        [{ ...sgEvents[0], event: "bounce" }],
+        false,
+        sgHeaders,
+      )
+    ).status === 401,
+    "HTTP payload tampering cannot reuse a valid signature",
+  );
+  ok(
+    h.externalCalls() === 0,
+    "read-only readiness and signed ingress make no provider calls",
   );
   const query = "start=2026-11-01&end=2026-11-17";
   for (const role of ["admin", "manager"]) {

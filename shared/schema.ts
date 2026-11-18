@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique, date, uuid, check, bigint, customType, primaryKey, foreignKey, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique, date, uuid, check, bigint, bigserial, customType, primaryKey, foreignKey, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -11429,6 +11429,8 @@ export const gmailMailboxReaderState = pgTable("gmail_mailbox_reader_state", {
   accountEmail: text("account_email").primaryKey(),
   state: text("state").notNull().default("closed"),
   historyCursor: text("history_cursor"),
+  phase7Generation: uuid("phase7_generation").notNull().defaultRandom(),
+  phase7HistoryComplete: boolean("phase7_history_complete").notNull().default(false),
   accountFingerprint: text("account_fingerprint"),
   leaseToken: text("lease_token"),
   leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
@@ -11849,3 +11851,15 @@ export const cro07ProviderReceipts = pgTable(
     ),
   ],
 );
+
+// Provider settings observations contain public configuration hashes, never API keys.
+export const cro07FeedbackCoverageObservations = pgTable("cro07_feedback_coverage_observations", {
+ id: bigserial("id", {mode:"number"}).primaryKey(), senderAccount:text("sender_account").notNull(), replyAccount:text("reply_account").notNull(),
+ identityHash:text("identity_hash").notNull(), healthy:boolean("healthy").notNull(), reason:text("reason").notNull(), proof:jsonb("proof").notNull(),
+ observedAt:timestamp("observed_at",{withTimezone:true}).notNull().default(sql`clock_timestamp()`),
+}, t=>[index("cro07_feedback_coverage_window_idx").on(t.senderAccount,t.replyAccount,t.observedAt,t.id),check("cro07_feedback_coverage_identity_check",sql`${t.identityHash} ~ '^[a-f0-9]{64}$'`)]);
+export const cro07SendgridEventObservations = pgTable("cro07_sendgrid_event_observations", {
+ id:bigserial("id",{mode:"number"}).primaryKey(),providerEventId:text("provider_event_id").notNull().unique("cro07_sendgrid_event_observations_provider_event_id_key"),senderAccount:text("sender_account").notNull(),
+ providerMessageId:text("provider_message_id"),sendgridMessageId:text("sendgrid_message_id"),recipient:text("recipient"),eventType:text("event_type"),occurredAt:timestamp("occurred_at",{withTimezone:true}),
+ payloadHash:text("payload_hash").notNull(),reason:text("reason").notNull(),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+}, t=>[index("cro07_sendgrid_smtp_link_idx").on(t.senderAccount,t.providerMessageId,t.recipient),index("cro07_sendgrid_message_link_idx").on(t.senderAccount,t.sendgridMessageId,t.recipient),check("cro07_sendgrid_event_hash_check",sql`${t.payloadHash} ~ '^[a-f0-9]{64}$'`)]);

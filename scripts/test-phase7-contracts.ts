@@ -1,4 +1,10 @@
 /** Pure behavior tests. No server, database, environment credentials or provider. */
+import { generateKeyPairSync, sign } from "node:crypto";
+import {
+  verifySendGridSignature,
+  sendGridKind,
+  continuousFeedbackCoverage,
+} from "../server/services/phase7-sendgrid-contract";
 import assert from "node:assert/strict";
 import { z } from "zod";
 import { editableSequenceStepSchema } from "../shared/schema";
@@ -168,6 +174,94 @@ assert.equal(
   "Hello Alex",
 );
 checks++;
+
+const keys = generateKeyPairSync("ec", { namedCurve: "prime256v1" }),
+  stamp = String(Math.floor(Date.now() / 1000)),
+  raw = Buffer.from('[{"event":"delivered"}]');
+const publicKey = keys.publicKey
+  .export({ format: "der", type: "spki" })
+  .toString("base64");
+const signature = sign(
+  "sha256",
+  Buffer.concat([Buffer.from(stamp), raw]),
+  keys.privateKey,
+).toString("base64");
+check(verifySendGridSignature(raw, signature, stamp, publicKey));
+check(
+  !verifySendGridSignature(
+    Buffer.from('[{"event":"bounce"}]'),
+    signature,
+    stamp,
+    publicKey,
+  ),
+);
+check(
+  !verifySendGridSignature(
+    raw,
+    signature,
+    String(Number(stamp) - 26 * 3600),
+    publicKey,
+  ),
+);
+check(!verifySendGridSignature(raw, signature, stamp, "invalid"));
+check(
+  sendGridKind({ event: "bounce", type: "bounce", status: "5.1.1" }) ===
+    "hard_bounce",
+);
+check(
+  sendGridKind({ event: "bounce", type: "blocked", status: "5.7.1" }) === null,
+);
+check(
+  sendGridKind({ event: "bounce", type: "bounce", status: "4.1.1" }) === null,
+);
+check(sendGridKind({ event: "spamreport" }) === "complaint");
+check(sendGridKind({ event: "processed" }) === null);
+const epoch = new Date("2026-10-01T00:00:00Z"),
+  at = (m: number) => new Date(+epoch + m * 60000),
+  observations = [0, 5, 10, 15, 20].map((m) => ({
+    healthy: true,
+    observed_at: at(m),
+    identity_hash: "identity",
+  }));
+check(
+  continuousFeedbackCoverage(observations, at(1), at(19), "identity", at(25)),
+);
+check(
+  !continuousFeedbackCoverage(
+    observations.filter((_, i) => i !== 1 && i !== 2),
+    at(1),
+    at(19),
+    "identity",
+    at(25),
+  ),
+);
+check(
+  !continuousFeedbackCoverage(
+    observations.map((r, i) => ({ ...r, healthy: i !== 2 })),
+    at(1),
+    at(19),
+    "identity",
+    at(25),
+  ),
+);
+check(
+  !continuousFeedbackCoverage(
+    observations.map((r, i) => ({
+      ...r,
+      identity_hash: i < 2 ? "identity" : "rotated",
+    })),
+    at(1),
+    at(19),
+    "identity",
+    at(25),
+  ),
+);
+check(
+  !continuousFeedbackCoverage(observations, at(-1), at(19), "identity", at(25)),
+);
+check(
+  !continuousFeedbackCoverage(observations, at(1), at(19), "identity", at(18)),
+);
 console.log(
   `Phase 7 contracts: ${checks} behavior checks passed; zero external effects.`,
 );

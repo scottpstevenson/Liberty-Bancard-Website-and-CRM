@@ -14,6 +14,14 @@ export const phase7ArmSchema = z
 export const phase7DesignSchema = z
   .object({
     contractVersion: z.literal(1),
+    senderIdentity: z
+      .object({
+        senderAccount: z.string().min(1).max(320),
+        replyAccount: z.string().min(1).max(320),
+        displayName: z.string().min(1).max(200),
+      })
+      .strict()
+      .optional(),
     sequenceId: z.number().int().positive(),
     stepId: z.number().int().positive(),
     sequenceVersion: z.number().int().positive(),

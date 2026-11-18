@@ -105,6 +105,29 @@ CREATE TABLE IF NOT EXISTS cro07_provider_receipts (
 );
 DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='cro07_provider_receipts'::regclass AND tgname='phase7_append_only')THEN CREATE TRIGGER phase7_append_only BEFORE UPDATE OR DELETE ON cro07_provider_receipts FOR EACH ROW EXECUTE FUNCTION phase7_append_only();END IF;END $$;
 
+-- Observed forward-only SendGrid/mailbox coverage; no operator-complete flag or historical inference.
+ALTER TABLE gmail_mailbox_reader_state ADD COLUMN IF NOT EXISTS phase7_generation uuid NOT NULL DEFAULT gen_random_uuid();
+ALTER TABLE gmail_mailbox_reader_state ADD COLUMN IF NOT EXISTS phase7_history_complete boolean NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS cro07_feedback_coverage_observations (
+ id bigserial PRIMARY KEY, sender_account text NOT NULL, reply_account text NOT NULL,
+ identity_hash text NOT NULL, healthy boolean NOT NULL, reason text NOT NULL,
+ proof jsonb NOT NULL, observed_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ CONSTRAINT cro07_feedback_coverage_identity_check CHECK(identity_hash ~ '^[a-f0-9]{64}$')
+);
+CREATE INDEX IF NOT EXISTS cro07_feedback_coverage_window_idx ON cro07_feedback_coverage_observations(sender_account,reply_account,observed_at,id);
+CREATE TABLE IF NOT EXISTS cro07_sendgrid_event_observations (
+ id bigserial PRIMARY KEY, provider_event_id text NOT NULL UNIQUE, sender_account text NOT NULL,
+ provider_message_id text, sendgrid_message_id text, recipient text, event_type text, occurred_at timestamptz,
+ payload_hash text NOT NULL, reason text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
+ CONSTRAINT cro07_sendgrid_event_hash_check CHECK(payload_hash ~ '^[a-f0-9]{64}$')
+);
+CREATE INDEX IF NOT EXISTS cro07_sendgrid_smtp_link_idx ON cro07_sendgrid_event_observations(sender_account,provider_message_id,recipient);
+CREATE INDEX IF NOT EXISTS cro07_sendgrid_message_link_idx ON cro07_sendgrid_event_observations(sender_account,sendgrid_message_id,recipient);
+DO $$ DECLARE t text; BEGIN FOREACH t IN ARRAY ARRAY['cro07_feedback_coverage_observations','cro07_sendgrid_event_observations'] LOOP
+ IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid=t::regclass AND tgname='phase7_append_only') THEN
+ EXECUTE format('CREATE TRIGGER phase7_append_only BEFORE UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION phase7_append_only()',t);
+ END IF; END LOOP; END $$;
+
 -- Same-transaction milestone evidence from canonical facts; never browser analytics or financial contents.
 CREATE OR REPLACE FUNCTION phase7_emit_conversion(src text, sid text, milestone text, cid integer, did integer, happened timestamptz, extra jsonb) RETURNS void AS $$
 DECLARE bid integer; cls text; dims jsonb; valid_deal integer; prior conversion_journey_evidence%ROWTYPE; version_number integer;

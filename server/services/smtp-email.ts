@@ -382,15 +382,16 @@ async function _sendSmtpEmailInner(params: {
     console.log(`[SMTP] EMAIL_OVERRIDE_TO active — redirecting to ${redactToken(overrideTo)} (original: ${redactToken(params.to)})`);
   }
 
+  const finalFromHeader = params.category === "cold_outreach" ? `"${resolvePolicy("cold_outreach").displayName.replace(/["\\]/g, "")}" <${fromAddress}>` : fromAddress;
   if(params.phase7Attempt){
     if(overrideTo)return {success:false,error:'CRO07_DELIVERY_OVERRIDE_ACTIVE',outcome:'unsent'};
-    try{const {bindPhase7FinalEnvelope}=await import('./sequence-ab-authority');await bindPhase7FinalEnvelope({idempotencyKey:params.phase7Attempt.idempotencyKey,to:effectiveTo,subject:effectiveSubject,html:params.html,text:params.text,from:fromAddress,replyTo:replyToAddress,headers});}
+    try{const {bindPhase7FinalEnvelope}=await import('./sequence-ab-authority');await bindPhase7FinalEnvelope({idempotencyKey:params.phase7Attempt.idempotencyKey,to:effectiveTo,subject:effectiveSubject,html:params.html,text:params.text,from:fromAddress,fromHeader:finalFromHeader,replyTo:replyToAddress,headers});}
     catch(e){return {success:false,error:e instanceof Error?e.message:'CRO07_FINAL_ENVELOPE_UNAVAILABLE',outcome:'unsent'};}
   }
   try {
     const info = await transport.sendMail({
       // Cold outreach shows the sender policy's person name (Scott Stevenson); the mailbox address is unchanged.
-      from: params.category === "cold_outreach" ? `"${resolvePolicy("cold_outreach").displayName.replace(/["\\]/g, "")}" <${fromAddress}>` : fromAddress,
+      from: finalFromHeader,
       to: effectiveTo,
       subject: effectiveSubject,
       html: params.html,

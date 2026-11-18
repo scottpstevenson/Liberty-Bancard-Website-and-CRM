@@ -276,6 +276,7 @@ export async function ingestPhase7ProviderFeedback(input: {
   providerAccountId: string;
   providerEventId: string;
   providerMessageId: string;
+  recipient?: string;
   eventType:
     | "delivered"
     | "hard_bounce"
@@ -310,21 +311,27 @@ export async function ingestPhase7ProviderFeedback(input: {
         [input.source, input.providerEventId],
       )
     ).rows[0];
+    if (
+      prior &&
+      prior.account_hash !== experimentDigest({ account: configuredAccount })
+    )
+      throw new Error("CRO07_PROVIDER_ACCOUNT_MISMATCH");
+    const matches = (
+      await c.query(
+        `SELECT x.id,l.contact_id,a.experiment_id,x.occurred_at,f.created_at AS dispatch_at FROM cro07_receipt_exposures x JOIN outbound_send_log l ON l.id=x.outbound_log_id JOIN cro07_attempt_envelopes f ON f.outbound_log_id=l.id JOIN cro07_subject_assignments a ON a.id=x.assignment_id WHERE x.provider_message_id=$1 AND f.sender_account=$2 AND ($3::text IS NULL OR lower(l.to_address)=lower($3)) LIMIT 2`,
+        [input.providerMessageId, configuredAccount, input.recipient ?? null],
+      )
+    ).rows;
+    const hit =
+      matches.length === 1 &&
+      +input.occurredAt + 1000 >= +new Date(matches[0].dispatch_at)
+        ? matches[0]
+        : null;
     if (prior) {
       if (prior.payload_hash !== input.payloadHash)
         throw new Error("CRO07_FEEDBACK_REPLAY_CONFLICT");
       receipt = prior;
     } else {
-      const matches = (
-        await c.query(
-          `SELECT x.id,l.contact_id,a.experiment_id,x.occurred_at FROM cro07_receipt_exposures x JOIN outbound_send_log l ON l.id=x.outbound_log_id JOIN cro07_attempt_envelopes f ON f.outbound_log_id=l.id JOIN cro07_subject_assignments a ON a.id=x.assignment_id WHERE x.provider_message_id=$1 AND f.sender_account=$2 LIMIT 2`,
-          [input.providerMessageId, configuredAccount],
-        )
-      ).rows;
-      const hit =
-        matches.length === 1 && input.occurredAt >= matches[0].occurred_at
-          ? matches[0]
-          : null;
       receipt = (
         await c.query(
           `INSERT INTO cro07_provider_receipts(source,provider_event_id,account_hash,exposure_id,contact_id,event_type,occurred_at,payload_hash,reason)VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)RETURNING *`,
@@ -345,18 +352,19 @@ export async function ingestPhase7ProviderFeedback(input: {
           ],
         )
       ).rows[0];
-      if (hit) {
-        const kind =
-          input.eventType === "explicit_unsubscribe"
-            ? "opt_out"
-            : input.eventType;
-        if (kind !== "delivered")
-          await c.query(
-            `INSERT INTO cro07_verified_outcomes(exposure_id,receipt_kind,receipt_id,kind,occurred_at)VALUES($1,'signed_provider',$2,$3,$4)ON CONFLICT DO NOTHING`,
-            [hit.id, receipt.id, kind, input.occurredAt],
-          );
-        await applyPhase7Guardrails(c, hit.experiment_id);
-      }
+    }
+    if (hit) {
+      const kind =
+        input.eventType === "explicit_unsubscribe"
+          ? "opt_out"
+          : input.eventType;
+      if (kind !== "delivered")
+        await c.query(
+          `INSERT INTO cro07_verified_outcomes(exposure_id,receipt_kind,receipt_id,kind,occurred_at)VALUES($1,'signed_provider',$2,$3,$4)ON CONFLICT DO NOTHING`,
+          [hit.id, receipt.id, kind, input.occurredAt],
+        );
+      await applyPhase7Guardrails(c, hit.experiment_id);
+      receipt = { ...receipt, exposure_id: hit.id, contact_id: hit.contact_id };
     }
     await c.query("COMMIT");
   } catch (e) {

@@ -343,6 +343,16 @@ export function registerCro07Routes(app: Express) {
     }
   });
 
+  app.get("/api/admin/cro07/phase7/feedback-status",requireRole("admin"),async(_req,res)=>{try{const {readPhase7CurrentFeedbackStatus}=await import("../services/phase7-sendgrid");res.setHeader("Cache-Control","no-store");res.json(await readPhase7CurrentFeedbackStatus());}catch(e){serverError(res,e);}});
+  app.post("/api/webhooks/cro07/sendgrid", async(req,res)=>{
+    try {
+      const raw=(req as any).rawBody;
+      if(!Buffer.isBuffer(raw))return res.status(400).json({code:"SENDGRID_RAW_BODY_REQUIRED"});
+      const {receivePhase7SendGrid}=await import("../services/phase7-sendgrid");
+      return res.status(200).json(await receivePhase7SendGrid(raw,req.get("X-Twilio-Email-Event-Webhook-Signature"),req.get("X-Twilio-Email-Event-Webhook-Timestamp")));
+    }catch(e){const code=e instanceof Error?e.message:"SENDGRID_INGEST_FAILED";if(code==='SENDGRID_SIGNATURE_REQUIRED')return res.status(401).json({code});if(/INVALID|REPLAY_CONFLICT/.test(code))return res.status(400).json({code});return serverError(res,e);}
+  });
+
   // Same authenticated CRO07 ingress, distinct typed SMTP sequence lineage. Never aliases denied CRO07 attempt IDs.
   app.post(
     "/api/webhooks/cro07/sequence-feedback/:source",

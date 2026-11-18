@@ -26,6 +26,8 @@ const functions = [
 if (functions.length !== 4)
   throw new Error("PHASE7_NATIVE_FUNCTION_CENSUS_MISMATCH");
 const immutable = [
+  "cro07_feedback_coverage_observations",
+  "cro07_sendgrid_event_observations",
   "cro07_subject_assignments",
   "cro07_receipt_exposures",
   "cro07_verified_outcomes",
@@ -84,7 +86,7 @@ const required = [
 ];
 const prereqs = required
   .map((t) => `to_regclass('public.${t}') IS NOT NULL`)
-  .join(" AND ");
+  .join(" AND ") + " AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='gmail_mailbox_reader_state' AND column_name='phase7_generation') AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='gmail_mailbox_reader_state' AND column_name='phase7_history_complete')";
 const fchecks = functions.map(
   (f) =>
     `EXISTS(SELECT 1 FROM pg_proc p WHERE p.oid=to_regprocedure('public.${f.signature}') AND md5(p.prosrc)='${f.hash}')`,
@@ -118,5 +120,5 @@ if (process.argv.includes("--check")) {
     throw new Error("PHASE7_NATIVE_GENERATOR_DRIFT");
 } else fs.writeFileSync(dest, result);
 console.log(
-  "Phase 7 native entry: four functions and sixteen guards verified against reviewed migration.",
+  "Phase 7 native entry: four functions and eighteen guards verified against reviewed migration.",
 );

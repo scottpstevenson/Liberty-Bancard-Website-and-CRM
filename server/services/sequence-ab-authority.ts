@@ -1,3 +1,4 @@
+import { assertPhase7FeedbackReady, phase7SenderIdentity } from "./phase7-sendgrid";
 import { createHash } from "node:crypto";
 import { pool } from "../db";
 import { experimentDigest, approvedArms } from "./cro07-experiments";
@@ -235,6 +236,7 @@ export async function bindPhase7FinalEnvelope(input: {
   html: string;
   text?: string;
   from: string;
+  fromHeader:string;
   replyTo?: string;
   headers: Record<string, string>;
 }) {
@@ -254,13 +256,17 @@ export async function bindPhase7FinalEnvelope(input: {
       new Date(row.collection_ends_at).getTime() <= Date.now()
     )
       throw new Error("CRO07_DISPATCH_AUTHORITY_REVOKED");
-    await approvedArms(c, phase7DesignSchema.parse(row.phase7_design));
+    const design=phase7DesignSchema.parse(row.phase7_design);
+    if(experimentDigest(design.senderIdentity)!==experimentDigest(phase7SenderIdentity()))throw new Error("CRO07_SENDER_IDENTITY_DRIFT");
+    await assertPhase7FeedbackReady(c,design.senderIdentity);
+    await approvedArms(c, design);
     const { resolvePolicy } = await import("./sender-policy");
     const policy = resolvePolicy("cold_outreach");
     if (
       input.to !== row.to_address ||
       input.subject !== row.subject ||
       input.from !== policy.from ||
+      input.fromHeader!==`"${design.senderIdentity!.displayName}" <${policy.from}>` ||
       input.replyTo !== policy.replyTo
     )
       throw new Error("CRO07_FINAL_ENVELOPE_MISMATCH");
@@ -270,6 +276,7 @@ export async function bindPhase7FinalEnvelope(input: {
       html: input.html,
       text: input.text ?? "",
       from: input.from,
+      fromHeader:input.fromHeader,
       replyTo: input.replyTo,
       headers: input.headers,
     });

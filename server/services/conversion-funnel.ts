@@ -105,7 +105,7 @@ export async function readConversionFunnel(q: FunnelQuery) {
     ).rows[0];
     const sources = (
       await c.query(
-        `SELECT source_type,status,reason,observed_at FROM conversion_evidence_checkpoints WHERE source_type<>'phase7_evaluator_cursor' ORDER BY source_type`,
+        `SELECT source_type,status,reason,observed_at FROM conversion_evidence_checkpoints WHERE source_type NOT IN ('phase7_evaluator_cursor','phase7_sendgrid_cursor') ORDER BY source_type`,
       )
     ).rows;
     await c.query("COMMIT");

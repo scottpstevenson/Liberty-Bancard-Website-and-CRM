@@ -1,7 +1,7 @@
 /** Phase 7 real PostgreSQL certification. Explicitly disposable and provider-denied before application imports. */
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { randomUUID } from "node:crypto";
+import { randomUUID, generateKeyPairSync, sign, createHash } from "node:crypto";
 import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
 import { applyCertificationProviderDenyBoundary } from "./certification-provider-deny";
 await assertDisposableTestInfrastructure({
@@ -265,6 +265,9 @@ try {
     frozenBy: actor.id,
     phase7Design: design,
   };
+  process.env.SMTP_HOST = "smtp.sendgrid.net";
+  process.env.SMTP_USER = "apikey";
+  process.env.SMTP_PASS = "SG.fixture_key_id_12345.fixture_not_a_real_secret";
   let e = await freezeCro07Experiment(input, {
     actor,
     commandId: randomUUID(),
@@ -280,6 +283,84 @@ try {
     expectedVersion: 1,
   });
   ok(replay.id === e.id, "identical design is idempotent");
+  const { resolvePolicy } = await import("../server/services/sender-policy");
+  const policy = resolvePolicy("cold_outreach");
+  const sg = await import("../server/services/phase7-sendgrid");
+  await assert.rejects(
+    () =>
+      startCro07Experiment(e.id, {
+        actor,
+        commandId: randomUUID(),
+        expectedVersion: e.revision,
+      }),
+    /FEEDBACK_COVERAGE_NOT_READY/,
+  );
+  n++;
+  const keys = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const publicKey = keys.publicKey
+    .export({ format: "der", type: "spki" })
+    .toString("base64");
+  process.env.PHASE7_MEASUREMENT_ENABLED = "true";
+  process.env.SENDGRID_API_KEY = "fixture-not-a-real-api-key";
+  process.env.SENDGRID_EVENT_WEBHOOK_ID = "fixture-webhook";
+  process.env.SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY = publicKey;
+  process.env.CRO07_SEQUENCE_FEEDBACK_SOURCE = "sendgrid";
+  process.env.CRO07_SEQUENCE_FEEDBACK_ACCOUNT = policy.from;
+  await pool.query(
+    `INSERT INTO gmail_mailbox_reader_state(account_email,state,history_cursor,account_fingerprint,last_success_at,phase7_history_complete)VALUES($1,'active','100',$2,clock_timestamp(),true)`,
+    [
+      policy.replyTo || policy.from,
+      createHash("sha256")
+        .update(
+          "gmail-account:" + (policy.replyTo || policy.from).toLowerCase(),
+        )
+        .digest("hex"),
+    ],
+  );
+  let settingsReads = 0;
+  const probe = await sg.observePhase7SendGridCoverage((async (
+    url: any,
+    options: any,
+  ) => {
+    settingsReads++;
+    assert.equal(options.method, "GET");
+    return new Response(
+      JSON.stringify(
+        String(url).includes("/api_keys/")
+          ? { api_key_id: "fixture_key_id_12345", scopes: ["mail.send"] }
+          : String(url).includes("/signed/")
+            ? { id: "fixture-webhook", public_key: publicKey }
+            : {
+                id: "fixture-webhook",
+                enabled: true,
+                url: "https://libertybancard.com/api/webhooks/cro07/sendgrid",
+                public_key: publicKey,
+                delivered: true,
+                bounce: true,
+                spam_report: true,
+                unsubscribe: true,
+                group_unsubscribe: true,
+                processed: true,
+                dropped: true,
+              },
+      ),
+      { status: 200 },
+    );
+  }) as typeof fetch);
+  ok(
+    probe.state === "observed_healthy" && settingsReads === 3,
+    "SendGrid coverage owner verifies read-only provider settings, SMTP account ownership and actual complete mailbox state",
+  );
+  const sendGridEvent = async (events: any[]) => {
+    const raw = Buffer.from(JSON.stringify(events)),
+      stamp = String(Math.floor(Date.now() / 1000)),
+      signature = sign(
+        "sha256",
+        Buffer.concat([Buffer.from(stamp), raw]),
+        keys.privateKey,
+      ).toString("base64");
+    return sg.receivePhase7SendGrid(raw, signature, stamp);
+  };
   e = await startCro07Experiment(e.id, {
     actor,
     commandId: randomUUID(),
@@ -325,8 +406,6 @@ try {
     subject,
     body,
   });
-  const { resolvePolicy } = await import("../server/services/sender-policy");
-  const policy = resolvePolicy("cold_outreach");
   await bindPhase7FinalEnvelope({
     idempotencyKey: prefix,
     to: "fixture@example.test",
@@ -334,9 +413,22 @@ try {
     html: body + " footer",
     text: "fixture",
     from: policy.from,
+    fromHeader: `"${policy.displayName.replace(/["\\]/g, "")}" <${policy.from}>`,
     replyTo: policy.replyTo,
     headers: {},
   });
+  const earlyEvent = {
+    sg_event_id: prefix + "-early-open",
+    sg_message_id: prefix + "-sendgrid-message",
+    event: "open",
+    email: "fixture@example.test",
+    "smtp-id": "<" + prefix + "@fixture.test>",
+    timestamp: Math.floor(Date.now() / 1000),
+  };
+  ok(
+    (await sendGridEvent([earlyEvent])).applied === 0,
+    "signed pre-receipt observation is retained without inventing exposure",
+  );
   await markSendFailed({
     idempotencyKey: prefix,
     failureReason: "definitively rejected fixture",
@@ -371,6 +463,62 @@ try {
     ) === 1,
     "failed-first successful-retry and receipt replay count once",
   );
+  await sg.reconcilePhase7SendGridEvents();
+  ok(
+    Number(
+      (
+        await one(
+          `SELECT count(*) AS n FROM cro07_verified_outcomes o JOIN cro07_provider_receipts r ON r.id::text=o.receipt_id WHERE r.provider_event_id=$1`,
+          [earlyEvent.sg_event_id],
+        )
+      ).n,
+    ) === 1,
+    "retained signed observation repairs after definitive receipt without rewriting its original receipt",
+  );
+  ok(
+    (await sendGridEvent([earlyEvent])).applied === 1,
+    "identical signed event replays without duplicate outcomes",
+  );
+  await assert.rejects(
+    () => sendGridEvent([{ ...earlyEvent, event: "click" }]),
+    /REPLAY_CONFLICT/,
+  );
+  n++;
+  const linkedEvent = {
+    sg_event_id: prefix + "-linked-click",
+    sg_message_id: earlyEvent.sg_message_id,
+    event: "click",
+    email: "fixture@example.test",
+    timestamp: Math.floor(Date.now() / 1000),
+  };
+  ok(
+    (await sendGridEvent([linkedEvent])).applied === 1,
+    "SendGrid ID without SMTP ID resolves only through an exact signed account/recipient crosswalk",
+  );
+  ok(
+    (
+      await sendGridEvent([
+        {
+          ...linkedEvent,
+          sg_event_id: prefix + "-foreign",
+          email: "foreign@example.test",
+        },
+      ])
+    ).applied === 0,
+    "foreign recipient cannot borrow a valid SendGrid message relation",
+  );
+  ok(
+    (await sg.readPhase7FeedbackCoverage(pool, e)).status === "unavailable",
+    "a healthy current probe never fabricates coverage of the future experiment horizon",
+  );
+  await assert.rejects(
+    () =>
+      pool.query(
+        `UPDATE cro07_feedback_coverage_observations SET healthy=true`,
+      ),
+    /append.only|immutable/i,
+  );
+  n++;
   await assert.rejects(
     () =>
       markSendSent({
@@ -771,6 +919,49 @@ try {
       ).n,
     ) === 0,
     "completed owner commands release no client with an open transaction",
+  );
+  // Synthetic private rows exercise the SQL continuity predicate; these are not elapsed live observation claims.
+  const currentProof = await one(
+    `SELECT * FROM cro07_feedback_coverage_observations ORDER BY id LIMIT 1`,
+  );
+  const spanStart = new Date(Date.now() - 60 * 60000),
+    spanEnd = new Date(Date.now() - 20 * 60000);
+  await pool.query(
+    `INSERT INTO cro07_feedback_coverage_observations(sender_account,reply_account,identity_hash,healthy,reason,proof,observed_at)SELECT $1,$2,$3,true,'synthetic_disposable_continuity_fixture',$4,g FROM generate_series($5::timestamptz-interval '5 minutes',$6::timestamptz+interval '5 minutes',interval '5 minutes')g`,
+    [
+      currentProof.sender_account,
+      currentProof.reply_account,
+      currentProof.identity_hash,
+      currentProof.proof,
+      spanStart,
+      spanEnd,
+    ],
+  );
+  const synthetic = {
+    ...e,
+    id: randomUUID(),
+    started_at: spanStart,
+    maturity_ends_at: new Date(+spanEnd - 24 * 3600_000),
+  };
+  ok(
+    (await sg.readPhase7FeedbackCoverage(pool, synthetic)).status ===
+      "complete",
+    "SQL coverage requires a full observed chain through the fixed retry grace in a synthetic private horizon",
+  );
+  await pool.query(
+    `INSERT INTO cro07_feedback_coverage_observations(sender_account,reply_account,identity_hash,healthy,reason,proof,observed_at)VALUES($1,$2,$3,false,'synthetic_gap',$4,$5)`,
+    [
+      currentProof.sender_account,
+      currentProof.reply_account,
+      currentProof.identity_hash,
+      currentProof.proof,
+      new Date(+spanStart + 15 * 60000),
+    ],
+  );
+  ok(
+    (await sg.readPhase7FeedbackCoverage(pool, synthetic)).status ===
+      "unavailable",
+    "one unhealthy observation invalidates the complete SQL horizon",
   );
   console.log(
     `Phase 7 integration PASS: ${n} checks, disposable infrastructure only, zero real sends.`,

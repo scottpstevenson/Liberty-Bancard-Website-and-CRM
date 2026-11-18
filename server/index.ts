@@ -249,6 +249,8 @@ app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
   return res.status(403).json({ message: "CORS origin denied" });
 });
 
+app.use("/api/webhooks/cro07/sendgrid", express.raw({type:"application/json",limit:"1mb",verify:(req,_res,buf)=>{(req as any).rawBody=buf;}}));
+
 app.use(
   express.json({
     verify: (req, _res, buf) => {
@@ -554,6 +556,11 @@ app.use((req, _res, next) => {
           `outbound workers blocked until resolved: ${pauseInitErr.message}`,
         );
         pauseInitialized = false;
+      }
+
+      if(process.env.PHASE7_MEASUREMENT_ENABLED === "true"){
+        const {startPhase7MeasurementWorker}=await import("./services/ab-test-worker");
+        startPhase7MeasurementWorker();
       }
 
       // Restore field-sales freeze flag from DB (non-blocking for workers; defaults to frozen on failure)

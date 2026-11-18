@@ -7,6 +7,8 @@ export async function readPhase7SchemaStatus() {
     const native = (await c.query(PHASE7_NATIVE_ENTRY.verifySql)).rows[0]
       .repair_verified;
     const tables = [
+      "cro07_feedback_coverage_observations",
+      "cro07_sendgrid_event_observations",
       "cro07_subject_assignments",
       "cro07_receipt_exposures",
       "cro07_verified_outcomes",

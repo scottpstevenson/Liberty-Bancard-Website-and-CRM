@@ -48,7 +48,11 @@ const detail = experiment.extend({
     }),
   ),
   measurementStatus: z.string(),
-  telemetry: z.object({ status: z.string(), reason: z.string() }),
+  telemetry: z.object({
+    status: z.string(),
+    reason: z.string(),
+    graceEndsAt: z.string().optional(),
+  }),
   progress: z.array(
     z.object({
       arm: z.enum(["A", "B"]),
@@ -96,6 +100,25 @@ export default function GovernedExperiments() {
       });
       if (!r.ok) throw new Error("Experiment records unavailable");
       return z.array(experiment).parse(await r.json());
+    },
+  });
+  const feedback = useCrmQuery({
+    queryKey: ["/api/admin/cro07/phase7/feedback-status"],
+    enabled: user?.role === "admin",
+    queryFn: async ({ signal }) => {
+      const r = await fetch("/api/admin/cro07/phase7/feedback-status", {
+        signal,
+        credentials: "include",
+      });
+      if (!r.ok) throw Error("Feedback readiness unavailable");
+      return z
+        .object({
+          ready: z.boolean(),
+          reason: z.string(),
+          measurementEnabled: z.boolean(),
+          observedAt: z.string().nullable(),
+        })
+        .parse(await r.json());
     },
   });
   const current = useCrmQuery({
@@ -170,6 +193,7 @@ export default function GovernedExperiments() {
           : "Command recorded. Approval, publication and recipient release remain separate.",
       );
       void list.refetch();
+      if (user?.role === "admin") void feedback.refetch();
       void current.refetch();
       if (r.experiment) {
         setSelected(r.experiment.id);
@@ -209,6 +233,7 @@ export default function GovernedExperiments() {
           data-testid="button-refresh-ab"
           onClick={() => {
             void list.refetch();
+            if (user?.role === "admin") void feedback.refetch();
             if (selected) {
               void current.refetch();
               void preview.refetch();
@@ -223,6 +248,24 @@ export default function GovernedExperiments() {
         approve copy, publish content, or authorize sending. Legacy counters
         remain history and cannot select a governed winner.
       </p>
+      {user?.role === "admin" && (
+        <p role="status" className="rounded-md border p-3 text-sm break-words">
+          SendGrid feedback readiness:{" "}
+          {feedback.isError
+            ? "unavailable"
+            : feedback.isLoading
+              ? "checking…"
+              : feedback.data?.ready
+                ? "observed healthy"
+                : "held"}
+          . {feedback.data?.reason}{" "}
+          {feedback.data?.observedAt &&
+            `Last observation: ${new Date(feedback.data.observedAt).toLocaleString()}.`}{" "}
+          This status certifies current observations; each experiment must
+          retain continuous coverage through its horizon and a 24-hour retry
+          grace.
+        </p>
+      )}
       {notice && (
         <p role="status" className="text-sm break-words">
           {notice}
@@ -382,8 +425,11 @@ export default function GovernedExperiments() {
                     </div>
                     <p role="status" className="text-sm">
                       Feedback coverage: {e.telemetry.status}.{" "}
-                      {e.telemetry.reason} Counts show retained observations;
-                      rates are unavailable until coverage is certified.
+                      {e.telemetry.reason}{" "}
+                      {e.telemetry.graceEndsAt &&
+                        `Retry grace closes ${new Date(e.telemetry.graceEndsAt).toLocaleString()}.`}{" "}
+                      Counts show retained observations; rates are unavailable
+                      until coverage is certified.
                     </p>
                     <div className="text-sm space-y-1">
                       <h4 className="font-semibold">Frozen safety stops</h4>

@@ -9,6 +9,11 @@ import {
   type Phase7Design,
 } from "../../shared/phase7-experiment";
 import type { WorkActor } from "./work-item-command";
+import {
+  phase7SenderIdentity,
+  assertPhase7FeedbackReady,
+  readPhase7FeedbackCoverage,
+} from "./phase7-sendgrid";
 import { createCr06ExperimentDraft } from "./cr06-premium-campaigns";
 export interface Cro07ExperimentDesign {
   key: string;
@@ -136,7 +141,15 @@ export async function freezeCro07Experiment(
   draftOnly = false,
 ) {
   if (!command) fail("VERSIONED_COMMAND_REQUIRED");
-  const design = phase7DesignSchema.parse(input.phase7Design);
+  const requested = phase7DesignSchema.parse(input.phase7Design);
+  const senderIdentity = phase7SenderIdentity();
+  if (
+    requested.senderIdentity &&
+    experimentDigest(requested.senderIdentity) !==
+      experimentDigest(senderIdentity)
+  )
+    fail("SENDER_IDENTITY_DRIFT");
+  const design = { ...requested, senderIdentity };
   if (command!.expectedVersion < 1) fail("REVISION_CONFLICT");
   if (
     Object.keys(input.allocation).sort().join() !== "A,B" ||
@@ -327,6 +340,7 @@ export async function startCro07Experiment(
     if (e.state !== "frozen_design") fail("EXPERIMENT_NOT_FROZEN");
     const d = phase7DesignSchema.parse(e.phase7_design);
     await approvedArms(c, d);
+    await assertPhase7FeedbackReady(c, d.senderIdentity);
     // Admission and transport release are separate owners. This records collection intent only.
     return (
       await c.query(
@@ -417,7 +431,8 @@ export async function evaluateCro07Experiment(
   await observer?.onLeaseClaimed?.();
   const c = await pool.connect();
   try {
-    await c.query("BEGIN");
+    await c.query("BEGIN ISOLATION LEVEL REPEATABLE READ");
+    await c.query("SET LOCAL statement_timeout='5s'");
     const e = (
       await c.query(
         `SELECT * FROM cro07_experiments WHERE id=$1 AND evaluation_lease_token=$2 AND evaluation_lease_expires_at>clock_timestamp() AND revision=$3 FOR UPDATE`,
@@ -471,11 +486,7 @@ export async function evaluateCro07Experiment(
       counts.find((x: any) => x.arm === name) ?? { n: 0, success: 0 };
     const A = arm("A"),
       B = arm("B");
-    const telemetry = (
-      await c.query(
-        `SELECT status,reason FROM conversion_evidence_checkpoints WHERE source_type='phase7_feedback'`,
-      )
-    ).rows[0];
+    const telemetry = await readPhase7FeedbackCoverage(c, e);
     const pending = Number(
       (
         await c.query(
@@ -488,7 +499,8 @@ export async function evaluateCro07Experiment(
     const databaseNow = (await c.query("SELECT clock_timestamp() AS at"))
       .rows[0].at;
     const mature =
-      new Date(e.maturity_ends_at).getTime() <= new Date(databaseNow).getTime();
+      new Date(e.maturity_ends_at).getTime() + 24 * 3600_000 <=
+      new Date(databaseNow).getTime();
     const ready =
       mature && A.n >= d.minPerArm && B.n >= d.minPerArm && measurementReady;
     if (!ready) {
@@ -655,11 +667,7 @@ export async function getCro07Experiment(
     progress,
     receipts,
     evaluations: runs.rows,
-    telemetry: (
-      await pool.query(
-        "SELECT status,reason,observed_at FROM conversion_evidence_checkpoints WHERE source_type='phase7_feedback'",
-      )
-    ).rows[0] ?? { status: "unavailable", reason: "Not certified" },
+    telemetry: await readPhase7FeedbackCoverage(pool, e),
     measurementStatus: e.phase7_design ? "receipt_backed" : "legacy_unverified",
   };
 }
