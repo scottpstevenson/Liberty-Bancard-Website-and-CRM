@@ -1,5 +1,5 @@
 import {createHash,randomUUID} from 'node:crypto';
-import {sql} from 'drizzle-orm';
+import {sql,type SQL} from 'drizzle-orm';
 import {db} from '../db';
 
 export const OUTSCRAPER_MONTHLY_MAX_MICROS=50_000_000;
@@ -12,6 +12,13 @@ const rows=(r:any):any[]=>r.rows??r;
 const one=async(tx:Tx,q:any)=>rows(await tx.execute(q))[0];
 const safe=(n:unknown)=>{const value=Number(n);if(!Number.isSafeInteger(value)||value<0)throw Error('OUTSCRAPER_MONTHLY_BUDGET_ACCOUNTING_UNSAFE');return value;};
 export const outscraperRequestFingerprint=(v:unknown)=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
+/** Older migrations use timestamptz; some declarative schemas use UTC-naive
+ * timestamps. Interpret either without depending on the connection timezone. */
+export function outscraperBudgetPeriodSql(value:SQL):SQL{
+ return sql`to_char((CASE WHEN pg_typeof(${value})='timestamp without time zone'::regtype
+  THEN ${value}::timestamp AT TIME ZONE 'UTC' ELSE ${value}::timestamptz END)
+  AT TIME ZONE 'America/New_York','YYYY-MM')`;
+}
 async function lockPolicy(tx:Tx){
  await tx.execute(sql`INSERT INTO outscraper_budget_policy(id) VALUES(true) ON CONFLICT DO NOTHING`);
  return one(tx,sql`SELECT *,clock_timestamp() AS observed_at,to_char(clock_timestamp() AT TIME ZONE 'America/New_York','YYYY-MM') AS period FROM outscraper_budget_policy WHERE id FOR UPDATE`);
@@ -38,7 +45,7 @@ async function refreshWindow(tx:Tx,p:any,persist=true){
    AND NOT EXISTS(SELECT 1 FROM cro03c_stage_operations c WHERE c.provider_operation_id=o.id AND c.provider='outscraper')
    AND (o.billing_state='ambiguous' OR EXISTS(SELECT 1 FROM provider_attempts a WHERE a.operation_id=o.id AND a.dispatch_marked_at IS NOT NULL)
         OR o.sfp_dispatch_receipt IS NOT NULL OR o.billing_state='committed')
-   AND (to_char(o.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York','YYYY-MM')=${p.period} OR o.billing_state IN ('reserved','ambiguous'))
+   AND (${outscraperBudgetPeriodSql(sql`o.created_at`)}=${p.period} OR o.billing_state IN ('reserved','ambiguous'))
  ), amounts AS (
   SELECT CASE WHEN reserved_units<0 OR unit_price_micros<0 OR settled_cost_micros<0 THEN NULL
    WHEN billing_state='released' THEN COALESCE(settled_cost_micros,0)
@@ -54,7 +61,7 @@ async function refreshWindow(tx:Tx,p:any,persist=true){
   FROM cro03c_stage_operations c WHERE c.provider='outscraper'
    AND NOT EXISTS(SELECT 1 FROM outscraper_budget_requests r WHERE r.cro03c_operation_id=c.id)
    AND (c.dispatched_at IS NOT NULL OR c.dispatch_state IN ('dispatched','ambiguous','reconciled') OR c.settled_amount_micros>0)
-   AND (to_char(c.created_at AT TIME ZONE 'America/New_York','YYYY-MM')=${p.period}
+   AND (${outscraperBudgetPeriodSql(sql`c.created_at`)}=${p.period}
         OR c.billing_certainty IN ('ambiguous','unknown') AND c.terminal_disposition IS DISTINCT FROM 'released')
  ) SELECT COALESCE(sum(amount),0) amount,count(*) FILTER(WHERE amount IS NULL)::integer unknown FROM amounts`);
  const observed=await one(tx,sql`SELECT * FROM outscraper_budget_windows WHERE period=${p.period}`);

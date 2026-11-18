@@ -5,7 +5,8 @@ import {assertDisposableTestInfrastructure} from '../test-infrastructure-guard';
 import {applyCertificationProviderDenyBoundary,getBlockedCertificationNetworkAttemptCount} from '../certification-provider-deny';
 await assertDisposableTestInfrastructure({operation:'CRM-wide Outscraper budget'});
 applyCertificationProviderDenyBoundary({fatal:true});process.env.OUTSCRAPER_API_KEY='disposable-budget-test-only';
-const {pool}=await import('../../server/db');
+const {pool,db}=await import('../../server/db');
+const {sql:querySql}=await import('drizzle-orm');
 const budget=await import('../../server/services/outscraper-monthly-budget');
 const transport=await import('../../server/services/sdr/outscraper');
 const schema=await import('../../shared/schema');
@@ -97,9 +98,17 @@ try{
  status=await budget.readOutscraperMonthlyBudget();check(status.legacyMicros===0&&status.reservedMicros===18000,'Linked native operation is counted once and its higher frozen price is honored');
  await reset();await sql('DELETE FROM provider_attempts WHERE operation_id=$1',[linked]);await sql('DELETE FROM provider_operations WHERE id=$1',[linked]);
  const utcBoundary=String(await scalar(`SELECT to_char(date_trunc('month',clock_timestamp() AT TIME ZONE 'America/New_York')+interval '1 hour','YYYY-MM-DD"T"HH24:MI:SS')`));
- const priorMonth=await legacy(3000,'committed',utcBoundary);
- check((await budget.readOutscraperMonthlyBudget()).legacyMicros===0,'UTC-naive provider timestamps near month start use the correct Eastern calendar month');
+ const priorMonth=await legacy(3000,'committed',utcBoundary+'Z');
+ check((await budget.readOutscraperMonthlyBudget()).legacyMicros===0,'Actual provider timestamps near month start use the correct Eastern calendar month');
  await sql('DELETE FROM provider_operations WHERE id=$1',[priorMonth]);
+ const expectedPeriod=String(await scalar(`SELECT to_char(date_trunc('month',clock_timestamp() AT TIME ZONE 'America/New_York')-interval '1 day','YYYY-MM')`));
+ const dual=await db.transaction(async tx=>{
+  await tx.execute(querySql`SET LOCAL TIME ZONE 'Pacific/Honolulu'`);
+  return (await tx.execute(querySql`SELECT ${budget.outscraperBudgetPeriodSql(querySql`${utcBoundary}::timestamp`)} AS naive,
+    ${budget.outscraperBudgetPeriodSql(querySql`${utcBoundary+'Z'}::timestamptz`)} AS aware`)).rows[0];
+ });
+ check(dual.naive===expectedPeriod&&dual.aware===expectedPeriod,'Both timestamp types preserve the Eastern boundary under a non-UTC database session');
+
  const {seedBudgetCro03cGeneration}=await import('./fixtures/outscraper-budget-cro03c');const generation=await seedBudgetCro03cGeneration(pool);
  const cro=(await sql(`INSERT INTO cro03c_stage_operations(generation_id,stage_key,provider,operation_type,operation_key,caller,unit_type,currency,price_schedule_version,price_schedule_hash,max_reserved_units,max_reserved_amount_micros,settled_amount_micros,billing_certainty,dispatched_at)
  VALUES($1,'outscraper','outscraper','fixture',$2,'server/services/cro03/live-provider-executors.ts','result','USD',1,$3,2,10000,3000,'certain',now()) RETURNING id`,[generation,randomUUID(),'a'.repeat(64)])).rows[0].id;
