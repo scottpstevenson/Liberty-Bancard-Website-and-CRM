@@ -242,6 +242,7 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
     timeoutSecs:480,requiresDisposableTestDatabase:true},
 ];
 export const MANDATORY_SUITES: Suite[] = [
+  {name:"CRM-wide Outscraper Monthly Budget",script:"scripts/certification/test-outscraper-monthly-budget.ts",timeoutSecs:180,requiresDisposableTestDatabase:true},
   {name:"TypeScript route boundary regressions",script:"scripts/certification/test-typescript-route-boundaries.ts",timeoutSecs:180,requiresDisposableTestDatabase:true},
   {name:"SFP paid waterfall current provider contracts",script:"scripts/test-sfp-paid-waterfall-apollo-outscraper.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
   {name:"SFP current selected validation handoff",script:"scripts/test-sfp-validation-handoff-repair-certification.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},

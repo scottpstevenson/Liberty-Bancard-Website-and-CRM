@@ -20,6 +20,7 @@ import {
 import {
   assertCurrentSfpProviderReservation,
   invokeSfpProviderTransport,
+  invokeSfpOutscraperTransport,markSfpOutscraperDispatch,
   currentSfpUnitPrice,
   finishSfpProviderOperation,
   reconcileSfpProviderUsage,
@@ -772,7 +773,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
           };
           const requestFingerprint = sha256(frozenRequest);
           let persistedTaskId: string | null = null;
-          const result = await invokeSfpProviderTransport(reservation, () =>
+          const result = await invokeSfpOutscraperTransport(reservation, () =>
             executeSfpOutscraperDiscovery({
               businessId,
               businessName: frozenRequest.businessName,
@@ -783,7 +784,8 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
               async: true,
             }, {
               ...deps,
-              beforeRequest: () => assertCurrentSfpProviderReservation(reservation!),
+              budgetReference: {providerOperationId:reservation!.operationId},
+              beforeRequest: () => markSfpOutscraperDispatch(reservation!),
               onTaskSubmitted: async (task) => {
                 await persistOutscraperTaskSubmission({
                   task,
@@ -1790,10 +1792,11 @@ export async function processSfpOutscraperRetrievalTask(input: {
         `))[0];
         if (!persistedContactOperation) throw new Error("OUTSCRAPER_TASK_CONTACT_FENCE_LOST");
         if (!contactReservation.replayed) {
-          const contacts = await invokeSfpProviderTransport(contactReservation, () =>
+          const contacts = await invokeSfpOutscraperTransport(contactReservation, () =>
             performOutscraperLeadsAndContacts(domains, {
               fetchImpl: input.fetchImpl,
-              beforeRequest: () => assertCurrentSfpProviderReservation(contactReservation!),
+              budgetReference: {providerOperationId:contactReservation!.operationId},
+              beforeRequest: () => markSfpOutscraperDispatch(contactReservation!),
               recordCreditSignal: input.recordCreditSignal,
             }));
           if (!contacts.ok) throw new Error("OUTSCRAPER_LEADS_CONTACTS_HTTP_ERROR");

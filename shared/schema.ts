@@ -546,6 +546,7 @@ export const providerOperations = pgTable("provider_operations", {
   completedAt: timestamp("completed_at"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
+  index("provider_operations_outscraper_budget_idx").on(table.createdAt).where(sql`${table.provider}='outscraper'`),
   uniqueIndex("provider_operations_idempotency_schema_uidx").on(table.provider, table.idempotencyKey),
   uniqueIndex("provider_operations_provider_request_uidx").on(table.provider, table.providerRequestId)
     .where(sql`${table.providerRequestId} IS NOT NULL`),
@@ -1709,7 +1710,8 @@ export const cro03cStageOperations = pgTable("cro03c_stage_operations", {
   dispatchedAt: timestamp("dispatched_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [uniqueIndex("cro03c_stage_operation_identity_uidx").on(table.generationId, table.stageKey)]);
+}, (table) => [
+  index("cro03c_operations_outscraper_budget_idx").on(table.createdAt).where(sql`${table.provider}='outscraper'`),uniqueIndex("cro03c_stage_operation_identity_uidx").on(table.generationId, table.stageKey)]);
 
 export const cro03cDomainRequestLimits = pgTable("cro03c_domain_request_limits", {
   hostnameHash: text("hostname_hash").notNull(),
@@ -11897,3 +11899,17 @@ export const discoveryLane=pgTable("discovery_lane",{
 export const discoveryCoverage=pgTable("discovery_coverage",{
  id:uuid("id").primaryKey().defaultRandom(),definitionId:uuid("definition_id").notNull().references(()=>discoveryDefinitions.id),definitionRevision:integer("definition_revision").notNull(),areaType:text("area_type").notNull(),areaKey:text("area_key").notNull(),coveredThrough:timestamp("covered_through",{withTimezone:true}).notNull(),actorId:text("actor_id").notNull(),reference:text("reference"),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
 },t=>[index("discovery_coverage_exact_area_idx").on(t.definitionId,t.definitionRevision,t.areaType,t.areaKey,t.coveredThrough),check("discovery_coverage_definition_revision_check",sql`${t.definitionRevision}>0`)]);
+
+// Shared monetary authority; old discovery columns remain retained history.
+export const outscraperBudgetPolicy=pgTable("outscraper_budget_policy",{
+ id:boolean("id").primaryKey().default(true),limitMicros:integer("limit_micros").notNull().default(50000000),revision:integer("revision").notNull().default(1),
+ mapsPriceMicros:integer("maps_price_micros").notNull().default(3000),mapsQuoteExpiresAt:timestamp("maps_quote_expires_at",{withTimezone:true}).notNull().default(sql`'2026-12-18T00:00:00Z'`),
+ mapsQuoteEvidence:text("maps_quote_evidence").notNull().default("Published Google Maps base price, reviewed 2026-11-18: https://outscraper.com/pricing/"),
+ leadsPriceMicros:integer("leads_price_micros"),leadsPriceUnit:text("leads_price_unit"),leadsQuoteExpiresAt:timestamp("leads_quote_expires_at",{withTimezone:true}),leadsQuoteEvidence:text("leads_quote_evidence"),updatedBy:text("updated_by"),updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().defaultNow(),
+},t=>[check("outscraper_budget_policy_id_check",sql`${t.id} = true`),check("outscraper_budget_policy_limit_micros_check",sql`${t.limitMicros} BETWEEN 0 AND 50000000`),check("outscraper_budget_policy_revision_check",sql`${t.revision}>0`),check("outscraper_budget_policy_maps_price_micros_check",sql`${t.mapsPriceMicros}>=3000`),check("outscraper_budget_policy_leads_price_micros_check",sql`${t.leadsPriceMicros}>=3000`),check("outscraper_budget_policy_leads_price_unit_check",sql`${t.leadsPriceUnit} IN ('domain','contact')`)]);
+export const outscraperBudgetWindows=pgTable("outscraper_budget_windows",{
+ period:text("period").primaryKey(),legacyMicros:bigint("legacy_micros",{mode:"number"}).notNull().default(0),unknownOperations:integer("unknown_operations").notNull().default(0),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().defaultNow(),
+},t=>[check("outscraper_budget_windows_period_check",sql`${t.period} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'`),check("outscraper_budget_windows_legacy_micros_check",sql`${t.legacyMicros}>=0`),check("outscraper_budget_windows_unknown_operations_check",sql`${t.unknownOperations}>=0`)]);
+export const outscraperBudgetRequests=pgTable("outscraper_budget_requests",{
+ id:uuid("id").primaryKey().defaultRandom(),period:text("period").notNull().references(()=>outscraperBudgetWindows.period),service:text("service").notNull(),state:text("state").notNull().default("reserved"),maximumMicros:integer("maximum_micros").notNull(),quantity:integer("quantity").notNull(),priceMicros:integer("price_micros").notNull(),priceUnit:text("price_unit").notNull(),policyRevision:integer("policy_revision").notNull(),requestFingerprint:text("request_fingerprint").notNull(),providerOperationId:uuid("provider_operation_id").references(()=>providerOperations.id),cro03cOperationId:uuid("cro03c_operation_id").references(()=>cro03cStageOperations.id),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),dispatchedAt:timestamp("dispatched_at",{withTimezone:true}),
+},t=>[check("outscraper_budget_requests_service_check",sql`${t.service} IN ('maps','leads')`),check("outscraper_budget_requests_state_check",sql`${t.state} IN ('reserved','dispatched','not_dispatched')`),check("outscraper_budget_requests_maximum_micros_check",sql`${t.maximumMicros} BETWEEN 1 AND 50000000`),check("outscraper_budget_requests_quantity_check",sql`${t.quantity} BETWEEN 1 AND 100`),check("outscraper_budget_requests_price_micros_check",sql`${t.priceMicros}>=3000`),check("outscraper_budget_requests_price_unit_check",sql`${t.priceUnit} IN ('result','domain','contact')`),check("outscraper_budget_requests_request_fingerprint_check",sql`${t.requestFingerprint} ~ '^[0-9a-f]{64}$'`),check("outscraper_budget_request_owner_check",sql`${t.providerOperationId} IS NULL OR ${t.cro03cOperationId} IS NULL`),index("outscraper_budget_requests_period_idx").on(t.period,t.state),index("outscraper_budget_requests_provider_idx").on(t.providerOperationId),index("outscraper_budget_requests_cro03c_idx").on(t.cro03cOperationId)]);

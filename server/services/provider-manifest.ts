@@ -180,7 +180,7 @@ export const PROVIDER_SOURCE_MANIFEST = [
     timeoutMs: 60_000, retry: OUTSCRAPER_TASK_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,
     candidateFields: ["business_name", "website", "email", "phone", "address", "city", "state", "postal_code", "category", "owner_name", "owner_title"],
     redaction: STANDARD_REDACTION, testTransport: FETCH_TRANSPORT,
-    notes: "Maps result, Leads & Contacts contact, and task-poll request work are reserved in their declared units. Async request IDs are durably attributed and polled through SFP operation authority before results are accepted; repeated polls add no Maps result usage. Current GET documentation omits a completion timestamp and says expired results return Pending, so retention uses a conservative request-start/last-confirmed-pending lower-bound + 4h cutoff, distinct from the 24h submission deadline.",
+    notes: "All CRM Maps and Leads & Contacts purchases additionally pass the single outscraper-monthly-budget monetary authority at the common HTTP boundary. Existing unit counters are not dollars. Maps result, Leads & Contacts contact, and task-poll request work are reserved in their declared units. Async request IDs are durably attributed and polled through SFP operation authority before results are accepted; repeated polls add no Maps result usage. Current GET documentation omits a completion timestamp and says expired results return Pending, so retention uses a conservative request-start/last-confirmed-pending lower-bound + 4h cutoff, distinct from the 24h submission deadline.",
   },
   {
     id: "apify", capability: ["business_discovery"], billing: "paid_per_result", parser: "api",

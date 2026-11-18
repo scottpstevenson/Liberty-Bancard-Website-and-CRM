@@ -1,3 +1,4 @@
+import {withOutscraperMonthlyBudget,outscraperRequestFingerprint,type OutscraperBudgetReference,type CertificationOutscraperBudget} from '../outscraper-monthly-budget';
 import { storage } from "../../storage";
 import { createHash } from "node:crypto";
 import { assertProviderActivation } from "../provider-manifest";
@@ -65,6 +66,7 @@ export interface Cro03cOutscraperExecutionResult {
 }
 
 export interface Cro03cOutscraperExecutionOptions {
+  beforeRequest?: () => Promise<void>;
   /** Test-only injected transport. Production always uses global fetch. */
   readonly fetchOverride?: (url: string, init: RequestInit) => Promise<Response>;
 }
@@ -109,6 +111,9 @@ export interface OutscraperSearchResult {
 }
 
 export interface OutscraperSearchDependencies {
+  budgetReference?: OutscraperBudgetReference;
+  /** Only a fatal-egress-denied test runtime may provide fixture financial authority. */
+  certificationBudget?: CertificationOutscraperBudget;
   fetchImpl?: typeof fetch;
   /** Optional generic checkpoint, invoked adjacent to the outbound request. */
   beforeRequest?: () => Promise<void>;
@@ -357,9 +362,11 @@ export async function executeCro03cOutscraper(
       query: input.query, region: input.region, resultLimit: input.consideredResultLimit,
     }, {
       fetchImpl: (options.fetchOverride ?? fetch) as typeof fetch,
+      budgetReference: {generationId:context.generationId,stageKey:context.stageKey},
       // Must be checked after rate-limit wait and immediately before I/O.
       beforeRequest: async () => {
         await assertCro03cAuthorityBeforeIo(context);
+        await options.beforeRequest?.();
         authorityGranted = true;
       },
     });
@@ -420,12 +427,11 @@ export async function performOutscraperSearch(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60_000);
   try {
-    await deps.beforeRequest?.();
-    const response = await (deps.fetchImpl ?? fetch)(`${OUTSCRAPER_API_URL}${input.endpointVersion === "google-maps-v2" ? "/google-maps-search" : OUTSCRAPER_MAPS_SEARCH_PATH}?${params}`, {
+    const response = await withOutscraperMonthlyBudget({service:'maps',quantity:limit,reference:deps.budgetReference,fingerprint:outscraperRequestFingerprint(['maps',query,limit,input.region??'US'])},deps,()=>(deps.fetchImpl ?? fetch)(`${OUTSCRAPER_API_URL}${input.endpointVersion === "google-maps-v2" ? "/google-maps-search" : OUTSCRAPER_MAPS_SEARCH_PATH}?${params}`, {
       method: "GET",
       headers: { "X-API-KEY": apiKey, Accept: "application/json" },
       signal: controller.signal,
-    });
+    }));
     let data: any = null;
     try { data = await boundedOutscraperJson(response); } catch { data = null; }
     const providerReference = providerRequestReference(response, data);
@@ -609,11 +615,10 @@ export async function performOutscraperLeadsAndContacts(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60_000);
   try {
-    await deps.beforeRequest?.();
-    const response = await (deps.fetchImpl ?? fetch)(
+    const response = await withOutscraperMonthlyBudget({service:'leads',quantity:domains.length,reference:deps.budgetReference,fingerprint:outscraperRequestFingerprint(['leads',domains])},deps,()=>(deps.fetchImpl ?? fetch)(
       `${OUTSCRAPER_API_URL}${OUTSCRAPER_LEADS_CONTACTS_PATH}?${params}`,
       { method: "GET", headers: { "X-API-KEY": apiKey, Accept: "application/json" }, signal: controller.signal },
-    );
+    ));
     let body: any = null;
     try { body = await response.json(); } catch { body = null; }
     const providerReference = providerRequestReference(response, body);

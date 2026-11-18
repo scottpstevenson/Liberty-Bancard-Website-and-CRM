@@ -1,3 +1,4 @@
+import {readOutscraperMonthlyBudget,updateOutscraperMonthlyBudget} from '../services/outscraper-monthly-budget';
 import type {Express,Request,Response} from 'express';
 import {z} from 'zod';
 import {isDashboardUser,requireRole} from '../replit_integrations/auth';
@@ -13,10 +14,16 @@ export function registerScheduledDiscoveryRoutes(app:Express){
  const handle=(fn:(req:Request)=>Promise<any>)=>async(req:Request,res:Response)=>{
   res.setHeader('Cache-Control','no-store');try{res.json(await fn(req));}catch(e:any){
    if(e instanceof z.ZodError)return void res.status(400).json({message:e.issues[0].message});
-   if(/^DISCOVERY_|^SFP_PAID_BLOCKED/.test(e.message))return void res.status(/NOT_FOUND/.test(e.message)?404:409).json({message:e.message});
+   if(/^DISCOVERY_|^SFP_PAID_BLOCKED|^OUTSCRAPER_MONTHLY_/.test(e.message))return void res.status(/NOT_FOUND/.test(e.message)?404:409).json({message:e.message});
    serverError(res,e,'scheduled_discovery');
   }
  };
+ const quote=z.object({unitPriceMicros:z.number().int().min(3000).max(50000000),expiresAt:z.string().datetime(),evidence:z.string().trim().min(20).max(1000)}).strict();
+ app.get('/api/outscraper-budget',isDashboardUser,requireRole('admin','manager'),handle(()=>readOutscraperMonthlyBudget()));
+ app.put('/api/outscraper-budget',isDashboardUser,requireRole('admin'),handle(async req=>{
+  const input=z.object({monthlyBudgetUsd:z.number().min(0).max(50).multipleOf(0.01).optional(),mapsQuote:quote.optional(),leadsQuote:quote.extend({unit:z.enum(['domain','contact'])}).optional()}).strict().parse(req.body);
+  await updateOutscraperMonthlyBudget(actor(req),input);return readOutscraperMonthlyBudget();
+ }));
  app.get('/api/scheduled-discovery',isDashboardUser,requireRole('admin','manager'),handle(req=>discoveryStatus(z.string().max(100).parse(req.query.filter??''),z.coerce.number().int().min(1).max(1000).parse(req.query.page??1))));
  app.get('/api/scheduled-discovery/runs/:id',isDashboardUser,requireRole('admin','manager'),handle(req=>discoveryRunDetail(uuid.parse(req.params.id),z.coerce.number().int().min(0).max(100).parse(req.query.offset??0))));
  app.post('/api/scheduled-discovery/initialize',isDashboardUser,requireRole('admin'),handle(req=>initializeDiscoveryDefinitions(actor(req))));

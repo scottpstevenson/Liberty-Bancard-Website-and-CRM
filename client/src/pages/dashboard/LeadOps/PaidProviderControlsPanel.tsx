@@ -29,6 +29,10 @@ export function PaidProviderControlsPanel() {
     refetchInterval: 30_000,
   });
 
+  const outscraperBudgetQuery = useQuery<{limitMicros:number;committedMicros:number;remainingMicros:number|null;unknownOperations:number;enrichmentPricingReady:boolean}>({
+    queryKey:["/api/outscraper-budget"],staleTime:20_000,refetchInterval:30_000,
+  });
+
   const emergencyStopMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/lead-ops/pilot/emergency-stop-paid", { reason: "operator_emergency_stop" });
@@ -47,6 +51,19 @@ export function PaidProviderControlsPanel() {
 
   return (
     <div className="space-y-4" data-testid="paid-provider-controls-panel">
+    <section className="rounded-lg border bg-card p-4 space-y-2 text-sm" aria-label="CRM-wide Outscraper budget">
+      <h3 className="font-semibold">CRM-wide Outscraper monthly limit</h3>
+      {outscraperBudgetQuery.isLoading&&<p role="status">Reading the shared allowance…</p>}
+      {outscraperBudgetQuery.isError&&<p role="alert">Budget status unavailable. New purchases must pass the database guard.</p>}
+      {outscraperBudgetQuery.data&&<>
+        <p>${(outscraperBudgetQuery.data.limitMicros/1000000).toFixed(2)} maximum per calendar month · America/New_York</p>
+        <p>${(outscraperBudgetQuery.data.committedMicros/1000000).toFixed(2)} known maximum liability committed; {outscraperBudgetQuery.data.remainingMicros==null?"remaining allowance unavailable":`$${(outscraperBudgetQuery.data.remainingMicros/1000000).toFixed(2)} remaining`}.</p>
+        {outscraperBudgetQuery.data.unknownOperations>0&&<p role="alert">New purchases blocked: {outscraperBudgetQuery.data.unknownOperations} legacy operation(s) need accounting reconciliation.</p>}
+        {!outscraperBudgetQuery.data.enrichmentPricingReady&&<p>Leads &amp; Contacts purchases require a verified endpoint-specific price.</p>}
+      </>}
+      <p className="text-xs text-muted-foreground">Searches, previews and existing enrichment share this allowance. This is reserved liability, not an invoice total.</p>
+      <a className="underline underline-offset-2" href="/dashboard/lead-ops?tab=imports">Manage the shared Outscraper allowance</a>
+    </section>
     {/* Full telemetry snapshot */}
     <div className="rounded-lg border bg-card p-4 space-y-3">
       <h3 className="font-semibold text-sm">Paid provider controls &amp; emergency stop</h3>

@@ -7,6 +7,9 @@ description: Paid approval and paid limits were removed; non-attempt caches and 
 
 ## Current provider policy
 
+**2026-11-18 Outscraper exception:** Matt explicitly authorized a **$50/month ceiling across all CRM Outscraper usage**, including existing enrichment and Task 2161. That newer instruction supersedes the prior removal of monetary limits for Outscraper only. Use the shared transport-level database authority; do not revive the retired multi-provider ladder cap or change other providers. Preparation keeps new searches off, outbound paused and Publish separate. The new cap is not live merely because source is committed. Unknown legacy liabilities and unverified endpoint prices remain explicit holds; never invent historical prices or release ambiguous operations to make room.
+
+
 The user states: "we removed paid approval and paid limits from providers."
 Do not restore paid approval or paid limits as part of fixing stale CI checks.
 

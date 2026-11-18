@@ -42,6 +42,8 @@ export interface SfpApolloDiscoveryInput {
 }
 
 export interface SfpProviderRequestCheckpoint {
+  budgetReference?: import("../outscraper-monthly-budget").OutscraperBudgetReference;
+  certificationBudget?: import("../outscraper-monthly-budget").CertificationOutscraperBudget;
   beforeRequest?: () => Promise<void>;
   dispatchApolloRequest?: ApolloRequestDispatch;
   recordCreditSignal?: (input: { httpStatus: number; message?: string | null; failure: boolean }) => Promise<void>;

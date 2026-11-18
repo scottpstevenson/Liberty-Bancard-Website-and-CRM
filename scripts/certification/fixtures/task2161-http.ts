@@ -39,6 +39,15 @@ export async function verifyDiscoveryHttp(pool:Pool){
    check((await request('/api/scheduled-discovery'+path,{method,headers:{'content-type':'application/json'},body:JSON.stringify(body)},admin.jar)).status,403,`Admin missing CSRF denied ${path}`);
   }
   check((await request('/api/scheduled-discovery/initialize',{method:'POST',headers:{'content-type':'application/json','x-csrf-token':'wrong'},body:'{}'},admin.jar)).status,403,'Mismatched CSRF denied');
+  check((await request('/api/outscraper-budget')).status,401,'Anonymous financial status denied');
+  check((await request('/api/outscraper-budget',{},manager.jar)).status,200,'Manager can read shared budget');
+  check((await request('/api/outscraper-budget',{},agent.jar)).status,403,'Agent cannot read privileged financial status');
+  const budgetPut=(who:typeof admin,body:any,csrf=who.token)=>request('/api/outscraper-budget',{method:'PUT',headers:{'content-type':'application/json','x-csrf-token':csrf},body:JSON.stringify(body)},who.jar);
+  check((await budgetPut(manager,{monthlyBudgetUsd:50})).status,403,'Manager cannot change shared financial authority');
+  check((await budgetPut(admin,{monthlyBudgetUsd:50},'wrong')).status,403,'Financial change requires real CSRF');
+  check((await budgetPut(admin,{monthlyBudgetUsd:50.01})).status,400,'Authorized monthly maximum cannot be raised above $50');
+  check((await budgetPut(admin,{monthlyBudgetUsd:50,enabled:true})).status,400,'Budget mutation cannot activate searches');
+  check((await budgetPut(admin,{monthlyBudgetUsd:50})).status,200,'Admin can prepare the shared cap without starting searches');
   const send=(path:string,method:string,body:any)=>request('/api/scheduled-discovery'+path,{method,headers:{'content-type':'application/json','x-csrf-token':admin.token,'Idempotency-Key':randomUUID()},body:JSON.stringify(body)},admin.jar);
   check((await send('/initialize','POST',{})).status,200,'Admin valid CSRF mutation accepted');
   check((await send('/schedule','PUT',{enabled:false,dailyDispatchCount:1,repeatDays:30,timezone:'invalid/zone'})).status,400,'Strict timezone rejected');

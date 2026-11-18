@@ -757,8 +757,7 @@ export async function executeCro03cLiveProvider(
         sourceId: "outscraper", caller: CALLER, explicitPaidApproval: true,
       });
       await assertCro03cAuthorityBeforeIo(context);
-      await dependencies.beforeTransportInvocation?.();
-      const execution = await executeCro03cOutscraper(context, input);
+      const execution = await executeCro03cOutscraper(context, input,{beforeRequest:dependencies.beforeTransportInvocation});
 
       // ── MI-05: extract org-level candidate evidence from Outscraper ──────
       let outscraperCandidatesAttempted = 0;

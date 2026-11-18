@@ -175,6 +175,8 @@ export function applyCertificationProviderDenyBoundary(
     return recordBlockedAttempt(url.origin, "Blocked certification fetch origin");
   }) as typeof fetch;
 
+  Object.defineProperty(globalThis.fetch,Symbol.for('liberty.certification.fatal-egress-denied'),{value:options.fatal===true});
+
   http.request = ((...args: Parameters<typeof http.request>) => {
     assertLoopbackRequest(args, "http:");
     return originalHttpRequest(...args);

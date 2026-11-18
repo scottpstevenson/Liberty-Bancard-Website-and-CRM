@@ -7,6 +7,12 @@ import {
 } from "../server/services/sdr/sfp-provider-contracts";
 import { PROVIDER_SOURCE_MANIFEST, assertValidProviderManifest } from "../server/services/provider-manifest";
 
+// Pure codec/transport fixtures have no database. Financial authority is covered
+// by the separate real-PG global budget certification, never inferred from these mocks.
+process.env.NODE_ENV='test';process.env.VG_PROVIDER_DENY_MODE='1';
+const {applyCertificationProviderDenyBoundary}=await import('./certification-provider-deny');
+applyCertificationProviderDenyBoundary({fatal:true});
+const certificationBudget=async()=>({id:'codec-only',markDispatched:async()=>{},releaseNotDispatched:async()=>{}});
 process.env.DATABASE_URL ??= "postgres://offline-test:offline-test@127.0.0.1:1/offline_test";
 process.env.APOLLO_API_KEY = "fixture-apollo-key";
 process.env.OUTSCRAPER_API_KEY = "fixture-outscraper-key";
@@ -387,6 +393,7 @@ async function testOutscraperAsyncAndContacts() {
     resultLimit: 2,
     async: true,
   }, {
+    certificationBudget,
     fetchImpl: async (input) => {
       const url = String(input);
       requests.push(url);
@@ -409,6 +416,7 @@ async function testOutscraperAsyncAndContacts() {
   assert.equal(submittedTaskId, "outs-task-123");
 
   const completed = await performOutscraperTaskResults("outs-task-123", {
+    certificationBudget,
     fetchImpl: async (input) => {
       const url = String(input);
       requests.push(url);
@@ -440,6 +448,7 @@ async function testOutscraperAsyncAndContacts() {
   assert.equal(completed.billing?.unit, "result");
 
   const expiredResponseLooksPending = await performOutscraperTaskResults("outs-task-123", {
+    certificationBudget,
     fetchImpl: async (input) => {
       requests.push(String(input));
       return jsonResponse({ id: "outs-task-123", status: "Pending" });
@@ -457,6 +466,7 @@ async function testOutscraperAsyncAndContacts() {
   assert.equal(noLateDeadlineExtension.resultsExpiresAt, "2026-07-20T15:00:00.000Z");
 
   const contactResult = await performOutscraperLeadsAndContacts(["example.com"], {
+    certificationBudget,
     fetchImpl: async (input) => {
       const url = String(input);
       requests.push(url);

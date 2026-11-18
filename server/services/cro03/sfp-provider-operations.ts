@@ -1,4 +1,3 @@
-import {discoveryMaximumLiability,reserveDiscoveryMonthlyBudget} from '../scheduled-discovery/budget';
 /**
  * Durable paid-provider boundary for the independent SFP program.
  *
@@ -2695,6 +2694,21 @@ export async function assertCurrentSfpStageFinalization(
 }
 
 /** Final fenced invocation used by cohort-bound paid provider paths. */
+/** Outscraper's shared financial reservation must precede the native I/O
+ * marker. Its actual adapter calls markSfpOutscraperDispatch at that boundary.
+ * The existing generic invocation remains unchanged for other callers.
+ */
+export async function invokeSfpOutscraperTransport<T>(reservation:SfpProviderReservation,transport:()=>Promise<T>):Promise<T>{
+ if(reservation.provider!=='outscraper')throw new Error('SFP_OUTSCRAPER_PROVIDER_REQUIRED');
+ await assertCurrentSfpProviderReservation(reservation);
+ return transport();
+}
+export async function markSfpOutscraperDispatch(reservation:SfpProviderReservation):Promise<void>{
+ if(reservation.provider!=='outscraper')throw new Error('SFP_OUTSCRAPER_PROVIDER_REQUIRED');
+ await markSfpProviderOperationDispatchBoundary(reservation);
+ await assertCurrentSfpProviderReservation(reservation);
+}
+
 export async function invokeSfpProviderTransport<T>(
   reservation: SfpProviderReservation,
   transport: () => Promise<T>,
@@ -3252,7 +3266,6 @@ export async function markSearchProviderDispatchBoundary(r:SfpSearchReservation)
     AND j.owner_token=${r.runtime.ownerToken}::uuid AND j.process_identity=${r.runtime.processIdentity}
     AND j.lease_expires_at>clock_timestamp() AND j.revoked_at IS NULL
    FOR UPDATE OF o,j FOR SHARE OF pc`))[0];if(!allowed)throw new Error('DISCOVERY_DISPATCH_AUTHORITY_LOST');
-  if(!r.poll)await reserveDiscoveryMonthlyBudget(tx,r.runId,discoveryMaximumLiability(allowed.unit_price_micros==null?null:Number(allowed.unit_price_micros),allowed.unit_price_unit,Number(run.snapshot.result_limit)));
   const receipt={schema:'sfp-search-dispatch-v1',operationId:r.operationId,runId:r.runId,laneToken:r.laneToken,ownerEpoch:r.runtime.ownerEpoch,artifactSha:r.runtime.artifactSha,poll:r.poll};
   const receiptJson=JSON.stringify(receipt),hash=createHash('sha256').update(receiptJson).digest('hex');
   const marked=rows(await tx.execute(sql`UPDATE provider_attempts SET outcome='ambiguous',dispatch_marked_at=clock_timestamp()

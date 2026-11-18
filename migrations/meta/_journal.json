@@ -2765,6 +2765,13 @@
       "when": 1800400330005,
       "tag": "0391_contact_scoring_active_index",
       "breakpoints": true
+    },
+    {
+      "idx": 395,
+      "version": "7",
+      "when": 1800400330006,
+      "tag": "0392_crm_outscraper_monthly_budget",
+      "breakpoints": true
     }
   ]
 }
