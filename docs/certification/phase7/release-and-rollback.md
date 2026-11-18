@@ -5,7 +5,7 @@ This is a local branch deliverable. There is no merge, push, deployment, product
 ## Required review before publication
 
 1. Review migration `0387_phase7_conversion_integrity.sql`, matching shared models and the generated native-object entry. Historical migrations are unchanged; do not use schema push to stamp history.
-2. Resolve the recorded baseline gate failures and run the required full roster. A green selected-suite result is not a release approval.
+2. Verify the implemented SendGrid integration against the actual runtime using sendgrid-feedback.md. Local signatures/API responses are fixtures; live scopes, webhook settings, SMTP key ownership and reader continuity are not yet certified. Resolve the recorded baseline gate failures and run the required full roster. A green selected-suite result is not a release approval.
 3. Refresh signed-in production package/content inventory and distinct eligible-business volumes through the existing owners. The saved Kernel connection currently reports NEEDS_AUTH. The three wording/design files are provisional review candidates, not a certified top-three selection.
 4. Review each current paired SFP pin and each CR06 draft family; inspect all refreshed touches and both subject arms with the shared branded preview. Missing fields/footer/reader/provider evidence are holds. Existing website revisions 7–10 are unrelated approvals.
 5. Publish only through the established reviewed deployment process, with a recorded candidate SHA/build identity and database diff. No live activation is implied.

@@ -1,0 +1,55 @@
+
+> rest-express@1.0.0 check
+> tsc
+
+client/src/components/work/SelectedTaskPanel.test.tsx(62,9): error TS2801: This condition will always return true since this 'Promise<void>' is always defined.
+client/src/pages/dashboard/MerchantApplicationsList.tsx(1172,17): error TS2322: Type '"link"' is not assignable to type '"default" | "destructive" | "outline" | "secondary" | "ghost" | null | undefined'.
+server/db.ts(174,70): error TS2339: Property 'getTransactionConfigSQL' does not exist on type 'NodePgTransaction<Record<string, unknown>, TablesRelationalConfig>'.
+server/routes/admin.ts(5905,36): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+server/routes/admin.ts(5908,60): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+server/routes/live-chat.ts(108,55): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+server/routes/live-chat.ts(158,55): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+server/routes/statement-review.ts(152,46): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+server/routes/statement-review.ts(158,63): error TS18048: 'review' is possibly 'undefined'.
+server/routes/statement-review.ts(168,48): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+server/routes/statement-review.ts(189,11): error TS18048: 'review' is possibly 'undefined'.
+server/routes/statement-review.ts(191,46): error TS18048: 'review' is possibly 'undefined'.
+server/routes/statement-review.ts(202,11): error TS18048: 'review' is possibly 'undefined'.
+server/routes/statement-review.ts(204,53): error TS18048: 'review' is possibly 'undefined'.
+server/routes/statement-review.ts(212,11): error TS18048: 'review' is possibly 'undefined'.
+server/routes/statement-review.ts(214,49): error TS18048: 'review' is possibly 'undefined'.
+server/routes/statement-review.ts(255,35): error TS18048: 'existing' is possibly 'undefined'.
+server/routes/statement-review.ts(256,98): error TS18048: 'existing' is possibly 'undefined'.
+server/routes/statement-review.ts(258,30): error TS18048: 'existing' is possibly 'undefined'.
+server/routes/statement-review.ts(269,11): error TS18048: 'existing' is possibly 'undefined'.
+server/routes/statement-review.ts(269,33): error TS18048: 'existing' is possibly 'undefined'.
+server/routes/statement-review.ts(272,27): error TS18048: 'existing' is possibly 'undefined'.
+server/routes/statement-review.ts(273,29): error TS18048: 'existing' is possibly 'undefined'.
+server/routes/statement-review.ts(276,45): error TS18048: 'existing' is possibly 'undefined'.
+server/routes/statement-review.ts(281,14): error TS18048: 'existing' is possibly 'undefined'.
+server/routes/statement-review.ts(281,38): error TS18048: 'existing' is possibly 'undefined'.
+server/routes/statement-review.ts(285,23): error TS18048: 'existing' is possibly 'undefined'.
+server/routes/statement-review.ts(286,32): error TS18048: 'existing' is possibly 'undefined'.
+server/routes/statement-review.ts(294,64): error TS18048: 'existing' is possibly 'undefined'.
+server/routes/statement-review.ts(306,17): error TS18048: 'existing' is possibly 'undefined'.
+server/routes/statement-review.ts(307,33): error TS18048: 'existing' is possibly 'undefined'.
+server/routes/statement-review.ts(329,11): error TS18048: 'review' is possibly 'undefined'.
+server/routes/statement-review.ts(331,46): error TS18048: 'review' is possibly 'undefined'.
+server/routes/statement-review.ts(340,25): error TS18048: 'review' is possibly 'undefined'.
+server/routes/statement-review.ts(342,24): error TS18048: 'review' is possibly 'undefined'.
+server/routes/statement-review.ts(343,48): error TS18048: 'review' is possibly 'undefined'.
+server/routes/statement-review.ts(359,81): error TS18048: 'review' is possibly 'undefined'.
+server/routes/statement-review.ts(370,31): error TS18048: 'review' is possibly 'undefined'.
+server/routes/statement-review.ts(370,57): error TS18048: 'review' is possibly 'undefined'.
+server/services/deal-boarding-outbox-worker.ts(711,48): error TS2345: Argument of type '{ dealId: number; legalBusinessName: string | undefined; dba: string | undefined; ein: string | undefined; businessType: string | undefined; businessAddress: string | undefined; ... 24 more ...; providerIdempotencyKey: string | undefined; }' is not assignable to parameter of type 'MerchantProfile'.
+  Types of property 'legalBusinessName' are incompatible.
+    Type 'string | undefined' is not assignable to type 'string'.
+      Type 'undefined' is not assignable to type 'string'.
+server/services/merchant-application-outbox-worker.ts(398,5): error TS2322: Type 'number | null' is not assignable to type 'number'.
+  Type 'null' is not assignable to type 'number'.

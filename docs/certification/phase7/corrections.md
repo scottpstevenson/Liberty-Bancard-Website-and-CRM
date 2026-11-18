@@ -15,3 +15,5 @@
 - Current pilot delays 0/3/5 are relative (approximately day 0/3/8); no unapproved cadence rewrite. Inventory all installed owners, not only seed copy. Rank distinct eligible businesses; initial three are volume-based pilots, never conversion winners.
 - Public derivative pipeline already exists; mobile 320px AVIFs load after lazy-image scroll. Preserve provenance; no false broken-image report before scroll.
 - Explicit report deadlines and cache/snapshot semantics; no provider calls on report GET. Baseline manifest and BT-12 failures must be repaired with effective assertions.
+
+- SendGrid is the confirmed provider. Verify ECDSA over original raw bytes, exact signed message/recipient crosswalk, same-account SMTP key and subscription metadata, fully drained mailbox generation, and forward bounded coverage through retry grace. Require signed terminal evidence per accepted exposure; settings alone never certify missing feedback as zero. Freeze the display name and hash the exact composed SMTP From header.

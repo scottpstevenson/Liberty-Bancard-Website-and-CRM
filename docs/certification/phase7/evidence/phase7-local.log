@@ -1,0 +1,833 @@
+SFP pre-deploy: 5 exact selected suite(s); each gets a fresh private DB/Redis/port.
+
+══ Isolated suite: scripts/test-phase7-contracts.ts ══
+[DB Migrate] Applied canonical 0109_fearless_starhawk snapshot to empty database.
+[DB Migrate] Completed fresh 0109 snapshot with 0076_outbound_launch_foundation.
+[DB Migrate] Completed fresh 0109_fearless_starhawk with 0106_deferred_ghl_enrollments.
+[DB Migrate] Baselined 109 pre-existing migration(s) — only new migrations will be applied.
+[DB Migrate] All Drizzle journal migrations up to date.
+[DB Migrate] Phase 3 preconditions verified (0 conflicts, 0 legacy rows). Applying 0054_sla_task_stalling_unique_index...
+[DB Migrate] Phase 3 index 'tasks_sla_stalling_active_unique' applied successfully. SLA worker will use conflict-safe ON CONFLICT path.
+[DB Migrate] Test schema complete; optional Knowledge content/embedding bootstrap not invoked.
+Bounded disposable suite scripts/test-phase7-contracts.ts: DB=test_sfp2060_test_phase7_contracts_ts_ee3c12a3fa98 (fresh migrated DB), RedisPrefix=ci_sfp2060_af5e080a1a9ca0776e076c780974143d_, owned HTTP port=38383 (server not required)
+
+  ✓ RELEASE_SHA matches checked-out tested commit: 720f06d968b306578dc956d7c35241316342be1f
+  ✓ MERCHANT_DATA_ENCRYPTION_KEY present and valid (value not printed)
+
+════════════════════════════════════════════════════════════
+ Liberty Bancard — Pre-Deploy Launch Gate
+════════════════════════════════════════════════════════════
+  Date: 2026-11-18T01:35:59.813Z
+  Server: http://127.0.0.1:38383
+  Scope: 1 exact suite(s) selected from 299 mandatory roster entries
+    • scripts/test-phase7-contracts.ts
+  HTTP test base: http://127.0.0.1:38383
+
+  ⚠  This gate makes NO real provider calls.
+  ⚠  Global outbound pause is verified before and after every suite.
+
+
+────────────────────────────────────────────────────────────
+ Pre-flight: outbound pause state
+────────────────────────────────────────────────────────────
+(node:41531) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+  [seed] outboundGlobalPaused=true seeded (fail-closed default)
+  [seed] emailChannelPaused=true seeded (fail-closed default)
+  [seed] smsChannelPaused=true seeded (fail-closed default)
+  [seed] coldEmailChannelPaused=true seeded (fail-closed default)
+  ✓ outboundGlobalPaused=true confirmed before suite run
+
+────────────────────────────────────────────────────────────
+ Static scan: outboundGlobalPaused in all outbound workers
+────────────────────────────────────────────────────────────
+  ✓ services/ghl-workflows.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/inbound-acknowledgement.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/launch-readiness-full.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/partner-approval-delivery.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/post-enrichment-worker.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/provider-credit-alert.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/sequence-worker.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/sfp-seed-test.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/underwriting-checklist-service.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/winback-outreach-engine.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ All 10 discovered outbound file(s) have a recognised pause gate (112 files explicitly exempted)
+
+────────────────────────────────────────────────────────────
+ Running suites
+────────────────────────────────────────────────────────────
+
+▶  Phase 7 Conversion Contracts
+Phase 7 contracts: 64 behavior checks passed; zero external effects.
+   ✓ exit=0  time=1.5s  pause-after=true ✓
+
+▶  Isolated Pause State-Machine test (opt-in)
+   SKIPPED — INTEGRATION_TESTS_OPT_IN is not set.
+   To run: set NODE_ENV=test TEST_DATABASE_URL=<test-db> TEST_REDIS_PREFIX=<prefix>
+           INTEGRATION_TESTS_OPT_IN=1 npx tsx scripts/pre-deploy.ts
+
+────────────────────────────────────────────────────────────
+ External provider configuration (non-blocking)
+────────────────────────────────────────────────────────────
+
+  [EMAIL]
+  ○ GOOGLE_CLIENT_ID                   not set — Gmail OAuth client ID (staff transactional sends)
+  ○ GOOGLE_CLIENT_SECRET               not set — Gmail OAuth client secret
+  ○ SMTP_HOST                          not set — SMTP host (cold-email fallback; optional when GHL configured)
+  ○ SMTP_USER                          not set — SMTP username (optional when GHL configured)
+  ○ SMTP_PASS                          not set — SMTP password (optional when GHL configured)
+
+  [GHL]
+  ○ GHL_PRIVATE_INTEGRATION_TOKEN      not set — GHL Private Integration Token
+  ○ GHL_LOCATION_ID                    not set — GHL location ID
+  ○ GHL_WEBHOOK_SECRET                 not set — GHL webhook signing secret
+
+  [OPENAI]
+  ✓ OPENAI_API_KEY                     SET — OpenAI API key
+
+  [SENDER-DOMAIN]
+  ○ APP_URL                            not set — APP_URL (required for unsubscribe links in emails)
+  ○ SENDER_DOMAIN_SPF_VERIFIED         not set — Sender domain SPF/DKIM verified (manual check)
+
+  [A2P]
+  ○ A2P_REGISTRATION_ID                not set — A2P 10DLC registration ID (required for SMS sends)
+  ○ GHL_PHONE_NUMBER_ID                not set — GHL phone number ID (A2P-registered)
+
+  [INFRA]
+  ✓ REDIS_URL                          SET — REDIS_URL (production BullMQ durability)
+
+  ⚠ 12 provider config item(s) not set.
+    These are NOT test failures — configure before first live traffic.
+
+════════════════════════════════════════════════════════════
+ Pre-Deploy Gate Results
+════════════════════════════════════════════════════════════
+
+  Suites:  1/1 executed and passed
+  Executed failures: 0; delegated/unverified: 0; optional skipped: 0; explicit opt-in skipped: 0
+  Gate-control failures: 0
+  Pause state: TRUE ✓ after all suites
+  External config: 2/14 set
+  ✓ Phase 7 Conversion Contracts (executed_pass)
+
+  ✓ Gate result written to system_settings.pre_deploy_last_result
+✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).
+
+   The application is NOT deployed automatically.
+   Review external config warnings above before first live traffic.
+
+
+══ Isolated suite: scripts/test-phase7-integration.ts ══
+[DB Migrate] Applied canonical 0109_fearless_starhawk snapshot to empty database.
+[DB Migrate] Completed fresh 0109 snapshot with 0076_outbound_launch_foundation.
+[DB Migrate] Completed fresh 0109_fearless_starhawk with 0106_deferred_ghl_enrollments.
+[DB Migrate] Baselined 109 pre-existing migration(s) — only new migrations will be applied.
+[DB Migrate] All Drizzle journal migrations up to date.
+[DB Migrate] Phase 3 preconditions verified (0 conflicts, 0 legacy rows). Applying 0054_sla_task_stalling_unique_index...
+[DB Migrate] Phase 3 index 'tasks_sla_stalling_active_unique' applied successfully. SLA worker will use conflict-safe ON CONFLICT path.
+[DB Migrate] Test schema complete; optional Knowledge content/embedding bootstrap not invoked.
+Bounded disposable suite scripts/test-phase7-integration.ts: DB=test_sfp2060_test_phase7_integration_ts_2230541f1f30 (fresh migrated DB), RedisPrefix=ci_sfp2060_f79c5dc7ca95e83fcaea3b990e3426c9_, owned HTTP port=42987 (server not required)
+
+  ✓ RELEASE_SHA matches checked-out tested commit: 720f06d968b306578dc956d7c35241316342be1f
+  ✓ MERCHANT_DATA_ENCRYPTION_KEY present and valid (value not printed)
+
+════════════════════════════════════════════════════════════
+ Liberty Bancard — Pre-Deploy Launch Gate
+════════════════════════════════════════════════════════════
+  Date: 2026-11-18T01:36:10.320Z
+  Server: http://127.0.0.1:42987
+  Scope: 1 exact suite(s) selected from 299 mandatory roster entries
+    • scripts/test-phase7-integration.ts
+  HTTP test base: http://127.0.0.1:42987
+
+  ⚠  This gate makes NO real provider calls.
+  ⚠  Global outbound pause is verified before and after every suite.
+
+
+────────────────────────────────────────────────────────────
+ Pre-flight: outbound pause state
+────────────────────────────────────────────────────────────
+(node:41620) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+  [seed] outboundGlobalPaused=true seeded (fail-closed default)
+  [seed] emailChannelPaused=true seeded (fail-closed default)
+  [seed] smsChannelPaused=true seeded (fail-closed default)
+  [seed] coldEmailChannelPaused=true seeded (fail-closed default)
+  ✓ outboundGlobalPaused=true confirmed before suite run
+
+────────────────────────────────────────────────────────────
+ Static scan: outboundGlobalPaused in all outbound workers
+────────────────────────────────────────────────────────────
+  ✓ services/ghl-workflows.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/inbound-acknowledgement.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/launch-readiness-full.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/partner-approval-delivery.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/post-enrichment-worker.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/provider-credit-alert.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/sequence-worker.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/sfp-seed-test.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/underwriting-checklist-service.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/winback-outreach-engine.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ All 10 discovered outbound file(s) have a recognised pause gate (112 files explicitly exempted)
+
+────────────────────────────────────────────────────────────
+ Running suites
+────────────────────────────────────────────────────────────
+
+▶  Phase 7 Conversion Integration
+[Phase 7 integration] disposable Redis namespace confirmed: ci_sfp2060_f79c5dc7ca95e83fcaea3b990e3426c9_
+[Phase 7 integration] disposable database confirmed: test_sfp2060_test_phase7_integration_ts_2230541f1f30
+[DB Migrate] All Drizzle journal migrations up to date.
+[DB Migrate] Phase 3 index 'tasks_sla_stalling_active_unique' already present.
+[DB Migrate] Test schema complete; optional Knowledge content/embedding bootstrap not invoked.
+[DB Migrate] All Drizzle journal migrations up to date.
+[DB Migrate] Phase 3 index 'tasks_sla_stalling_active_unique' already present.
+[DB Migrate] Test schema complete; optional Knowledge content/embedding bootstrap not invoked.
+✓ fresh migration installs all native guards; harness replay retains them
+✓ direct additive SQL replay is idempotent
+[NativeObjects] phase7_conversion_integrity@0387: skipped_locked
+[NativeObjects] phase7_conversion_integrity@0387: already_current
+✓ concurrent native reconciler replicas retain guards
+{"event":"db:transaction_query","connectionId":"92c7ff73-2275-41e2-9f21-16ca865e376a","backendId":41665,"backendIdSource":"protocol","protocolBackendId":41665,"checkoutId":"4138b987-4a4c-42ef-8a39-3e625ec3becd","correlationId":null,"normalizedRoute":null,"phase":null,"queryHash":"b9684169cc12f510","queryKind":"advisory_lock","executionMs":6.342213999999785,"sqlState":"P0001","transactionOpen":true,"failure":{"causes":[{"sqlState":"P0001","phase":null,"reasonCode":null,"deadlockEdges":[]}]},"pool":{"total":1,"idle":0,"waiting":0},"ts":"2026-11-18T01:36:13.377Z"}
+{"event":"db:transaction_query","connectionId":"92c7ff73-2275-41e2-9f21-16ca865e376a","backendId":41665,"backendIdSource":"protocol","protocolBackendId":41665,"checkoutId":"4138b987-4a4c-42ef-8a39-3e625ec3becd","correlationId":null,"normalizedRoute":null,"phase":null,"queryHash":"b9684169cc12f510","queryKind":"advisory_lock","executionMs":5.377038000000084,"sqlState":"P0001","transactionOpen":true,"failure":{"causes":[{"sqlState":"P0001","phase":null,"reasonCode":null,"deadlockEdges":[]}]},"pool":{"total":1,"idle":0,"waiting":0},"ts":"2026-11-18T01:36:13.385Z"}
+✓ canonical source preview establishes fixture linkage
+✓ fixture uses the guarded canonical linking owner
+✓ approved subject-only experiment freezes through owner
+✓ identical design is idempotent
+✓ SendGrid coverage owner verifies read-only provider settings, SMTP account ownership and actual complete mailbox state
+✓ concurrent workers retain one business allocation
+✓ signed pre-receipt observation is retained without inventing exposure
+✓ failed transport is not exposure
+✓ failed-first successful-retry and receipt replay count once
+✓ retained signed observation repairs after definitive receipt without rewriting its original receipt
+✓ identical signed event replays without duplicate outcomes
+✓ SendGrid ID without SMTP ID resolves only through an exact signed account/recipient crosswalk
+✓ foreign recipient cannot borrow a valid SendGrid message relation
+✓ a healthy current probe never fabricates coverage of the future experiment horizon
+{"event":"db:transaction_query","connectionId":"d8ea2a31-9f46-4595-aa78-eba4bf6ef407","backendId":41670,"backendIdSource":"protocol","protocolBackendId":41670,"checkoutId":"40fb8aef-2c53-47a1-8c85-971571beb8a7","correlationId":null,"normalizedRoute":null,"phase":null,"queryHash":"7f63369cbf2e1f17","queryKind":"query","executionMs":0.49352700000008554,"sqlState":"P0001","transactionOpen":false,"failure":{"causes":[{"sqlState":"P0001","phase":null,"reasonCode":null,"deadlockEdges":[]}]},"pool":{"total":3,"idle":2,"waiting":0},"ts":"2026-11-18T01:36:13.983Z"}
+{"event":"db:connection_release","connectionId":"d8ea2a31-9f46-4595-aa78-eba4bf6ef407","backendId":41670,"backendIdSource":"protocol","protocolBackendId":41670,"checkoutId":"40fb8aef-2c53-47a1-8c85-971571beb8a7","correlationId":null,"normalizedRoute":null,"phase":null,"acquireWaitMs":0.034627999999884196,"executionMs":0.49352700000008554,"checkoutDurationMs":0.7572759999998198,"transactionOpen":false,"sqlState":"P0001","lastQuery":{"queryHash":"7f63369cbf2e1f17","queryKind":"query","phase":null},"pool":{"total":3,"idle":2,"waiting":0},"ts":"2026-11-18T01:36:13.983Z"}
+[SendLog] definitive receipt persistence unavailable; reconcile before retry Error: SEND_RECEIPT_PROVIDER_ID_CONFLICT
+    at markSendSent (/workspace/work/phase7-implementation/server/services/outbound-send-log.ts:303:121)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async waitForActual (node:assert:644:5)
+    at async Function.rejects (node:assert:767:25)
+    at async <anonymous> (/workspace/work/phase7-implementation/scripts/test-phase7-integration.ts:522:3)
+✓ authenticated mailbox receipt binds exact account, recipient and RFC message
+✓ foreign mailbox receipt remains unlinked
+✓ automated reply remains diagnostic
+✓ review of a real receipt produces one qualified success, without a new exposure
+✓ expired evaluator cannot insert or overwrite a snapshot after recovery
+✓ sample, maturity and telemetry gates hold without winner
+✓ manual evaluation command replays its immutable result
+✓ stop is audited and idempotent
+✓ signed receipt crosses frozen guardrail and atomically stops experimental dispatch
+✓ all seven ordered stages reconcile to one business sales journey
+✓ drilldown and chart share the exact population
+✓ full cursor export has header and the complete journey
+{"event":"db:transaction_query","connectionId":"593f8b0d-cae4-43a0-8866-dceb1d8e2a1e","backendId":41671,"backendIdSource":"protocol","protocolBackendId":41671,"checkoutId":"07c01de9-8e3d-4d36-9487-1f8546cdfefa","correlationId":null,"normalizedRoute":null,"phase":null,"queryHash":"02e4d87e5569f4aa","queryKind":"query","executionMs":0.5494090000001961,"sqlState":"P0001","transactionOpen":false,"failure":{"causes":[{"sqlState":"P0001","phase":null,"reasonCode":null,"deadlockEdges":[]}]},"pool":{"total":2,"idle":1,"waiting":0},"ts":"2026-11-18T01:36:14.222Z"}
+{"event":"db:connection_release","connectionId":"593f8b0d-cae4-43a0-8866-dceb1d8e2a1e","backendId":41671,"backendIdSource":"protocol","protocolBackendId":41671,"checkoutId":"07c01de9-8e3d-4d36-9487-1f8546cdfefa","correlationId":null,"normalizedRoute":null,"phase":null,"acquireWaitMs":0.035653000000365864,"executionMs":0.5494090000001961,"checkoutDurationMs":0.8587400000001253,"transactionOpen":false,"sqlState":"P0001","lastQuery":{"queryHash":"02e4d87e5569f4aa","queryKind":"query","phase":null},"pool":{"total":2,"idle":1,"waiting":0},"ts":"2026-11-18T01:36:14.222Z"}
+✓ rolled-back business transaction leaves no milestone
+[FunnelMetrics] Aggregating metrics for 2026-11-01...
+[FunnelMetrics] Aggregated 3 metric rows for 2026-11-01
+✓ numeric daily rollup includes the full 25-hour Eastern DST day without string concatenation [{"vertical":null,"state":null,"source":null,"found":2,"enriched":2},{"vertical":"Healthcare","state":"FL","source":"import","found":1,"enriched":1},{"vertical":"Healthcare","state":"GA","source":"discovery","found":1,"enriched":1}]
+✓ retained enrichment totals use the exact vertical/state/source grain
+[FunnelMetrics] Aggregating metrics for 2026-11-01...
+{"event":"db:transaction_query","connectionId":"92c7ff73-2275-41e2-9f21-16ca865e376a","backendId":41665,"backendIdSource":"protocol","protocolBackendId":41665,"checkoutId":"94ae2e09-7e3e-4bd3-aa86-e92962a35513","correlationId":null,"normalizedRoute":null,"phase":null,"queryHash":"3d307a33ed2697e3","queryKind":"query","executionMs":1.0348920000001272,"sqlState":"P0001","transactionOpen":true,"failure":{"causes":[{"sqlState":"P0001","phase":null,"reasonCode":null,"deadlockEdges":[]}]},"pool":{"total":1,"idle":0,"waiting":0},"ts":"2026-11-18T01:36:14.304Z"}
+[FunnelMetrics] Aggregation error: DrizzleQueryError: Failed query: insert into "daily_funnel_metrics" ("id", "date", "vertical", "state", "source_type", "leads_found", "leads_enriched", "hot_created", "warm_created", "emails_sent", "sms_sent", "calls_made", "replies", "positive_replies", "meetings_booked", "statements_received", "proposals_sent", "proposals_viewed", "apps_started", "apps_completed", "closed_won", "closed_lost", "revenue", "created_at") values (default, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, default, $13, $14, $15, default, default, default, $16, $17, default, default)
+params: 2026-11-01,,,,2,2,1,1,0,0,0,0,0,0,0,0,0
+    at NodePgPreparedQuery.queryWithCache (/workspace/Liberty-Bancard-Website-and-CRM/node_modules/src/pg-core/session.ts:73:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async db.transaction.isolationLevel (/workspace/work/phase7-implementation/server/services/sdr/funnel-metrics.ts:337:9)
+    at async NodePgSession.releasingTransaction (/workspace/work/phase7-implementation/server/db.ts:180:24)
+    at async aggregateDailyMetrics (/workspace/work/phase7-implementation/server/services/sdr/funnel-metrics.ts:37:5)
+    at async waitForActual (node:assert:644:5)
+    at async Function.rejects (node:assert:767:25)
+    at async <anonymous> (/workspace/work/phase7-implementation/scripts/test-phase7-integration.ts:847:5) {
+  query: 'insert into "daily_funnel_metrics" ("id", "date", "vertical", "state", "source_type", "leads_found", "leads_enriched", "hot_created", "warm_created", "emails_sent", "sms_sent", "calls_made", "replies", "positive_replies", "meetings_booked", "statements_received", "proposals_sent", "proposals_viewed", "apps_started", "apps_completed", "closed_won", "closed_lost", "revenue", "created_at") values (default, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, default, $13, $14, $15, default, default, default, $16, $17, default, default)',
+  params: [
+    '2026-11-01', null,
+    null,         null,
+    2,            2,
+    1,            1,
+    0,            0,
+    0,            0,
+    0,            0,
+    0,            0,
+    0
+  ],
+  cause: error: FIXTURE_AGGREGATE_INSERT_FAILURE
+      at /workspace/Liberty-Bancard-Website-and-CRM/node_modules/pg/lib/client.js:694:17
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {
+    length: 160,
+    severity: 'ERROR',
+    code: 'P0001',
+    detail: undefined,
+    hint: undefined,
+    position: undefined,
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: 'PL/pgSQL function phase7_fixture_daily_failure() line 1 at RAISE',
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'pl_exec.c',
+    line: '3913',
+    routine: 'exec_stmt_raise'
+  }
+}
+✓ failed aggregate replacement preserves every prior row and lineage in one transaction
+(node:41645) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+✓ winner handoff creates a new complete draft family through CR-06
+✓ draft handoff preserves every approved artifact byte
+✓ completed owner commands release no client with an open transaction
+✓ SQL coverage requires a full observed chain through the fixed retry grace in a synthetic private horizon
+✓ one unhealthy observation invalidates the complete SQL horizon
+Phase 7 integration PASS: 52 checks, disposable infrastructure only, zero real sends.
+   ✓ exit=0  time=3.9s  pause-after=true ✓
+
+▶  Isolated Pause State-Machine test (opt-in)
+   SKIPPED — INTEGRATION_TESTS_OPT_IN is not set.
+   To run: set NODE_ENV=test TEST_DATABASE_URL=<test-db> TEST_REDIS_PREFIX=<prefix>
+           INTEGRATION_TESTS_OPT_IN=1 npx tsx scripts/pre-deploy.ts
+
+────────────────────────────────────────────────────────────
+ External provider configuration (non-blocking)
+────────────────────────────────────────────────────────────
+
+  [EMAIL]
+  ○ GOOGLE_CLIENT_ID                   not set — Gmail OAuth client ID (staff transactional sends)
+  ○ GOOGLE_CLIENT_SECRET               not set — Gmail OAuth client secret
+  ○ SMTP_HOST                          not set — SMTP host (cold-email fallback; optional when GHL configured)
+  ○ SMTP_USER                          not set — SMTP username (optional when GHL configured)
+  ○ SMTP_PASS                          not set — SMTP password (optional when GHL configured)
+
+  [GHL]
+  ○ GHL_PRIVATE_INTEGRATION_TOKEN      not set — GHL Private Integration Token
+  ○ GHL_LOCATION_ID                    not set — GHL location ID
+  ○ GHL_WEBHOOK_SECRET                 not set — GHL webhook signing secret
+
+  [OPENAI]
+  ✓ OPENAI_API_KEY                     SET — OpenAI API key
+
+  [SENDER-DOMAIN]
+  ○ APP_URL                            not set — APP_URL (required for unsubscribe links in emails)
+  ○ SENDER_DOMAIN_SPF_VERIFIED         not set — Sender domain SPF/DKIM verified (manual check)
+
+  [A2P]
+  ○ A2P_REGISTRATION_ID                not set — A2P 10DLC registration ID (required for SMS sends)
+  ○ GHL_PHONE_NUMBER_ID                not set — GHL phone number ID (A2P-registered)
+
+  [INFRA]
+  ✓ REDIS_URL                          SET — REDIS_URL (production BullMQ durability)
+
+  ⚠ 12 provider config item(s) not set.
+    These are NOT test failures — configure before first live traffic.
+
+════════════════════════════════════════════════════════════
+ Pre-Deploy Gate Results
+════════════════════════════════════════════════════════════
+
+  Suites:  1/1 executed and passed
+  Executed failures: 0; delegated/unverified: 0; optional skipped: 0; explicit opt-in skipped: 0
+  Gate-control failures: 0
+  Pause state: TRUE ✓ after all suites
+  External config: 2/14 set
+  ✓ Phase 7 Conversion Integration (executed_pass)
+
+  ✓ Gate result written to system_settings.pre_deploy_last_result
+✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).
+
+   The application is NOT deployed automatically.
+   Review external config warnings above before first live traffic.
+
+
+══ Isolated suite: scripts/test-phase7-upgrade.ts ══
+[DB Migrate] Applied canonical 0109_fearless_starhawk snapshot to empty database.
+[DB Migrate] Completed fresh 0109 snapshot with 0076_outbound_launch_foundation.
+[DB Migrate] Completed fresh 0109_fearless_starhawk with 0106_deferred_ghl_enrollments.
+[DB Migrate] Baselined 109 pre-existing migration(s) — only new migrations will be applied.
+[DB Migrate] All Drizzle journal migrations up to date.
+[DB Migrate] Phase 3 preconditions verified (0 conflicts, 0 legacy rows). Applying 0054_sla_task_stalling_unique_index...
+[DB Migrate] Phase 3 index 'tasks_sla_stalling_active_unique' applied successfully. SLA worker will use conflict-safe ON CONFLICT path.
+[DB Migrate] Test schema complete; optional Knowledge content/embedding bootstrap not invoked.
+Bounded disposable suite scripts/test-phase7-upgrade.ts: DB=test_sfp2060_test_phase7_upgrade_ts_c5d6b6ca0e7b (fresh migrated DB), RedisPrefix=ci_sfp2060_09b7cf1b939b0d7731303422794ab987_, owned HTTP port=43269 (server not required)
+
+  ✓ RELEASE_SHA matches checked-out tested commit: 720f06d968b306578dc956d7c35241316342be1f
+  ✓ MERCHANT_DATA_ENCRYPTION_KEY present and valid (value not printed)
+
+════════════════════════════════════════════════════════════
+ Liberty Bancard — Pre-Deploy Launch Gate
+════════════════════════════════════════════════════════════
+  Date: 2026-11-18T01:36:23.453Z
+  Server: http://127.0.0.1:43269
+  Scope: 1 exact suite(s) selected from 299 mandatory roster entries
+    • scripts/test-phase7-upgrade.ts
+  HTTP test base: http://127.0.0.1:43269
+
+  ⚠  This gate makes NO real provider calls.
+  ⚠  Global outbound pause is verified before and after every suite.
+
+
+────────────────────────────────────────────────────────────
+ Pre-flight: outbound pause state
+────────────────────────────────────────────────────────────
+(node:41725) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+  [seed] outboundGlobalPaused=true seeded (fail-closed default)
+  [seed] emailChannelPaused=true seeded (fail-closed default)
+  [seed] smsChannelPaused=true seeded (fail-closed default)
+  [seed] coldEmailChannelPaused=true seeded (fail-closed default)
+  ✓ outboundGlobalPaused=true confirmed before suite run
+
+────────────────────────────────────────────────────────────
+ Static scan: outboundGlobalPaused in all outbound workers
+────────────────────────────────────────────────────────────
+  ✓ services/ghl-workflows.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/inbound-acknowledgement.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/launch-readiness-full.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/partner-approval-delivery.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/post-enrichment-worker.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/provider-credit-alert.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/sequence-worker.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/sfp-seed-test.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/underwriting-checklist-service.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/winback-outreach-engine.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ All 10 discovered outbound file(s) have a recognised pause gate (112 files explicitly exempted)
+
+────────────────────────────────────────────────────────────
+ Running suites
+────────────────────────────────────────────────────────────
+
+▶  Phase 7 Migration Upgrade
+Phase 7 upgrade PASS: fresh/0386 upgrade catalog parity, idempotent journal replay, retained business data, validated checks; private socket-only clusters.
+   ✓ exit=0  time=24.6s  pause-after=true ✓
+
+▶  Isolated Pause State-Machine test (opt-in)
+   SKIPPED — INTEGRATION_TESTS_OPT_IN is not set.
+   To run: set NODE_ENV=test TEST_DATABASE_URL=<test-db> TEST_REDIS_PREFIX=<prefix>
+           INTEGRATION_TESTS_OPT_IN=1 npx tsx scripts/pre-deploy.ts
+
+────────────────────────────────────────────────────────────
+ External provider configuration (non-blocking)
+────────────────────────────────────────────────────────────
+
+  [EMAIL]
+  ○ GOOGLE_CLIENT_ID                   not set — Gmail OAuth client ID (staff transactional sends)
+  ○ GOOGLE_CLIENT_SECRET               not set — Gmail OAuth client secret
+  ○ SMTP_HOST                          not set — SMTP host (cold-email fallback; optional when GHL configured)
+  ○ SMTP_USER                          not set — SMTP username (optional when GHL configured)
+  ○ SMTP_PASS                          not set — SMTP password (optional when GHL configured)
+
+  [GHL]
+  ○ GHL_PRIVATE_INTEGRATION_TOKEN      not set — GHL Private Integration Token
+  ○ GHL_LOCATION_ID                    not set — GHL location ID
+  ○ GHL_WEBHOOK_SECRET                 not set — GHL webhook signing secret
+
+  [OPENAI]
+  ✓ OPENAI_API_KEY                     SET — OpenAI API key
+
+  [SENDER-DOMAIN]
+  ○ APP_URL                            not set — APP_URL (required for unsubscribe links in emails)
+  ○ SENDER_DOMAIN_SPF_VERIFIED         not set — Sender domain SPF/DKIM verified (manual check)
+
+  [A2P]
+  ○ A2P_REGISTRATION_ID                not set — A2P 10DLC registration ID (required for SMS sends)
+  ○ GHL_PHONE_NUMBER_ID                not set — GHL phone number ID (A2P-registered)
+
+  [INFRA]
+  ✓ REDIS_URL                          SET — REDIS_URL (production BullMQ durability)
+
+  ⚠ 12 provider config item(s) not set.
+    These are NOT test failures — configure before first live traffic.
+
+════════════════════════════════════════════════════════════
+ Pre-Deploy Gate Results
+════════════════════════════════════════════════════════════
+
+  Suites:  1/1 executed and passed
+  Executed failures: 0; delegated/unverified: 0; optional skipped: 0; explicit opt-in skipped: 0
+  Gate-control failures: 0
+  Pause state: TRUE ✓ after all suites
+  External config: 2/14 set
+  ✓ Phase 7 Migration Upgrade (executed_pass)
+
+  ✓ Gate result written to system_settings.pre_deploy_last_result
+✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).
+
+   The application is NOT deployed automatically.
+   Review external config warnings above before first live traffic.
+
+
+══ Isolated suite: scripts/test-phase7-browser.ts ══
+[DB Migrate] Applied canonical 0109_fearless_starhawk snapshot to empty database.
+[DB Migrate] Completed fresh 0109 snapshot with 0076_outbound_launch_foundation.
+[DB Migrate] Completed fresh 0109_fearless_starhawk with 0106_deferred_ghl_enrollments.
+[DB Migrate] Baselined 109 pre-existing migration(s) — only new migrations will be applied.
+[DB Migrate] All Drizzle journal migrations up to date.
+[DB Migrate] Phase 3 preconditions verified (0 conflicts, 0 legacy rows). Applying 0054_sla_task_stalling_unique_index...
+[DB Migrate] Phase 3 index 'tasks_sla_stalling_active_unique' applied successfully. SLA worker will use conflict-safe ON CONFLICT path.
+[DB Migrate] Test schema complete; optional Knowledge content/embedding bootstrap not invoked.
+Bounded disposable suite scripts/test-phase7-browser.ts: DB=test_sfp2060_test_phase7_browser_ts_4a630d512ec3 (fresh migrated DB), RedisPrefix=ci_sfp2060_8df0b21f0ba77beef2f2e2c6c3f59363_, owned HTTP port=37599 (server not required)
+
+  ✓ RELEASE_SHA matches checked-out tested commit: 720f06d968b306578dc956d7c35241316342be1f
+  ✓ MERCHANT_DATA_ENCRYPTION_KEY present and valid (value not printed)
+
+════════════════════════════════════════════════════════════
+ Liberty Bancard — Pre-Deploy Launch Gate
+════════════════════════════════════════════════════════════
+  Date: 2026-11-18T01:36:58.263Z
+  Server: http://127.0.0.1:37599
+  Scope: 1 exact suite(s) selected from 299 mandatory roster entries
+    • scripts/test-phase7-browser.ts
+  HTTP test base: http://127.0.0.1:37599
+
+  ⚠  This gate makes NO real provider calls.
+  ⚠  Global outbound pause is verified before and after every suite.
+
+
+────────────────────────────────────────────────────────────
+ Pre-flight: outbound pause state
+────────────────────────────────────────────────────────────
+(node:41986) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+  [seed] outboundGlobalPaused=true seeded (fail-closed default)
+  [seed] emailChannelPaused=true seeded (fail-closed default)
+  [seed] smsChannelPaused=true seeded (fail-closed default)
+  [seed] coldEmailChannelPaused=true seeded (fail-closed default)
+  ✓ outboundGlobalPaused=true confirmed before suite run
+
+────────────────────────────────────────────────────────────
+ Static scan: outboundGlobalPaused in all outbound workers
+────────────────────────────────────────────────────────────
+  ✓ services/ghl-workflows.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/inbound-acknowledgement.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/launch-readiness-full.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/partner-approval-delivery.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/post-enrichment-worker.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/provider-credit-alert.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/sequence-worker.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/sfp-seed-test.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/underwriting-checklist-service.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/winback-outreach-engine.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ All 10 discovered outbound file(s) have a recognised pause gate (112 files explicitly exempted)
+
+────────────────────────────────────────────────────────────
+ Running suites
+────────────────────────────────────────────────────────────
+
+▶  Phase 7 Browser
+[Stage 3 B registered lifecycle/workflow fixture] disposable Redis namespace confirmed: ci_sfp2060_8df0b21f0ba77beef2f2e2c6c3f59363_http_fixture_4998de17dd994c949e4ddc178565346b_
+[Stage 3 B registered lifecycle/workflow fixture] disposable database confirmed: test_sfp2060_test_phase7_browser_ts_4a630d512ec3
+[CanonicalURL] ⚠️  Neither APP_URL nor REPLIT_DOMAINS is set. Email verification/reset links will point to libertybancard.com. Set APP_URL=<your deployment URL> in Replit Secrets to fix.
+[CanonicalURL] Resolved: https://libertybancard.com (source: static_fallback)
+(node:42011) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+✓ actual schema read verifies native guards and additive columns without writing
+✓ installed-copy read covers sequence, campaign, template and workflow owners
+✓ full installed-copy audit remains admin scoped
+✓ feedback readiness read is truthful while measurement is disabled
+✓ provider configuration readiness remains admin scoped
+✓ public SendGrid ingress refuses unsigned requests
+✓ actual public raw-body ingress verifies SendGrid ECDSA without a browser session or fabricated exposure
+✓ signed HTTP retries are idempotently acknowledged
+✓ HTTP payload tampering cannot reuse a valid signature
+✓ read-only readiness and signed ingress make no provider calls
+✓ admin receives a validated complete-scope empty report
+✓ manager receives a validated complete-scope empty report
+✓ agent cannot read cohort aggregates
+✓ agent cannot export cohort evidence
+✓ merchant cannot read cohort aggregates
+✓ merchant cannot export cohort evidence
+✓ affiliate cannot read cohort aggregates
+✓ affiliate cannot export cohort evidence
+✓ partner cannot read cohort aggregates
+✓ partner cannot export cohort evidence
+✓ anonymous cannot read cohort aggregates
+✓ anonymous cannot export cohort evidence
+✓ malformed or unbounded filter rejects instead of broadening
+✓ malformed or unbounded filter rejects instead of broadening
+✓ malformed or unbounded filter rejects instead of broadening
+✓ manager cannot mutate evaluation
+✓ arbitrary sample injection is retired at actual route
+✓ actual funnel mounted at 320 light
+✓ no document overflow at 320 light
+✓ actual funnel mounted at 320 dark
+✓ no document overflow at 320 dark
+✓ actual funnel mounted at 390 light
+✓ no document overflow at 390 light
+✓ actual funnel mounted at 390 dark
+✓ no document overflow at 390 dark
+✓ actual funnel mounted at 454 light
+✓ no document overflow at 454 light
+✓ actual funnel mounted at 454 dark
+✓ no document overflow at 454 dark
+✓ actual funnel mounted at 768 light
+✓ no document overflow at 768 light
+✓ actual funnel mounted at 768 dark
+✓ no document overflow at 768 dark
+✓ actual funnel mounted at 1280 light
+✓ no document overflow at 1280 light
+✓ actual funnel mounted at 1280 dark
+✓ no document overflow at 1280 dark
+✓ normal A/B Refresh performs an actual GET and no experiment mutations
+✓ failed A/B read is not rendered as no experiments
+✓ invalid URL never requests a broader report
+✓ read-only browser exercises create no experiments or admissions
+Phase 7 browser PASS: 51 checks.
+   ✓ exit=0  time=35.1s  pause-after=true ✓
+
+▶  Isolated Pause State-Machine test (opt-in)
+   SKIPPED — INTEGRATION_TESTS_OPT_IN is not set.
+   To run: set NODE_ENV=test TEST_DATABASE_URL=<test-db> TEST_REDIS_PREFIX=<prefix>
+           INTEGRATION_TESTS_OPT_IN=1 npx tsx scripts/pre-deploy.ts
+
+────────────────────────────────────────────────────────────
+ External provider configuration (non-blocking)
+────────────────────────────────────────────────────────────
+
+  [EMAIL]
+  ○ GOOGLE_CLIENT_ID                   not set — Gmail OAuth client ID (staff transactional sends)
+  ○ GOOGLE_CLIENT_SECRET               not set — Gmail OAuth client secret
+  ○ SMTP_HOST                          not set — SMTP host (cold-email fallback; optional when GHL configured)
+  ○ SMTP_USER                          not set — SMTP username (optional when GHL configured)
+  ○ SMTP_PASS                          not set — SMTP password (optional when GHL configured)
+
+  [GHL]
+  ○ GHL_PRIVATE_INTEGRATION_TOKEN      not set — GHL Private Integration Token
+  ○ GHL_LOCATION_ID                    not set — GHL location ID
+  ○ GHL_WEBHOOK_SECRET                 not set — GHL webhook signing secret
+
+  [OPENAI]
+  ✓ OPENAI_API_KEY                     SET — OpenAI API key
+
+  [SENDER-DOMAIN]
+  ○ APP_URL                            not set — APP_URL (required for unsubscribe links in emails)
+  ○ SENDER_DOMAIN_SPF_VERIFIED         not set — Sender domain SPF/DKIM verified (manual check)
+
+  [A2P]
+  ○ A2P_REGISTRATION_ID                not set — A2P 10DLC registration ID (required for SMS sends)
+  ○ GHL_PHONE_NUMBER_ID                not set — GHL phone number ID (A2P-registered)
+
+  [INFRA]
+  ✓ REDIS_URL                          SET — REDIS_URL (production BullMQ durability)
+
+  ⚠ 12 provider config item(s) not set.
+    These are NOT test failures — configure before first live traffic.
+
+════════════════════════════════════════════════════════════
+ Pre-Deploy Gate Results
+════════════════════════════════════════════════════════════
+
+  Suites:  1/1 executed and passed
+  Executed failures: 0; delegated/unverified: 0; optional skipped: 0; explicit opt-in skipped: 0
+  Gate-control failures: 0
+  Pause state: TRUE ✓ after all suites
+  External config: 2/14 set
+  ✓ Phase 7 Browser (executed_pass)
+
+  ✓ Gate result written to system_settings.pre_deploy_last_result
+✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).
+
+   The application is NOT deployed automatically.
+   Review external config warnings above before first live traffic.
+
+
+══ Isolated suite: scripts/test-phase7-public-mobile.ts ══
+[DB Migrate] Applied canonical 0109_fearless_starhawk snapshot to empty database.
+[DB Migrate] Completed fresh 0109 snapshot with 0076_outbound_launch_foundation.
+[DB Migrate] Completed fresh 0109_fearless_starhawk with 0106_deferred_ghl_enrollments.
+[DB Migrate] Baselined 109 pre-existing migration(s) — only new migrations will be applied.
+[DB Migrate] All Drizzle journal migrations up to date.
+[DB Migrate] Phase 3 preconditions verified (0 conflicts, 0 legacy rows). Applying 0054_sla_task_stalling_unique_index...
+[DB Migrate] Phase 3 index 'tasks_sla_stalling_active_unique' applied successfully. SLA worker will use conflict-safe ON CONFLICT path.
+[DB Migrate] Test schema complete; optional Knowledge content/embedding bootstrap not invoked.
+Bounded disposable suite scripts/test-phase7-public-mobile.ts: DB=test_sfp2060_test_phase7_public_mobile_t_3ff05caac3bc (fresh migrated DB), RedisPrefix=ci_sfp2060_42dce22614cf5890d1432bfa9c6ee265_, owned HTTP port=44051 (server not required)
+
+  ✓ RELEASE_SHA matches checked-out tested commit: 720f06d968b306578dc956d7c35241316342be1f
+  ✓ MERCHANT_DATA_ENCRYPTION_KEY present and valid (value not printed)
+
+════════════════════════════════════════════════════════════
+ Liberty Bancard — Pre-Deploy Launch Gate
+════════════════════════════════════════════════════════════
+  Date: 2026-11-18T01:37:43.405Z
+  Server: http://127.0.0.1:44051
+  Scope: 1 exact suite(s) selected from 299 mandatory roster entries
+    • scripts/test-phase7-public-mobile.ts
+  HTTP test base: http://127.0.0.1:44051
+
+  ⚠  This gate makes NO real provider calls.
+  ⚠  Global outbound pause is verified before and after every suite.
+
+
+────────────────────────────────────────────────────────────
+ Pre-flight: outbound pause state
+────────────────────────────────────────────────────────────
+(node:42269) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+  [seed] outboundGlobalPaused=true seeded (fail-closed default)
+  [seed] emailChannelPaused=true seeded (fail-closed default)
+  [seed] smsChannelPaused=true seeded (fail-closed default)
+  [seed] coldEmailChannelPaused=true seeded (fail-closed default)
+  ✓ outboundGlobalPaused=true confirmed before suite run
+
+────────────────────────────────────────────────────────────
+ Static scan: outboundGlobalPaused in all outbound workers
+────────────────────────────────────────────────────────────
+  ✓ services/ghl-workflows.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/inbound-acknowledgement.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/launch-readiness-full.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/partner-approval-delivery.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/post-enrichment-worker.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/provider-credit-alert.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/sequence-worker.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/sfp-seed-test.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/underwriting-checklist-service.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ services/winback-outreach-engine.ts — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)
+  ✓ All 10 discovered outbound file(s) have a recognised pause gate (112 files explicitly exempted)
+
+────────────────────────────────────────────────────────────
+ Running suites
+────────────────────────────────────────────────────────────
+
+▶  Phase 7 Public Mobile
+Audited / at ten width/theme combinations.
+Audited /payment-processing at ten width/theme combinations.
+Audited /pricing-and-programs at ten width/theme combinations.
+Audited /get-started at ten width/theme combinations.
+Audited /upload-statement at ten width/theme combinations.
+Audited /free-analysis at ten width/theme combinations.
+Audited /free-analysis-guaranteed at ten width/theme combinations.
+Audited /0-percent-processing at ten width/theme combinations.
+Audited /beat-square-stripe at ten width/theme combinations.
+Audited /industries at ten width/theme combinations.
+Audited /about-contact at ten width/theme combinations.
+Audited /estimate at ten width/theme combinations.
+Audited /support at ten width/theme combinations.
+Audited /savings-calculator at ten width/theme combinations.
+Audited /compare-rates at ten width/theme combinations.
+Audited /blog at ten width/theme combinations.
+Audited /faq at ten width/theme combinations.
+Audited /affiliate at ten width/theme combinations.
+Audited /why-liberty-bancard at ten width/theme combinations.
+Audited /shop at ten width/theme combinations.
+Audited /case-studies at ten width/theme combinations.
+Audited /testimonials at ten width/theme combinations.
+Audited /testimonials/submit at ten width/theme combinations.
+Audited /integrations at ten width/theme combinations.
+Audited /compare/square at ten width/theme combinations.
+Audited /compare/stripe at ten width/theme combinations.
+Audited /compare/clover at ten width/theme combinations.
+Audited /compare/toast at ten width/theme combinations.
+Audited /compare/paypal at ten width/theme combinations.
+Audited /merchant-application at ten width/theme combinations.
+Audited /partners at ten width/theme combinations.
+Audited /partners/referrals at ten width/theme combinations.
+Audited /partners/sales-agents at ten width/theme combinations.
+Audited /partners/cpa at ten width/theme combinations.
+Audited /partners/bookkeeper at ten width/theme combinations.
+Audited /partners/insurance at ten width/theme combinations.
+Audited /help at ten width/theme combinations.
+Audited /sales-tools at ten width/theme combinations.
+Audited /partner-login at ten width/theme combinations.
+Audited /login at ten width/theme combinations.
+Audited /signup at ten width/theme combinations.
+Audited /forgot-password at ten width/theme combinations.
+Audited /reset-password at ten width/theme combinations.
+Audited /verify-email at ten width/theme combinations.
+Audited /thanks-statement at ten width/theme combinations.
+Audited /thanks-estimate at ten width/theme combinations.
+Audited /thanks-call at ten width/theme combinations.
+Audited /thanks-support at ten width/theme combinations.
+Audited /thanks/application at ten width/theme combinations.
+Audited /privacy-policy at ten width/theme combinations.
+Audited /terms at ten width/theme combinations.
+Audited /cookie-policy at ten width/theme combinations.
+Audited /advertising-disclosure at ten width/theme combinations.
+Audited /accessibility at ten width/theme combinations.
+Audited /sms-terms at ten width/theme combinations.
+Audited /esign-consent at ten width/theme combinations.
+Audited /surcharging-disclosure at ten width/theme combinations.
+Audited /merchant-policies at ten width/theme combinations.
+Audited /regulatory-notices at ten width/theme combinations.
+Audited /security-compliance at ten width/theme combinations.
+Audited /do-not-sell at ten width/theme combinations.
+Audited /data-processing-agreement at ten width/theme combinations.
+Audited /responsible-ai at ten width/theme combinations.
+Audited /testimonials-disclosure at ten width/theme combinations.
+Audited /law-enforcement at ten width/theme combinations.
+Audited /dispute-resolution at ten width/theme combinations.
+Audited /data-retention at ten width/theme combinations.
+Audited /tcpa-consent at ten width/theme combinations.
+Audited /refund-policy at ten width/theme combinations.
+Audited /california-privacy at ten width/theme combinations.
+Audited /ada-compliance at ten width/theme combinations.
+Audited /free-smart-terminal at ten width/theme combinations.
+Phase 7 public mobile layout PASS: 720 route/width/theme cells; 92 cells carry recorded tap/font diagnostics for review. WebKit and actual phones NOT EXERCISED.
+   ✓ exit=0  time=131.1s  pause-after=true ✓
+
+▶  Isolated Pause State-Machine test (opt-in)
+   SKIPPED — INTEGRATION_TESTS_OPT_IN is not set.
+   To run: set NODE_ENV=test TEST_DATABASE_URL=<test-db> TEST_REDIS_PREFIX=<prefix>
+           INTEGRATION_TESTS_OPT_IN=1 npx tsx scripts/pre-deploy.ts
+
+────────────────────────────────────────────────────────────
+ External provider configuration (non-blocking)
+────────────────────────────────────────────────────────────
+
+  [EMAIL]
+  ○ GOOGLE_CLIENT_ID                   not set — Gmail OAuth client ID (staff transactional sends)
+  ○ GOOGLE_CLIENT_SECRET               not set — Gmail OAuth client secret
+  ○ SMTP_HOST                          not set — SMTP host (cold-email fallback; optional when GHL configured)
+  ○ SMTP_USER                          not set — SMTP username (optional when GHL configured)
+  ○ SMTP_PASS                          not set — SMTP password (optional when GHL configured)
+
+  [GHL]
+  ○ GHL_PRIVATE_INTEGRATION_TOKEN      not set — GHL Private Integration Token
+  ○ GHL_LOCATION_ID                    not set — GHL location ID
+  ○ GHL_WEBHOOK_SECRET                 not set — GHL webhook signing secret
+
+  [OPENAI]
+  ✓ OPENAI_API_KEY                     SET — OpenAI API key
+
+  [SENDER-DOMAIN]
+  ○ APP_URL                            not set — APP_URL (required for unsubscribe links in emails)
+  ○ SENDER_DOMAIN_SPF_VERIFIED         not set — Sender domain SPF/DKIM verified (manual check)
+
+  [A2P]
+  ○ A2P_REGISTRATION_ID                not set — A2P 10DLC registration ID (required for SMS sends)
+  ○ GHL_PHONE_NUMBER_ID                not set — GHL phone number ID (A2P-registered)
+
+  [INFRA]
+  ✓ REDIS_URL                          SET — REDIS_URL (production BullMQ durability)
+
+  ⚠ 12 provider config item(s) not set.
+    These are NOT test failures — configure before first live traffic.
+
+════════════════════════════════════════════════════════════
+ Pre-Deploy Gate Results
+════════════════════════════════════════════════════════════
+
+  Suites:  1/1 executed and passed
+  Executed failures: 0; delegated/unverified: 0; optional skipped: 0; explicit opt-in skipped: 0
+  Gate-control failures: 0
+  Pause state: TRUE ✓ after all suites
+  External config: 2/14 set
+  ✓ Phase 7 Public Mobile (executed_pass)
+
+  ✓ Gate result written to system_settings.pre_deploy_last_result
+✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).
+
+   The application is NOT deployed automatically.
+   Review external config warnings above before first live traffic.
+
+
+════════ Isolated pre-deploy suite batch results ════════
+  Suites: 5/5 passed; child failures=0; suite setup/teardown failures=0; shared launcher failures=0
+  ✓ scripts/test-phase7-contracts.ts: child-exit=0, DB=test_sfp2060_test_phase7_contracts_ts_ee3c12a3fa98
+  ✓ scripts/test-phase7-integration.ts: child-exit=0, DB=test_sfp2060_test_phase7_integration_ts_2230541f1f30
+  ✓ scripts/test-phase7-upgrade.ts: child-exit=0, DB=test_sfp2060_test_phase7_upgrade_ts_c5d6b6ca0e7b
+  ✓ scripts/test-phase7-browser.ts: child-exit=0, DB=test_sfp2060_test_phase7_browser_ts_4a630d512ec3
+  ✓ scripts/test-phase7-public-mobile.ts: child-exit=0, DB=test_sfp2060_test_phase7_public_mobile_t_3ff05caac3bc

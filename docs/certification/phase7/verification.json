@@ -1,0 +1,80 @@
+{
+  "recordedAtUtc": "2026-11-18T01:41:00.295638+00:00",
+  "branch": "codex/phase7-conversion-optimization",
+  "baselineHead": "361886ebde082c1d5e16a5cea7a13b54ce7b99c7",
+  "codeHead": "720f06d968b306578dc956d7c35241316342be1f",
+  "artifact": {
+    "sourceHead": "720f06d968b306578dc956d7c35241316342be1f",
+    "inputHash": "0772519a901c53f5764680680677086993e0f79383f9c78267d3c4685a9f9ee5",
+    "outputHash": "c6fbec7ebebcbc81fcfdd58a49652d77aeca6e7ed4c2e8da10142b047212a652"
+  },
+  "localEngineering": "implemented; selected mandatory suites verified",
+  "releaseReady": false,
+  "merged": false,
+  "pushed": false,
+  "published": false,
+  "productionChanged": false,
+  "productionSchemaVerified": false,
+  "realProviderCalls": 0,
+  "realSends": 0,
+  "realAdmissions": 0,
+  "liveExperiment": "not started",
+  "suites": {
+    "contractBehaviorChecks": 64,
+    "databaseIntegrationChecks": 52,
+    "crmBrowserAndSignedHttpChecks": 51,
+    "freshAnd0386UpgradeParity": "passed",
+    "publicLayoutCells": 720,
+    "publicRoutes": 72,
+    "widths": [
+      320,
+      390,
+      454,
+      768,
+      1280
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "nativeChromiumZoom": "200% passed",
+    "phase7SuitesPassed": 5,
+    "phase7SuitesSelected": 5
+  },
+  "additionalChecks": {
+    "productionBuild": "passed",
+    "migrationIntegrity": "1027 passed; 2 historical warnings",
+    "ciManifest": "299 classified; passed",
+    "reportingBoundaries": "passed",
+    "phase6TodayPipelineReports": "161 passed",
+    "phase6MobileContinuity": "100 passed",
+    "bt12Reconciliation": "passed",
+    "retainedC4CodecContracts": "passed",
+    "emailSignatures": "passed"
+  },
+  "typescript": {
+    "baselineDiagnostics": 41,
+    "candidateDiagnostics": 41,
+    "identicalHeaders": true,
+    "newDiagnostics": 0,
+    "gatePassed": false
+  },
+  "fullRoster": {
+    "required": 299,
+    "complete": false,
+    "interruptedObserved": 32,
+    "executedPass": 23,
+    "executedFail": 5,
+    "interruptedUnverified": 4,
+    "qualification": "Interrupted broader attempt was on an earlier local code revision. It is not a final release receipt; later baseline comparisons are in evidence/baseline-comparisons.json."
+  },
+  "limitations": [
+    "Full mandatory roster not verified; recorded baseline gates still fail.",
+    "Fresh signed-in CRM full-copy inventory and eligible top-three selection unavailable; saved candidates remain provisional.",
+    "Actual SendGrid credentials, read scopes, webhook subscription, SMTP key ownership, mailbox continuity and elapsed horizon are unverified. No real provider or mailbox was connected.",
+    "Positive mature-winner UI and full production-scale timing/plan certification not exercised.",
+    "Production serving/schema readback, real iPhone/Android, Safari/WebKit and live email-client checks not exercised.",
+    "No elapsed 90-day business observation or live statistical outcome is claimed."
+  ],
+  "sourceIdentityNote": "The later evidence/documentation commit does not change executable build inputs. Receipts identify the tested code commit above."
+}

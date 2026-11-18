@@ -1,0 +1,243 @@
+{
+  "baselineHead": "361886ebde082c1d5e16a5cea7a13b54ce7b99c7",
+  "records": [
+    {
+      "check": "typescript",
+      "baseline": {
+        "log": "baseline-types.log",
+        "diagnostics": [
+          "client/src/components/work/SelectedTaskPanel.test.tsx(62,9): error TS2801: This condition will always return true since this 'Promise<void>' is always defined.",
+          "client/src/pages/dashboard/MerchantApplicationsList.tsx(1172,17): error TS2322: Type '\"link\"' is not assignable to type '\"default\" | \"destructive\" | \"outline\" | \"secondary\" | \"ghost\" | null | undefined'.",
+          "server/db.ts(174,70): error TS2339: Property 'getTransactionConfigSQL' does not exist on type 'NodePgTransaction<Record<string, unknown>, TablesRelationalConfig>'.",
+          "server/routes/admin.ts(5905,36): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+          "server/routes/admin.ts(5908,60): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+          "server/routes/live-chat.ts(108,55): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+          "server/routes/live-chat.ts(158,55): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+          "server/routes/statement-review.ts(152,46): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+          "server/routes/statement-review.ts(158,63): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(168,48): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+          "server/routes/statement-review.ts(189,11): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(191,46): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(202,11): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(204,53): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(212,11): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(214,49): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(255,35): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(256,98): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(258,30): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(269,11): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(269,33): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(272,27): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(273,29): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(276,45): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(281,14): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(281,38): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(285,23): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(286,32): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(294,64): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(306,17): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(307,33): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(329,11): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(331,46): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(340,25): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(342,24): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(343,48): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(359,81): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(370,31): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(370,57): error TS18048: 'review' is possibly 'undefined'.",
+          "server/services/deal-boarding-outbox-worker.ts(711,48): error TS2345: Argument of type '{ dealId: number; legalBusinessName: string | undefined; dba: string | undefined; ein: string | undefined; businessType: string | undefined; businessAddress: string | undefined; ... 24 more ...; providerIdempotencyKey: string | undefined; }' is not assignable to parameter of type 'MerchantProfile'.",
+          "server/services/merchant-application-outbox-worker.ts(398,5): error TS2322: Type 'number | null' is not assignable to type 'number'."
+        ]
+      },
+      "candidate": {
+        "log": "candidate-types.log",
+        "diagnostics": [
+          "client/src/components/work/SelectedTaskPanel.test.tsx(62,9): error TS2801: This condition will always return true since this 'Promise<void>' is always defined.",
+          "client/src/pages/dashboard/MerchantApplicationsList.tsx(1172,17): error TS2322: Type '\"link\"' is not assignable to type '\"default\" | \"destructive\" | \"outline\" | \"secondary\" | \"ghost\" | null | undefined'.",
+          "server/db.ts(174,70): error TS2339: Property 'getTransactionConfigSQL' does not exist on type 'NodePgTransaction<Record<string, unknown>, TablesRelationalConfig>'.",
+          "server/routes/admin.ts(5905,36): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+          "server/routes/admin.ts(5908,60): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+          "server/routes/live-chat.ts(108,55): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+          "server/routes/live-chat.ts(158,55): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+          "server/routes/statement-review.ts(152,46): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+          "server/routes/statement-review.ts(158,63): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(168,48): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+          "server/routes/statement-review.ts(189,11): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(191,46): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(202,11): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(204,53): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(212,11): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(214,49): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(255,35): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(256,98): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(258,30): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(269,11): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(269,33): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(272,27): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(273,29): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(276,45): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(281,14): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(281,38): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(285,23): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(286,32): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(294,64): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(306,17): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(307,33): error TS18048: 'existing' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(329,11): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(331,46): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(340,25): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(342,24): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(343,48): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(359,81): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(370,31): error TS18048: 'review' is possibly 'undefined'.",
+          "server/routes/statement-review.ts(370,57): error TS18048: 'review' is possibly 'undefined'.",
+          "server/services/deal-boarding-outbox-worker.ts(711,48): error TS2345: Argument of type '{ dealId: number; legalBusinessName: string | undefined; dba: string | undefined; ein: string | undefined; businessType: string | undefined; businessAddress: string | undefined; ... 24 more ...; providerIdempotencyKey: string | undefined; }' is not assignable to parameter of type 'MerchantProfile'.",
+          "server/services/merchant-application-outbox-worker.ts(398,5): error TS2322: Type 'number | null' is not assignable to type 'number'."
+        ]
+      }
+    },
+    {
+      "check": "legacy-cro07",
+      "baseline": {
+        "log": "baseline-cro07.log",
+        "diagnostics": [
+          "AssertionError [ERR_ASSERTION]: fixture contact has valid current provider evidence"
+        ]
+      },
+      "candidate": {
+        "log": "phase7-regression.log",
+        "diagnostics": [
+          "AssertionError [ERR_ASSERTION]: fixture contact has valid current provider evidence"
+        ]
+      }
+    },
+    {
+      "check": "stage3-d-r2",
+      "baseline": {
+        "log": "baseline-stage3-d-r2.log",
+        "diagnostics": [
+          "\u2713 Compare sitemap lists only comparison pages that exist (no sitemap URL answers 404)",
+          "AssertionError [ERR_ASSERTION]: Every listed industry page is server-rendered; only an unknown industry slug answers 404 (no fall-through to the client app)"
+        ]
+      },
+      "candidate": {
+        "log": "roster-batches/batch-0.log",
+        "diagnostics": [
+          "  \u2713 RELEASE_SHA matches checked-out tested commit: 55bc40406f50a6ccbf401e1670569ffcb62165cb",
+          "Bounded disposable suite scripts/test-stage3-d-r2-contracts.ts: DB=test_sfp2060_test_stage3_d_r2_contracts__9fa022dcf55a (fresh migrated DB), RedisPrefix=ci_sfp2060_4b64e64044f5802d44ab98557d785c94_, owned HTTP port=45499 (server not required)",
+          "  \u2713 RELEASE_SHA matches checked-out tested commit: 55bc40406f50a6ccbf401e1670569ffcb62165cb",
+          "\u2713 Compare sitemap lists only comparison pages that exist (no sitemap URL answers 404)",
+          "AssertionError [ERR_ASSERTION]: Every listed industry page is server-rendered; only an unknown industry slug answers 404 (no fall-through to the client app)",
+          "  \u2713 RELEASE_SHA matches checked-out tested commit: 55bc40406f50a6ccbf401e1670569ffcb62165cb",
+          "  \u2713 RELEASE_SHA matches checked-out tested commit: 55bc40406f50a6ccbf401e1670569ffcb62165cb",
+          "  \u2713 RELEASE_SHA matches checked-out tested commit: 55bc40406f50a6ccbf401e1670569ffcb62165cb",
+          "  \u2713 RELEASE_SHA matches checked-out tested commit: 55bc40406f50a6ccbf401e1670569ffcb62165cb",
+          "  \u2713 RELEASE_SHA matches checked-out tested commit: 55bc40406f50a6ccbf401e1670569ffcb62165cb",
+          "  \u2713 RELEASE_SHA matches checked-out tested commit: 55bc40406f50a6ccbf401e1670569ffcb62165cb",
+          "  \u2713 RELEASE_SHA matches checked-out tested commit: 55bc40406f50a6ccbf401e1670569ffcb62165cb"
+        ]
+      }
+    },
+    {
+      "check": "ghl-mounted",
+      "baseline": {
+        "log": "baseline-c5-mounted.log",
+        "diagnostics": [
+          "       {g.label} ({g.key === \"current_sfp\" ? `${o.currentPackageCount ?? o.currentPackages.length} packages, ${o.counts[g.key]} assets` : o.counts[g.key]})",
+          "TypeError: Cannot read properties of undefined (reading 'length')"
+        ]
+      },
+      "candidate": {
+        "log": "roster-batches/batch-3.log",
+        "diagnostics": [
+          " g.key === \"current_sfp\" ? `${o.currentPackageCount ?? o.currentPackages.length} packages, ${o.counts[g.key]} assets` : o.counts[g.key]})",
+          "TypeError: Cannot read properties of undefined (reading 'length')"
+        ]
+      }
+    },
+    {
+      "check": "website-migration",
+      "baseline": {
+        "log": "baseline-extra-roster.log",
+        "diagnostics": [
+          "AssertionError [ERR_ASSERTION]: upgrade creates website_lifecycle_config_revisions"
+        ]
+      },
+      "candidate": {
+        "log": "roster-batches/batch-2.log",
+        "diagnostics": [
+          "AssertionError [ERR_ASSERTION]: upgrade creates website_lifecycle_config_revisions"
+        ]
+      }
+    },
+    {
+      "check": "calendar-c2",
+      "baseline": {
+        "log": "baseline-extra-roster.log",
+        "diagnostics": [
+          "+ '2026-10-31T17:17:23.456Z'",
+          "- '2026-10-31T13:17:23.456Z'",
+          "  actual: '2026-10-31T17:17:23.456Z',",
+          "  expected: '2026-10-31T13:17:23.456Z',"
+        ]
+      },
+      "candidate": {
+        "log": "roster-batches/batch-2.log",
+        "diagnostics": [
+          "+ '2026-10-31T17:17:23.456Z'",
+          "- '2026-10-31T13:17:23.456Z'",
+          "  actual: '2026-10-31T17:17:23.456Z',",
+          "  expected: '2026-10-31T13:17:23.456Z',"
+        ]
+      }
+    },
+    {
+      "check": "industry-source-assertion",
+      "baseline": {
+        "log": "baseline-wd-industries.log",
+        "diagnostics": [
+          "  FAIL the server route 404s an unknown slug and no longer falls through for listed ones: route does not 404 on a miss"
+        ]
+      },
+      "candidate": {
+        "log": "roster-batches/batch-2.log",
+        "diagnostics": [
+          "  FAIL the server route 404s an unknown slug and no longer falls through for listed ones: route does not 404 on a miss"
+        ]
+      }
+    },
+    {
+      "check": "calendar-c4-actions",
+      "baseline": {
+        "log": "baseline-c4-actions-built.log",
+        "diagnostics": [
+          "  assert.ok(ids.includes(created[0].id))"
+        ]
+      },
+      "candidate": {
+        "log": "final-selected.log",
+        "diagnostics": [
+          "  assert.ok(ids.includes(created[0].id))"
+        ]
+      }
+    },
+    {
+      "check": "transport-dispatch-existing-step-fixture",
+      "baseline": {
+        "log": "baseline-transport-check.log",
+        "diagnostics": [
+          "Unhandled error: Sequence must be live and paused/draft before changing its steps",
+          "  \u2717 Unhandled error: Sequence must be live and paused/draft before changing its steps"
+        ]
+      },
+      "candidate": {
+        "log": "sendgrid-transport-checks.log",
+        "diagnostics": [
+          "Unhandled error: Sequence must be live and paused/draft before changing its steps",
+          "  \u2717 Unhandled error: Sequence must be live and paused/draft before changing its steps"
+        ]
+      }
+    }
+  ],
+  "qualification": "Existing failures are not passing checks. C4 browser itself stopped on a missing calendar boundary fixture and did not reach the governed Outreach case; its exact baseline browser run was not exercised."
+}
