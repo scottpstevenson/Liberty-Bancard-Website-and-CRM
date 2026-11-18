@@ -235,7 +235,7 @@ try {
     "docs/certification/phase7/evidence/browser",
     { realInput: true },
   );
-  for (const width of [320, 390, 454, 768, 1280])
+  for (const width of [320, 390, 454, 768, 1023, 1024, 1280])
     for (const theme of ["light", "dark"]) {
       await browser.call("Emulation.setDeviceMetricsOverride", {
         width,
