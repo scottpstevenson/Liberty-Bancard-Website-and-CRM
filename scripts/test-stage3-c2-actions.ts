@@ -87,7 +87,8 @@ try{
   assert.equal((await h.pool.query("SELECT count(*)::int n FROM contacts")).rows[0].n,beforeSiteContacts);
   assert.equal((await h.pool.query("SELECT count(*)::int n FROM inbox_items")).rows[0].n,beforeSiteObservations);
   await h.pool.query("DELETE FROM live_chats WHERE id=ANY($1::int[])",[siteIds]);
-  await check("admin","GET",`/api/tasks/${own}`,undefined,501,"absent selected-task handler is explicitly blocked");
+  const missingTask=await check("admin","GET","/api/tasks/2147483647",undefined,404,"registered selected-task handler refuses an absent task");
+  assert.equal(missingTask.code,"CRM_OBJECT_NOT_FOUND");
   await h.pool.query(`INSERT INTO agents(user_id,first_name,last_name,email) VALUES($1,'C2','Agent',$2)`,[h.userId("agent"),h.email("agent")]);
   for(const role of ["anonymous","merchant","affiliate","partner"]) {
     await check(role,"GET",`/api/contacts/${own}`,undefined,role==="anonymous"?401:403,"record denial");
@@ -120,6 +121,14 @@ try{
   const create={title:"C2 due work",dueDate:new Date().toISOString(),contactId:own,
     commandId:randomUUID(),expectedActorId:h.userId("agent")};
   const task=await check("agent","POST","/api/tasks",create,201,"create exact contact task");
+  for(const role of ["admin","manager","agent"]){
+    const selected=await check(role,"GET",`/api/tasks/${task.id}`,undefined,200,"registered selected-task read uses actual task identity");
+    assert.equal(selected.id,task.id);assert.equal(selected.contactId,own);
+  }
+  await check("other","GET",`/api/tasks/${task.id}`,undefined,404,"selected-task read preserves foreign ownership denial");
+  for(const role of ["anonymous","merchant","affiliate","partner"])
+    await check(role,"GET",`/api/tasks/${task.id}`,undefined,role==="anonymous"?401:403,"selected-task read preserves employee boundary");
+  await check("admin","GET","/api/tasks/not-an-id",undefined,400,"selected-task read rejects malformed task identity");
   assert.equal((await check("agent","POST","/api/tasks",create,200,"lost-response task retry")).id,task.id);
   const before=await check("agent","GET","/api/overview/daily-briefing",undefined,200,"factual Today initial");
   const day=await check("agent","GET","/api/my-day?timezone=UTC",undefined,200,"canonical MyDay due queue");
@@ -353,6 +362,7 @@ try{
     await check(role,"GET","/api/inbox/send-state",undefined,403,"nonemployee pause observation denied");
   await h.pool.query("UPDATE contacts SET assigned_to=$1 WHERE id=$2",[h.email("other"),own]);
   await check("agent","GET",`/api/contacts/${own}`,undefined,404,"owned contact access revoked after reassignment");
+  await check("agent","GET",`/api/tasks/${task.id}`,undefined,404,"selected-task access is revoked with the linked contact");
   const revokedTasks=await check("agent","GET","/api/tasks",undefined,200,"linked task omitted after ownership revocation");
   assert.ok(!revokedTasks.some((row:any)=>row.id===task.id));
   await check("agent","PUT",`/api/tasks/${task.id}`,{...edit,commandId:randomUUID()},404,"linked task command denied after ownership revocation");

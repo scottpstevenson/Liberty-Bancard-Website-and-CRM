@@ -78,26 +78,37 @@ try {
   await check("manager","GET",`/api/sequences/${sequenceFixtures[1].id}`,undefined,403,"manager numeric foreign sequence denial");
   assert.equal(h.externalCalls(),0,"A/B reads never activate sequences or dispatch providers");
   const {calendarEvents}=await import("../shared/schema");
-  for(const [zone,start,end] of [
-    ["UTC","2026-10-01T00:00:00Z","2026-11-01T00:00:00Z"],
-    ["America/New_York","2026-10-01T00:00:00-04:00","2026-11-01T00:00:00-04:00"],
-    ["America/Los_Angeles","2026-10-01T00:00:00-07:00","2026-11-01T00:00:00-07:00"],
-  ]) {
-    const upper=new Date(end),lower=new Date(start);
-    const created=await h.db.insert(calendarEvents).values([
-      {title:`C4 last instant ${zone}`,startTime:new Date(upper.getTime()-1),endTime:upper,ownerId:h.userId("agent")},
-      {title:`C4 excluded upper ${zone}`,startTime:upper,endTime:new Date(upper.getTime()+60000),ownerId:h.userId("agent")},
-      {title:`C4 spanning lower ${zone}`,startTime:new Date(lower.getTime()-60000),endTime:new Date(lower.getTime()+60000),ownerId:h.userId("agent")},
-      {title:`C4 foreign ${zone}`,startTime:new Date(upper.getTime()-1000),endTime:upper,ownerId:h.userId("other")},
-    ]).returning();
-    const window=new URLSearchParams({start,end});
-    for(const role of ["admin","agent"]){
-      const data=await check(role,"GET",`/api/calendar-events?${window}`,undefined,200,`real Calendar exclusive month boundary, ${zone}, ${role}`);
-      const ids=data.map((r:any)=>r.id);
-      assert.ok(ids.includes(created[0].id));assert.ok(ids.includes(created[2].id));
-      assert.ok(!ids.includes(created[1].id));
-      assert.equal(ids.includes(created[3].id),role==="admin","agent ownership preserved");
+  const originalHostTimezone=process.env.TZ;
+  try {
+    // Exercise the same request windows with UTC and both signs of host offset.
+    // All writes/requests run serially in this private, background-off process.
+    for(const hostTimezone of ["UTC","America/New_York","Asia/Kolkata"]){
+      process.env.TZ=hostTimezone;
+      for(const [zone,start,end] of [
+        ["UTC","2026-10-01T00:00:00Z","2026-11-01T00:00:00Z"],
+        ["America/New_York","2026-10-01T00:00:00-04:00","2026-11-01T00:00:00-04:00"],
+        ["America/Los_Angeles","2026-10-01T00:00:00-07:00","2026-11-01T00:00:00-07:00"],
+      ]) {
+        const upper=new Date(end),lower=new Date(start);
+        const created=await h.db.insert(calendarEvents).values([
+          {title:`C4 last instant ${zone}`,startTime:new Date(upper.getTime()-1),endTime:upper,ownerId:h.userId("agent")},
+          {title:`C4 excluded upper ${zone}`,startTime:upper,endTime:new Date(upper.getTime()+60000),ownerId:h.userId("agent")},
+          {title:`C4 spanning lower ${zone}`,startTime:new Date(lower.getTime()-60000),endTime:new Date(lower.getTime()+60000),ownerId:h.userId("agent")},
+          {title:`C4 foreign ${zone}`,startTime:new Date(upper.getTime()-1000),endTime:upper,ownerId:h.userId("other")},
+        ]).returning();
+        const window=new URLSearchParams({start,end});
+        for(const role of ["admin","agent"]){
+          const data=await check(role,"GET",`/api/calendar-events?${window}`,undefined,200,`real Calendar exclusive month boundary, host=${hostTimezone}, window=${zone}, ${role}`);
+          const ids=data.map((r:any)=>r.id);
+          assert.ok(ids.includes(created[0].id));assert.ok(ids.includes(created[2].id));
+          assert.ok(!ids.includes(created[1].id));
+          assert.equal(ids.includes(created[3].id),role==="admin","agent ownership preserved");
+        }
+      }
     }
+  } finally {
+    if(originalHostTimezone===undefined)delete process.env.TZ;
+    else process.env.TZ=originalHostTimezone;
   }
   for(const bad of ["start=invalid&end=2026-11-01","start=2026-11-01&end=2026-10-01","start=2026-10-01","start=2026-10-01&start=2026-09-01&end=2026-11-01"])
     await check("admin","GET",`/api/calendar-events?${bad}`,undefined,400,`invalid Calendar window: ${bad}`);

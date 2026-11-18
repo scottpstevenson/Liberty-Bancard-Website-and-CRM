@@ -174,7 +174,9 @@ export async function launchLocalPostgres16(): Promise<LocalCluster> {
     assertPrivateDirectory(socket);
     const port = 20000 + randomBytes(2).readUInt16BE(0) % 30000;
     const admin = mintLocalDatabase(data, socket, port, "postgres");
-    child = spawn("postgres", ["-D", data.realpath, "-k", socket.realpath, "-p", String(port), "-c", "listen_addresses=", "-c", "unix_socket_permissions=0700"], { env, stdio: "ignore", detached: process.platform !== "win32" });
+    // UTC-naive application timestamps and CURRENT_TIMESTAMP must share a clock
+    // in disposable fixtures, independent of initdb's host timezone detection.
+    child = spawn("postgres", ["-D", data.realpath, "-k", socket.realpath, "-p", String(port), "-c", "listen_addresses=", "-c", "unix_socket_permissions=0700", "-c", "timezone=UTC"], { env, stdio: "ignore", detached: process.platform !== "win32" });
     await waitUntilReady(admin);
     const stop = async () => {
       if (child?.pid) {

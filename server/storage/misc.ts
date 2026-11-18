@@ -202,9 +202,11 @@ import { coerceDateFields } from "../utils/date-coerce";
 
 
   async getCalendarEventsByDateRange(start: Date, end: Date): Promise<CalendarEvent[]> {
+    // Match the column's UTC Date encoder used for writes. Raw pg Date parameters
+    // use the host timezone, which timestamp-without-time-zone comparisons discard.
     return db.select().from(calendarEvents)
-      .where(sql`${calendarEvents.startTime} < ${end} AND
-        COALESCE(${calendarEvents.endTime},${calendarEvents.startTime}) >= ${start}`)
+      .where(sql`${calendarEvents.startTime} < ${sql.param(end, calendarEvents.startTime)} AND
+        COALESCE(${calendarEvents.endTime},${calendarEvents.startTime}) >= ${sql.param(start, calendarEvents.startTime)}`)
       .orderBy(asc(calendarEvents.startTime));
   }
 

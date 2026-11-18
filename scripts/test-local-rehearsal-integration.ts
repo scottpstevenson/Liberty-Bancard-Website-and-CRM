@@ -24,13 +24,21 @@ await validateBackupReceipt(dump, receipt);
 await assert.rejects(() => validateBackupReceipt(dump, path.join(dir, "missing.json")));
 let cluster: Awaited<ReturnType<typeof launchLocalPostgres16>> | undefined;
 try {
-  cluster = await launchLocalPostgres16();
+  const originalHostTimezone = process.env.TZ;
+  try {
+    process.env.TZ = "America/New_York";
+    cluster = await launchLocalPostgres16();
+  } finally {
+    if (originalHostTimezone === undefined) delete process.env.TZ;
+    else process.env.TZ = originalHostTimezone;
+  }
   await verifyLocalClusterIdentity(cluster);
   const databases = await createLocalRehearsalDatabases(cluster);
   await withLocalClient(databases.restored, async client => {
     await client.query("CREATE TABLE local_rehearsal_identity_test (id integer PRIMARY KEY)");
-    const { rows } = await client.query("SELECT inet_server_addr() AS tcp_address");
+    const { rows } = await client.query("SELECT inet_server_addr() AS tcp_address, current_setting('TimeZone') AS timezone");
     assert.equal(rows[0].tcp_address, null, "private socket connection must not use TCP");
+    assert.equal(rows[0].timezone, "UTC", "private cluster must use UTC even when initdb runs on a non-UTC host");
   });
   // Exact replay is exercised in its own isolated migration tree. The result
   // is not a certification claim; it proves the filtered endpoint can replay.
