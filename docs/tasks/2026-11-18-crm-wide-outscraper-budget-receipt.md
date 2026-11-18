@@ -1,0 +1,35 @@
+# CRM-wide Outscraper allowance — preparation receipt
+
+Matt selected **all CRM Outscraper usage** for the **$50/month** limit. This supersedes the Task 2161-only allowance in the earlier audit receipt. The implementation is on `codex/production-audit-fixes`, in `/Users/matt/Developer/liberty-production-audit`. It has not been merged to main or published.
+
+## Implemented behavior
+
+- Additive migration **0392** and the matching schema introduce one shared policy, monthly windows and durable request reservations. Historical migrations and native provider holds remain intact. The retired lane budget implementation is removed from active execution; 0390 history is preserved.
+- All current CRM Maps and Leads & Contacts purchase paths use the same database authority immediately before their actual HTTP transport. Scheduled searches, previews, existing SFP enrichment and CRO03C enrichment cannot each spend separate $50 allowances. Existing unit limits, claims, activation and native dispatch ownership still apply.
+- The monthly ceiling is $50 maximum, with America/New_York calendar boundaries. Concurrent workers reserve bounded maximum liability under a single policy lock. Policy revisions, quote expiry, native dispatch markers and the remaining allowance are checked again before transport. No HTTP call or owner callback holds that financial transaction open.
+- Failures and ambiguous dispatched requests retain their full maximum liability. Process crashes retain reservations. Only a reservation whose own transport has not begun can be released. Validated retained-task retrieval and importing existing files do not purchase another search.
+- Existing native ledger liabilities consume the shared allowance without double counting linked operations. Unknown historical pricing blocks purchases. The observed historical liability cannot silently shrink during the month. No endpoint resets the baseline or clears native holds.
+- Admin/manager status is read-only; only an admin with CSRF protection can change the ceiling or record an endpoint quote. Saving budget settings does not start searches, enable the schedule or change provider controls. The UI displays missing pricing and unknown liability rather than claiming remaining money is available.
+- Stateless codec fixtures may supply a test budget only with an injected transport, test environment and the actual installed fatal egress-denial marker. Injecting `fetch` alone does not bypass the production guard. Native acceptance uses the real database authority.
+
+## Pricing and delivery dependencies
+
+Maps uses the [published base price](https://outscraper.com/pricing/) reviewed on November 18, with a finite December 18 expiry and no assumed free-tier discount. A higher matching native frozen price wins. Leads & Contacts remains blocked until its specific endpoint price and domain/contact billing unit are verified and recorded; the similarly named Emails & Contacts product does not establish that price. Contact quotes reserve all three contacts requested per company. Quotes require evidence and expire within 30 days.
+
+The guard covers CRM purchases. It cannot constrain manual purchases in Outscraper or another application using the same vendor key, and it is not a verified vendor invoice total. Production source/schema delivery, retiring old purchase-capable processes, native legacy-ledger reconciliation and runtime readback are necessary before claiming the cap is live. This task does not apply a production migration or Publish.
+
+## Verification
+
+Application source **59d7bffcf31457c5d07f1968e7b156fbe5eef088** includes the final preview-status guard. Node **22.22.0**, npm **10.9.4**, locked dependencies and PostgreSQL **16** are used. All integration fixtures use private disposable databases/Redis/listeners and denied provider egress. No paid provider request was made.
+
+Typecheck, production-recipe build, paid-adapter scanner, migration integrity, migration seed registration, queue compliance, CRO03C adapter contract, API coverage and its pure regression checks pass. API coverage compares 901 client endpoints with 1856 server handlers. A fresh dependency audit reports **0 high, 0 critical, 16 moderate and 1 low**; the moderate/low findings are not claimed fixed.
+
+The native financial suite passes **45 checks**, including actual concurrent Maps/enrichment purchases, persisted holds, pre-I/O release, exhausted-budget retrieval, native marker ownership, policy/period/expiry denial, historical liabilities and linked-operation accounting. It also verifies both timestamp types under a non-UTC database session: migration 0158 uses `timestamptz` while the declarative provider timestamp is UTC-naive, so the budget explicitly handles both.
+
+The final source-bound Linux batch passed **6/6 suites**, with zero child, setup/teardown or shared-launcher failures: shared financial authority (45 checks), Task 2161 persistence (67) plus real authenticated HTTP/CSRF routes (43), Task 2161 contracts (38), existing SFP Apollo/Outscraper enrichment, Phase 7 migration-upgrade parity including 0392, and the compiled budget browser (18). The browser used actual persisted admin/manager sessions and real pointer/input/CSRF submission, saved a lower shared cap, verified schedule/provider controls remained unchanged, created zero purchases, and checked 320/390/768/1280-pixel light/dark layouts. This focused batch is not a claim that the entire historical pre-deploy roster is green. A first Linux attempt stopped during disposable setup because the stripped command environment omitted its UTF-8 locale; no suite executed. That evidence is retained separately from the UTF-8 rerun. An earlier typecheck correctly rejected the missing-status preview expression; the final source disables preview when status is absent.
+
+Private evidence: `/Users/matt/.local/share/liberty-dev/production-audit-2026-11-18/fixes`; isolated Linux checkout `/home/runner/liberty-budget-verified-20261118`, logs `.local/audit-fixes/wide-budget`. Final logs and browser screenshot are copied to private `fixes/verified-all-crm-59d7bffc`. The older isolated checkout was absent when this turn resumed, so it was not represented as current verified source.
+
+## Production readback
+
+The existing signed-in production Chrome tab showed **63 saved definitions**, schedule **Off**, zero new searches today, worker **Not selected** and no heartbeat. The Go-Live Controls Kill Switch then showed **Global Outbound Pause Is Active**, pause checked, zero sends today and website follow-up **Closed**. This was read-only; no settings were saved. GitHub main still reads **bc4f3b0f8a01aa50708a9a807019d987211372a1**. No new feature source was pushed to main, shared dev app restarted, production migration applied or Publish invoked.
