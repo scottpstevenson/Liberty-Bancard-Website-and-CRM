@@ -102,6 +102,7 @@ export interface Suite {
 // Explicit local certification uses the SAME isolated launcher, without making
 // missing private fixtures a new mandatory release failure.
 export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
+  {name:"TypeScript route boundary regressions",script:"scripts/certification/test-typescript-route-boundaries.ts",timeoutSecs:180,requiresDisposableTestDatabase:true},
   {name:"SFP paid waterfall current provider contracts",script:"scripts/test-sfp-paid-waterfall-apollo-outscraper.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
   {name:"SFP current selected validation handoff",script:"scripts/test-sfp-validation-handoff-repair-certification.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
   {name:"Task 2161 Scheduled Discovery Contracts",script:"scripts/test-scheduled-discovery.ts",timeoutSecs:180,requiresDisposableTestDatabase:true},
@@ -241,6 +242,7 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
     timeoutSecs:480,requiresDisposableTestDatabase:true},
 ];
 export const MANDATORY_SUITES: Suite[] = [
+  {name:"TypeScript route boundary regressions",script:"scripts/certification/test-typescript-route-boundaries.ts",timeoutSecs:180,requiresDisposableTestDatabase:true},
   {name:"SFP paid waterfall current provider contracts",script:"scripts/test-sfp-paid-waterfall-apollo-outscraper.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
   {name:"SFP current selected validation handoff",script:"scripts/test-sfp-validation-handoff-repair-certification.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
   {name:"Task 2161 Scheduled Discovery Persistence",script:"scripts/certification/test-scheduled-discovery.ts",timeoutSecs:900,requiresDisposableTestDatabase:true},

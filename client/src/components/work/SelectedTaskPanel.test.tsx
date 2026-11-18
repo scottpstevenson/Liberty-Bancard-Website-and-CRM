@@ -37,7 +37,7 @@ type Mode = "linked" | "none" | "restricted" | "fail" | "denied" | "retry";
 let mode: Mode = "linked";
 let retryFailures = 1;
 const requests: Array<{ method: string; path: string }> = [];
-let delayed: Record<number, Promise<void>> = {};
+let delayed: Partial<Record<number, Promise<void>>> = {};
 const request = (ref: string) => ({
   requestReceipt: `${ref.toLowerCase()}-0000-4000-8000-000000000000`, shortRef: ref, sourceType: "statement_upload", lifecycleState: "accepted",
   createdAt: "2026-11-12T12:00:00.000Z", contactId: 166168,

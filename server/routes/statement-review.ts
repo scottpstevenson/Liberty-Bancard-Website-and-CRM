@@ -149,11 +149,12 @@ export function registerStatementReviewRoutes(app: Express) {
   // the recorded upload command for the review's own document; no name, contact or time match is ever used.
   app.get("/api/statement-reviews/:id/request", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const reviewId = /^[1-9]\d{0,9}$/.test(req.params.id) ? Number(req.params.id) : NaN;
+      const reviewId = typeof req.params.id === "string" && /^[1-9]\d{0,9}$/.test(req.params.id) ? Number(req.params.id) : NaN;
       if (!Number.isSafeInteger(reviewId) || reviewId > 2147483647) return res.status(400).json({ message: "Invalid review id" });
       const review = await getStatementReview(reviewId);
       // authorizeReview answers 404 itself for a missing review; short-circuiting on !review would leave the request hanging.
       if (!await authorizeReview(req, res, review)) return;
+      if (!review) return; // authorizeReview owns the missing-record 404 above.
       res.setHeader("Cache-Control", "no-store");
       return res.json(await resolveStatementRequestByDocument(review.documentId ?? null));
     } catch (err: any) {
@@ -165,7 +166,7 @@ export function registerStatementReviewRoutes(app: Express) {
   // has NO analyst review yet (the website request's own file link). Admin/manager only, read-only, exact or an honest reason.
   app.get("/api/statement-documents/:documentId/request", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const documentId = /^[1-9]\d{0,9}$/.test(req.params.documentId) ? Number(req.params.documentId) : NaN;
+      const documentId = typeof req.params.documentId === "string" && /^[1-9]\d{0,9}$/.test(req.params.documentId) ? Number(req.params.documentId) : NaN;
       if (!Number.isSafeInteger(documentId) || documentId > 2147483647) return res.status(400).json({ message: "Invalid document id" });
       res.setHeader("Cache-Control", "no-store");
       return res.json(await resolveStatementRequestByDocument(documentId));
@@ -179,6 +180,7 @@ export function registerStatementReviewRoutes(app: Express) {
     try {
       const review = await getStatementReview(Number(req.params.id));
       if (!await authorizeReview(req, res, review)) return;
+      if (!review) return; // authorizeReview owns the missing-record 404 above.
 
       let contactName = "";
       let companyName = "";
@@ -252,6 +254,7 @@ export function registerStatementReviewRoutes(app: Express) {
       const existing = await getStatementReview(id);
       // authorizeReview answers 404 itself for a missing review; short-circuiting on !existing would leave the request hanging.
       if (!await authorizeReview(req, res, existing, true)) return;
+      if (!existing) return; // authorizeReview owns the missing-record 404 above.
       if (parsed.data.version !== existing.version) {
         return res.status(409).json({ code: "STATEMENT_REVIEW_VERSION_CONFLICT", currentVersion: existing.version });
       }
@@ -322,6 +325,7 @@ export function registerStatementReviewRoutes(app: Express) {
       const review = await getStatementReview(id);
       // authorizeReview answers 404 itself for a missing review; short-circuiting on !review would leave the request hanging.
       if (!await authorizeReview(req, res, review, true)) return;
+      if (!review) return; // authorizeReview owns the missing-record 404 above.
 
       let contactName = "";
       let companyName = "";

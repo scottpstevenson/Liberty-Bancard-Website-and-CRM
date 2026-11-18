@@ -1169,7 +1169,7 @@ export default function MerchantApplicationsList() {
             : "Showing every application, including those linked to test, demo or synthetic contacts. Each is labelled."}
           {recordScope === "production" && hiddenByClass > 0 && ` ${hiddenByClass} hidden by this filter.`}
         </span>
-        <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => setRecordScope(v => v === "production" ? "all" : "production")}
+        <Button variant="ghost" size="sm" className="h-auto p-0 text-xs text-primary underline-offset-4 hover:underline" onClick={() => setRecordScope(v => v === "production" ? "all" : "production")}
           data-testid="button-toggle-application-record-scope">
           {recordScope === "production" ? "Show test and history records" : "Back to production records"}
         </Button>

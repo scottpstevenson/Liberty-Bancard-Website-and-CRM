@@ -394,8 +394,9 @@ async function handleConsentRecord(row: OutboxRow): Promise<void> {
   }
   const submissionId = typeof p.submissionId === "string" ? p.submissionId : `application-${appId}`;
   const { recordPewcDecision } = await import("./consent-evidence");
+  const contactId = appRow.contactId;
   await withOwnedClaim(row, () => recordPewcDecision({
-    contactId: appRow.contactId,
+    contactId,
     checked: true,
     source: "merchant_application_finalize",
     ipAddress: typeof p.ipAddress === "string" && p.ipAddress ? p.ipAddress : "unknown",

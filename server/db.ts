@@ -1,5 +1,6 @@
 import { drizzle, NodePgSession, NodePgTransaction } from "drizzle-orm/node-postgres";
 import { sql as drizzleSql } from "drizzle-orm";
+import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import pg from "pg";
 import {createHash} from "node:crypto";
 import * as schema from "@shared/schema";
@@ -164,19 +165,23 @@ export const db = drizzle(pool, { schema });
 // semantics (commit, rollback, error propagation) and adds the missing release; a client whose BEGIN failed is destroyed.
 {
   const poolSession = (db as any).session as InstanceType<typeof NodePgSession>;
-  (poolSession as any).transaction = async function releasingTransaction(transaction: (tx: any) => Promise<unknown>, config?: any) {
+  (poolSession as any).transaction = async function releasingTransaction(transaction: (tx: any) => Promise<unknown>, config?: PgTransactionConfig) {
     const client = await pool.connect();
     let destroyClient = false;
     try {
       const session = new NodePgSession(client, (poolSession as any).dialect, (poolSession as any).schema, (poolSession as any).options);
       const tx = new NodePgTransaction((poolSession as any).dialect, session, (poolSession as any).schema);
       try {
-        await tx.execute(drizzleSql`begin${config ? drizzleSql` ${tx.getTransactionConfigSQL(config)}` : undefined}`);
+        await tx.execute(drizzleSql`begin`);
       } catch (error) {
         destroyClient = true;
         throw error;
       }
       try {
+        // Apply options through Drizzle's public API before any caller query.
+        if (config && (config.isolationLevel || config.accessMode || typeof config.deferrable === "boolean")) {
+          await tx.setTransaction(config);
+        }
         const result = await transaction(tx);
         await tx.execute(drizzleSql`commit`);
         return result;

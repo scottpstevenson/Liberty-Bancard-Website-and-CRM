@@ -552,7 +552,7 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettleme
   // S5-11: validate the complete reviewed payload BEFORE any snapshot read or
   // transport. Names only are recorded — never values.
   const missing = missingProviderFields(payload as Record<string, unknown>);
-  if (missing.length > 0) {
+  if (missing.length > 0 || !payload.legalBusinessName) {
     await db.transaction(async (tx) => {
       const fenced = await tx.update(dealBoardingOutbox)
         .set({ status: "dead_letter", lockedAt: null, lastError: "BOARDING_PAYLOAD_INCOMPLETE",
@@ -708,7 +708,7 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettleme
   }
   if (fence === "stale_claim") return { settlement: "stale_claim" };
 
-  const result = await processor.boardMerchant(payload);
+  const result = await processor.boardMerchant({ ...payload, legalBusinessName: payload.legalBusinessName });
 
   // REV-05A: Ambiguous result handling.
   // If the provider call timed out or returned no application ID, classify as

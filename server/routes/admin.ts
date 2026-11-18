@@ -5902,10 +5902,11 @@ export function registerAdminRoutes(app: Express) {
 
   app.get("/api/admin/data-health/reconcile/operations/:operationId", requireRole("admin"), async (req, res) => {
     try {
-      if (!/^[0-9a-f-]{36}$/i.test(req.params.operationId)) return res.status(400).json({ code: "INVALID_OPERATION_ID" });
+      const operationId = req.params.operationId;
+      if (typeof operationId !== "string" || !/^[0-9a-f-]{36}$/i.test(operationId)) return res.status(400).json({ code: "INVALID_OPERATION_ID" });
       const { readDataHealthReconcileReceipt, publicReconcileReceipt } = await import("../services/data-health-reconcile");
       // Only the administrator who started an operation can read its receipt; anyone else gets the same 404 as an unknown id.
-      const receipt = await readDataHealthReconcileReceipt(req.params.operationId, String((req as any).user?.id ?? ""));
+      const receipt = await readDataHealthReconcileReceipt(operationId, String((req as any).user?.id ?? ""));
       if (!receipt) return res.status(404).json({ code: "OPERATION_NOT_FOUND" });
       res.json({ receipt: publicReconcileReceipt(receipt) });
     } catch (err: any) {

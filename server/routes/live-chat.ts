@@ -105,7 +105,9 @@ export function registerLiveChatRoutes(app: Express) {
     try {
       const schema = z.object({ content: z.string().min(1).max(2000) });
       const { content } = schema.parse(req.body);
-      const chat = await storage.getLiveChatBySession(req.params.sessionId);
+      const sessionId = req.params.sessionId;
+      if (typeof sessionId !== "string") return res.status(400).json({ message: "Invalid chat session id" });
+      const chat = await storage.getLiveChatBySession(sessionId);
       if (!chat) return res.status(404).json({ message: "Chat session not found" });
       if (chat.status === "closed") return res.status(410).json({ message: "Chat session closed" });
 
@@ -155,7 +157,9 @@ export function registerLiveChatRoutes(app: Express) {
         email: z.string().email(),
       });
       const { name, email } = schema.parse(req.body);
-      const chat = await storage.getLiveChatBySession(req.params.sessionId);
+      const sessionId = req.params.sessionId;
+      if (typeof sessionId !== "string") return res.status(400).json({ message: "Invalid chat session id" });
+      const chat = await storage.getLiveChatBySession(sessionId);
       if (!chat) return res.status(404).json({ message: "Chat session not found" });
 
       const nameParts = name.trim().split(" ");
