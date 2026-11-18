@@ -6,7 +6,7 @@ Implementation: `codex/production-audit-fixes` in `/Users/matt/Developer/liberty
 
 Using the signed-in administrator's supported **Create active-program definitions** control, initialized **63 current-program searches** on November 18 at 18:52:46 UTC. Geography: Broward, Miami-Dade and Palm Beach; terms use the current program's five verticals. Readback: schedule **Off**, **0 searches today**, worker **Not selected**, heartbeat **Not recorded**. Definitions are prepared; a source configuration change is not evidence of live worker activation.
 
-The database-backed production outbound read at **18:53:17 UTC** reports **paused, epoch 4, canSend=false, availability=available**. No pause control was changed. Production feedback status reports measurement disabled and no observed SendGrid/mailbox continuity.
+The database-backed production outbound read at **19:34:05 UTC** reports **paused, epoch 4, canSend=false, availability=available**. No pause control was changed. Production feedback status reports measurement disabled and no observed SendGrid/mailbox continuity.
 
 ## Repairs
 
@@ -60,4 +60,21 @@ Confirmed focused results so far:
 
 ## Completion update
 
-Pending final browser results and committed-source reconciliation. GitHub main was freshly checked and remains `a9acad2dd35225788cd2e3d28fa73765c352cf83`; this feature branch preserves the already-deployed 0389 repair. No main overwrite or Replit workspace restart has been performed.
+Application-code commit **`936cff20f8d03f6454f36d02e0b0710c20f2a16a`** is committed on the separate local branch. Node 22.22.0/npm 10.9.4 typecheck and production-recipe build pass on that exact source. Final compiled Phase 7 browser proof passes **101 checks** at 320, 390, 454, 768, 1023, 1024 and 1280 pixels in light/dark themes, including actual header-control non-overlap, separate tabs and assistant clearance. The earlier 768-pixel failure was retained as a real negative control and fixed by extending wrapping through tablet widths.
+
+The preceding complete repair batch at **`f4e307bc`** passed **12/12 suites** with zero executed, setup/teardown or shared-launcher failures: Phase 7 browser, calendar browser, partner application browser, Task 2161 persistence/HTTP, Phase 7 integration, upgrade parity, canonical merge, merge-manifest/catalog, Redis topology, registry projection, contact-link automation and audited retained recovery. Subsequent application changes only adjust header layout; the calendar suite also passed at the intermediate header commit. Final browser evidence, build recipe and source-integrity manifest are retained privately under `fixes/verified-936cff20`. The full historical 304-entry roster has not been recertified green and its earlier 57 failures are not represented as all resolved.
+
+GitHub main was fast-forwarded **only to the already-deployed `bc4f3b0f8a01aa50708a9a807019d987211372a1`**, reconciling 0389 and its four source/memory files. Its non-force push and exact remote readback succeeded. Immediately before that sync, the public production health read still reported that same source and build `0d596e7e-5dfc-4909-b27b-d516aaf2157f`. GitHub workflows were inspected: this Git push invokes checks, not Publish. No green GitHub Actions result is claimed for this reconciliation.
+
+The new audit fixes remain on the feature branch; they were **not merged to main or published**. The separate SSH certification checkout contains tested source; the shared Replit workspace remains clean at `c54fdf18`, with no app restart. The original Mac checkout remains on `codex/local-development-setup` at `361886eb`; this task made no worktree changes there. Its final broad status read stalled and was stopped without touching its application processes, so a fresh complete status inventory is not claimed.
+
+Read-only owner-console preflight for 0391 (not executed against production by this task):
+
+```sql
+SELECT contact_id, count(*) FROM contact_lead_scoring_jobs
+WHERE status NOT IN ('completed','contact_not_found','failed_terminal')
+GROUP BY contact_id HAVING count(*) > 1;
+SELECT pg_get_indexdef(to_regclass('public.contact_lead_scoring_jobs_active_unique_idx'));
+```
+
+Production delivery of 0390/0391, runtime worker activation, verified feedback credentials/continuity, normal content approval and any later paid acceptance remain distinct operational steps. For 0391, the owner must inspect existing active-job duplicates and the actual installed index before delivery; this task never removes jobs to satisfy uniqueness. The $50 guard currently covers Task 2161 only. The question whether Matt wants it extended across all existing CRM Outscraper enrichment remains unanswered; no broader account-wide enforcement is claimed. All paid discovery remains off during preparation, outbound remains paused, and no Publish has run.
