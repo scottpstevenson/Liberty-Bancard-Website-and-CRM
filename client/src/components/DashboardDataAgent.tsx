@@ -164,7 +164,7 @@ export function DashboardDataAgent() {
 
   return (
     <div
-      className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3"
+      className="relative z-50 flex shrink-0 flex-col items-end gap-3 border-t bg-background p-2 sm:fixed sm:bottom-6 sm:right-6 sm:border-0 sm:bg-transparent sm:p-0"
       data-testid="dashboard-data-agent"
     >
       {/* Chat panel */}
@@ -172,7 +172,8 @@ export function DashboardDataAgent() {
         <div
           className={cn(
             "bg-background border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden transition-all duration-200",
-            minimized ? "w-72 h-12" : "w-96 h-[520px] max-h-[80vh]"
+            "absolute bottom-full right-2 mb-2 sm:static sm:m-0",
+            minimized ? "w-[min(18rem,calc(100vw-1rem))] h-12" : "w-[min(24rem,calc(100vw-1rem))] h-[520px] max-h-[80vh]"
           )}
           style={{ boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}
         >

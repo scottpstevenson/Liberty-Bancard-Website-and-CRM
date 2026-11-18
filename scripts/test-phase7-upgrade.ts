@@ -32,12 +32,17 @@ try {
   await fs.symlink(path.join(workspace, "shared"), path.join(dir, "shared"));
   const journalFile = path.join(dir, "migrations/meta/_journal.json"),
     journal = JSON.parse(await fs.readFile(journalFile, "utf8"));
+  const phase7 = journal.entries.find(
+    (entry: { tag: string }) => entry.tag === "0387_phase7_conversion_integrity",
+  );
+  assert(phase7, "Phase 7 migration must be present in the source journal");
   const baseline = {
     ...journal,
     entries: journal.entries.filter(
-      (e: any) => e.tag !== "0387_phase7_conversion_integrity",
+      (e: { when: number }) => e.when < phase7.when,
     ),
   };
+  assert.equal(baseline.entries.at(-1)?.tag, "0386_partner_introduction_checks_validated");
   async function migrate(target: typeof dbs.reference) {
     await withLocalClient(target, async (c) =>
       assert.equal(

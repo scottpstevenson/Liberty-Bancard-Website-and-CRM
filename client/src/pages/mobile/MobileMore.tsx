@@ -117,6 +117,10 @@ export default function MobileMore() {
     localStorage.setItem(PREFER_DESKTOP_KEY, "true");
     window.location.href = "/dashboard";
   }
+  function switchToMobile() {
+    localStorage.removeItem(PREFER_DESKTOP_KEY);
+    window.location.href = "/mobile";
+  }
 
   const taskState = taskSummary({ isLoading: tasksRead.isLoading, isError: tasksRead.isError, data: tasksRead.data });
   const inboxState = inboxSummary({ isLoading: inboxRead.isLoading, isError: inboxRead.isError, data: inboxRead.data });
@@ -328,6 +332,13 @@ export default function MobileMore() {
         {/* Account */}
         <SectionHeader title="Account" />
         <div className="bg-white dark:bg-gray-800 mx-4 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden divide-y divide-gray-100 dark:divide-gray-700">
+          <Row
+            icon={Monitor}
+            label="Use Mobile Layout"
+            sublabel="Clear the saved desktop preference on this device"
+            onPress={switchToMobile}
+            iconColor="text-gray-500"
+          />
           <Row
             icon={Monitor}
             label="Switch to Desktop View"

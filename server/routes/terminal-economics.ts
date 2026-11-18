@@ -170,7 +170,7 @@ export function registerTerminalEconomicsRoutes(app: Express) {
 
       res.json({ success: true, terminalApprovalStatus: "approved" });
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      if (err instanceof z.ZodError) return res.status(400).json({message:err.issues[0].message});
       if (err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
@@ -198,7 +198,7 @@ export function registerTerminalEconomicsRoutes(app: Express) {
 
       res.json({ success: true, terminalApprovalStatus: "rejected" });
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      if (err instanceof z.ZodError) return res.status(400).json({message:err.issues[0].message});
       if (err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }

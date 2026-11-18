@@ -71,20 +71,20 @@ const CANONICAL_VERTICALS: readonly string[] = SFP_CONTACT_VERTICAL_IDS;
 const campaignFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
-  targetListId: z.coerce.number().optional(),
+  targetListId: z.coerce.number<string | number>().optional(),
   targetVerticals: z.array(z.string()).optional(),
   targetScores: z.array(z.string()).optional(),
   aiPersonalization: z.boolean().optional(),
-  dailySendLimit: z.coerce.number().min(1).optional(),
-  readinessThreshold: z.coerce.number().min(0).max(100).optional().nullable(),
+  dailySendLimit: z.coerce.number<string | number>().min(1).optional(),
+  readinessThreshold: z.coerce.number<string | number>().min(0).max(100).optional().nullable(),
 });
 
 type CampaignFormData = z.infer<typeof campaignFormSchema>;
 
 const stepFormSchema = z.object({
-  stepOrder: z.coerce.number().min(1, "Step order is required"),
+  stepOrder: z.coerce.number<string | number>().min(1, "Step order is required"),
   stepType: z.string().min(1, "Step type is required"),
-  delayDays: z.coerce.number().min(0).optional(),
+  delayDays: z.coerce.number<string | number>().min(0).optional(),
   subject: z.string().optional(),
   bodyTemplate: z.string().optional(),
   channel: z.string().optional(),
@@ -197,7 +197,7 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
     },
   });
 
-  const stepForm = useForm<StepFormData>({
+  const stepForm = useForm<z.input<typeof stepFormSchema>, unknown, StepFormData>({
     resolver: zodResolver(stepFormSchema),
     defaultValues: {
       stepOrder: (steps?.length || 0) + 1,
@@ -1082,7 +1082,7 @@ export default function Campaigns() {
     ? new Map(catalogRead.catalog.campaigns.map(c => [c.id, { catalogClass: c.catalogClass, reason: c.reason }] as const))
     : undefined;
 
-  const form = useForm<CampaignFormData>({
+  const form = useForm<z.input<typeof campaignFormSchema>, unknown, CampaignFormData>({
     resolver: zodResolver(campaignFormSchema),
     defaultValues: {
       name: "",

@@ -100,6 +100,17 @@ export interface ManifestEntry {
 
 export const LOGICAL_JOB_MANIFEST: readonly ManifestEntry[] = [
   {
+    logicalKey: "scheduled-discovery-tick",
+    physicalQueue: QUEUE_NAMES.SCHEDULED_DISCOVERY,
+    jobNamePattern: "tick",
+    handler: "Recover retained discovery work and dispatch enabled current-program searches",
+    owner: "scheduled-discovery/service.processDiscoveryTick",
+    effect: "external_data_sync",
+    canRunWhileGlobalOutboundPaused: true,
+    backlogSource: "bullmq",
+    releaseController: "discovery_schedules_and_provider_controls",
+  },
+  {
     logicalKey: "cro03c-live-dispatch",
     physicalQueue: QUEUE_NAMES.CRO03C_LIVE,
     jobNamePattern: "dispatch",

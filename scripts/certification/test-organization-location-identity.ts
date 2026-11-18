@@ -20,4 +20,11 @@ check({...base,state:"GA"},[{...a,exactSource:true}],
   {kind:"deferred",reasonCode:"AMBIGUOUS_ORGANIZATION_MATCH",candidateIds:[1]});
 check({canonicalName:"Name Only",sourceIdentity:{sourceSystem:"crm",sourceType:"import",stableKey:"row:1"}},[],
   {kind:"deferred",reasonCode:"INSUFFICIENT_ORGANIZATION_EVIDENCE",candidateIds:[]});
+check({canonicalName:"Registry Entity",matchingPolicy:"retained-public-registry-v1",
+  sourceIdentity:{sourceSystem:"state_registry",sourceType:"public_registry",stableKey:"entity:1"}},[],{kind:"create"});
+check({canonicalName:"Registry Entity",sourceIdentity:{sourceSystem:"state_registry",sourceType:"public_registry",stableKey:"entity:1"}},[],
+  {kind:"deferred",reasonCode:"INSUFFICIENT_ORGANIZATION_EVIDENCE",candidateIds:[]});
+check({canonicalName:"Registry Entity",matchingPolicy:"retained-public-registry-v1",
+  sourceIdentity:{sourceSystem:"state_registry",sourceType:"public_registry",stableKey:""}},[],
+  {kind:"deferred",reasonCode:"INSUFFICIENT_ORGANIZATION_EVIDENCE",candidateIds:[]});
 console.log(`Organization location identity: ${checks} checks passed`);

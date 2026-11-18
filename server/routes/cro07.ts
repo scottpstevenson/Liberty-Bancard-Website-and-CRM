@@ -264,7 +264,7 @@ export function registerCro07Routes(app: Express) {
               "duplicate",
             ]),
             reasonCode: z.string().trim().min(1).max(120),
-            evidence: z.record(z.unknown()).default({}),
+            evidence: z.record(z.string(), z.unknown()).default({}),
           })
           .strict()
           .parse(req.body);
@@ -311,7 +311,7 @@ export function registerCro07Routes(app: Express) {
           eventType: z.string().trim().min(1).max(80),
           attemptId: z.string().uuid(),
           providerOccurredAt: z.string().datetime().optional(),
-          payload: z.record(z.unknown()).default({}),
+          payload: z.record(z.string(), z.unknown()).default({}),
         })
         .strict()
         .parse(req.body);
@@ -595,9 +595,9 @@ export function registerCro07Routes(app: Express) {
             key: z.string().trim().min(3).max(120),
             hypothesis: z.string().trim().min(1).max(2000),
             metric: z.string().trim().min(1).max(120),
-            populationDefinition: z.record(z.unknown()),
-            allocation: z.record(z.number().min(0).max(1)),
-            versions: z.record(z.unknown()),
+            populationDefinition: z.record(z.string(), z.unknown()),
+            allocation: z.record(z.string(), z.number().min(0).max(1)),
+            versions: z.record(z.string(), z.unknown()),
             minSampleSize: z.number().int().min(1),
             minDurationDays: z.number().int().min(0),
             confidenceRule: z.object({

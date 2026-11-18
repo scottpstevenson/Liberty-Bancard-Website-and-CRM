@@ -158,7 +158,7 @@ export function registerPartnersRoutes(app: Express) {
       privatePartnerResponse(res);
       res.status(201).json(toPartnerOperatorRecord(partner));
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join(".") });
       // Never echo a database error: its text can include the failed statement and its bound values.
       if (err?.message === PARTNER_EMAIL_IN_USE) return res.status(400).json({ message: PARTNER_EMAIL_IN_USE });
       if (err?.code === "23505" || err?.cause?.code === "23505") return res.status(409).json({ message: "A partner with these details already exists." });
@@ -793,7 +793,7 @@ ${getEmailSignatureHtml("partners")}
         );
       }
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join(".") });
       serverError(res, err, "referral_create");
     }
   });
@@ -809,7 +809,7 @@ ${getEmailSignatureHtml("partners")}
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join(".") });
       if (err instanceof DateValidationError) return res.status(400).json({ message: err.message, field: err.field });
       serverError(res, err, "referral_update");
     }

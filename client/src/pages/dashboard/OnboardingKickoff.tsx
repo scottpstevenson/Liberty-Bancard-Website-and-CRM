@@ -58,7 +58,7 @@ export default function OnboardingKickoff() {
   const [contactSearch,setContactSearch]=useState("");
   const [contactOffset,setContactOffset]=useState(0);
 
-  const form = useForm<FormValues>({
+  const form = useForm<z.input<typeof formSchema>, unknown, FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       contactId: contextContact ? String(contextContact) : "",

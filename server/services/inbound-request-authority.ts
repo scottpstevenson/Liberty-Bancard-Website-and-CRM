@@ -513,7 +513,7 @@ function readAssignmentPolicy(): { policy: AssignmentPolicy | null; hash: string
     const policy = z.object({version:z.string().min(1).max(190),reps:z.array(z.object({
       id:z.string().min(1).max(190),active:z.boolean().optional(),territory:z.string().max(190).optional(),
       capacity:z.number().int().nonnegative().optional(),load:z.number().int().nonnegative().optional(),
-      serviceHours:z.record(z.unknown()).optional(),
+      serviceHours:z.record(z.string(), z.unknown()).optional(),
     }).strict()).max(200)}).strict().parse(JSON.parse(raw)) as AssignmentPolicy;
     if (new Set(policy.reps.map(r=>r.id)).size!==policy.reps.length) return {policy:null,hash:hashPayload({invalid:true})};
     return { policy, hash: hashPayload(policy) };

@@ -821,7 +821,7 @@ export function registerDocumentsRoutes(app: Express) {
       const doc = await storage.createDocument(input);
       res.status(201).json(doc);
     } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       throw err;
     }
   });
@@ -1563,7 +1563,7 @@ export function registerDocumentsRoutes(app: Express) {
       const packet = await storage.createCollateralPacket(input);
       res.status(201).json(packet);
     } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       throw err;
     }
   });
@@ -1606,7 +1606,7 @@ export function registerDocumentsRoutes(app: Express) {
       const article = await storage.createKnowledgeBaseArticle(input);
       res.status(201).json(article);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join('.') });
       res.status(400).json({ message: err.message });
     }
   });

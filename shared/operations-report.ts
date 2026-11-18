@@ -47,7 +47,7 @@ export const operationsReportSchema = z.object({
   meta: z.object({
     exact: z.literal(true), asOf: timestamp, scope: z.string(),
     snapshotConsistency: z.literal("unavailable"),
-    sourceCapture: z.record(z.object({
+    sourceCapture: z.record(z.string(), z.object({
       requestedAt: timestamp, completedBy: timestamp, consistency: z.string(),
     })),
     period: z.object({
@@ -58,7 +58,7 @@ export const operationsReportSchema = z.object({
       incidentsStartInclusive: timestamp, incidentsEndExclusive: timestamp,
       tasksAsOf: timestamp,
     }),
-    units: z.record(z.string()),
+    units: z.record(z.string(), z.string()),
     completeness: z.object({ sequenceReplies: z.string() }),
     spendAllocation: z.object({
       kind: z.literal("estimate"), assumption: z.string(),

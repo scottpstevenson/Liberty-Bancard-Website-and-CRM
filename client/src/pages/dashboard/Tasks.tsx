@@ -995,7 +995,7 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
                         <span className="md:hidden">Owner: {task.assignedTo || "Unassigned"}</span>
                         <span className="sm:hidden">Due: {task.dueDate ? formatDueDate(task.dueDate) : "No due time"}{overdue ? " (overdue)" : ""}</span>
                         {taskRelatedLinks(task).map(link => (
-                          <Link key={link.kind} href={link.href} className="lg:hidden text-blue-600 hover:underline" data-testid={`link-task-${task.id}-compact-${link.kind}`}>{link.label}</Link>
+                          <Link key={link.kind} href={link.href} className="lg:hidden text-blue-600 dark:text-blue-400 hover:underline" data-testid={`link-task-${task.id}-compact-${link.kind}`}>{link.label}</Link>
                         ))}
                       </div>
                     </div>
@@ -1026,7 +1026,7 @@ export default function Tasks({ embedded = false }: { embedded?: boolean }) {
                   <TableCell className="hidden lg:table-cell" data-testid={`text-task-related-${task.id}`}>
                     <div className="text-xs text-muted-foreground space-y-0.5">
                       {taskRelatedLinks(task).map(link => (
-                        <div key={link.kind}><Link href={link.href} className="text-blue-600 hover:underline" data-testid={`link-task-${task.id}-${link.kind}`}>{link.label}</Link></div>
+                        <div key={link.kind}><Link href={link.href} className="text-blue-600 dark:text-blue-400 hover:underline" data-testid={`link-task-${task.id}-${link.kind}`}>{link.label}</Link></div>
                       ))}
                       {taskRelatedLinks(task).length === 0 && <span>--</span>}
                     </div>

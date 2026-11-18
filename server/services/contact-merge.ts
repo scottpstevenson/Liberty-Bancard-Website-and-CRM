@@ -5,7 +5,7 @@ import { IDENTITY_NORMALIZATION_VERSION } from "./contact-identity";
 import { sanitizeAuditPayload } from "./audit-sanitizer";
 import { lockCommercialGraph } from "./commercial-graph-locks";
 
-export const CONTACT_MERGE_MANIFEST_VERSION = 3;
+export const CONTACT_MERGE_MANIFEST_VERSION = 4;
 export type Disposition = "transfer" | "immutable_retain" | "terminalize" | "authority_handoff" | "manual_block";
 export type ManifestEntry = {
   key: string;
@@ -20,6 +20,23 @@ export type ManifestEntry = {
 // metadata or an operator supplied table name. The checker compares this list
 // against PostgreSQL's FK catalog on every CI run.
 export const CONTACT_MERGE_MANIFEST: readonly ManifestEntry[] = [
+  // Historical conversion/provider observations keep the original recipient;
+  // a contact merge must never rewrite who an event actually described.
+  { key: "conversion_journey_evidence", table: "conversion_journey_evidence", column: "contact_id", disposition: "immutable_retain" },
+  { key: "cro07_provider_receipts", table: "cro07_provider_receipts", column: "contact_id", disposition: "immutable_retain" },
+  { key: "website_email_send_receipts", table: "website_email_send_receipts", column: "contact_id", disposition: "immutable_retain" },
+  { key: "website_inbound_evidence", table: "website_inbound_evidence", column: "contact_id", disposition: "immutable_retain" },
+  { key: "contact_link_acceptance_members", table: "contact_link_acceptance_members", column: "contact_id", rowIdColumn: "baseline_id", disposition: "immutable_retain" },
+  // Subject-bound privacy, identity decisions and active delivery authority
+  // require their owner's resolution rather than an automatic reassignment.
+  { key: "data_delete_requests_subject", table: "data_delete_requests", column: "subject_contact_id", disposition: "manual_block" },
+  { key: "contact_email_prefilter", table: "contact_email_prefilter", column: "contact_id", rowIdColumn: "contact_id", disposition: "manual_block" },
+  { key: "contact_business_link_dispositions", table: "contact_business_link_dispositions", column: "contact_id", rowIdColumn: "contact_id", disposition: "manual_block" },
+  { key: "contact_business_first_party_link_evidence", table: "contact_business_first_party_link_evidence", column: "contact_id", disposition: "manual_block" },
+  { key: "free_discovery_materialization_outcomes", table: "free_discovery_materialization_outcomes", column: "contact_id", rowIdColumn: "candidate_id", disposition: "manual_block" },
+  { key: "inbound_acknowledgements_recipient", table: "inbound_acknowledgements", column: "recipient_contact_id", disposition: "manual_block" },
+  { key: "website_lifecycle_intents", table: "website_lifecycle_intents", column: "contact_id", disposition: "manual_block" },
+  { key: "website_lifecycle_admissions", table: "website_lifecycle_admissions", column: "contact_id", disposition: "manual_block" },
   ...["calendar_events","call_logs","chargebacks","co_branded_proposals","contact_ai_cache","contact_companies",
     "contact_lead_scoring_jobs","deals","documents","enrichment_runs","equipment_orders","equipment_shipments",
     "ghl_activity_log","health_alerts","inbox_items","lead_sources","live_chats","merchant_applications",

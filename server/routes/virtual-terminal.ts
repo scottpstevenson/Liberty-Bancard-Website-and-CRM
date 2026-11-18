@@ -86,7 +86,7 @@ export function registerVirtualTerminalRoutes(app: Express) {
       });
     } catch (err: any) {
       if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+        return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join(".") });
       }
       serverError(res, err);
     }
@@ -155,7 +155,7 @@ export function registerVirtualTerminalRoutes(app: Express) {
       res.json({ transaction: updated, refundText, sandboxMode });
     } catch (err: any) {
       if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
+        return res.status(400).json({ message: err.issues[0].message });
       }
       serverError(res, err);
     }

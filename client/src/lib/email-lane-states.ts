@@ -104,14 +104,24 @@ export interface SequenceLaneInput {
   enrollments: readonly EnrollmentLike[] | null | undefined;
 }
 
+function packageForAsset(catalog: CatalogTruth | null, key: "sequenceId" | "campaignId", id: number): CatalogPackage | undefined {
+  const matches = catalog?.packages.filter(p => p[key] === id) ?? [];
+  const current = matches.filter(p => p.lifecycleState === "current");
+  if (current.length === 1) return current[0];
+  // Never resolve a conflicting current pin by catalog order.
+  return current.length === 0 && matches.length === 1 ? matches[0] : undefined;
+}
+function currentPackageConflict(catalog: CatalogTruth, key: "sequenceId" | "campaignId", id: number): boolean {
+  return catalog.packages.filter(p => p[key] === id && p.lifecycleState === "current").length > 1;
+}
 export function sequencePackage(catalog: CatalogTruth | null, sequenceId: number): CatalogPackage | undefined {
-  return catalog?.packages.find(p => p.sequenceId === sequenceId);
+  return packageForAsset(catalog, "sequenceId", sequenceId);
 }
 export function sequenceAsset(catalog: CatalogTruth | null, sequenceId: number): CatalogAsset | undefined {
   return catalog?.sequences.find(s => s.id === sequenceId);
 }
 export function campaignPackage(catalog: CatalogTruth | null, campaignId: number): CatalogPackage | undefined {
-  return catalog?.packages.find(p => p.campaignId === campaignId);
+  return packageForAsset(catalog, "campaignId", campaignId);
 }
 export function campaignAsset(catalog: CatalogTruth | null, campaignId: number): CatalogAsset | undefined {
   return catalog?.campaigns.find(c => c.id === campaignId);
@@ -145,14 +155,15 @@ export function sequenceLaneStates(input: SequenceLaneInput): LaneState[] {
     return [configuration, unknownState("content", read), history, unknownState("eligibility", read), unknownState("worker", read), SUPPRESSION, pause, RELEASE];
   }
   if (!pkg) {
+    const conflict = currentPackageConflict(catalog, "sequenceId", sequence.id);
     const cls = asset?.catalogClass ?? "unresolved";
-    const reason = asset?.reason ?? "The catalog has no record of this sequence.";
+    const reason = conflict ? "Several current package versions pin this sequence; no version is selected by this view." : asset?.reason ?? "The catalog has no record of this sequence.";
     return [
       configuration,
       { key: "content", label: LANE_LABELS.content, tone: "neutral", summary: "Verified only for the current package",
         basis: "Content approval and hash are checked only for the selected current package. This sequence is not part of one, so no approval is claimed." },
       history,
-      { key: "eligibility", label: LANE_LABELS.eligibility, tone: "blocked", summary: cls === "historical" ? "Historical, not selected" : `Not in the current package (${cls})`, basis: reason, href: SFP_POPULATION },
+      { key: "eligibility", label: LANE_LABELS.eligibility, tone: "blocked", summary: conflict ? "Conflicting current packages" : cls === "historical" ? "Historical, not selected" : `Not in the current package (${cls})`, basis: reason, href: SFP_POPULATION },
       { key: "worker", label: LANE_LABELS.worker, tone: "unknown", summary: "Not read", basis: "Worker selection is read only for current-package sequences." },
       SUPPRESSION, pause, RELEASE,
     ];
@@ -196,14 +207,15 @@ export function campaignLaneStates(input: CampaignLaneInput): LaneState[] {
     return [configuration, unknownState("content", read), history, unknownState("eligibility", read), unknownState("worker", read), SUPPRESSION, pause, RELEASE];
   }
   if (!pkg) {
+    const conflict = currentPackageConflict(catalog, "campaignId", campaign.id);
     const cls = asset?.catalogClass ?? "unresolved";
     return [
       configuration,
       { key: "content", label: LANE_LABELS.content, tone: "neutral", summary: "Verified only for the current package",
         basis: "Content approval and hash are checked only for the selected current package. This campaign is not part of one, so no approval is claimed." },
       history,
-      { key: "eligibility", label: LANE_LABELS.eligibility, tone: "blocked", summary: cls === "historical" ? "Historical, not selected" : `Not in the current package (${cls})`,
-        basis: asset?.reason ?? "The catalog has no record of this campaign.", href: SFP_POPULATION },
+      { key: "eligibility", label: LANE_LABELS.eligibility, tone: "blocked", summary: conflict ? "Conflicting current packages" : cls === "historical" ? "Historical, not selected" : `Not in the current package (${cls})`,
+        basis: conflict ? "Several current package versions pin this campaign; no version is selected by this view." : asset?.reason ?? "The catalog has no record of this campaign.", href: SFP_POPULATION },
       { key: "worker", label: LANE_LABELS.worker, tone: "unknown", summary: "Not read", basis: "Worker selection is read only for current-package campaigns." },
       SUPPRESSION, pause, RELEASE,
     ];

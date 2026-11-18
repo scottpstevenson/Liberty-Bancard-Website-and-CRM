@@ -198,6 +198,9 @@ try {
     const heldRows=syntheticRows(58),heldDomain=`held-${randomUUID()}.example.test`;
     for(const row of heldRows){
       row.rawRow.website=`https://${heldDomain}`;
+      // A real distinct place ID is sufficient branch evidence. This fixture
+      // exercises domain-only ambiguity, not separate supported locations.
+      delete row.rawRow.place_id;
       row.rowFingerprint=fingerprint(row.rawRow);
     }
     for(let index=0;index<2;index++)await pool.query(`INSERT INTO businesses

@@ -400,7 +400,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
       });
       res.json(updated);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -496,7 +496,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
           _handoff: { requestId: durableRequestId, state: "degraded", retryable: true },
           message: "Contact saved locally. Handoff is incomplete; retry with the same Idempotency-Key." });
       }
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join('.') });
       if(["CONTACT_MAILBOX_IDENTITY_AMBIGUOUS","CONTACT_SOURCE_EVENT_IDENTITY_AMBIGUOUS"].includes(err?.message))
         return res.status(409).json({message:"Several contacts match this identity. Select the existing contact instead of creating another.",code:err.message});
       if (isUniqueEmailViolation(err)) {
@@ -611,7 +611,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
-          return res.status(400).json({ message: parsed.error!.errors[0].message });
+          return res.status(400).json({ message: parsed.error!.issues[0].message });
       }
       // Deduplicate before querying
       const unique = Array.from(new Set(parsed.data.contactIds));
@@ -1007,7 +1007,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
 
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: parsed.error.errors[0].message, errors: parsed.error.errors });
+        return res.status(400).json({ message: parsed.error.issues[0].message, errors: parsed.error.issues });
       }
 
       let contactIds = parsed.data.contactIds;
@@ -1234,7 +1234,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
       const statusCode = updated._ghlSyncFailed ? 202 : 200;
       res.status(statusCode).json(updated);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join(".") });
       if (err instanceof DateValidationError) return res.status(400).json({ message: err.message, field: err.field });
       if (isUniqueEmailViolation(err)) {
         const existing = await storage.getContactByEmail(req.body?.email || "").catch(() => undefined);
@@ -1259,7 +1259,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
       if (result.denied) return res.status(404).json({ message: "Not found" });
       res.json(result);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -1365,7 +1365,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
       const { routeOfferBodySchema } = await import("@shared/offer-router-types");
       const parsed = routeOfferBodySchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: parsed.error.errors[0].message });
+        return res.status(400).json({ message: parsed.error.issues[0].message });
       }
       const { dryRun, forceAi, updateContact } = parsed.data;
 
@@ -1402,7 +1402,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
       const { manualOverrideBodySchema } = await import("@shared/offer-router-types");
       const parsed = manualOverrideBodySchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: parsed.error.errors[0].message, errors: parsed.error.errors });
+        return res.status(400).json({ message: parsed.error.issues[0].message, errors: parsed.error.issues });
       }
       const { offerRoute, recommendedNextAction, reason } = parsed.data;
 
@@ -1482,7 +1482,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
       const company = await createOwnedCompany(bindWorkActor(req.user),input);
       res.status(201).json(company);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -1569,7 +1569,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
 
       res.status(201).json(updated);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -1678,7 +1678,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
     } catch (err: any) {
       const {WorkCommandError}=await import("../services/work-item-command");
       if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -1711,7 +1711,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
 
       res.json(updated);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -1733,7 +1733,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
       const review = await reviewDecisionMaker({ contactId, businessId, decision, reviewKey, expectedRevision, actorId: String((req.user as any)?.id ?? "unknown") });
       res.json({ id: review.id, decision: review.decision });
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -1748,7 +1748,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
       const updated = await storage.updateContact(contactId, { managementType }, { actorType: "user", userId: (req.user as any)?.id ?? null });
       res.json(updated);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -1778,7 +1778,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
 
       res.json({ success: true, contactId, lifecycle_state: newState });
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       if (err?.message?.includes("not found")) return res.status(404).json({ message: err.message });
       serverError(res, err);
     }
@@ -1796,7 +1796,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
     } catch (err: any) {
       const {WorkCommandError}=await import("../services/work-item-command");
       if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -2158,7 +2158,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
         confirmed: z.boolean(),
       });
       const parsed = bodySchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ message: "Invalid request body", errors: parsed.error.errors });
+      if (!parsed.success) return res.status(400).json({ message: "Invalid request body", errors: parsed.error.issues });
       const { sequenceId, confirmed } = parsed.data;
 
       if (!confirmed) {
@@ -2289,7 +2289,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: parsed.error.errors[0].message });
+        return res.status(400).json({ message: parsed.error.issues[0].message });
       }
       const { reason, source } = parsed.data;
 
@@ -2442,7 +2442,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: parsed.error.errors[0].message });
+        return res.status(400).json({ message: parsed.error.issues[0].message });
       }
       const { issue, minLeadScore, limit: batchLimit, contactIds: explicitIds } = parsed.data;
 
@@ -2789,7 +2789,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
       res.json(await commandNote(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),"pin",fields,
         strictRecordId.parse(req.params.noteId),strictRecordId.parse(req.params.id)));
     } catch (err: any) {
-      if(err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      if(err instanceof z.ZodError) return res.status(400).json({message:err.issues[0].message});
       const {WorkCommandError}=await import("../services/work-item-command");
       if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
@@ -2844,7 +2844,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: parsed.error.errors[0].message });
+        return res.status(400).json({ message: parsed.error.issues[0].message });
       }
       const { subject, body } = parsed.data;
 
@@ -3107,7 +3107,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
         total: contactIds.length,
       });
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });

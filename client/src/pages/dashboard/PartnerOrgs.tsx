@@ -29,7 +29,7 @@ const orgFormSchema = z.object({
   logoUrl: z.string().url("Must be a valid URL").optional().or(z.literal("")),
   primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be a valid hex color").default("#2563eb"),
   tagline: z.string().optional(),
-  commissionRate: z.coerce.number().min(0).max(100).default(10),
+  commissionRate: z.coerce.number<string | number>().min(0).max(100).default(10),
   contactName: z.string().optional(),
   email: z.string().email().optional().or(z.literal("")),
   phone: z.string().optional(),
@@ -88,7 +88,7 @@ function OrgUserManager({ org }: { org: PartnerOrganization }) {
     enabled: open,
   });
 
-  const form = useForm<UserFormData>({
+  const form = useForm<z.input<typeof userFormSchema>, unknown, UserFormData>({
     resolver: zodResolver(userFormSchema),
     defaultValues: { firstName: "", lastName: "", email: "", password: "", role: "member" },
   });
@@ -231,7 +231,7 @@ export default function PartnerOrgs() {
     queryKey: ["/api/partner-orgs-performance"],
   });
 
-  const createForm = useForm<OrgFormData>({
+  const createForm = useForm<z.input<typeof orgFormSchema>, unknown, OrgFormData>({
     resolver: zodResolver(orgFormSchema),
     defaultValues: {
       name: "", slug: "", logoUrl: "", primaryColor: "#2563eb",
@@ -239,7 +239,7 @@ export default function PartnerOrgs() {
     },
   });
 
-  const editForm = useForm<OrgFormData>({
+  const editForm = useForm<z.input<typeof orgFormSchema>, unknown, OrgFormData>({
     resolver: zodResolver(orgFormSchema),
   });
 

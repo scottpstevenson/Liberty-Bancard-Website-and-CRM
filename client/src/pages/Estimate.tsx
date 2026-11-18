@@ -69,7 +69,7 @@ export default function Estimate() {
   const { toast } = useToast();
   const containerRef = useScrollReveal();
 
-  const form = useForm<EstimateFormData>({
+  const form = useForm<z.input<typeof estimateSchema>, unknown, EstimateFormData>({
     resolver: zodResolver(estimateSchema),
     defaultValues: {
       contactName: "",

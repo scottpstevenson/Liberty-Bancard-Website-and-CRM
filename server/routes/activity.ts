@@ -207,7 +207,7 @@ export function registerActivityRoutes(app: Express) {
       const result=await commandNote(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),"create",fields);
       res.status(result.replayed?200:201).json({...result.note,changed:result.changed,replayed:result.replayed});
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
@@ -219,7 +219,7 @@ export function registerActivityRoutes(app: Express) {
       const fields=noteCommandFields.omit({entityType:true,entityId:true,pinned:true}).extend({expectedVersion:z.number().int().positive(),content:z.string().trim().min(1).max(20000)}).parse(req.body);
       res.json(await commandNote(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),"edit",fields,strictRecordId.parse(req.params.id)));
     } catch (err: any) {
-      if(err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      if(err instanceof z.ZodError) return res.status(400).json({message:err.issues[0].message});
       if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
@@ -230,7 +230,7 @@ export function registerActivityRoutes(app: Express) {
       const fields=noteCommandFields.omit({entityType:true,entityId:true,pinned:true,content:true}).extend({expectedVersion:z.number().int().positive()}).parse(req.body);
       res.json(await commandNote(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),"delete",fields,strictRecordId.parse(req.params.id)));
     } catch (err: any) {
-      if(err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      if(err instanceof z.ZodError) return res.status(400).json({message:err.issues[0].message});
       if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
@@ -259,7 +259,7 @@ export function registerActivityRoutes(app: Express) {
       });
       res.status(201).json(comment);
     } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       throw err;
     }
   });
@@ -309,7 +309,7 @@ export function registerActivityRoutes(app: Express) {
       await storage.createAuditLog({ action: "email_logged", entityType: "contact", entityId: log.contactId || 0, details: { direction: log.direction, subject: log.subject || "" } });
       res.status(201).json(log);
     } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       throw err;
     }
   });
@@ -351,7 +351,7 @@ export function registerActivityRoutes(app: Express) {
       }
       res.status(201).json(log);
     } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       throw err;
     }
   });
@@ -762,7 +762,7 @@ Respond in this exact JSON format:
       const { ownerId: _ownerId, owner_id: _ownerSnake, ...body } = (req.body ?? {}) as Record<string, unknown>;
       const { calendarEventCreateSchema } = await import("../services/calendar-event-command");
       const parsed = calendarEventCreateSchema.safeParse(body);
-      if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0]?.message ?? "Invalid calendar event", errors: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid calendar event", errors: parsed.error.flatten() });
       const input = parsed.data;
       if (input.endTime <= input.startTime) return res.status(400).json({ message: "End must be after start" });
       if (input.contactId && !await authorizeContactAccess(req, res, input.contactId)) return;

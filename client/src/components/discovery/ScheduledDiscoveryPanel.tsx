@@ -10,7 +10,7 @@ import {useUrlParam} from '@/hooks/use-url-param';
 const URL='/api/scheduled-discovery';
 type Definition={id:string;revision:number;vertical:string;county_fips:string;area_type:string;area_key:string;query:string;enabled:boolean;result_limit:number;next_due_at:string;last_attempt_at:string|null;last_retrieved_at:string|null;last_imported_at:string|null;last_state:string|null;last_run_id:string|null;saturated:boolean;covered_through:string|null;preview:any;totals:any};
 type Run={id:string;definition_id:string;mode:string;state:string;created_at:string;provider_task_id:string|null;operation_id:string|null;import_execution_id:string|null;import_id:number|null;content_hash:string|null;mapper_version:string|null;matching_policy:string|null;results_expires_at:string|null;next_poll_at:string|null;last_error:string|null;saturated:boolean;preview:any;totals:any;billing_state:string|null;provider_usage_quantity:string|null;provider_usage_unit:string|null;settled_cost_micros:string|null};
-type Data={downstreamReadiness:{validationPromotionEnabled:boolean;zeroBounce:{ready:boolean;reason:string|null}};program:any;programReason:string|null;schedule:{enabled:boolean;daily_dispatch_count:number;repeat_days:number;timezone:string;last_error?:string|null};definitions:Definition[];totalDefinitions:number;definitionPage:number;definitionPageSize:number;runs:Run[];provider:{ready:boolean;reason:string|null};runtime:{ready:boolean;reason:string|null};worker:{selected:boolean;profile:string;heartbeat:string|null;redisConfigured:boolean};dailyDispatches:number;countPolicy:string;legacyHolds:any[]};
+type Data={monthlyBudget:{pricingReady:boolean;pricingReason:string|null;limitMicros:number;reservedMicros:number;timezone:string;scope:string};downstreamReadiness:{validationPromotionEnabled:boolean;zeroBounce:{ready:boolean;reason:string|null}};program:any;programReason:string|null;schedule:{enabled:boolean;daily_dispatch_count:number;repeat_days:number;timezone:string;last_error?:string|null};definitions:Definition[];totalDefinitions:number;definitionPage:number;definitionPageSize:number;runs:Run[];provider:{ready:boolean;reason:string|null};runtime:{ready:boolean;reason:string|null};worker:{selected:boolean;profile:string;heartbeat:string|null;redisConfigured:boolean};dailyDispatches:number;countPolicy:string;legacyHolds:any[]};
 const fmt=(v:string|null|undefined)=>v?new Date(v).toLocaleString('en-US',{timeZone:'America/New_York',timeZoneName:'short'}):'Not recorded';
 const label=(s:string|null)=>s?s.replaceAll('_',' '):'Never searched';
 function RunEvidence({id}:{id:string}) {
@@ -31,7 +31,7 @@ export default function ScheduledDiscoveryPanel(){
  const read=useQuery<Data>({queryKey:[URL,filter,page],queryFn:async()=>(await apiRequest('GET',`${URL}?filter=${encodeURIComponent(filter)}&page=${page}`)).json(),refetchInterval:15_000});
  const [error,setError]=useState('');const [notice,setNotice]=useState('');
  const [selected,setSelected]=useUrlParam('discoveryDefinition','',v=>/^[a-f0-9-]{36}$/.test(v)?v:undefined);
- const [settings,setSettings]=useState({enabled:false,dailyDispatchCount:1,repeatDays:30,timezone:'America/New_York'});
+ const [settings,setSettings]=useState({enabled:false,monthlyBudgetUsd:50,dailyDispatchCount:1,repeatDays:30,timezone:'America/New_York'});
  const [settingsDirty,setSettingsDirty]=useState(false);
  const [coverage,setCoverage]=useState('');const [coverageRef,setCoverageRef]=useState('');
  const [slice,setSlice]=useState({areaType:'city',areaKey:'',query:'',resultLimit:100});
@@ -51,7 +51,7 @@ export default function ScheduledDiscoveryPanel(){
   void cache.invalidateQueries({queryKey:[URL]});
  },onError:(e:Error)=>{setError(e.message);setNotice('');}});
  const act=(path:string,body:any={},method='POST',paid=false)=>mutation.mutate({method,path,body,paid});
- useEffect(()=>{if(read.data&&!settingsDirty)setSettings({enabled:read.data.schedule.enabled,dailyDispatchCount:read.data.schedule.daily_dispatch_count,repeatDays:read.data.schedule.repeat_days,timezone:read.data.schedule.timezone});},[read.data,settingsDirty]);
+ useEffect(()=>{if(read.data&&!settingsDirty)setSettings({enabled:read.data.schedule.enabled,monthlyBudgetUsd:read.data.monthlyBudget.limitMicros/1000000,dailyDispatchCount:read.data.schedule.daily_dispatch_count,repeatDays:read.data.schedule.repeat_days,timezone:read.data.schedule.timezone});},[read.data,settingsDirty]);
  const d=read.data;const definition=d?.definitions.find(x=>x.id===selected);const runs=d?.runs.filter(r=>r.definition_id===selected)??[];
  const definitions=d?.definitions??[];
  const columns:CrmDataColumn<Definition>[]=[
@@ -73,12 +73,14 @@ export default function ScheduledDiscoveryPanel(){
     <div className="rounded-lg border p-3"><dt>Worker</dt><dd>{d.worker.selected?'Selected':'Not selected'} · {d.worker.redisConfigured?'Redis configured':'Redis missing'}</dd><dd>Heartbeat: {fmt(d.worker.heartbeat)}</dd><dd>Profile: {d.worker.profile}</dd></div>
     <div className="rounded-lg border p-3"><dt>Runtime authority</dt><dd>{d.runtime.ready?'Ready':d.runtime.reason??'Unavailable'}</dd></div>
    </dl>
+   <div role="status" className="rounded-lg border p-3 text-sm"><p className="font-medium">Recurring-search budget: ${(d.monthlyBudget.limitMicros/1000000).toFixed(2)} per calendar month</p><p>${(d.monthlyBudget.reservedMicros/1000000).toFixed(2)} maximum liability reserved · {d.monthlyBudget.timezone}</p>{!d.monthlyBudget.pricingReady&&<p role="alert">New searches blocked: {d.monthlyBudget.pricingReason}. A current reviewed result price is required.</p>}<p className="text-muted-foreground">{d.monthlyBudget.scope} Existing-task retrieval does not purchase another search.</p></div>
    <p className="text-sm">Selected validation promotion: {d.downstreamReadiness.validationPromotionEnabled?'Enabled':'Off'}. ZeroBounce: {d.downstreamReadiness.zeroBounce.ready?'Ready':d.downstreamReadiness.zeroBounce.reason}. Crawling, contact materialization, recipient preparation and completed validation are separate outcomes.</p>
    <p className="text-xs text-muted-foreground">{d.countPolicy} A county search is a sample, not a business census. Saturated results need narrower city or ZIP slices. Times shown in America/New_York.</p>
    <details className="rounded-lg border p-3"><summary className="min-h-11 cursor-pointer text-sm font-medium">Schedule and workload settings</summary>
     {!admin&&<p className="text-sm">Read-only access. An administrator manages paid searches and schedules.</p>}
     <form className="grid sm:grid-cols-2 gap-4 py-3" onSubmit={e=>{e.preventDefault();act('/schedule',settings,'PUT');}}>
      <label className="flex items-center gap-3 min-h-11 text-sm"><input type="checkbox" checked={settings.enabled} disabled={!admin} onChange={e=>{setSettingsDirty(true);setSettings({...settings,enabled:e.target.checked});}}/>Enable new scheduled searches</label>
+     <label className="text-sm">Monthly recurring-search budget (USD)<Input type="number" min={0} max={50} step="0.01" value={settings.monthlyBudgetUsd} disabled={!admin} onChange={e=>{setSettingsDirty(true);setSettings({...settings,monthlyBudgetUsd:Number(e.target.value)});}}/></label>
      <label className="text-sm">Daily new-search count<Input type="number" min={1} max={1000} value={settings.dailyDispatchCount} disabled={!admin} onChange={e=>{setSettingsDirty(true);setSettings({...settings,dailyDispatchCount:Number(e.target.value)});}}/></label>
      <label className="text-sm">Repeat window (days)<Input type="number" min={1} max={365} value={settings.repeatDays} disabled={!admin} onChange={e=>{setSettingsDirty(true);setSettings({...settings,repeatDays:Number(e.target.value)});}}/></label>
      <label className="text-sm">IANA timezone<Input value={settings.timezone} disabled={!admin} onChange={e=>{setSettingsDirty(true);setSettings({...settings,timezone:e.target.value});}}/></label>

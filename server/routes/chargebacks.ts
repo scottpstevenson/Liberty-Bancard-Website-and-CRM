@@ -137,7 +137,7 @@ export function registerChargebacksRoutes(app: Express) {
 
       res.status(201).json(cb);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join(".") });
       res.status(400).json({ message: err.message });
     }
   });
@@ -271,7 +271,7 @@ export function registerChargebacksRoutes(app: Express) {
       });
       res.json(updated);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       res.status(400).json({ message: err.message });
     }
   });
@@ -464,7 +464,7 @@ export function registerChargebacksRoutes(app: Express) {
       res.status(202).json({ accepted: true, command });
     } catch (err: any) {
       if (err instanceof ChargebackIntentConflictError) return res.status(409).json({code:"IDEMPOTENCY_CONFLICT",message:err.message});
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });

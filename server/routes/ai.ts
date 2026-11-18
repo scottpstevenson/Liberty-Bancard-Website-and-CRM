@@ -1320,7 +1320,7 @@ Notes: ${deal.notes || "None"}`
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: "Invalid pricing rules", errors: parsed.error.errors });
+        return res.status(400).json({ message: "Invalid pricing rules", errors: parsed.error.issues });
       }
       const existing = await storage.getSystemSetting(AI_PRICING_RULES_KEY);
       const current = typeof existing === "object" && existing !== null

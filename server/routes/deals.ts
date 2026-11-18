@@ -148,7 +148,7 @@ export function registerDealsRoutes(app: Express) {
       const { serializeDeal: _serializeDealCreate } = await import("../utils/mask-mid");
       res.status(201).json(_serializeDealCreate(deal as any));
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -619,7 +619,7 @@ export function registerDealsRoutes(app: Express) {
       const competitor = await storage.createDealCompetitor(input);
       res.status(201).json(competitor);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join('.') });
       res.status(400).json({ message: err.message });
     }
   });
@@ -665,7 +665,7 @@ export function registerDealsRoutes(app: Express) {
       await storage.createAuditLog({ action: "stage_rule_created", entityType: "stage_rule", entityId: rule.id, details: { name: rule.name, pipeline: rule.pipeline } });
       res.status(201).json(rule);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -707,7 +707,7 @@ export function registerDealsRoutes(app: Express) {
       const stage = await storage.createPipelineStage(input);
       res.status(201).json(stage);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });

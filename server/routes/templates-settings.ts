@@ -146,7 +146,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       const template = await storage.createMessageTemplate({ ...input, isActive: false });
       res.status(201).json(template);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -197,7 +197,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       const input = z.object({ subject: z.string().nullable().optional(), body: z.string().min(1), channel: z.enum(["email", "sms"]).optional() }).strict().parse(req.body);
       res.json(await previewTemplateFinal(input));
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -248,7 +248,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
         throw err;
       }
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -263,7 +263,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       const { previewStepForTransport } = await import("../services/message-final-preview");
       res.json(await previewStepForTransport(input));
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -280,7 +280,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       res.set("Cache-Control", "no-store");
       res.json(await previewAssetStep(input));
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -296,7 +296,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       }).strict().parse(req.body);
       res.json(await saveDraft(id, input, actor(req)));
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       versionError(res, err);
     }
   });
@@ -308,7 +308,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       const input = z.object({ expectedDraftToken: z.string().min(1).nullable() }).strict().parse(req.body ?? {});
       res.json(await discardDraft(id, actor(req), input));
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       versionError(res, err);
     }
   });
@@ -321,7 +321,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       const input = z.object({ expectedVersion: z.number().int().positive(), expectedDraftToken: z.string().min(1) }).strict().parse(req.body);
       res.json(await publishDraft(id, input, actor(req)));
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       versionError(res, err);
     }
   });
@@ -334,7 +334,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       const input = z.object({ active: z.boolean() }).strict().parse(req.body);
       res.json(await setTemplateActive(id, input.active, actor(req)));
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       versionError(res, err);
     }
   });
@@ -356,7 +356,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       const config = await storage.createSlaConfig(input);
       res.status(201).json(config);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -441,7 +441,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       const filter = await storage.createSavedFilter(input);
       res.status(201).json(filter);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });

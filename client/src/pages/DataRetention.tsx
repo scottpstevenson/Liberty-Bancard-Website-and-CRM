@@ -41,7 +41,7 @@ export default function DataRetention() {
   const [submitted, setSubmitted] = useState(false);
   const requestKey = useRef<string | null>(null);
 
-  const form = useForm<DeleteRequestForm>({
+  const form = useForm<z.input<typeof deleteRequestSchema>, unknown, DeleteRequestForm>({
     resolver: zodResolver(deleteRequestSchema),
     defaultValues: {
       fullName: "",

@@ -273,6 +273,21 @@ export function Phase7CopyInventory({
                               </details>
                             </td>
                             <td className="p-2">
+                              <div className="mb-2 max-w-xs break-words" data-testid={`copy-findings-${r.owner}-${r.step_id}`}>
+                                {r.findings.length ? (
+                                  <>
+                                    <p className="text-sm font-medium">Automated flags · human review required</p>
+                                    <ul className="mt-1 space-y-2 text-sm" aria-label="Copy review findings">
+                                      {r.findings.map((finding, index) => (
+                                        <li key={`${finding.rule}:${index}`}>
+                                          <strong>{finding.rule}</strong>: {finding.why}
+                                          <blockquote className="mt-1 border-l-2 pl-2 text-muted-foreground">{finding.match}</blockquote>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </>
+                                ) : <p className="text-sm text-muted-foreground">No automated flags; approval is separate.</p>}
+                              </div>
                               {r.owner === "sequence" &&
                                 r.step_order === 1 &&
                                 pin.length === 1 &&

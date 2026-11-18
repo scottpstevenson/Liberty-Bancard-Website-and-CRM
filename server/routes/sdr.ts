@@ -2360,7 +2360,7 @@ export function registerSdrRoutes(app: Express) {
       if (result.kind === "deferred") return res.status(409).json(result);
       res.status(result.kind === "created" ? 201 : 200).json(result.business);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -2407,7 +2407,7 @@ export function registerSdrRoutes(app: Express) {
       if (!biz) return res.status(404).json({ message: "Business not found" });
       res.json(biz);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -2430,7 +2430,7 @@ export function registerSdrRoutes(app: Express) {
       const alias = await storage.createBusinessAlias(input);
       res.status(201).json(alias);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -2453,7 +2453,7 @@ export function registerSdrRoutes(app: Express) {
       const loc = await storage.createBusinessLocation(input);
       res.status(201).json(loc);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -2493,7 +2493,7 @@ export function registerSdrRoutes(app: Express) {
       const source = await storage.createLeadSource(input);
       res.status(201).json(source);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });

@@ -53,13 +53,10 @@ async function readCandidates(executor: any, input: ReturnType<typeof identity>,
       AND regexp_replace(coalesce(main_phone,''),'[^0-9]','','g')
         IN (${sql.join(phoneKeys.map(value=>sql`${value}`),sql`,`)}))
     OR (${input.city}::text IS NOT NULL AND ${input.state}::text IS NOT NULL
-      AND (${input.matchingPolicy === "scheduled-discovery-v1"}::boolean AND record_class='canonical'
-        AND crm_identity_name(canonical_name)=crm_identity_name(${input.canonicalName})
-        OR ${input.matchingPolicy !== "scheduled-discovery-v1"}::boolean AND normalized_name=${normalOrganizationName(input.canonicalName)})
+      AND normalized_name=${normalOrganizationName(input.canonicalName)}
       AND lower(btrim(coalesce(city,'')))=${input.city}::text
       AND ${sql.raw(stateIdentitySql("state"))}=${input.state}::text)
   `).orderBy(businesses.id);
-  if(input.matchingPolicy === "scheduled-discovery-v1")query=query.limit(201);
   return (lock ? query.for("update") : query) as Promise<Array<{business:Business;exactSource:boolean}>>;
 }
 /** Each indexed branch and the final result are bounded; overflow is a hold, never a partial match. */

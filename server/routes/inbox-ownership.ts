@@ -48,7 +48,7 @@ export function registerInboxOwnershipRoutes(app:Express) {
         const actor=bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion);
         res.json(await commandInboxWork({actor,sourceKey:String(req.params.id),operation,fields}));
       } catch(error) {
-        if(error instanceof z.ZodError) return res.status(400).json({message:error.errors[0].message});
+        if(error instanceof z.ZodError) return res.status(400).json({message:error.issues[0].message});
         if(error instanceof WorkCommandError) return res.status(error.status).json({message:error.message});
         serverError(res,error);
       }

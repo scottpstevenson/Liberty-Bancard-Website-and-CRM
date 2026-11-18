@@ -120,7 +120,7 @@ export function registerContactLinkCoverageRoutes(
     async (req, res) => {
       const parsed = sourceRecoveryPreviewBatchSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: "Invalid bounded source-recovery preview", errors: parsed.error.errors });
+        return res.status(400).json({ message: "Invalid bounded source-recovery preview", errors: parsed.error.issues });
       }
       try {
         res.json(await dependencies.previewSourceRecoveryBatch(parsed.data.items));
@@ -143,7 +143,7 @@ export function registerContactLinkCoverageRoutes(
       if (!actorId) return res.status(401).json({ message: "Authenticated admin identity required" });
       const parsed = sourceRecoveryApplyBatchSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: "Invalid bounded source-recovery apply", errors: parsed.error.errors });
+        return res.status(400).json({ message: "Invalid bounded source-recovery apply", errors: parsed.error.issues });
       }
       try {
         const result = await dependencies.applySourceRecoveryBatch(parsed.data.items) as {
@@ -268,7 +268,7 @@ export function registerContactLinkCoverageRoutes(
         limit: req.query.limit,
       });
       if (!parsed.success) {
-        return res.status(400).json({ message: "Invalid contact-link candidate cursor", errors: parsed.error.errors });
+        return res.status(400).json({ message: "Invalid contact-link candidate cursor", errors: parsed.error.issues });
       }
       try {
         res.json(await dependencies.listCandidates({ ...parsed.data, reviewerId: authenticatedOperatorId(req) ?? undefined }));
@@ -290,7 +290,7 @@ export function registerContactLinkCoverageRoutes(
         items: z.array(reviewItemSchema).min(1).max(500),
       }).strict().safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: "Invalid contact-link review batch", errors: parsed.error.errors });
+        return res.status(400).json({ message: "Invalid contact-link review batch", errors: parsed.error.issues });
       }
       try {
         res.json(await dependencies.reviewBatch(

@@ -69,7 +69,7 @@ export default function ReportingHub() {
           </button>
         </nav>
         {activeArea === "sales" && (
-          <TabsList aria-label="Sales and growth views" className="h-auto w-full justify-start gap-1 border-b bg-transparent p-0 pb-3">
+          <TabsList aria-label="Sales and growth views" className="grid h-auto w-full grid-cols-2 gap-1 border-b bg-transparent p-0 pb-3 sm:flex sm:justify-start">
             <TabsTrigger value="overview" data-testid="tab-reporting-overview">Overview</TabsTrigger>
             <TabsTrigger value="growth" data-testid="tab-reporting-growth">Growth Metrics</TabsTrigger>
             <TabsTrigger value="conversion-funnel" data-testid="tab-reporting-conversion-funnel">Conversion Funnel</TabsTrigger>

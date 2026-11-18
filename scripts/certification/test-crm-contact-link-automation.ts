@@ -37,10 +37,15 @@ const verify = fs.readFileSync("docs/certification/canonical-enrichment-native-v
   // pin its exact body under this verifier's inverse transform (address clause + identity v3->v2).
   .replaceAll("46f89326f7c158ac739814ce343c2559","ecfdb5d0e7b9fc6fa11ee94989c58962");
 const originalEnv = {
+  BACKGROUND_JOB_PROFILE: process.env.BACKGROUND_JOB_PROFILE,
   NODE_ENV: process.env.NODE_ENV, REPLIT_DEPLOYMENT: process.env.REPLIT_DEPLOYMENT,
   RELEASE_SHA: process.env.RELEASE_SHA, SFP_PUBLISH_ARTIFACT_SHA: process.env.SFP_PUBLISH_ARTIFACT_SHA,
   SFP_PUBLISH_BUILD_ID: process.env.SFP_PUBLISH_BUILD_ID, SFP_PUBLISH_BUILT_AT: process.env.SFP_PUBLISH_BUILT_AT,
 };
+// The runtime topology is part of the publish fence: select the real serial
+// owner before the first claim and retain that topology for the whole fixture.
+// No workers are initialized and provider egress remains denied.
+process.env.BACKGROUND_JOB_PROFILE="selective:sfp-continuous-discovery";
 const base = Date.now() - 120_000;
 const first = { sha: "c".repeat(40), id: randomUUID(), at: new Date(base).toISOString() };
 const second = { sha: "d".repeat(40), id: randomUUID(), at: new Date(base + 1000).toISOString() };

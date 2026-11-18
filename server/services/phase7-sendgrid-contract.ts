@@ -2,6 +2,20 @@
 import { createPublicKey, verify } from "node:crypto";
 export const SENDGRID_RETRY_GRACE_HOURS = 24;
 export const FEEDBACK_PROBE_GAP_MS = 10 * 60_000;
+/** Accept the documented single-result envelope and the retained flat metadata response. */
+export function verifiesSendGridSmtpKey(payload: unknown, expectedId: string): boolean {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const response = payload as Record<string, unknown>;
+  let metadata: unknown = response;
+  if (Object.hasOwn(response, "result")) {
+    if (Object.hasOwn(response, "api_key_id") || !Array.isArray(response.result) || response.result.length !== 1) return false;
+    metadata = response.result[0];
+  }
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return false;
+  const key = metadata as Record<string, unknown>;
+  return Boolean(expectedId) && key.api_key_id === expectedId && Array.isArray(key.scopes)
+    && key.scopes.every(scope => typeof scope === "string") && key.scopes.includes("mail.send");
+}
 export function verifySendGridSignature(
   raw: Buffer,
   signature: string | undefined,

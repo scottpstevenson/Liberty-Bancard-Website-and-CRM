@@ -56,7 +56,7 @@ export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDele
   relationshipExtractor?:(contactId:number)=>Promise<unknown>;
   onboardingPreparationAfterStep?:(step:string)=>Promise<void> } = {}) {
   const preparationError=(res:any,error:unknown)=>{
-    if(error instanceof z.ZodError)return res.status(400).json({message:error.errors[0].message});
+    if(error instanceof z.ZodError)return res.status(400).json({message:error.issues[0].message});
     if(error instanceof WorkCommandError)return res.status(error.status).json({message:error.message});
     // An accepted local intent can outlive this response. Do not report rollback.
     return res.status(503).json({message:"Preparation outcome unavailable. Read back the captured intent before retrying; no native effects were requested."});
@@ -98,7 +98,7 @@ export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDele
       const fields=contactLifecycleFields.parse(req.body);
       res.json(await commandContactLifecycle(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),"archive",fields));
     } catch(error) {
-      if(error instanceof z.ZodError) return res.status(400).json({message:error.errors[0].message});
+      if(error instanceof z.ZodError) return res.status(400).json({message:error.issues[0].message});
       if(error instanceof WorkCommandError) return res.status(error.status).json({message:error.message});
       serverError(res,error);
     }
@@ -273,7 +273,7 @@ export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDele
       }
       res.status(result.changed?201:200).json({...result.link,changed:result.changed,replayed:result.replayed,extractionState});
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       console.error("Add contact company error:", err.message);
       serverError(res, err);
@@ -300,7 +300,7 @@ export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDele
       const result=await commandContactLifecycle(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),"archive",fields);
       res.json({...result.contacts[0],lifecycleChanged:result.changed>0,replayed:result.replayed});
     } catch (err: any) {
-      if(err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      if(err instanceof z.ZodError) return res.status(400).json({message:err.issues[0].message});
       if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       console.error("Archive contact error:", err.message);
       serverError(res, err);
@@ -314,7 +314,7 @@ export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDele
       const result=await commandContactLifecycle(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),"restore",fields);
       res.json({...result.contacts[0],lifecycleChanged:result.changed>0,replayed:result.replayed});
     } catch (err: any) {
-      if(err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      if(err instanceof z.ZodError) return res.status(400).json({message:err.issues[0].message});
       if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       console.error("Restore contact error:", err.message);
       serverError(res, err);
@@ -368,7 +368,7 @@ export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDele
       if (!Array.isArray(dealIds) || !stage) return res.status(400).json({ message: "dealIds array and stage required" });
       if(!dealIds.length || dealIds.length>500 || dealIds.some((id:unknown)=>!Number.isSafeInteger(id)||Number(id)<=0)
         || typeof stage!=="string" || !stage.trim()) return res.status(400).json({message:"Valid bounded deal IDs and stage required"});
-      const expectedStages=z.record(z.string().min(1)).optional().safeParse(req.body.expectedStages);
+      const expectedStages=z.record(z.string(), z.string().min(1)).optional().safeParse(req.body.expectedStages);
       if(!expectedStages.success) return res.status(400).json({message:"Invalid displayed stages"});
 
       const actor = req.user as any;
@@ -431,7 +431,7 @@ export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDele
         recordClass: body.recordClass, actor: bindWorkActor(user, body.expectedActorId,body.expectedAccountVersion), updates: { assignedTo: body.assignedTo } });
       res.json({ success: true, count: command.changed, replayed: command.replayed });
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       if (err instanceof WorkCommandError) return res.status(err.status).json({ message: err.message });
       console.error("Bulk assign tasks error:", err.message);
       serverError(res, err);
@@ -445,7 +445,7 @@ export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDele
       const user = req.user as any;
       res.json(await deleteTaskCommand({ id, ...body, actor: bindWorkActor(user, body.expectedActorId,body.expectedAccountVersion) }, deps.nativeTaskDeleteTransport));
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       if (err instanceof WorkCommandError) return res.status(err.status).json({ message: err.message, localDeleted: false });
       console.error("Delete task error:", err.message);
       serverError(res, err);
@@ -460,7 +460,7 @@ export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDele
         recordClass: body.recordClass, actor: bindWorkActor(user, body.expectedActorId,body.expectedAccountVersion), operation: "soft_delete", updates: {} });
       res.json({ deleted: command.changed, replayed: command.replayed });
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       if (err instanceof WorkCommandError) return res.status(err.status).json({ message: err.message });
       console.error("Bulk delete tasks error:", err.message);
       serverError(res, err);

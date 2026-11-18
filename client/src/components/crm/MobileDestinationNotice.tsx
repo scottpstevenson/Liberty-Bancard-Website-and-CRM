@@ -27,7 +27,7 @@ export function MobileDestinationNotice({ destination, onOpenDesktop }: { destin
           </a>
         </Button>
       </div>
-      <p className="mt-3 text-xs text-muted-foreground">The desktop layout choice is remembered on this device; switch back from More in the mobile app.</p>
+      <p className="mt-3 text-xs text-muted-foreground">The desktop layout choice is remembered on this device. Switch back with Mobile layout in the desktop header, or Use Mobile Layout in More.</p>
     </main>
   );
 }

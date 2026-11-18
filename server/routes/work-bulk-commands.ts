@@ -30,7 +30,7 @@ export function registerWorkBulkRoutes(app: Express) {
   });
 }
 function fail(res: import("express").Response, error: unknown) {
-  if (error instanceof z.ZodError) return res.status(400).json({ message: error.errors[0].message });
+  if (error instanceof z.ZodError) return res.status(400).json({ message: error.issues[0].message });
   if (error instanceof WorkCommandError) return res.status(error.status).json({ message: error.message });
   serverError(res, error);
 }

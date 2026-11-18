@@ -38,7 +38,7 @@ import { isLocalOutboxWorkerSelected } from "../services/background-profile";
  */
 function respondServiceError(res: any, err: unknown): void {
   if (err instanceof z.ZodError) {
-    return void res.status(400).json({ message: "Invalid request", field: err.errors[0]?.path?.join(".") });
+    return void res.status(400).json({ message: "Invalid request", field: err.issues[0]?.path?.join(".") });
   }
   if (err instanceof ProtectedDataValidationError) {
     return void res.status(400).json({ message: err.message, field: err.field });
@@ -589,7 +589,7 @@ export function registerMerchantsRoutes(app: Express) {
       const profile = await storage.createMerchantProfile(input);
       res.status(201).json(profile);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join('.') });
       res.status(400).json({ message: err.message });
     }
   });
@@ -1097,7 +1097,7 @@ export function registerMerchantsRoutes(app: Express) {
       const order = await storage.createEquipmentOrder({ ...input, ...economicsFields } as any);
       res.status(201).json(order);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join('.') });
       res.status(400).json({ message: err.message });
     }
   });
@@ -1115,7 +1115,7 @@ export function registerMerchantsRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join(".") });
       if (err instanceof DateValidationError) return res.status(400).json({ message: err.message, field: err.field });
       res.status(400).json({ message: err.message });
     }
@@ -1173,7 +1173,7 @@ export function registerMerchantsRoutes(app: Express) {
       const step = await storage.createOnboardingStep(input, { actorType: "user", userId: (req.user as any)?.id ?? null });
       res.status(201).json(step);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join('.') });
       res.status(400).json({ message: err.message });
     }
   });
@@ -1189,7 +1189,7 @@ export function registerMerchantsRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join(".") });
       if (err instanceof DateValidationError) return res.status(400).json({ message: err.message, field: err.field });
       res.status(400).json({ message: err.message });
     }

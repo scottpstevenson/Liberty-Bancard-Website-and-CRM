@@ -41,7 +41,7 @@ export function registerTicketsTasksRoutes(app: Express) {
       res.status(result.replayed||result.reused?200:201).json({...result.ticket,
         command:{id:commandId,replayed:result.replayed,reused:result.reused,nativeDelivery:"not_attempted"}});
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       if (err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
@@ -81,7 +81,7 @@ export function registerTicketsTasksRoutes(app: Express) {
 
       res.json(updated);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       if (err instanceof WorkCommandError) return res.status(err.status).json({ message: err.message });
       serverError(res, err);
     }
@@ -169,7 +169,7 @@ export function registerTicketsTasksRoutes(app: Express) {
       const result = await createHumanTask({actor:bindWorkActor(req.user,expectedActorId,expectedAccountVersion),commandId,recordClass,fields});
       res.status(result.replayed?200:201).json({...result.task,creationReplayed:result.replayed});
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       if (err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
@@ -184,7 +184,7 @@ export function registerTicketsTasksRoutes(app: Express) {
         commandId, recordClass, actor: bindWorkActor(user, expectedActorId,expectedAccountVersion), updates });
       res.json(command.results[0].item);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       if (err instanceof WorkCommandError) return res.status(err.status).json({ message: err.message });
       serverError(res, err);
     }
@@ -221,7 +221,7 @@ export function registerTicketsTasksRoutes(app: Express) {
       });
       res.status(201).json(comment);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });

@@ -31,7 +31,7 @@ export default function CaseStudyIntake() {
   const { toast } = useToast();
   const [selectedContactId, setSelectedContactId] = useState<string>("");
 
-  const form = useForm<FormValues>({
+  const form = useForm<z.input<typeof formSchema>, unknown, FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       contactId: "",

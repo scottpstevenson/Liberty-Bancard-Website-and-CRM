@@ -8,7 +8,7 @@ export type OrganizationIdentity = {
   city?: string | null;
   state?: string | null;
   streetAddress?: string | null;
-  matchingPolicy?: "scheduled-discovery-v1";
+  matchingPolicy?: "scheduled-discovery-v1" | "retained-public-registry-v1";
   sourceIdentity?: {sourceSystem: string; sourceType: string; stableKey: string};
 };
 export type OrganizationCandidate = OrganizationIdentity & {id: number; exactSource?: boolean};
@@ -59,8 +59,13 @@ export function decideOrganizationIdentity(input: OrganizationIdentity, candidat
     return {kind: "deferred", reasonCode: "AMBIGUOUS_ORGANIZATION_MATCH",
       candidateIds: (selected.length ? selected : candidates).map(candidate => candidate.id).sort((a,b)=>a-b)};
   }
+  // Only the retained registry worker selects this policy after verifying its
+  // durable source occurrence and native claim. Manual/import defaults remain unchanged.
+  const registryIdentity = input.matchingPolicy === "retained-public-registry-v1"
+    && input.sourceIdentity?.sourceType === "public_registry"
+    && !!input.sourceIdentity.sourceSystem.trim() && !!input.sourceIdentity.stableKey.trim();
   if (!normalOrganizationName(input.canonicalName) ||
-      !(input.googlePlaceId?.trim() || normalOrganizationValue(input.websiteDomain) || phone(input.mainPhone) ||
+      !(registryIdentity || input.googlePlaceId?.trim() || normalOrganizationValue(input.websiteDomain) || phone(input.mainPhone) ||
         (address(input.streetAddress) && input.city?.trim() && normalizeStateIdentity(input.state))))
     return {kind: "deferred", reasonCode: "INSUFFICIENT_ORGANIZATION_EVIDENCE", candidateIds: []};
   return {kind: "create"};

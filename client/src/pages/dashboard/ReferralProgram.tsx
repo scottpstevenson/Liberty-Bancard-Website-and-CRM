@@ -47,7 +47,7 @@ const partnerFormSchema = z.object({
 });
 
 const referralFormSchema = z.object({
-  partnerId: z.coerce.number().min(1, "Select a partner"),
+  partnerId: z.coerce.number<string | number>().min(1, "Select a partner"),
   referredName: z.string().optional(),
   referredEmail: z.string().email().optional().or(z.literal("")),
   referredPhone: z.string().optional(),
@@ -556,7 +556,7 @@ export default function ReferralProgram() {
     },
   });
 
-  const partnerForm = useForm<PartnerFormData>({
+  const partnerForm = useForm<z.input<typeof partnerFormSchema>, unknown, PartnerFormData>({
     resolver: zodResolver(partnerFormSchema),
     defaultValues: {
       companyName: "",
@@ -569,7 +569,7 @@ export default function ReferralProgram() {
     },
   });
 
-  const referralForm = useForm<ReferralFormData>({
+  const referralForm = useForm<z.input<typeof referralFormSchema>, unknown, ReferralFormData>({
     resolver: zodResolver(referralFormSchema),
     defaultValues: {
       partnerId: 0,

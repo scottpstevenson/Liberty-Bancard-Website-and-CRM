@@ -53,7 +53,7 @@ export function registerWorkflowsRoutes(app: Express) {
         id:input.commandId,replayed:result.replayed,changed:result.changed,nativeDelivery:result.nativeDelivery}});
     } catch (err: any) {
       if(err instanceof WorkCommandError)return res.status(err.status).json({message:err.message});
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -67,7 +67,7 @@ export function registerWorkflowsRoutes(app: Express) {
         changed:result.changed,nativeDelivery:result.nativeDelivery}});
     } catch (err: any) {
       if(err instanceof WorkCommandError)return res.status(err.status).json({message:err.message});
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -102,7 +102,7 @@ export function registerWorkflowsRoutes(app: Express) {
       await storage.createAuditLog({ action: "workflow_created", entityType: "workflow", entityId: wf.id, details: { name: wf.name, trigger: wf.triggerType } });
       res.status(201).json(wf);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -117,7 +117,7 @@ export function registerWorkflowsRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       if (err instanceof WorkflowCommandError) return res.status(err.status).json({ message: err.message });
       serverError(res, err);
     }
@@ -126,7 +126,7 @@ export function registerWorkflowsRoutes(app: Express) {
   // Inline email wording: preview, then lint-gated publish through the versioned workflow command.
   // Publishing replaces one step's subject/body only and never changes the workflow's enabled state.
   const emailWordingError = (res: any, err: unknown) => {
-    if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+    if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
     if (err instanceof WorkflowEmailWordingError) return res.status(err.status).json({ message: err.message, findings: err.findings });
     return serverError(res, err);
   };
@@ -163,7 +163,7 @@ export function registerWorkflowsRoutes(app: Express) {
 
   // Inline SMS wording: same preview and lint-gated publish path as email steps; never changes enabled state.
   const smsWordingError = (res: any, err: unknown) => {
-    if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+    if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
     if (err instanceof WorkflowSmsWordingError) return res.status(err.status).json({ message: err.message, findings: err.findings });
     return serverError(res, err);
   };
@@ -206,7 +206,7 @@ export function registerWorkflowsRoutes(app: Express) {
       const workflow = await storage.deleteWorkflow(id.data, { expectedVersion, actorId: String((req.user as any).id) });
       res.json({ success: true, retired: true, historyRetained: true, workflow });
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       if (err instanceof WorkflowCommandError) return res.status(err.status).json({ message: err.message });
       serverError(res, err);
     }
@@ -219,7 +219,7 @@ export function registerWorkflowsRoutes(app: Express) {
       const workflow = await storage.commandWorkflow(id, "restore", { expectedVersion, actorId: String((req.user as any).id) });
       res.json({ workflow, restored: true, enabled: false });
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       if (err instanceof WorkflowCommandError) return res.status(err.status).json({ message: err.message });
       serverError(res, err);
     }

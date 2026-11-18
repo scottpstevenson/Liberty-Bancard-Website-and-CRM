@@ -12,6 +12,7 @@ const runId = process.env.CERTIFICATION_RUN_ID;
 const suiteId = process.env.CERTIFICATION_SUITE_ID;
 let assertionEvidence = 0;
 let receiptWritten = false;
+let completion: "runner-owned" | "module-receipt" | undefined;
 for (const method of ["log", "info"] as const) {
   const original = console[method].bind(console);
   console[method] = (...args: unknown[]) => {
@@ -21,7 +22,10 @@ for (const method of ["log", "info"] as const) {
   };
 }
 function writeTerminalReceipt(): void {
-  if (receiptWritten) return;
+  // Stateless/build/security entries are certified by the parent runner's
+  // successful child exit. Their console vocabulary is not an assertion API.
+  if (receiptWritten || completion === "runner-owned") return;
+  if (process.exitCode && Number(process.exitCode) !== 0) return;
   if (!receiptPath || !runId || !suiteId || assertionEvidence < 1) {
     process.exitCode = 65;
     return;
@@ -44,12 +48,13 @@ function writeTerminalReceipt(): void {
   renameSync(temporaryPath, receiptPath);
   receiptWritten = true;
 }
-process.once("beforeExit", writeTerminalReceipt);
+process.once("beforeExit", (code) => { if (code === 0) writeTerminalReceipt(); });
 const originalExit = process.exit.bind(process);
 process.exit = ((code?: number | string | null) => {
   const normalized = code == null ? (process.exitCode ?? 0) : Number(code);
-  if (normalized === 0) writeTerminalReceipt();
-  return originalExit(normalized);
+  if (normalized !== 0) return originalExit(normalized);
+  writeTerminalReceipt();
+  return originalExit(process.exitCode ?? 0);
 }) as typeof process.exit;
 if (!suitePath || !/^(?:scripts|server\/tests)\/[A-Za-z0-9._/-]+\.(?:ts|mjs)$/.test(suitePath)) {
   throw new Error("A certification suite path under scripts/ or server/tests/ must end in .ts or .mjs.");
@@ -65,6 +70,7 @@ if (
 const { SUITE_MANIFEST } = await import("./ci-suite-manifest");
 const registration = SUITE_MANIFEST.find(suite => suite.script === suitePath && suite.capability === capability);
 if(!registration)throw new Error("Certification suite must match a registered path and capability");
+completion = registration.completion;
 if (
   (capability === "deterministic-integration" || capability === "server-required") &&
   (registration.database!=="none" || registration.redis!=="none")

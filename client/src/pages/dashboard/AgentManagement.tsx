@@ -36,36 +36,36 @@ const agentFormSchema = z.object({
   email: z.string().email("Valid email required"),
   phone: z.string().optional(),
   role: z.string().min(1, "Required"),
-  commissionSplitPercent: z.coerce.number().min(0).max(100),
+  commissionSplitPercent: z.coerce.number<string | number>().min(0).max(100),
   territory: z.string().optional(),
   status: z.string().min(1, "Required"),
   hireDate: z.string().optional(),
-  vestingMonths: z.coerce.number().min(0).max(120).optional(),
+  vestingMonths: z.coerce.number<string | number>().min(0).max(120).optional(),
   notes: z.string().optional(),
 });
 
 type AgentFormData = z.infer<typeof agentFormSchema>;
 
 const quotaFormSchema = z.object({
-  agentId: z.coerce.number().min(1, "Select an agent"),
+  agentId: z.coerce.number<string | number>().min(1, "Select an agent"),
   period: z.string().min(1, "Required"),
   periodStart: z.string().min(1, "Required"),
   periodEnd: z.string().min(1, "Required"),
-  targetDeals: z.coerce.number().min(0),
+  targetDeals: z.coerce.number<string | number>().min(0),
   targetRevenue: z.string().min(1, "Required"),
 });
 
 type QuotaFormData = z.infer<typeof quotaFormSchema>;
 
 const assignMerchantSchema = z.object({
-  dealId: z.coerce.number().min(1, "Select a merchant"),
+  dealId: z.coerce.number<string | number>().min(1, "Select a merchant"),
   merchantName: z.string().optional(),
 });
 type AssignMerchantData = z.infer<typeof assignMerchantSchema>;
 
 const calcSchema = z.object({
-  agentId: z.coerce.number().min(1, "Select an agent"),
-  totalResidual: z.coerce.number().min(0, "Enter a valid amount"),
+  agentId: z.coerce.number<string | number>().min(1, "Select an agent"),
+  totalResidual: z.coerce.number<string | number>().min(0, "Enter a valid amount"),
   month: z.string().optional(),
 });
 type CalcFormData = z.infer<typeof calcSchema>;
@@ -218,7 +218,7 @@ export default function AgentManagement() {
     enabled: !!profileAgent,
   });
 
-  const form = useForm<AgentFormData>({
+  const form = useForm<z.input<typeof agentFormSchema>, unknown, AgentFormData>({
     resolver: zodResolver(agentFormSchema),
     defaultValues: {
       firstName: "", lastName: "", email: "", phone: "",
@@ -227,17 +227,17 @@ export default function AgentManagement() {
     },
   });
 
-  const quotaForm = useForm<QuotaFormData>({
+  const quotaForm = useForm<z.input<typeof quotaFormSchema>, unknown, QuotaFormData>({
     resolver: zodResolver(quotaFormSchema),
     defaultValues: { agentId: 0, period: "", periodStart: "", periodEnd: "", targetDeals: 0, targetRevenue: "0" },
   });
 
-  const assignForm = useForm<AssignMerchantData>({
+  const assignForm = useForm<z.input<typeof assignMerchantSchema>, unknown, AssignMerchantData>({
     resolver: zodResolver(assignMerchantSchema),
     defaultValues: { dealId: 0, merchantName: "" },
   });
 
-  const calcForm = useForm<CalcFormData>({
+  const calcForm = useForm<z.input<typeof calcSchema>, unknown, CalcFormData>({
     resolver: zodResolver(calcSchema),
     defaultValues: { agentId: 0, totalResidual: 0, month: "" },
   });

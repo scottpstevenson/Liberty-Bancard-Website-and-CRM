@@ -152,7 +152,7 @@ export function registerAdminRoutes(app: Express) {
         }).strict()).min(1).max(25),
       }).strict().safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: "Invalid system link apply request", errors: parsed.error.errors });
+        return res.status(400).json({ message: "Invalid system link apply request", errors: parsed.error.issues });
       }
       try {
         // Reject an unready batch before applying any link or writing its audit.
@@ -386,7 +386,7 @@ export function registerAdminRoutes(app: Express) {
         expectedVersion, action: "reset_mfa" });
       res.json(result.user);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       if (err instanceof AccountCommandError) return res.status(err.status).json({ message: err.message });
       serverError(res, err);
     }
@@ -400,7 +400,7 @@ export function registerAdminRoutes(app: Express) {
         expectedVersion, action: "role", role });
       res.json(result.user);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       if (err instanceof AccountCommandError) return res.status(err.status).json({ message: err.message });
       serverError(res, err);
     }
@@ -413,7 +413,7 @@ export function registerAdminRoutes(app: Express) {
       res.json(await commandAccount({ actorId: String((req.user as any).id), userId: String(req.params.id),
         action, expectedVersion }));
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       if (err instanceof AccountCommandError) return res.status(err.status).json({ message: err.message });
       serverError(res, err);
     }
@@ -728,7 +728,7 @@ export function registerAdminRoutes(app: Express) {
       const agent = await storage.createAgent(input);
       res.status(201).json(agent);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join('.') });
       serverError(res, err);
     }
   });
@@ -830,7 +830,7 @@ export function registerAdminRoutes(app: Express) {
       });
       res.json({ success: true, agentId, userId, userEmail: userRow.email });
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       if ((err as any)?.code === "23505") return res.status(409).json({ message: "This user is already bound to an active agent." });
       serverError(res, err);
     }
@@ -854,7 +854,7 @@ export function registerAdminRoutes(app: Express) {
       const quota = await storage.createAgentQuota(input);
       res.status(201).json(quota);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join('.') });
       serverError(res, err);
     }
   });
@@ -951,7 +951,7 @@ export function registerAdminRoutes(app: Express) {
       const { maskMid: _maskMidCreate } = await import("../utils/mask-mid");
       res.status(201).json({ ...row, mid: _maskMidCreate((row as any).mid), hasMid: !!(row as any).mid });
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join('.') });
       serverError(res, err);
     }
   });
@@ -1070,7 +1070,7 @@ export function registerAdminRoutes(app: Express) {
       const report = await storage.createResidualReport(input, { actorType: "user", userId: (req.user as any)?.id ?? null });
       res.status(201).json(report);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join('.') });
       serverError(res, err);
     }
   });
@@ -1137,7 +1137,7 @@ export function registerAdminRoutes(app: Express) {
       const alert = await storage.createHealthAlert(input);
       res.status(201).json(alert);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join('.') });
       serverError(res, err);
     }
   });
@@ -1220,7 +1220,7 @@ export function registerAdminRoutes(app: Express) {
       // Public response is a receipt only: no submitted personal details are echoed back.
       res.status(201).json({ id: request.id, status: request.status, received: true, reviewQueued: reviewNotified, emailReceipt, requestReceipt: inbound.id });
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -1243,7 +1243,7 @@ export function registerAdminRoutes(app: Express) {
       res.json(await reviewPrivacyRequest(strictRecordId.parse(req.params.id),
         bindWorkActor(req.user,input.expectedActorId,input.expectedAccountVersion),input));
     } catch (err: any) {
-      if(err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      if(err instanceof z.ZodError) return res.status(400).json({message:err.issues[0].message});
       const {WorkCommandError}=await import("../services/work-item-command");
       if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
@@ -1274,7 +1274,7 @@ export function registerAdminRoutes(app: Express) {
       const request = await storage.createReviewRequest(input);
       res.status(201).json(request);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message, field: err.issues[0].path.join('.') });
       serverError(res, err);
     }
   });
@@ -3701,7 +3701,7 @@ export function registerAdminRoutes(app: Express) {
         source_key: z.string().min(1),
         expires_at: z.string().optional(),
         correlation_id: z.string().optional(),
-        metadata: z.record(z.unknown()).optional(),
+        metadata: z.record(z.string(), z.unknown()).optional(),
       });
       const body = schema.parse(req.body);
       const actor = (req as any).user?.email || "admin";
@@ -6076,7 +6076,7 @@ export function registerAdminRoutes(app: Express) {
     try {
       const parsed = insertMerchantMidSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: "Invalid MID data", errors: parsed.error.errors });
+        return res.status(400).json({ message: "Invalid MID data", errors: parsed.error.issues });
       }
       const row = await createMerchantMid({
         ...parsed.data, actorId: String((req.user as any)?.id ?? ""), actorType: "user",
@@ -6105,7 +6105,7 @@ export function registerAdminRoutes(app: Express) {
       const allowedFields = insertMerchantMidSchema.partial();
       const parsed = allowedFields.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: "Invalid update data", errors: parsed.error.errors });
+        return res.status(400).json({ message: "Invalid update data", errors: parsed.error.issues });
       }
 
       const row = await updateMerchantMid({
@@ -6268,7 +6268,7 @@ export function registerAdminRoutes(app: Express) {
           evidenceSourceEventId: z.number().int().positive().nullable().optional(),
           expectedRevision: z.number().int().nonnegative().optional(),
         }).safeParse(req.body);
-        if (!parsed.success) return res.status(400).json({ message: "Invalid link decision", errors: parsed.error.errors });
+        if (!parsed.success) return res.status(400).json({ message: "Invalid link decision", errors: parsed.error.issues });
         const { decideContactBusinessLink } = await import("../services/commercial-link-authority");
         const row = await decideContactBusinessLink({
           ...parsed.data,
@@ -6323,7 +6323,7 @@ export function registerAdminRoutes(app: Express) {
     requireRole("admin"),
     async (req, res) => {
       const parsed = z.object({ batchSize: z.number().int().min(1).max(100).default(50) }).strict().safeParse(req.body ?? {});
-      if (!parsed.success) return res.status(400).json({ message: "Invalid reconciliation start request", errors: parsed.error.errors });
+      if (!parsed.success) return res.status(400).json({ message: "Invalid reconciliation start request", errors: parsed.error.issues });
       try {
         const { startContactBusinessReconciliation } = await import("../services/contact-business-reconciliation");
         const state = await startContactBusinessReconciliation({
@@ -6439,7 +6439,7 @@ export function registerAdminRoutes(app: Express) {
           expectedRevision: z.number().int().nonnegative(),
         }).strict()).min(1).max(50),
       }).strict().safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ message: "Invalid bulk review request", errors: parsed.error.errors });
+      if (!parsed.success) return res.status(400).json({ message: "Invalid bulk review request", errors: parsed.error.issues });
       const reviewerId = String((req.user as any)?.id ?? "");
       try {
         const { assertCurrentContactBusinessSuggestion } = await import("../services/contact-business-reconciliation");

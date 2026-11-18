@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createHash} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {assertDisposableTestInfrastructure} from '../test-infrastructure-guard';
 import {applyCertificationProviderDenyBoundary,getBlockedCertificationNetworkAttemptCount} from '../certification-provider-deny';
 await assertDisposableTestInfrastructure({operation:'Task 2161 persistence and concurrency',requireRedis:true});
 applyCertificationProviderDenyBoundary({fatal:true});process.env.OUTSCRAPER_API_KEY='task2161-disposable-only';process.env.CRO03_PROVIDER_TRANSPORT_ENABLED='true';
-const {pool}=await import('../../server/db');
+const {pool,db}=await import('../../server/db');
 const {selectSfpRuntimeTestRelease}=await import('../helpers/sfp-runtime-test-identity');
 const service=await import('../../server/services/scheduled-discovery/service');
 const actor=`task2161-${randomUUID()}`;
@@ -34,11 +34,41 @@ try{
  await q(`UPDATE sfp_programs SET is_active=false`);
  await q(`INSERT INTO sfp_programs(name,county_fips,vertical_ids,taxonomy_version,is_active,created_by) VALUES($1,ARRAY['12086'],ARRAY['Healthcare'],2,true,$1)`,[actor]);
  await q(`INSERT INTO provider_controls(provider,capability,enabled,circuit_state) VALUES('outscraper','business_discovery',true,'closed') ON CONFLICT(provider) DO UPDATE SET enabled=true,circuit_state='closed'`);
+ // Synthetic reviewed-rate fixture in this disposable database only. The
+ // production path still requires an unexpired real pricing observation.
+ const pricing={outscraper:{version:1,unitType:'result',amountMicros:3000,billingSemantics:'per_unit_no_result_free'}};
+ await q(`INSERT INTO mi09_pricing_schedule_snapshots(composite_hash,artifact_ids,schedule_json,captured_by,expires_at,notes)
+ VALUES($1,'[]',$2::jsonb,$3,now()+interval '1 day','disposable Task2161 price fixture')`,
+ [createHash('sha256').update(JSON.stringify(pricing)).digest('hex'),JSON.stringify(pricing),actor]);
  await selectSfpRuntimeTestRelease(actor);
  await service.initializeDiscoveryDefinitions(actor);
  check(Number(await scalar('SELECT count(*) FROM discovery_definitions'))===4,'T09 definitions from actual v2 program, useful Healthcare terms');
  check(await scalar('SELECT enabled FROM discovery_schedules')===false,'Schedule defaults disabled');
  const defs=(await q('SELECT * FROM discovery_definitions ORDER BY query')).rows;
+ // Exercise the real budget lock with simultaneous connections before any paid fixture.
+ const {reserveDiscoveryMonthlyBudget,discoveryMaximumLiability}=await import('../../server/services/scheduled-discovery/budget');
+ assert.throws(()=>discoveryMaximumLiability(null,'result',100),/PRICING_UNVERIFIED/);checks++;
+ assert.throws(()=>discoveryMaximumLiability(3000,'request',100),/PRICING_UNVERIFIED/);checks++;
+ assert.throws(()=>discoveryMaximumLiability(1,'result',100),/PRICING_UNVERIFIED/);checks++;
+ const budgetRuns=[];
+ for(let i=0;i<3;i++)budgetRuns.push((await q(`INSERT INTO discovery_runs(definition_id,occurrence_key,mode,state,snapshot,actor_id)
+ VALUES($1,$2,'preview','cancelled','{}',$3) RETURNING id`,[defs[i].id,randomUUID(),actor])).rows[0].id);
+ check(Number(await scalar('SELECT monthly_budget_micros FROM discovery_schedules'))===50000000,'Budget defaults to authorized $50, independent of units');
+ await q('UPDATE discovery_schedules SET monthly_budget_micros=1000000');
+ const reserves=await Promise.allSettled(budgetRuns.slice(0,2).map(id=>db.transaction(tx=>reserveDiscoveryMonthlyBudget(tx,id,600000))));
+ check(reserves.filter(r=>r.status==='fulfilled').length===1&&reserves.some(r=>r.status==='rejected'&&/MONTHLY_BUDGET_REACHED/.test(String(r.reason))),
+ 'Concurrent dispatch reservations cannot exceed one monthly allowance');
+ check(Number(await scalar('SELECT sum(budget_reserved_micros) FROM discovery_runs'))===600000,'Uncertain/cancelled work retains full liability');
+ await q(`UPDATE discovery_runs SET budget_month='2000-01' WHERE budget_reserved_micros>0`);
+ await db.transaction(tx=>reserveDiscoveryMonthlyBudget(tx,budgetRuns[2],600000));
+ check(Number(await scalar("SELECT sum(budget_reserved_micros) FROM discovery_runs WHERE budget_month='2000-01'"))===600000,'New month never erases prior-month holds');
+ await assert.rejects(db.transaction(tx=>reserveDiscoveryMonthlyBudget(tx,budgetRuns[2],3000)),/ALREADY_RESERVED/);checks++;
+ await q('DELETE FROM discovery_runs WHERE id=ANY($1::uuid[])',[budgetRuns]);
+ const legacy=(await q(`INSERT INTO discovery_runs(definition_id,occurrence_key,mode,state,snapshot,actor_id,submitted_at)
+ VALUES($1,$2,'preview','cancelled','{}',$3,now()) RETURNING id`,[defs[0].id,randomUUID(),actor])).rows[0].id;
+ await assert.rejects(db.transaction(tx=>reserveDiscoveryMonthlyBudget(tx,legacy,3000)),/BASELINE_UNRECONCILED/);checks++;
+ await q('DELETE FROM discovery_runs WHERE id=$1',[legacy]);
+ await q('UPDATE discovery_schedules SET monthly_budget_micros=50000000');
  const baseline=await beforeMaterialization();
  const pilot=await service.createDiscoveryRun(defs[0].id,'preview',actor,randomUUID());
  const duplicate=await service.createDiscoveryRun(defs[0].id,'scheduled',actor,randomUUID());

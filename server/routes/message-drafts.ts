@@ -115,7 +115,7 @@ export function registerMessageDraftRoutes(app: Express) {
   });
 }
 function respond(err: unknown, res: any) {
-  if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+  if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
   if (err instanceof DraftDenied) return res.status(404).json({ message: "Draft context unavailable" });
   if (err instanceof DraftConflict) return res.status(409).json({ message: err.message });
   serverError(res, err);

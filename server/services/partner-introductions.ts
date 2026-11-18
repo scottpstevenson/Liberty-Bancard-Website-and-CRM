@@ -33,10 +33,10 @@ export const INTRODUCTION_REVIEW_STATES = ["pending_review", "duplicate_review",
 
 const clean = (v: string) => v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").trim();
 const req = (max: number, label: string) =>
-  z.string({ required_error: `${label} is required.`, invalid_type_error: `${label} is required.` })
+  z.string({ error: `${label} is required.` })
     .transform(clean).pipe(z.string().min(1, `${label} is required.`).max(max, `${label} must be ${max} characters or fewer.`));
 const opt = (max: number, label: string) =>
-  z.string({ invalid_type_error: `${label} must be text.` }).transform(clean).pipe(z.string().max(max, `${label} must be ${max} characters or fewer.`))
+  z.string({ error: `${label} must be text.` }).transform(clean).pipe(z.string().max(max, `${label} must be ${max} characters or fewer.`))
     .optional().transform((v) => (v ? v : undefined));
 
 function normalizeWebsite(value: string): string | null {
@@ -58,14 +58,14 @@ export const introductionBodySchema = z.object({
     .optional().transform((v) => (v ? v : undefined)),
   contactPhone: z.string().transform((v) => v.trim()).refine((v) => v === "" || isAcceptablePartnerPhone(v), "Enter a valid phone number.")
     .optional().transform((v) => (v ? v : undefined)),
-  website: z.string({ invalid_type_error: "Enter a valid website address." }).max(300, "Website must be 300 characters or fewer.").optional()
+  website: z.string({ error: "Enter a valid website address." }).max(300, "Website must be 300 characters or fewer.").optional()
     .superRefine((v, ctx) => {
       if (v && v.trim() && !normalizeWebsite(v)) ctx.addIssue({ code: "custom", message: "Enter a valid website address." });
     })
     .transform((v) => (v && v.trim() ? normalizeWebsite(v) ?? undefined : undefined)),
   context: opt(1000, "Context"),
-  permissionConfirmed: z.literal(true, { errorMap: () => ({ message: "Confirm that this contact has agreed to an introduction." }) }),
-  permissionVersion: z.literal(PARTNER_INTRODUCTION_PERMISSION.version, { errorMap: () => ({ message: "Reload the page and confirm the current permission wording." }) }),
+  permissionConfirmed: z.literal(true, { error: "Confirm that this contact has agreed to an introduction." }),
+  permissionVersion: z.literal(PARTNER_INTRODUCTION_PERMISSION.version, { error: "Reload the page and confirm the current permission wording." }),
 }).strict().superRefine((value, ctx) => {
   if (!value.contactEmail && !value.contactPhone) {
     ctx.addIssue({ code: "custom", path: ["contactEmail"], message: "Enter a business email or a phone number so we can follow up." });

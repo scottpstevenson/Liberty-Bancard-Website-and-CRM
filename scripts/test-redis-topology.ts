@@ -53,7 +53,7 @@ async function testQueueConfigsBaseline() {
     "executive-snapshot", "free-enrichment-lane", "ghl-enrollment-recovery", "ghl-sync",
     "health-monitor", "master-lead-stager", "merchant-success", "mid-ingestion", "onboarding-reminder",
     "partner-monthly-digest", "pipeline-silence-check", "post-enrichment",
-    "proposal-followup", "sequences", "sfp-campaign-staging", "sfp-continuous-discovery",
+    "proposal-followup", "scheduled-discovery", "sequences", "sfp-campaign-staging", "sfp-continuous-discovery",
     "sfp-continuous-validation", "sfp-free-classification", "sla-checks", "source-registry-import",
     "statement-upload", "sunbiz-full-backfill", "system-audit", "voicemail-sync", "website-email", "winback-outreach",
     "zerobounce-batch-validate",
@@ -62,7 +62,7 @@ async function testQueueConfigsBaseline() {
   // lifecycle lane (its own capability group; no sequences/SFP/campaign/GHL implication).
   // The SFP lanes and Sunbiz full-backfill driver retain their ownership. The retired
   // attestation-refresh queue is intentionally not part of this topology.
-  const CERTIFIED_ROSTER_DIGEST = "f89ad91050a0ff73aa3cf92425456a30a1e8fa1073f2e91c5e8632a42d4d94b1";
+  const CERTIFIED_ROSTER_DIGEST = "8af603e369c5a463a49a87486794750b59a900bbd2e97bb0e628cf4a1311783f";
   const actualRoster = QUEUE_CONFIGS.map(({ name }) => name).sort();
   const actualDigest = createHash("sha256").update(actualRoster.join("\n")).digest("hex");
 

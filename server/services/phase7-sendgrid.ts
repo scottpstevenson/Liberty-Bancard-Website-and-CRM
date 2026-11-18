@@ -8,6 +8,7 @@ import {
   sendGridKind,
   verifySendGridSignature,
   SENDGRID_RETRY_GRACE_HOURS,
+  verifiesSendGridSmtpKey,
 } from "./phase7-sendgrid-contract";
 const digest = (value: unknown) =>
   createHash("sha256").update(canonicalJson(value)).digest("hex");
@@ -124,11 +125,7 @@ export async function observePhase7SendGridCoverage(
         const smtpKeyId = sendGridSmtpKeyId();
         if (!smtpKeyId) throw Error("SENDGRID_SMTP_IDENTITY_NOT_CONFIGURED");
         const smtpKey = await read("api_keys/" + encodeURIComponent(smtpKeyId));
-        if (
-          smtpKey.api_key_id !== smtpKeyId ||
-          !Array.isArray(smtpKey.scopes) ||
-          !smtpKey.scopes.includes("mail.send")
-        )
+        if (!verifiesSendGridSmtpKey(smtpKey, smtpKeyId))
           throw Error("SENDGRID_SMTP_ACCOUNT_NOT_VERIFIED");
         const settings = await read(
           "user/webhooks/event/settings/" + encodeURIComponent(id),

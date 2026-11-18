@@ -117,7 +117,7 @@ export function registerReviewQueueRoutes(app: Express) {
       }
       res.json({ dryRun: body.dryRun, matched: result.matched, archived: result.archived });
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -146,14 +146,14 @@ export function registerReviewQueueRoutes(app: Express) {
         return res.status(400).json({ message: "Cannot modify checklist on an already-approved item" });
       }
       const schema = z.object({
-        checklistState: z.record(z.boolean()),
+        checklistState: z.record(z.string(), z.boolean()),
       });
       const { checklistState } = schema.parse(req.body);
       const updated = await storage.updateReviewQueueItem(Number(req.params.id), { checklistState });
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -222,7 +222,7 @@ export function registerReviewQueueRoutes(app: Express) {
 
       res.json(updated);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });

@@ -267,6 +267,19 @@ try {
         "document.documentElement.scrollWidth>innerWidth+1",
       );
       ok(!overflow, "no document overflow at " + width + " " + theme);
+      const geometry = await browser.evaluate(`(() => {
+        const rect = element => element.getBoundingClientRect();
+        const overlap = (a,b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        const tabs = [...document.querySelectorAll('[role="tablist"][aria-label="Sales and growth views"] [role="tab"]')].map(rect);
+        const assistant = document.querySelector('[data-testid="dashboard-data-agent"]');
+        const vertical = document.querySelector('#funnel-vertical');
+        return {tabsPresent:tabs.length===4,tabsOverlap:tabs.some((a,i)=>tabs.slice(i+1).some(b=>overlap(a,b))),
+          assistantPresent:!!assistant,verticalPresent:!!vertical,
+          assistantCoversVertical:!!assistant&&!!vertical&&overlap(rect(assistant),rect(vertical))};
+      })()`);
+      ok(geometry.tabsPresent&&!geometry.tabsOverlap, "report tabs remain separate at " + width + " " + theme);
+      ok(geometry.assistantPresent&&geometry.verticalPresent&&!geometry.assistantCoversVertical,
+        "closed reporting assistant leaves Vertical usable at " + width + " " + theme);
       const requestsBefore = browser.requests.length;
       await browser.click('[data-testid="funnel-refresh"]');
       results.push({

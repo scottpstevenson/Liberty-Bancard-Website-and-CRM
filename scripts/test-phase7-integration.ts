@@ -327,7 +327,7 @@ try {
     return new Response(
       JSON.stringify(
         String(url).includes("/api_keys/")
-          ? { api_key_id: "fixture_key_id_12345", scopes: ["mail.send"] }
+          ? { result: [{ api_key_id: "fixture_key_id_12345", scopes: ["mail.send"] }] }
           : String(url).includes("/signed/")
             ? { id: "fixture-webhook", public_key: publicKey }
             : {

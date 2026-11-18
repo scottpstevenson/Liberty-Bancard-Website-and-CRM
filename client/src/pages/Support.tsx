@@ -56,7 +56,7 @@ export default function Support() {
   const [, setLocation] = useLocation();
   const containerRef = useScrollReveal();
 
-  const form = useForm<SupportFormData>({
+  const form = useForm<z.input<typeof supportSchema>, unknown, SupportFormData>({
     resolver: zodResolver(supportSchema),
     defaultValues: {
       name: "",

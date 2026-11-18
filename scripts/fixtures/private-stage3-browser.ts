@@ -16,7 +16,10 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
       partition:{default_zoom_level:{x:Math.log(options.zoom)/Math.log(1.2)}},
     }));
   }
-  const process=spawn((existsSync("/repl/tools/bin/chromium")?"/repl/tools/bin/chromium":"/usr/bin/chromium"),["--headless","--no-sandbox","--disable-gpu",
+  const executable=["/repl/tools/bin/chromium","/usr/bin/chromium",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"].find(existsSync);
+  assert(executable,"No supported private Chromium executable is installed");
+  const process=spawn(executable,["--headless","--no-sandbox","--disable-gpu",
     ...(options.singleProcess?["--no-zygote","--single-process"]:[]),
     "--disable-dev-shm-usage",
     "--window-size=1440,1000",

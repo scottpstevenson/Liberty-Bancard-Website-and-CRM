@@ -65,7 +65,7 @@ export default function ReviewComplete() {
   const taskCommand = useRef<{ commandId: string; payload: Record<string, unknown>; key: string } | null>(null);
   const [partialOutcome, setPartialOutcome] = useState<string | null>(null);
 
-  const form = useForm<FormValues>({
+  const form = useForm<z.input<typeof formSchema>, unknown, FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       contactId: initialContactId,

@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import type { CatalogPackage, CatalogTruth, ReadinessFact } from "../shared/catalog-truth-contract";
 import {
-  LANE_KEYS, campaignLaneStates, laneVerdict, packageScopeOf, sequenceLaneStates, type CatalogRead,
+  LANE_KEYS, campaignLaneStates, campaignPackage, laneVerdict, packageScopeOf, sequenceLaneStates, sequencePackage, type CatalogRead,
 } from "../client/src/lib/email-lane-states";
 import { INTEGRATION_LANES } from "../client/src/components/dashboard/IntegrationLaneGuide";
 import { GHL_OWNERSHIP_STATEMENT, GHL_SUPPORTED_HANDOFF_WORKFLOWS } from "../shared/ghl-ownership-guidance";
@@ -46,6 +46,18 @@ const catalogOf = (packages: CatalogPackage[]): CatalogTruth => ({
 });
 const ready = (c: CatalogTruth): CatalogRead => ({ status: "ready", catalog: c });
 const byKey = (states: ReturnType<typeof sequenceLaneStates>) => Object.fromEntries(states.map(s => [s.key, s]));
+
+const historicalVersion = { ...pkg(), packageVersionId: "old", lifecycleState: "superseded", catalogClass: "historical" as const };
+const reusedAssets = catalogOf([historicalVersion, pkg()]);
+eq(sequencePackage(reusedAssets, 10)?.packageVersionId, "v1", "current sequence pin wins over earlier historical versions");
+eq(campaignPackage(reusedAssets, 20)?.packageVersionId, "v1", "current campaign pin wins over earlier historical versions");
+const conflictingAssets = catalogOf([historicalVersion, pkg(), { ...pkg(), packageVersionId: "v2" }]);
+eq(sequencePackage(conflictingAssets, 10), undefined, "conflicting current sequence pins never pick an arbitrary version");
+eq(campaignPackage(conflictingAssets, 20), undefined, "conflicting current campaign pins never pick an arbitrary version");
+eq(byKey(sequenceLaneStates({ sequence: { id: 10 }, catalog: ready(conflictingAssets), enrollments: [] })).eligibility.summary,
+  "Conflicting current packages", "sequence conflict is visible without implying eligibility");
+eq(byKey(campaignLaneStates({ campaign: { id: 20 }, catalog: ready(conflictingAssets) })).eligibility.summary,
+  "Conflicting current packages", "campaign conflict is visible without implying eligibility");
 
 // Eight separate states, always in the same order, each with its own basis.
 const current = sequenceLaneStates({ sequence: { id: 10, status: "paused", totalSteps: 5 }, catalog: ready(catalogOf([pkg({ paused: fact("yes", "sequence status is paused") })])), enrollments: [{ status: "active" }, { status: "completed" }, { status: "completed" }] });

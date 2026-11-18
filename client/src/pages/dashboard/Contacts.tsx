@@ -801,7 +801,7 @@ export default function Contacts() {
     },
   });
 
-  const form = useForm<FormData>({
+  const form = useForm<z.input<typeof formSchema>, unknown, FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       firstName: "",

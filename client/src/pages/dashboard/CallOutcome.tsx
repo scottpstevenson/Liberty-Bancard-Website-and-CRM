@@ -101,7 +101,7 @@ export default function CallOutcome() {
   const [showRecap, setShowRecap] = useState(false);
   const [sendResult, setSendResult] = useState<any>(null);
 
-  const form = useForm<FormValues>({
+  const form = useForm<z.input<typeof formSchema>, unknown, FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       contactId: initial.get("contactId") ?? "",

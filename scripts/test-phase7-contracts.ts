@@ -4,6 +4,7 @@ import {
   verifySendGridSignature,
   sendGridKind,
   continuousFeedbackCoverage,
+  verifiesSendGridSmtpKey,
 } from "../server/services/phase7-sendgrid-contract";
 import assert from "node:assert/strict";
 import { z } from "zod";
@@ -21,6 +22,15 @@ const check = (x: unknown) => {
   assert.ok(x);
   checks++;
 };
+const smtpMetadata = { api_key_id: "fixture-key", scopes: ["mail.send"] };
+check(verifiesSendGridSmtpKey(smtpMetadata, "fixture-key"));
+check(verifiesSendGridSmtpKey({ result: [smtpMetadata] }, "fixture-key"));
+for (const invalid of [null, [], {}, { result: [] }, { result: [smtpMetadata, smtpMetadata] },
+  { result: [smtpMetadata], ...smtpMetadata }, { result: [null] },
+  { ...smtpMetadata, api_key_id: "another-key" }, { ...smtpMetadata, scopes: [] },
+  { ...smtpMetadata, scopes: ["mail.send", 7] }]) {
+  check(!verifiesSendGridSmtpKey(invalid, "fixture-key"));
+}
 for (const path of [
   editableSequenceStepSchema,
   editableSequenceStepSchema.partial(),

@@ -75,7 +75,11 @@ export function staticAliasFor(from: string): StaticLegacyAlias {
 
 export function legacyAliasUrl(from: string, search: string, hash = ""): string {
   const entry = staticAliasFor(from);
-  const params = safeParams(search, LEGACY_ALIAS_CONTEXT_KEYS);
+  const calendarKeys = from === "/dashboard/calendar"
+    ? ["cal_month", "cal_date", "cal_source", "cal_item", "cal_window_from", "cal_window_days"]
+    : [];
+  // Calendar owns validation of these selectors; unknown and conflicting keys still do not cross the alias.
+  const params = safeParams(search, [...LEGACY_ALIAS_CONTEXT_KEYS, ...calendarKeys]);
   for (const [key, value] of Object.entries(entry.fixed)) params.set(key, value);
   return destinationUrl(entry.to, params, hash);
 }

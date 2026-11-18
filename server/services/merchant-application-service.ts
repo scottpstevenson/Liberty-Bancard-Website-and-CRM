@@ -182,7 +182,7 @@ export const finalizeDto = autosaveDto
     bankRoutingNumber: z.string().optional(),
     bankAccountNumber: z.string().optional(),
     bankAccountType: z.string().max(60).optional(),
-    additionalOwners: z.array(z.record(z.unknown())).optional(),
+    additionalOwners: z.array(z.record(z.string(), z.unknown())).optional(),
     pewcConsent: z.boolean().optional(),
     pewcDisclosureVersion: z.string().max(64).optional(),
     reviewConfirmed: z.boolean().optional(),

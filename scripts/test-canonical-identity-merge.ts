@@ -76,6 +76,24 @@ async function main() {
     const candidateIds = (await merge.findIdentityCandidates(survivor.id)).map((row: any) => row.id);
     assert(candidateIds.includes(deprecated.id) && candidateIds.includes(third.id), "eligible evidence forms a connected candidate component");
 
+    // Immutable Phase 7 evidence describes the original identity, even after
+    // operational relationships move to a survivor.
+    await db.execute(sql`INSERT INTO conversion_journey_evidence
+      (source_type,source_id,source_version,stage,contact_id,occurred_at,dimensions,record_class)
+      VALUES ('merge_fixture',${`journey:${nonce}`},1,'lead',${deprecated.id},now(),'{}','test')`);
+    await db.execute(sql`INSERT INTO cro07_provider_receipts
+      (source,provider_event_id,account_hash,contact_id,event_type,occurred_at,payload_hash,reason)
+      VALUES ('sendgrid',${`merge:${nonce}`},${'a'.repeat(64)},${deprecated.id},'open',now(),${'b'.repeat(64)},'merge_fixture')`);
+    const historicalEvidence = async () => (await db.execute(sql`
+      SELECT 'journey' kind,id::text,contact_id,md5(row_to_json(t)::text) hash
+      FROM conversion_journey_evidence t WHERE contact_id=${deprecated.id}
+      UNION ALL SELECT 'provider',id::text,contact_id,md5(row_to_json(t)::text)
+      FROM cro07_provider_receipts t WHERE contact_id=${deprecated.id}
+      ORDER BY kind,id`) as any).rows;
+    const evidenceBefore = await historicalEvidence();
+    assert(evidenceBefore.some((r:any)=>r.kind==='journey') && evidenceBefore.some((r:any)=>r.kind==='provider'),
+      'real journey and provider evidence exists before preview');
+
     const preview = await merge.previewContactMerge({
       survivorContactId: survivor.id, deprecatedContactId: deprecated.id,
       idempotencyKey: crypto.randomUUID(), actorId: "bt07-admin", actorRole: "admin",
@@ -122,6 +140,8 @@ async function main() {
 
     const replay = await merge.executeContactMerge(freshPreview.operationId, "bt07-admin");
     assert(replay.id === completed.id, "replay returns the existing durable operation");
+    assert(JSON.stringify(await historicalEvidence())===JSON.stringify(evidenceBefore),
+      "preview, execution and replay retain original Phase 7 subjects and complete evidence bytes");
 
     // Different classes must be terminally blocked during preview, and a blocked
     // operation cannot be promoted by the approval transition.

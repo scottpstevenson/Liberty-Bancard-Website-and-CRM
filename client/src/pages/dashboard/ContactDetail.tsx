@@ -2154,7 +2154,7 @@ function ContactDetailRecord() {
                 <p className="text-sm text-muted-foreground" data-testid="contact-next-action">
                   <span className="font-medium text-foreground">Next action:</span>{" "}
                   {headerNextAction.href
-                    ? <Link href={headerNextAction.href} className="text-blue-600 underline-offset-2 hover:underline" data-testid="contact-next-action-link">{headerNextAction.text}</Link>
+                    ? <Link href={headerNextAction.href} className="text-blue-600 dark:text-blue-400 underline-offset-2 hover:underline" data-testid="contact-next-action-link">{headerNextAction.text}</Link>
                     : headerNextAction.text}
                 </p>
               </div>

@@ -79,6 +79,7 @@ import {
   FileText,
   Code2,
   Monitor,
+  Smartphone,
   Database,
   FlaskConical,
   LineChart,
@@ -896,6 +897,12 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
               <WorkspaceTitle role={role} location={location} search={layoutSearch} fallbackLabel={currentLabel} className="font-display font-semibold text-base sm:text-lg truncate" />
             </div>
             <div className="flex items-center gap-1 sm:gap-2 min-w-0">
+              {isMobile && mobileDesktopOptOut && (
+                <Button variant="ghost" className="h-11 w-11 shrink-0 p-0" aria-label="Use mobile layout" title="Use mobile layout" data-testid="button-use-mobile-layout"
+                  onClick={() => { localStorage.removeItem("prefer_desktop"); window.location.reload(); }}>
+                  <Smartphone className="h-4 w-4" />
+                </Button>
+              )}
               <div className="min-w-0">
                 <UniversalSearch />
               </div>

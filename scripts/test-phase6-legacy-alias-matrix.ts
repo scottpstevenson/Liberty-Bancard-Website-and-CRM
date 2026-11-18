@@ -8,6 +8,17 @@ import {
 // replaces the retired path, and has a registered canonical destination. The matrix is generated from the alias table and
 // from App.tsx, so a new alias cannot ship as a context-dropping `<Redirect to="…?tab=…">`.
 const app = fs.readFileSync("client/src/App.tsx", "utf8");
+const calendarLink = new URL(legacyAliasUrl("/dashboard/calendar",
+  "?cal_month=2026-10&cal_date=2026-10-20&cal_source=local&cal_item=event_7&cal_window_from=2026-10-20T00%3A00%3A00Z&cal_window_days=7&unregistered=x", "#notes"), "https://crm.invalid");
+assert.equal(calendarLink.pathname, "/dashboard/tasks-appointments");
+assert.equal(calendarLink.searchParams.get("tab"), "calendar");
+for (const [key, value] of Object.entries({ cal_month: "2026-10", cal_date: "2026-10-20", cal_source: "local", cal_item: "event_7", cal_window_from: "2026-10-20T00:00:00Z", cal_window_days: "7" })) {
+  assert.equal(calendarLink.searchParams.get(key), value, `${key} survives the legacy calendar alias`);
+}
+assert.equal(calendarLink.searchParams.has("unregistered"), false);
+assert.equal(calendarLink.hash, "#notes");
+assert.equal(new URL(legacyAliasUrl("/dashboard/calendar", "?cal_month=2026-10&cal_month=2026-11"), "https://crm.invalid").searchParams.has("cal_month"), false);
+assert.equal(new URL(legacyAliasUrl("/dashboard/tasks", "?cal_month=2026-10"), "https://crm.invalid").searchParams.has("cal_month"), false);
 
 // 1. Table integrity.
 const froms = STATIC_DASHBOARD_ALIASES.map((entry) => entry.from);

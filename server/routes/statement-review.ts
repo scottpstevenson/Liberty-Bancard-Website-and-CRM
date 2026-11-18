@@ -248,7 +248,7 @@ export function registerStatementReviewRoutes(app: Express) {
 
       const parsed = updateSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: parsed.error.errors[0].message });
+        return res.status(400).json({ message: parsed.error.issues[0].message });
       }
 
       const existing = await getStatementReview(id);
@@ -391,7 +391,7 @@ export function registerStatementReviewRoutes(app: Express) {
       });
 
       const parsed = schema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message });
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
 
       if (!parsed.data.documentId && !parsed.data.contactId) return res.status(400).json({ message: "documentId or contactId is required" });
       const doc = parsed.data.documentId ? await storage.getDocumentById(parsed.data.documentId) : undefined;

@@ -184,7 +184,7 @@ export const funnelResponseSchema = z.object({
           business_id: z.number().int(),
           entry_at: z.string(),
           progress: z.number().int(),
-          dimensions: z.record(z.string()),
+          dimensions: z.record(z.string(), z.string()),
         })
         .passthrough(),
     ),

@@ -8,6 +8,7 @@ import fs from "fs";
 import path from "path";
 import pg from "pg";
 import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+import { schemaContactPointers } from "./contact-schema-pointers";
 
 const manifestSource = fs.readFileSync(path.join(process.cwd(), "server/services/contact-merge.ts"), "utf8");
 const schemaSource = fs.readFileSync(path.join(process.cwd(), "shared/schema.ts"), "utf8");
@@ -98,18 +99,16 @@ for (const [, tableName] of transferTablesBlock?.matchAll(/"([^"]+)"/g) ?? []) {
 // Derive every schema FK that targets contacts from the canonical TypeScript
 // schema rather than maintaining a small hand-curated allowlist. This catches
 // new relationship tables before they can silently escape merge disposition.
-const tableStarts = [...schemaSource.matchAll(/(?:export\s+const\s+\w+\s*=\s*)?pgTable\("([^"]+)"/g)];
-for (let index = 0; index < tableStarts.length; index++) {
-  const table = tableStarts[index][1];
-  const start = tableStarts[index].index ?? 0;
-  const end = index + 1 < tableStarts.length ? (tableStarts[index + 1].index ?? schemaSource.length) : schemaSource.length;
-  const body = schemaSource.slice(start, end);
-  for (const match of body.matchAll(/(?:integer|uuid|text)\("([^"]+)"\)[^\n]*\.references\(\(\)\s*=>\s*contacts\.id/g)) {
-    const column = match[1];
-    if (!declaredPairs.has(`${table}.${column}`)) {
-      failures.push(`schema FK missing from disposition manifest: ${table}.${column}`);
-    }
-  }
+for (const pointer of schemaContactPointers(schemaSource)) {
+  if (!declaredPairs.has(pointer)) failures.push(`schema FK missing from disposition manifest: ${pointer}`);
+}
+const formattedPointerFixture = schemaContactPointers(`
+  const before = pgTable("before", { id: uuid("id") });
+  const actual = pgTable(\n"actual", { contact: integer(\n"subject_contact_id"\n).references(\n(): AnyPgColumn => contacts.id\n) });
+  const after = pgTable("after", { id: uuid("id").references(() => businesses.id) });
+`);
+if (JSON.stringify(formattedPointerFixture) !== JSON.stringify(["actual.subject_contact_id"])) {
+  failures.push("schema parser failed multiline FK/table-boundary negative controls");
 }
 
 const declarations = explicitManifestDeclarations(manifestSource);

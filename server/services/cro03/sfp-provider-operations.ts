@@ -1,3 +1,4 @@
+import {discoveryMaximumLiability,reserveDiscoveryMonthlyBudget} from '../scheduled-discovery/budget';
 /**
  * Durable paid-provider boundary for the independent SFP program.
  *
@@ -3243,7 +3244,7 @@ export async function markSearchProviderDispatchBoundary(r:SfpSearchReservation)
  await db.transaction(async tx=>{
   await lockCurrentSfpRuntimeOwner(tx);const run=await pinSearchScope(tx,r.runId,r.laneToken,r.poll);
   if(!r.poll&&run.state!=='queued')throw new Error('DISCOVERY_ALREADY_DISPATCHED');
-  const allowed=rows(await tx.execute(sql`SELECT o.id FROM provider_operations o JOIN provider_controls pc ON pc.provider=o.provider
+  const allowed=rows(await tx.execute(sql`SELECT o.id,o.unit_price_micros,o.unit_price_unit FROM provider_operations o JOIN provider_controls pc ON pc.provider=o.provider
    JOIN sfp_runtime_job_leases j ON j.operation_id=o.id
    WHERE o.id=${r.operationId}::uuid AND o.claim_token=${r.claimToken}::uuid AND o.state='running'
     AND o.cancel_requested_at IS NULL AND o.lease_expires_at>clock_timestamp()
@@ -3251,6 +3252,7 @@ export async function markSearchProviderDispatchBoundary(r:SfpSearchReservation)
     AND j.owner_token=${r.runtime.ownerToken}::uuid AND j.process_identity=${r.runtime.processIdentity}
     AND j.lease_expires_at>clock_timestamp() AND j.revoked_at IS NULL
    FOR UPDATE OF o,j FOR SHARE OF pc`))[0];if(!allowed)throw new Error('DISCOVERY_DISPATCH_AUTHORITY_LOST');
+  if(!r.poll)await reserveDiscoveryMonthlyBudget(tx,r.runId,discoveryMaximumLiability(allowed.unit_price_micros==null?null:Number(allowed.unit_price_micros),allowed.unit_price_unit,Number(run.snapshot.result_limit)));
   const receipt={schema:'sfp-search-dispatch-v1',operationId:r.operationId,runId:r.runId,laneToken:r.laneToken,ownerEpoch:r.runtime.ownerEpoch,artifactSha:r.runtime.artifactSha,poll:r.poll};
   const receiptJson=JSON.stringify(receipt),hash=createHash('sha256').update(receiptJson).digest('hex');
   const marked=rows(await tx.execute(sql`UPDATE provider_attempts SET outcome='ambiguous',dispatch_marked_at=clock_timestamp()

@@ -99,7 +99,7 @@ export function registerInboundAcknowledgementRoutes(app: Express) {
       });
       res.json({ capability });
     } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });

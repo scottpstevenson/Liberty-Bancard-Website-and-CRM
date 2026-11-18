@@ -95,7 +95,7 @@ export function registerLiveChatRoutes(app: Express) {
 
       res.status(201).json({ sessionId, chatId: chat.id, isBusinessHours: isBusinessHours() });
     } catch (err: unknown) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -130,7 +130,7 @@ export function registerLiveChatRoutes(app: Express) {
 
       res.json(message);
     } catch (err: unknown) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -199,7 +199,7 @@ export function registerLiveChatRoutes(app: Express) {
 
       res.json({ success: true, contactId });
     } catch (err: unknown) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -303,7 +303,7 @@ export function registerLiveChatRoutes(app: Express) {
 
       res.status(201).json({ success: true });
     } catch (err: unknown) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -371,7 +371,7 @@ export function registerLiveChatRoutes(app: Express) {
       await storage.updateLiveChat(chatId, { lastMessageAt: new Date() });
       res.json(message);
     } catch (err: unknown) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -426,7 +426,7 @@ export function registerLiveChatRoutes(app: Express) {
       const updated = await storage.updateLiveChat(chatId, baseUpdate);
       res.json(updated);
     } catch (err: unknown) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });

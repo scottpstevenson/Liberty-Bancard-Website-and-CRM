@@ -2751,6 +2751,13 @@
       "when": 1800400330003,
       "tag": "0389_discovery_id_checks_publish_safe",
       "breakpoints": true
+    },
+    {
+      "idx": 393,
+      "version": "7",
+      "when": 1800400330004,
+      "tag": "0390_discovery_monthly_budget",
+      "breakpoints": true
     }
   ]
 }

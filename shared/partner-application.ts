@@ -96,11 +96,11 @@ export function partnerLink(path: string, params?: { attribution?: Partial<Recor
 // Plain text: control characters are removed, line breaks kept. HTML is not interpreted anywhere (React/escaped output).
 const clean = (value: string) => value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").trim();
 const text = (min: number, max: number, label: string) =>
-  z.string({ required_error: `${label} is required.`, invalid_type_error: `${label} is required.` })
+  z.string({ error: `${label} is required.` })
     .transform(clean)
     .pipe(z.string().min(min, `${label} is required.`).max(max, `${label} must be ${max} characters or fewer.`));
 const optionalText = (max: number, label: string) =>
-  z.string({ invalid_type_error: `${label} must be text.` })
+  z.string({ error: `${label} must be text.` })
     .transform(clean)
     .pipe(z.string().max(max, `${label} must be ${max} characters or fewer.`))
     .optional()
@@ -116,13 +116,13 @@ export function isAcceptablePartnerPhone(value: string): boolean {
 }
 
 const fullName = text(1, 200, "Full name");
-const workEmail = z.string({ required_error: "Work email is required.", invalid_type_error: "Work email is required." })
+const workEmail = z.string({ error: "Work email is required." })
   .transform((v) => v.trim().toLowerCase())
   .pipe(z.string().min(1, "Work email is required.").max(254, "Work email must be 254 characters or fewer.").email("Enter a valid email address."));
-const requiredPhone = z.string({ required_error: "Phone is required.", invalid_type_error: "Phone is required." })
+const requiredPhone = z.string({ error: "Phone is required." })
   .transform((v) => v.trim())
   .pipe(z.string().min(1, "Phone is required.").refine(isAcceptablePartnerPhone, "Enter a valid phone number."));
-const optionalPhone = z.string({ invalid_type_error: "Enter a valid phone number." })
+const optionalPhone = z.string({ error: "Enter a valid phone number." })
   .transform((v) => v.trim())
   .refine((v) => v === "" || isAcceptablePartnerPhone(v), "Enter a valid phone number.")
   .optional()
@@ -130,7 +130,7 @@ const optionalPhone = z.string({ invalid_type_error: "Enter a valid phone number
 
 const contactPreference = z.enum(PARTNER_CONTACT_PREFERENCES.map((p) => p.id) as [string, ...string[]]).default("email");
 
-const permission = z.literal(true, { errorMap: () => ({ message: "Confirm that you ask Liberty Bancard to contact you about this application." }) });
+const permission = z.literal(true, { error: "Confirm that you ask Liberty Bancard to contact you about this application." });
 
 const common = {
   schemaVersion: z.literal(PARTNER_APPLICATION_SCHEMA_VERSION),
@@ -151,7 +151,7 @@ export const referralApplicationSchema = z.object({
   ...common,
   path: z.literal("referral"),
   phone: optionalPhone,
-  profession: z.enum(PARTNER_PROFESSION_IDS as [string, ...string[]], { errorMap: () => ({ message: "Choose your profession or business type." }) }),
+  profession: z.enum(PARTNER_PROFESSION_IDS as [string, ...string[]], { error: "Choose your profession or business type." }),
   professionOther: optionalText(200, "Profession detail"),
   referralNetwork: text(1, 2000, "Referral network"),
   expectedIntroductions: z.enum(PARTNER_INTRO_VOLUME_BANDS.map((b) => b.id) as [string, ...string[]]).optional(),
@@ -165,7 +165,7 @@ export const salesAgentApplicationSchema = z.object({
   region: text(1, 100, "Region"),
   experience: text(1, 2000, "Payments or sales experience"),
   prospectingApproach: text(1, 2000, "Prospecting approach"),
-  leadSourceInterest: z.enum(PARTNER_LEAD_SOURCE_INTERESTS.map((i) => i.id) as [string, ...string[]], { errorMap: () => ({ message: "Choose a lead-source interest." }) }),
+  leadSourceInterest: z.enum(PARTNER_LEAD_SOURCE_INTERESTS.map((i) => i.id) as [string, ...string[]], { error: "Choose a lead-source interest." }),
 }).strict();
 
 export type ReferralApplicationInput = z.infer<typeof referralApplicationSchema>;

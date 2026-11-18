@@ -181,7 +181,7 @@ export function registerProspectsRoutes(app: Express) {
       const list = await storage.createProspectList(input);
       res.status(201).json(list);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -202,7 +202,7 @@ export function registerProspectsRoutes(app: Express) {
   app.get("/api/prospects", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const parsed = prospectListQuery.safeParse(req.query);
-      if (!parsed.success) return res.status(400).json({ message: `Invalid prospect query: ${parsed.error.errors[0].path.join(".")}` });
+      if (!parsed.success) return res.status(400).json({ message: `Invalid prospect query: ${parsed.error.issues[0].path.join(".")}` });
       const { listId, limit, offset, search, vertical, score, scoreSort } = parsed.data;
       const result = await storage.getProspects(listId, { limit, offset }, { search: search || undefined, vertical, score, scoreSort });
       res.json(result);
@@ -238,7 +238,7 @@ export function registerProspectsRoutes(app: Express) {
       const prospect = await storage.createProspect(input);
       res.status(201).json(prospect);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.issues[0].message });
       serverError(res, err);
     }
   });
@@ -263,7 +263,7 @@ export function registerProspectsRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Prospect not found" });
       res.json(updated);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: "Invalid prospect update payload", field: err.errors[0].path.join(".") || undefined });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Invalid prospect update payload", field: err.issues[0].path.join(".") || undefined });
       if (err instanceof DateValidationError) return res.status(400).json({ message: err.message, field: err.field });
       serverError(res, err);
     }

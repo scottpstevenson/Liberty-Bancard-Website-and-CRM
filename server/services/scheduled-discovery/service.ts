@@ -1,3 +1,4 @@
+import {discoveryMaximumLiability} from './budget';
 import {resolveGeographyFromCandidates} from '../cro03/sfp-geography-resolver';
 import {isSfpValidationPromotionEnabled} from '../cro03/south-florida-prospecting';
 import {randomUUID} from 'node:crypto';
@@ -7,7 +8,7 @@ import {discoveryProgramPinSql} from '../cro03/sfp-discovery-scope';
 import {executeSfpOutscraperDiscovery} from '../cro03/sfp-live-provider-adapters';
 import {performOutscraperTaskResults,type OutscraperSearchResult} from '../sdr/outscraper';
 import {deriveOutscraperResultRetentionBound} from '../sdr/sfp-provider-contracts';
-import {reserveSearchProviderOperation,markSearchProviderDispatchBoundary,settleSearchProviderOperation,getSfpProviderReadiness,getSfpDeploymentOwnerReadiness,type SfpSearchReservation} from '../cro03/sfp-provider-operations';
+import {reserveSearchProviderOperation,markSearchProviderDispatchBoundary,settleSearchProviderOperation,getSfpProviderReadiness,getSfpDeploymentOwnerReadiness,currentSfpReviewedPricing,type SfpSearchReservation} from '../cro03/sfp-provider-operations';
 import {peekOrganizationResolution} from '../organization-resolver';
 import {decideOrganizationIdentity,type OrganizationCandidate} from '../organization-resolution-policy';
 import {claimCsvExecution} from '../import-execution';
@@ -64,9 +65,12 @@ export async function discoveryStatus(filter='',page=1) {
  const legacyHolds=await query(sql`SELECT purpose,state,billing_state,count(*)::integer operations,sum(reserved_units)::integer units FROM provider_operations
   WHERE provider='outscraper' AND operation_type<>'scheduled_discovery' AND billing_state IN ('reserved','ambiguous') GROUP BY purpose,state,billing_state`);
  const today=await one(sql`SELECT count(*)::integer n FROM discovery_runs WHERE submitted_at IS NOT NULL AND (submitted_at AT TIME ZONE ${schedule?.timezone??'America/New_York'})::date=(clock_timestamp() AT TIME ZONE ${schedule?.timezone??'America/New_York'})::date`);
+ const budget=await one(sql`SELECT COALESCE(sum(budget_reserved_micros),0)::bigint reserved_micros FROM discovery_runs WHERE budget_month=to_char(clock_timestamp() AT TIME ZONE 'America/New_York','YYYY-MM')`);
+ const pricing=await currentSfpReviewedPricing('outscraper');let pricingReason:string|null=null;
+ try{discoveryMaximumLiability(pricing.unitPriceMicros,pricing.unitType,100);}catch(e){pricingReason=(e as Error).message;}
  const profile=getBackgroundProfile();const groups=getSelectiveGroups();
  const selected=profile==='full'||profile==='selective'&&groups.includes('scheduled-discovery' as any);
- return {program:p?{id:p.id,taxonomyVersion:p.taxonomy_version,counties:p.county_fips,verticals:p.vertical_ids,pin:p.pin}:null,programReason,
+ return {monthlyBudget:{pricingReady:pricingReason===null,pricingReason,limitMicros:schedule?.monthly_budget_micros??50000000,reservedMicros:Number(budget.reserved_micros),timezone:'America/New_York',scope:'Task 2161 new searches only; excludes other Outscraper usage. Full maximum liability is retained after dispatch, including uncertain requests. This is not an invoice total.'},program:p?{id:p.id,taxonomyVersion:p.taxonomy_version,counties:p.county_fips,verticals:p.vertical_ids,pin:p.pin}:null,programReason,
   downstreamReadiness:{validationPromotionEnabled,zeroBounce},schedule:schedule??{enabled:false,daily_dispatch_count:1,repeat_days:30,timezone:'America/New_York'},definitions,totalDefinitions:definitionCount.n,definitionPage:page,definitionPageSize:10,runs,provider,runtime,
   worker:{profile,selected,heartbeat:schedule?.worker_heartbeat_at??null,redisConfigured:!!process.env.REDIS_URL},dailyDispatches:today.n,legacyHolds,
   countPolicy:'Scheduled and pilot dispatches count. The daily setting limits scheduled work only. Polling and retained imports do not count.'};
@@ -96,9 +100,9 @@ export async function discoveryRunDetail(id:string,offset=0) {
   FROM validation_intents v JOIN contacts c ON c.id=v.contact_id JOIN selected s ON s.id=c.business_id GROUP BY 1`);
  return {...r,rows:page.rows,offset,pageSize:25,usage,downstream:{population:'Current state of businesses touched by this import; existing contacts and later work can be included.',crawl,materialization,preparation,validation}};
 }
-export async function updateDiscoverySchedule(actorId:string,input:{enabled:boolean;dailyDispatchCount:number;repeatDays:number;timezone:string}) {
+export async function updateDiscoverySchedule(actorId:string,input:{enabled:boolean;monthlyBudgetUsd?:number;dailyDispatchCount:number;repeatDays:number;timezone:string}) {
  await initializeDiscoveryDefinitions(actorId);
- return one(sql`UPDATE discovery_schedules SET enabled=${input.enabled},daily_dispatch_count=${input.dailyDispatchCount},repeat_days=${input.repeatDays},timezone=${input.timezone},updated_by=${actorId},updated_at=now() WHERE id RETURNING *`);
+ return one(sql`UPDATE discovery_schedules SET enabled=${input.enabled},monthly_budget_micros=COALESCE(${input.monthlyBudgetUsd==null?null:Math.round(input.monthlyBudgetUsd*1000000)}::integer,monthly_budget_micros),daily_dispatch_count=${input.dailyDispatchCount},repeat_days=${input.repeatDays},timezone=${input.timezone},updated_by=${actorId},updated_at=now() WHERE id RETURNING *`);
 }
 export async function updateDiscoveryDefinition(id:string,actorId:string,input:{enabled?:boolean;resultLimit?:number;areaType?:'city'|'zip';areaKey?:string;query?:string}) {
  return db.transaction(async tx=>{

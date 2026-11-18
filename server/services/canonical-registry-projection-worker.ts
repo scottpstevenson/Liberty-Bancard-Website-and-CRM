@@ -82,6 +82,7 @@ export async function processCanonicalRegistryProjectionTick(limit=10) {
         const resolution=name ? await resolveOrganization({
           canonicalName:name,mainPhone:normalizePhoneE164(text(payload.phone)),
           city:text(payload.city),state:text(payload.state),authorityCheck:claimCheck,transaction:tx,
+          matchingPolicy:"retained-public-registry-v1",
           sourceIdentity:{sourceSystem:String(candidate.source_system),sourceType:"public_registry",
             stableKey:String(candidate.subject_key)},
            create:{recordClass:"canonical",streetAddress:text(payload.address),postalCode:text(payload.postalCode) ?? text(payload.zip),
@@ -101,7 +102,8 @@ export async function processCanonicalRegistryProjectionTick(limit=10) {
               ${String(candidate.subject_key)},${String(candidate.source_system)},
               ${JSON.stringify({sourceSubjectId:candidate.source_subject_id,
                 sourceObservationId:candidate.source_observation_id,payloadHash:candidate.payload_hash,
-                sourceImportRunId:candidate.source_import_run_id,authority:"retained_public_registry"})}::jsonb)
+                sourceImportRunId:candidate.source_import_run_id,authority:"retained_public_registry",
+                matchingPolicy:"retained-public-registry-v1"})}::jsonb)
             ON CONFLICT(source_system,source_type,stable_key) DO NOTHING`);
           const link=rows(await tx.execute(sql`SELECT id,business_id FROM canonical_source_links
             WHERE source_system=${String(candidate.source_system)} AND source_type='public_registry'
