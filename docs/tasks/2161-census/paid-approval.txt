@@ -1,0 +1,29 @@
+$ rg -n -e 'explicitPaidApproval' server client/src shared scripts migrations
+server/services/cro03/business-validation-service.ts:203:      explicitPaidApproval: true,
+server/services/cro03/live-provider-executors.ts:438:        sourceId: "serper", caller: CALLER, explicitPaidApproval: true,
+server/services/cro03/live-provider-executors.ts:505:        sourceId: "apollo", caller: CALLER, explicitPaidApproval: true,
+server/services/cro03/live-provider-executors.ts:664:        sourceId: "openai_classification", caller: CALLER, explicitPaidApproval: true,
+server/services/cro03/live-provider-executors.ts:700:        sourceId: "zerobounce", caller: CALLER, explicitPaidApproval: true,
+server/services/cro03/live-provider-executors.ts:757:        sourceId: "outscraper", caller: CALLER, explicitPaidApproval: true,
+server/services/cro03/provider-context.ts:12:  explicitPaidApproval: true;
+server/services/cro03/provider-context.ts:42:    explicitPaidApproval: true,
+server/services/cro03/provider-context.ts:165:      explicitPaidApproval: true, itemId, itemClaimToken, executionFence,
+server/services/cro03/sfp-live-provider-adapters.ts:55:  assertProviderActivation({ sourceId: "apollo", caller: CALLER, explicitPaidApproval: true });
+server/services/cro03/sfp-live-provider-adapters.ts:134:  assertProviderActivation({ sourceId: "outscraper", caller: CALLER, explicitPaidApproval: true });
+server/services/cro03/sfp-live-provider-adapters.ts:157:    sourceId: "openai_classification", caller: CALLER, explicitPaidApproval: true,
+server/services/cro03/sfp-provider-operations.ts:1751:  assertProviderActivation({ sourceId, caller: CALLER, explicitPaidApproval: true });
+server/services/cro03/sfp-provider-operations.ts:1942:  assertProviderActivation({ sourceId, caller: "server/services/cro03/sfp-classification-bridge.ts", explicitPaidApproval: true });
+scripts/test-apollo-organization-resolution.ts:97:        explicitPaidApproval: false,
+scripts/test-cro03c-provider-manifest-coverage.ts:3: * A key or `explicitPaidApproval: true` is never sufficient: each paid path
+scripts/test-sfp-provider-manifest-killline.ts:10:    sourceId, caller: unauthorizedCaller, explicitPaidApproval: true,
+scripts/test-sfp-provider-manifest-killline.ts:18:    sourceId, caller: approvedCaller, explicitPaidApproval: true,
+scripts/test-sfp-provider-manifest-killline.ts:33:      sourceId: precohortSourceId, caller: precohortUnauthorizedCaller, explicitPaidApproval: true,
+scripts/test-sfp-provider-manifest-killline.ts:40:      sourceId: precohortSourceId, caller: precohortCaller, explicitPaidApproval: true,
+server/services/linkedin-enrichment.ts:34:    explicitPaidApproval: false,
+server/services/sdr/apollo.ts:824:    sourceId: "apollo", caller: context.caller, explicitPaidApproval: true,
+server/services/sdr/apollo.ts:928:    explicitPaidApproval: authorization?.explicitPaidApproval ?? false,
+server/services/sdr/apollo.ts:1064:    explicitPaidApproval: authorization?.explicitPaidApproval ?? false,
+server/services/sdr/apify.ts:141:    explicitPaidApproval: false,
+server/services/sdr/outscraper.ts:352:    explicitPaidApproval: true,
+server/services/provider-manifest.ts:326:  explicitPaidApproval?: boolean;
+server/services/provider-manifest.ts:336:  if (row.billing.startsWith("paid") && request.explicitPaidApproval !== true) {

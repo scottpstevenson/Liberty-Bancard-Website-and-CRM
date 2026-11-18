@@ -102,6 +102,11 @@ export interface Suite {
 // Explicit local certification uses the SAME isolated launcher, without making
 // missing private fixtures a new mandatory release failure.
 export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
+  {name:"SFP paid waterfall current provider contracts",script:"scripts/test-sfp-paid-waterfall-apollo-outscraper.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
+  {name:"SFP current selected validation handoff",script:"scripts/test-sfp-validation-handoff-repair-certification.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
+  {name:"Task 2161 Scheduled Discovery Contracts",script:"scripts/test-scheduled-discovery.ts",timeoutSecs:180,requiresDisposableTestDatabase:true},
+  {name:"Task 2161 Scheduled Discovery Persistence",script:"scripts/certification/test-scheduled-discovery.ts",timeoutSecs:900,requiresDisposableTestDatabase:true},
+
   {name:"Original provider-import restart and immutable retained evidence",
     script:"scripts/certification/test-provider-import-recovery.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
@@ -236,6 +241,10 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
     timeoutSecs:480,requiresDisposableTestDatabase:true},
 ];
 export const MANDATORY_SUITES: Suite[] = [
+  {name:"SFP paid waterfall current provider contracts",script:"scripts/test-sfp-paid-waterfall-apollo-outscraper.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
+  {name:"SFP current selected validation handoff",script:"scripts/test-sfp-validation-handoff-repair-certification.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
+  {name:"Task 2161 Scheduled Discovery Persistence",script:"scripts/certification/test-scheduled-discovery.ts",timeoutSecs:900,requiresDisposableTestDatabase:true},
+  {name:"Task 2161 Scheduled Discovery Contracts",script:"scripts/test-scheduled-discovery.ts",timeoutSecs:180,requiresDisposableTestDatabase:true},
   {name:"Stage 3 C3 Destination Codec and Source Contracts",script:"scripts/test-stage3-c3-contracts.ts",timeoutSecs:60},
   {name:"Stage 3 C3 Sequence DTO and Recovery Handlers",script:"scripts/test-stage3-c3-sequences.ts",timeoutSecs:240,requiresDisposableTestDatabase:true},
   {name:"Stage 3 C3 Role Matrix",script:"scripts/test-stage3-c3-roles.ts",timeoutSecs:240,requiresDisposableTestDatabase:true},
@@ -1344,8 +1353,11 @@ export function selectMandatorySuites(args: readonly string[], roster: readonly 
         ? "full-auth-concurrency"
         : "default-full");
   const suites = requestedScripts.map((script) => {
-    const matches = [...roster,...(roster===MANDATORY_SUITES ? CERTIFICATION_FIXTURE_SUITES : [])]
-      .filter((suite) => suite.script === script);
+    // A mandatory suite may also document its disposable fixture ownership.
+    // Resolve the mandatory roster first; fixture-only suites are a fallback.
+    // Duplicate registrations inside either actual roster remain an error.
+    let matches = roster.filter((suite) => suite.script === script);
+    if(matches.length===0&&roster===MANDATORY_SUITES)matches=CERTIFICATION_FIXTURE_SUITES.filter(suite=>suite.script===script);
     if (matches.length === 0) {
       throw new Error(`Unknown pre-deploy suite script path: ${script}`);
     }

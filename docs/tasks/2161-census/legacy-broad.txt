@@ -1,0 +1,11 @@
+$ rg -n -e 'runZeroBounceAutoRun|ZB_UNATTENDED_BROAD_AUTO_RUN_CONTAINED' server client/src shared scripts migrations
+server/services/queue-manager.ts:2691:            const { runZeroBounceAutoRun } = await import("./zerobounce-campaign-worker");
+server/services/queue-manager.ts:2692:            const result = await runZeroBounceAutoRun();
+scripts/certification/test-legacy-enrollment-containment.ts:47:check(zb.ZB_UNATTENDED_BROAD_AUTO_RUN_CONTAINED === true, "unattended universe-wide ZeroBounce auto-run ships contained");
+scripts/certification/test-legacy-enrollment-containment.ts:91:const auto = await zb.runZeroBounceAutoRun();
+server/services/zerobounce-campaign-worker.ts:248:export const ZB_UNATTENDED_BROAD_AUTO_RUN_CONTAINED = true as boolean;
+server/services/zerobounce-campaign-worker.ts:250:export async function runZeroBounceAutoRun(): Promise<ZbAutoRunOutcome> {
+server/services/zerobounce-campaign-worker.ts:252:    if (ZB_UNATTENDED_BROAD_AUTO_RUN_CONTAINED) {
+scripts/test-sfp-validation-handoff-repair-certification.ts:27: const {runZeroBounceAutoRun,ZB_UNATTENDED_BROAD_AUTO_RUN_CONTAINED}=await import('../server/services/zerobounce-campaign-worker');
+scripts/test-sfp-validation-handoff-repair-certification.ts:28: assert.equal(ZB_UNATTENDED_BROAD_AUTO_RUN_CONTAINED,true);
+scripts/test-sfp-validation-handoff-repair-certification.ts:29: assert.deepEqual(await runZeroBounceAutoRun(),{outcome:'skipped',reason:'broad_universe_auto_run_contained'});

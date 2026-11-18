@@ -530,6 +530,7 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     repeatEveryMs: 10 * 60 * 1000,
     jobName: "tick",
   },
+  {name:QUEUE_NAMES.SCHEDULED_DISCOVERY,concurrency:1,attempts:1,backoffDelay:30_000,repeatEveryMs:30_000,jobName:"tick"},
   {
     // Continuous paid-discovery rotation. concurrency=1: a single sequential
     // Serper batch per tick is correct — the reservation/settlement path is
@@ -1425,6 +1426,7 @@ export class QueueManager {
       QUEUE_NAMES.SFP_CONTINUOUS_DISCOVERY,
       QUEUE_NAMES.SFP_CONTINUOUS_VALIDATION,
       QUEUE_NAMES.CANONICAL_IMPORT_RECOVERY,
+      QUEUE_NAMES.SCHEDULED_DISCOVERY,
     ]);
     const activeSfpConfigs = this.activeConfigs().filter((config) => sfpQueueNames.has(config.name));
     if (!activeSfpConfigs.length) return;
@@ -2989,6 +2991,10 @@ export class QueueManager {
           if (priorityRequest) await recordBacklogPriorityRun(priorityRequest, priorityStartedAt, priorityRun);
           break;
         }
+        case QUEUE_NAMES.SCHEDULED_DISCOVERY: {
+          const {processDiscoveryTick}=await import("./scheduled-discovery/service");
+          await processDiscoveryTick();break;
+        }
         case QUEUE_NAMES.SFP_CONTINUOUS_VALIDATION: {
           const { processSfpContinuousValidationTick } = await import("./cro03/sfp-continuous-discovery");
           const result = await processSfpContinuousValidationTick();
@@ -3647,6 +3653,7 @@ export class QueueManager {
       QUEUE_NAMES.SFP_CONTINUOUS_DISCOVERY,
       QUEUE_NAMES.SFP_CONTINUOUS_VALIDATION,
       QUEUE_NAMES.CANONICAL_IMPORT_RECOVERY,
+      QUEUE_NAMES.SCHEDULED_DISCOVERY,
     ];
     const observedForMs = Date.now() - this.observationStartedAt.getTime();
     for (const queueName of sfpRepeatableQueues) {

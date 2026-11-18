@@ -175,7 +175,7 @@ export const PROVIDER_SOURCE_MANIFEST = [
   {
     id: "outscraper", capability: ["business_discovery", "contact_enrichment"], billing: "paid_per_result", parser: "api",
     activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/sdr/outscraper.ts", "server/services/cro03/sfp-live-provider-adapters.ts"],
-    approvedCallers: ["server/services/cro03/live-provider-executors.ts", "server/services/cro03/sfp-live-provider-adapters.ts", "server/services/cro03/sfp-provider-operations.ts", "server/services/cro03/sfp-paid-waterfall.ts"], secretNames: ["OUTSCRAPER_API_KEY"],
+    approvedCallers: ["server/services/cro03/live-provider-executors.ts", "server/services/cro03/sfp-live-provider-adapters.ts", "server/services/cro03/sfp-provider-operations.ts", "server/services/cro03/sfp-paid-waterfall.ts", "server/services/scheduled-discovery/service.ts"], secretNames: ["OUTSCRAPER_API_KEY"],
     durableOperation: "batch", budget: { required: true, accounting: "control_row", unit: "result", additionalUnits: ["contact", "request"] },
     timeoutMs: 60_000, retry: OUTSCRAPER_TASK_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,
     candidateFields: ["business_name", "website", "email", "phone", "address", "city", "state", "postal_code", "category", "owner_name", "owner_title"],

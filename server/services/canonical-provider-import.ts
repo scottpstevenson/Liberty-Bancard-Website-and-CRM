@@ -85,11 +85,15 @@ export async function materializeCanonicalProviderImportRow(input:{
   actorId:string; rawRow:Record<string,string>; sourceCoordinate?:ImportSourceCoordinate; fileName?:string;
   ownerAuthorityCheck?:(tx:any)=>Promise<void>;
 }) {
+  const executionMetadata=rows(await db.execute(sql`SELECT metadata FROM import_executions WHERE id=${input.executionId}::uuid`))[0]?.metadata ?? {};
+  const discovery=executionMetadata.matchingPolicy === 'scheduled-discovery-v1' && typeof executionMetadata.scheduledDiscoveryRunId === 'string';
   const mapped=mapProviderCsvRow(input.rawRow,input.sourceFormat);
   const fingerprint=await providerImportRowFingerprint(input);
   const authorityCheck=async(tx:any)=>{
     await boundCanonicalWriteTransaction(tx);
     if (input.ownerAuthorityCheck) await input.ownerAuthorityCheck(tx);
+    if(discovery){const {assertDiscoveryImportScope}=await import('./scheduled-discovery/service');await assertDiscoveryImportScope(tx,executionMetadata.scheduledDiscoveryRunId);}
+
     return input.recoveryClaim ? hasCanonicalImportRecoveryClaim(tx,{
     executionId:input.executionId,sourceRowNumber:input.sourceRowNumber,rowFingerprint:fingerprint,
     recoveryClaim:input.recoveryClaim,renew:true,
@@ -215,20 +219,31 @@ export async function materializeCanonicalProviderImportRow(input:{
   }
   const place=sourceValue(input.rawRow,"place_id","google_place_id","placeid");
   const sourceSystem=input.sourceFormat==="google_maps_outscraper" ? "outscraper" : "apollo";
-  const stableKey=place ?? sourceValue(input.rawRow,"organization_id","company_id","apollo_organization_id")
+  const googleId=discovery?sourceValue(input.rawRow,"google_id"):null;
+  const sourceType=place?"place":googleId?"google_id":"provider_import";
+  const stableKey=place ?? googleId ?? sourceValue(input.rawRow,"organization_id","company_id","apollo_organization_id")
     ?? `import:${input.executionId}:row:${input.sourceRowNumber}`;
   const organizationInput={
+    ...(discovery ? {matchingPolicy:"scheduled-discovery-v1" as const} : {}),
     canonicalName:name,websiteDomain:normalizeDomain(mapped.website),googlePlaceId:place,
     mainPhone:normalizePhoneE164(mapped.phone),city:mapped.city,state:mapped.state,authorityCheck,
     streetAddress:mapped.address,
-    sourceIdentity:{sourceSystem,sourceType:place ? "place" : "provider_import",stableKey},
+    sourceIdentity:{sourceSystem,sourceType,stableKey},
     create:{recordClass:"canonical",streetAddress:mapped.address,postalCode:mapped.zip,
       vertical:mapped.vertical ?? mapped.industry,lastSourceType:input.sourceFormat},
   };
   const businessEvidence={canonicalName:name,websiteDomain:normalizeDomain(mapped.website),
     mainPhone:normalizePhoneE164(mapped.phone),streetAddress:mapped.address ?? null,
     city:mapped.city ?? null,state:mapped.state ?? null};
-  const resolution=await commit(tx=>resolveOrganization({...organizationInput,transaction:tx}));
+  const resolution=await commit(async tx=>{
+    const resolved=await resolveOrganization({...organizationInput,transaction:tx});
+    // Creation and this first fact commit atomically; later contact retries cannot turn "created" into "matched".
+    if(discovery&&resolved.kind!=='deferred')await tx.execute(sql`UPDATE import_executions SET metadata=jsonb_set(metadata,'{discoveryBusinessOutcomes}',
+      COALESCE(metadata->'discoveryBusinessOutcomes','{}'::jsonb)||jsonb_build_object(${String(input.sourceRowNumber)}::text,
+      COALESCE(metadata->'discoveryBusinessOutcomes'->${String(input.sourceRowNumber)},${JSON.stringify({businessId:resolved.business.id,kind:resolved.kind})}::jsonb)),true)
+      WHERE id=${input.executionId}::uuid`);
+    return resolved;
+  });
   if (resolution.kind==="deferred") {
     return hold(`CANONICAL_IMPORT_${resolution.reasonCode}`,{
       candidateIds:resolution.candidateIds,snapshotHash:resolution.snapshotHash ?? null,
@@ -262,7 +277,7 @@ export async function materializeCanonicalProviderImportRow(input:{
     }
     const source=rows(await tx.execute(sql`INSERT INTO canonical_source_links
       (business_id,source_system,source_type,stable_key,raw_evidence)
-      VALUES(${businessId},${sourceSystem},${place ? "place" : "provider_import"},${stableKey},
+      VALUES(${businessId},${sourceSystem},${sourceType},${stableKey},
         ${JSON.stringify({executionId:input.executionId,sourceRowNumber:input.sourceRowNumber,
           rowFingerprint:fingerprint,businessEvidence})}::jsonb)
       ON CONFLICT(source_system,source_type,stable_key) DO UPDATE
@@ -374,7 +389,7 @@ export async function materializeCanonicalProviderImportRow(input:{
         async tx=>{
           const conflict=rows(await tx.execute(sql`SELECT id,business_id,updated_at::text revision
             FROM canonical_source_links WHERE source_system=${sourceSystem}
-              AND source_type=${place ? "place" : "provider_import"} AND stable_key=${stableKey} FOR SHARE`))[0];
+              AND source_type=${sourceType} AND stable_key=${stableKey} FOR SHARE`))[0];
           if(!conflict || Number(conflict.business_id)===businessId)
            await abortChangedHoldSnapshot(tx);
         });

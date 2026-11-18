@@ -8,6 +8,7 @@ export type OrganizationIdentity = {
   city?: string | null;
   state?: string | null;
   streetAddress?: string | null;
+  matchingPolicy?: "scheduled-discovery-v1";
   sourceIdentity?: {sourceSystem: string; sourceType: string; stableKey: string};
 };
 export type OrganizationCandidate = OrganizationIdentity & {id: number; exactSource?: boolean};
@@ -24,6 +25,7 @@ const address = (value?: string | null) => value?.toLowerCase().replace(/[^a-z0-
 export function decideOrganizationIdentity(input: OrganizationIdentity, candidates: OrganizationCandidate[]):
   {kind: "matched"; id: number} | {kind: "create"} |
   {kind: "deferred"; reasonCode: "INSUFFICIENT_ORGANIZATION_EVIDENCE" | "AMBIGUOUS_ORGANIZATION_MATCH"; candidateIds: number[]} {
+  if(input.matchingPolicy === "scheduled-discovery-v1") return decideDiscoveryIdentity(input,candidates);
   const conflict = (candidate: OrganizationCandidate) =>
     !!((input.googlePlaceId && candidate.googlePlaceId && input.googlePlaceId.trim() !== candidate.googlePlaceId.trim()) ||
       (input.websiteDomain && candidate.websiteDomain && normalOrganizationValue(input.websiteDomain) !== normalOrganizationValue(candidate.websiteDomain)) ||
@@ -62,4 +64,39 @@ export function decideOrganizationIdentity(input: OrganizationIdentity, candidat
         (address(input.streetAddress) && input.city?.trim() && normalizeStateIdentity(input.state))))
     return {kind: "deferred", reasonCode: "INSUFFICIENT_ORGANIZATION_EVIDENCE", candidateIds: []};
   return {kind: "create"};
+}
+
+/** Mirrors the immutable SQL crm_identity_name legal-suffix key; SQL remains retrieval authority. */
+export const discoveryName=(v:string)=>v.normalize('NFKD').toLowerCase()
+  .replace(/\b(incorporated|inc|limited|ltd|llc|llp|corp|corporation|company|co)\b/g, "")
+  .replace(/[^a-z0-9]/g, "");
+function decideDiscoveryIdentity(input:OrganizationIdentity,candidates:OrganizationCandidate[]):ReturnType<typeof decideOrganizationIdentity> {
+  const uniq=(a:OrganizationCandidate[])=>[...new Map(a.map(c=>[c.id,c])).values()];
+  const samePlace=(a?:string|null,b?:string|null)=>!!a&&!!b&&a.trim()===b.trim();
+  const sourceOwned=(c:OrganizationCandidate)=>!!c.exactSource||!!input.sourceIdentity&&!!c.sourceIdentity&&input.sourceIdentity.sourceSystem===c.sourceIdentity.sourceSystem&&input.sourceIdentity.sourceType===c.sourceIdentity.sourceType&&input.sourceIdentity.stableKey===c.sourceIdentity.stableKey;
+  const same=(a?:string|null,b?:string|null)=>!!a&&!!b&&normalOrganizationValue(a)===normalOrganizationValue(b);
+  const differentLocation=(c:OrganizationCandidate)=>!!((input.state&&c.state&&normalizeStateIdentity(input.state)!==normalizeStateIdentity(c.state))||
+    (input.city&&c.city&&!same(input.city,c.city))||(address(input.streetAddress)&&address(c.streetAddress)&&address(input.streetAddress)!==address(c.streetAddress)));
+  const differentPlace=(c:OrganizationCandidate)=>!!input.googlePlaceId&&!!c.googlePlaceId&&input.googlePlaceId!==c.googlePlaceId;
+  const exact=uniq(candidates.filter(c=>sourceOwned(c)||samePlace(input.googlePlaceId,c.googlePlaceId)));
+  // Strong identifiers owned by different businesses are an actual conflict, not weak missing metadata.
+  const strong=uniq(candidates.filter(c=>sourceOwned(c)||samePlace(input.googlePlaceId,c.googlePlaceId)||
+    (!differentLocation(c)&&!differentPlace(c)&&(same(input.websiteDomain,c.websiteDomain)||!!phone(input.mainPhone)&&phone(input.mainPhone)===phone(c.mainPhone)))));
+  const hold=(a:OrganizationCandidate[]):ReturnType<typeof decideOrganizationIdentity>=>({kind:"deferred",reasonCode:"AMBIGUOUS_ORGANIZATION_MATCH",candidateIds:uniq(a).map(c=>c.id).sort((a,b)=>a-b)});
+  const domainOwners=candidates.filter(c=>same(input.websiteDomain,c.websiteDomain));
+  const phoneOwners=candidates.filter(c=>!!phone(input.mainPhone)&&phone(input.mainPhone)===phone(c.mainPhone));
+  const uniqueOwned=uniq([...(domainOwners.length===1?domainOwners:[]),...(phoneOwners.length===1?phoneOwners:[])]);
+  if(exact.length){if(exact.length!==1||uniqueOwned.some(c=>c.id!==exact[0].id)||differentPlace(exact[0]))return hold(uniq([...exact,...uniqueOwned]));
+    return {kind:"matched",id:exact[0].id};}
+  if(strong.length===1)return {kind:"matched",id:strong[0].id};
+  if(strong.length>1)return hold(strong);
+  const names=candidates.filter(c=>discoveryName(input.canonicalName)===discoveryName(c.canonicalName)&&
+    !differentLocation(c)&&!differentPlace(c)&&!!input.city&&!!input.state&&same(input.city,c.city)&&normalizeStateIdentity(input.state)===normalizeStateIdentity(c.state)&&
+    !!address(input.streetAddress)&&address(input.streetAddress)===address(c.streetAddress));
+  if(names.length===1)return {kind:"matched",id:names[0].id};
+  if(names.length>1)return hold(names);
+  if(candidates.length&&!candidates.every(c=>differentPlace(c)||differentLocation(c)))return hold(candidates);
+  const usable=!!input.googlePlaceId||!!normalOrganizationValue(input.websiteDomain)||!!phone(input.mainPhone)||
+    !!(address(input.streetAddress)&&input.city&&normalizeStateIdentity(input.state));
+  return usable&&!!normalOrganizationName(input.canonicalName)?{kind:"create"}:{kind:"deferred",reasonCode:"INSUFFICIENT_ORGANIZATION_EVIDENCE",candidateIds:[]};
 }

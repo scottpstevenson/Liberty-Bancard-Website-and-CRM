@@ -1,0 +1,25 @@
+$ rg -n -e 'performOutscraperSearch|performOutscraperTaskResults' server client/src shared scripts migrations
+scripts/test-cro03c-outscraper.ts:11:assert.match(source, /export async function performOutscraperSearch[\s\S]*?await deps\.beforeRequest\?\.\(\);[\s\S]*?fetchImpl \?\? fetch/);
+scripts/test-cro03c-outscraper.ts:12:assert.match(source, /await performOutscraperSearch/);
+scripts/test-scheduled-discovery.ts:6:const {performOutscraperSearch,performOutscraperTaskResults}=await import('../server/services/sdr/outscraper');
+scripts/test-scheduled-discovery.ts:14: for(const [status,body] of [[202,{}],[200,'not JSON'],[200,{}]] as const){await assert.rejects(performOutscraperSearch({query:'dentist in Miami',async:true,resultLimit:100},exchange(status,body)),/UNVERIFIABLE/);checks++;}
+scripts/test-scheduled-discovery.ts:15: for(const body of ['not JSON',{}, {id:'fixture-id',status:'Success'}]){await assert.rejects(performOutscraperTaskResults('fixture-id',exchange(200,body)),/UNVERIFIABLE/);checks++;}
+scripts/test-scheduled-discovery.ts:16: const failure=await performOutscraperTaskResults('fixture-id',exchange(204,null));check(!failure.ok&&failure.task?.state==='failed','T07 204 is terminal failure');
+scripts/test-scheduled-discovery.ts:17: const zero=await performOutscraperTaskResults('fixture-id',exchange(200,{id:'fixture-id',status:'Success',data:[[]]}));check(zero.ok&&zero.consideredResultCount===0&&!zero.task?.state.includes('pending'),'T07 explicit zero-result success');
+scripts/test-scheduled-discovery.ts:18: let path='';await performOutscraperSearch({query:'dentist in Miami',async:true,resultLimit:100,endpointVersion:'google-maps-v2'},
+scripts/test-scheduled-discovery.ts:21: const response=await performOutscraperSearch({query:'a',resultLimit:1},exchange(200,{status:'Success',data:[[{name:'A',google_id:'google-not-place'}]]}));
+scripts/scan-paid-provider-adapters.ts:119:    : sourceId === "outscraper" ? "performOutscraperSearch" : "performApolloSearch";
+scripts/scan-paid-provider-adapters.ts:148: if(!/\b(?:performOutscraperSearch|performOutscraperTaskResults|executeSfpOutscraperDiscovery)\s*\(/.test(body))continue;
+scripts/certification/fixtures/task2161-scanners.ts:20:  writeFileSync(mutation,"export async function unmanaged(){return performOutscraperSearch({query:'fixture'});}\n");
+server/services/cro03/sfp-paid-waterfall.ts:34:  performOutscraperLeadsAndContacts, performOutscraperTaskResults,
+server/services/cro03/sfp-paid-waterfall.ts:1564:      performOutscraperTaskResults(String(task.provider_task_id), {
+server/services/cro03/sfp-live-provider-adapters.ts:8:  performOutscraperSearch, type OutscraperProviderTask, type OutscraperSearchResult,
+server/services/cro03/sfp-live-provider-adapters.ts:135:  return performOutscraperSearch(input, deps);
+scripts/test-sfp-provider-contracts.ts:375:  const { performOutscraperLeadsAndContacts, performOutscraperTaskResults } =
+scripts/test-sfp-provider-contracts.ts:411:  const completed = await performOutscraperTaskResults("outs-task-123", {
+scripts/test-sfp-provider-contracts.ts:442:  const expiredResponseLooksPending = await performOutscraperTaskResults("outs-task-123", {
+server/services/scheduled-discovery/service.ts:8:import {performOutscraperTaskResults,type OutscraperSearchResult} from '../sdr/outscraper';
+server/services/scheduled-discovery/service.ts:239:    const response=await performOutscraperTaskResults(run.provider_task_id,{fetchImpl:deps.fetchImpl,beforeRequest:()=>markSearchProviderDispatchBoundary(reservation)});
+server/services/sdr/outscraper.ts:356:    const response = await performOutscraperSearch({
+server/services/sdr/outscraper.ts:402:export async function performOutscraperSearch(
+server/services/sdr/outscraper.ts:497:export async function performOutscraperTaskResults(

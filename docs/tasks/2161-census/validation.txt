@@ -1,0 +1,90 @@
+$ rg -n -e 'validation-intent|processValidationIntent|recoverValidationIntents' server client/src shared scripts migrations
+scripts/certification/test-zerobounce-ambiguous-recovery-worker.ts:11:const { processValidationIntent } = await import("../../server/services/provider-readiness-control");
+scripts/certification/test-zerobounce-ambiguous-recovery-worker.ts:64:  assert.equal(await processValidationIntent(f.intentId, fake(TIMEOUT) as any), "deferred");
+scripts/certification/test-zerobounce-ambiguous-recovery-worker.ts:128:  await processValidationIntent(R.intentId, fake(VALID) as any);
+scripts/certification/test-zerobounce-ambiguous-recovery-worker.ts:132:  await processValidationIntent(X.intentId, fake(VALID) as any);
+scripts/certification/test-zerobounce-ambiguous-recovery-worker.ts:136:  await processValidationIntent(T.intentId, fake(TIMEOUT) as any);
+scripts/certification/test-zerobounce-ambiguous-recovery-worker.ts:139:  await processValidationIntent(T.intentId, fake(VALID) as any);
+scripts/certification/test-zerobounce-ambiguous-recovery-worker.ts:144:  await processValidationIntent(U.intentId, fake(UNKNOWN_COMPLETED) as any);
+scripts/certification/test-zerobounce-ambiguous-recovery-worker.ts:146:  for (let i = 0; i < 3; i++) await processValidationIntent(U.intentId, fake(VALID) as any);
+scripts/certification/test-zerobounce-ambiguous-recovery-worker.ts:152:  await processValidationIntent(H.intentId, fake(HTTP_FAIL) as any);
+scripts/certification/test-zerobounce-ambiguous-recovery-worker.ts:154:  for (let i = 0; i < 3; i++) await processValidationIntent(H.intentId, fake(VALID) as any);
+scripts/certification/test-zerobounce-ambiguous-recovery-worker.ts:161:  await processValidationIntent(D.intentId, fake(VALID) as any);
+scripts/certification/test-zerobounce-ambiguous-recovery-worker.ts:165:  check(await processValidationIntent(D.intentId, fake(VALID) as any) === "completed" && calls === 1, "D: resumes and performs its one attempt");
+scripts/certification/test-zerobounce-ambiguous-recovery-worker.ts:166:  await processValidationIntent(D.intentId, fake(VALID) as any);
+scripts/certification/test-zerobounce-ambiguous-recovery-worker.ts:171:  check(await processValidationIntent(P.intentId, fake(VALID) as any) === "completed" && calls === 1, "P: additional attempt completes");
+scripts/certification/test-zerobounce-ambiguous-recovery-worker.ts:178:  await processValidationIntent(C.intentId, fake(VALID) as any);
+scripts/certification/test-preparation-upload-cohort.ts:12:const { processValidationIntent } = await import("../../server/services/provider-readiness-control");
+scripts/certification/test-preparation-upload-cohort.ts:192:        check(await processValidationIntent(intent.id, { verifyEmail: async () => ({
+scripts/certification/fixtures/task2161-downstream.ts:50: const {recoverValidationIntents}=await import('../../../server/services/provider-readiness-control');
+scripts/certification/fixtures/task2161-downstream.ts:67:  assert.equal(await recoverValidationIntents(10),1,'Existing recovery owner enqueues the current selected intent');
+scripts/test-cro03c-initial-continuation-static.ts:79:assert.match(executor, /case "zerobounce":[\s\S]*?await assertCro03cAuthorityBeforeIo\(context\);[\s\S]*?await processValidationIntent\(input\.intentId!?/);
+scripts/test-cro03c-initial-continuation-static.ts:123:assert.match(live, /op\.idempotency_key='validation-intent:' \|\| i\.id::text/);
+scripts/test-cro03c-integration.ts:50:    const { createValidationIntent, hashEmailToken, processValidationIntent } =
+scripts/test-cro03c-integration.ts:571:      assert.equal(await processValidationIntent(intentId, {
+scripts/test-cro03c-integration.ts:636:      // before processValidationIntent reaches its claim checkpoint.
+scripts/certification/test-canonical-recipient-preparation.ts:13:const {processValidationIntent,evaluateMarketingEmailEligibility,delegateSelectedAddressValidation} =
+scripts/certification/test-canonical-recipient-preparation.ts:199:  check(await processValidationIntent(firstValidation.id,fake)==="completed","Selected validation uses the shared owner");
+scripts/certification/test-canonical-recipient-preparation.ts:280:  check(await processValidationIntent(retryIntent.id,{verifyEmail:async()=>({
+scripts/certification/test-canonical-recipient-preparation.ts:285:    ORDER BY op.started_at DESC LIMIT 1`,[`validation-intent:${retryIntent.id}:attempt:%`])).rows[0];
+scripts/certification/test-canonical-recipient-preparation.ts:288:  check(await processValidationIntent(retryIntent.id,fake)==="completed",
+scripts/certification/test-canonical-recipient-preparation.ts:291:    [`validation-intent:${retryIntent.id}:attempt:%`])).rows[0].n)===2,"Both original and retry operations remain");
+scripts/certification/test-canonical-recipient-preparation.ts:295:  check(await processValidationIntent(badIntent.id,{verifyEmail:async()=>({
+scripts/certification/test-canonical-recipient-preparation.ts:314:  check(await processValidationIntent(unselectedIntent.id,fake)==="failed" && fakeRequests===beforeDenied,
+server/services/cro03/business-validation-service.ts:60: * used by the contact-bound sibling (`processValidationIntent`'s
+scripts/certification/test-canonical-flow-progression.ts:18:const { processValidationIntent, evaluateMarketingEmailEligibility } =
+scripts/certification/test-canonical-flow-progression.ts:91:  const validation = await processValidationIntent(intent.id, {
+scripts/certification/test-canonical-flow-progression.ts:242:  check(await processValidationIntent(newIntent.id,{verifyEmail:async()=>{
+scripts/test-zerobounce-dbpr-capability-rehoming.ts:4: * plus confirmation that validation-intent processing is governed by the
+scripts/test-zerobounce-dbpr-capability-rehoming.ts:11: *  2. processValidationIntent (CRO03C-adjacent path) blocks a DBPR-linked
+scripts/test-zerobounce-dbpr-capability-rehoming.ts:14: *  3. getJobCapabilityGroup("zerobounce-batch-validate", "validation-intent")
+scripts/test-zerobounce-dbpr-capability-rehoming.ts:27:import { processValidationIntent } from "../server/services/provider-readiness-control";
+scripts/test-zerobounce-dbpr-capability-rehoming.ts:112:    console.log("── Test 2: processValidationIntent blocks DBPR-linked contact pre-reservation ──");
+scripts/test-zerobounce-dbpr-capability-rehoming.ts:115:    const outcome = await processValidationIntent(intentId);
+scripts/test-zerobounce-dbpr-capability-rehoming.ts:121:    console.log("── Test 3: validation-intent job is governed by email-validation, not enrichment ──");
+scripts/test-zerobounce-dbpr-capability-rehoming.ts:122:    const group = getJobCapabilityGroup("zerobounce-batch-validate", "validation-intent");
+scripts/certification/test-recipient-preparation-lane-reserve.ts:11:const { processValidationIntent } = await import("../../server/services/provider-readiness-control");
+scripts/certification/test-recipient-preparation-lane-reserve.ts:89:    check(await processValidationIntent(intent.id, { verifyEmail: async () => ({
+server/services/cro03/sfp-continuous-discovery.ts:205:  const {recoverValidationIntents}=await import("../provider-readiness-control");
+server/services/cro03/sfp-continuous-discovery.ts:206:  const queued=await recoverValidationIntents(VALIDATION_INTENTS_PER_TICK);
+server/services/cro03/live-provider-executors.ts:14:import { processValidationIntent } from "../provider-readiness-control";
+server/services/cro03/live-provider-executors.ts:706:        // Contact path: existing processValidationIntent.
+server/services/cro03/live-provider-executors.ts:707:        const status = await processValidationIntent(input.intentId!);
+scripts/test-cro03b-integration.ts:134:const { processValidationIntent } = await import("../server/services/provider-readiness-control");
+scripts/test-cro03b-integration.ts:135:assert.equal(await processValidationIntent(String(finalization.validation_intent_id), {
+scripts/test-cro03c-master-lead-e2e-certification.ts:16: *   - A validation-intent-only row (no terminal ZeroBounce result yet) is
+scripts/test-cro03c-master-lead-e2e-certification.ts:24: * the contact-bound sibling (`processValidationIntent`) already uses.
+server/services/cro03/enrichment-factory.ts:1381:      evidenceHash: safeKey(`validation-intent:${intent?.id ?? "missing"}`),
+scripts/test-cro03c-provider-manifest-coverage.ts:67:assert.match(caseBody("zerobounce"), /processValidationIntent/);
+scripts/certification/test-canonical-release-authority.ts:13:const {processValidationIntent,evaluateMarketingEmailEligibility,delegateSelectedAddressValidation} =
+server/services/cro03/live-execution.ts:2364:         AND op.idempotency_key='validation-intent:' || i.id::text
+server/services/cro03/live-execution.ts:2543:         AND op.idempotency_key='validation-intent:' || i.id::text
+server/services/cro03/live-execution.ts:2555:              (op.provider='zerobounce' AND op.idempotency_key='validation-intent:' || i.id::text))
+scripts/test-provider-readiness-controls.ts:65:// Recovery replay contract (source-level; this suite never opens a database or queue). recoverValidationIntents
+scripts/test-provider-readiness-controls.ts:92:    enqueue.indexOf("retained.remove()") < enqueue.indexOf('queue.add("validation-intent"'),
+scripts/scan-zerobounce-contact-validation-paths.ts:5: * path: server/services/provider-readiness-control.ts's processValidationIntent().
+scripts/scan-zerobounce-contact-validation-paths.ts:13: * validation_intents row and call processValidationIntent() rather than
+scripts/scan-zerobounce-contact-validation-paths.ts:44:// route the actual call through processValidationIntent().
+scripts/scan-zerobounce-contact-validation-paths.ts:130:    console.error("  processValidationIntent() in provider-readiness-control.ts.");
+server/routes/contacts.ts:120:      const { createValidationIntent, processValidationIntent, hashEmailToken } = await import("../services/provider-readiness-control");
+server/routes/contacts.ts:144:      const outcome = await processValidationIntent(intent.rows[0].id, { verifyEmail: deps.verifyEmail });
+server/services/queue-manager.ts:2412:            const { recoverValidationIntents } = await import("./provider-readiness-control");
+server/services/queue-manager.ts:2413:            await recoverValidationIntents();
+server/services/queue-manager.ts:2682:          if (_job.name === "validation-intent" && typeof _job.data?.intentId === "string") {
+server/services/queue-manager.ts:2686:            const { processValidationIntent } = await import("./provider-readiness-control");
+server/services/queue-manager.ts:2687:            await processValidationIntent(_job.data.intentId);
+server/services/zerobounce-campaign-worker.ts:27:import { createValidationIntent, hashEmailToken, processValidationIntent } from "./provider-readiness-control";
+server/services/zerobounce-campaign-worker.ts:556:            const outcome = await processValidationIntent(intent.rows[0].id, { verifyEmail: deps.verifyEmail });
+server/services/provider-readiness-control.ts:210:  // 'processing' with an expired lease is a worker that died mid-claim. recoverValidationIntents selects it for
+server/services/provider-readiness-control.ts:211:  // replay and processValidationIntent re-claims it only after the lease expires, so it must be enqueueable here
+server/services/provider-readiness-control.ts:223:    // QUEUE_NAMES.ZEROBOUNCE_BATCH so validation-intent processing is
+server/services/provider-readiness-control.ts:233:    const jobId = `validation-intent-${intentId}`;
+server/services/provider-readiness-control.ts:243:    await queue.add("validation-intent", { intentId }, {
+server/services/provider-readiness-control.ts:274:export async function recoverValidationIntents(limit = 100): Promise<number> {
+server/services/provider-readiness-control.ts:284:            -- A worker that died mid-claim leaves the intent 'processing'. processValidationIntent re-checks the
+server/services/provider-readiness-control.ts:396:export async function processValidationIntent(
+server/services/provider-readiness-control.ts:545:  const operationKey = `validation-intent:${intentId}:attempt:${Number(intent.attempt_count)}`;
+server/services/provider-readiness-control.ts:589:           'system', 'validation-intent', ${tokenHash}, 'running', 1, 1, 'reserved', NOW()
+server/services/provider-readiness-control.ts:778:    WHERE op.idempotency_key LIKE ${`validation-intent:${intent.id}:attempt:%`}
+server/services/provider-readiness-control.ts:780:  await processValidationIntent(String(intent.id),input.deps);
+server/services/provider-readiness-control.ts:787:    WHERE op.idempotency_key LIKE ${`validation-intent:${intent.id}:attempt:%`}

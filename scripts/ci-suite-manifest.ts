@@ -85,6 +85,10 @@ type SuiteManifestDefinition = Omit<
 >;
 
 const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
+  {name:"SFP paid waterfall current provider contracts",script:"scripts/test-sfp-paid-waterfall-apollo-outscraper.ts",capability:"deterministic-integration",isolateInfrastructure:true,providerDenial:"private Postgres/Redis; strictly injected employer-scoped Apollo and pinned Outscraper; provider egress denied"},
+  {name:"SFP current selected validation handoff",script:"scripts/test-sfp-validation-handoff-repair-certification.ts",capability:"deterministic-integration",isolateInfrastructure:true,providerDenial:"private Postgres/Redis; captured HTML sockets and validation receipt; fatal external network denial"},
+  {name:"Task 2161 Scheduled Discovery Persistence",script:"scripts/certification/test-scheduled-discovery.ts",capability:"deterministic-integration",isolateInfrastructure:true,executionTimeoutMs:900000,providerDenial:"disposable Postgres/Redis; controlled fake transport; fatal external network denial"},
+  {name:"Task 2161 Scheduled Discovery Contracts",script:"scripts/test-scheduled-discovery.ts",capability:"deterministic-integration",isolateInfrastructure:true,providerDenial:"disposable database; controlled fake transport; fatal external network denial"},
   {name:"Phase 7 Public Mobile",script:"scripts/test-phase7-public-mobile.ts",capability:"deterministic-integration",providerDenial:"self-owned static loopback server and private Chromium; no production APIs or form submissions"},
   {name:"Phase 7 Migration Upgrade",script:"scripts/test-phase7-upgrade.ts",capability:"deterministic-integration",providerDenial:"self-owned socket-only PostgreSQL 16, sanitized child migrations and provider denial"},
   {name:"Phase 7 Browser",script:"scripts/test-phase7-browser.ts",capability:"deterministic-integration",isolateInfrastructure:true,providerDenial:"owned disposable sessions and Chromium, all providers denied"},

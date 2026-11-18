@@ -1,0 +1,28 @@
+$ rg -n -e 'registerPersistedCsvProcessor|processPersistedCsvImport' server client/src shared scripts migrations
+server/index.ts:396:      const { processPersistedCsvImport } = await import("./services/csv-import-processor");
+server/index.ts:397:      const resumed = await resumeExpiredCsvImports(processPersistedCsvImport);
+server/routes/imports.ts:42:import { registerPersistedCsvProcessor, processPersistedCsvImport } from "../services/csv-import-processor";
+server/routes/imports.ts:2200:      registerPersistedCsvProcessor(processCsvImport);
+server/routes/imports.ts:2217:        void processPersistedCsvImport(processingArgs).catch(async (err: any) => {
+server/routes/imports.ts:2235:      const response = await processPersistedCsvImport(processingArgs);
+scripts/certification/test-provider-import-recovery.ts:21:  const { processPersistedCsvImport } = await import("../../server/services/csv-import-processor");
+scripts/certification/test-provider-import-recovery.ts:69:      await processPersistedCsvImport({
+scripts/certification/test-intake-execution-isolation.ts:76:    "./csv-import-processor":{processPersistedCsvImport:fallback},
+scripts/certification/fixtures/task2161-manual-imports.ts:9: const {processPersistedCsvImport}=await import('../../../server/services/csv-import-processor');
+scripts/certification/fixtures/task2161-manual-imports.ts:27:  await processPersistedCsvImport({records:parsed.rows,executionClaim:claim,importRecord:history,sourceFormat:format,actor:{actorType:'user',actorId},filename});
+server/services/queue-manager.ts:2807:          const { processPersistedCsvImport } = await import("./csv-import-processor");
+server/services/queue-manager.ts:2811:          try { uploadsResumed = await resumeExpiredCsvImports(processPersistedCsvImport); }
+scripts/certification/test-canonical-transaction-leases.ts:227:  const {processPersistedCsvImport}=await import("../../server/services/csv-import-processor");
+scripts/certification/test-canonical-transaction-leases.ts:283:    await processPersistedCsvImport({records:[ordinaryRaw],executionClaim:successor,importRecord:csvImport,
+scripts/test-cro03-static.ts:161:    assert.match(imports, /registerPersistedCsvProcessor\(processCsvImport\)/);
+scripts/test-cro03-static.ts:223:    assert.match(imports, /registerPersistedCsvProcessor\(processCsvImport\)/);
+scripts/certification/test-canonical-provider-import.ts:240:   const {processPersistedCsvImport}=await import("../../server/services/csv-import-processor");
+scripts/certification/test-canonical-provider-import.ts:253:   await processPersistedCsvImport({records:genericRows as Array<Record<string,string>>,
+scripts/test-provider-upload-handoff.ts:8:const end=route.indexOf("const response = await processPersistedCsvImport(processingArgs);",start);
+scripts/test-provider-upload-handoff.ts:10:const {code}=await transform(`async function run(sourceFormat, processPersistedCsvImport,
+scripts/certification/test-intake-native-contract.ts:68:  const {processPersistedCsvImport}=await import("../../server/services/csv-import-processor");
+scripts/certification/test-intake-native-contract.ts:81:  await assert.rejects(()=>processPersistedCsvImport({records:[abortRaw],executionClaim:abortClaim,
+server/services/scheduled-discovery/service.ts:14:import {processPersistedCsvImport} from '../csv-import-processor';
+server/services/scheduled-discovery/service.ts:200: if(claim.claimed)await processPersistedCsvImport({records:accepted,executionClaim:claim,importRecord:projection,sourceFormat:'google_maps_outscraper',actor:{actorType:'system',actorId:run.actor_id},filename});
+server/services/csv-import-processor.ts:25:export function registerPersistedCsvProcessor(processor: PersistedCsvProcessor): void {
+server/services/csv-import-processor.ts:29:export async function processPersistedCsvImport(args: Parameters<PersistedCsvProcessor>[0]) {

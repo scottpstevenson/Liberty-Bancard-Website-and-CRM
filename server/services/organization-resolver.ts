@@ -38,7 +38,14 @@ async function readCandidates(executor: any, input: ReturnType<typeof identity>,
       SELECT 1 FROM canonical_source_links place_link WHERE place_link.business_id=businesses.id
         AND place_link.source_system IN ('outscraper','google_maps','google')
         AND place_link.source_type='place' AND place_link.stable_key=${input.googlePlaceId}::text))`;
-  const query = executor.select({business: businesses, exactSource: sourceMatch}).from(businesses).where(sql`
+  if(input.matchingPolicy === "scheduled-discovery-v1") {
+    const exact=await executor.execute(discoveryExactCandidateIdsSql(input));
+    const ids=discoveryCandidateIdsSql(input,(exact.rows??exact).length>0);
+    const query=executor.select({business:businesses,exactSource:sourceMatch}).from(businesses)
+      .where(sql`businesses.id IN (${ids})`).orderBy(businesses.id).limit(201);
+    return (lock?query.for("update"):query) as Promise<Array<{business:Business;exactSource:boolean}>>;
+  }
+  let query = executor.select({business: businesses, exactSource: sourceMatch}).from(businesses).where(sql`
     (${sourceMatch})
     OR (${input.googlePlaceId}::text IS NOT NULL AND google_place_id=${input.googlePlaceId}::text)
     OR (${input.websiteDomain}::text IS NOT NULL AND lower(btrim(website_domain))=${input.websiteDomain}::text)
@@ -46,13 +53,41 @@ async function readCandidates(executor: any, input: ReturnType<typeof identity>,
       AND regexp_replace(coalesce(main_phone,''),'[^0-9]','','g')
         IN (${sql.join(phoneKeys.map(value=>sql`${value}`),sql`,`)}))
     OR (${input.city}::text IS NOT NULL AND ${input.state}::text IS NOT NULL
-      AND normalized_name=${normalOrganizationName(input.canonicalName)}
+      AND (${input.matchingPolicy === "scheduled-discovery-v1"}::boolean AND record_class='canonical'
+        AND crm_identity_name(canonical_name)=crm_identity_name(${input.canonicalName})
+        OR ${input.matchingPolicy !== "scheduled-discovery-v1"}::boolean AND normalized_name=${normalOrganizationName(input.canonicalName)})
       AND lower(btrim(coalesce(city,'')))=${input.city}::text
       AND ${sql.raw(stateIdentitySql("state"))}=${input.state}::text)
   `).orderBy(businesses.id);
+  if(input.matchingPolicy === "scheduled-discovery-v1")query=query.limit(201);
   return (lock ? query.for("update") : query) as Promise<Array<{business:Business;exactSource:boolean}>>;
 }
+/** Each indexed branch and the final result are bounded; overflow is a hold, never a partial match. */
+export function discoveryExactCandidateIdsSql(input:OrganizationIdentity){
+ return sql`SELECT id FROM (
+  SELECT business_id id FROM canonical_source_links WHERE source_system=${input.sourceIdentity?.sourceSystem??null}::text AND source_type=${input.sourceIdentity?.sourceType??null}::text AND stable_key=${input.sourceIdentity?.stableKey??null}::text
+  UNION ALL SELECT business_id id FROM canonical_source_links WHERE source_system IN ('outscraper','google_maps','google') AND source_type='place' AND stable_key=${input.googlePlaceId??null}::text
+  UNION ALL SELECT id FROM businesses WHERE google_place_id=${input.googlePlaceId??null}::text
+ ) exact_ids LIMIT 1`;
+}
+export function discoveryCandidateIdsSql(input:OrganizationIdentity,exactOwned=false) {
+ const weakLimit=exactOwned?2:201;
+ const phoneKey=input.mainPhone?.replace(/\D/g,'')||null;
+ const phones=[phoneKey,phoneKey?.length===10?`1${phoneKey}`:phoneKey?.length===11&&phoneKey.startsWith('1')?phoneKey.slice(1):null];
+ return sql`SELECT DISTINCT id FROM (
+  (SELECT business_id id FROM canonical_source_links WHERE source_system=${input.sourceIdentity?.sourceSystem??null}::text
+    AND source_type=${input.sourceIdentity?.sourceType??null}::text AND stable_key=${input.sourceIdentity?.stableKey??null}::text LIMIT 201)
+  UNION ALL (SELECT business_id id FROM canonical_source_links WHERE source_system IN ('outscraper','google_maps','google')
+    AND source_type='place' AND stable_key=${input.googlePlaceId??null}::text LIMIT 201)
+  UNION ALL (SELECT id FROM businesses WHERE google_place_id=${input.googlePlaceId??null}::text LIMIT 201)
+  UNION ALL (SELECT id FROM businesses WHERE (coverage_keys[3])=${input.websiteDomain??null}::text LIMIT ${weakLimit})
+  UNION ALL (SELECT id FROM businesses WHERE (coverage_keys[5]) IN (${phones[0]},${phones[1]}) LIMIT ${weakLimit})
+  UNION ALL (SELECT id FROM businesses WHERE ${!exactOwned}::boolean AND record_class='canonical' AND crm_identity_name(canonical_name)=crm_identity_name(${input.canonicalName})
+    AND lower(btrim(coalesce(city,'')))=${input.city??null}::text AND ${sql.raw(stateIdentitySql("state"))}=${input.state??null}::text LIMIT 201)
+ ) candidates LIMIT 201`;
+}
 function decision(input: ReturnType<typeof identity>, candidates: Awaited<ReturnType<typeof readCandidates>>) {
+  if(input.matchingPolicy === "scheduled-discovery-v1" && candidates.length>200)return {kind:"deferred" as const,reasonCode:"AMBIGUOUS_ORGANIZATION_MATCH" as const,candidateIds:candidates.map(c=>c.business.id)};
   return decideOrganizationIdentity(input, candidates.map(({business,exactSource})=>({...business,exactSource})));
 }
 function deferred(result: Extract<ReturnType<typeof decision>, {kind:"deferred"}>,
@@ -68,6 +103,7 @@ export async function resolveOrganization(raw: Input): Promise<OrganizationResol
     input.googlePlaceId ? `place:${input.googlePlaceId}` : null,
     input.websiteDomain ? `domain:${input.websiteDomain}` : null,
     input.mainPhone ? `phone:${input.mainPhone}` : null,
+    input.matchingPolicy === "scheduled-discovery-v1" && input.mainPhone ? `phone:${input.mainPhone.length===10?`1${input.mainPhone}`:input.mainPhone.replace(/^1(?=\d{10}$)/, "")}` : null,
     input.city && input.state ? `name:${normalOrganizationName(input.canonicalName)}:${input.city}:${input.state}` : null,
   ].filter((key): key is string => !!key).sort();
   const resolve = async (tx:ResolutionTransaction):Promise<OrganizationResolution> => {
@@ -77,6 +113,9 @@ export async function resolveOrganization(raw: Input): Promise<OrganizationResol
     };
     await check();
     for (const key of lockKeys) await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}::text,1642))`);
+    // All relaxed-name lookups serialize on the same SQL suffix-insensitive key.
+    if(input.matchingPolicy === "scheduled-discovery-v1") await tx.execute(sql`SELECT pg_advisory_xact_lock(
+      hashtextextended('discovery-name:'||crm_identity_name(${input.canonicalName}),1642))`);
     const candidates = await readCandidates(tx,input,true);
     const result = decision(input,candidates);
     if (result.kind==="deferred") return deferred(result,candidates);

@@ -3193,3 +3193,111 @@ export async function reconcileSfpProviderUsage(input: {
     };
   });
 }
+
+/** Task 2161: a real pre-business subject in the canonical operation/attempt ledger. */
+export interface SfpSearchReservation {
+ operationId:string;claimToken:string;runId:string;laneToken:string;poll:boolean;
+ runtime:SfpRuntimeAuthority;units:number;
+}
+async function pinSearchScope(tx:any,runId:string,laneToken:string,poll:boolean) {
+ const {discoveryProgramPinSql}=await import('./sfp-discovery-scope');
+ const r=rows(await tx.execute(sql`SELECT r.*,d.program_id FROM discovery_runs r
+ JOIN discovery_definitions d ON d.id=r.definition_id JOIN sfp_programs p ON p.id=d.program_id
+ JOIN discovery_lane l ON l.run_id=r.id AND l.token=${laneToken}::uuid
+ WHERE r.id=${runId}::uuid
+ AND (${poll}::boolean OR (p.is_active AND p.taxonomy_version=2 AND d.enabled AND r.snapshot->>'program_pin'=${discoveryProgramPinSql}
+   AND (r.snapshot->>'revision')::integer=d.revision AND d.county_fips=ANY(p.county_fips) AND d.vertical=ANY(p.vertical_ids)))
+ FOR UPDATE OF r,l FOR SHARE OF p,d`))[0];
+ if(!r)throw new Error('DISCOVERY_SCOPE_OR_LANE_FENCE_LOST');return r;
+}
+export async function reserveSearchProviderOperation(input:{runId:string;laneToken:string;poll:boolean;pollKey?:string}):Promise<SfpSearchReservation> {
+ if(process.env.CRO03_PROVIDER_TRANSPORT_ENABLED!=='true')throw new Error('SFP_PAID_BLOCKED:PROVIDER_TRANSPORT_DISABLED');
+ const ready=await getSfpProviderReadiness('outscraper');if(!ready.ready)throw new Error(`SFP_PAID_BLOCKED:${ready.reason}`);
+ const runtime=await claimSfpRuntimeDeploymentOwner();
+ const price=await currentSfpReviewedPricing('outscraper');
+ return db.transaction(async tx=>{
+  const owner=await lockCurrentSfpRuntimeOwner(tx);
+  if(owner.ownerEpoch!==runtime.ownerEpoch||owner.ownerToken!==runtime.ownerToken)throw new Error('SFP_RUNTIME_OWNER_FENCE_LOST');
+  const r=await pinSearchScope(tx,input.runId,input.laneToken,input.poll);
+  const units=input.poll?1:Number(r.snapshot.result_limit);const token=randomUUID();
+  const key=`scheduled-discovery:${input.runId}:${input.poll?`poll:${input.pollKey}`:'search'}`;
+  if(input.poll&&!input.pollKey)throw new Error('DISCOVERY_POLL_KEY_REQUIRED');
+  await tx.execute(sql`UPDATE provider_controls SET reserved_units=reserved_units+${units},version=version+1,updated_at=now()
+   WHERE provider='outscraper' AND enabled AND circuit_state='closed' RETURNING provider`).then(r=>{if(!rows(r).length)throw new Error('DISCOVERY_PROVIDER_DISABLED');});
+  const op=rows(await tx.execute(sql`INSERT INTO provider_operations(provider,operation_type,purpose,idempotency_key,actor_type,actor_id,target_fingerprint,
+   state,requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,runtime_owner_epoch,runtime_owner_token,unit_price_micros,unit_price_unit,started_at,sfp_result_data)
+   VALUES('outscraper','scheduled_discovery',${input.poll?'scheduled_discovery_poll':'scheduled_discovery_search'},${key},${r.mode==='preview'?'user':'system'},${r.actor_id},${`search-run:${r.id}`},
+    'running',${units},${units},'reserved',1,${token}::uuid,clock_timestamp()+interval '5 minutes',${runtime.ownerEpoch},${runtime.ownerToken}::uuid,${price.unitPriceMicros},${price.unitType},now(),${JSON.stringify({reservedDiscoveryRunId:r.id,reservedWorkUnit:input.poll?'request':'result',...sfpPriceEstimateReceipt(price.unitPriceMicros,price.noResultBillingSemantics)})}::jsonb) RETURNING id`))[0];
+  await tx.execute(sql`INSERT INTO provider_attempts(operation_id,attempt_number,outcome) VALUES(${op.id}::uuid,1,'pending')`);
+  await tx.execute(sql`INSERT INTO sfp_runtime_job_leases(operation_id,deployment_identity,environment_identity,artifact_sha,process_identity,owner_epoch,owner_token,operation_claim_token,lease_expires_at)
+   VALUES(${op.id}::uuid,${runtime.deploymentIdentity},${runtime.environmentIdentity},${runtime.artifactSha},${runtime.processIdentity},${runtime.ownerEpoch},${runtime.ownerToken}::uuid,${token}::uuid,clock_timestamp()+interval '5 minutes')`);
+  if(!input.poll)await tx.execute(sql`UPDATE discovery_runs SET operation_id=${op.id}::uuid WHERE id=${r.id}::uuid`);
+  return {operationId:String(op.id),claimToken:token,runId:r.id,laneToken:input.laneToken,poll:input.poll,runtime,units};
+ });
+}
+/** Called by the approved adapter after rate limiting and immediately before the actual paid request. */
+export async function markSearchProviderDispatchBoundary(r:SfpSearchReservation) {
+ if(process.env.CRO03_PROVIDER_TRANSPORT_ENABLED!=='true'||!process.env.OUTSCRAPER_API_KEY)throw new Error('DISCOVERY_TRANSPORT_DISABLED');
+ const current=await claimSfpRuntimeDeploymentOwner();
+ if(current.ownerEpoch!==r.runtime.ownerEpoch||current.ownerToken!==r.runtime.ownerToken)throw new Error('SFP_RUNTIME_OWNER_FENCE_LOST');
+ await db.transaction(async tx=>{
+  await lockCurrentSfpRuntimeOwner(tx);const run=await pinSearchScope(tx,r.runId,r.laneToken,r.poll);
+  if(!r.poll&&run.state!=='queued')throw new Error('DISCOVERY_ALREADY_DISPATCHED');
+  const allowed=rows(await tx.execute(sql`SELECT o.id FROM provider_operations o JOIN provider_controls pc ON pc.provider=o.provider
+   JOIN sfp_runtime_job_leases j ON j.operation_id=o.id
+   WHERE o.id=${r.operationId}::uuid AND o.claim_token=${r.claimToken}::uuid AND o.state='running'
+    AND o.cancel_requested_at IS NULL AND o.lease_expires_at>clock_timestamp()
+    AND pc.enabled AND pc.circuit_state='closed' AND j.owner_epoch=${r.runtime.ownerEpoch}
+    AND j.owner_token=${r.runtime.ownerToken}::uuid AND j.process_identity=${r.runtime.processIdentity}
+    AND j.lease_expires_at>clock_timestamp() AND j.revoked_at IS NULL
+   FOR UPDATE OF o,j FOR SHARE OF pc`))[0];if(!allowed)throw new Error('DISCOVERY_DISPATCH_AUTHORITY_LOST');
+  const receipt={schema:'sfp-search-dispatch-v1',operationId:r.operationId,runId:r.runId,laneToken:r.laneToken,ownerEpoch:r.runtime.ownerEpoch,artifactSha:r.runtime.artifactSha,poll:r.poll};
+  const receiptJson=JSON.stringify(receipt),hash=createHash('sha256').update(receiptJson).digest('hex');
+  const marked=rows(await tx.execute(sql`UPDATE provider_attempts SET outcome='ambiguous',dispatch_marked_at=clock_timestamp()
+   WHERE operation_id=${r.operationId}::uuid AND attempt_number=1 AND dispatch_marked_at IS NULL RETURNING id`));
+  if(marked.length!==1)throw new Error('DISCOVERY_DISPATCH_ALREADY_MARKED');
+  await tx.execute(sql`UPDATE provider_operations SET sfp_dispatch_receipt=${receiptJson}::jsonb,sfp_dispatch_receipt_fingerprint=${hash} WHERE id=${r.operationId}::uuid`);
+  if(!r.poll){
+   const schedule=rows(await tx.execute(sql`SELECT enabled,daily_dispatch_count,timezone FROM discovery_schedules WHERE id FOR UPDATE`))[0];
+   if(run.mode==='scheduled'){
+    if(!schedule?.enabled)throw new Error('DISCOVERY_SCHEDULE_DISABLED');
+    const count=rows(await tx.execute(sql`SELECT count(*)::integer n FROM discovery_runs WHERE submitted_at IS NOT NULL
+     AND (submitted_at AT TIME ZONE ${schedule.timezone})::date=(clock_timestamp() AT TIME ZONE ${schedule.timezone})::date`))[0];
+    if(count.n>=schedule.daily_dispatch_count)throw new Error('DISCOVERY_DAILY_WORKLOAD_REACHED');
+   }
+   await tx.execute(sql`UPDATE discovery_runs SET state='dispatching',submitted_at=clock_timestamp(),updated_at=now() WHERE id=${r.runId}::uuid`);
+   await tx.execute(sql`UPDATE discovery_definitions SET last_attempt_at=clock_timestamp(),next_due_at=clock_timestamp()+(SELECT repeat_days FROM discovery_schedules WHERE id)*interval '1 day',updated_at=now() WHERE id=${run.definition_id}::uuid`);
+  }
+ });
+}
+/** Same canonical counters for search and polling; actual invoice charge remains unknown. */
+export async function settleSearchProviderOperation(operationId:string,input:{outcome:'completed'|'failed'|'ambiguous'|'not_dispatched';quantity?:number;unit?:'result'|'request';providerRequestId?:string}) {
+ await db.transaction(async tx=>{
+  const o=rows(await tx.execute(sql`SELECT * FROM provider_operations WHERE id=${operationId}::uuid AND operation_type='scheduled_discovery' FOR UPDATE`))[0];
+  if(!o)throw new Error('DISCOVERY_OPERATION_NOT_FOUND');
+  if(o.billing_state==='committed'){if(input.outcome==='completed'&&(Number(o.provider_usage_quantity)!==input.quantity||o.provider_usage_unit!==input.unit))throw new Error('DISCOVERY_USAGE_RECEIPT_CONFLICT');return;}
+  if(o.billing_state==='released')return;
+  if(input.outcome==='not_dispatched'){
+   const a=rows(await tx.execute(sql`SELECT dispatch_marked_at FROM provider_attempts WHERE operation_id=${operationId}::uuid FOR UPDATE`));
+   if(a.some(x=>x.dispatch_marked_at))throw new Error('DISCOVERY_NONDISPATCH_NOT_PROVEN');
+  }
+  const certain=input.outcome==='completed'&&Number.isSafeInteger(input.quantity)&&input.quantity!>=0;
+  if(certain&&input.quantity!>Number(o.reserved_units))throw new Error('DISCOVERY_USAGE_EXCEEDS_RESERVATION');
+  const release=input.outcome==='not_dispatched';const settled=certain?input.quantity!:0;
+  if(certain||release){const changed=rows(await tx.execute(sql`UPDATE provider_controls SET reserved_units=reserved_units-${Number(o.reserved_units)},consumed_units=consumed_units+${settled},version=version+1,
+   last_completed_at=CASE WHEN ${certain} THEN now() ELSE last_completed_at END,updated_at=now() WHERE provider='outscraper' AND reserved_units>=${Number(o.reserved_units)} RETURNING provider`));if(changed.length!==1)throw new Error('DISCOVERY_PROVIDER_COUNTER_UNDERFLOW');}
+  const price=o.unit_price_unit===input.unit&&o.unit_price_micros!=null?Number(o.unit_price_micros):null;
+  await tx.execute(sql`UPDATE provider_operations SET state=${certain?'completed':'failed'},billing_state=${certain?'committed':release?'released':'ambiguous'},
+   settled_units=${settled},provider_usage_quantity=${certain?String(settled):null}::numeric,provider_usage_unit=${input.unit??null},provider_usage_status=${certain?'known':release?'not_applicable':'unknown'},
+   settled_cost_micros=${certain&&price!==null?price*settled:null}::bigint,provider_request_id=COALESCE(${input.providerRequestId??null},provider_request_id),
+   claim_token=NULL,lease_expires_at=NULL,completed_at=now(),updated_at=now() WHERE id=${operationId}::uuid`);
+  if(certain&&input.unit==='result'&&input.providerRequestId){
+   const receipt=rows(await tx.execute(sql`INSERT INTO sfp_provider_usage_reconciliations(provider,provider_request_id,operation_id,usage_quantity,usage_unit,usage_status,reconciliation_source)
+    VALUES('outscraper',${input.providerRequestId},${operationId}::uuid,${String(settled)}::numeric,'result','known','scheduled_discovery_retained_result')
+    ON CONFLICT(provider,provider_request_id) DO UPDATE SET updated_at=now()
+    WHERE sfp_provider_usage_reconciliations.operation_id=EXCLUDED.operation_id RETURNING id`));
+   if(receipt.length!==1)throw new Error('DISCOVERY_PROVIDER_REQUEST_RECEIPT_CONFLICT');
+  }
+  await tx.execute(sql`UPDATE provider_attempts SET outcome=${release?'blocked':input.outcome},request_id=COALESCE(${input.providerRequestId??null},request_id),completed_at=now() WHERE operation_id=${operationId}::uuid`);
+ });
+}

@@ -1,0 +1,2 @@
+$ rg -n -e 'processLegacyCohortValidationTick' server client/src shared scripts migrations
+server/services/cro03/sfp-continuous-discovery.ts:213:async function processLegacyCohortValidationTick(): Promise<SfpContinuousValidationTickResult> {

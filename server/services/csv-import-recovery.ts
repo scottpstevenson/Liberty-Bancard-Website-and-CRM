@@ -64,7 +64,7 @@ export async function resumeExpiredCsvImports(process: PersistedCsvProcessor): P
       fileName: typeof metadata.fileName === "string" ? metadata.fileName : "recovered.csv",
       sourceFormat,
       totalRows: claim.execution.totalRows ?? records.length,
-      importSource: sourceFormat,
+      importSource: metadata.scheduledDiscoveryRunId ? "scheduled_discovery" : sourceFormat,
       status: "processing",
       importedBy: "startup-resumer",
     });

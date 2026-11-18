@@ -1,0 +1,62 @@
+$ rg -n -e 'crm_identity_name' server client/src shared scripts migrations
+shared/schema.ts:3981:  index("canonical_link_registry_name_lookup_idx").on(sql`crm_identity_name(${table.entityName})`)
+shared/schema.ts:3983:  index("canonical_link_registry_dba_lookup_idx").on(sql`crm_identity_name(${table.dba})`)
+shared/schema.ts:5540:  index("canonical_link_business_name_lookup_idx").on(sql`crm_identity_name(${table.canonicalName})`)
+migrations/0329_crm_native_contract_repair.sql:29:    FROM (VALUES ('public.crm_identity_name(text)','e45d1eb858ef5e5f9d94b8b9aa965c49'),
+migrations/0329_crm_native_contract_repair.sql:123:        ('crm_identity_name','e45d1eb858ef5e5f9d94b8b9aa965c49'),
+migrations/0329_crm_native_contract_repair.sql:145:CREATE OR REPLACE FUNCTION crm_identity_name(value text)
+migrations/0329_crm_native_contract_repair.sql:191:    source_name := crm_identity_name(e.entity_name);
+migrations/0329_crm_native_contract_repair.sql:192:    source_dba := crm_identity_name(to_jsonb(e)->>'dba');
+migrations/0329_crm_native_contract_repair.sql:193:    IF crm_identity_name(b.canonical_name) NOT IN (source_name,source_dba) THEN
+migrations/0329_crm_native_contract_repair.sql:196:    name_match := crm_identity_name(c.company_name)<>''
+migrations/0329_crm_native_contract_repair.sql:197:      AND crm_identity_name(c.company_name) IN (source_name,source_dba);
+migrations/0329_crm_native_contract_repair.sql:204:    address_match := crm_identity_name(c.address)<>''
+migrations/0329_crm_native_contract_repair.sql:205:      AND crm_identity_name(c.address)=crm_identity_name(e.principal_address)
+migrations/0329_crm_native_contract_repair.sql:206:      AND crm_identity_name(c.city)<>'' AND crm_identity_name(c.city)=crm_identity_name(e.principal_city)
+migrations/0329_crm_native_contract_repair.sql:207:      AND crm_identity_name(c.state)<>'' AND crm_identity_name(c.state)=crm_identity_name(e.principal_state)
+migrations/0329_crm_native_contract_repair.sql:208:      AND (NULLIF(b.street_address,'') IS NULL OR crm_identity_name(b.street_address)=crm_identity_name(c.address));
+migrations/0329_crm_native_contract_repair.sql:223:    name_match := crm_identity_name(c.company_name)<>'' AND
+migrations/0329_crm_native_contract_repair.sql:224:      crm_identity_name(c.company_name)=crm_identity_name(b.canonical_name);
+migrations/0329_crm_native_contract_repair.sql:249:      AND crm_identity_name(c.company_name) IN (crm_identity_name(oe.entity_name),crm_identity_name(oe.dba))
+migrations/0329_crm_native_contract_repair.sql:250:      AND crm_identity_name(c.address)=crm_identity_name(oe.principal_address)
+migrations/0329_crm_native_contract_repair.sql:251:      AND crm_identity_name(c.city)=crm_identity_name(oe.principal_city)
+migrations/0329_crm_native_contract_repair.sql:252:      AND crm_identity_name(c.state)=crm_identity_name(oe.principal_state)) THEN
+migrations/0329_crm_native_contract_repair.sql:376:        ('crm_identity_name','e45d1eb858ef5e5f9d94b8b9aa965c49'),
+migrations/0329_crm_native_contract_repair.sql:390:  IF crm_identity_name('Example LLC')<>'example' OR crm_identity_domain('https://www.example.com/path')<>'example.com'
+migrations/0325_crm_evidence_relationship_authority.sql:3:CREATE OR REPLACE FUNCTION crm_identity_name(value text)
+migrations/0325_crm_evidence_relationship_authority.sql:49:    source_name := crm_identity_name(e.entity_name);
+migrations/0325_crm_evidence_relationship_authority.sql:50:    source_dba := crm_identity_name(to_jsonb(e)->>'dba');
+migrations/0325_crm_evidence_relationship_authority.sql:51:    IF crm_identity_name(b.canonical_name) NOT IN (source_name,source_dba) THEN
+migrations/0325_crm_evidence_relationship_authority.sql:54:    name_match := crm_identity_name(c.company_name)<>''
+migrations/0325_crm_evidence_relationship_authority.sql:55:      AND crm_identity_name(c.company_name) IN (source_name,source_dba);
+migrations/0325_crm_evidence_relationship_authority.sql:62:    address_match := crm_identity_name(c.address)<>''
+migrations/0325_crm_evidence_relationship_authority.sql:63:      AND crm_identity_name(c.address)=crm_identity_name(e.principal_address)
+migrations/0325_crm_evidence_relationship_authority.sql:64:      AND crm_identity_name(c.city)<>'' AND crm_identity_name(c.city)=crm_identity_name(e.principal_city)
+migrations/0325_crm_evidence_relationship_authority.sql:65:      AND crm_identity_name(c.state)<>'' AND crm_identity_name(c.state)=crm_identity_name(e.principal_state)
+migrations/0325_crm_evidence_relationship_authority.sql:66:      AND (NULLIF(b.street_address,'') IS NULL OR crm_identity_name(b.street_address)=crm_identity_name(c.address));
+migrations/0325_crm_evidence_relationship_authority.sql:81:    name_match := crm_identity_name(c.company_name)<>'' AND
+migrations/0325_crm_evidence_relationship_authority.sql:82:      crm_identity_name(c.company_name)=crm_identity_name(b.canonical_name);
+migrations/0325_crm_evidence_relationship_authority.sql:107:      AND crm_identity_name(c.company_name) IN (crm_identity_name(oe.entity_name),crm_identity_name(oe.dba))
+migrations/0325_crm_evidence_relationship_authority.sql:108:      AND crm_identity_name(c.address)=crm_identity_name(oe.principal_address)
+migrations/0325_crm_evidence_relationship_authority.sql:109:      AND crm_identity_name(c.city)=crm_identity_name(oe.principal_city)
+migrations/0325_crm_evidence_relationship_authority.sql:110:      AND crm_identity_name(c.state)=crm_identity_name(oe.principal_state)) THEN
+migrations/0333_canonical_relationship_lookup_indexes.sql:5:  ON businesses (crm_identity_name(canonical_name)) WHERE record_class='canonical';
+migrations/0333_canonical_relationship_lookup_indexes.sql:8:  ON sunbiz_entities (crm_identity_name(entity_name))
+migrations/0333_canonical_relationship_lookup_indexes.sql:12:  ON sunbiz_entities (crm_identity_name(dba))
+migrations/0357_contact_incremental_change_probes.sql:4:CREATE INDEX IF NOT EXISTS contact_change_business_name_idx ON businesses (crm_identity_name(canonical_name));
+migrations/0357_contact_incremental_change_probes.sql:8:CREATE INDEX IF NOT EXISTS contact_change_registry_name_idx ON sunbiz_entities (crm_identity_name(entity_name),updated_at);
+migrations/0357_contact_incremental_change_probes.sql:10:CREATE INDEX IF NOT EXISTS contact_change_registry_dba_idx ON sunbiz_entities (crm_identity_name(dba),updated_at);
+migrations/0349_source_family_relationship_identity.sql:92:  next_body:=replace(next_body,'crm_identity_name(c.state)', '(CASE WHEN upper(btrim(coalesce(c.state,'''')))=''FLORIDA'' THEN ''FL'' ELSE upper(btrim(coalesce(c.state,''''))) END)');
+migrations/0349_source_family_relationship_identity.sql:93:  next_body:=replace(next_body,'crm_identity_name(e.principal_state)', '(CASE WHEN upper(btrim(coalesce(e.principal_state,'''')))=''FLORIDA'' THEN ''FL'' ELSE upper(btrim(coalesce(e.principal_state,''''))) END)');
+migrations/0349_source_family_relationship_identity.sql:94:  next_body:=replace(next_body,'crm_identity_name(oe.principal_state)', '(CASE WHEN upper(btrim(coalesce(oe.principal_state,'''')))=''FLORIDA'' THEN ''FL'' ELSE upper(btrim(coalesce(oe.principal_state,''''))) END)');
+scripts/certification/test-crm-native-repair.ts:43:      AND proname IN ('crm_identity_name','crm_identity_domain','crm_automatic_relationship_reasons',
+scripts/certification/test-crm-native-repair.ts:81:      DROP FUNCTION crm_identity_name(text); DROP FUNCTION crm_identity_domain(text);
+scripts/certification/test-crm-native-repair.ts:103:        DROP FUNCTION crm_identity_name(text); DROP FUNCTION crm_identity_domain(text);
+scripts/certification/test-contact-business-evidence-candidates.ts:32:    CREATE INDEX fixture_business_name ON businesses(crm_identity_name(canonical_name))
+scripts/certification/test-contact-business-evidence-candidates.ts:36:    CREATE INDEX fixture_registry_name ON sunbiz_entities(crm_identity_name(entity_name))
+scripts/certification/test-contact-business-evidence-candidates.ts:38:    CREATE INDEX fixture_registry_dba ON sunbiz_entities(crm_identity_name(dba))
+server/services/organization-resolver.ts:57:        AND crm_identity_name(canonical_name)=crm_identity_name(${input.canonicalName})
+server/services/organization-resolver.ts:85:  UNION ALL (SELECT id FROM businesses WHERE ${!exactOwned}::boolean AND record_class='canonical' AND crm_identity_name(canonical_name)=crm_identity_name(${input.canonicalName})
+server/services/organization-resolver.ts:118:      hashtextextended('discovery-name:'||crm_identity_name(${input.canonicalName}),1642))`);
+server/services/commercial-link-authority.ts:127:        ('crm_identity_name','e45d1eb858ef5e5f9d94b8b9aa965c49'),
+server/services/organization-resolution-policy.ts:69:/** Mirrors the immutable SQL crm_identity_name legal-suffix key; SQL remains retrieval authority. */

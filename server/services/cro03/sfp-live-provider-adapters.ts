@@ -114,8 +114,8 @@ export async function executeSfpApolloDiscovery(
 }
 
 export interface SfpOutscraperDiscoveryInput {
-  businessId: number;
-  businessName: string;
+  businessId?: number;
+  businessName?: string;
   domain?: string | null;
   city?: string | null;
   county?: string | null;
@@ -123,6 +123,8 @@ export interface SfpOutscraperDiscoveryInput {
   resultLimit?: number;
   region?: string;
   async?: boolean;
+  endpointVersion?: "legacy-maps-v1" | "google-maps-v2";
+  query?: string;
 }
 
 export async function executeSfpOutscraperDiscovery(

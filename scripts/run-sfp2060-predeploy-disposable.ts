@@ -274,7 +274,7 @@ async function createSuiteDatabase(cluster: LocalCluster, user: string, name: st
   } finally {
     await admin.end().catch(() => {});
   }
-  return `postgresql://${encodeURIComponent(user)}@localhost/${name}?host=${encodeURIComponent(cluster.socket.realpath)}&port=${cluster.port}`;
+  return `postgresql://${encodeURIComponent(user)}@localhost/${name}?host=${encodeURIComponent(path.join(cluster.root,"socket"))}&port=${cluster.port}`;
 }
 
 /**
@@ -294,7 +294,7 @@ async function createSuiteDatabaseFromTemplate(
   } finally {
     await admin.end().catch(() => {});
   }
-  return `postgresql://${encodeURIComponent(user)}@localhost/${name}?host=${encodeURIComponent(cluster.socket.realpath)}&port=${cluster.port}`;
+  return `postgresql://${encodeURIComponent(user)}@localhost/${name}?host=${encodeURIComponent(path.join(cluster.root,"socket"))}&port=${cluster.port}`;
 }
 
 async function dropSuiteDatabase(cluster: LocalCluster, user: string, name: string): Promise<void> {

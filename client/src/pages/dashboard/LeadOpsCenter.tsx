@@ -1,3 +1,4 @@
+import ScheduledDiscoveryPanel from "@/components/discovery/ScheduledDiscoveryPanel";
 import { PageHeadingLevel } from "@/components/ui/page-header";
 import { PageTitle } from "@/components/ui/page-header";
 import { useState, useCallback, useRef, useEffect } from "react";
@@ -2618,6 +2619,7 @@ export default function LeadOpsCenter() {
         </TabsContent>
 
         <TabsContent value="imports" className="space-y-4">
+          <ScheduledDiscoveryPanel />
           <LeadImports />
         </TabsContent>
 

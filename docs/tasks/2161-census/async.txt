@@ -1,0 +1,293 @@
+$ rg -n -e 'onTaskSubmitted|provider_task_id|retention' server client/src shared scripts migrations
+shared/seo-routes.ts:112:  "/data-retention": { title: "Data Retention & Deletion Policy | Liberty Bancard", description: "How long Liberty Bancard retains merchant, visitor, and processing data. Request deletion, access, correction, or portability of your data.", inSitemap: true },
+shared/public-footer-links.ts:114:      { label: "Data Retention", href: "/data-retention" },
+scripts/test-stage3-b-source-contracts.ts:19:assert.ok(result.failed.every(row => row.error.includes("retention_contract_unverified")));
+client/src/pages/DoNotSell.tsx:114:                Liberty Bancard does not offer financial incentive programs (as defined by Cal. Civ. Code 1798.125(b)) that require the collection, retention, or sale of personal information in exchange for a benefit or price difference.
+server/services/privacy-review-command.ts:12:  retentionReason:z.string().trim().min(1).max(4000),
+server/services/privacy-review-command.ts:32:      before.retentionReason===input.retentionReason && before.processedBy===actor.id) return {...before,replayed:true};
+server/services/privacy-review-command.ts:39:      subjectContactId:subject.id,reviewEvidence:input.reviewEvidence,retentionReason:input.retentionReason,
+migrations/0281_sfp_corrections.sql:44:-- ── Foreign-key retention: RESTRICT instead of CASCADE ──────────────────────
+migrations/meta/_journal.json:1213:      "tag": "0168_cro02_evidence_retention_guards",
+migrations/meta/_journal.json:1234:      "tag": "0171_cro02_evidence_snapshot_retention",
+migrations/0168_cro02_evidence_retention_guards.sql:1:-- CRO-02 retention and immutability guards.  These are forward-only and do
+migrations/0171_cro02_evidence_snapshot_retention.sql:15:-- Replace any generated snapshot FK so retention semantics are explicit and
+migrations/0388_scheduled_outscraper_discovery.sql:27: provider_task_id text UNIQUE CHECK(provider_task_id IS NULL OR provider_task_id ~ '^[A-Za-z0-9_-]{1,160}$'),
+migrations/0204_cro05a_inbound_revenue_operations.sql:15:  retention_state TEXT NOT NULL DEFAULT 'active'
+migrations/0204_cro05a_inbound_revenue_operations.sql:16:    CHECK (retention_state IN ('active', 'expired', 'deleted')),
+migrations/0204_cro05a_inbound_revenue_operations.sql:23:CREATE INDEX IF NOT EXISTS protected_objects_retention_idx
+migrations/0204_cro05a_inbound_revenue_operations.sql:24:  ON protected_objects (retention_state, legal_hold);
+client/src/pages/dashboard/contact-detail-tabs/CreateDialogs.tsx:86:                  <SelectItem value="retention">Retention</SelectItem>
+migrations/meta/0109_snapshot.json:11265:        "retention_campaign_triggered": {
+migrations/meta/0109_snapshot.json:11266:          "name": "retention_campaign_triggered",
+migrations/meta/0109_snapshot.json:15756:    "public.retention_campaign_configs": {
+migrations/meta/0109_snapshot.json:15757:      "name": "retention_campaign_configs",
+migrations/0109_fearless_starhawk.sql:1475:	"retention_campaign_triggered" boolean DEFAULT false,
+migrations/0109_fearless_starhawk.sql:2003:CREATE TABLE "retention_campaign_configs" (
+scripts/certification/test-canonical-registry-originals.ts:6:await assertDisposableTestInfrastructure({operation:"source registry full original retention"});
+scripts/certification/test-canonical-registry-originals.ts:48:  check(manifest.csv_data===null,"Transient CSV cleanup still works after original retention");
+scripts/certification/test-canonical-registry-originals.ts:59:      "Evidence retention is not misreported as an unfinished enrichment job");
+scripts/certification/test-canonical-registry-originals.ts:79:  check(getBlockedCertificationNetworkAttemptCount()===0,"Full source retention never contacts providers or creates fictitious people");
+scripts/certification/test-canonical-registry-originals.ts:82:    scope:"Disposable actual source-registry importer; all-column retention and CSV record accounting",
+scripts/certification/test-website-intake-handoff.ts:188:    const object = (await pool.query(`SELECT mime_type, size_bytes, validation_state, retention_state, tenant_scope FROM protected_objects WHERE object_ref=$1`, [request.protected_object_ref])).rows[0];
+scripts/certification/test-website-intake-handoff.ts:189:    check(object && object.mime_type === f.mime && object.size_bytes === f.bytes.length && object.validation_state === "validated" && object.retention_state === "active"
+migrations/0317_sfp_provider_retrieval_tasks.sql:8:  provider_task_id text NOT NULL,
+migrations/0317_sfp_provider_retrieval_tasks.sql:63:  CONSTRAINT sfp_provider_retrieval_task_provider_id_uidx UNIQUE (provider, provider_task_id)
+scripts/certification/test-audited-retained-import-recovery.ts:133:    check(recovered.fulfilled===1 && recovered.failed===0,"Mismatch reaches real native claim, bridge, retention, contact provenance and final qualification");
+migrations/0341_contact_privacy_lifecycle.sql:9:ALTER TABLE data_delete_requests ADD COLUMN IF NOT EXISTS retention_reason text;
+scripts/migrate-churn-tables.ts:35:        retention_campaign_triggered boolean DEFAULT false,
+scripts/certification/test-enrichment-workbooks.ts:83:        // This is the existing CSV adapter; test raw retention at its underlying
+shared/schema.ts:1946:  // contact is removed. A reviewed retention/tombstone workflow owns deletion.
+shared/schema.ts:4092:  // Optional expiry for time-boxed retention of protected data.
+shared/schema.ts:5175:  retentionReason:text("retention_reason"),
+shared/schema.ts:5183:  reviewEvidence:true,retentionReason:true,executionState:true,
+shared/schema.ts:6780:export const retentionCampaignConfigs = pgTable("retention_campaign_configs", {
+shared/schema.ts:6792:export const insertRetentionCampaignConfigSchema = createInsertSchema(retentionCampaignConfigs).omit({
+shared/schema.ts:6798:export type RetentionCampaignConfig = typeof retentionCampaignConfigs.$inferSelect;
+shared/schema.ts:7130:  retentionCampaignTriggered: boolean("retention_campaign_triggered").default(false),
+shared/schema.ts:7503:  retentionState: text("retention_state").notNull().default("active"),
+shared/schema.ts:7510:  index("protected_objects_retention_idx").on(table.retentionState, table.legalHold),
+shared/schema.ts:7512:  check("protected_objects_retention_state_chk", sql`retention_state IN ('active', 'expired', 'deleted')`),
+shared/schema.ts:11123:  providerTaskId: text("provider_task_id").notNull(),
+shared/schema.ts:11885: id:uuid("id").primaryKey().defaultRandom(),definitionId:uuid("definition_id").notNull().references(()=>discoveryDefinitions.id),occurrenceKey:uuid("occurrence_key").notNull().unique(),mode:text("mode").notNull(),state:text("state").notNull().default("queued"),snapshot:jsonb("snapshot").notNull(),actorId:text("actor_id").notNull(),operationId:uuid("operation_id").unique().references(()=>providerOperations.id),providerTaskId:text("provider_task_id").unique(),submittedAt:timestamp("submitted_at",{withTimezone:true}),lastPendingAt:timestamp("last_pending_at",{withTimezone:true}),resultsExpiresAt:timestamp("results_expires_at",{withTimezone:true}),nextPollAt:timestamp("next_poll_at",{withTimezone:true}),importExecutionId:uuid("import_execution_id").unique().references(()=>importExecutions.id),importRequested:boolean("import_requested").notNull().default(false),saturated:boolean("saturated").notNull().default(false),preview:jsonb("preview"),totals:jsonb("totals"),lastError:text("last_error"),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),completedAt:timestamp("completed_at",{withTimezone:true}),updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().defaultNow(),
+shared/schema.ts:11886:},t=>[index("discovery_runs_definition_history_idx").on(t.definitionId,t.createdAt),index("discovery_runs_recovery_idx").on(t.state,t.nextPollAt,t.createdAt),uniqueIndex("discovery_runs_active_definition_uidx").on(t.definitionId).where(sql`${t.state} IN ('queued','dispatching','pending','submission_unknown','results_retained','importing')`),check("discovery_runs_mode_check",sql`${t.mode} IN ('preview','scheduled')`),check("discovery_runs_state_check",sql`${t.state} IN ('queued','dispatching','pending','submission_unknown','results_retained','preview_ready','importing','completed','failed','expired','cancelled')`),check("discovery_runs_provider_task_id_check",sql`${t.providerTaskId} IS NULL OR ${t.providerTaskId} ~ '^[A-Za-z0-9_-]{1,160}$'`)]);
+client/src/pages/PrivacyPolicy.tsx:126:            <section data-testid="section-privacy-retention">
+scripts/backfill-backup-2026-07-08T21-32-21-974Z.json:4379:      "subject": "Client payment experience matters for retention — here's how we help",
+scripts/test-stage3-b-lifecycle.ts:53:    retentionReason:"Consent, audit, intake and send evidence retained; no erasure executed.",
+scripts/test-stage3-b-lifecycle.ts:85:  assert.equal(preview.body.blocked[0].reason,"retention_contract_unverified");
+scripts/ci-suite-manifest.ts:342:    providerDenial: "Pure retention/consent and source assertions; no DB import or network",
+scripts/ci-suite-manifest.ts:754:    name:"Canonical registry original retention",
+scripts/test-forms.ts:495:             validation_state, retention_state, deleted_at
+scripts/test-forms.ts:515:        protectedObject?.retention_state === "active" &&
+scripts/test-forms.ts:517:      `checksumMatches=${protectedObject?.checksum_sha256 === protectedObjectChecksum} validation="${protectedObject?.validation_state}" retention="${protectedObject?.retention_state}" deletedAt="${protectedObject?.deleted_at}"`,
+scripts/pre-deploy.ts:356:  {name:"Canonical registry original retention",script:"scripts/certification/test-canonical-registry-originals.ts",
+scripts/test-phone-call-click.ts:71:  "/data-retention",
+scripts/test-statement-acquisition.ts:872:        protectedObject.retentionState === "active",
+scripts/test-statement-acquisition.ts:873:      `tenant="${protectedObject.tenantScope}" environment="${protectedObject.environmentScope}" validation="${protectedObject.validationState}" retention="${protectedObject.retentionState}"`,
+scripts/test-sfp-provider-contracts.ts:400:    onTaskSubmitted: async (task) => { submittedTaskId = task.requestId; },
+scripts/test-sfp-provider-contracts.ts:508:    "provider_task_id", "submission_operation_id", "stage_run_id", "business_id",
+scripts/test-sfp-provider-contracts.ts:520:  assert.match(migration, /UNIQUE \(provider, provider_task_id\)/);
+scripts/test-sfp-provider-contracts.ts:524:  assert.match(waterfall, /onTaskSubmitted: async \(task\) => \{/);
+scripts/task2161-preview-fixture.ts:18:  const r=(await pool.query(`INSERT INTO discovery_runs(definition_id,occurrence_key,mode,state,snapshot,actor_id,provider_task_id,results_expires_at,next_poll_at,preview,totals,last_error)
+scripts/fixtures/stage3-b-routing.ts:95:  console.log("PASS C02 routing service: linked identity, duplicate names, actual actor list, accepted election freeze, inactive review, foreign owner zero theft, truthful advisory/hours, human deadline retention. Registered public intake/toolkit/inbox and concurrency proofs remain pending.");
+scripts/test-sfp2001-campaign-staging-certification.ts:736:    // Constraint-retention fixtures are historical rows, not additional
+server/services/cro03/sfp-paid-waterfall.ts:236:        (provider,task_kind,provider_task_id,provider_reference,submission_operation_id,
+server/services/cro03/sfp-paid-waterfall.ts:247:      ON CONFLICT(provider,provider_task_id) DO NOTHING
+server/services/cro03/sfp-paid-waterfall.ts:254:         WHERE provider='outscraper' AND provider_task_id=${input.task.requestId}
+server/services/cro03/sfp-paid-waterfall.ts:787:              onTaskSubmitted: async (task) => {
+server/services/cro03/sfp-paid-waterfall.ts:1279:    providerTaskId: String(task.provider_task_id),
+server/services/cro03/sfp-paid-waterfall.ts:1426:        "unknown", "result", undefined, String(input.task.provider_task_id), "outscraper_results_retention_bound",
+server/services/cro03/sfp-paid-waterfall.ts:1430:        providerReference: String(input.task.provider_task_id),
+server/services/cro03/sfp-paid-waterfall.ts:1431:        externalTaskId: String(input.task.provider_task_id),
+server/services/cro03/sfp-paid-waterfall.ts:1440:       SET state='failed',outcome_code='outscraper_results_retention_bound',
+server/services/cro03/sfp-paid-waterfall.ts:1443:             providerReference: String(input.task.provider_task_id),
+server/services/cro03/sfp-paid-waterfall.ts:1511:        providerUsage: providerUsage("unknown", "result", undefined, String(task.provider_task_id), "outscraper_task_expired"),
+server/services/cro03/sfp-paid-waterfall.ts:1512:        resultData: { retrievalState: "expired", providerReference: String(task.provider_task_id), externalTaskId: String(task.provider_task_id) },
+server/services/cro03/sfp-paid-waterfall.ts:1564:      performOutscraperTaskResults(String(task.provider_task_id), {
+server/services/cro03/sfp-paid-waterfall.ts:1578:        resultData: { retrievalState: providerFailed ? "failed" : "retryable_error", providerReference: String(task.provider_task_id), externalTaskId: String(task.provider_task_id) },
+server/services/cro03/sfp-paid-waterfall.ts:1584:          providerUsage: providerUsage("unknown", "result", undefined, String(task.provider_task_id), "outscraper_task_failed"),
+server/services/cro03/sfp-paid-waterfall.ts:1585:          resultData: { retrievalState: "failed", providerReference: String(task.provider_task_id), externalTaskId: String(task.provider_task_id) },
+server/services/cro03/sfp-paid-waterfall.ts:1617:        providerReference: String(task.provider_task_id),
+server/services/cro03/sfp-paid-waterfall.ts:1618:        externalTaskId: String(task.provider_task_id),
+server/services/cro03/sfp-paid-waterfall.ts:1655:        ? providerUsage("known", "result", fetched.billing.quantity, String(task.provider_task_id), "outscraper_maps_result_count")
+server/services/cro03/sfp-paid-waterfall.ts:1656:        : providerUsage("unknown", "result", undefined, String(task.provider_task_id), "outscraper_maps_result_count");
+server/services/cro03/sfp-paid-waterfall.ts:1668:              providerReference: String(task.provider_task_id),
+server/services/cro03/sfp-paid-waterfall.ts:1669:              externalTaskId: String(task.provider_task_id),
+server/services/cro03/sfp-paid-waterfall.ts:1687:                     providerReference: String(task.provider_task_id),
+server/services/cro03/sfp-paid-waterfall.ts:1708:      const retentionBound = deriveOutscraperResultRetentionBound({
+server/services/cro03/sfp-paid-waterfall.ts:1717:      if (retentionBound.expired) {
+server/services/cro03/sfp-paid-waterfall.ts:1732:               completion_time_lower_bound_at=${retentionBound.completionTimeLowerBoundAt}::timestamptz,
+server/services/cro03/sfp-paid-waterfall.ts:1733:               completion_time_bound_kind=${retentionBound.completionTimeBoundKind},
+server/services/cro03/sfp-paid-waterfall.ts:1734:               results_expires_at=${retentionBound.resultsExpiresAt}::timestamptz,updated_at=NOW()
+server/services/cro03/sfp-paid-waterfall.ts:1876:      ? providerUsage("known", "result", fetched.billing.quantity, String(task.provider_task_id), "outscraper_maps_result_count")
+server/services/cro03/sfp-paid-waterfall.ts:1877:      : providerUsage("unknown", "result", undefined, String(task.provider_task_id), "outscraper_maps_result_count");
+server/services/cro03/sfp-paid-waterfall.ts:1940:          providerReference: String(task.provider_task_id),
+server/services/cro03/sfp-paid-waterfall.ts:1941:          externalTaskId: String(task.provider_task_id),
+server/services/cro03/sfp-paid-waterfall.ts:1964:                 providerReference: String(task.provider_task_id),
+server/services/cro03/sfp-live-provider-adapters.ts:48:  onTaskSubmitted?: (task: OutscraperProviderTask) => Promise<void>;
+scripts/backfill-backup-2026-07-08T21-15-07-291Z.json:4379:      "subject": "Client payment experience matters for retention — here's how we help",
+scripts/generate-stage3-c2-census.ts:1:/** Complete-set retention and transitive source controls. Not runtime acceptance. */
+scripts/generate-stage3-c2-census.ts:89:write("ownership",{status:"Source retention, not acceptance",routes:assigned,panels,claims,
+scripts/generate-stage3-c2-census.ts:103:console.log(`C2 retention:25 routes/30 panels/25 keys/30 claims; ${controls.length} source controls (${seen.size} transitive files), no runtime acceptance inferred`);
+scripts/backfill-backup-2026-07-08T21-10-20-550Z.json:3021:      "subject": "Client payment experience matters for retention — here's how we help",
+scripts/certification/test-scheduled-discovery.ts:48: let r=await runState(pilot.id);check(r.state==='pending'&&!!r.provider_task_id&&!!r.operation_id,'T03 task ID and operation retained');
+scripts/certification/test-scheduled-discovery.ts:58: check((await runState(pilot.id)).state==='pending'&&(await runState(pilot.id)).provider_task_id===r.provider_task_id,'T03 transient poll failure retains the accepted ID for retry');
+scripts/certification/test-scheduled-discovery.ts:192: const lineage=(await q(`SELECT r.id run_id,r.provider_task_id,r.operation_id,r.import_execution_id,a.content_hash,a.mapper_version,a.matching_policy,r.totals,c.id import_history_id,o.billing_state,o.provider_usage_status,o.provider_usage_quantity,o.provider_usage_unit,o.settled_cost_micros FROM discovery_runs r JOIN discovery_artifacts a ON a.run_id=r.id JOIN provider_operations o ON o.id=r.operation_id JOIN csv_imports c ON c.execution_id=r.import_execution_id WHERE r.id=$1`,[pilot.id])).rows[0];
+scripts/certification/test-statement-upload-queue-capability.ts:139:    check(faulted.status === 202 && faulted.body.statementProcessing === "deferred", "A broker fault after retention is a truthful deferred 202, not a 503");
+scripts/certification/test-statement-upload-queue-capability.ts:144:    const fObject = (await pool.query(`SELECT retention_state, validation_state, deleted_at FROM protected_objects WHERE object_ref=$1`, [fReq.protected_object_ref])).rows[0];
+scripts/certification/test-statement-upload-queue-capability.ts:145:    check(fObject.retention_state === "active" && fObject.validation_state === "validated" && fObject.deleted_at === null, "A queue failure does not delete or invalidate the retained file");
+client/src/pages/dashboard/GrowthPlaybook.tsx:617:  { name: "Retention Campaigns", description: "Launch targeted retention sequences for at-risk merchants based on NPS and health scores.", href: "/dashboard/retention-campaigns", icon: Target, badge: "Retention" },
+client/src/pages/DataProcessingAgreement.tsx:87:                <li>Delete or return all Personal Data upon termination of services, at the Controller's choice, unless retention is required by applicable law</li>
+client/src/pages/DataProcessingAgreement.tsx:162:                This DPA remains in effect for the duration of Liberty Bancard's processing of Personal Data on behalf of the Controller. Upon termination of the service agreement, Liberty Bancard will, at the Controller's choice, delete or return all Personal Data within 90 days, unless retention is required by applicable law. Liberty Bancard will certify deletion in writing upon request.
+client/src/lib/legacy-aliases.ts:35:  alias("/dashboard/retention-campaigns", "/dashboard/merchant-success", { tab: "retention" }),
+client/src/pages/CaliforniaPrivacy.tsx:188:                We retain each category of personal information for as long as necessary to fulfill the business purpose for which it was collected, plus any additional period required by law. For specific retention periods, see our <Link href="/data-retention" className="underline">Data Retention Policy</Link>.
+client/src/pages/CaliforniaPrivacy.tsx:195:                Liberty Bancard does not offer financial incentives or price or service differences in exchange for the retention or sale of personal information.
+client/src/pages/CaliforniaPrivacy.tsx:218:                <li><Link href="/data-retention" className="underline">Data Retention Policy</Link></li>
+client/src/pages/DataRetention.tsx:82:      <SEO title="Data Retention & Deletion Policy" description="Liberty Bancard data retention periods and how to request data deletion, access, correction, or portability." path="/data-retention" />
+client/src/pages/DataRetention.tsx:86:          <h1 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-2" data-testid="text-data-retention-heading">
+client/src/pages/DataRetention.tsx:89:          <p className="text-sm text-muted-foreground mb-10" data-testid="text-data-retention-updated">
+client/src/pages/DataRetention.tsx:109:            <section data-testid="section-retention-periods">
+client/src/pages/DataRetention.tsx:112:                We retain your data only for as long as necessary to fulfill the purposes for which it was collected, comply with legal obligations, and support our legitimate business interests. Below are our standard retention periods:
+client/src/pages/DataRetention.tsx:115:                <table className="w-full border-collapse text-sm" data-testid="table-retention-periods">
+client/src/pages/DataRetention.tsx:124:                      <tr key={row.type} className="border-b border-border" data-testid={`row-retention-${row.type.toLowerCase().replace(/\s+/g, "-")}`}>
+client/src/pages/DataRetention.tsx:145:                <li><strong>Right to Deletion:</strong> Request deletion of your personal data, subject to legal retention requirements.</li>
+client/src/pages/DataRetention.tsx:252:            <section data-testid="section-data-retention-contact">
+client/src/pages/DataRetention.tsx:258:                <a href="mailto:privacy@libertybancard.com" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-data-retention-email">
+client/src/pages/DataRetention.tsx:262:                <a href="tel:9542668214" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-data-retention-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/data-retention" })}>
+client/src/pages/dashboard/MerchantSuccessHub.tsx:25:        <TabsTrigger value="retention" data-testid="tab-merchant-success-retention">Retention Campaigns</TabsTrigger>
+client/src/pages/dashboard/MerchantSuccessHub.tsx:30:      <TabsContent value="retention"><RetentionCampaigns /></TabsContent>
+client/src/pages/dashboard/RetentionCampaigns.tsx:61:        return apiRequest("PATCH", `/api/retention-campaign-configs/${config.id}`, body);
+client/src/pages/dashboard/RetentionCampaigns.tsx:63:      return apiRequest("POST", "/api/retention-campaign-configs", body);
+client/src/pages/dashboard/RetentionCampaigns.tsx:66:      queryClient.invalidateQueries({ queryKey: ["/api/retention-campaign-configs"] });
+client/src/pages/dashboard/RetentionCampaigns.tsx:180:    queryKey: ["/api/retention-campaign-configs"],
+client/src/pages/dashboard/RetentionCampaigns.tsx:185:      await apiRequest("DELETE", `/api/retention-campaign-configs/${id}`);
+client/src/pages/dashboard/RetentionCampaigns.tsx:188:      queryClient.invalidateQueries({ queryKey: ["/api/retention-campaign-configs"] });
+client/src/pages/dashboard/RetentionCampaigns.tsx:195:      await apiRequest("PATCH", `/api/retention-campaign-configs/${id}`, { enabled });
+client/src/pages/dashboard/RetentionCampaigns.tsx:198:      queryClient.invalidateQueries({ queryKey: ["/api/retention-campaign-configs"] });
+client/src/pages/dashboard/RetentionCampaigns.tsx:210:    <div className="space-y-6" data-testid="retention-campaigns-page">
+client/src/pages/dashboard/RetentionCampaigns.tsx:239:            When a merchant health alert fires (volume decline, no processing, chargeback spike, etc.), the system automatically creates a task in the assigned rep's queue with a pre-written outreach message. Configure which alert types should trigger retention outreach tasks below.
+client/src/pages/dashboard/RetentionCampaigns.tsx:253:              <p className="font-semibold">No retention campaign configs yet</p>
+client/src/lib/blog-data.ts:206:      { type: "paragraph", text: "Contact your current processor to close your merchant account. Do this in writing (email or fax) and keep a copy. Be prepared for a retention offer, as your current provider may offer to reduce your rates to keep you. Remember that they could have offered you those rates all along. It is also common for processors to delay closing accounts or continue charging fees after the close request. Monitor your bank statements for 60 to 90 days after closing to ensure no additional charges are debited." },
+client/src/lib/blog-data-2.ts:301:      { type: "paragraph", text: "The recurring revenue model has transformed the salon and spa industry. Monthly memberships for services like blowouts, facials, massages, and nail care provide predictable income and increase client retention. Package deals (buy 5 sessions, get 1 free) encourage commitment and prepayment." },
+client/src/lib/blog-data-2.ts:316:        "Use gift cards as a retention tool by offering a bonus card (buy a $100 card, receive a $20 bonus card) during promotions",
+client/src/pages/dashboard/SalesRepHome.tsx:1020:      {/* #1445 — Save Cases priority card: open retention cases assigned to this rep */}
+client/src/lib/blog-data-6.ts:322:    metaDescription: "Best practices for gym membership billing and payment processing. Reduce failed payments, lower processing fees, and improve member retention with better billing.",
+client/src/pages/dashboard/ContactDetail.tsx:726:  retentionCampaignTriggered: boolean | null;
+client/src/pages/dashboard/ContactDetail.tsx:899:                  {score.retentionCampaignTriggered && (
+client/src/pages/dashboard/ContactDetail.tsx:900:                    <Badge variant="secondary" className="text-xs" data-testid="badge-retention-triggered">
+client/src/pages/dashboard/ContactDetail.tsx:2765:                        data-testid={`button-generate-retention-proposal-${review.id}`}
+client/src/pages/dashboard/DataRequests.tsx:27:  const [reviews,setReviews]=useState<Record<number,{subjectContactId:string;reviewEvidence:string;retentionReason:string}>>({});
+client/src/pages/dashboard/DataRequests.tsx:37:        reviewEvidence:request.reviewEvidence ?? "",retentionReason:request.retentionReason ?? ""}:undefined);
+client/src/pages/dashboard/DataRequests.tsx:41:        subjectContactId:Number(review.subjectContactId),reviewEvidence:review.reviewEvidence,retentionReason:review.retentionReason,
+client/src/pages/dashboard/DataRequests.tsx:99:                    const review=reviews[req.id] ?? {subjectContactId:String(req.subjectContactId ?? ""),reviewEvidence:req.reviewEvidence ?? "",retentionReason:req.retentionReason ?? ""};
+client/src/pages/dashboard/DataRequests.tsx:124:                            <Input aria-label={`Retention reason for request ${req.id}`} placeholder="Retention / blocker reason" value={review.retentionReason} onChange={event=>setField("retentionReason",event.target.value)} />
+client/src/pages/dashboard/DataRequests.tsx:128:                            disabled={updateMutation.isPending || !review.subjectContactId || !review.reviewEvidence.trim() || !review.retentionReason.trim()}
+client/src/lib/crm-route-registry.generated.json:3433:    "pattern": "/dashboard/retention-campaigns",
+client/src/lib/crm-route-registry.generated.json:3434:    "currentTarget": "/dashboard/merchant-success?tab=retention",
+client/src/lib/crm-route-registry.generated.json:3439:      "<Route path=\"/dashboard/retention-campaigns\">\n          <Redirect to=\"/dashboard/merchant-success?tab=retention\" />\n        </Route>"
+client/src/lib/crm-route-registry.generated.json:3443:    "component": "/dashboard/merchant-success?tab=retention",
+client/src/lib/crm-route-registry.generated.json:3468:    "futureTarget": "/dashboard/merchant-success?tab=retention",
+client/src/lib/crm-route-registry.generated.json:6700:        "retention"
+client/src/lib/crm-route-registry.generated.json:6726:          "selector": "retention",
+client/src/lib/crm-route-registry.generated.json:6755:        "retention"
+client/src/lib/crm-destination-state.ts:189:export const merchantSuccessViews = ["reviews", "testimonials", "nps", "retention"] as const;
+client/src/pages/dashboard/GhlSequenceGuide.tsx:673:    id: "retention",
+client/src/pages/dashboard/GhlSequenceGuide.tsx:2065:            The complete customer journey — 9 workflows covering prospecting, qualifying, closing, onboarding, go-live, retention, and win-back.
+client/src/lib/blog-data-5.ts:140:        "Cancellation and pause options: Flexible tools for pausing subscriptions or processing cancellations with optional retention offers."
+client/src/lib/blog-data-5.ts:153:      { type: "paragraph", text: "The way you structure your subscription pricing affects not only revenue but also processing costs. Monthly billing provides steady cash flow but results in twelve transactions per customer per year, each with a per-transaction fee. Annual billing reduces transaction costs to one per year and typically improves retention since customers commit for a longer period. Offering a discount for annual billing, such as two months free, can shift a significant percentage of your customer base to annual plans." },
+client/src/lib/blog-data-5.ts:159:      { type: "paragraph", text: "Recurring billing done right creates predictable revenue, reduces administrative overhead, and improves customer retention. The key is choosing a platform with robust recovery tools, maintaining compliance with card brand rules, and communicating clearly with your customers at every stage of the billing cycle." },
+client/src/lib/blog-data-5.ts:197:      { type: "paragraph", text: "Tax-deductible donation receipts are both a legal requirement and a donor retention tool. Your payment processing system should automatically generate receipts that include your organization's name and EIN, the donation amount, the date of the gift, a statement that no goods or services were provided in exchange (or the fair market value of any goods received), and your organization's contact information." },
+client/src/lib/blog-data-4.ts:29:      { type: "paragraph", text: "When you call your processor, do not speak with general customer service. Ask to be transferred to the retention or account management department. These teams have the authority to adjust rates and waive fees. General support representatives typically do not." },
+client/src/lib/blog-data-4.ts:221:      { type: "paragraph", text: "Start by documenting your monthly volume trend over the past 12 months. Calculate your average monthly volume and your peak months. Present these numbers to your processor's retention or account management team and specifically request a rate review based on your current volume." },
+server/services/deal-blueprint.ts:85:  "riskFlags": ["Any red flags for underwriting or retention risk (empty array if none)"]
+server/services/queue-manager.ts:1645:            notes: "Queue crossed the consecutive-failure review threshold. See canonical BullMQ retention for operational details.",
+server/services/queue-manager.ts:3325:        notes: "BullMQ job exhausted all configured attempts. See canonical BullMQ retention for operational details.",
+server/services/churn-score.ts:317:    retentionCampaignTriggered: existing?.retentionCampaignTriggered ?? false,
+server/services/churn-score.ts:398:        // Trigger retention via health alert engine (High/Critical, not already triggered)
+server/services/churn-score.ts:399:        if ((tier === "High" || tier === "Critical") && !score.retentionCampaignTriggered) {
+server/services/churn-score.ts:555: * Wire into the existing retention campaign engine:
+server/services/churn-score.ts:557: * picks it up and generates the configured retention task/outreach.
+server/services/churn-score.ts:566:    // Map tier to an alert type that retention campaign configs are keyed on
+server/services/churn-score.ts:576:      await storage.updateMerchantHealthScore(scoreId, { retentionCampaignTriggered: true });
+server/services/churn-score.ts:592:    await storage.updateMerchantHealthScore(scoreId, { retentionCampaignTriggered: true });
+server/services/churn-score.ts:617:      message: `${name} has been flagged as ${tier} churn risk by the AI scoring model. Immediate retention action required.`,
+server/services/sdr/outscraper.ts:118:  onTaskSubmitted?: (task: OutscraperProviderTask) => Promise<void>;
+server/services/sdr/outscraper.ts:451:      await deps.onTaskSubmitted?.(task);
+server/data/seeds/sequences.json:3217:    "description": "Nurture for gym and fitness studio inbound leads. Recurring billing and member retention focused.",
+server/data/seeds/sequences.json:4596:    "description": "Automated retention sequence for merchants who have reached critical churn risk. Offers a personalized account review, rate guarantee, and direct outreach from the merchant success team.",
+server/data/public-claim-evidence.ts:48:      "Traced source behavior: multipart admission with PDF/JPG/PNG content sniffing and a 10 MB cap, retained as an AES-256-GCM protected object (production fails closed without a key), durable command enqueue, website auto-analysis held by a default-off setting. The public Privacy Policy states information may be shared with service providers and is not sold. No retention period or deletion process is established, so none may be promised. Configuration in production is not verified by this record.",
+server/data/public-claim-evidence.ts:435:    needed: "Approved human, processor and AI handling disclosure plus retention and deletion policy",
+server/data/glossary-terms.ts:2923:- Increased retention and repeat purchase rates
+client/src/hooks/use-retained-create-intent.ts:37:    try { if(next) globalThis.sessionStorage?.setItem(KEY,JSON.stringify(next)); else globalThis.sessionStorage?.removeItem(KEY); } catch { /* storage unavailable: in-memory retention only */ }
+server/tests/sfp-outs-task-query.test.ts:73:      (id,provider,task_kind,provider_task_id,submission_operation_id,stage_run_id,cohort_run_id,
+server/services/business-vault.ts:3599:Merchant cancellation        Your assigned rep          Manager retention call
+server/services/business-vault.ts:5242:  → Churn hurts RPV — retention is critical
+server/services/business-vault.ts:5573:    merchantDataHandlingPolicy: "What data is collected, how it's stored, who has access, data retention periods, and merchant deletion request process.",
+server/tests/statement-command-worker.test.ts:114:  // The public intake route is the one producer where retention, not the queue, is the commitment: a refused enqueue
+server/services/seed-vertical-campaigns.ts:2573:        subject: "Client payment experience matters for retention — here's how we help",
+server/storage.ts:98:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/tickets.ts:94:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/campaigns.ts:96:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/partners.ts:94:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/templates.ts:94:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/sdr.ts:98:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/residuals.ts:96:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/misc.ts:98:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/workflows.ts:97:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/reviews.ts:94:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/reviews.ts:273:    return db.select().from(retentionCampaignConfigs).orderBy(asc(retentionCampaignConfigs.alertType));
+server/storage/reviews.ts:277:    const [row] = await db.select().from(retentionCampaignConfigs).where(eq(retentionCampaignConfigs.id, id));
+server/storage/reviews.ts:282:    const [row] = await db.select().from(retentionCampaignConfigs).where(and(eq(retentionCampaignConfigs.alertType, alertType), eq(retentionCampaignConfigs.enabled, true)));
+server/storage/reviews.ts:287:    const [row] = await db.insert(retentionCampaignConfigs).values(config).returning();
+server/storage/reviews.ts:292:    const [row] = await db.update(retentionCampaignConfigs).set({ ...updates, updatedAt: new Date() }).where(eq(retentionCampaignConfigs.id, id)).returning();
+server/storage/reviews.ts:297:    const result = await db.delete(retentionCampaignConfigs).where(eq(retentionCampaignConfigs.id, id));
+server/storage/prospects.ts:94:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/services/statement-command-worker.ts:254:      object.validationState !== "validated" || object.retentionState !== "active") {
+server/services/statement-command-worker.ts:273:    // Do not delete a caller-owned object here: its retention and cleanup are
+server/storage/tasks.ts:99:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/routes/rate-review.ts:388:  // === CRM: generate retention proposal from a rate review ===
+server/storage/merchants.ts:94:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/contacts.ts:96:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/comm-logs.ts:94:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/audit.ts:96:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/deals.ts:95:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/routes/onboarding-stages.ts:245:      const pendingTouchpoints = allTasks.filter(t => t.source === "retention_touchpoint");
+server/routes/onboarding-stages.ts:266:  // ── POST: Create scheduled retention touchpoints for a contact ────────────
+server/routes/onboarding-stages.ts:267:  app.post("/api/contacts/:contactId/retention-touchpoints", requireRole("admin", "manager"), async (req, res) => {
+server/routes/onboarding-stages.ts:310:          source: "retention_touchpoint",
+server/routes/onboarding-stages.ts:316:        action: "retention_touchpoints_created",
+server/storage/health.ts:94:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/partner-orgs.ts:94:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/automation.ts:95:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/automation.ts:224:    throw new Error("Step deletion unavailable until history/dependency retention is certified. Edit the step or retire the sequence; receipts are retained.");
+server/storage/documents.ts:94:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/sunbiz.ts:94:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/notes.ts:94:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/businesses.ts:94:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/routes/imports.ts:489:      { url: "/data-retention", priority: "0.2", changefreq: "yearly" },
+server/routes/campaigns.ts:1232:        code:"retention_contract_unverified"});
+server/services/protected-object.ts:51:  retentionState: string;
+server/services/protected-object.ts:108:    retentionState: protectedObjects.retentionState,
+server/services/protected-object.ts:125:    retentionState: protectedObjects.retentionState,
+server/services/protected-object.ts:133:  if (!row || row.validationState !== "validated" || row.retentionState !== "active") {
+server/services/protected-object.ts:158:    retentionState: protectedObjects.retentionState,
+server/services/protected-object.ts:175:    retentionState: "deleted",
+server/routes/review-queue.ts:132:            notes: "Dead-letter event; operational details remain in canonical BullMQ retention.",
+server/routes/lifecycle.ts:310:  app.get("/api/retention-campaign-configs", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+server/routes/lifecycle.ts:319:  app.post("/api/retention-campaign-configs", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+server/routes/lifecycle.ts:339:  app.patch("/api/retention-campaign-configs/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+server/routes/lifecycle.ts:351:  app.delete("/api/retention-campaign-configs/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+server/services/sla-worker.ts:1203:      if ((alert as any).retentionTaskCreated) continue;
+server/services/sla-worker.ts:1233:          taskSource: "retention_campaign",
+server/services/sla-worker.ts:1237:      await storage.updateHealthAlert(alert.id, { retentionTaskCreated: true } as any);
+server/services/vertical-advisor-prompts.ts:158:      "Appointment no-shows and last-minute cancellations drive card-on-file retention requests — processors must support stored credentials.",
+server/services/contact-deletion-service.ts:9: * certified, preview AND execution return the same explicit retention blocker.
+server/services/contact-deletion-service.ts:13:import { blockedContactErasure } from "./contact-retention-policy";
+server/services/content-workspace.ts:26:export const LIFECYCLE_NAME_RE = /onboard|merchant|customer|retention|churn|win-?back|renewal|referral|go-live|support|review request|welcome/i;
+server/services/provider-manifest.ts:183:    notes: "Maps result, Leads & Contacts contact, and task-poll request work are reserved in their declared units. Async request IDs are durably attributed and polled through SFP operation authority before results are accepted; repeated polls add no Maps result usage. Current GET documentation omits a completion timestamp and says expired results return Pending, so retention uses a conservative request-start/last-confirmed-pending lower-bound + 4h cutoff, distinct from the 24h submission deadline.",
+server/services/digest-service.ts:149:<p>The following merchants are classified as <strong>High</strong> or <strong>Critical</strong> churn risk and require immediate retention attention:</p>
+server/services/merchant-attrition-monitor.ts:148:  // 1. Health alert (used for cooldown tracking + retention campaign pickup)
+server/services/merchant-attrition-monitor.ts:189:      retentionCampaignTriggered: false,
+server/services/nba-service.ts:330:        reasonCode: "retention_sequence",
+server/services/scheduled-discovery/service.ts:58: const runs=await query(sql`SELECT r.id,r.definition_id,r.mode,r.state,r.created_at,r.submitted_at,r.last_pending_at,r.next_poll_at,r.results_expires_at,r.provider_task_id,r.operation_id,r.import_execution_id,r.saturated,r.preview - 'rows' AS preview,r.totals,r.last_error,r.completed_at,
+server/services/scheduled-discovery/service.ts:75: const r=await one(sql`SELECT r.id,r.definition_id,r.provider_task_id,r.import_execution_id,r.state,r.preview - 'rows' AS preview,r.totals,r.last_error,
+server/services/scheduled-discovery/service.ts:169: await settleSearchProviderOperation(run.operation_id,{outcome:'completed',quantity:result.consideredResultCount,unit:'result',providerRequestId:run.provider_task_id??undefined});
+server/services/scheduled-discovery/service.ts:184: await settleSearchProviderOperation(run.operation_id,{outcome:'completed',quantity:artifact.raw_count,unit:'result',providerRequestId:run.provider_task_id??undefined});
+server/services/scheduled-discovery/service.ts:192: const envelope={runId:run.id,providerTaskId:run.provider_task_id,contentHash:artifact.content_hash,mapperVersion:MAPPER_VERSION,matchingPolicy:MATCHING_POLICY};
+server/services/scheduled-discovery/service.ts:228:   if(op?.provider_request_id){await db.execute(sql`UPDATE discovery_runs SET provider_task_id=${op.provider_request_id},state='pending',next_poll_at=now(),results_expires_at=COALESCE(submitted_at,created_at)+interval '4 hours' WHERE id=${run.id}::uuid`);return {state:'pending'};}
+server/services/scheduled-discovery/service.ts:235:    await db.execute(sql`UPDATE discovery_runs SET state='expired',last_error='Provider results retention or submission deadline expired',updated_at=now() WHERE id=${run.id}::uuid`);await releaseLane(run.id);return {state:'expired'};
+server/services/scheduled-discovery/service.ts:239:    const response=await performOutscraperTaskResults(run.provider_task_id,{fetchImpl:deps.fetchImpl,beforeRequest:()=>markSearchProviderDispatchBoundary(reservation)});
+server/services/scheduled-discovery/service.ts:275:    onTaskSubmitted:async task=>{
+server/services/scheduled-discovery/service.ts:277:     await db.execute(sql`UPDATE discovery_runs SET provider_task_id=${task.requestId},state='pending',last_pending_at=clock_timestamp(),results_expires_at=clock_timestamp()+interval '4 hours',next_poll_at=clock_timestamp()+interval '30 seconds',updated_at=now() WHERE id=${run.id}::uuid`);
+server/services/scheduled-discovery/service.ts:295:   const actual=await one(sql`SELECT provider_task_id FROM discovery_runs WHERE id=${run.id}::uuid`);
+server/services/scheduled-discovery/service.ts:296:   if(dispatched&&!actual?.provider_task_id){await db.execute(sql`UPDATE discovery_runs SET state='submission_unknown',last_error=${safeError(e)},updated_at=now() WHERE id=${run.id}::uuid`);}
+server/services/scheduled-discovery/service.ts:315:   await tx.execute(sql`UPDATE discovery_runs SET provider_task_id=${input.taskId},state='pending',next_poll_at=now(),results_expires_at=COALESCE(submitted_at,created_at)+interval '4 hours',updated_at=now() WHERE id=${runId}::uuid`);
+server/services/scheduled-discovery/policy.ts:16:// JSONB normalizes object key order; hash the same canonical form before and after retention.
+client/src/components/discovery/ScheduledDiscoveryPanel.tsx:12:type Run={id:string;definition_id:string;mode:string;state:string;created_at:string;provider_task_id:string|null;operation_id:string|null;import_execution_id:string|null;import_id:number|null;content_hash:string|null;mapper_version:string|null;matching_policy:string|null;results_expires_at:string|null;next_poll_at:string|null;last_error:string|null;saturated:boolean;preview:any;totals:any;billing_state:string|null;provider_usage_quantity:string|null;provider_usage_unit:string|null;settled_cost_micros:string|null};
+client/src/components/discovery/ScheduledDiscoveryPanel.tsx:115:     <p>Provider task: {r.provider_task_id??'Not confirmed'} · Next poll: {fmt(r.next_poll_at)}</p><p>Retention bound: {fmt(r.results_expires_at)}</p>
+client/src/App.tsx:498:        <Route path="/data-retention" component={DataRetention} />
+client/src/App.tsx:777:        <Route path="/dashboard/retention-campaigns">
+client/src/App.tsx:778:          <LegacyAlias from="/dashboard/retention-campaigns" />
+server/services/contact-retention-policy.ts:3: * retention graph is certified. A disposable label is not evidence authority.
+server/services/contact-retention-policy.ts:7:  reason: "retention_contract_unverified",
+server/storage/_shared.ts:93:  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+server/storage/README.md:45:  | reviews.ts | ReviewsStorage | Review requests, testimonial submissions, NPS, merchant referrals, retention configs |

@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import {randomUUID,createHash} from 'node:crypto';
+import {ZipArchive} from 'archiver';
+import {PassThrough} from 'node:stream';
+import type {Pool} from 'pg';
+export async function verifyManualImportCompatibility(pool:Pool,actorId:string){
+ const {readTabularImportWithCoordinates}=await import('../../../server/services/tabular-import-reader');
+ const {claimCsvExecution}=await import('../../../server/services/import-execution');
+ const {processPersistedCsvImport}=await import('../../../server/services/csv-import-processor');
+ const {storage}=await import('../../../server/storage');
+ const tag=randomUUID().slice(0,8);
+ const raw={name:`Portable manual ${tag}`,place_id:`portable-${tag}`,website:`https://portable-${tag}.net`,address:'78 Manual Street',city:'Miami',state:'FL',postal_code:'33130',email_1:`portable.one.${tag}@gmail.com`,email_2:`portable.two.${tag}@gmail.com`,do_not_contact:'yes'};
+ const headers=Object.keys(raw),values=Object.values(raw);
+ const csv=Buffer.from(headers.join(',')+'\n'+values.join(',')+'\n');
+ const archive=new ZipArchive({zlib:{level:6}});const stream=new PassThrough(),parts:Buffer[]=[];
+ stream.on('data',b=>parts.push(Buffer.from(b)));const done=new Promise<Buffer>((resolve,reject)=>{stream.on('end',()=>resolve(Buffer.concat(parts)));archive.on('error',reject);stream.on('error',reject);});archive.pipe(stream);
+ const escape=(s:string)=>s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');
+ const sheet=[headers,values].map((row,n)=>`<row r="${n+1}">${row.map((v,i)=>`<c r="${String.fromCharCode(65+i)}${n+1}" t="inlineStr"><is><t>${escape(v)}</t></is></c>`).join('')}</row>`).join('');
+ archive.append('<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Manual evidence" sheetId="1" r:id="r1"/></sheets></workbook>',{name:'xl/workbook.xml'});
+ archive.append('<Relationships><Relationship Id="r1" Target="worksheets/sheet1.xml"/></Relationships>',{name:'xl/_rels/workbook.xml.rels'});
+ archive.append(`<worksheet><sheetData>${sheet}</sheetData></worksheet>`,{name:'xl/worksheets/sheet1.xml'});await archive.finalize();const xlsx=await done;
+ const before=Number((await pool.query('SELECT count(*) n FROM provider_operations')).rows[0].n);
+ const run=async(bytes:Buffer,filename:string,format:string)=>{
+  const parsed=await readTabularImportWithCoordinates(bytes,filename);
+  const claim=await claimCsvExecution({fileHash:createHash('sha256').update(bytes).digest('hex'),totalRows:parsed.rows.length,actorType:'user',actorId,sourcePayload:parsed.rows,metadata:{sourceFormat:format,fileName:filename,sourceCoordinates:parsed.coordinates}});
+  const history=await storage.createCsvImport({executionId:claim.execution.id,fileName:filename,sourceFormat:format,importSource:format,totalRows:parsed.rows.length,status:'processing',importedBy:actorId});
+  await processPersistedCsvImport({records:parsed.rows,executionClaim:claim,importRecord:history,sourceFormat:format,actor:{actorType:'user',actorId},filename});
+  const e=(await pool.query('SELECT status,metadata,source_payload FROM import_executions WHERE id=$1',[claim.execution.id])).rows[0];assert.equal(e.status,'completed');assert(!e.metadata.matchingPolicy&&!e.metadata.scheduledDiscoveryRunId);assert.deepEqual(e.source_payload,parsed.rows);
+  return parsed;
+ };
+ const a=await run(csv,`portable-${tag}.csv`,'google_maps_outscraper');const b=await run(xlsx,`portable-${tag}.xlsx`,'google_maps_outscraper');
+ assert.deepEqual(a.rows,[raw]);assert.deepEqual(b.rows,a.rows);assert.equal(b.coordinates[0].sheetName,'Manual evidence');assert.equal(b.coordinates[0].worksheetRow,2);
+ assert.equal(Number((await pool.query('SELECT count(*) n FROM contacts WHERE email=ANY($1)',[[raw.email_1,raw.email_2]])).rows[0].n),2,'CSV/XLSX replay keeps every mailbox once');
+ assert((await pool.query('SELECT do_not_contact,email_status FROM contacts WHERE email=ANY($1)',[[raw.email_1,raw.email_2]])).rows.every(r=>r.do_not_contact&&r.email_status!=='valid'));
+ const apollo=Buffer.from(`First Name,Last Name,Company,Email,Website,Company Address,Company City,Company State,organization_id\nPat,Owner,Portable Apollo ${tag},apollo.${tag}@gmail.com,https://apollo-${tag}.net,12 Apollo Street,Miami,FL,apollo-${tag}\n`);
+ await run(apollo,`apollo-${tag}.csv`,'apollo_lead_list');
+ const custom=Buffer.from(`first_name,last_name,email,do_not_contact,email_status\nAlex,Local,custom.${tag}@gmail.com,yes,valid\n`);await run(custom,`custom-${tag}.csv`,'custom');
+ const contacts=(await pool.query('SELECT first_name,email,email_status,do_not_contact FROM contacts WHERE email=ANY($1)',[[`apollo.${tag}@gmail.com`,`custom.${tag}@gmail.com`]])).rows;
+ assert.equal(contacts.length,2);assert(contacts.some(r=>r.first_name==='Pat'));assert(contacts.some(r=>r.first_name==='Alex'&&r.do_not_contact&&r.email_status!=='valid'));
+ assert.equal(Number((await pool.query('SELECT count(*) n FROM provider_operations')).rows[0].n),before,'Manual fixture intake makes no provider purchase');
+ console.log('PASS TASK2161_MANUAL_COMPATIBILITY CSV=true XLSX=true Apollo=true custom=true retainedOriginals=true defaultPolicy=true multiEmail=true restrictions=true providerCalls=0');
+}

@@ -245,6 +245,7 @@ export const WORKER_CAPABILITY_GROUPS = {
     * and durable deployment/job ownership in the reserve/dispatch path. This
     * group controls whether the bounded BullMQ ticks are scheduled.
    */
+  "scheduled-discovery": ["scheduled-discovery"],
   "sfp-continuous-discovery": [
     "sfp-continuous-discovery",
     "sfp-continuous-validation",

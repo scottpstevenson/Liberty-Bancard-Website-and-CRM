@@ -39,29 +39,32 @@ if (!process.env.APOLLO_API_KEY) process.env.APOLLO_API_KEY = "test-fake-key";
 if (!process.env.OUTSCRAPER_API_KEY) process.env.OUTSCRAPER_API_KEY = "test-fake-key";
 
 let liveNetworkCalls = 0;
-// Apollo's search is a strict two-step, identity-matched flow: an org search
-// (matched by exact normalized name/domain + city/state) followed by a
-// people search scoped to the matched organization id. The fake below
-// mirrors that contract exactly so performApolloSearch's real matching logic
-// (never bypassed by this test) resolves to a real "success" outcome.
+// Current Apollo contract: employer-scoped search returns people IDs, then a
+// separately accounted bulk enrichment returns business email. Outscraper must
+// match the pinned name AND returned locality; query labels are not evidence.
 const apolloOrgName = `sfp-paid-wf-nodomain-${nonce}`.toLowerCase();
-const fetchImpl: typeof fetch = async (url: any) => {
+const fetchImpl: typeof fetch = async (url: any,init) => {
   liveNetworkCalls++;
-  const u = String(url);
+  const u = String(url),body=JSON.parse(String(init?.body??'{}'));
+  const response=(data:any,credits:string)=>new Response(JSON.stringify({...data,credits_consumed:credits}),{status:200,headers:{'x-request-id':`fixture-${nonce}-${liveNetworkCalls}`}});
   if (u.includes("mixed_companies/search")) {
-    return new Response(JSON.stringify({
-      organizations: [{ id: "org-1", name: apolloOrgName, city: "miami", state: "fl" }],
-    }), { status: 200, headers: { "x-credits-used": "1" } });
+    const known=!!body.q_organization_domains||String(body.q_organization_name??'').includes('-domain-');
+    return response({organizations:[{id:known?'org-known':'org-1',name:known?`sfp-paid-wf-domain-${nonce}`:apolloOrgName,
+      ...(known?{primary_domain:`already-known-${nonce}.example`}:{}),city:'Miami',state:'FL'}]},'1');
   }
   if (u.includes("mixed_people/api_search")) {
-    return new Response(JSON.stringify({
-      people: [{ id: "p-1", organization: { id: "org-1" }, first_name: "Jane", last_name: "Owner", title: "Owner", email: "jane@fake-dental.example" }],
-    }), { status: 200, headers: { "x-credits-used": "1" } });
+    assert.equal(body.organization_ids.length,1);const id=body.organization_ids[0];
+    assert(['org-1','org-known'].includes(id));
+    return response({people:[{id:`person-${id}`,organization:{id},first_name:'Jane',last_name:'Owner',title:'Owner',has_email:true}]},'0');
+  }
+  if(u.includes('/people/bulk_match')){
+    assert(!/reveal_personal_emails|reveal_phone_number|run_waterfall/.test(JSON.stringify(body)));
+    return response({matches:body.details.map((person:any)=>({id:person.id,organization_id:person.id.slice('person-'.length),first_name:'Jane',last_name:'Owner',title:'Owner',email:`jane.${person.id}@qa-dental.net`}))},'0.3');
   }
   if (u.includes("outscraper")) {
-    return new Response(JSON.stringify([[{ name: "Fake Dental", phone: "+13055551234", full_address: "1 Main St, Miami, FL" }]]), { status: 200 });
+    return new Response(JSON.stringify([[{name:apolloOrgName,phone:'+13055551234',full_address:'1 Main St, Miami, FL',city:'Miami',state:'FL',place_id:`fixture-${nonce}`}]]),{status:200});
   }
-  throw new Error(`unexpected live network call in test: ${u}`);
+  throw new Error(`unexpected fixture endpoint: ${new URL(u).pathname}`);
 };
 
 async function main() {
@@ -113,7 +116,7 @@ async function main() {
   );
   check(result.processed === 2, "processes both cohort members");
   check(result.succeeded >= 1, "at least one provider call succeeds (Apollo person, Outscraper on the no-domain business)");
-  check(liveNetworkCalls >= 1 && liveNetworkCalls <= 6, `only the faked fetchImpl services calls, no real network path (saw ${liveNetworkCalls})`);
+  check(liveNetworkCalls >= 1 && liveNetworkCalls <= 10, `only the faked fetchImpl services calls, no real network path (saw ${liveNetworkCalls})`);
 
   const paidEvidence = (await pool.query(
     `SELECT provider, business_id, subject_type FROM sfp_paid_candidate_evidence WHERE business_id = ANY($1::int[]) ORDER BY provider`,

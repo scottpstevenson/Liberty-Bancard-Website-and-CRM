@@ -19,7 +19,7 @@ import {isRecoverableImportRowFailure} from "./canonical-import-recovery-outcome
 let registeredProcessor: PersistedCsvProcessor | null = null;
 
 /**
- * Express registers the worker once while routes are built. Both uploads and
+ * Express may register the manual processor during upload. Provider rows always use the same cold-start path; both uploads and
  * recovery subsequently call this request-free processor boundary.
  */
 export function registerPersistedCsvProcessor(processor: PersistedCsvProcessor): void {
@@ -27,6 +27,7 @@ export function registerPersistedCsvProcessor(processor: PersistedCsvProcessor):
 }
 
 export async function processPersistedCsvImport(args: Parameters<PersistedCsvProcessor>[0]) {
+  if (PROVIDER_CSV_SOURCE_FORMATS.has(args.sourceFormat)) return recoverProviderCsvImport(args);
   if (registeredProcessor) return registeredProcessor(args);
   return recoverPersistedCsvImport(args);
 }

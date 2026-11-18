@@ -1,3 +1,4 @@
+import {registerScheduledDiscoveryRoutes} from "./routes/scheduled-discovery";
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
@@ -279,6 +280,7 @@ export async function registerRoutes(
   registerFieldRoutesRoutes(app);            // #1861 — field sales routes & visits
   registerPilotPreviewRoutes(app);           // #1875 — pilot preview (admin/manager gate)
   registerFieldSalesRollbackRoutes(app);     // #1875 — field sales rollback controls (admin only)
+  registerScheduledDiscoveryRoutes(app);
   registerSourceRegistryRoutes(app);         // MI-02 — South Florida source registry
 
   // Must be registered before the API 404 catch-all — extracts route

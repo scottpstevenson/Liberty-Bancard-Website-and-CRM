@@ -6,6 +6,7 @@ export const QUEUE_NAMES = {
   ENRICHMENT: "enrichment",
   FREE_ENRICHMENT_LANE: "free-enrichment-lane",
   DISCOVERY: "discovery",
+  SCHEDULED_DISCOVERY: "scheduled-discovery",
   DIGESTS: "digests",
   MID_INGESTION: "mid-ingestion",
   ONBOARDING_REMINDER: "onboarding-reminder",

@@ -18,7 +18,7 @@ const THIS_FILE = "scripts/scan-paid-provider-adapters.ts";
 const URL_MARKERS: Partial<Record<ProviderSourceId, readonly string[]>> = {
   zerobounce: ["api.zerobounce.net"],
   serper: [["google", "serper", "dev"].join(".")],
-  outscraper: ["api.app.outscraper.com"],
+  outscraper: ["api.app.outscraper.com", "//api.outscraper.com", "//api.outscraper.cloud"],
   apify: ["api.apify.com"],
   apollo: ["api.apollo.io"],
   proxycurl: ["nubela.co/proxycurl"],
@@ -142,6 +142,13 @@ for (const file of sourceFiles(SCAN_ROOT)) {
   }
 }
 
+// Task 2161: wrapper/transport calls are paid even when the endpoint is assembled elsewhere.
+for(const file of sourceFiles(SCAN_ROOT)) {
+ const name=normalizePath(file),body=stripComments(readFileSync(file,"utf8"));
+ if(!/\b(?:performOutscraperSearch|performOutscraperTaskResults|executeSfpOutscraperDiscovery)\s*\(/.test(body))continue;
+ const entry=PROVIDER_SOURCE_MANIFEST.find(r=>r.id==='outscraper')!;
+ if(!entry.approvedCallers.includes(name)&&!entry.approvedAdapters.includes(name))errors.push(`${name}: Outscraper caller outside canonical manifest`);
+}
 if (errors.length > 0) {
   console.error("Paid provider adapter scan failed:");
   for (const error of errors.sort()) console.error(`- ${error}`);

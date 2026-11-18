@@ -335,21 +335,24 @@ export function IntegrationStatus({ configured, enabled, executionState, lastSuc
   </section>;
 }
 
-export function CrmDetailDrawer({ open, onOpenChange, title, description, children, dirty = false }: {
+export function CrmDetailDrawer({ open, onOpenChange, title, description, children, dirty = false, fullWidthMobile = false }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   description?: string;
   children: ReactNode;
   dirty?: boolean;
+  /** Opt in when a detail workflow needs the full phone viewport. */
+  fullWidthMobile?: boolean;
 }) {
+  const mobile = useIsMobile();
   const requestOpenChange = (next: boolean) => {
     if (!next && dirty && !window.confirm("Discard unsaved changes?")) return;
     onOpenChange(next);
   };
   return (
     <Sheet open={open} onOpenChange={requestOpenChange}>
-      <SheetContent className="flex w-full flex-col overflow-y-auto p-0 sm:max-w-[480px] max-sm:inset-0 max-sm:h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0">
+      <SheetContent style={fullWidthMobile && mobile ? { width: "100vw", maxWidth: "none" } : undefined} className="flex w-full flex-col overflow-y-auto p-0 sm:max-w-[480px] max-sm:inset-0 max-sm:h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0">
         <SheetHeader className="border-b p-4 pr-16 text-left">
           <SheetTitle>{title}</SheetTitle>
           {description && <SheetDescription>{description}</SheetDescription>}

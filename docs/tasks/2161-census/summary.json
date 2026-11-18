@@ -1,0 +1,122 @@
+[
+  {
+    "family": "transport",
+    "pattern": "performOutscraperSearch|performOutscraperTaskResults",
+    "scope": "server client/src shared scripts migrations",
+    "matches": 24,
+    "files": 9,
+    "reviewed": 24,
+    "command": "rg -n -e 'performOutscraperSearch|performOutscraperTaskResults' server client/src shared scripts migrations",
+    "disposition": "Transport/wrapper reuse, both endpoint contracts, governed submission and polling."
+  },
+  {
+    "family": "async",
+    "pattern": "onTaskSubmitted|provider_task_id|retention",
+    "scope": "server client/src shared scripts migrations",
+    "matches": 292,
+    "files": 118,
+    "reviewed": 292,
+    "command": "rg -n -e 'onTaskSubmitted|provider_task_id|retention' server client/src shared scripts migrations",
+    "disposition": "Task-ID/retention owners classified; unrelated privacy, marketing and storage retention left unchanged."
+  },
+  {
+    "family": "processor",
+    "pattern": "registerPersistedCsvProcessor|processPersistedCsvImport",
+    "scope": "server client/src shared scripts migrations",
+    "matches": 27,
+    "files": 13,
+    "reviewed": 27,
+    "command": "rg -n -e 'registerPersistedCsvProcessor|processPersistedCsvImport' server client/src shared scripts migrations",
+    "disposition": "Stable provider cold-start path and existing manual registration/recovery preserved."
+  },
+  {
+    "family": "materializer",
+    "pattern": "materializeCanonicalProviderImportRow|resolveOrganization",
+    "scope": "server client/src shared scripts migrations",
+    "matches": 108,
+    "files": 32,
+    "reviewed": 108,
+    "command": "rg -n -e 'materializeCanonicalProviderImportRow|resolveOrganization' server client/src shared scripts migrations",
+    "disposition": "Shared resolver/materializer reused; durable business outcome facts added at commit."
+  },
+  {
+    "family": "validation",
+    "pattern": "validation-intent|processValidationIntent|recoverValidationIntents",
+    "scope": "server client/src shared scripts migrations",
+    "matches": 89,
+    "files": 24,
+    "reviewed": 89,
+    "command": "rg -n -e 'validation-intent|processValidationIntent|recoverValidationIntents' server client/src shared scripts migrations",
+    "disposition": "Current intent recovery and worker only; actual queue/receipt proved."
+  },
+  {
+    "family": "legacy-broad",
+    "pattern": "runZeroBounceAutoRun|ZB_UNATTENDED_BROAD_AUTO_RUN_CONTAINED",
+    "scope": "server client/src shared scripts migrations",
+    "matches": 10,
+    "files": 4,
+    "reviewed": 10,
+    "command": "rg -n -e 'runZeroBounceAutoRun|ZB_UNATTENDED_BROAD_AUTO_RUN_CONTAINED' server client/src shared scripts migrations",
+    "disposition": "Broad unattended auto-run remains contained; no activation."
+  },
+  {
+    "family": "legacy-cohort",
+    "pattern": "processLegacyCohortValidationTick",
+    "scope": "server client/src shared scripts migrations",
+    "matches": 1,
+    "files": 1,
+    "reviewed": 1,
+    "command": "rg -n -e 'processLegacyCohortValidationTick' server client/src shared scripts migrations",
+    "disposition": "Historical cohort implementation remains unscheduled."
+  },
+  {
+    "family": "workspace",
+    "pattern": "/dashboard/lead-imports|tab=imports",
+    "scope": "server client/src shared scripts migrations",
+    "matches": 16,
+    "files": 10,
+    "reviewed": 16,
+    "command": "rg -n -e '/dashboard/lead-imports|tab=imports' server client/src shared scripts migrations",
+    "disposition": "Current Imports workspace/history extended; compatibility redirects unchanged."
+  },
+  {
+    "family": "paid-approval",
+    "pattern": "explicitPaidApproval",
+    "scope": "server client/src shared scripts migrations",
+    "matches": 28,
+    "files": 13,
+    "reviewed": 28,
+    "command": "rg -n -e 'explicitPaidApproval' server client/src shared scripts migrations",
+    "disposition": "Existing approved adapter compatibility only; no new explicitPaidApproval assignment in discovery."
+  },
+  {
+    "family": "unknown",
+    "pattern": "submission_unknown",
+    "scope": "server client/src shared scripts migrations",
+    "matches": 18,
+    "files": 6,
+    "reviewed": 18,
+    "command": "rg -n -e 'submission_unknown' server client/src shared scripts migrations",
+    "disposition": "Unknown holds, reconciliation and UI guard; no automatic repurchase."
+  },
+  {
+    "family": "name-key",
+    "pattern": "crm_identity_name",
+    "scope": "server client/src shared scripts migrations",
+    "matches": 61,
+    "files": 11,
+    "reviewed": 61,
+    "command": "rg -n -e 'crm_identity_name' server client/src shared scripts migrations",
+    "disposition": "Existing indexed normalized-name owner reused; bounded candidate plan executed."
+  },
+  {
+    "family": "promotion",
+    "pattern": "isSfpValidationPromotionEnabled",
+    "scope": "server client/src shared scripts migrations",
+    "matches": 18,
+    "files": 7,
+    "reviewed": 18,
+    "command": "rg -n -e 'isSfpValidationPromotionEnabled' server client/src shared scripts migrations",
+    "disposition": "Existing selected-promotion owner/readiness; production environment value unverified."
+  }
+]

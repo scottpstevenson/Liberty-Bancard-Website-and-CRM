@@ -2737,6 +2737,13 @@
       "when": 1800400330001,
       "tag": "0387_phase7_conversion_integrity",
       "breakpoints": true
+    },
+    {
+      "idx": 391,
+      "version": "7",
+      "when": 1800400330002,
+      "tag": "0388_scheduled_outscraper_discovery",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,17 @@
+$ rg -n -e '/dashboard/lead-imports|tab=imports' server client/src shared scripts migrations
+client/src/pages/DashboardLayout.tsx:199:  { icon: Upload,   label: "Lead Imports",        href: "/dashboard/lead-imports",    roles: ["admin", "manager"] },
+client/src/pages/dashboard/LeadImports.test.tsx:10:  url: "http://localhost/dashboard/lead-imports", pretendToBeVisual: true,
+scripts/test-stage3-c3-browser.ts:85:  await b.navigate("/dashboard/lead-ops?tab=imports");
+scripts/test-stage3-c3-browser.ts:102:    for(const route of ["/dashboard/lead-ops?tab=canonical&canonicalView=pipeline","/dashboard/lead-ops?tab=prospects","/dashboard/lead-ops?tab=imports"]) {
+scripts/test-stage3-c3-browser.ts:110:  await b.navigate("/dashboard/lead-ops?tab=imports");
+scripts/test-stage3-c3-browser.ts:120:  for(const route of ["/dashboard/lead-ops?tab=canonical&canonicalView=pipeline","/dashboard/lead-ops?tab=prospects","/dashboard/lead-ops?tab=imports"]) {
+client/src/pages/dashboard/CanonicalEnrichment.tsx:448:            <NavCard href="/dashboard/lead-ops?tab=imports" title="Lead Ops · Imports" description="Review existing import batches and source-origin details." label="Import records" icon={FileInput} />
+client/src/lib/crm-route-registry.generated.json:2223:    "futureTarget": "/dashboard/lead-ops?tab=imports; keep thin import wizard wrapper until parity verified",
+client/src/lib/crm-route-registry.generated.json:2233:    "pattern": "/dashboard/lead-imports",
+client/src/lib/crm-route-registry.generated.json:2239:      "<Route path=\"/dashboard/lead-imports\">\n          <ProtectedRoute component={LegacyLeadImportsRedirect} allowedRoles={[\"admin\", \"manager\"]} />\n        </Route>"
+client/src/lib/crm-route-registry.generated.json:2273:    "futureTarget": "/dashboard/lead-ops?tab=imports",
+scripts/check-outbound-automation-reorg.ts:68:  assert("links out to Lead Ops Imports", src.includes("/dashboard/lead-ops?tab=imports"));
+client/src/components/discovery/ScheduledDiscoveryPanel.tsx:119:     <p className="text-xs font-mono">Artifact {r.content_hash??'Not retained'} · {r.mapper_version??'—'} · {r.matching_policy??'—'}</p><p className="text-xs">Operation: {r.operation_id??'Not dispatched'} · Import: {r.import_execution_id??'Not imported'}{r.import_id&&<> · <a className="underline inline-flex min-h-11 items-center" href={`/dashboard/lead-ops?tab=imports&importHistory=${r.import_id}`}>Open import history #{r.import_id}</a></>}</p>{r.content_hash&&<RunEvidence id={r.id}/>}
+client/src/lib/employee-sidebar.ts:55:    matches: starts("/dashboard/lead-ops", "/dashboard/canonical-enrichment", "/dashboard/lead-imports", "/dashboard/outreach-queue", "/dashboard/prospects"),
+client/src/pages/dashboard/OutreachCommand.tsx:107:            <Link href="/dashboard/lead-ops?tab=imports" data-testid="link-owner-imports">
+client/src/App.tsx:702:        <Route path="/dashboard/lead-imports">

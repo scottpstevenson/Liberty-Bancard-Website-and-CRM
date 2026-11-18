@@ -1,0 +1,109 @@
+$ rg -n -e 'materializeCanonicalProviderImportRow|resolveOrganization' server client/src shared scripts migrations
+shared/schema.ts:5749:// Append-only conflict log written by projectBusinessOnly() when resolveOrganization()
+scripts/test-sunbiz-bootstrap.ts:134:    // calling resolveOrganization(): the claim is stuck at status='claimed'
+server/services/cro03/projection-service.ts:3:import { resolveOrganization } from "../organization-resolver";
+server/services/cro03/projection-service.ts:38:  const organization = await resolveOrganization(input.organization);
+server/services/cro03/projection-service.ts:312://   Step 2: resolveOrganization() — owns its own db.transaction() internally.
+server/services/cro03/projection-service.ts:316://           resolveOrganization, causing connection-state corruption.
+server/services/cro03/projection-service.ts:322:// Any orphan business created by a losing concurrent resolveOrganization() call
+server/services/cro03/projection-service.ts:412:  // ── Step 2: Resolve or create the businesses row (resolveOrganization tx) ─
+server/services/cro03/projection-service.ts:420:  const organization = await resolveOrganization({
+server/services/cro03/initial-continuation.ts:10:import { resolveOrganization } from "../organization-resolver";
+server/services/cro03/initial-continuation.ts:216:    const organization = await resolveOrganization({
+scripts/ci-suite-manifest.ts:1323:    providerDenial: "database-backed certification mode; all external recipe stages (public-web, rdap, jsonld, serper, outscraper, openai, apollo) are recorded as transport_denied with zero units; no live GHL, SMTP, or provider call is made; Paths D/E/F exercise the real DBPR-HR adapter path, cross-source dedup via resolveOrganization() phone/name+location matching, and concurrent projection race; Path G certifies CRO03B_COUNTY_FIPS_CONFLICT guard with real DB rows — all without any live provider transport",
+server/services/canonical-provider-import.ts:6:import { resolveOrganization } from "./organization-resolver";
+server/services/canonical-provider-import.ts:82:export async function materializeCanonicalProviderImportRow(input:{
+server/services/canonical-provider-import.ts:239:    const resolved=await resolveOrganization({...organizationInput,transaction:tx});
+server/services/canonical-provider-import.ts:252:      const current=await resolveOrganization({...organizationInput,transaction:tx});
+server/services/canonical-provider-import.ts:274:      const current=await resolveOrganization({...organizationInput,transaction:tx});
+scripts/test-sunbiz-record-class-repair.ts:6: * Defect: resolveOrganization() was called from runSunbizBootstrapBatch()
+scripts/test-sunbiz-record-class-repair.ts:12: * Fix: the resolveOrganization() call site now passes
+scripts/test-cro03-static.ts:162:    assert.match(importRecovery, /await materializeCanonicalProviderImportRow/);
+scripts/test-cro03-static.ts:224:    assert.match(importRecovery, /await materializeCanonicalProviderImportRow/);
+scripts/certify-cro03b-csv-handoff.ts:45: *     (shared phone) both project to the same businesses.id via resolveOrganization()
+scripts/certify-cro03b-csv-handoff.ts:97:// Run-unique numeric suffix for phone numbers — avoids resolveOrganization matching
+scripts/certify-cro03b-csv-handoff.ts:1226:// DBPR-HR with no phone — resolveOrganization falls back to name+city+state match
+scripts/certification/test-organization-resolver-disposable.ts:10:const {resolveOrganization,peekOrganizationResolution}=await import("../../server/services/organization-resolver");
+scripts/certification/test-organization-resolver-disposable.ts:16:  const a=await resolveOrganization(first);
+scripts/certification/test-organization-resolver-disposable.ts:26:  await assert.rejects(()=>resolveOrganization(second),(error:any)=>
+scripts/certification/test-organization-resolver-disposable.ts:45:  const simultaneous=await Promise.all([resolveOrganization(second),resolveOrganization(second)]);
+scripts/certification/test-organization-resolver-disposable.ts:56:  const resolved=await resolveOrganization(aliasInput);
+scripts/certification/test-organization-resolver-disposable.ts:62:  assert.equal((await resolveOrganization(conflict)).kind,"deferred");checks+=2;
+scripts/certification/test-organization-resolver-disposable.ts:64:  const phoneBusiness=await resolveOrganization({canonicalName:phoneLabel,mainPhone:"3055550123"});
+scripts/certification/test-organization-resolver-disposable.ts:68:  const phoneResolved=await resolveOrganization(countryCode);
+scripts/test-sfp-validation-handoff-repair-certification.ts:12:const {materializeCanonicalProviderImportRow}=await import('../server/services/canonical-provider-import');
+scripts/test-sfp-validation-handoff-repair-certification.ts:22: const imported=await materializeCanonicalProviderImportRow({executionId:claim.execution.id,claimToken:claim.claimToken!,sourceRowNumber:1,sourceFormat:'google_maps_outscraper',actorId:actor,rawRow:raw});
+scripts/certification/test-retained-canonical-import-recovery.ts:28:const {providerImportEmails,materializeCanonicalProviderImportRow}=await import("../../server/services/canonical-provider-import");
+scripts/certification/test-retained-canonical-import-recovery.ts:72:    const {resolveOrganization}=await import("../../server/services/organization-resolver");
+scripts/certification/test-retained-canonical-import-recovery.ts:73:    const phoneBusiness=await resolveOrganization({canonicalName:fixtures[0].rawRow.name,
+scripts/certification/test-retained-canonical-import-recovery.ts:294:    const {resolveOrganization}=await import("../../server/services/organization-resolver");
+scripts/certification/test-retained-canonical-import-recovery.ts:295:    const phoneBusiness=await resolveOrganization({canonicalName:fixtures[3].rawRow.name,
+scripts/certification/test-retained-canonical-import-recovery.ts:524:    await assert.rejects(()=>materializeCanonicalProviderImportRow({executionId:target,sourceRowNumber:1,
+scripts/certification/test-retained-canonical-import-recovery.ts:581:    await assert.rejects(()=>materializeCanonicalProviderImportRow({executionId:execution,sourceRowNumber:1,
+scripts/certification/test-retained-canonical-import-recovery.ts:736:    await assert.rejects(()=>materializeCanonicalProviderImportRow({executionId:claim.execution.id,
+scripts/certification/test-retained-canonical-import-recovery.ts:757:    const result=await materializeCanonicalProviderImportRow({executionId:execution.id,
+scripts/certification/test-canonical-provider-import.ts:11:const {materializeCanonicalProviderImportRow,providerImportEmails,providerImportRecipient}=await import("../../server/services/canonical-provider-import");
+scripts/certification/test-canonical-provider-import.ts:47:  const result=await materializeCanonicalProviderImportRow(args);
+scripts/certification/test-canonical-provider-import.ts:78:  const replay=await materializeCanonicalProviderImportRow(args);
+scripts/certification/test-canonical-provider-import.ts:85:  await assert.rejects(materializeCanonicalProviderImportRow({...args,rawRow:changed}),
+scripts/certification/test-canonical-provider-import.ts:88:  const rejected=await materializeCanonicalProviderImportRow({...args,executionId:badClaim.execution.id,
+scripts/certification/test-canonical-provider-import.ts:98:  const businessOnly=await materializeCanonicalProviderImportRow({...args,executionId:missingClaim.execution.id,
+scripts/certification/test-canonical-provider-import.ts:102:  await assert.rejects(materializeCanonicalProviderImportRow(args),/AUTHORITY_FENCE_LOST|LEASE_LOST/);checks++;
+scripts/certification/test-canonical-provider-import.ts:207:   const {resolveOrganization,peekOrganizationResolution}=await import("../../server/services/organization-resolver");
+scripts/certification/test-canonical-provider-import.ts:210:   const firstResolution=await resolveOrganization(firstIdentity);
+scripts/certification/test-canonical-provider-import.ts:215:   const separatePlace=await resolveOrganization(conflictingIdentity);
+scripts/certification/test-canonical-provider-import.ts:219:   const separateReplay=await resolveOrganization(conflictingIdentity);
+scripts/certification/test-canonical-provider-import.ts:226:   check((await resolveOrganization(contradictoryExactPlace)).kind==="deferred",
+scripts/certification/test-canonical-provider-import.ts:232:   const allFlags=await materializeCanonicalProviderImportRow({...args,executionId:allFlagsClaim.execution.id,
+scripts/certification/test-canonical-workbook-intake.ts:13:const {materializeCanonicalProviderImportRow}=await import("../../server/services/canonical-provider-import");
+scripts/certification/test-canonical-workbook-intake.ts:35:      const outcome=await materializeCanonicalProviderImportRow({
+scripts/certification/test-canonical-transaction-leases.ts:143:  const {materializeCanonicalProviderImportRow}=await import("../../server/services/canonical-provider-import");
+scripts/certification/test-canonical-transaction-leases.ts:188:  await assert.rejects(materializeCanonicalProviderImportRow({
+scripts/certification/test-canonical-transaction-leases.ts:218:  await assert.rejects(materializeCanonicalProviderImportRow({
+scripts/certification/test-canonical-transaction-leases.ts:244:    await assert.rejects(materializeCanonicalProviderImportRow({
+scripts/certification/test-intake-native-contract.ts:37:  const {materializeCanonicalProviderImportRow}=await import("../../server/services/canonical-provider-import");
+scripts/certification/test-intake-native-contract.ts:46:  const first=await materializeCanonicalProviderImportRow(input);
+scripts/certification/test-intake-native-contract.ts:54:  const held=await materializeCanonicalProviderImportRow(input);
+scripts/certification/test-intake-native-contract.ts:92:  const resumed=await materializeCanonicalProviderImportRow({...input,rawRow:abortRaw,
+scripts/certification/seed-canonical-operating-ui.ts:10:const { materializeCanonicalProviderImportRow } = await import("../../server/services/canonical-provider-import");
+scripts/certification/seed-canonical-operating-ui.ts:25:    committed.push(await materializeCanonicalProviderImportRow({
+server/services/organization-service.ts:4:import { resolveOrganization, type OrganizationResolution } from "./organization-resolver";
+server/services/organization-service.ts:17:export async function resolveOrganizationIdentity(input: Parameters<typeof resolveOrganization>[0]): Promise<OrganizationResolution> {
+server/services/organization-service.ts:18:  return resolveOrganization(input);
+scripts/certification/test-place-identity-mirror.ts:7:const {mirrorEstablishedPlaceIdentities:batch,mirrorEstablishedPlaceIdentity:single,resolveOrganization}=await import("../../server/services/organization-resolver");
+scripts/certification/test-place-identity-mirror.ts:45:    const resolved=await resolveOrganization({canonicalName:one.canonical_name,googlePlaceId:place});
+scripts/certification/test-place-identity-mirror.ts:63:      const r=await resolveOrganization({canonicalName:`Fresh ${randomUUID()}`,googlePlaceId:place,
+scripts/certification/test-place-identity-mirror.ts:90:      return resolveOrganization({canonicalName:target.canonical_name,googlePlaceId:place,transaction:tx});
+scripts/certification/test-canonical-flow-progression.ts:205:  const {materializeCanonicalProviderImportRow}=await import("../../server/services/canonical-provider-import");
+scripts/certification/test-canonical-flow-progression.ts:215:  for(const [index,rawRow] of importRows.entries()) outcomes.push(await materializeCanonicalProviderImportRow({
+server/routes/sdr.ts:2350:      const { resolveOrganization } = await import("../services/organization-resolver");
+server/routes/sdr.ts:2351:      const result = await resolveOrganization({
+server/storage/businesses.ts:144:    const { resolveOrganization } = await import("../services/organization-resolver");
+server/storage/businesses.ts:145:    const result = await resolveOrganization({
+server/storage/businesses.ts:156:    const { resolveOrganizationIdentity } = await import("../services/organization-service");
+server/storage/businesses.ts:159:    const resolved = await resolveOrganizationIdentity({
+server/routes/imports.ts:1778:          const { materializeCanonicalProviderImportRow } = await import("../services/canonical-provider-import");
+server/routes/imports.ts:1779:          const transition=await materializeCanonicalProviderImportRow({
+server/services/retained-sunbiz-contact-materialization.ts:6:import {resolveOrganization} from "./organization-resolver";
+server/services/retained-sunbiz-contact-materialization.ts:49:  const resolution=await resolveOrganization({
+server/services/sunbiz-bootstrap.ts:25:  resolveOrganization,
+server/services/sunbiz-bootstrap.ts:853: *   2. Only once claimed, call resolveOrganization() (transactional,
+server/services/sunbiz-bootstrap.ts:869: * Known residual limitation: resolveOrganization() itself runs OUTSIDE this
+server/services/sunbiz-bootstrap.ts:872: * during the resolveOrganization() call, a business row it creates can be
+server/services/sunbiz-bootstrap.ts:1117:    let resolution: Awaited<ReturnType<typeof resolveOrganization>> | {
+server/services/sunbiz-bootstrap.ts:1126:      resolution = await resolveOrganization({
+server/services/canonical-import-recovery-worker.ts:4:import {materializeCanonicalProviderImportRow,providerImportEmails} from "./canonical-provider-import";
+server/services/canonical-import-recovery-worker.ts:226:      const result=await materializeCanonicalProviderImportRow({
+server/services/sdr/dedupe.ts:285:  const { resolveOrganization } = await import("../organization-resolver");
+server/services/sdr/dedupe.ts:286:  const resolution = await resolveOrganization({
+server/services/canonical-registry-projection-worker.ts:4:import {resolveOrganization} from "./organization-resolver";
+server/services/canonical-registry-projection-worker.ts:82:        const resolution=name ? await resolveOrganization({
+server/services/contact-business-materialization.ts:4:import {resolveOrganization,mirrorEstablishedPlaceIdentity} from "./organization-resolver";
+server/services/contact-business-materialization.ts:95:    const resolution=await resolveOrganization({canonicalName:proof.canonicalName,websiteDomain:domain,
+server/services/csv-import-processor.ts:11:import { materializeCanonicalProviderImportRow } from "./canonical-provider-import";
+server/services/csv-import-processor.ts:13:import {resolveOrganization} from "./organization-resolver";
+server/services/csv-import-processor.ts:89:        const resolution=await resolveOrganization({
+server/services/csv-import-processor.ts:244:    await materializeCanonicalProviderImportRow({
+server/services/organization-resolver.ts:99:export async function resolveOrganization(raw: Input): Promise<OrganizationResolution> {
+server/services/retained-sunbiz-business-completion.ts:18:import { resolveOrganization } from "./organization-resolver";
+server/services/retained-sunbiz-business-completion.ts:149:    const resolution = await resolveOrganization({

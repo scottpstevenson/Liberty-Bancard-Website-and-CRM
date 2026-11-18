@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
+import { useUrlParam } from "@/hooks/use-url-param";
 import { useCrmQuery } from "@/hooks/use-crm-query";
 import { queryClient, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -712,7 +713,9 @@ export default function LeadImports() {
   const [wizardStep, setWizardStep] = useState<WizardStep>("choose");
   const [headerPreview, setHeaderPreview] = useState<{ state: "none" | "reading" | "xlsx" | "unreadable" | "ready"; columns: string[] }>({ state: "none", columns: [] });
   const [lastResult, setLastResult] = useState<{ fileName: string; source: string; status: string | null; totalRows: number | null; summary: string } | null>(null);
-  const [expandedImport, setExpandedImport] = useState<number | null>(null);
+  const [importHistory,setImportHistory]=useUrlParam("importHistory","",v=>/^\d+$/.test(v)?v:undefined);
+  const expandedImport=importHistory?Number(importHistory):null;
+  const setExpandedImport=(id:number|null)=>setImportHistory(id===null?"":String(id));
   const [showArchivedLists, setShowArchivedLists] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 

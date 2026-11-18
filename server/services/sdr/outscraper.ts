@@ -81,6 +81,7 @@ export interface OutscraperSearchInput {
   resultLimit?: number;
   /** The SFP async task lifecycle uses true; legacy/CRO03C stays synchronous. */
   async?: boolean;
+  endpointVersion?: "legacy-maps-v1" | "google-maps-v2";
 }
 
 export interface OutscraperProviderTask {
@@ -101,6 +102,7 @@ export interface OutscraperSearchResult {
   readonly ok: boolean;
   readonly consideredResultCount: number;
   readonly results: readonly OutscraperBusiness[];
+  readonly rawItems?: readonly unknown[];
   /** Present until asynchronous provider results have been fetched and parsed. */
   readonly task?: OutscraperProviderTask | null;
   readonly billing?: OutscraperUsageReceipt;
@@ -261,7 +263,7 @@ function parseOutscraperResult(raw: Record<string, any>): OutscraperBusiness {
     zip: raw.postal_code || raw.zip || null,
     rating: raw.rating ? parseFloat(raw.rating) : null,
     reviewCount: raw.reviews ? parseInt(raw.reviews) : null,
-    placeId: raw.place_id || raw.google_id || null,
+    placeId: raw.place_id || null,
     category: raw.category || raw.type || null,
     query: typeof raw.query === "string" ? raw.query : null,
     contacts: parseOutscraperContacts(raw),
@@ -419,16 +421,16 @@ export async function performOutscraperSearch(
   const timeout = setTimeout(() => controller.abort(), 60_000);
   try {
     await deps.beforeRequest?.();
-    const response = await (deps.fetchImpl ?? fetch)(`${OUTSCRAPER_API_URL}${OUTSCRAPER_MAPS_SEARCH_PATH}?${params}`, {
+    const response = await (deps.fetchImpl ?? fetch)(`${OUTSCRAPER_API_URL}${input.endpointVersion === "google-maps-v2" ? "/google-maps-search" : OUTSCRAPER_MAPS_SEARCH_PATH}?${params}`, {
       method: "GET",
       headers: { "X-API-KEY": apiKey, Accept: "application/json" },
       signal: controller.signal,
     });
     let data: any = null;
-    try { data = await response.json(); } catch { data = null; }
+    try { data = await boundedOutscraperJson(response); } catch { data = null; }
     const providerReference = providerRequestReference(response, data);
     const bodyError = outscraperBodyError(data);
-    if (!response.ok || bodyError) {
+    if (!response.ok || response.status === 204 || bodyError) {
       await reportOutscraperSignal(deps, { httpStatus: response.status, message: bodyError, failure: true });
       return {
         status: response.status, ok: false, consideredResultCount: 0, results: [],
@@ -456,6 +458,11 @@ export async function performOutscraperSearch(
         billing: { certainty: "unknown", unit: "result", providerReference },
       };
     }
+    // Async acceptance without a usable ID is an unknown paid submission, never a free empty search.
+    if ((input.async === true && !taskInfo.requestId && !hasOutscraperResultArray(data)) ||
+        response.status === 202 || !hasOutscraperResultArray(data)) {
+      throw new Error("OUTSCRAPER_RESPONSE_UNVERIFIABLE");
+    }
     const items = outscraperItems(data);
     const results = items
       .filter((item): item is Record<string, any> => isRecord(item) && Boolean(item.name || item.title || item.site || item.website))
@@ -464,6 +471,7 @@ export async function performOutscraperSearch(
       status: response.status,
       ok: true,
       consideredResultCount: items.length,
+      rawItems: items,
       results,
       task: null,
       billing: {
@@ -503,10 +511,10 @@ export async function performOutscraperTaskResults(
       { method: "GET", headers: { "X-API-KEY": apiKey, Accept: "application/json" }, signal: controller.signal },
     );
     let body: any = null;
-    try { body = await response.json(); } catch { body = null; }
+    try { body = await boundedOutscraperJson(response); } catch { body = null; }
     const providerReference = providerRequestReference(response, body);
     const bodyError = outscraperBodyError(body);
-    if (!response.ok || bodyError) {
+    if (!response.ok || response.status === 204 || bodyError) {
       await reportOutscraperSignal(deps, { httpStatus: response.status, message: bodyError, failure: true });
       return {
         status: response.status, ok: false, consideredResultCount: 0, results: [],
@@ -514,7 +522,12 @@ export async function performOutscraperTaskResults(
         billing: { certainty: "unknown", unit: "result", providerReference },
       };
     }
-    const terminalReported = parseOutscraperTaskReference(isRecord(body) ? body : {});
+    if (!isRecord(body) && !Array.isArray(body)) throw new Error("OUTSCRAPER_RESPONSE_UNVERIFIABLE");
+    const terminalReported = parseOutscraperTaskReference(isRecord(body) ? body as Record<string,unknown> : {});
+    if (terminalReported.requestId && terminalReported.requestId !== requestId)
+      throw new Error("OUTSCRAPER_TASK_REFERENCE_MISMATCH");
+    if (terminalReported.state === "unknown" && !hasOutscraperResultArray(body))
+      throw new Error("OUTSCRAPER_RESPONSE_UNVERIFIABLE");
     await reportOutscraperSignal(deps, {
       httpStatus: response.status,
       message: terminalReported.state === "failed" ? "OUTSCRAPER_TASK_FAILED" : null,
@@ -524,7 +537,7 @@ export async function performOutscraperTaskResults(
     const items = outscraperItems(body);
     const terminalFailure = reported.state === "failed";
     const pending = reported.state === "pending" || reported.state === "submitted" ||
-      (reported.state === "unknown" && items.length === 0);
+      (reported.state === "unknown" && !hasOutscraperResultArray(body));
     if (terminalFailure || pending) {
       return {
         status: response.status,
@@ -538,6 +551,7 @@ export async function performOutscraperTaskResults(
         billing: { certainty: "unknown", unit: "result", providerReference },
       };
     }
+    if(!hasOutscraperResultArray(body))throw new Error("OUTSCRAPER_RESPONSE_UNVERIFIABLE");
     const results = items
       .filter((item): item is Record<string, any> => isRecord(item) && Boolean(item.name || item.title || item.site || item.website))
       .map(parseOutscraperResult);
@@ -545,6 +559,7 @@ export async function performOutscraperTaskResults(
       status: response.status,
       ok: true,
       consideredResultCount: items.length,
+      rawItems: items,
       results,
       task: { requestId, state: "completed" },
       billing: {
@@ -707,4 +722,19 @@ export async function searchOutscraperByVerticalMetro(
 ): Promise<OutscraperBusiness[]> {
   const query = `${vertical} ${metro} ${state}`;
   return searchOutscraper(query, limit, "US", authorization, fetchOverride);
+}
+
+/** Bound raw response memory before JSON parsing; never follow provider results_location URLs. */
+async function boundedOutscraperJson(response: Response): Promise<unknown> {
+  const reader=response.body?.getReader();
+  if(!reader)return null;
+  const chunks:Uint8Array[]=[];let bytes=0;
+  try { for(;;){const next=await reader.read();if(next.done)break;bytes+=next.value.byteLength;
+    if(bytes>8*1024*1024){await reader.cancel();throw new Error("OUTSCRAPER_RESPONSE_TOO_LARGE");}
+    chunks.push(next.value);}
+  } finally {reader.releaseLock();}
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+function hasOutscraperResultArray(body:unknown):boolean {
+  return Array.isArray(body) || (isRecord(body) && ["data","results","result"].some(k=>Array.isArray(body[k])));
 }

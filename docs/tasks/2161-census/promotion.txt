@@ -1,0 +1,19 @@
+$ rg -n -e 'isSfpValidationPromotionEnabled' server client/src shared scripts migrations
+server/services/cro03/south-florida-prospecting.ts:75:export async function isSfpValidationPromotionEnabled(): Promise<boolean> {
+server/services/cro03/south-florida-prospecting.ts:87:  const effective = await isSfpValidationPromotionEnabled();
+server/services/cro03/sfp-continuous-discovery.ts:29:  isSfpValidationPromotionEnabled,
+server/services/cro03/sfp-continuous-discovery.ts:200:  if (!(await isSfpValidationPromotionEnabled())) {
+server/services/cro03/sfp-continuous-discovery.ts:216:  if (!(await isSfpValidationPromotionEnabled())) {
+server/services/cro03/sfp-validation.ts:32:import { type OutreachEligibilityStatus, isSfpValidationPromotionEnabled } from "./south-florida-prospecting";
+server/services/cro03/sfp-validation.ts:952:    if (!(await isSfpValidationPromotionEnabled())) {
+server/services/cro03/sfp-validation.ts:1093:  if (!opts.zbTransport && !(await isSfpValidationPromotionEnabled())) {
+server/services/scheduled-discovery/service.ts:2:import {isSfpValidationPromotionEnabled} from '../cro03/south-florida-prospecting';
+server/services/scheduled-discovery/service.ts:62: const validationPromotionEnabled=await isSfpValidationPromotionEnabled();const zeroBounce=await getSfpProviderReadiness('zerobounce');
+scripts/test-sfp-ceiling-and-override-certification.ts:13: *     (isSfpValidationPromotionEnabled / setSfpValidationPromotionOverride
+scripts/test-sfp-ceiling-and-override-certification.ts:78:      // Mirrors isSfpValidationPromotionEnabled() in south-florida-prospecting.ts
+server/services/free-discovery/evidence-service.ts:350:  const { isSfpValidationPromotionEnabled } = await import("../cro03/south-florida-prospecting");
+server/services/free-discovery/evidence-service.ts:351:  if (!(await isSfpValidationPromotionEnabled())) {
+server/routes/lead-ops.ts:3524:      const { isSfpValidationPromotionEnabled } = await import("../services/cro03/south-florida-prospecting");
+server/routes/lead-ops.ts:3529:        effective: await isSfpValidationPromotionEnabled(),
+server/routes/lead-ops.ts:3581:      const { isSfpValidationPromotionEnabled } = await import("../services/cro03/south-florida-prospecting");
+server/routes/lead-ops.ts:3582:      const enabled = await isSfpValidationPromotionEnabled();
