@@ -1,0 +1,152 @@
+{
+  "baseSha": "21b0db4873414e3c57665fc376ff86cab5e044aa",
+  "implementationSha": "83a80670bea3b44acee4922a47d99f1b3eec11a7",
+  "branch": "codex/task-2161-scheduled-discovery",
+  "remote": "https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM.git",
+  "build": {
+    "status": "passed",
+    "artifact": {
+      "version": 1,
+      "artifactSha": "83a80670bea3b44acee4922a47d99f1b3eec11a7",
+      "buildId": "5b57940d-4c0c-4061-b2aa-dafb16885fcf",
+      "deploymentIdentity": "publish-build:5b57940d-4c0c-4061-b2aa-dafb16885fcf"
+    },
+    "warnings": [
+      "CJS import.meta warning",
+      "bundle size warning"
+    ]
+  },
+  "migrationIntegrity": {
+    "status": "passed",
+    "checks": 1030,
+    "historicalWarnings": 2
+  },
+  "selectedPredeploy": {
+    "status": "passed",
+    "suites": 4,
+    "contracts": 38,
+    "persistence": 66,
+    "httpChecks": 35,
+    "fullRosterExecuted": false
+  },
+  "lineage": {
+    "run_id": "565a42db-8b67-4745-ac37-b30b1943db56",
+    "provider_task_id": "task2161-task-1",
+    "operation_id": "7cf59149-c946-4ee8-b777-f95bde4bb247",
+    "import_execution_id": "bde90b9d-c2be-495c-8914-e1d2e3528d31",
+    "content_hash": "28db6eaab428497c9003bba2157addd0d6b0a53ee910fb786233ab605b198e26",
+    "mapper_version": "outscraper-artifact-v1",
+    "matching_policy": "scheduled-discovery-v1",
+    "totals": {
+      "rawRows": 6,
+      "contacts": 2,
+      "excludedRows": 3,
+      "importedRows": 3,
+      "newBusinesses": 2,
+      "rowDispositions": [
+        {
+          "n": 2,
+          "disposition": "created"
+        },
+        {
+          "n": 1,
+          "disposition": "matched_noop"
+        }
+      ],
+      "matchedBusinesses": 0
+    },
+    "import_history_id": 1,
+    "billing_state": "committed",
+    "provider_usage_status": "known",
+    "provider_usage_quantity": "6",
+    "provider_usage_unit": "result",
+    "settled_cost_micros": null
+  },
+  "scale": {
+    "businesses": "100002",
+    "executionMs": 0.114,
+    "heapDelta": -666248,
+    "indexes": [
+      "businesses_coverage_domain_key_idx",
+      "businesses_coverage_phone_key_idx",
+      "canonical_link_business_name_lookup_idx"
+    ]
+  },
+  "typecheck": {
+    "status": "failed",
+    "baselineDiagnostics": 41,
+    "candidateDiagnostics": 41,
+    "identical": true,
+    "diagnostics": [
+      "client/src/components/work/SelectedTaskPanel.test.tsx(62,9): error TS2801: This condition will always return true since this 'Promise<void>' is always defined.",
+      "client/src/pages/dashboard/MerchantApplicationsList.tsx(1172,17): error TS2322: Type '\"link\"' is not assignable to type '\"default\" | \"destructive\" | \"outline\" | \"secondary\" | \"ghost\" | null | undefined'.",
+      "server/db.ts(174,70): error TS2339: Property 'getTransactionConfigSQL' does not exist on type 'NodePgTransaction<Record<string, unknown>, TablesRelationalConfig>'.",
+      "server/routes/admin.ts(5905,36): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+      "server/routes/admin.ts(5908,60): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+      "server/routes/live-chat.ts(108,55): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+      "server/routes/live-chat.ts(158,55): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+      "server/routes/statement-review.ts(152,46): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+      "server/routes/statement-review.ts(158,63): error TS18048: 'review' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(168,48): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.",
+      "server/routes/statement-review.ts(189,11): error TS18048: 'review' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(191,46): error TS18048: 'review' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(202,11): error TS18048: 'review' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(204,53): error TS18048: 'review' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(212,11): error TS18048: 'review' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(214,49): error TS18048: 'review' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(255,35): error TS18048: 'existing' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(256,98): error TS18048: 'existing' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(258,30): error TS18048: 'existing' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(269,11): error TS18048: 'existing' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(269,33): error TS18048: 'existing' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(272,27): error TS18048: 'existing' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(273,29): error TS18048: 'existing' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(276,45): error TS18048: 'existing' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(281,14): error TS18048: 'existing' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(281,38): error TS18048: 'existing' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(285,23): error TS18048: 'existing' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(286,32): error TS18048: 'existing' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(294,64): error TS18048: 'existing' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(306,17): error TS18048: 'existing' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(307,33): error TS18048: 'existing' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(329,11): error TS18048: 'review' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(331,46): error TS18048: 'review' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(340,25): error TS18048: 'review' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(342,24): error TS18048: 'review' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(343,48): error TS18048: 'review' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(359,81): error TS18048: 'review' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(370,31): error TS18048: 'review' is possibly 'undefined'.",
+      "server/routes/statement-review.ts(370,57): error TS18048: 'review' is possibly 'undefined'.",
+      "server/services/deal-boarding-outbox-worker.ts(711,48): error TS2345: Argument of type '{ dealId: number; legalBusinessName: string | undefined; dba: string | undefined; ein: string | undefined; businessType: string | undefined; businessAddress: string | undefined; ... 24 more ...; providerIdempotencyKey: string | undefined; }' is not assignable to parameter of type 'MerchantProfile'.",
+      "server/services/merchant-application-outbox-worker.ts(398,5): error TS2322: Type 'number | null' is not assignable to type 'number'."
+    ]
+  },
+  "historicalPrivateWorkbookRecovery": {
+    "status": "blocked",
+    "missing": "/tmp/canonical-enrichment-workbooks/manifest.json",
+    "sourceWorkbooksAbsent": 5,
+    "notSubstitutedByPortableFixtures": true
+  },
+  "preview": {
+    "url": "http://127.0.0.1:5188/dashboard/lead-ops?tab=imports",
+    "scheduleEnabled": false,
+    "outbound": "paused",
+    "backgroundProfile": "off",
+    "providerTransport": false,
+    "definitions": 63,
+    "businesses": 0,
+    "contacts": 0,
+    "providerOperations": 0,
+    "errorFixtureRestored": true
+  },
+  "production": {
+    "changed": false,
+    "deployed": false,
+    "paidPilotPerformed": false,
+    "scheduleActivated": false,
+    "outboundPauseEpoch": 4,
+    "ghlEnabled": false,
+    "ghlEpoch": 16,
+    "serperEnabled": false
+  }
+}
