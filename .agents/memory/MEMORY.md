@@ -64,7 +64,7 @@
 - [Consent Authority & Channel State](consent-authority-channel-state.md) — canonical facts use the reducer; legacy fields are compatibility outputs only, never regain authority.
 - [Statement upload idempotency contract](statement-upload-idempotency.md) — all statement-upload routes require UUIDv4 Idempotency-Key or 400.
 - [New-lead enrollment scan timeout](new-lead-enrollment-timeout.md) — _fetchNewLeadDeals() hits pool 30s statement_timeout under load; wrap in tx with SET LOCAL statement_timeout='0'.
-- [GitHub workflow push scope](github-workflow-push-scope.md) — workflow-file pushes need GitHub's explicit workflow permission; repo access alone may be insufficient.
+- [GitHub push/sync quirks](github-workflow-push-scope.md) — workflow-file pushes need the workflow scope; [workspace .git writes](git-workspace-sync.md) need DANGEROUSLY_ALLOW_GIT=1, ff-only.
 - [Durable command lease cleanup](durable-command-lease-cleanup.md) — every claimed-command exit must release only its own token-fenced lease.
 - [Provider-readiness deferral audits](provider-readiness-deferral-audits.md) — when readiness defers pre-legacy-gate, persist the actual deferral reason.
 - [Disposable certification](local-predeploy-database.md) — Isolate DB/Redis/processes; [pause fixtures](pause-cycle-test-db.md); [names ≤63 bytes](disposable-database-names.md); [runner roster](disposable-runner-roster.md): register certs in CERTIFICATION_FIXTURE_SUITES.
