@@ -1,14 +1,29 @@
-# Phase 8 failed-check repairs
+# Phase 8 failed-check dispositions
 
-Local branch: `codex/phase8-check-repairs-final`. This extends the Phase 8 candidate at `53ac8e946385e75711c746cd1bb54da70ecb298e`; it is not a production acceptance or release.
+Local branch: `codex/phase8-check-repairs-final`, at `/Users/matt/Developer/liberty-phase8-check-repairs-final`. Implementation code is committed through `0d4f3e22fee34c77ca33d25e7dd6ec04d9b0e677`; this handoff is a documentation-only successor. No main merge, push or publication occurred.
 
-All 61 original failures have a specific disposition. Eleven suites exposed real product defects (some also had broken setup); fifty were test, contract or harness failures. Several suites share one defect. The original evidence and baseline comparison remain in [failure-register.json](failure-register.json). The [repair register](check-repair-register.json) records each disposition.
+**61 failed checks did not mean 61 bugs.** Eleven failing suites exposed product defects, with several sharing one defect; fifty had obsolete expectations, broken fixtures or test/harness problems. The original [failure register](failure-register.json) remains unchanged. Each row in the [disposition register](check-repair-register.json) now identifies its observed passing execution and exact source, rather than claiming one all-green final run.
 
-The A/B interaction failure was the real first-login tour covering its refresh control. The test now completes that tour through the supported UI, verifies persisted completion, then runs its normal experiment/report assertions. This repair grants no experiment, enrollment or sending authority.
+The product repair families are assistant clearance, compact contact navigation, UTC draft responses including immutable cached replay, tablet Pipeline access, scoped canonical projection ownership, honest missing-selection finalization/recovery, reconciliation timestamp precision, Support font loading and diagnostic payload redaction. Deferred receipt recovery also checks the exact contact identity. No migration, dependency lock, pause authority, Outscraper budget authority or Replit configuration changed in this repair scope.
 
-Confirmed product repair families: dashboard assistant clearance; compact contact navigation; explicit draft response timestamps including immutable cached replay; tablet Pipeline card access; scoped canonical projection ownership; honest missing-selection finalization state; reconciliation timestamp precision; public Support font loading; diagnostic audit payload redaction.
+The A/B issue was a first-login tour covering the test's Refresh control. The test completes the real tour and verifies persisted completion before normal experiment/reporting assertions. The experiment engine was not repaired or bypassed. Its 104-check browser suite passed in the native run and subsequent actual CI runs.
 
-Verification is in progress. Earlier bounded reruns and private prototypes are diagnostic evidence; final native results must be recorded below before claiming completion. No migration, dependency-lock, production pause, Outscraper cap or publication setting is changed.
+## Verification and limits
+
+- All 61 original failures have an observed passing execution; sources and runners are recorded per row. These are suite counts, not distinct fixes.
+- The frozen first repair candidate's complete native run remains **305/313**, with eight child failures and zero setup/teardown/shared-launcher failures. All eight later have passing reruns: budget tour, five rebuilt identity/browser checks, C5 walk (709 checks), and C4 bundled rollback/teardown (exit 0, pause true). This does not rewrite that failed full-run result.
+- Actual CI static passed 107/107 and the cold TypeScript/build/inventory/credential scan passed 1/1 at 52d50df0. Product code is unchanged from that commit through 0d4f3e22; later edits are test/report producers and a migration-test fixture. The latest production build passed at 0d4f3e22. Its exact build receipt remains bound to that code commit, not this documentation-only handoff; rebuild before a future source-bound canonical run.
+- Actual CI integration stopped honestly first at 20/184 (a missing completion marker after139 assertions), then at 65/184 (an invalid prior-head migration fixture). Both were repaired; the migration proof passes 162 checks including backfill, interrupted schema, replay and an actual historical-build rollback route. No migrator or migration SQL was changed.
+- Diagnostic continuation completed original CI entries65–73, including the C4 rollback/cleanup check. Its next entry was interrupted when the agent curtailed the expanded historical CI work after the user's status challenge. Interruption is neither a passing test nor a newly discovered product failure.
+- **Full required CI remains incomplete. Phase 8 release acceptance is not claimed.** The expanded CI loop and its queued follow-on runs were stopped. Latest security evidence has zero high/critical findings with the dependency lock unchanged; no fresh production readback or live provider acceptance is claimed.
+
+The broader verification had expanded past the immediate 61-check request. Further old-suite work is outside this closed repair pass. See the [verification receipt](check-repair-verification.json) for exact source/log hashes and the structured register for explicit partial-run limits.
+
+Outbound and the CRM-wide $50 cap were preserved: no production settings or records were written; no purchase, live email, Replit message, sync, restart, push or Publish was performed. Earlier live control observations remain dated historical evidence. All execution used private PostgreSQL/Redis, synthetic identities and denied provider traffic on the Air. Task-owned test processes were stopped and private infrastructure teardown completed; other projects and shared services were preserved.
+
+Generated historical outputs were archived privately with path/content hashes before their original tracked versions were restored. Raw logs and retained output archives are under `/Users/matt/.local/share/liberty-dev/phase8-*`.
+
+## The original 61 checks
 
 | # | Suite | Disposition and repair |
 |---|---|---|
@@ -73,17 +88,3 @@ Verification is in progress. Earlier bounded reruns and private prototypes are d
 | 59 | `scripts/test-statement-acquisition.ts` | **Obsolete handoff expectation** — Statement metadata now hands off to a separate projection owner without provider writes; acknowledge no inbound request truthfully rather than asserting retired held response fields. |
 | 60 | `scripts/test-nba.ts` | **Missing state/capability fixture** — Seed the canonical pause control and classify the database-only NBA suite as disposable integration rather than pretending it requires live HTTP credentials. |
 | 61 | `scripts/test-forms.ts` | **Broken form fixtures** — Use a real PDF signature, valid fictional phone, and execute only the test-owned queued statement command with background workers off. Verify persisted form results, not ambient work. |
-
-The CI wrapper additionally needed the four setup/budget repairs listed in the structured register. The first cold build was terminated during compilation at the 300-second outer deadline; this is not a passing build. The final build receipt remains required.
-
-Intermediate generated historical screenshots/receipts (140 files) were preserved privately with hashes, then restored to their historical tracked versions. New repair evidence is kept separately.
-
-Follow-up runner repairs preserve the native roster’s read-only/strict options and workload budgets, with exact option validation. The budget UI test now completes the real first-login tour for admin and manager. The intermediate image-write interference is recorded in the structured register and its affected checks remain subject to rerun.
-
-Additional native audit proof reproduced and repaired provider text in outer/nested alert summaries and acknowledgement reasons. The 64-check native boundary suite and 44-case sanitizer suite pass. Legacy alert reads are scrubbed without updating stored rows; structured summary counts remain intact. The partial-object audit-gate exemption is removed. Process-cleanup regressions cover actual owned children and preserve real signal permission failures. Final compiled and full-suite evidence is still in progress.
-
-Deferred CRO03B receipt recovery also verifies the exact contact ID alongside email hash and generation, including its conflict-update predicate. A real disposable-database regression uses two contacts sharing the same email identity and verifies that retargeting creates no intent and leaves the receipt unchanged; the registered integration suite passes.
-
-Fresh verification at `52d50df0` passed 107/107 actual CI static suites and the cold TypeScript/build/inventory/artifact gate. CI database/browser entries 1–19 passed, including all seven Phase 8 suites, 19 budget browser checks and 104 Phase 7 browser checks. Entry 20 executed 139 real Phase 6 set-read assertions but its `ok` summary supplied no recognized module receipt evidence, so the wrapper correctly exited 65. Eleven direct-module success producers now emit explicit terminal PASS markers without weakening assertions, cleanup, strict failure exits or receipt enforcement. Their native checks passed in full1; fresh CI verification remains required.
-
-Actual CI2 at `e0d5a978` passed entries 1–64, including C5 walk 709 checks and all five rebuilt source-identity browser rechecks, then stopped at a separate partner-program upgrade fixture (entry65). Its simulated prior head retained later ledger timestamps. The unchanged migrator correctly skipped old files. The fixture now builds actual0383/0384 journal prefixes; 162 registered native checks pass, including backfill, interrupted schema, replay and the old-build rollback route. Full CI remains subject to a final canonical run; diagnostic continuation is labelled separately.

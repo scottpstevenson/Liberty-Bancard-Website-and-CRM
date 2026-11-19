@@ -1,5 +1,7 @@
 # Phase 8 — Cleanup & Hardening owner handoff
 
+> Current failed-check follow-up: **61 original failures classified, with a passing execution recorded for each; not 61 distinct bugs.** Eleven suites exposed shared product defects and fifty had test/harness issues. Broader full CI remains incomplete and was curtailed after scope expansion. No release acceptance, merge, push, Publish or production change. See [current repair report](check-repairs.md) and [verification receipt](check-repair-verification.json). The implementation evidence below is the historical pre-repair snapshot.
+
 Implemented locally on `codex/phase8-cleanup-hardening` in `/Users/matt/Developer/liberty-phase8-build`. Tested implementation: **67d87d55e7f0b4585484402fa5ad58fb93b531e4**, based on GitHub main **d67d24c61acc462931c418e8068624c86144c7ae**. A subsequent documentation-only commit records these results; it does not retroactively change the tested source or make a failed gate pass.
 
 **All seven new Phase 8 suites pass. The full required gate is red: 252/313 passed, 61 failed.** There were zero runner setup/teardown failures and zero shared-launcher failures. A failed child can still contain an unmet fixture prerequisite or unexecuted tail; this is not a count of 61 product defects. No blanket waiver, assertion deletion or release approval is implied.

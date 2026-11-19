@@ -1,5 +1,7 @@
 # Phase 8 engineering evidence
 
+> Current failed-check follow-up: **61 original failures classified, with a passing execution recorded for each; not 61 distinct bugs.** Eleven suites exposed shared product defects and fifty had test/harness issues. Broader full CI remains incomplete and was curtailed after scope expansion. No release acceptance, merge, push, Publish or production change. See [current repair report](check-repairs.md) and [verification receipt](check-repair-verification.json). The implementation evidence below is the historical pre-repair snapshot.
+
 Authorized scope: Cleanup & Hardening P8-1–P8-4, controlling [task](../../tasks/phase8-cleanup-hardening-preflight-build.md). Implementation branch `codex/phase8-cleanup-hardening`, starting main `d67d24c61acc462931c418e8068624c86144c7ae`. Work is local. Production is read-only; no Publish, push, Replit sync/restart, send or paid-provider activation is part of this build. Outbound remains paused; CRM-wide Outscraper limit remains $50/month. Staff alerts' existing separately authorized exception is unchanged.
 
 This record supersedes living claims about current readiness, not historical evidence. The roadmap is Cleanup & Hardening, not an invented feature roadmap. Phase 7's original 41 diagnostics/unpublished/299-suite text remains dated history; current results must be read from the exact candidate receipt. Zero configured discovery definitions and nine high advisories are not carried forward as current facts.

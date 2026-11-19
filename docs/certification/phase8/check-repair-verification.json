@@ -1,0 +1,58 @@
+{
+  "time": "2026-11-19T16:28:39.663058+00:00",
+  "codeCommit": "0d4f3e22fee34c77ca33d25e7dd6ec04d9b0e677",
+  "branch": "codex/phase8-check-repairs-final",
+  "originalFailedChecks": 61,
+  "checksExposingProductDefects": 11,
+  "testOrHarnessOnlyChecks": 50,
+  "distinctProductBugs": "Not61; several suites share the same nine reported repair families.",
+  "allOriginalChecksHavePassingExecution": true,
+  "fullRequiredCIComplete": false,
+  "releaseApproved": false,
+  "scopeCorrection": "Stopped expanded historical CI; interrupted entry is neither pass nor product defect. Parent pipeline exited and private infrastructure teardown finished; owned CI processgroup20490 has zero remaining processes.",
+  "remoteMain": "d67d24c61acc462931c418e8068624c86144c7ae",
+  "remoteRead": "fresh ls-remote at wrap-up, nofetch/merge/push",
+  "productionCodeUnchangedSince52d": true,
+  "logs": [
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-repair-full-313-1.log",
+      "sha256": "59a32f52a5f64436b5b89f430f6effb97a91bbb03b37ce5800e7671a40aee064"
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-final-ci-static-2.log",
+      "sha256": "737ddecebf050d966a138aed88ac75bfb5c8d8529f544a8f268e350ac2b7f68f"
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-final-ci-build-2.log",
+      "sha256": "08410c2f926dfb6b3fa3295a209fe470856089dfec0080011b8630dcc967a77f"
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-final-ci-integration-1.log",
+      "sha256": "c401e89c184b796483805071c1502a411c3d4f1f28bdef41232073f0c1c3fa51"
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-final-ci-integration-2.log",
+      "sha256": "c13cdeee7c3f0ac2783efa139ec1f3262a75ab5493818f71f398685090005182"
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-final-diagnostic-integration-suffix-1.log",
+      "sha256": "1fb06616e2cf35a6218d7ced3897d8c0a6c210244472a828ba399d79f3e4348a"
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-final-build-4.log",
+      "sha256": "22276d6b9f17a631d551b7de346261e0c5e214955b1d740c366336b62debf3f9"
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-final-partner-migration-fix-1.log",
+      "sha256": "b707e06148131a674274816cddf6d83b4f9efc68aba071054b532d7c9d988139"
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-final-cro03b-contact-recovery-1.log",
+      "sha256": "8296d97cc224ebd834c4c6fa27c7d6b83776827694899483e42263f32f17889c"
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-final-alert-native-2.log",
+      "sha256": "3463bbcd19610a83cac19ffea5dc54a9e1dc02057269042c35f6a10196c11b37"
+    }
+  ]
+}

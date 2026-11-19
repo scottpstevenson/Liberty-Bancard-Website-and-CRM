@@ -1,4 +1,7 @@
 # Phase 8 — Cleanup & Hardening
+
+> Failed-check repair follow-up: the 61 original failures are dispositioned with passing executions;11 suites exposed shared product defects and50 had test/harness issues. The broader canonical CI is still incomplete. Expanded historical-suite work was curtailed; no release, merge or Publish is approved or claimed. See [repair report](../certification/phase8/check-repairs.md). The controlling scope and independent gates below remain intact.
+
 ## Liberty premium preflight + build task
 
 **Status:** Authorized implementation in progress on `codex/phase8-cleanup-hardening`; see `../certification/phase8/README.md` for evidence and independent release gates.
