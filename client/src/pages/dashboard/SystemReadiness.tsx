@@ -290,9 +290,9 @@ export default function SystemReadiness() {
             <div>
               <p className="font-semibold text-sm">
                 {data.overallHealthy
-                  ? "All systems go — every pipeline is configured and ready."
+                  ? "Readiness checks passed. Review worker observations and outbound permission separately."
                   : data.criticalIssues > 0
-                  ? `${data.criticalIssues} critical issue${data.criticalIssues > 1 ? "s" : ""} detected — pipelines are silently failing. Resolve action items below.`
+                  ? `${data.criticalIssues} critical readiness issue${data.criticalIssues > 1 ? "s" : ""}. Review configuration and runtime observations below.`
                   : `${data.actions.length} action item${data.actions.length > 1 ? "s" : ""} — system is partially configured.`}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">Auto-refreshes every 30 seconds</p>

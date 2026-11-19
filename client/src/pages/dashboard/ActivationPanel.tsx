@@ -1080,12 +1080,12 @@ export default function ActivationPanel() {
 
   return (
     <div className="space-y-6" data-testid="activation-panel">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col items-start gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
           <PageTitle className="text-2xl font-bold" data-testid="text-page-title">Activation Control Panel</PageTitle>
           <p className="text-muted-foreground">Day 1 Go-Live Command Center</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
           <Button variant="outline" size="sm" onClick={refreshAll} data-testid="button-refresh-all">
             <RefreshCw className="w-4 h-4 mr-1" /> Refresh All
           </Button>
