@@ -139,7 +139,7 @@ export async function finalizeCro03bWinningEmail(input: {
       SELECT * FROM cro03b_finalization_receipts WHERE item_id=${input.itemId}::uuid
     `))[0];
     if (prior?.validation_intent_id) return { state: prior.state, contactId: prior.contact_id, validationIntentId: prior.validation_intent_id, replayed: true };
-    if (prior && (Number(prior.subject_generation)!==Number(contact.email_mutation_generation) || prior.email_token_hash!==contact.email_token_hash)) {
+    if (prior && (Number(prior.contact_id)!==input.contactId || Number(prior.subject_generation)!==Number(contact.email_mutation_generation) || prior.email_token_hash!==contact.email_token_hash)) {
       return {state:"review_required",reasonCode:"winning_email_identity_changed",contactId:input.contactId,validationIntentId:null,replayed:false};
     }
 
@@ -175,6 +175,7 @@ export async function finalizeCro03bWinningEmail(input: {
               ${Number(contact.email_mutation_generation)},${contact.email_token_hash},${input.linkDisposition},${scoringRequestKey})
       ON CONFLICT(item_id) DO UPDATE SET validation_intent_id=EXCLUDED.validation_intent_id
       WHERE cro03b_finalization_receipts.validation_intent_id IS NULL
+        AND cro03b_finalization_receipts.contact_id=EXCLUDED.contact_id
         AND cro03b_finalization_receipts.subject_generation=EXCLUDED.subject_generation
         AND cro03b_finalization_receipts.email_token_hash=EXCLUDED.email_token_hash
     `);

@@ -9,7 +9,7 @@ import {
 import {
   admitCro03bHandoffs, processNextCro03bRecipeItem, reviewAndProjectCro03bItem,
 } from "../server/services/cro03/admission-service";
-import { resumeCro03bAfterValidation } from "../server/services/cro03/projection-service";
+import { finalizeCro03bWinningEmail, resumeCro03bAfterValidation } from "../server/services/cro03/projection-service";
 import { CRO03B_UNIFIED_RECIPE } from "../server/services/cro03/recipe-contract";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
@@ -121,6 +121,26 @@ assert.equal((projection as any).reasonCode,"canonical_target_selection_required
 assert.equal((await db.execute(sql`SELECT id FROM validation_intents WHERE contact_id=${(projection as any).contactId}`)).rows.length,0,"projection cannot manufacture selected-recipient authority");
 const {assertCro03bLegacyContactWriteAllowed}=await import("../server/services/cro03/admission-service");
 await assert.rejects(assertCro03bLegacyContactWriteAllowed((projection as any).contactId,"unscoped-legacy-fixture"),/CRO03B_ACTIVE_RECIPE_WRITE_FENCED/,"projection ownership cannot escape its native call");
+// A deferred receipt belongs to an exact contact, even if two contacts share
+// the same email hash and generation. Recovery must not retarget its intent.
+const projectedContactId = Number((projection as any).contactId);
+const duplicateContact = rows(await db.execute(sql`
+  INSERT INTO contacts(first_name,last_name,phone,email,email_token_hash,email_mutation_generation)
+  SELECT 'Receipt','Identity','3055550199',email,email_token_hash,email_mutation_generation
+    FROM contacts WHERE id=${projectedContactId} RETURNING id
+`))[0];
+await db.execute(sql`
+  INSERT INTO cro03b_finalization_receipts
+    (item_id,contact_id,subject_generation,email_token_hash,link_disposition,scoring_request_key)
+  SELECT ${item.id}::uuid,id,email_mutation_generation,email_token_hash,'verified',
+    ${`cro03b:${item.id}:score:g`} || email_mutation_generation
+    FROM contacts WHERE id=${projectedContactId}
+`);
+const deferredReceipt = rows(await db.execute(sql`SELECT * FROM cro03b_finalization_receipts WHERE item_id=${item.id}::uuid`));
+const rejectedRetarget = await finalizeCro03bWinningEmail({itemId:String(item.id),contactId:Number(duplicateContact.id),linkDisposition:'verified'});
+assert.equal((rejectedRetarget as any).reasonCode,'winning_email_identity_changed');
+assert.deepEqual(rows(await db.execute(sql`SELECT * FROM cro03b_finalization_receipts WHERE item_id=${item.id}::uuid`)),deferredReceipt);
+assert.equal(rows(await db.execute(sql`SELECT id FROM validation_intents WHERE contact_id=${duplicateContact.id}`)).length,0);
 // Exercise retained legacy terminal recovery separately; this fixture is not a
 // claim that current review grants validation or outreach authority.
 const {retainedCro03bFinalization}=await import("./fixtures/retained-cro03b-finalization");

@@ -9,6 +9,11 @@ export async function retainedCro03bFinalization(db: any,itemId:string,contactId
     VALUES(${contactId},${c.email_token_hash},${c.email_mutation_generation},1,'cro03_winning_email','pending','deferred','cro03b_provider_denied') RETURNING id`)).rows[0];
   await db.execute(sql`INSERT INTO cro03b_finalization_receipts
     (item_id,contact_id,validation_intent_id,subject_generation,email_token_hash,link_disposition,scoring_request_key)
-    VALUES(${itemId}::uuid,${contactId},${intent.id}::uuid,${c.email_mutation_generation},${c.email_token_hash},'verified',${`cro03b:${itemId}:score:g${c.email_mutation_generation}`})`);
+    VALUES(${itemId}::uuid,${contactId},${intent.id}::uuid,${c.email_mutation_generation},${c.email_token_hash},'verified',${`cro03b:${itemId}:score:g${c.email_mutation_generation}`})
+    ON CONFLICT(item_id) DO UPDATE SET validation_intent_id=EXCLUDED.validation_intent_id
+      WHERE cro03b_finalization_receipts.validation_intent_id IS NULL
+        AND cro03b_finalization_receipts.contact_id=EXCLUDED.contact_id
+        AND cro03b_finalization_receipts.subject_generation=EXCLUDED.subject_generation
+        AND cro03b_finalization_receipts.email_token_hash=EXCLUDED.email_token_hash`);
   await db.execute(sql`UPDATE cro03b_recipe_items SET state='waiting',terminal_code='validation_pending' WHERE id=${itemId}::uuid`);
 }
