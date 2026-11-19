@@ -1,0 +1,23 @@
+{
+  "readOnly": true,
+  "pause": {
+    "url": "https://libertybancard.com/api/admin/worker-heartbeats",
+    "asOf": "2026-11-19T08:51:55.172Z",
+    "state": "paused",
+    "source": "database",
+    "reason": "Re-paused after owner-approved QA deal cleanup"
+  },
+  "outscraper": {
+    "url": "https://libertybancard.com/api/outscraper-budget",
+    "period": "2026-11",
+    "limitMicros": 50000000,
+    "committedMicros": 876000,
+    "remainingMicros": 49124000,
+    "unknownOperations": 0,
+    "pricingReady": true,
+    "enrichmentPricingReady": true,
+    "scope": "All CRM Outscraper purchases; direct vendor-account purchases are outside this CRM guard."
+  },
+  "observedAtClient": "2026-11-19T08:55:02.835233+00:00",
+  "qualification": "Signed-in Air Chrome; rendered canonical JSON GET responses. No control write, purchase, message, approval, restart or publication."
+}

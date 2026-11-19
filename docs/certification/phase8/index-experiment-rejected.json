@@ -82,6 +82,7 @@
   ],
   "decision": "retain aliases pending repeatable qualification; no index DDL authorized by this run",
   "sourceHead": "8bc84873207a2d87fb4d56de94e057619a1641af",
-  "ciLog": "/Users/matt/.local/share/liberty-dev/phase8-ci-integration.log",
-  "disposition": "This failure rejects alias-removal qualification. Implementation retains every alias; no timing result authorizes production DDL. Root cause of timing variation is not established."
+  "ciLog": "/Users/matt/.local/share/liberty-dev/phase8-ci-integration-rejected-experiment.log",
+  "disposition": "This failure rejects alias-removal qualification. Implementation retains every alias; no timing result authorizes production DDL. Root cause of timing variation is not established.",
+  "ciLogSha256": "fd98191a3d6a6cc65aed51f12af7b932cd53a7a03c1e60acc11af70dc1278c20"
 }

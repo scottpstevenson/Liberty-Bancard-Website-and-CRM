@@ -1,3 +1,4 @@
+- [Phase 8 current implementation and gates](../../docs/certification/phase8/owner-handoff.md) — local Cleanup & Hardening branch; seven new suites pass, full required gate 252/313 with 61 failures; no merge/Publish/cutover. Outbound paused and CRM Outscraper cap $50. Historical notes below are not current release acceptance.
 - [Mailbox lock before row lock](mailbox-lock-before-row-lock.md) — email paths lock mailbox first; amounts report partial, not zero. See [partner DTO allowlist](partner-response-allowlist.md).
 - [Canonical consolidation completion](canonical-consolidation-scope.md) — Finish independent work; owner-approved intake closure defers production acceptance rather than claiming it passed.
 - [Provider place ownership](provider-place-ownership.md) — Namespace-local source uniqueness is not global ownership; share resolver locks and audit each mirrored identity.

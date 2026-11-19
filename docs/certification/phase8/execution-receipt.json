@@ -1,0 +1,253 @@
+{
+  "testedImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4",
+  "testedTree": "a0d661d3ff935e7f9786e443006babaa2b397fe3",
+  "baselineMain": "d67d24c61acc462931c418e8068624c86144c7ae",
+  "branch": "codex/phase8-cleanup-hardening",
+  "lockSha256": "452de1ab7c2045bf9029ceda8cb5c15d078645c8835b2a092ba995e86d15945c",
+  "installedHiddenLockSha256": "abb656119b580a97c695c95f33aed9ff68f98526ff0a7bdddf0036e99db0fca4",
+  "baselineInstalledHiddenLockSha256": "abb656119b580a97c695c95f33aed9ff68f98526ff0a7bdddf0036e99db0fca4",
+  "runtime": {
+    "version": 1,
+    "mode": "production",
+    "nodeEnv": "production",
+    "node": "v22.22.0",
+    "npm": "10.9.4",
+    "entryPoint": "script/build.ts",
+    "client": "vite:production",
+    "server": "esbuild:production"
+  },
+  "testedArtifact": {
+    "sourceHead": "67d87d55e7f0b4585484402fa5ad58fb93b531e4",
+    "sourceInputHash": "be8bf2bcaccc28c89157433254f10124d586e977f27ffca99ca6b16dc1649cdf",
+    "inputHash": "06fd7d70423a0b0097177798d39f581e991f96ac9efc61e303937238c8af996e",
+    "outputHash": "52442fa9174f1d62d0b5fdb24e24addb0df54275b53cd9da5bc6c584c87a5f4b"
+  },
+  "testedBuildIdentity": {
+    "version": 1,
+    "artifactSha": "67d87d55e7f0b4585484402fa5ad58fb93b531e4",
+    "buildId": "32c9892b-bb4f-4d38-9c42-31ad56fba4d7",
+    "deploymentIdentity": "publish-build:32c9892b-bb4f-4d38-9c42-31ad56fba4d7",
+    "builtAt": "2026-11-19T08:34:06.451Z"
+  },
+  "retainedTestedArtifact": "/Users/matt/.local/share/liberty-dev/phase8-tested-artifact-67d87d55",
+  "full": {
+    "passed": 252,
+    "total": 313,
+    "childFailures": 61,
+    "suiteSetupTeardownFailures": 0,
+    "sharedLauncherFailures": 0
+  },
+  "fullRosterRunComplete": true,
+  "fullRequiredGatesPassed": false,
+  "fullLogSha256": "41a8b77f3fb9e5eb1411180831c61bb93ec6d3e9becd66d397d82f204df645fe",
+  "phase8Suites": {
+    "scripts/certification/test-phase8-browser.ts": 59,
+    "scripts/certification/test-phase8-upgrade.ts": "PASS native fresh/0393 upgrade/replay/catalog and preserved data",
+    "scripts/certification/test-phase8-contracts.ts": 43,
+    "scripts/certification/test-phase8-periods.ts": 31,
+    "scripts/certification/test-phase8-http.ts": 20,
+    "scripts/certification/test-phase8-backup.ts": 5,
+    "scripts/certification/test-phase8-indexes.ts": 4
+  },
+  "nativeBrowserZoomAdditionalAssertions": 15,
+  "ciCapabilities": {
+    "deterministic-static": {
+      "passedBeforeFailure": 10,
+      "failedAt": 11,
+      "total": 109,
+      "owner": "scripts/test-phase6-workspace-identity.ts"
+    },
+    "deterministic-integration": {
+      "passedBeforeFailure": 18,
+      "failedAt": 19,
+      "total": 181,
+      "owner": "scripts/test-phase6-inventory-reads.ts",
+      "detail": "37 custom checks log success, missing recognized module evidence causes65; exact baseline wrapper also65"
+    },
+    "server-required": {
+      "passedBeforeFailure": 3,
+      "failedAt": 4,
+      "total": 24,
+      "owner": "scripts/test-contactability.ts",
+      "supplement": "All24 individually replayed: candidate7/24 and baseline7/24, same failed assertions"
+    },
+    "writable-build": {
+      "passed": 1,
+      "total": 1
+    },
+    "external-security": {
+      "passed": 1,
+      "total": 1,
+      "high": 0,
+      "critical": 0
+    }
+  },
+  "logs": [
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-candidate-full.log",
+      "sha256": "41a8b77f3fb9e5eb1411180831c61bb93ec6d3e9becd66d397d82f204df645fe",
+      "bytes": 4388182
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-baseline-full.log",
+      "sha256": "0bbb0b29d773ef3338f1cb744838e040fb702573a4e82a7d6deb320e974840ab",
+      "bytes": 3784632
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-baseline-browser-replays.log",
+      "sha256": "c6b837cf5ed0fc63dd87314169e7894cd297b1713ce624ecc23d90d171d453a1",
+      "bytes": 389632
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-baseline-reference-replays.log",
+      "sha256": "5542cf98e6823f145f6fd67acb339868ccd193584963e64008aa58f6d8a82ee9",
+      "bytes": 55185
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-baseline-additional-browser-replays.log",
+      "sha256": "3fb4b19728739f64796a30297650be466452396bd741bc9eec446854e81d130d",
+      "bytes": 38204
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-baseline-final-browser-replays.log",
+      "sha256": "d56367c859eb1729654b80d5a9497c3f7607f9c29e7bc5e5481061515531e721",
+      "bytes": 53673
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-baseline-lifecycle-browser-replay.log",
+      "sha256": "05c76964544414c5619c6b49881e1169e8ec017e2e9128f843535f8a3b3bed4d",
+      "bytes": 10073
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-server-candidate-replay.log",
+      "sha256": "1f41188ced05661e7ba969b247b2dbe2d7e52c325fa22257de64a578b5fd46c1",
+      "bytes": 577312
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-server-baseline-replay.log",
+      "sha256": "fc4f7d9fc6e7e0b1941e29fd9a3bf164cbcc46a7943ca7cd7a5c844dc830d934",
+      "bytes": 577157
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-ci-static-final.log",
+      "sha256": "811d5bf8f26432631b8808b8e379b776402751a7167496d6af46f14b7c78c804",
+      "bytes": 5140
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-ci-integration.log",
+      "sha256": "281defae579c9ab5430c368cd37916da1045074ab375955f4ead3cfa84738270",
+      "bytes": 536756
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-ci-server-final.log",
+      "sha256": "a44ec5258e7c42ead5ea34fcafff9d1db9f1c2d5867ce619958c58cf0593717c",
+      "bytes": 48773
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-ci-build-final.log",
+      "sha256": "6bfeae6ec7a2baf2cdc0e6003c43f26f51bb7f257dfc4a860b93d45030a2cb0d",
+      "bytes": 51109
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-ci-security-final.log",
+      "sha256": "cf310626a92a7bb37c8460ee867bd377984aad0f3542c0992e0060eb7337f666",
+      "bytes": 574
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-types-final.log",
+      "sha256": "a3524d5e43d767e9b4be9b919cafac7158a8650a095963e00ef859ff7f4eaf27",
+      "bytes": 35
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-build-final.log",
+      "sha256": "0e18071696a87845901e93fd21874c24be1754b542c79b64ed2cdbfea8b36937",
+      "bytes": 50397
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-manifest-final.log",
+      "sha256": "19f12f75b9e974be93dff9d8eb6e4f7df6843c01faa4f331e23a3b405f25fd96",
+      "bytes": 54283
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-native-log-race-before.log",
+      "sha256": "b3256fa6bfc2b75e620df41494c61da9104701b4d39e0134be9b3f63a88bb809",
+      "bytes": 582
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-native-log-race-after.log",
+      "sha256": "f45ac06f554aa9f8abd90abdda0253e635c6ca6bf362ca1518200b95f1108f33",
+      "bytes": 101
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-locked-install.log",
+      "sha256": "35e4f8b7e39472d16972ba5709147648d89bdb9320b4cbb00fc4cad3ed92488b",
+      "bytes": 356
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-baseline-phase7-timing-1.log",
+      "sha256": "bcbe1d5d575b2b52fb005ca986f164bb370f55750862f8963a54a8b0875c60a9",
+      "bytes": 14634
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-baseline-phase7-timing-2.log",
+      "sha256": "b3778fc54f21150cd0466801ba9cd7c6049f0281bd1906d44a3497bde95932ae",
+      "bytes": 14634
+    },
+    {
+      "path": "/Users/matt/.local/share/liberty-dev/phase8-baseline-phase7-timing-3.log",
+      "sha256": "7523f9fa9b93ac8471d93bdd3aed9f422b46492723415318919363b5b5c2dd02",
+      "bytes": 14634
+    }
+  ],
+  "controls": {
+    "readOnly": true,
+    "pause": {
+      "url": "https://libertybancard.com/api/admin/worker-heartbeats",
+      "asOf": "2026-11-19T08:51:55.172Z",
+      "state": "paused",
+      "source": "database",
+      "reason": "Re-paused after owner-approved QA deal cleanup"
+    },
+    "outscraper": {
+      "url": "https://libertybancard.com/api/outscraper-budget",
+      "period": "2026-11",
+      "limitMicros": 50000000,
+      "committedMicros": 876000,
+      "remainingMicros": 49124000,
+      "unknownOperations": 0,
+      "pricingReady": true,
+      "enrichmentPricingReady": true,
+      "scope": "All CRM Outscraper purchases; direct vendor-account purchases are outside this CRM guard."
+    },
+    "observedAtClient": "2026-11-19T08:55:02.835233+00:00",
+    "qualification": "Signed-in Air Chrome; rendered canonical JSON GET responses. No control write, purchase, message, approval, restart or publication."
+  },
+  "status": {
+    "planned": true,
+    "engineeringScopeImplemented": true,
+    "focusedChecksPassed": true,
+    "fullRequiredGatesPassed": false,
+    "merged": false,
+    "schemaVerifiedLocally": true,
+    "productionCandidateSchemaVerified": false,
+    "published": false,
+    "productionCandidateReadbackVerified": false,
+    "stabilityObservationMet": false,
+    "schedulerCutoverAuthorized": false,
+    "schedulerCutoverPerformed": false,
+    "outboundPaused": true,
+    "outscraperCapUsd": 50
+  },
+  "handoffCommitQualification": "A later commit in this branch contains evidence/documentation only. Tested implementation and artifact above remain bound to67d87d55; verify unchanged effective source input hash after the documentation commit. A final rebuild changes build identity, not these historical results.",
+  "limitations": [
+    "One A/B pointer-blocking full-run failure unresolved; no pre-existing/product-regression attribution",
+    "Calendar historical reference e112d19e cannot compile without attached_assets/logo-blue.png; no substitute used",
+    "Native Chromium desktop profiles and CSS viewports do not certify real-phone/WebKit or deployed bundled-server parity",
+    "No production migration, merge, publish, worker activation or30-day observation; managed diff/lock window and artifact layer headroom remain release-owner evidence"
+  ],
+  "retentionReceipt": "/Users/matt/.local/share/liberty-dev/phase8-output-retention-final.json",
+  "resourceCleanupReceipt": "/Users/matt/.local/share/liberty-dev/phase8-owned-resource-cleanup.json",
+  "projectDocumentationLinks": "documentation-links.json",
+  "supplementalAgentLinks": "supplemental-agent-links.json",
+  "publishInputReport": "publish-inputs-final.json"
+}

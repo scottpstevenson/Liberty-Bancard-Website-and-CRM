@@ -1,0 +1,1029 @@
+{
+  "candidateApplication": "67d87d55e7f0b4585484402fa5ad58fb93b531e4",
+  "baselineApplication": "d67d24c61acc462931c418e8068624c86144c7ae",
+  "baselineCheckout": "329b1fb84c871900ffceaa33fc6efb082e8e7baf",
+  "qualification": "Both full existing24 server-required selections through the pre-deploy runner, canonical Mac temporary directory; own private PG16/Redis per suite and owned HTTP only where the pre-deploy entry requires it, exact registered scripts, fatal provider denial",
+  "rows": [
+    {
+      "script": "scripts/test-import-reconciliation.ts",
+      "candidate": {
+        "exit": 0,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery"
+        ],
+        "blockSha256": "5eb4e9918eedd501ec8568ded4c3c697577944de73d8a2ac7525d02588a67e49"
+      },
+      "baseline": {
+        "exit": 0,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery"
+        ],
+        "blockSha256": "2ea9b450ad83fba1e4393b04f655aa5a1252c9dfa19bcd12032419fa766aaf9d"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/test-identity-crosswalk.ts",
+      "candidate": {
+        "exit": 0,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery"
+        ],
+        "blockSha256": "6dc6c163d64d2b12ac04dd1bc1245628a312855492a0dc6f6237ab56fde6994b"
+      },
+      "baseline": {
+        "exit": 0,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery"
+        ],
+        "blockSha256": "dfd5d9c339defec3e828790eb2fe0abdb7d3ea4eeec1a231caab8db5bf7703cf"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/test-cr06-http-authorization.ts",
+      "candidate": {
+        "exit": 0,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery"
+        ],
+        "blockSha256": "cd95557329a7be4cbe61a5ee6e22d1ad79e133556c5e3428968827dd5d8172d2"
+      },
+      "baseline": {
+        "exit": 0,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery"
+        ],
+        "blockSha256": "375b1d5a5e41be9cd035c73ebc8f1c6d101aa8d863a27a625660163b1c49ffc6"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/test-contactability.ts",
+      "candidate": {
+        "exit": 1,
+        "failures": [
+          "\u2717 cold scraped can receive email \u2014 Marketing email validation blocked \u2014 mismatched_email_token",
+          "\u2717 SMS STOP does not block email",
+          "\u2717 DNC reason does not block email",
+          "\u2717 Florida: email NOT blocked solely by FL state",
+          "\u2717 ghlPermissionPayload: email allowed for cold contact",
+          "\u2717 Case 2: email-only tier \u2014 email channel allowed \u2014 Marketing email validation blocked \u2014 mismatched_email_token"
+        ],
+        "blockSha256": "7d97c585df93beb0de239caf68a51e10ae78c91d6023e832d1a9b1efc426a90d"
+      },
+      "baseline": {
+        "exit": 1,
+        "failures": [
+          "\u2717 cold scraped can receive email \u2014 Marketing email validation blocked \u2014 mismatched_email_token",
+          "\u2717 SMS STOP does not block email",
+          "\u2717 DNC reason does not block email",
+          "\u2717 Florida: email NOT blocked solely by FL state",
+          "\u2717 ghlPermissionPayload: email allowed for cold contact",
+          "\u2717 Case 2: email-only tier \u2014 email channel allowed \u2014 Marketing email validation blocked \u2014 mismatched_email_token"
+        ],
+        "blockSha256": "722d178e98590b52753c3c8e0909c68008db5a26c09cfcb3965d7f175d2d8bcd"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/test-speed-to-lead.ts",
+      "candidate": {
+        "exit": 0,
+        "failures": [],
+        "blockSha256": "2fea236033f1294f30c0bc72d384733d149b8bd7b7b9ed41a0031068b3b969da"
+      },
+      "baseline": {
+        "exit": 0,
+        "failures": [],
+        "blockSha256": "c13e5eaf043ea2d9e76796487abe2b324491d33cd83e2077e504911bfbfcce54"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/test-cro02-http.ts",
+      "candidate": {
+        "exit": 0,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery"
+        ],
+        "blockSha256": "9b1a693820fd9c6f5b0fc66f48e7c24c257cd87501f75c1ca23c65dae476e9e4"
+      },
+      "baseline": {
+        "exit": 0,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery"
+        ],
+        "blockSha256": "333b8888fa2faeac52b2e7e08b42b04a1ca48ab2a20a3633c1c4a89b311b148f"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/test-cro03-http-authorization.ts",
+      "candidate": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "AssertionError [ERR_ASSERTION]: handoff fixture requires source occurrence and qualification policy"
+        ],
+        "blockSha256": "65190d1454c206f639b7d1c4247f4b6be6a016e9dc913befd0ba4adcc6579b12"
+      },
+      "baseline": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "AssertionError [ERR_ASSERTION]: handoff fixture requires source occurrence and qualification policy"
+        ],
+        "blockSha256": "f9e74b93f4912dbbe864877d9c48e3a0bbfd5494347b0fc28d77d90faa188852"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/test-crm-operator-experience.ts",
+      "candidate": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "AssertionError [ERR_ASSERTION]: server/routes/crm-operations.ts must contain db.select().from(tasks).where(eq(tasks.contactId, contactId))"
+        ],
+        "blockSha256": "9eba72d085e9d26e305ff0f4a38e8f33f993d3b67329716f989e617d24cb7259"
+      },
+      "baseline": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "AssertionError [ERR_ASSERTION]: server/routes/crm-operations.ts must contain db.select().from(tasks).where(eq(tasks.contactId, contactId))"
+        ],
+        "blockSha256": "f3fa3274853d9a1057d357b0c295fbcb1d92603b6317f6fc615e920bf9b884c4"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/test-sequence-compliance.ts",
+      "candidate": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "\u2717 PEWC contact email allowed before opt-out \u2014 Marketing email validation blocked \u2014 mismatched_email_token",
+          "\u2717 PEWC contact: email allowed (flags on) \u2014 Marketing email validation blocked \u2014 mismatched_email_token",
+          "\u2717 email ghlPermissionPayload.lb_email_allowed=true \u2014 {\"lb_email_allowed\":false,\"lb_manual_call_allowed\":true,\"lb_sms_allowed\":false,\"lb_voice_ai_allowed\":false,\"lb_ringless_vm_allowed\":false,\"lb_channel_block_reason\":\"Marketing email validation blocked \u2014 mismatched_email_token\",\"lb_next_best_action\":\"Wait for current email validation evidence before automated marketing email.\"}",
+          "\u2717 otherwise email-contactable fixture passes the independent contactability gate \u2014 Marketing email validation blocked \u2014 mismatched_email_token",
+          "\u2717 canonical fence independently identifies missing cohort authority",
+          "\u2717 declared email fixture independently passes email contactability \u2014 Marketing email validation blocked \u2014 mismatched_email_token",
+          "\u2717 declared email-only channels do not bypass the canonical cohort fence",
+          "\u2717 Gate (a): processSequenceEnrollments paused enrollment for doNotAutoContact contact \u2014 status=active",
+          "\u2717 Gate (a): sequence_enrollment_blocked_contactability audit log written \u2014 found 0 matching audit log rows",
+          "\u2717 CAN-SPAM worker gate: enrollment paused when mailing address is missing \u2014 status=active",
+          "\u2717 Before unsubscribe: email allowed for warm contact \u2014 Marketing email validation blocked \u2014 mismatched_email_token",
+          "\u2717 Case 26: _holdDeferredStep set in enrollment metadata \u2014 meta={}",
+          "\u2717 Case 26: _holdDeferredReason set in enrollment metadata \u2014 reason=undefined",
+          "\u2717 Case 26: _holdDeferredAt set in enrollment metadata \u2014 at=undefined",
+          "\u2717 Case 26: sequence_step_hold_deferred audit log written \u2014 found=0",
+          "\u2717 Case 27: first tick writes at least one sequence_step_hold_deferred log \u2014 count=0",
+          "\u2717 Case 29: enrollment deferred (paused) when daily cap exceeded \u2014 status=active",
+          "\u2717 Case 29: audit log sequence_step_deferred_daily_cap written \u2014 found=0",
+          "\u2717 Case 34B: enrollment paused when cap reached \u2014 status=active",
+          "\u2717 Case 34B: sequence_step_deferred_daily_cap audit log written for deferred enrollment \u2014 found=0",
+          "\u2717 Case 36A: nextActionAt advanced to future (enrollment is genuinely deferred) \u2014 nextActionAt=Thu Nov 19 2026 02:59:05 GMT-0500 (Eastern Standard Time)",
+          "\u2717 Case 36A: truthful provider-readiness deferral audit log written \u2014 actions=",
+          "\u2717 Sequence compliance tests FAILED."
+        ],
+        "blockSha256": "de44a7a066412d5f7d255e34a6004f942fee38561a756723aa75cff44d4e94f5"
+      },
+      "baseline": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "\u2717 PEWC contact email allowed before opt-out \u2014 Marketing email validation blocked \u2014 mismatched_email_token",
+          "\u2717 PEWC contact: email allowed (flags on) \u2014 Marketing email validation blocked \u2014 mismatched_email_token",
+          "\u2717 email ghlPermissionPayload.lb_email_allowed=true \u2014 {\"lb_email_allowed\":false,\"lb_manual_call_allowed\":true,\"lb_sms_allowed\":false,\"lb_voice_ai_allowed\":false,\"lb_ringless_vm_allowed\":false,\"lb_channel_block_reason\":\"Marketing email validation blocked \u2014 mismatched_email_token\",\"lb_next_best_action\":\"Wait for current email validation evidence before automated marketing email.\"}",
+          "\u2717 otherwise email-contactable fixture passes the independent contactability gate \u2014 Marketing email validation blocked \u2014 mismatched_email_token",
+          "\u2717 canonical fence independently identifies missing cohort authority",
+          "\u2717 declared email fixture independently passes email contactability \u2014 Marketing email validation blocked \u2014 mismatched_email_token",
+          "\u2717 declared email-only channels do not bypass the canonical cohort fence",
+          "\u2717 Gate (a): processSequenceEnrollments paused enrollment for doNotAutoContact contact \u2014 status=active",
+          "\u2717 Gate (a): sequence_enrollment_blocked_contactability audit log written \u2014 found 0 matching audit log rows",
+          "\u2717 CAN-SPAM worker gate: enrollment paused when mailing address is missing \u2014 status=active",
+          "\u2717 Before unsubscribe: email allowed for warm contact \u2014 Marketing email validation blocked \u2014 mismatched_email_token",
+          "\u2717 Case 26: _holdDeferredStep set in enrollment metadata \u2014 meta={}",
+          "\u2717 Case 26: _holdDeferredReason set in enrollment metadata \u2014 reason=undefined",
+          "\u2717 Case 26: _holdDeferredAt set in enrollment metadata \u2014 at=undefined",
+          "\u2717 Case 26: sequence_step_hold_deferred audit log written \u2014 found=0",
+          "\u2717 Case 27: first tick writes at least one sequence_step_hold_deferred log \u2014 count=0",
+          "\u2717 Case 29: enrollment deferred (paused) when daily cap exceeded \u2014 status=active",
+          "\u2717 Case 29: audit log sequence_step_deferred_daily_cap written \u2014 found=0",
+          "\u2717 Case 34B: enrollment paused when cap reached \u2014 status=active",
+          "\u2717 Case 34B: sequence_step_deferred_daily_cap audit log written for deferred enrollment \u2014 found=0",
+          "\u2717 Case 36A: nextActionAt advanced to future (enrollment is genuinely deferred) \u2014 nextActionAt=Thu Nov 19 2026 03:06:09 GMT-0500 (Eastern Standard Time)",
+          "\u2717 Case 36A: truthful provider-readiness deferral audit log written \u2014 actions=",
+          "\u2717 Sequence compliance tests FAILED."
+        ],
+        "blockSha256": "53c80414193b2415fb8e212e626959ca5c74196b355a847ebe6619a36006ea35"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": false,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/test-new-lead-enrollment-policy.ts",
+      "candidate": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "\u2717 B9: no candidate audit log written for test deal: expected new_lead_auto_enrollment_candidate_detected",
+          "\u2717 B22: no candidate audit log written for null-vertical deal with __unknown__ mapping",
+          "\u2717 B23: null-vertical deal NOT enrolled into __unknown__ seq: enrollments=[]"
+        ],
+        "blockSha256": "f3bce502c38904d20ad04ea844407569c06168f21fdeadfc85b3b7892089ddc5"
+      },
+      "baseline": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "\u2717 B9: no candidate audit log written for test deal: expected new_lead_auto_enrollment_candidate_detected",
+          "\u2717 B22: no candidate audit log written for null-vertical deal with __unknown__ mapping",
+          "\u2717 B23: null-vertical deal NOT enrolled into __unknown__ seq: enrollments=[]"
+        ],
+        "blockSha256": "0855fcc7b51d4e412cac590cf3e1ca2ca61065acb495dcab510e95241e173f30"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/smoke-role-guards.ts",
+      "candidate": {
+        "exit": 0,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery"
+        ],
+        "blockSha256": "1c9ae9d871e41186e621176995897da0d2c76fba58ba9d968245960107daf710"
+      },
+      "baseline": {
+        "exit": 0,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery"
+        ],
+        "blockSha256": "fa4c4ea1edf2a0b0e5f60b1b744c23b4b772eb840c7c3f4cd2feafb679840e5c"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/seo-audit.ts",
+      "candidate": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "Error: spawn /repl/tools/bin/chromium ENOENT"
+        ],
+        "blockSha256": "37f077d162b09ec05c2242f5827a85db095f3464d88878b7fdb0785159789d80"
+      },
+      "baseline": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "Error: spawn /repl/tools/bin/chromium ENOENT"
+        ],
+        "blockSha256": "167e603c6ca13fe58669b9ad5831d44d0c2fb11f2803b7d00a4ea9ffc1900776"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/check-public-site-mobile.ts",
+      "candidate": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "Error: spawn /repl/tools/bin/chromium ENOENT"
+        ],
+        "blockSha256": "460d738d7b4cb9fade4112be5e7cdc684e84ea5a18ea6dc291c7258911f73589"
+      },
+      "baseline": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "Error: spawn /repl/tools/bin/chromium ENOENT"
+        ],
+        "blockSha256": "71499e2eb80dc5c41d1283e893271833245b235a932c31c597ac71c11f7d95c1"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/check-public-shell-design.ts",
+      "candidate": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "Error: spawn /repl/tools/bin/chromium ENOENT"
+        ],
+        "blockSha256": "610768d338f46e6300096d9888f5fc10ff21481d69408625004c3a302599f3db"
+      },
+      "baseline": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "Error: spawn /repl/tools/bin/chromium ENOENT"
+        ],
+        "blockSha256": "977cf64f1eb247d7224117d780ebce77ef6f950ed407a7e00aaaa787ea987515"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/check-public-fonts.ts",
+      "candidate": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "Error: spawn /repl/tools/bin/chromium ENOENT"
+        ],
+        "blockSha256": "7a9cd5f2eb8c61f0d28ca1e97249cf92fd28c5ded4e62d2a7efc0072ff7d5087"
+      },
+      "baseline": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "Error: spawn /repl/tools/bin/chromium ENOENT"
+        ],
+        "blockSha256": "9652994c45bd7341e85c8f204d455fad08bce543be0e33dff2d95490519862a5"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/check-public-overlay.ts",
+      "candidate": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "Error: spawn /repl/tools/bin/chromium ENOENT"
+        ],
+        "blockSha256": "558e73783b62ee56f356e3e2cfd754f2e5a63f68bc8efba9969a54ee0b270427"
+      },
+      "baseline": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "Error: spawn /repl/tools/bin/chromium ENOENT"
+        ],
+        "blockSha256": "8155e8427a5f2e383e88902129e5b0599b829f627d12411400cc3a3f5bf9107c"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/check-public-server-hydrated-parity.ts",
+      "candidate": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "Error: spawn /repl/tools/bin/chromium ENOENT"
+        ],
+        "blockSha256": "66beaf08b619814ff30249649b530ab47c617f544217e6ccde3782ae6d4dfb19"
+      },
+      "baseline": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "Error: spawn /repl/tools/bin/chromium ENOENT"
+        ],
+        "blockSha256": "32e6ed8e6f8a0761b0dc2e3e5f27e1e83672d3b3ccbc022c5db3d4650127febe"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/check-wd-pv-browser.ts",
+      "candidate": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "Error: spawn /repl/tools/bin/chromium ENOENT"
+        ],
+        "blockSha256": "bf19409c2625621ca1c0203c1ffb7c87a38e8c12a98322b6ef5d7649add14272"
+      },
+      "baseline": {
+        "exit": 1,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery",
+          "Error: spawn /repl/tools/bin/chromium ENOENT"
+        ],
+        "blockSha256": "0c351a166237c019ae4fcb5780fb2021ad308a72a73ce7f9931331e5ccbfb975"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/test-statement-acquisition.ts",
+      "candidate": {
+        "exit": 1,
+        "failures": [
+          "\u2717 Upload-chain GHL projection remains held with no projection request",
+          "\u2717 Upload-chain merchant confirmation is held without external delivery"
+        ],
+        "blockSha256": "5605fc1917175103412f89ac5832ab6f4cf6483350dc4bdee680982084cabb2f"
+      },
+      "baseline": {
+        "exit": 1,
+        "failures": [
+          "\u2717 Upload-chain GHL projection remains held with no projection request",
+          "\u2717 Upload-chain merchant confirmation is held without external delivery"
+        ],
+        "blockSha256": "60bfc5e6fc74a660c4f1488039231f144d7f7e100e214b6fc7dfd012b7774dac"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/test-nba.ts",
+      "candidate": {
+        "exit": 1,
+        "failures": [
+          "\u2717 actionType is CALL_PROSPECT or SEND_EMAIL",
+          "\u2717 actionType is CONTACT_AT_RISK_MERCHANT",
+          "\u2717 urgency is critical",
+          "\u2717 humanRequired is true",
+          "\u2717 actionType is SEND_PROPOSAL",
+          "\u2717 urgency is critical",
+          "\u2717 reasonCode is do_not_contact",
+          "\u2717 reasonCode is closed_lost_no_action",
+          "\u2717 Fixture contact appears in priority queue",
+          "\u2717 reasonCode is appointment_pending",
+          "\u2717 [isolation] epoch not advanced by test suite",
+          "\u274c NBA tests FAILED"
+        ],
+        "blockSha256": "c042a1f2a2125c83453012a95f822d68d9e436ed126fc62087431319eae13692"
+      },
+      "baseline": {
+        "exit": 1,
+        "failures": [
+          "\u2717 actionType is CALL_PROSPECT or SEND_EMAIL",
+          "\u2717 actionType is CONTACT_AT_RISK_MERCHANT",
+          "\u2717 urgency is critical",
+          "\u2717 humanRequired is true",
+          "\u2717 actionType is SEND_PROPOSAL",
+          "\u2717 urgency is critical",
+          "\u2717 reasonCode is do_not_contact",
+          "\u2717 reasonCode is closed_lost_no_action",
+          "\u2717 Fixture contact appears in priority queue",
+          "\u2717 reasonCode is appointment_pending",
+          "\u2717 [isolation] epoch not advanced by test suite",
+          "\u274c NBA tests FAILED"
+        ],
+        "blockSha256": "227af377f3fa27ad8244ea05a1e823d2b0ba0d8f42a1753318516fa06b8d396e"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/test-outbound-pause-authority.ts",
+      "candidate": {
+        "exit": 1,
+        "failures": [
+          "\u2717 server/routes/toolkit.ts is MISSING pause authority gate \u2014 provider I/O can bypass the pause",
+          "\u2717 toolkit.ts SMS reply: no registerInflight() call found in server/routes/toolkit.ts"
+        ],
+        "blockSha256": "29db57f13ee2c8d95512e035efde2e6ba25c6ff6b75e02ab5583b9c7167b10b7"
+      },
+      "baseline": {
+        "exit": 1,
+        "failures": [
+          "\u2717 server/routes/toolkit.ts is MISSING pause authority gate \u2014 provider I/O can bypass the pause",
+          "\u2717 toolkit.ts SMS reply: no registerInflight() call found in server/routes/toolkit.ts"
+        ],
+        "blockSha256": "83d654589d1bc23e0f32204ad3976c9ea7316edf4551af35122f47e1c2dc1bec"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/test-outbound-boundary-1626.ts",
+      "candidate": {
+        "exit": 1,
+        "failures": [],
+        "blockSha256": "7ce65a05b22deaa519ef5f2eb9ff4030df7f7d1dae8201003109529ebdf567c0"
+      },
+      "baseline": {
+        "exit": 1,
+        "failures": [],
+        "blockSha256": "56ca5a47a053fd0b984682d0ff4dc3da0f7d35b6db7eb943e060fdd3b21988d0"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/test-pause-fence.ts",
+      "candidate": {
+        "exit": 1,
+        "failures": [
+          "\u2717 outbound_pause_control row exists"
+        ],
+        "blockSha256": "11aea2801581b3f27a031f262bc4236a5d08dee630c4293772608c5cc5239391"
+      },
+      "baseline": {
+        "exit": 1,
+        "failures": [
+          "\u2717 outbound_pause_control row exists"
+        ],
+        "blockSha256": "a8532b3db1e0593077645295885f78db99f2470f75e51ff1a7572a0cab746592"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    },
+    {
+      "script": "scripts/test-cro01-provider-denial.ts",
+      "candidate": {
+        "exit": 0,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery"
+        ],
+        "blockSha256": "d400f72579fcbad4f9a893a864a4985c8c70b6a234194a725754ad6dc6bc2a22"
+      },
+      "baseline": {
+        "exit": 0,
+        "failures": [
+          "\u2717 PAYARC_API_KEY                      \u2192 Payarc processor boarding (MID provisioning disabled without it)",
+          "\u2717 GHL_LOCATION_ID                     \u2192 GoHighLevel CRM sync and all GHL communications",
+          "\u2717 GHL_DEFAULT_BOOKING_LINK            \u2192 {{link}} in SDR outreach templates (falls back to Calendly URL)",
+          "\u2717 GHL_WORKFLOW_BOOKING_LINK           \u2192 Automated booking link workflow trigger via GHL",
+          "\u2717 GHL_BOOKING_URL                     \u2192 Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)",
+          "\u2717 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY \u2192 Push notifications (auto-generated fallback keys used \u2014 not portable across restarts without this)",
+          "\u2717 SENTRY_DSN                          \u2192 Sentry error monitoring",
+          "\u2717 SERPER_API_KEY                      \u2192 Serper.dev Google search enrichment in Outreach Command Center",
+          "\u2717 APOLLO_API_KEY                      \u2192 Apollo.io B2B contact discovery",
+          "\u2717 PROXYCURL_API_KEY                   \u2192 ProxyCurl LinkedIn enrichment",
+          "\u2717 APIFY_API_TOKEN                     \u2192 Apify Yelp/Facebook business scraping",
+          "\u2717 OUTSCRAPER_API_KEY                  \u2192 Outscraper Google Maps bulk data pulls",
+          "\u2717 SMTP_HOST                           \u2192 SMTP email fallback (used when GHL is not configured or contact has no GHL ID)",
+          "\u2717 SMTP_PASS                           \u2192 SMTP authentication \u2014 required alongside SMTP_HOST/USER for actual delivery"
+        ],
+        "blockSha256": "c344debe9043a9cfeff683897178a8609cc8a1122ae0cf0c150e4c20cb6a5730"
+      },
+      "sameExit": true,
+      "sameFailedAssertions": true,
+      "sameFailedAssertionsAfterRunClockNormalization": true
+    }
+  ],
+  "normalization": "Only native Date.toString run-clock values normalized; original assertion messages, counts and values retained in each side."
+}

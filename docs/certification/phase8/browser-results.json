@@ -1,0 +1,153 @@
+{
+  "source": "67d87d55e7f0b4585484402fa5ad58fb93b531e4",
+  "inputHash": "06fd7d70423a0b0097177798d39f581e991f96ac9efc61e303937238c8af996e",
+  "checks": 58,
+  "rows": [
+    {
+      "width": 1280,
+      "scroll": 1280,
+      "url": "/dashboard/system-health?systemTab=readiness",
+      "emptyButtons": 0,
+      "theme": "light",
+      "route": 0
+    },
+    {
+      "width": 1280,
+      "scroll": 1280,
+      "url": "/dashboard/activation",
+      "emptyButtons": 0,
+      "theme": "light",
+      "route": 1
+    },
+    {
+      "width": 1280,
+      "scroll": 1280,
+      "url": "/dashboard/lead-ops?tab=imports",
+      "emptyButtons": 0,
+      "theme": "light",
+      "route": 2
+    },
+    {
+      "width": 1280,
+      "scroll": 1280,
+      "url": "/dashboard/system-health?systemTab=readiness",
+      "emptyButtons": 0,
+      "theme": "dark",
+      "route": 0
+    },
+    {
+      "width": 1280,
+      "scroll": 1280,
+      "url": "/dashboard/activation",
+      "emptyButtons": 0,
+      "theme": "dark",
+      "route": 1
+    },
+    {
+      "width": 1280,
+      "scroll": 1280,
+      "url": "/dashboard/lead-ops?tab=imports",
+      "emptyButtons": 0,
+      "theme": "dark",
+      "route": 2
+    },
+    {
+      "width": 768,
+      "scroll": 768,
+      "url": "/dashboard/system-health?systemTab=readiness",
+      "emptyButtons": 0,
+      "theme": "light",
+      "route": 0
+    },
+    {
+      "width": 768,
+      "scroll": 768,
+      "url": "/dashboard/activation",
+      "emptyButtons": 0,
+      "theme": "light",
+      "route": 1
+    },
+    {
+      "width": 768,
+      "scroll": 768,
+      "url": "/dashboard/lead-ops?tab=imports",
+      "emptyButtons": 0,
+      "theme": "light",
+      "route": 2
+    },
+    {
+      "width": 768,
+      "scroll": 768,
+      "url": "/dashboard/system-health?systemTab=readiness",
+      "emptyButtons": 0,
+      "theme": "dark",
+      "route": 0
+    },
+    {
+      "width": 768,
+      "scroll": 768,
+      "url": "/dashboard/activation",
+      "emptyButtons": 0,
+      "theme": "dark",
+      "route": 1
+    },
+    {
+      "width": 768,
+      "scroll": 768,
+      "url": "/dashboard/lead-ops?tab=imports",
+      "emptyButtons": 0,
+      "theme": "dark",
+      "route": 2
+    },
+    {
+      "width": 390,
+      "scroll": 390,
+      "url": "/dashboard/system-health?systemTab=readiness",
+      "emptyButtons": 0,
+      "theme": "light",
+      "route": 0
+    },
+    {
+      "width": 390,
+      "scroll": 390,
+      "url": "/dashboard/activation",
+      "emptyButtons": 0,
+      "theme": "light",
+      "route": 1
+    },
+    {
+      "width": 390,
+      "scroll": 390,
+      "url": "/dashboard/lead-ops?tab=imports",
+      "emptyButtons": 0,
+      "theme": "light",
+      "route": 2
+    },
+    {
+      "width": 390,
+      "scroll": 390,
+      "url": "/dashboard/system-health?systemTab=readiness",
+      "emptyButtons": 0,
+      "theme": "dark",
+      "route": 0
+    },
+    {
+      "width": 390,
+      "scroll": 390,
+      "url": "/dashboard/activation",
+      "emptyButtons": 0,
+      "theme": "dark",
+      "route": 1
+    },
+    {
+      "width": 390,
+      "scroll": 390,
+      "url": "/dashboard/lead-ops?tab=imports",
+      "emptyButtons": 0,
+      "theme": "dark",
+      "route": 2
+    }
+  ],
+  "exceptions": [],
+  "qualification": "Chromium CSS viewport coverage; not real-phone/WebKit or deployed bundled-server acceptance"
+}

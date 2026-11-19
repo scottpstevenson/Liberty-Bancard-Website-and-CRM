@@ -1,5 +1,7 @@
 {
-  "method": "all tracked Markdown local link targets checked; HTTP links not fetched; fragments not semantically validated",
+  "method": "Effective tracked/untracked non-ignored project Markdown (excluding .agents vendor/memory) local targets checked; fenced and inline code omitted. HTTP links not fetched; fragments not semantically validated.",
+  "markdownFiles": 175,
+  "localTargets": 120,
   "brokenLocalLinks": [],
-  "taskOwnedCurrentLinks": "current Phase 8 README/task/overlays checked separately against effective tree"
+  "sourceHead": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
 }

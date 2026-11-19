@@ -4,6 +4,10 @@ Authorized scope: Cleanup & Hardening P8-1–P8-4, controlling [task](../../task
 
 This record supersedes living claims about current readiness, not historical evidence. The roadmap is Cleanup & Hardening, not an invented feature roadmap. Phase 7's original 41 diagnostics/unpublished/299-suite text remains dated history; current results must be read from the exact candidate receipt. Zero configured discovery definitions and nine high advisories are not carried forward as current facts.
 
+## Final local result
+
+Tested implementation `67d87d55`: all seven Phase 8 suites pass in the full pre-deploy run and local CI. The complete mandatory run is **252/313 passed, 61 failed**, with zero runner setup/teardown/shared-launcher failures. Full CI is red; no release is approved. See [owner handoff](owner-handoff.md), [execution receipt](execution-receipt.json), [failure owners](failure-owners.md), [native UI proof](browser-results.json) and [fresh read-only control observation](control-readback-final.json). One A/B interaction remains unresolved; do not label every failure pre-existing or a product defect.
+
 ## Implemented behavior
 
 - Archived five historical files byte-for-byte and removed one completed unused script with exact Git recovery; see [archive manifest](archive-manifest.json). Historical snapshots remain recoverable, cannot authorize current apply, and are never used as a heuristic cleanup target.
@@ -23,6 +27,8 @@ Focused suites use actual source handlers, native disposable PostgreSQL and priv
 
 Read-only production provenance is retained in `docs/tasks/phase8-evidence/` from the preflight; it is not a post-publication candidate readback. The [live retention review](live-retention-review.json) records exact list IDs 1, 2, 4, 5 and 7, import filenames and the demo seed association. The Test/Demo-labelled populations have no immutable record-level proof of synthetic provenance; retain all records. Data Health's 720 no-email/active count is not a cleanup count. No live deletion or reclassification is authorized by that observation.
 
+Project-doc local links are checked against the effective tree; fragments and external HTTP links are not certified. Supplemental missing agent-memory/vendor-skill links are disclosed in [their retained inventory](supplemental-agent-links.json), outside the original 880-path documentation census.
+
 Current locked audit: 0 high, 0 critical, 16 moderate and 1 low; [dependency dispositions](dependency-dispositions.json) retain the actual advisory paths and exposure limitations. No package versions or lock bytes changed.
 
 ## Migration ownership / release conditions
@@ -33,4 +39,4 @@ Before a separately authorized release, review the managed production diff again
 
 ## Independent completion states
 
-Planned: yes. Engineering/focused/full-required-check status: see the final execution receipt for this branch; no historical result substitutes for it. Merged: no. Production schema verified for this candidate: no. Published: no. Production readback of this candidate: no. Thirty-day stability: unverified. New scheduler cutover: neither authorized nor performed. Outbound: paused, unchanged. Outscraper cap: $50, unchanged.
+Planned: yes. Engineering/focused/full-required-check status: see [the final execution receipt](execution-receipt.json) for this branch; no historical result substitutes for it. Merged: no. Production schema verified for this candidate: no. Published: no. Production readback of this candidate: no. Thirty-day stability: unverified. New scheduler cutover: neither authorized nor performed. Outbound: paused, unchanged. Outscraper cap: $50, unchanged.

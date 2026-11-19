@@ -1,0 +1,95 @@
+{
+  "scope": "Supplemental .agents/memory and vendored skill material; outside original docs/ census",
+  "applicationBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+  "observedHead": "67d87d55e7f0b4585484402fa5ad58fb93b531e4",
+  "count": 17,
+  "missingTargets": [
+    {
+      "source": ".agents/memory/MEMORY.md",
+      "target": "sdr-merchant-contacts-security.md",
+      "existsInPreservedOriginalCheckout": false
+    },
+    {
+      "source": ".agents/memory/MEMORY.md",
+      "target": "scheduler-idempotency-gaps.md",
+      "existsInPreservedOriginalCheckout": false
+    },
+    {
+      "source": ".agents/memory/MEMORY.md",
+      "target": "compliance-scanner-allowlist.md",
+      "existsInPreservedOriginalCheckout": false
+    },
+    {
+      "source": ".agents/memory/MEMORY.md",
+      "target": "ai-memory-arch.md",
+      "existsInPreservedOriginalCheckout": false
+    },
+    {
+      "source": ".agents/memory/MEMORY.md",
+      "target": "save-cases-auto-open.md",
+      "existsInPreservedOriginalCheckout": false
+    },
+    {
+      "source": ".agents/memory/MEMORY.md",
+      "target": "new-lead-enrollment-timeout.md",
+      "existsInPreservedOriginalCheckout": false
+    },
+    {
+      "source": ".agents/memory/MEMORY.md",
+      "target": "task-agent-isolated-branch.md",
+      "existsInPreservedOriginalCheckout": false
+    },
+    {
+      "source": ".agents/memory/MEMORY.md",
+      "target": "cro03c-inventory-ambiguous-prevention.md",
+      "existsInPreservedOriginalCheckout": false
+    },
+    {
+      "source": ".agents/memory/MEMORY.md",
+      "target": "census-cursor-nowait.md",
+      "existsInPreservedOriginalCheckout": false
+    },
+    {
+      "source": ".agents/memory/MEMORY.md",
+      "target": "advisory-lock-cross-connection-deadlock.md",
+      "existsInPreservedOriginalCheckout": false
+    },
+    {
+      "source": ".agents/memory/MEMORY.md",
+      "target": "sfp-production-admin-route-trigger.md",
+      "existsInPreservedOriginalCheckout": false
+    },
+    {
+      "source": ".agents/memory/MEMORY.md",
+      "target": "sfp-continuous-pause-pattern.md",
+      "existsInPreservedOriginalCheckout": false
+    },
+    {
+      "source": ".agents/memory/task-1955-build-findings.md",
+      "target": "../../migrations/0266_repair_record_class_subject_type_constraints.sql",
+      "existsInPreservedOriginalCheckout": false
+    },
+    {
+      "source": ".agents/skills/remotion-best-practices/rules/voiceover.md",
+      "target": "./calculate-metadata",
+      "existsInPreservedOriginalCheckout": false
+    },
+    {
+      "source": ".agents/skills/vercel-react-best-practices/AGENTS.md",
+      "target": "./async-defer-await.md",
+      "existsInPreservedOriginalCheckout": false
+    },
+    {
+      "source": ".agents/skills/vercel-react-best-practices/AGENTS.md",
+      "target": "./async-cheap-condition-before-await.md",
+      "existsInPreservedOriginalCheckout": false
+    },
+    {
+      "source": ".agents/skills/vercel-react-best-practices/AGENTS.md",
+      "target": "./server-hoist-static-io.md",
+      "existsInPreservedOriginalCheckout": false
+    }
+  ],
+  "method": "Filesystem target existence checked in isolated and preserved original checkouts. One inline regex pseudo-link omitted. Historical/third-party text retained; no missing note invented.",
+  "disposition": "Informational legacy-reference limitations, not new application defects or a claim that external skill documentation was repaired."
+}

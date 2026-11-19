@@ -1,0 +1,74 @@
+{
+  "sourceHead": "67d87d55e7f0b4585484402fa5ad58fb93b531e4",
+  "inputHash": "06fd7d70423a0b0097177798d39f581e991f96ac9efc61e303937238c8af996e",
+  "checks": 15,
+  "rows": [
+    {
+      "theme": "light",
+      "url": "/dashboard/system-health?tab=readiness",
+      "metrics": {
+        "innerWidth": 720,
+        "innerHeight": 428,
+        "dpr": 2,
+        "cssZoom": "1",
+        "scrollWidth": 720
+      }
+    },
+    {
+      "theme": "light",
+      "url": "/dashboard/activation",
+      "metrics": {
+        "innerWidth": 720,
+        "innerHeight": 428,
+        "dpr": 2,
+        "cssZoom": "1",
+        "scrollWidth": 720
+      }
+    },
+    {
+      "theme": "light",
+      "url": "/dashboard/lead-ops?tab=imports",
+      "metrics": {
+        "innerWidth": 720,
+        "innerHeight": 428,
+        "dpr": 2,
+        "cssZoom": "1",
+        "scrollWidth": 720
+      }
+    },
+    {
+      "theme": "dark",
+      "url": "/dashboard/system-health?tab=readiness",
+      "metrics": {
+        "innerWidth": 720,
+        "innerHeight": 428,
+        "dpr": 2,
+        "cssZoom": "1",
+        "scrollWidth": 720
+      }
+    },
+    {
+      "theme": "dark",
+      "url": "/dashboard/activation",
+      "metrics": {
+        "innerWidth": 720,
+        "innerHeight": 428,
+        "dpr": 2,
+        "cssZoom": "1",
+        "scrollWidth": 720
+      }
+    },
+    {
+      "theme": "dark",
+      "url": "/dashboard/lead-ops?tab=imports",
+      "metrics": {
+        "innerWidth": 720,
+        "innerHeight": 428,
+        "dpr": 2,
+        "cssZoom": "1",
+        "scrollWidth": 720
+      }
+    }
+  ],
+  "qualification": "Actual private Chrome profile at 200% native zoom; synthetic login and native source readers. Not production or real-phone/WebKit acceptance."
+}

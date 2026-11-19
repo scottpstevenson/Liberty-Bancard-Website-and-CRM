@@ -14,7 +14,10 @@
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
     "passingAfterProof": "README.md",
     "negativeControl": "No 30-day observation fabricated",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V02",
@@ -31,7 +34,10 @@
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
     "passingAfterProof": "archive-manifest.json",
     "negativeControl": "Hash restoration; originals no longer executable current paths",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V03",
@@ -48,7 +54,10 @@
     "failingBeforeControl": "Inspected old ensureBackupExists prefix scan and dry-run path; old unrelated historical backup was not bound to database/source/content.",
     "passingAfterProof": "../../../scripts/certification/test-phase8-backup.ts",
     "negativeControl": "Actual wrong hash, changed content and absent backup refused",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V04",
@@ -65,7 +74,10 @@
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
     "passingAfterProof": "../../../scripts/test-cleanup-guard.ts",
     "negativeControl": "Production-like target refuses before DB import",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V05",
@@ -82,7 +94,10 @@
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
     "passingAfterProof": "live-retention-review.json",
     "negativeControl": "720 is no-email population, not synthetic count",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V06",
@@ -99,7 +114,10 @@
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
     "passingAfterProof": "scheduler-ownership.md",
     "negativeControl": "Legacy entry points cannot schedule paid fallback",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V07",
@@ -116,7 +134,10 @@
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
     "passingAfterProof": "Native Phase8 period suite: actual concurrent daily command held/completed; real unavailable daily/SDR refusal; accepted/unknown message receipt replay reserves and calls recording provider once.",
     "negativeControl": "No new send or provider authority",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V08",
@@ -133,7 +154,10 @@
     "failingBeforeControl": "Executed before-reproduction.log: double Start created 2 timeout handles; repeated reset erased consumed allowance to 0.",
     "passingAfterProof": "../../../scripts/certification/test-phase8-periods.ts",
     "negativeControl": "Native concurrency/replay/rollback and DST cancellation controls",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V09",
@@ -150,7 +174,10 @@
     "failingBeforeControl": "Source absence of durable ownership confirmed; no baseline connected funnel-duplication reproduction is claimed.",
     "passingAfterProof": "../../../scripts/certification/test-phase8-periods.ts",
     "negativeControl": "Concurrent automatic runs + manual refresh preserve row cardinality",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V10",
@@ -167,7 +194,10 @@
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
     "passingAfterProof": "index-decisions.md",
     "negativeControl": "Native catalog/retained query outputs",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V11",
@@ -184,7 +214,10 @@
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
     "passingAfterProof": "index-decisions.md",
     "negativeControl": "Equivalent native definitions, private rollback; insufficient repeatable performance benefit for DDL",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V12",
@@ -201,7 +234,10 @@
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
     "passingAfterProof": "index-decisions.md",
     "negativeControl": "Synthetic local plans/timings only; no timed production usage interval",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V13",
@@ -218,7 +254,10 @@
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
     "passingAfterProof": "index-decisions.md",
     "negativeControl": "No invented contact_id column or index",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V14",
@@ -235,7 +274,10 @@
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
     "passingAfterProof": "documentation-status-index.json",
     "negativeControl": "Historical proof retained; current overlays link scoped evidence",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V15",
@@ -252,7 +294,10 @@
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
     "passingAfterProof": "README.md",
     "negativeControl": "Zero high/critical must be re-read from run receipt; lower advisories disclosed",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V16",
@@ -267,10 +312,13 @@
     "productionOwnerAndAffectedCallers": "both suite manifests / canonical disposable predeploy runner",
     "rootCauseOrEvidenceLimitation": "Planning checks were bounded, not a completed required roster",
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
-    "passingAfterProof": "Canonical final roster execution receipt records every exit; clean baseline is 219/306 pass and 87 failures, not a green release gate.",
+    "passingAfterProof": "execution-receipt.json; all seven new suites pass; complete full run252/313 and actual local CI stop points reported, no waived failures",
     "negativeControl": "No focused pass represented as full release pass",
     "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
-    "harnessRepair": "mac-browser-input-repair.json: exact native scratch input before/after plus compiled CRM budget save; baseline application comparisons use only the corrected test helper."
+    "harnessRepair": "mac-browser-input-repair.json: exact native scratch input before/after plus compiled CRM budget save; baseline application comparisons use only the corrected test helper.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V17",
@@ -285,9 +333,12 @@
     "productionOwnerAndAffectedCallers": "ActivationPanel / shared sender identity state / admin readiness reader",
     "rootCauseOrEvidenceLimitation": "Row existence and nonexistent status field caused disagreement; warmup examples also exceeded actual 35-email ceiling",
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
-    "passingAfterProof": "../../../shared/sender-identity-state.ts",
+    "passingAfterProof": "browser-results.json (59 logged assertions including visible activation header bounds) and native-zoom-results.json (15 actual200% browser zoom assertions); native HTTP eligibility and counter cases",
     "negativeControl": "Native API roles + mounted saved-disabled and unavailable states",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V18",
@@ -302,9 +353,12 @@
     "productionOwnerAndAffectedCallers": "admin worker-heartbeats / WorkerRuntimeSummary / ActivationPanel",
     "rootCauseOrEvidenceLimitation": "Configured Redis and local SDR pause state were presented as global runtime authority",
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
-    "passingAfterProof": "../../../shared/worker-runtime-state.ts",
+    "passingAfterProof": "native HTTP/roles/unavailable checks, worker DTO controls, actual CRM browser checks; configuration banners no longer infer pipeline execution or failure",
     "negativeControl": "Malformed/partial/disabled/stale/queue unavailable controls",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V19",
@@ -321,7 +375,10 @@
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
     "passingAfterProof": "../../../client/src/pages/dashboard/LeadImports.tsx",
     "negativeControl": "Actual import DTO updated-row HTTP assertion; writer traced in routes/imports.ts",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   },
   {
     "id": "P8-V20",
@@ -338,6 +395,9 @@
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
     "passingAfterProof": "../../../scripts/phase8/publish-inputs.mjs",
     "negativeControl": "Broken-link census/build smoke; platform compressed layer size unverified",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "finalLocalExecutionReceipt": "execution-receipt.json",
+    "requiredGateState": "252/313 pass;61 failed; no release approval",
+    "currentImplementation": "67d87d55e7f0b4585484402fa5ad58fb93b531e4"
   }
 ]

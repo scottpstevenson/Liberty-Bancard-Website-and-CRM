@@ -1,0 +1,192 @@
+{
+  "source": "67d87d55e7f0b4585484402fa5ad58fb93b531e4",
+  "lockSha256": "452de1ab7c2045bf9029ceda8cb5c15d078645c8835b2a092ba995e86d15945c",
+  "excluded": [
+    ".git",
+    ".cache",
+    "generated-artifacts",
+    ".local/worktrees"
+  ],
+  "files": 54942,
+  "regularFileBytes": 1121000726,
+  "symlinks": [
+    {
+      "path": "node_modules/.bin/acorn",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/acorn/bin/acorn"
+    },
+    {
+      "path": "node_modules/.bin/anthropic-ai-sdk",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/@anthropic-ai/sdk/bin/cli"
+    },
+    {
+      "path": "node_modules/.bin/autoprefixer",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/autoprefixer/bin/autoprefixer"
+    },
+    {
+      "path": "node_modules/.bin/baseline-browser-mapping",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/baseline-browser-mapping/dist/cli.cjs"
+    },
+    {
+      "path": "node_modules/.bin/bcrypt",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/bcryptjs/bin/bcrypt"
+    },
+    {
+      "path": "node_modules/.bin/browserslist",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/browserslist/cli.js"
+    },
+    {
+      "path": "node_modules/.bin/crc32",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/crc-32/bin/crc32.njs"
+    },
+    {
+      "path": "node_modules/.bin/cssesc",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/cssesc/bin/cssesc"
+    },
+    {
+      "path": "node_modules/.bin/download-msgpackr-prebuilds",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/msgpackr-extract/bin/download-prebuilds.js"
+    },
+    {
+      "path": "node_modules/.bin/drizzle-kit",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/drizzle-kit/bin.cjs"
+    },
+    {
+      "path": "node_modules/.bin/esbuild",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/esbuild/bin/esbuild"
+    },
+    {
+      "path": "node_modules/.bin/fxparser",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/fast-xml-parser/src/cli/cli.js"
+    },
+    {
+      "path": "node_modules/.bin/jiti",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/jiti/lib/jiti-cli.mjs"
+    },
+    {
+      "path": "node_modules/.bin/jsesc",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/jsesc/bin/jsesc"
+    },
+    {
+      "path": "node_modules/.bin/json5",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/json5/lib/cli.js"
+    },
+    {
+      "path": "node_modules/.bin/loose-envify",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/loose-envify/cli.js"
+    },
+    {
+      "path": "node_modules/.bin/nanoid",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/nanoid/bin/nanoid.cjs"
+    },
+    {
+      "path": "node_modules/.bin/node-gyp-build",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/node-gyp-build/bin.js"
+    },
+    {
+      "path": "node_modules/.bin/node-gyp-build-optional",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/node-gyp-build/optional.js"
+    },
+    {
+      "path": "node_modules/.bin/node-gyp-build-optional-packages",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/node-gyp-build-optional-packages/bin.js"
+    },
+    {
+      "path": "node_modules/.bin/node-gyp-build-optional-packages-optional",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/node-gyp-build-optional-packages/optional.js"
+    },
+    {
+      "path": "node_modules/.bin/node-gyp-build-optional-packages-test",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/node-gyp-build-optional-packages/build-test.js"
+    },
+    {
+      "path": "node_modules/.bin/node-gyp-build-test",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/node-gyp-build/build-test.js"
+    },
+    {
+      "path": "node_modules/.bin/parser",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/@babel/parser/bin/babel-parser.js"
+    },
+    {
+      "path": "node_modules/.bin/pdf-parse",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/pdf-parse/bin/cli.mjs"
+    },
+    {
+      "path": "node_modules/.bin/qrcode",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/qrcode/bin/qrcode"
+    },
+    {
+      "path": "node_modules/.bin/rollup",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/rollup/dist/bin/rollup"
+    },
+    {
+      "path": "node_modules/.bin/semver",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/semver/bin/semver.js"
+    },
+    {
+      "path": "node_modules/.bin/specificity",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/@bramus/specificity/bin/cli.js"
+    },
+    {
+      "path": "node_modules/.bin/tldts",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/tldts/bin/cli.js"
+    },
+    {
+      "path": "node_modules/.bin/tsc",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/typescript/bin/tsc"
+    },
+    {
+      "path": "node_modules/.bin/tsserver",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/typescript/bin/tsserver"
+    },
+    {
+      "path": "node_modules/.bin/tsx",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/tsx/dist/cli.mjs"
+    },
+    {
+      "path": "node_modules/.bin/update-browserslist-db",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/update-browserslist-db/cli.js"
+    },
+    {
+      "path": "node_modules/.bin/uuid",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/uuid/dist/bin/uuid"
+    },
+    {
+      "path": "node_modules/.bin/vite",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/vite/bin/vite.js"
+    },
+    {
+      "path": "node_modules/.bin/web-push",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/web-push/src/cli.js"
+    },
+    {
+      "path": "node_modules/.bin/yaml",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/yaml/bin.mjs"
+    },
+    {
+      "path": "node_modules/bullmq/node_modules/.bin/semver",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/bullmq/node_modules/semver/bin/semver.js"
+    },
+    {
+      "path": "node_modules/drizzle-kit/node_modules/.bin/tsx",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/drizzle-kit/node_modules/@esbuild-kit/esm-loader/dist/cli.mjs"
+    },
+    {
+      "path": "node_modules/drizzle-kit/node_modules/@esbuild-kit/esm-loader/node_modules/.bin/esbuild",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/drizzle-kit/node_modules/@esbuild-kit/esm-loader/node_modules/esbuild/bin/esbuild"
+    },
+    {
+      "path": "node_modules/drizzle-kit/node_modules/tsx/node_modules/.bin/esbuild",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/drizzle-kit/node_modules/tsx/node_modules/esbuild/bin/esbuild"
+    },
+    {
+      "path": "node_modules/sharp/node_modules/.bin/semver",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/sharp/node_modules/semver/bin/semver.js"
+    },
+    {
+      "path": "node_modules/vite/node_modules/.bin/esbuild",
+      "target": "/Users/matt/Developer/liberty-phase8-build/node_modules/vite/node_modules/esbuild/bin/esbuild"
+    }
+  ],
+  "brokenSymlinks": [],
+  "qualification": "local effective regular-file census only; directory links listed separately; Replit hosting/Nix/cache layers and platform compressed artifact headroom must be observed at Publish; no platform state removed"
+}
