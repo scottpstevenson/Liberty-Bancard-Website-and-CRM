@@ -29,7 +29,7 @@ try{
  browser=await privateStage3Browser(h.base,h.sessions.get('admin')!.cookie,h.originalFetch,evidence,{realInput:true});
  await browser.navigate('/phase8-native-input-probe');await browser.set('#phase8-native-input','20');check(await browser.evaluate("document.querySelector('#phase8-native-input').value")==='20','Native keyboard harness replaces existing field content rather than appending');
  await browser.evaluate("void (window.__p8DelayedLog=fetch('/api/phase8-delayed-log').then(r=>r.status))");
- for(let i=0;i<100&&!browser.requests.some(r=>r.url==='/api/phase8-delayed-log');i++)await new Promise(r=>setTimeout(r,10));
+ for(let i=0;i<100&&(!releaseLogResponse||!browser.requests.some(r=>r.url==='/api/phase8-delayed-log'));i++)await new Promise(r=>setTimeout(r,10));
  assert.ok(browser.requests.some(r=>r.url==='/api/phase8-delayed-log')&&releaseLogResponse,'Actual request reached the response barrier');
  browser.requests.length=0;releaseLogResponse();
  check(await browser.evaluate('window.__p8DelayedLog')===200,'Late native response survives clearing the public request log between role phases');
