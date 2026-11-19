@@ -85,6 +85,9 @@ type SuiteManifestDefinition = Omit<
 >;
 
 const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
+  {name:"Staff intake email alerts durability and pause isolation",script:"scripts/certification/test-team-intake-alerts.ts",capability:"deterministic-integration",isolateInfrastructure:true,providerDenial:"private PostgreSQL/Redis; fake SMTP, real intake owners and fatal provider denial"},
+  {name:"Staff intake email alerts HTTP",script:"scripts/certification/test-team-intake-alerts-http.ts",capability:"deterministic-integration",isolateInfrastructure:true,providerDenial:"private PostgreSQL/Redis; fake SMTP, real intake owners and fatal provider denial"},
+
   {name:"SFP paid waterfall current provider contracts",script:"scripts/test-sfp-paid-waterfall-apollo-outscraper.ts",capability:"deterministic-integration",isolateInfrastructure:true,providerDenial:"private Postgres/Redis; strictly injected employer-scoped Apollo and pinned Outscraper; provider egress denied"},
   {name:"SFP current selected validation handoff",script:"scripts/test-sfp-validation-handoff-repair-certification.ts",capability:"deterministic-integration",isolateInfrastructure:true,providerDenial:"private Postgres/Redis; captured HTML sockets and validation receipt; fatal external network denial"},
   {name:"CRM-wide Outscraper Budget Browser",script:"scripts/test-outscraper-budget-browser.ts",capability:"deterministic-integration",isolateInfrastructure:true,providerDenial:"compiled CRM, real sessions and budget routes, private Chromium; no provider or purchase"},

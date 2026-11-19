@@ -2458,6 +2458,38 @@ export const followupEffectReceipts = pgTable("followup_effect_receipts", {
   check("followup_effect_receipts_state_chk", sql`${t.state} IN ('started', 'accepted', 'refused', 'unknown')`),
 ]);
 
+/** One durable staff email per new intake occurrence; never a customer-mail capability. */
+export const teamIntakeAlerts = pgTable("team_intake_alerts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  eventKey: text("event_key").notNull().unique(),
+  eventKind: text("event_kind").notNull(),
+  sourceKind: text("source_kind").notNull(),
+  sourceId: text("source_id").notNull(),
+  recipient: text("recipient").notNull().default("scott@libertybancard.com"),
+  payload: jsonb("payload").notNull(),
+  state: text("state").notNull().default("pending"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  attemptToken: uuid("attempt_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", {withTimezone:true}),
+  dispatchedAt: timestamp("dispatched_at", {withTimezone:true}),
+  nextAttemptAt: timestamp("next_attempt_at", {withTimezone:true}).notNull().defaultNow(),
+  lastError: text("last_error"),
+  providerMessageId: text("provider_message_id"),
+  createdAt: timestamp("created_at", {withTimezone:true}).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", {withTimezone:true}).notNull().defaultNow(),
+}, t => [
+  check("team_intake_alert_recipient_check", sql`${t.recipient}='scott@libertybancard.com'`),
+  check("team_intake_alert_source_check", sql`${t.sourceKind} IN ('application','introduction','referral','merchant_referral')`),
+  check("team_intake_alert_event_check", sql`(${t.sourceKind}='application' AND ${t.eventKind} IN ('sales_agent_application','referral_partner_application')) OR (${t.sourceKind}<>'application' AND ${t.eventKind}='merchant_referral')`),
+  check("team_intake_alert_key_check", sql`${t.eventKey}=${t.sourceKind}||':'||${t.sourceId}`),
+  check("team_intake_alert_payload_check", sql`jsonb_typeof(${t.payload})='object'`),
+  check("team_intake_alert_state_check", sql`${t.state} IN ('pending','attempting','sent','uncertain','failed')`),
+  check("team_intake_alert_attempt_count_check", sql`${t.attemptCount} BETWEEN 0 AND 5`),
+  check("team_intake_alert_claim_check", sql`${t.state}<>'attempting' OR (${t.attemptToken} IS NOT NULL AND ${t.leaseExpiresAt} IS NOT NULL)`),
+  index("team_intake_alert_due_idx").on(t.nextAttemptAt,t.createdAt).where(sql`${t.state}='pending'`),
+  index("team_intake_alert_stale_idx").on(t.leaseExpiresAt).where(sql`${t.state}='attempting'`),
+]);
+
 export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),
   inboundRequestId: uuid("inbound_request_id").references((): AnyPgColumn => inboundRequests.id, { onDelete: "restrict" }),

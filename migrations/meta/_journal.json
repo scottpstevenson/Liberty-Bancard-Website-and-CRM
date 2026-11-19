@@ -2772,6 +2772,13 @@
       "when": 1800400330006,
       "tag": "0392_crm_outscraper_monthly_budget",
       "breakpoints": true
+    },
+    {
+      "idx": 396,
+      "version": "7",
+      "when": 1800400330007,
+      "tag": "0393_team_intake_email_alerts",
+      "breakpoints": true
     }
   ]
 }

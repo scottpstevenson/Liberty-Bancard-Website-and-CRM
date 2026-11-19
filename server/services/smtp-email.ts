@@ -181,6 +181,8 @@ async function sendSmtpEmailCore(params: {
    * capability is open. Cannot be combined with a seed or marketing purpose.
    */
   inboundAck?: { effectId: string; attemptToken: string };
+  /** Fixed-recipient staff intake owner only; verified against its durable claim at the pause boundary. */
+  teamIntakeAlert?: import("./team-intake-alerts").TeamIntakeClaim;
   phase7Attempt?: { idempotencyKey: string };
 }): Promise<SmtpSendResult> {
   // CRO-03C initial-batch continuations are evidence-only. This is a canonical
@@ -248,12 +250,15 @@ async function sendSmtpEmailCore(params: {
   // Every SMTP send must clear the canonical pause authority BEFORE any
   // network I/O. This is the final enforcement boundary.
   try {
-    const { authorize, recheckEpoch, authorizeSeedSend, authorizeInboundAckSend, recheckSeedLeaseEpoch } = await import("./outbound-pause-authority");
+    const { authorize, recheckEpoch, authorizeSeedSend, authorizeInboundAckSend, authorizeTeamIntakeAlertSend, recheckSeedLeaseEpoch } = await import("./outbound-pause-authority");
     const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
     // An operator seed message asks the authority for a per-message seed lease (see outbound-pause-authority.ts). Every
     // other caller gets the ordinary decision, which a paused system always refuses.
     if (params.inboundAck && (params.seedTest || isCommercial)) {
       return { success: false, error: "ACK_PURPOSE_MISMATCH", outcome: "unsent" };
+    }
+    if (params.teamIntakeAlert && (params.seedTest || params.inboundAck || params.phase7Attempt || isCommercial || params.contactId || params.inboundRequestId || params.commercialPurpose || process.env.EMAIL_OVERRIDE_TO?.trim())) {
+      return {success:false,error:"TEAM_INTAKE_PURPOSE_MISMATCH",outcome:"unsent"};
     }
     // An occurrence-bound receipt is authorized for the exact mailbox the requester submitted. A delivery override
     // would silently send it somewhere else (and mark the occurrence acknowledged), so it fails closed instead.
@@ -264,7 +269,9 @@ async function sendSmtpEmailCore(params: {
       ? await authorizeSeedSend({ ...params, ...params.seedTest, receiptKey: params.seedTest.receiptKey })
       : params.inboundAck
         ? await authorizeInboundAckSend(params, params.inboundAck)
-        : null;
+        : params.teamIntakeAlert
+          ? await authorizeTeamIntakeAlertSend(params, params.teamIntakeAlert)
+          : null;
     const decision = seedDecision ?? await authorize({});
     if (seedDecision && !seedDecision.allowed) {
       return { success: false, error: seedDecision.error ?? `Outbound paused: ${seedDecision.reasonCode}`, outcome: "unsent" };
@@ -291,6 +298,11 @@ async function sendSmtpEmailCore(params: {
         const final = await verifyAckTransportCapability(params, params.inboundAck);
         if (!final.ok) return { success: false, error: final.error, outcome: "unsent" };
       }
+      if (params.teamIntakeAlert) {
+        const final=await (await import("./team-intake-alerts")).markTeamIntakeAlertDispatch(params,params.teamIntakeAlert);
+        if(!final.ok)return {success:false,error:final.error,outcome:"unsent"};
+        if(!await recheckSeedLeaseEpoch(decision.epoch))return {success:false,error:"TEAM_INTAKE_EPOCH_CHANGED",outcome:"unsent"};
+      }
       return await _sendSmtpEmailInner({ ...params, html: rendered.html, text: rendered.text }, rendered.complianceConfig);
     } finally {
       deregisterInflight(token);
@@ -302,6 +314,7 @@ async function sendSmtpEmailCore(params: {
 }
 
 async function _sendSmtpEmailInner(params: {
+  teamIntakeAlert?: import("./team-intake-alerts").TeamIntakeClaim;
   to: string;
   subject: string;
   html: string;
@@ -369,10 +382,10 @@ async function _sendSmtpEmailInner(params: {
 
   // Test-mode recipient override — set EMAIL_OVERRIDE_TO to redirect all mail to one address
   const overrideTo = process.env.EMAIL_OVERRIDE_TO?.trim();
-  if (overrideTo && params.inboundAck) {
+  if (overrideTo && (params.inboundAck || params.teamIntakeAlert)) {
     // Defense in depth: the gate above already refuses; the recipient checked by the acknowledgement authority must
     // be the recipient the provider receives.
-    return { success: false, error: "ACK_DELIVERY_OVERRIDE_ACTIVE", outcome: "unsent" };
+    return { success: false, error: params.teamIntakeAlert ? "TEAM_INTAKE_DELIVERY_OVERRIDE_ACTIVE" : "ACK_DELIVERY_OVERRIDE_ACTIVE", outcome: "unsent" };
   }
   const effectiveTo = overrideTo || params.to;
   const effectiveSubject = overrideTo

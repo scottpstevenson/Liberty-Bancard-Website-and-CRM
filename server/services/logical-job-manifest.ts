@@ -60,6 +60,7 @@ export type BacklogSource =
   | "sfp_outreach_eligibility"
   | "sunbiz_bootstrap_runs"
   | "website_lifecycle_admissions"
+  | "team_intake_alerts"
   | "none";
 
 // ---------------------------------------------------------------------------
@@ -99,6 +100,17 @@ export interface ManifestEntry {
 // ---------------------------------------------------------------------------
 
 export const LOGICAL_JOB_MANIFEST: readonly ManifestEntry[] = [
+  {
+    logicalKey:"team-intake-email-alerts",
+    physicalQueue:"legacy_interval",
+    jobNamePattern:"partner-application-recovery:team-intake",
+    handler:"Fixed-recipient staff intake alerts within the existing partner recovery tick",
+    owner:"team-intake-alerts",
+    effect:"internal_notification",
+    canRunWhileGlobalOutboundPaused:true,
+    backlogSource:"team_intake_alerts",
+    releaseController:"TeamIntakeAlertAuthority",
+  },
   {
     logicalKey: "scheduled-discovery-tick",
     physicalQueue: QUEUE_NAMES.SCHEDULED_DISCOVERY,

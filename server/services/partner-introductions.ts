@@ -19,6 +19,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql, type S
 import { z } from "zod";
 import { db } from "../db";
 import { businesses, contactSourceEvents, contacts, notifications, partnerIntroductions, partners, referrals } from "@shared/schema";
+import { enqueueTeamIntakeAlert } from "./team-intake-alerts";
 import type { Partner, PartnerIntroduction } from "@shared/schema";
 import { storage } from "../storage";
 import { createContactLocalFirst, upsertContactSourceEvent } from "./contact-writer";
@@ -129,6 +130,7 @@ export async function recordPartnerIntroduction(
       submittedByUserId: actor.userId,
       reviewState: "pending_review",
     }).returning();
+    await enqueueTeamIntakeAlert(tx, "introduction", created.id);
     return { kind: "recorded", replayed: false, introduction: created };
   });
 }

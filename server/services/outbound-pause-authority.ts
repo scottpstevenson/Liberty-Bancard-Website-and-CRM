@@ -43,7 +43,8 @@ export type AuthorizationReasonCode =
   | "timeout"
   | "exception_registered"
   | "seed_lease"
-  | "ack_lease";
+  | "ack_lease"
+  | "staff_intake_lease";
 
 export interface AuthorizedSendDecision {
   allowed: boolean;
@@ -386,6 +387,20 @@ export async function authorizeSeedSend(request: SeedLeaseRequest): Promise<Auth
     return deny("db_error", epoch, source, "SEED_AUTHORITY_UNAVAILABLE");
   }
   return { allowed: true, epoch, reasonCode: state === "paused" ? "seed_lease" : "allowed", stateSource: source, grantedAt };
+}
+
+/** Fixed-recipient, durable staff-intake message lease; never authorizes customer/prospect outbound. */
+export async function authorizeTeamIntakeAlertSend(
+  message: Parameters<typeof import("./team-intake-alerts").verifyTeamIntakeAlertCapability>[0],
+  claim: import("./team-intake-alerts").TeamIntakeClaim,
+): Promise<AuthorizedSendDecision & {error?:string}> {
+  const grantedAt=new Date();
+  try {
+    const {state,epoch,source}=await getPauseState();
+    if(source!=="database"||state==="activating")return {allowed:false,epoch,reasonCode:source!=="database"?"safe_default":"activating",stateSource:source,grantedAt};
+    const verdict=await (await import("./team-intake-alerts")).verifyTeamIntakeAlertCapability(message,claim);
+    return {allowed:verdict.ok,epoch,reasonCode:verdict.ok?"staff_intake_lease":"global_paused",stateSource:source,grantedAt,...(!verdict.ok?{error:verdict.error}:{})};
+  } catch {return {allowed:false,epoch:0n,reasonCode:"db_error",stateSource:"safe_default",grantedAt};}
 }
 
 // ---------------------------------------------------------------------------

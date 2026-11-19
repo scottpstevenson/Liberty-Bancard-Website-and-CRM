@@ -265,7 +265,10 @@ export function startPartnerApplicationRecovery(): void {
       let introductions: Awaited<ReturnType<typeof recoverPartnerIntroductions>> | { error: string };
       try { introductions = await recoverPartnerIntroductions(); }
       catch (err) { introductions = { error: err instanceof Error ? err.name : "NonError" }; }
-      await storage.setSystemSetting("partner_application_recovery_heartbeat", { at: new Date().toISOString(), outcome: "ok", tally, introductions, intervalMs: RECOVERY_INTERVAL_MS });
+      let teamAlerts: unknown;
+      try { teamAlerts = await (await import("./team-intake-alerts")).processTeamIntakeAlerts(); }
+      catch (err) { teamAlerts = { error: err instanceof Error ? err.name : "NonError" }; }
+      await storage.setSystemSetting("partner_application_recovery_heartbeat", { at: new Date().toISOString(), outcome: "ok", tally, introductions, teamAlerts, intervalMs: RECOVERY_INTERVAL_MS });
     } catch (err) {
       await storage.setSystemSetting("partner_application_recovery_heartbeat", {
         at: new Date().toISOString(), outcome: "error", errorName: err instanceof Error ? err.name : "NonError", intervalMs: RECOVERY_INTERVAL_MS,

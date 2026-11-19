@@ -20,6 +20,11 @@ import {
  * from publishing message content and from activating any campaign or release. It never unpauses outbound.
  */
 export function registerInboundAcknowledgementRoutes(app: Express) {
+  app.get("/api/admin/team-intake-alerts/status", requireRole("admin", "manager"), async (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    try { res.json(await (await import("../services/team-intake-alerts")).readTeamIntakeAlertStatus()); }
+    catch (err) { serverError(res, err, "team_intake_alert_status"); }
+  });
   if (getBackgroundProfile() !== "off") {
     startInboundAcknowledgementWorker();
     void import("../services/partner-application-intake").then((m) => m.startPartnerApplicationRecovery());

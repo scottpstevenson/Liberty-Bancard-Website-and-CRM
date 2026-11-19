@@ -26,6 +26,7 @@ import {
   type PartnerApplicationInput,
 } from "@shared/partner-application";
 import { disclosureForSurface } from "@shared/website-email-disclosures";
+import { enqueueTeamIntakeAlert } from "./team-intake-alerts";
 
 export type PartnerApplicationRefusal = "PARTNER_EXISTS" | "USER_EXISTS" | "OPEN_APPLICATION" | "PRIOR_APPLICATION";
 export type PartnerApplicationInputError = "UNKNOWN_CONSENT_VERSION" | "UNKNOWN_EMAIL_DISCLOSURE";
@@ -153,6 +154,7 @@ export async function createPartnerApplication(
       acquisition: attribution,
       schemaVersion: PARTNER_APPLICATION_SCHEMA_VERSION,
     }).returning();
+    await enqueueTeamIntakeAlert(tx, "application", application.id);
     return { kind: "created", partner, application };
   });
 }

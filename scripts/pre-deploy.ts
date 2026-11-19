@@ -150,6 +150,8 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
     timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Partner application crash boundaries",script:"scripts/certification/test-partner-application-crash-boundaries.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
+  {name:"Staff intake email alerts durability and pause isolation",script:"scripts/certification/test-team-intake-alerts.ts",timeoutSecs:900,requiresDisposableTestDatabase:true},
+  {name:"Staff intake email alerts HTTP",script:"scripts/certification/test-team-intake-alerts-http.ts",timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Partner approval delivery",script:"scripts/certification/test-partner-approval-delivery.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Partner program lifecycle (application, decision CAS, referral policy, introductions)",script:"scripts/certification/test-partner-program-lifecycle.ts",
@@ -1964,6 +1966,7 @@ async function main() {
     "server/services/merchant-application-status.ts",
     "server/services/merchant-portal-invite.ts",
     "server/services/merchant-welcome.ts",        // Onboarding welcome (triggered by rep action)
+    "server/services/team-intake-alerts.ts",      // Fixed Scott-only durable lease; canonical SMTP revalidates purpose, claim and pause epoch; certified while paused.
     "server/services/partner-notifications.ts",   // Partner alerts (transactional)
     "server/services/partner-welcome.ts",
     "server/services/nps-email.ts",               // NPS survey (lifecycle, not cold outreach)
