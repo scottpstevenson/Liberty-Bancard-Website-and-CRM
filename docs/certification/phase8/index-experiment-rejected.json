@@ -1,0 +1,87 @@
+{
+  "productionExecution": false,
+  "volume": {
+    "contacts": 160000,
+    "deals": 1600,
+    "auditLogs": 1900000
+  },
+  "sampleCountPerQuery": 30,
+  "threshold": {
+    "percent": 10,
+    "absoluteNoiseAllowanceMs": 0.5
+  },
+  "comparisons": [
+    {
+      "query": "rep-common",
+      "p50Before": 1.938665999998193,
+      "p50After": 3.138083000001643,
+      "p95Before": 2.5662499999998545,
+      "p95After": 4.083125000001019,
+      "regressionPercent": 59.10862152951779
+    },
+    {
+      "query": "rep-empty",
+      "p50Before": 0.09187500000189175,
+      "p50After": 0.10124999999970896,
+      "p95Before": 0.1227500000022701,
+      "p95After": 0.17237500000192085,
+      "regressionPercent": 40.4276985733059
+    },
+    {
+      "query": "ghl-lookup",
+      "p50Before": 0.07516599999871687,
+      "p50After": 0.07025000000066939,
+      "p95Before": 0.09366700000100536,
+      "p95After": 0.1304999999993015,
+      "regressionPercent": 39.32334760150405
+    },
+    {
+      "query": "pipeline-stage",
+      "p50Before": 0.5007079999995767,
+      "p50After": 0.4705419999991136,
+      "p95Before": 0.8091249999997672,
+      "p95After": 0.51129199999923,
+      "regressionPercent": -36.809269272439096
+    },
+    {
+      "query": "contact-deals",
+      "p50Before": 0.07362500000090222,
+      "p50After": 0.0616249999984575,
+      "p95Before": 0.21458400000119582,
+      "p95After": 0.06962500000008731,
+      "regressionPercent": -67.55349886305628
+    },
+    {
+      "query": "contact-history",
+      "p50Before": 0.11724999999933061,
+      "p50After": 0.2205419999991136,
+      "p95Before": 0.2885000000023865,
+      "p95After": 0.5647499999977299,
+      "regressionPercent": 95.75389947766315
+    },
+    {
+      "query": "enrollment-current",
+      "p50Before": 0.06987500000104774,
+      "p50After": 0.1522499999991851,
+      "p95Before": 0.11799999999857391,
+      "p95After": 0.5339159999966796,
+      "regressionPercent": 352.4711864433324
+    }
+  ],
+  "writeBeforeMs": 82.20587499999965,
+  "writeAfterMs": 92.49212500000067,
+  "unresolved": [
+    {
+      "query": "rep-common",
+      "p50Before": 1.938665999998193,
+      "p50After": 3.138083000001643,
+      "p95Before": 2.5662499999998545,
+      "p95After": 4.083125000001019,
+      "regressionPercent": 59.10862152951779
+    }
+  ],
+  "decision": "retain aliases pending repeatable qualification; no index DDL authorized by this run",
+  "sourceHead": "8bc84873207a2d87fb4d56de94e057619a1641af",
+  "ciLog": "/Users/matt/.local/share/liberty-dev/phase8-ci-integration.log",
+  "disposition": "This failure rejects alias-removal qualification. Implementation retains every alias; no timing result authorizes production DDL. Root cause of timing variation is not established."
+}

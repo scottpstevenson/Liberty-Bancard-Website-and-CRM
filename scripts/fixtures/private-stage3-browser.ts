@@ -34,7 +34,9 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
   const pending=new Map<number,{resolve:(v:any)=>void;reject:(e:Error)=>void}>();
   const exceptions:string[]=[];
   const requests:Array<{url:string;method:string;documentId?:string;status?:number;failed?:string}>=[];
-  const requestIndexes=new Map<string,number>();
+  // Consumers may clear the public request array between role phases. Keep the
+  // actual row, not a reusable array index, for late response events.
+  const requestRows=new Map<string,(typeof requests)[number]>();
   const readFaults:Array<{path:string;status:number}>=[];
   let serial=0,failPath:string|null=null,failExact=false,delayPath:string|null=null,delayMs=0,acceptDialog=false,closing=false;
   const close=async()=>{
@@ -87,16 +89,16 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
       if(m.method==="Network.requestWillBeSent" && m.params.request.url.startsWith(base+"/api/")){
         const url=new URL(m.params.request.url);
         // No bodies, headers, credentials, cookies or auth response values.
-        requestIndexes.set(m.params.requestId,requests.length);
-        requests.push({url:url.pathname+url.search,method:m.params.request.method,documentId:m.params.loaderId});
+        const row={url:url.pathname+url.search,method:m.params.request.method,documentId:m.params.loaderId};
+        requestRows.set(m.params.requestId,row);requests.push(row);
       }
       if(m.method==="Network.responseReceived"){
-        const index=requestIndexes.get(m.params.requestId);
-        if(index!==undefined)requests[index].status=m.params.response.status;
+        const row=requestRows.get(m.params.requestId);
+        if(row)row.status=m.params.response.status;
       }
       if(m.method==="Network.loadingFailed"){
-        const index=requestIndexes.get(m.params.requestId);
-        if(index!==undefined)requests[index].failed=m.params.errorText;
+        const row=requestRows.get(m.params.requestId);
+        if(row)row.failed=m.params.errorText;
       }
       if(m.method==="Page.javascriptDialogOpening")await call("Page.handleJavaScriptDialog",{accept:acceptDialog});
       if(m.method==="Fetch.requestPaused"){

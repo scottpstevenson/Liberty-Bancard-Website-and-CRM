@@ -7,10 +7,12 @@ import {privateStage3Browser} from '../fixtures/private-stage3-browser';
 import {verifyCandidateIdentity} from '../fixtures/candidate-build-identity';
 const identity=await verifyCandidateIdentity();
 const root=path.resolve('dist/public');
+let releaseLogResponse:(()=>void)|undefined;
 const h=await stage3BHttpFixture(async app=>{
  (await import('../../server/routes/admin')).registerAdminRoutes(app);
  (await import('../../server/routes/sdr')).registerSdrRoutes(app);
  (await import('../../server/routes/imports')).registerImportsRoutes(app);
+ app.get('/api/phase8-delayed-log',async(_req,res)=>{await new Promise<void>(resolve=>{releaseLogResponse=resolve;});res.json({ok:true});});
  app.get('/phase8-native-input-probe',(_req,res)=>res.type('html').send('<!doctype html><input id=phase8-native-input aria-label="Native editing fixture" value=50>'));
  // Deliberate unavailable contract for unrelated panels, never fake successful positive DTOs.
  app.use('/api',(_req,res)=>res.status(501).json({message:'Unrelated source not mounted in Phase 8 fixture'}));
@@ -26,6 +28,11 @@ try{
  await h.pool.query('UPDATE users SET tour_completed_at=now() WHERE id=$1',[h.userId('admin')]);
  browser=await privateStage3Browser(h.base,h.sessions.get('admin')!.cookie,h.originalFetch,evidence,{realInput:true});
  await browser.navigate('/phase8-native-input-probe');await browser.set('#phase8-native-input','20');check(await browser.evaluate("document.querySelector('#phase8-native-input').value")==='20','Native keyboard harness replaces existing field content rather than appending');
+ await browser.evaluate("void (window.__p8DelayedLog=fetch('/api/phase8-delayed-log').then(r=>r.status))");
+ for(let i=0;i<100&&!browser.requests.some(r=>r.url==='/api/phase8-delayed-log');i++)await new Promise(r=>setTimeout(r,10));
+ assert.ok(browser.requests.some(r=>r.url==='/api/phase8-delayed-log')&&releaseLogResponse,'Actual request reached the response barrier');
+ browser.requests.length=0;releaseLogResponse();
+ check(await browser.evaluate('window.__p8DelayedLog')===200,'Late native response survives clearing the public request log between role phases');
  const routes=[{url:'/dashboard/system-health?systemTab=readiness',tab:'[data-testid="tab-system-readiness"]',pattern:/Worker selection and heartbeat/},{url:'/dashboard/activation',tab:'[data-testid="tab-identity-wizard"]',pattern:/Identity saved — not usable/},{url:'/dashboard/lead-ops?tab=imports',tab:'',pattern:/Lead Operations|Lead Ops|Imports/}];
  for(const width of [1280,768,390])for(const theme of ['light','dark']){
   await browser.call('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});

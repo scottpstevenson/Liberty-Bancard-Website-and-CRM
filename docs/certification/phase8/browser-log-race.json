@@ -1,0 +1,14 @@
+{
+  "owner": "scripts/fixtures/private-stage3-browser.ts",
+  "priorSource": "8bc84873207a2d87fb4d56de94e057619a1641af",
+  "originalLineHistory": "353cb381e (2026-10-07), unchanged in Phase 8 Mac input patch",
+  "productionApplicationCodeChanged": false,
+  "rootCause": "The C3 role test clears requests.length while a request is in flight. CDP late response looked up an obsolete numeric array index, crashing or assigning status to a different request.",
+  "repair": "Map CDP request ID to its exact row object, independent of public array truncation.",
+  "proof": {
+    "before": "native-log-race-before.log",
+    "after": "native-log-race-after.log",
+    "registeredCase": "test-phase8-browser.ts uses an actual HTTP response barrier, clears public log, releases response, checks HTTP200 and no native CDP exception"
+  },
+  "productionAccess": "none; loopback synthetic page, task-owned Chrome profile"
+}

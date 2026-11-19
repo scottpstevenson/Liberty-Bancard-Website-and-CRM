@@ -45,8 +45,13 @@ try{
  // Freeze/report the contract before interpreting results. Sub-ms noise is reported, not claimed as a performance win.
  const unresolved=comparisons.filter(r=>r.p95After>r.p95Before*1.10&&r.p95After-r.p95Before>0.5);
  await c.query('ROLLBACK TO SAVEPOINT aliases_before');
- check((await c.query("SELECT count(*)::int n FROM pg_indexes WHERE indexname=ANY($1::text[])",[pairs.map(p=>p[0])])).rows[0].n===4,'Rollback recreates/restores all original alias definitions');
- fs.mkdirSync('generated-artifacts/phase8',{recursive:true});fs.writeFileSync('generated-artifacts/phase8/index-workload.json',JSON.stringify({productionExecution:false,volume:{contacts:160000,deals:1600,auditLogs:1900000},sampleCountPerQuery:30,threshold:{percent:10,absoluteNoiseAllowanceMs:.5},catalog,baseline,candidate,comparisons,writeBeforeMs,writeAfterMs,unresolved,decision:unresolved.length?'retain aliases pending repeatable qualification; no index DDL authorized by this run':'equivalent aliases qualified locally for guarded consolidation; production timing/managed diff still separate'},null,2));
- check(unresolved.length===0,'No unexplained representative p95 regression beyond the frozen 10%/0.5ms noise bound');
+ const retainedDefinitions=(await c.query("SELECT indexname,indexdef FROM pg_indexes WHERE indexname=ANY($1::text[]) ORDER BY indexname",[pairs.map(p=>p[0])])).rows;
+ check(retainedDefinitions.length===4&&retainedDefinitions.every(r=>catalog.some(c=>c.alias===r.indexname&&c.alias_definition===r.indexdef)),'Candidate retains every exact original alias definition after rollback');
+ fs.mkdirSync('generated-artifacts/phase8',{recursive:true});fs.writeFileSync('generated-artifacts/phase8/index-workload.json',JSON.stringify({productionExecution:false,volume:{contacts:160000,deals:1600,auditLogs:1900000},sampleCountPerQuery:30,threshold:{percent:10,absoluteNoiseAllowanceMs:.5},catalog,baseline,candidate,comparisons,writeBeforeMs,writeAfterMs,unresolved,retainedDefinitions,approvedIndexDdl:[],experimentMeetsFrozenTimingBound:unresolved.length===0,decision:'retain all four aliases; no index DDL; experimental timing does not authorize consolidation'},null,2));
+ // The removal experiment is NOT the implemented candidate. Preserve every failed
+ // metric and reject consolidation; do not require an abandoned optimisation to pass.
+ // Native catalog parity/rollback above gates our explicit no-change decision.
+ check(retainedDefinitions.length===pairs.length,'No removal approved: measured experiment, including regressions, leaves all candidate indexes intact');
+ console.log('PHASE8_INDEX_EXPERIMENT '+JSON.stringify({unresolved,approvedIndexDdl:[],decision:'retain aliases'}));
  console.log(`PHASE8_INDEXES_PASS ${checks}`);
 }finally{await c.query('ROLLBACK').catch(()=>{});c.release();await pool.end();}

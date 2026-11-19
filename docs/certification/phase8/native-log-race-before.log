@@ -1,0 +1,17 @@
+{"nativeChrome":true,"requestBarrier":true,"publicLogCleared":true,"responseStatus":200,"errors":["Cannot set properties of undefined (setting 'status')"]}
+AssertionError [ERR_ASSERTION]: Late native CDP response must not dereference a cleared request-array index
++ actual - expected
+
++ [
++   "Cannot set properties of undefined (setting 'status')"
++ ]
+- []
+
+    at main (/Users/matt/.local/share/liberty-dev/phase8-native-log-race.ts:2:1423) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: [Array],
+  expected: [],
+  operator: 'deepStrictEqual',
+  diff: 'simple'
+}
