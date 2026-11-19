@@ -553,6 +553,12 @@
         "scripts/check-wd-pv-browser.ts"
       ],
       "verification": "Actual current CI rerun required; previous partial CI run stopped honestly at20/184, not accepted as passing."
+    },
+    {
+      "script": "scripts/test-partner-program-migration.ts",
+      "finding": "Full CI2 passed64/184 then the partner upgrade fixture failed at65: it dropped tables and0384-0386 ledger hashes from a current-head DB while later ledger timestamps remained. The production migrator correctly applies only journal entries newer than the latest ledger timestamp.",
+      "repair": "Build actual private0383 and0384 journal prefixes with the unchanged production migration owner. Clone those real prior heads for upgrade, backfill and partial recovery. Verify the complete current journal plus exact target hashes and unchanged legacy rows; keep replay and actual old-build rollback route. No migration or production code changed.",
+      "verification": "Registered native fixture proof:162checks pass, exit0, pause true, no setup/teardown failures; phase8-final-partner-migration-fix-1.log. Current full CI rerun still required."
     }
   ],
   "branch": "codex/phase8-check-repairs-final",

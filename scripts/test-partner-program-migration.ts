@@ -7,10 +7,11 @@
  * thing that applies migrations.
  *
  *  1. Fresh install through the harness; exact ledger hash; harness re-run leaves the ledger unchanged.
- *  2. SQL-to-Drizzle parity for the three new tables (columns, types, nullability, indexes, checks) and negative controls
+ *  2. SQL-to-Drizzle parity for the four partner tables (columns, types, nullability, indexes, checks) and negative controls
  *     proving the database itself rejects illegal values.
- *  3. Upgrade with historic rows: the prior head is the harness-migrated schema with exactly the 0384 objects reversed and its
- *     ledger row removed (an emulated 0383 head, stated as such). Legacy partner, referral and commission-tier rows are
+ *  3. Upgrade with historic rows: the production harness builds actual journal prefixes through 0383 and 0384;
+ *     the full current journal then upgrades them, without deleting ledger rows or reversing current DDL.
+ *     Legacy partner, referral and commission-tier rows are
  *     checksummed before and after; the migration changes none of them, creates no application, opens nothing.
  *  4. Partial schema: an interrupted earlier attempt (one table present with a retained row, no ledger row) converges.
  *  3b. 0385 upgrade from a real 0384 head holding historic introductions: the checkpoint backfill marks exactly the steps the
@@ -39,7 +40,7 @@ if (/(prod|production|live)/i.test(source.pathname)) throw new Error("Refusing n
 const root = new URL(sourceUrl);
 root.pathname = "/postgres";
 const nonce = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
-const names = { clean: `test_pp_clean_${nonce}`, upgrade: `test_pp_upgrade_${nonce}`, backfill: `test_pp_backfill_${nonce}`, partial: `test_pp_partial_${nonce}`, rollback: `test_pp_rollback_${nonce}` };
+const names = { clean: `test_pp_clean_${nonce}`, upgrade: `test_pp_upgrade_${nonce}`, prior383: `test_pp_prior383_${nonce}`, prior384: `test_pp_prior384_${nonce}`, backfill: `test_pp_backfill_${nonce}`, partial: `test_pp_partial_${nonce}`, rollback: `test_pp_rollback_${nonce}` };
 const migrations = path.join(process.cwd(), "migrations");
 const TAG = "0384_partner_applications_introductions_policy";
 const sql0384 = fs.readFileSync(path.join(migrations, `${TAG}.sql`), "utf8");
@@ -78,12 +79,22 @@ async function dropDb(name: string) {
     await client.query(`DROP DATABASE IF EXISTS "${name}"`);
   });
 }
-function migrate(databaseUrl: string, cwd = process.cwd()) {
-  // A child process is intentional: server/db has a module-level pool, so each database needs its own harness process.
-  const tsx = path.join(process.cwd(), "node_modules/tsx/dist/cli.mjs");
-  const result = spawnSync(process.execPath, [tsx, "server/db-migrate.ts"],
-    { cwd, env: { ...process.env, DATABASE_URL: databaseUrl }, encoding: "utf8", timeout: 240_000 });
-  if (result.status !== 0) throw new Error(`migration harness failed in ${cwd}: ${(result.stderr || result.stdout).slice(-2500)}`);
+const fixtureRoot=fs.mkdtempSync(path.join(os.tmpdir(),"partner-program-upgrade-"));
+fs.cpSync(migrations,path.join(fixtureRoot,"migrations"),{recursive:true});
+for(const name of ["shared","tsconfig.json"])fs.symlinkSync(path.join(process.cwd(),name),path.join(fixtureRoot,name));
+const journalPath=path.join(fixtureRoot,"migrations/meta/_journal.json");
+const fullJournal=JSON.parse(fs.readFileSync(journalPath,"utf8"));
+function migrate(databaseUrl: string, cwd = process.cwd(), beforeTag?: string) {
+  const current=cwd===process.cwd();
+  const boundary=beforeTag?fullJournal.entries.find((e:any)=>e.tag===beforeTag):undefined;
+  if(beforeTag)assert.ok(boundary,"Requested prior journal boundary must exist");
+  if(current)fs.writeFileSync(journalPath,JSON.stringify({...fullJournal,entries:boundary
+    ?fullJournal.entries.filter((e:any)=>e.idx<boundary.idx):fullJournal.entries}));
+  const code=`(async()=>{try{await (await import(${JSON.stringify(path.join(process.cwd(),"server/db-migrate.ts"))})).runDrizzleMigrations();}finally{await (await import(${JSON.stringify(path.join(process.cwd(),"server/db.ts"))})).pool.end();}})().catch(e=>{console.error(e);process.exitCode=1;});`;
+  const args=current?["-e",code]:["server/db-migrate.ts"];
+  const result=spawnSync(process.execPath,[path.join(process.cwd(),"node_modules/tsx/dist/cli.mjs"),...args],
+    {cwd:current?fixtureRoot:cwd,env:{...process.env,DATABASE_URL:databaseUrl,TEST_DATABASE_URL:databaseUrl},encoding:"utf8",timeout:240_000});
+  if(result.status!==0)throw new Error(`migration harness failed in ${cwd}: ${(result.stderr||result.stdout).slice(-2500)}`);
 }
 async function ledger(client: Client) {
   return (await client.query("SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY id")).rows;
@@ -104,27 +115,10 @@ async function checksums(client: Client, tables: Array<[string, string]>, only: 
   return out;
 }
 
-/** Reverse exactly what 0385 added (the review-event table and the introduction columns, constraints and index), then its ledger row. */
-async function reverseTo0384(client: Client) {
-  await client.query(`DROP TABLE IF EXISTS partner_review_events`);
-  await client.query(`ALTER TABLE partner_introductions DROP CONSTRAINT IF EXISTS partner_introductions_completion_chk, DROP CONSTRAINT IF EXISTS partner_introductions_decision_chk`);
-  await client.query(`DROP INDEX IF EXISTS partner_introductions_completion_idx`);
-  for (const column of COLUMNS_0385) await client.query(`ALTER TABLE partner_introductions DROP COLUMN IF EXISTS ${column}`);
-  await client.query(`DELETE FROM drizzle.__drizzle_migrations WHERE hash IN ($1,$2)`, [hash0385, hash0386]);
-}
-
 /** Both 0385 checks must be validated: Publish generates malformed SQL for a NOT VALID check, which stopped the whole publication. */
 async function checksAreValidated(client: Client, label: string) {
   const rows = (await client.query(`SELECT conname, convalidated FROM pg_constraint WHERE conrelid='public.partner_introductions'::regclass AND conname = ANY($1) ORDER BY conname`, [INTRO_CHECKS_0385])).rows;
   equal(rows.map((r: any) => [r.conname, r.convalidated]), INTRO_CHECKS_0385.map((name) => [name, true]), `${label}: both introduction checks exist and are validated (none is NOT VALID, which Publish cannot generate SQL for)`);
-}
-
-/** Reverse exactly what 0384 to 0386 added: the new tables (children first), then their ledger rows. */
-async function reverseTo0383(client: Client) {
-  for (const table of ["partner_review_events", "partner_introductions", "partner_applications", "partner_public_policy_versions"]) {
-    await client.query(`DROP TABLE IF EXISTS ${table}`);
-  }
-  await client.query(`DELETE FROM drizzle.__drizzle_migrations WHERE hash IN ($1,$2,$3)`, [hash0384, hash0385, hash0386]);
 }
 
 /** Run one statement in its own transaction that is always rolled back; return the SQLSTATE it raised ('' if none). */
@@ -290,12 +284,12 @@ try {
     equal(await errCode(client, policyInsert, [3, 30, "approved", "admin", new Date()]), "23505", "a second approved policy for the same key is rejected (one approved version at a time)");
   });
 
-  // ── 3. Upgrade with historic rows (emulated 0383 head) ──
+  // ── 3. Upgrade with historic rows from the real journal through 0383 ──
   console.log("\n[3] Upgrade with historic rows");
-  await admin(async (client) => { await client.query(`CREATE DATABASE "${names.upgrade}" TEMPLATE "${names.clean}"`); });
-  // The template carries the negative-control rows from section 2's rolled-back statements only; the one committed policy row is removed with the tables.
+  await admin(async (client) => { await client.query(`CREATE DATABASE "${names.prior383}"`); });
+  migrate(urlFor(names.prior383),process.cwd(),TAG);
+  await admin(async(client)=>{await client.query(`CREATE DATABASE "${names.upgrade}" TEMPLATE "${names.prior383}"`);});
   const historic = await withDb(names.upgrade, async (client) => {
-    await reverseTo0383(client);
     for (const table of NEW_TABLES) ok(!(await exists(client, table)), `prior head has no ${table}`);
     equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash IN ($1,$2,$3)`, [hash0384, hash0385, hash0386])).rowCount, 0, "prior head has no 0384, 0385 or 0386 ledger row");
     return seedLegacy(client);
@@ -307,8 +301,8 @@ try {
     for (const table of NEW_TABLES) ok(await exists(client, table), `upgrade creates ${table}`);
     const after = await ledger(client);
     equal(after.slice(0, priorLedger.length), priorLedger, "every prior ledger row is retained unchanged");
-    equal(after.length, priorLedger.length + 3, "exactly three ledger rows are added (0384, 0385 and 0386)");
-    equal(after.slice(-3).map((r: any) => r.hash), [hash0384, hash0385, hash0386], "the added rows are the exact 0384, 0385 and 0386 hashes, in order");
+    equal(after.length, cleanLedger.length, "upgrade reaches the same complete journal as a fresh install");
+    equal(after.slice(priorLedger.length,priorLedger.length+3).map((r:any)=>r.hash),[hash0384,hash0385,hash0386],"the first added rows are the exact 0384,0385,0386 hashes in order");
     await checksAreValidated(client, "upgrade");
     equal(await checksums(client, LEGACY_TABLES), beforeChecksums, "partners, referrals, commission tiers, users and contacts are byte-identical before and after the upgrade");
     const rates = (await client.query(`SELECT id, commission_percent, status FROM partners WHERE id = ANY($1) ORDER BY id`, [historic.partners])).rows.map((r: any) => [r.commission_percent, r.status]);
@@ -321,9 +315,10 @@ try {
 
   // ── 3b. 0385 upgrade from a real 0384 head holding historic introductions ──
   console.log("\n[3b] 0385 upgrade from a 0384 head with historic introductions");
-  await admin(async (client) => { await client.query(`CREATE DATABASE "${names.backfill}" TEMPLATE "${names.clean}"`); });
+  await admin(async (client) => { await client.query(`CREATE DATABASE "${names.prior384}"`); });
+  migrate(urlFor(names.prior384),process.cwd(),TAG85);
+  await admin(async(client)=>{await client.query(`CREATE DATABASE "${names.backfill}" TEMPLATE "${names.prior384}"`);});
   const backfillIds = await withDb(names.backfill, async (client) => {
-    await reverseTo0384(client);
     ok(await exists(client, "partner_introductions") && !(await exists(client, "partner_review_events")), "the 0384 head has the introduction table and no review-event table");
     equal((await client.query(`SELECT 1 FROM information_schema.columns WHERE table_name='partner_introductions' AND column_name = ANY($1)`, [COLUMNS_0385])).rowCount, 0, "the 0384 head has none of the 0385 introduction columns");
     const partner = (await client.query(`INSERT INTO partners(company_name,email,status,total_referrals) VALUES('Backfill Introducer',$1,'active',7) RETURNING id`, [`pp-backfill-${nonce}@example.test`])).rows[0].id;
@@ -367,9 +362,8 @@ try {
 
   // ── 4. Partial schema from an interrupted earlier attempt ──
   console.log("\n[4] Partial schema from an interrupted earlier attempt");
-  await admin(async (client) => { await client.query(`CREATE DATABASE "${names.partial}" TEMPLATE "${names.clean}"`); });
+  await admin(async (client) => { await client.query(`CREATE DATABASE "${names.partial}" TEMPLATE "${names.prior383}"`); });
   await withDb(names.partial, async (client) => {
-    await reverseTo0383(client);
     const code = (part: string) => part.split("\n").filter((line) => !line.trim().startsWith("--")).join("\n").trim();
     const wanted = statements(sql0384).filter((part) => /^CREATE TABLE IF NOT EXISTS partner_public_policy_versions\b/.test(code(part))
       || /^CREATE UNIQUE INDEX IF NOT EXISTS partner_public_policy_version_uidx\b/.test(code(part)));
@@ -465,5 +459,6 @@ try {
   console.log(`\nPartner program migration certification: ${checks} checks passed`);
 } finally {
   fs.rmSync(baseDir, { recursive: true, force: true });
+  fs.rmSync(fixtureRoot,{recursive:true,force:true});
   for (const name of Object.values(names)) await dropDb(name).catch(() => undefined);
 }
