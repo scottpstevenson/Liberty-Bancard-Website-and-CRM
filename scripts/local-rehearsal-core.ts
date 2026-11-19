@@ -37,7 +37,9 @@ export function buildLocalRehearsalEnvironment(overrides: Record<string, string>
       || /(?:_API_KEY|_TOKEN|_SECRET|PASSWORD|SMTP_|TWILIO|TELNYX|OPENAI|GHL)/i.test(key)) delete env[key];
   }
   // Set invariants *after* scrubbing. They are flags, never inherited credentials.
-  Object.assign(env, { NODE_ENV: "test", VG_PROVIDER_DENY_MODE: "1", GHL_TRANSPORT_FAILFAST: "true",
+  // PostgreSQL legacy timestamp-without-time-zone columns use UTC wall time.
+  // Match the deployment/CI clock explicitly instead of inheriting the Mac timezone.
+  Object.assign(env, { TZ: "UTC", NODE_ENV: "test", VG_PROVIDER_DENY_MODE: "1", GHL_TRANSPORT_FAILFAST: "true",
     SUNBIZ_ENRICHMENT_ENABLED: "false", SERPER_GATEWAY_ENABLED: "false",
     AI_INTEGRATIONS_OPENAI_BASE_URL: "http://127.0.0.1:1/v1", NO_PROXY: "*", no_proxy: "*" });
   return env;

@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 import crypto from "node:crypto";
 import os from "node:os";
 import { eq, or, sql } from "drizzle-orm";
@@ -171,7 +172,7 @@ export async function setGhlInboundWebhookEnabled(enabled: boolean, actor: { use
     await client.query(
       `INSERT INTO audit_logs(user_id,action,entity_type,entity_key,before_state,after_state,actor_type,actor_id)
        VALUES($1,'ghl_inbound_webhook_control_changed','integration','ghl_inbound_contact_sync',$2::jsonb,$3::jsonb,'user',$4)`,
-      [actor.userId, safeJson({ inboundEnabled: before }), safeJson({ inboundEnabled: enabled }), actor.actorId],
+      [actor.userId, safeJson(sanitizeAuditPayload({ inboundEnabled: before })), safeJson(sanitizeAuditPayload({ inboundEnabled: enabled })), actor.actorId],
     );
     await client.query("COMMIT");
   } catch (e) {

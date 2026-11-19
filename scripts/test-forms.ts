@@ -168,10 +168,10 @@ function uniqueEmail(prefix = "qa-release-test-form"): string {
  * to prevent GHL from matching a previous test run's phone number and
  * returning a stale ghlContactId → unique constraint violation.
  */
+let syntheticPhoneSequence = 0;
 function uniquePhone(): string {
-  const tail = (Date.now() % 100000).toString().padStart(5, "0");
-  const rand = Math.floor(Math.random() * 10).toString();
-  return `55501${rand}${tail}`;  // 10 digits, 555-01X-XXXXX pattern
+  // NANP fiction range, valid ten-digit shape; unique within this private suite.
+  return `305555${String(100 + syntheticPhoneSequence++).padStart(4,"0")}`;
 }
 
 async function cleanup(): Promise<void> {
@@ -316,7 +316,7 @@ async function testStatementUpload(): Promise<void> {
   form.append("consentSms", "false");
   form.append("referralCode", stmtAffiliateCode);
   // Attach a minimal fake file so multer does not reject the upload
-  const fakeFile = new Blob(["fake-statement"], { type: "application/pdf" });
+  const fakeFile = new Blob(["%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n"], { type: "application/pdf" });
   form.append("statementFile", fakeFile, "test-statement.pdf");
 
   // BT-04C: statement uploads require a client-generated UUIDv4 Idempotency-Key
@@ -395,7 +395,14 @@ async function testStatementUpload(): Promise<void> {
     : rawStatementCommandLookup?.rows ?? [];
   const statementCommandId =
     statementResponse?.statement_upload_request_id ?? statementCommandRows[0]?.id;
-  if (statementCommandId) statementFixture.commandId = statementCommandId;
+  if (statementCommandId) {
+    statementFixture.commandId = statementCommandId;
+    // The isolated app keeps ambient workers off. Execute only this uniquely
+    // owned synthetic command through the real worker, rather than pretending
+    // a queued 202 implies its business effects already completed.
+    const {executeStatementUploadCommand} = await import("../server/services/statement-command-worker");
+    await executeStatementUploadCommand(statementCommandId);
+  }
 
   // Statement chain is fire-and-forget; poll for up to 4s for contact + deal to appear
   let contact: typeof import("../shared/schema").contacts.$inferSelect | undefined;

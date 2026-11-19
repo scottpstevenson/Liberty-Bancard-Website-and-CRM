@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 /**
  * SerperGateway — the ONLY approved path to the Serper API (#1600).
  *
@@ -628,8 +629,8 @@ export class SerperGateway {
         action: "serper_enabled_toggle",
         entityType: "serper_control",
         entityKey: "1",
-        beforeState: { enabled: beforeEnabled },
-        afterState: { enabled },
+        beforeState: sanitizeAuditPayload({ enabled: beforeEnabled }),
+        afterState: sanitizeAuditPayload({ enabled }),
         // C-13 (#1626): sanitize free-text reason field before audit insert
         details: (await import("./audit-sanitizer")).sanitizeAuditPayload({
           reason: audit.reason,
@@ -678,8 +679,8 @@ export class SerperGateway {
         action: "serper_window_reset",
         entityType: "serper_control",
         entityKey: "1",
-        beforeState: { windowStartedAt: expectedWindowStartedAt.toISOString() },
-        afterState: { windowStartedAt: row.window_started_at ? new Date(row.window_started_at).toISOString() : null },
+        beforeState: sanitizeAuditPayload({ windowStartedAt: expectedWindowStartedAt.toISOString() }),
+        afterState: sanitizeAuditPayload({ windowStartedAt: row.window_started_at ? new Date(row.window_started_at).toISOString() : null }),
         // C-13 (#1626): sanitize free-text reason field before audit insert
         details: (await import("./audit-sanitizer")).sanitizeAuditPayload({
           reason: audit.reason,

@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import { completedValidationOperation } from "./fixtures/completed-validation-operation";
 /**
  * Wave 12 — Sequence Compliance Tests
  *
@@ -405,6 +406,7 @@ async function makeContact(overrides: ContactOverrides = {}): Promise<number> {
     .returning({ id: contacts.id });
   if (emailStatus === "active" || emailStatus === "valid" || emailStatus === "bounced") {
     await db.insert(providerObservations).values({
+      operationId: await completedValidationOperation(db, row.id),
       provider: "zerobounce",
       subjectType: "contact",
       subjectId: row.id,
@@ -653,8 +655,8 @@ async function testCase12(): Promise<void> {
     source: "synthetic-operational-notice-fixture",
     actor: { role: "admin", actorId: "disposable-compliance-fixture", email: null },
   });
-  assert("canonical fence independently identifies missing cohort authority", "blocked" in fenced && fenced.blocked === true
-    && "reasonCode" in fenced && fenced.reasonCode === "COHORT_REQUIRED");
+  assert("canonical email preparation independently requires an independent business affiliation", "blocked" in fenced && fenced.blocked === true
+    && "reasonCode" in fenced && fenced.reasonCode === "INDEPENDENT_BUSINESS_AFFILIATION_REQUIRED");
 }
 
 // ── Case 13: mixed-channel sequence requires every channel to pass ─────────
@@ -718,8 +720,8 @@ async function testCase13(): Promise<void> {
     source: "synthetic-operational-notice-fixture",
     actor: { role: "admin", actorId: "disposable-compliance-fixture", email: null },
   });
-  assert("declared email-only channels do not bypass the canonical cohort fence",
-    "blocked" in fence && fence.blocked === true && "reasonCode" in fence && fence.reasonCode === "COHORT_REQUIRED");
+  assert("declared email-only channels do not bypass independent business affiliation",
+    "blocked" in fence && fence.blocked === true && "reasonCode" in fence && fence.reasonCode === "INDEPENDENT_BUSINESS_AFFILIATION_REQUIRED");
 }
 
 // ── Case 14: processSequenceEnrollments Gate (a) still re-checks before first send ──

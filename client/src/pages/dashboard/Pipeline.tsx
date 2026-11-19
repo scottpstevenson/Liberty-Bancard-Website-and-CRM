@@ -2530,7 +2530,7 @@ function PipelineWorkspace() {
       </div>}
       {/* #190 — Sticky header on scroll */}
       {/* Pinned only where the toolbar leaves room for the board; below md it is taller than the screen and would cover every card. */}
-      <div className="md:sticky md:top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 -mx-2 px-2 pb-3">
+      <div className="lg:sticky lg:top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 -mx-2 px-2 pb-3">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
           <PageTitle className="text-2xl font-semibold" data-testid="text-pipeline-title">

@@ -23,7 +23,7 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
     "--disable-dev-shm-usage",
     ...(globalThis.process.platform==="darwin"?["--use-mock-keychain","--password-store=basic"]:[]),
     "--window-size=1440,1000",
-    "--disable-background-networking","--disable-extensions","--remote-debugging-address=127.0.0.1",
+    "--disable-background-timer-throttling","--disable-renderer-backgrounding","--disable-backgrounding-occluded-windows","--disable-background-networking","--disable-extensions","--remote-debugging-address=127.0.0.1",
     "--remote-debugging-port=0",`--user-data-dir=${profile}`,"about:blank"],{stdio:["ignore","ignore","pipe"],detached:true,
     env:{PATH:globalThis.process.env.PATH,HOME:profile}});
   let startupDiagnostics="";
@@ -123,6 +123,7 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
         }
       }
     });
+    await call("Page.bringToFront");await call("Emulation.setFocusEmulationEnabled",{enabled:true});
     await call("Page.enable");await call("Runtime.enable");await call("Network.enable");
     if(options.realInput)await call("Network.setCacheDisabled",{cacheDisabled:true});
     for(const entry of cookie ? cookie.split("; ") : []){

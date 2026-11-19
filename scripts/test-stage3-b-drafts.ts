@@ -93,6 +93,16 @@ try {
   const created = await request("agent", "PUT", "/api/message-drafts", command);
   assert.equal(created.status, 200); assert.equal(created.body.draft.version, 1);
   assert.equal(created.body.draft.delivered, false);
+  assert.match(created.body.draft.savedAt, /Z$/, "saved timestamp is an explicit UTC instant");
+  assert.ok(Math.abs(Date.now() - Date.parse(created.body.draft.savedAt)) < 10_000);
+  // Existing commands may retain the old naive timestamp. Normalize only the
+  // response, without rewriting the command or changing its replay identity.
+  const legacySavedAt = created.body.draft.savedAt.replace("T", " ").replace(/Z$/, "");
+  await pool.query(`UPDATE rep_message_draft_commands SET result=jsonb_set(result,'{savedAt}',to_jsonb($3::text)) WHERE actor_id=$1 AND command_id=$2`,
+    [`${prefix}-agent`,command.commandId,legacySavedAt]);
+  assert.deepEqual((await request("agent", "PUT", "/api/message-drafts", command)).body, created.body);
+  assert.equal((await pool.query(`SELECT result->>'savedAt' AS saved FROM rep_message_draft_commands WHERE actor_id=$1 AND command_id=$2`,
+    [`${prefix}-agent`,command.commandId])).rows[0].saved,legacySavedAt,"legacy replay cache is preserved");
   assert.deepEqual((await request("agent", "PUT", "/api/message-drafts", command)).body, created.body, "lost-response retry identical");
   assert.equal((await request("agent", "PUT", "/api/message-drafts", { ...command, body: "changed retry" })).status, 409);
   const reopened = await request("agent", "GET", path);

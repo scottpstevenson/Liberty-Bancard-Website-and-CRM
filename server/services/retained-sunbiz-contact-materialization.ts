@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 import {sql} from "drizzle-orm";
 import {identityNameSql} from "../../shared/relationship-evidence-sql";
 import {normalizeStateIdentity} from "../../shared/state-identity";
@@ -94,9 +95,9 @@ export async function materializeRetainedSunbizContact(tx:any,contact:any,author
       AND event_key=${`retained-sunbiz:${source.id}:prospect:${source.retained_prospect_id}`}`))[0];
   await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
     VALUES('retained_sunbiz_business_completed','contact',${String(contact.id)},
-      ${JSON.stringify({businessId:resolution.business.id,sourceLinkId:link.id,sourceEventId:event.id,
+      ${JSON.stringify(sanitizeAuditPayload({businessId:resolution.business.id,sourceLinkId:link.id,sourceEventId:event.id,
         sourceEntityId:source.id,prospectId:source.retained_prospect_id,retainedClaimId:source.retained_claim_id,
-        outcome:resolution.kind,paidProviderCalls:0,outboundChanges:0})}::jsonb,
+        outcome:resolution.kind,paidProviderCalls:0,outboundChanges:0}))}::jsonb,
       'system','system:contact-link-automation')`);
   return {status:resolution.kind==="created" ? "materialized" : "matched",businessId:resolution.business.id,
     sourceLinkId:String(link.id),sourceEventId:Number(event.id)};

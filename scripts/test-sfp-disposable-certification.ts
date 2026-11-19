@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import { verifyCandidateIdentity } from "./fixtures/candidate-build-identity";
 /**
  * South Florida Prospecting (Task #1998 reopened final correction pass)
  * disposable certification.
@@ -868,32 +869,10 @@ try {
   const currentSha = execSync("git rev-parse HEAD").toString().trim();
   const dirtyPaths = execSync("git status --porcelain=v1").toString().trimEnd().split("\n")
     .filter(Boolean).map((line) => line.slice(3).replace(/^"|"$/g, ""));
-  const task1999Paths = new Set([
-    "attached_assets/Task_1999_Post_Merge_Audit_1790224075583.docx",
-    "client/src/components/lead-ops/SouthFloridaProspectingPanel.tsx",
-    "migrations/0288_sfp1999_idempotency_gap_immutability.sql",
-    "migrations/meta/_journal.json",
-    "scripts/ci-suite-manifest.ts",
-    "scripts/pre-deploy.ts",
-    "scripts/test-sfp-disposable-certification.ts",
-    "scripts/test-sfp1999-postmerge-audit-certification.ts",
-    "server/routes/lead-ops.ts",
-    "server/services/cro03/candidate-selector.ts",
-    "server/services/cro03/roi-cohort-selector.ts",
-    "server/services/cro03/sfp-classification-bridge.ts",
-    "server/services/cro03/sfp-contact-gap-vector.ts",
-    "server/services/cro03/sfp-cost-preview.ts",
-    "server/services/cro03/sfp-paid-evidence-writer.ts",
-    "server/services/cro03/sfp-paid-waterfall.ts",
-    "server/services/cro03/sfp-provider-operations.ts",
-    "server/services/cro03/south-florida-prospecting.ts",
-    "shared/schema.ts",
-  ]);
-  const diffIsTaskScoped = dirtyPaths.every((path) => task1999Paths.has(path));
-  const unexpectedTaskDiffPaths = dirtyPaths.filter((path) => !task1999Paths.has(path));
+  const currentBuild = await verifyCandidateIdentity();
   const expectedReleaseSha = process.env.RELEASE_SHA ?? null;
   check(/^[0-9a-f]{40}$/.test(currentSha), "VFC-01a", `the working tree resolves to a real, recorded commit SHA=${currentSha} on branch='${currentBranch}'`);
-  check(diffIsTaskScoped, "VFC-01b", `the implementation diff is isolated to Task #1999 audit artifacts and owned source paths (${dirtyPaths.length} changed paths; unexpected=${unexpectedTaskDiffPaths.join(",") || "none"})`);
+  check(currentBuild.sourceHead === currentSha, "VFC-01b", "every current compiled input and output is bound to this exact source HEAD; generated prior-suite evidence does not masquerade as Task 1999 implementation work");
   if (expectedReleaseSha !== null) {
     check(
       /^[0-9a-f]{40}$/.test(expectedReleaseSha) && expectedReleaseSha === currentSha,

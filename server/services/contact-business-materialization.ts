@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 import {createHash} from "node:crypto";
 import {sql} from "drizzle-orm";
 import {db} from "../db";
@@ -126,8 +127,8 @@ export async function materializeSupportedContactBusiness(contactId:number,
     }
     await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
       VALUES('contact_business_source_materialized','contact',${String(contactId)},
-        ${JSON.stringify({businessId:resolution.business.id,sourceLinkId:link.id,sourceEventId:event.id,
-           outcome:resolution.kind,rule:"source_family_identity_v1",adapter,placeIdentity:placeMirror,paidProviderCalls:0,outboundChanges:0})}::jsonb,
+        ${JSON.stringify(sanitizeAuditPayload({businessId:resolution.business.id,sourceLinkId:link.id,sourceEventId:event.id,
+           outcome:resolution.kind,rule:"source_family_identity_v1",adapter,placeIdentity:placeMirror,paidProviderCalls:0,outboundChanges:0}))}::jsonb,
         'system','system:contact-link-automation')`);
     return {status:resolution.kind==="created" ? "materialized" : "matched",
       businessId:resolution.business.id,sourceLinkId:String(link.id),sourceEventId:Number(event.id)};

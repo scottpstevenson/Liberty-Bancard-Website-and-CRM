@@ -1,0 +1,523 @@
+{
+  "baseCommit": "53ac8e946385e75711c746cd1bb54da70ecb298e",
+  "status": "repairs under final registered verification",
+  "scope": "local separate branch only; no production settings changed",
+  "rows": [
+    {
+      "script": "scripts/test-stage4c1-browser.ts",
+      "classification": "Product bug",
+      "findingAndRepair": "Assistant floating button covered the final preview control; reserve bottom space in the dashboard layout.",
+      "number": 1,
+      "productDefectAlsoPresent": true,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-stage3-d-r2-contracts.ts",
+      "classification": "Obsolete source assertion",
+      "findingAndRepair": "Unknown industry routes use the shared branded 404 owner, replacing the old inline response; assert the current owner and response.",
+      "number": 2,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-stage3-c5-mounted.ts",
+      "classification": "Broken mounted fixture",
+      "findingAndRepair": "GHL settings test did not provide the current query/mutation response contract; update its bounded mocks.",
+      "number": 3,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-partner-application-browser.ts",
+      "classification": "Browser harness",
+      "findingAndRepair": "Use native Mac select typeahead/input rather than Linux-specific key assumptions; preserve value readback.",
+      "number": 4,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-stage3-d-v-contact-actor-browser.ts",
+      "classification": "Obsolete certification identity",
+      "findingAndRepair": "Actor/browser certification hard-coded an October serving SHA. Verify the complete current compiled source/output identity and retain persisted actor/session transition checks instead.",
+      "number": 5,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-stage4d-calendar-performance.ts",
+      "classification": "Missing historical setup",
+      "findingAndRepair": "Restore the required historical calendar reference explicitly; qualify last-tracked asset restoration separately from an exact historical artifact.",
+      "number": 6,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-website-email-migration.ts",
+      "classification": "Broken upgrade fixture",
+      "findingAndRepair": "The copied migration ledger did not represent the pre-upgrade schema. Build an actual pre-0382 journal and run the current upgrade.",
+      "number": 7,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-c2-postmerge-browser.ts",
+      "classification": "Mixed product and fixture",
+      "findingAndRepair": "Draft saved_at lacked an explicit UTC zone; normalize fresh and cached API responses. Calendar test also needs its fixed October URL and browser timezone.",
+      "number": 8,
+      "productDefectAlsoPresent": true,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-c2-contact-header.ts",
+      "classification": "Product bug",
+      "findingAndRepair": "Contact area navigation styles targeted buttons although the actual controls are links; apply compact horizontal navigation to the real elements.",
+      "number": 9,
+      "productDefectAlsoPresent": true,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-wd-locations-contract.ts",
+      "classification": "Obsolete source assertion",
+      "findingAndRepair": "Location 404 now delegates to the shared branded not-found owner; retain current unknown-key and SSR checks.",
+      "number": 10,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-wd-industries-contract.ts",
+      "classification": "Obsolete source assertion",
+      "findingAndRepair": "Industry 404 now delegates to the shared branded not-found owner; retain current unknown-slug and SSR checks.",
+      "number": 11,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-public-shell-browser.mjs",
+      "classification": "Unspecified browser environment",
+      "findingAndRepair": "A light-theme color-token assertion inherited the host dark preference. Set the asserted media preference explicitly.",
+      "number": 12,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-stage3-c2-browser.mjs",
+      "classification": "Mixed product and harness",
+      "findingAndRepair": "Explicit-zone draft responses repair the saved timestamp; unthrottle headless background pages and focus native input so Suspense transitions actually execute.",
+      "number": 13,
+      "productDefectAlsoPresent": true,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-phase6-provenance-and-record-class.ts",
+      "classification": "Obsolete cleanup",
+      "findingAndRepair": "Append-only journey/provider evidence correctly refuses destructive contact cleanup; retain evidence until the disposable database is dropped.",
+      "number": 14,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-phase6-intake-cohorts.ts",
+      "classification": "Obsolete cleanup",
+      "findingAndRepair": "Append-only cohort/journey evidence correctly refuses destructive contact cleanup; retain evidence until the disposable database is dropped.",
+      "number": 15,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-phase6-workspace-identity.ts",
+      "classification": "Obsolete inventory assertion",
+      "findingAndRepair": "Reporting conversion-funnel is nested, not a top-level area tab. Compare the registry at the correct hierarchy.",
+      "number": 16,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-phase7-browser.ts",
+      "classification": "Browser fixture race (A/B)",
+      "findingAndRepair": "First-login tour obscured the A/B refresh control. Wait for the real Skip action, persisted tour completion and modal unmount; no experiment-engine bypass.",
+      "number": 17,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-phase6-populated-journeys.ts",
+      "classification": "Mixed product and fixture",
+      "findingAndRepair": "At tablet width the sticky Pipeline toolbar covered a card. Restrict stickiness to the wide layout; initialize exact inbox actors and real supported data.",
+      "number": 18,
+      "productDefectAlsoPresent": true,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-stage3-c1-browser.mjs",
+      "classification": "Mixed product and harness",
+      "findingAndRepair": "Reserve bottom dashboard space for the assistant and await the actual deferred editor before typing.",
+      "number": 19,
+      "productDefectAlsoPresent": true,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/certification/test-canonical-provider-import.ts",
+      "classification": "Broken timeout contract",
+      "findingAndRepair": "Outer 180-second timeout killed a canonical import whose inner allowed workload is 600 seconds. Raise only the outer budget to 900 and verify all 1,472 rows across 10 batches.",
+      "number": 20,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-partner-hub-react-media.ts",
+      "classification": "Node 22 loader fixture",
+      "findingAndRepair": "The media stub used an incompatible asynchronous commonjs load-hook source. Intercept synchronously before nextLoad.",
+      "number": 21,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-stage3-b-lifecycle.ts",
+      "classification": "Obsolete API fixture",
+      "findingAndRepair": "Privacy command requires UUID idempotency and an honest public receipt; assert authoritative stored fields instead of private response internals.",
+      "number": 22,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-stage3-b-browser.ts",
+      "classification": "Browser and route fixture",
+      "findingAndRepair": "Register the actual contact-deletion owner; let Radix cancel close before re-opening; test layout switching from the current supported contact destination.",
+      "number": 23,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-sfp-disposable-certification.ts",
+      "classification": "Obsolete certification identity",
+      "findingAndRepair": "Remove the historical Task 1999 dirty-path allowlist in favor of complete current source/output/build identity verification.",
+      "number": 24,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-sfp2000-disposable-certification.ts",
+      "classification": "Obsolete provider fixture",
+      "findingAndRepair": "Prepare an actual current canonical selection and subject-bound validation receipt before the transport branch; no fabricated current authority.",
+      "number": 25,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-sfp2001-campaign-staging-certification.ts",
+      "classification": "Obsolete provider/retry fixture",
+      "findingAndRepair": "Prepare current source/receipt pins. A permanent missing-package hold is not retryable; exercise real retry exhaustion using a synthetic 40001 database fault.",
+      "number": 26,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/compliance-scan.ts",
+      "classification": "Obsolete scanner inventory",
+      "findingAndRepair": "Classify the narrowly scoped staff-intake alert sender and its canonical SMTP revalidation, which is authorized while prospect/customer outbound is paused.",
+      "number": 27,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-ghl-route-pause-gates-1629.ts",
+      "classification": "Obsolete route inventory",
+      "findingAndRepair": "Current GHL routes and canonical transport delegation replaced the historical route census. Review exact owners; preserve native pause checks.",
+      "number": 28,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-sequence-compliance.ts",
+      "classification": "Obsolete compliance expectation",
+      "findingAndRepair": "Assert the first canonical affiliation denial rather than a later cohort denial; native selected validation receipts are prerequisites.",
+      "number": 29,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-sequence-terminalization-race.ts",
+      "classification": "Timezone-dependent fixture",
+      "findingAndRepair": "Isolated runtime now fixes Node/Postgres fixture timezone to UTC; production business timezone remains explicit and unchanged.",
+      "number": 30,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-contactability.ts",
+      "classification": "Broken evidence fixture",
+      "findingAndRepair": "Create a synthetic completed provider operation for the exact current email token/generation, not an unbound receipt.",
+      "number": 31,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending",
+      "scopeQualification": "Synthetic evidence in a guarded disposable database; not proof of a live provider result."
+    },
+    {
+      "script": "scripts/test-new-lead-enrollment-policy.ts",
+      "classification": "Retired behavior expectation",
+      "findingAndRepair": "Automatic promotional enrollment is deliberately disabled by CR06. Assert no admission/enrollment even when the legacy flag is true; retain independent supported storage tests.",
+      "number": 32,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/sfp-certification.ts",
+      "classification": "Obsolete source/authority fixture",
+      "findingAndRepair": "Assert current audited plaintext callback, canonical selection, explicit record class and native qualified evidence instead of retired validation call signatures.",
+      "number": 33,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-transport-dispatch.ts",
+      "classification": "Invalid fixture lifecycle",
+      "findingAndRepair": "Create a paused sequence, write its steps, then activate it through real storage; live-sequence editing must remain rejected.",
+      "number": 34,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/check-cro02-authority.ts",
+      "classification": "Obsolete authority scanner",
+      "findingAndRepair": "Recognize the current delegated readiness/pre-spend authority owners and AST member calls rather than requiring the retired direct-call spelling.",
+      "number": 35,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-cro03c-static.ts",
+      "classification": "Obsolete static assertion",
+      "findingAndRepair": "Canonical address validation replaced four contact-specific authority copies; assert current selection, claim and pre-I/O dispatch owners.",
+      "number": 36,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-cro03c-integration.ts",
+      "classification": "Obsolete worker fixture",
+      "findingAndRepair": "Populate actual worker deployment/environment identity; retained legacy intents do not grant current provider authority.",
+      "number": 37,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-cro03b-integration.ts",
+      "classification": "Product bugs",
+      "findingAndRepair": "An authorized canonical projection blocked itself via the legacy write fence. Scope a verified admin/item owner and retain other-item fencing. Report missing target selection as review_required, not fictitious validation_pending.",
+      "number": 38,
+      "productDefectAlsoPresent": true,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/certify-cro03b-csv-handoff.ts",
+      "classification": "Mixed product and fixture",
+      "findingAndRepair": "Use a real synthetic admin/current recipe evidence and the scoped canonical projector; include candidateValues in strong-anchor/conflicting-county paths and assert zero partial writes on rejection.",
+      "number": 39,
+      "productDefectAlsoPresent": true,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-cro03-ledger-convergence.ts",
+      "classification": "Obsolete trigger assertion",
+      "findingAndRepair": "Assert actual P0001 immutable-ledger message and verify a raw UPDATE remains rejected.",
+      "number": 40,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-seed-convergence-verifier-integrity.ts",
+      "classification": "Broken empty-database fixture",
+      "findingAndRepair": "Create the test-owned commercial link/revision through the native decision owner before testing deletion/convergence.",
+      "number": 41,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "server/tests/cr06-promotional-boundary-inventory.source.test.ts",
+      "classification": "Obsolete source census",
+      "findingAndRepair": "Inventory the current enrollment writers and fences explicitly; do not treat every writer as newly authorized promotional behavior.",
+      "number": 42,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-cr06-disposable-certification.ts",
+      "classification": "Broken current-evidence fixture",
+      "findingAndRepair": "Create subject-bound synthetic completed provider operation evidence for current token/generation before testing CR06.",
+      "number": 43,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending",
+      "scopeQualification": "Synthetic evidence in a guarded disposable database; not proof of a live provider result."
+    },
+    {
+      "script": "scripts/test-cro07-disposable-certification.ts",
+      "classification": "Broken current-evidence fixture",
+      "findingAndRepair": "Create subject-bound synthetic completed provider operation evidence before testing the CRO07 experiment owner; preserve qualification and sample/guardrail semantics.",
+      "number": 44,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending",
+      "scopeQualification": "Synthetic evidence in a guarded disposable database; not proof of a live provider result."
+    },
+    {
+      "script": "scripts/test-cro03-integration.ts",
+      "classification": "Retired provider fixture",
+      "findingAndRepair": "The retired enrichment factory must stay denied. Seed inert historical reservations only, verify no redispatch, and exercise actual retained cancellation/recovery with real frozen evidence hashes and item pins.",
+      "number": 45,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-cro03-http-authorization.ts",
+      "classification": "Broken empty-database fixture",
+      "findingAndRepair": "Create a test-owned source occurrence through the native staging owner, then bind its policy/handoff fixture to that occurrence. The empty database has no ambient occurrence to borrow.",
+      "number": 46,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-crm-operator-experience.ts",
+      "classification": "Obsolete source assertion",
+      "findingAndRepair": "Contact task reads now include derived state and the actor-aware predicate. Verify exact contact scope and current owner rather than the old query spelling.",
+      "number": 47,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-reconciliation-certification.ts",
+      "classification": "Product bug",
+      "findingAndRepair": "JS Date truncated PostgreSQL microseconds and rejected unchanged reconciliation proposals. Compare the authoritative captured timestamp in SQL; a real one-microsecond concurrent mutation still conflicts.",
+      "number": 48,
+      "productDefectAlsoPresent": true,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/seo-audit.ts",
+      "classification": "Browser scheduling",
+      "findingAndRepair": "Concurrent headless pages throttled requestAnimationFrame/Helmet hydration. Disable background throttling without replacing DOM metadata or bypassing SEO assertions.",
+      "number": 49,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/check-public-site-mobile.ts",
+      "classification": "Browser harness prerequisite",
+      "findingAndRepair": "Use the current Mac/CI Chrome executable and lifecycle in the shared public browser helper; preserve 144 native mobile states.",
+      "number": 50,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/check-public-shell-design.ts",
+      "classification": "Browser harness prerequisite",
+      "findingAndRepair": "Use the current Chrome executable and native shared public browser lifecycle; no product design assertion removed.",
+      "number": 51,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/check-public-fonts.ts",
+      "classification": "Product bug",
+      "findingAndRepair": "Support loaded IBM Plex Sans bold late, causing repeatable layout shift. Preload the self-hosted regular/bold font owners in both entry paths; verify all public font routes.",
+      "number": 52,
+      "productDefectAlsoPresent": true,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/check-public-overlay.ts",
+      "classification": "Browser harness prerequisite",
+      "findingAndRepair": "Use the current Chrome executable and shared public browser lifecycle; overlay checks remain native.",
+      "number": 53,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/check-public-server-hydrated-parity.ts",
+      "classification": "Browser harness prerequisite",
+      "findingAndRepair": "Use current Chrome lifecycle and unthrottled hydration; retain real server/browser parity checks.",
+      "number": 54,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/check-wd-pv-browser.ts",
+      "classification": "Browser harness prerequisite",
+      "findingAndRepair": "Use current Chrome lifecycle and explicit native browser setup; retain actual public view checks.",
+      "number": 55,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-pause-fence.ts",
+      "classification": "Missing isolated startup state",
+      "findingAndRepair": "Initialize the canonical paused outbound control in the disposable fixture before asserting pause behavior.",
+      "number": 56,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-outbound-pause-authority.ts",
+      "classification": "Obsolete delegation assertion",
+      "findingAndRepair": "Toolkit SMS delegates to canonical sendGhlSms, which owns the pause fence. Assert that delegation and keep real transport/pause checks.",
+      "number": 57,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-outbound-boundary-1626.ts",
+      "classification": "Mixed audit bug and obsolete gate",
+      "findingAndRepair": "Native CRM control is independent of outbound permission; mock only its exact prerequisite read. Replace the proximity grep with actual SQL/ORM writer detection and sanitize real diagnostic payloads. Preserve three schema-bounded onboarding ownership/replay journals.",
+      "number": 58,
+      "productDefectAlsoPresent": true,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-statement-acquisition.ts",
+      "classification": "Obsolete handoff expectation",
+      "findingAndRepair": "Statement metadata now hands off to a separate projection owner without provider writes; acknowledge no inbound request truthfully rather than asserting retired held response fields.",
+      "number": 59,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-nba.ts",
+      "classification": "Missing state/capability fixture",
+      "findingAndRepair": "Seed the canonical pause control and classify the database-only NBA suite as disposable integration rather than pretending it requires live HTTP credentials.",
+      "number": 60,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    },
+    {
+      "script": "scripts/test-forms.ts",
+      "classification": "Broken form fixtures",
+      "findingAndRepair": "Use a real PDF signature, valid fictional phone, and execute only the test-owned queued statement command with background workers off. Verify persisted form results, not ambient work.",
+      "number": 61,
+      "productDefectAlsoPresent": false,
+      "verification": "Final frozen registered rerun pending"
+    }
+  ],
+  "summary": {
+    "originalFailedSuites": 61,
+    "suitesWithProductDefectsIncludingMixed": 11,
+    "testOrHarnessOnlySuites": 50,
+    "warning": "Suite counts are not defect counts; shared underlying product defects affect multiple suites."
+  },
+  "originalEvidence": "failure-register.json",
+  "supplementalCIRepairs": [
+    {
+      "script": "scripts/test-stage3-d-v-contracts.ts",
+      "repair": "DB-bound predicate import requires the integration capability, not stateless CI."
+    },
+    {
+      "script": "scripts/test-drizzle-begin-release.ts",
+      "repair": "Fake-client-only unit supplies an inert module-construction URL; no connection."
+    },
+    {
+      "script": "scripts/smoke-role-guards.ts",
+      "repair": "Missing-parent note test verifies the chosen ID is absent; ID 1 can be legitimately created by previous suites."
+    },
+    {
+      "script": "scripts/release-artifact-gate.ts",
+      "repair": "Cold typecheck consumed most of the 300-second wrapper budget and build was terminated at its deadline. Both declared outer budgets now allow 600 seconds; final terminal result is still required."
+    }
+  ]
+}

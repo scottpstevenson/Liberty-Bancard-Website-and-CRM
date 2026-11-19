@@ -182,7 +182,7 @@ try {
     await db.delete(inboundRequests).where(inArray(inboundRequests.id, created.requests));
   }
   if (created.tasks.length) await db.delete(tasks).where(inArray(tasks.id, created.tasks));
-  if (created.contacts.length) await db.delete(contacts).where(inArray(contacts.id, created.contacts));
+  // Contact rows referenced by immutable journey evidence live until the launcher drops this private database.
 }
 
 console.log(`Phase 6 intake cohorts: ${checks} checks passed`);

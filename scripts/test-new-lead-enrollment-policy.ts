@@ -23,8 +23,8 @@
  *    B6:  Already enrolled in same sequence → alreadyEnrolled
  *    B7:  Already enrolled in DIFFERENT sequence → alreadyEnrolled  [verifies fix]
  *    B8:  Preview is zero-write (no enrollment rows created)
- *    B9:  autoEnroll=false → candidate audit log, no enrollment created
- *    B10: autoEnroll=true → enrollment created
+ *    B9:  promotional hold → no candidate admission or enrollment
+ *    B10: explicit storage CRUD fixture (does not prove promotional authority)
  *    B11: Vertical map takes precedence over default sequence
  *    B12: Default fallback when contact vertical not in map
  *    B13: Audit log written per skip action in full enrollment job
@@ -589,13 +589,10 @@ async function runPartB(): Promise<void> {
       ko("B9: KILL LINE VIOLATED — enrollment written despite autoEnabled=false",
         `enrollments found: ${b9Enrollments.length}`);
 
-    // Verify: candidate audit log written for the test deal
+    // The current promotional boundary precedes legacy candidate admission.
     const b9Audit = await getRecentAuditLogs("new_lead_auto_enrollment_candidate_detected", dB9);
-    if (b9Audit.length > 0)
-      ok("B9: candidate audit log written for test deal (autoEnabled=false detection path)");
-    else
-      ko("B9: no candidate audit log written for test deal",
-        "expected new_lead_auto_enrollment_candidate_detected");
+    if (b9Audit.length === 0) ok("B9: promotional execution hold prevents candidate admission even with auto-enrollment off");
+    else ko("B9: held promotional sequence unexpectedly entered candidate admission");
 
     // ── B10: autoEnroll=true path — write path verified via storage.createSequenceEnrollment ─
     console.log("\n── B10: autoEnroll=true enrollment write path ───────────");
@@ -849,15 +846,12 @@ async function runPartB(): Promise<void> {
     const dB22 = await createTestDeal(cB22);                  // deal with null vertical
     await runNewLeadAutoEnrollCheck();
     const b22Audit = await getRecentAuditLogs("new_lead_auto_enrollment_candidate_detected", dB22);
-    if (b22Audit.length > 0) {
-      const det = b22Audit[0].details as any;
-      if (det?.sequenceId === unknownSeqId)
-        ok(`B22: candidate audit shows __unknown__ seqId (${unknownSeqId}) for null-vertical deal`);
-      else
-        ko("B22: candidate audit seqId mismatch", `got=${det?.sequenceId}, expected=${unknownSeqId}`);
-    } else {
-      ko("B22: no candidate audit log written for null-vertical deal with __unknown__ mapping");
-    }
+    const {decideCr06SequenceLifecycle}=await import("../server/services/cr06-promotional-lifecycle-decision");
+    const unknownSequence=await storage.getFollowUpSequence(unknownSeqId);
+    const boundary=decideCr06SequenceLifecycle(unknownSequence!,"new_lead_enrollment");
+    if (!boundary.allowed && boundary.reasonCode==="CR06_PROMOTIONAL_EXECUTION_DISABLED" && b22Audit.length===0)
+      ok("B22: current promotional hold blocks mapped-unknown candidate admission");
+    else ko("B22: unexpected promotional admission",JSON.stringify(boundary));
     // Verify no enrollment was created
     const b22Enrollments = await getEnrollmentsForContact(cB22);
     if (b22Enrollments.length === 0)
@@ -865,8 +859,8 @@ async function runPartB(): Promise<void> {
     else
       ko("B22: enrollment created despite autoEnabled=false", `count=${b22Enrollments.length}`);
 
-    // ── B23: autoEnabled=true → null-vertical deal enrolled into __unknown__ seq ─
-    console.log("\n── B23: autoEnabled=true enrolls null-vertical into __unknown__ seq ─");
+    // ── B23: autoEnabled=true cannot override promotional hold ─
+    console.log("\n── B23: autoEnabled=true remains held for promotional sequences ─");
     await setVerticalSequenceMap({ __unknown__: unknownSeqId });
     await setDefaultSequenceId(activeSeqId);
     await setAutoEnrollEnabled(true);
@@ -875,11 +869,9 @@ async function runPartB(): Promise<void> {
     await runNewLeadAutoEnrollCheck();
     await setAutoEnrollEnabled(false); // restore kill-line immediately
     const b23Enrollments = await getEnrollmentsForContact(cB23);
-    const b23InUnknown = b23Enrollments.find(e => e.sequenceId === unknownSeqId);
-    if (b23InUnknown)
-      ok(`B23: null-vertical deal enrolled into __unknown__ seq (${unknownSeqId}) when autoEnabled=true`);
-    else
-      ko("B23: null-vertical deal NOT enrolled into __unknown__ seq", `enrollments=${JSON.stringify(b23Enrollments)}`);
+    if (b23Enrollments.length===0)
+      ok("B23: autoEnabled=true cannot override the current promotional execution hold");
+    else ko("B23: held promotional sequence created enrollment",JSON.stringify(b23Enrollments));
     // Verify kill-line restored
     const b23KillLine = await getAutoEnrollEnabled();
     if (b23KillLine === false)

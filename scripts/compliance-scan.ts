@@ -77,6 +77,12 @@ const CALL_SITE_ALLOWLIST: Array<{
   reviewDate: string;
 }> = [
   {
+    file: "server/services/team-intake-alerts.ts",
+    lineContains: "sendSmtpEmail({...renderTeamIntakeAlert(row),teamIntakeAlert:claim})",
+    channel: "email", category: "internal_admin", reviewDate: "2026-11-19",
+    reason: "Owner-authorized staff-only intake alerts to fixed scott@libertybancard.com while prospect outbound stays paused. Durable attempt-token claim is revalidated by authorizeTeamIntakeAlertSend at SMTP; altered recipient, content, purpose, override and epoch are rejected by test-team-intake-alerts. This exception grants no marketing capability.",
+  },
+  {
     file: "server/services/inbound-acknowledgement.ts",
     lineContains: "sendSmtpEmail",
     channel: "email",

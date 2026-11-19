@@ -13,6 +13,9 @@
  * Exit 1 = one or more keys missing from DB or set to false / control row missing
  */
 
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+await assertDisposableTestInfrastructure({operation: "owned pause initialization for decision certification"});
+await (await import("../server/services/outbound-control-service")).initializePauseControl();
 import { db } from "../server/db";
 import { systemSettings } from "../shared/schema";
 import { eq } from "drizzle-orm";

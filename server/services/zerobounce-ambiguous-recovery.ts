@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 /**
  * Bounded recovery for ZeroBounce calls that were dispatched and then ended with an unknown outcome
  * (timeout/transport after dispatch, billing unknown, no definitive receipt).
@@ -167,8 +168,8 @@ export async function authorizeAmbiguousRecovery(input: AuthorizeAmbiguousRecove
        RETURNING id`)).length : 0;
     await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
       VALUES('zerobounce_ambiguous_recovery_authorized','zerobounce_recovery',${input.authorizationKey},
-        ${JSON.stringify({ authorized, intentsReopened: reopened, maxAdditionalPurchases: ready.filter(r => !r.fresh_receipt).length,
-          readyFingerprint: input.expectedReadyFingerprint, providerCallsMade: 0 })}::jsonb,
+        ${JSON.stringify(sanitizeAuditPayload({ authorized, intentsReopened: reopened, maxAdditionalPurchases: ready.filter(r => !r.fresh_receipt).length,
+          readyFingerprint: input.expectedReadyFingerprint, providerCallsMade: 0 }))}::jsonb,
         'user',${input.actor ?? 'system'})`);
     return { authorized, intentsReopened: reopened, providerCallsMade: 0 };
   });

@@ -16,6 +16,9 @@
  * Exit 0 = all pass. Exit 1 = any failure.
  */
 
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+await assertDisposableTestInfrastructure({operation: "owned pause initialization for decision certification"});
+await (await import("../server/services/outbound-control-service")).initializePauseControl();
 import crypto from "crypto";
 import { db, pool } from "../server/db";
 import { contacts, contactNba, nbaRecommendationHistory } from "@shared/schema";

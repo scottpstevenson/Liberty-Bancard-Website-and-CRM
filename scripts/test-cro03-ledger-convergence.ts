@@ -198,7 +198,7 @@ async function main(): Promise<number> {
     try {
       await db.execute(sql`UPDATE cro03_provider_ledger SET units = 999 WHERE id = ${ledgerId}`);
     } catch (err: any) {
-      guardRejected = /CRO03_IMMUTABLE_ROW_GUARD/.test(String(err?.cause?.message ?? err?.message ?? err));
+      guardRejected = (err?.cause?.code ?? err?.code) === "P0001" && /cro03_provider_ledger is immutable/.test(String(err?.cause?.message ?? err?.message ?? err));
     }
     if (!guardRejected) failures.push("Immutability guard did not reject a raw UPDATE after convergence recreated the trigger — the guard is not actually active.");
 

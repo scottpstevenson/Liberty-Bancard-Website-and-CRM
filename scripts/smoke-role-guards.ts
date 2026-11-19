@@ -218,7 +218,7 @@ const CASES: GuardCase[] = [
   { method: "GET",    path: "/api/sdr/compliance-channel-status",    anon: [401], merchant: [403], admin: [200], description: "SDR compliance channel status (isDashboardUser)" },
 
   // ── Auth-gate hardening (launch remediation) — formerly isAuthenticated, now isDashboardUser/requireRole ──
-  { method: "GET",    path: "/api/notes?entityType=contact&entityId=1",      anon: [401], merchant: [403], admin: [404], description: "notes on unavailable seeded context (merchant blocked; no parent existence disclosure)" },
+  { method: "GET",    path: "/api/notes?entityType=contact&entityId=2147483647", anon: [401], merchant: [403], admin: [404], description: "notes on verified absent context (merchant blocked; no parent existence disclosure)" },
   { method: "GET",    path: "/api/forecasting/summary",               anon: [401], merchant: [403], admin: [200], description: "forecasting summary (isDashboardUser — merchants blocked)" },
   { method: "GET",    path: "/api/residuals/imports",                 anon: [401], merchant: [403], admin: [200], description: "residuals import list (requireRole admin/manager — merchants blocked)" },
   { method: "GET",    path: "/api/kpi/summary",                      anon: [401], merchant: [403], admin: [200], description: "KPI summary (isDashboardUser — merchants blocked)" },
@@ -567,6 +567,10 @@ async function isServerReachable(url: string): Promise<boolean> {
 }
 
 async function run(): Promise<void> {
+  // ID 1 can legitimately be created by earlier CI suites. A collision here is
+  // a fixture error, never permission to delete or change a contact.
+  if ((await db.execute(drizzleSql`SELECT id FROM contacts WHERE id=2147483647`)).rows.length)
+    throw new Error("ROLE_GUARD_ABSENT_CONTACT_FIXTURE_COLLISION");
   // Skip gracefully when the server isn't running — the pre-deploy gate
   // marks this suite requiresServer:true and handles the skip there.
   // When run standalone (e.g. via the validation workflow), also skip

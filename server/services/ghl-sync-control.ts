@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 import crypto from "crypto";
 import { pool } from "../db";
 import {
@@ -725,7 +726,7 @@ export async function patchGhlSyncControl(input: {
     await client.query(
       `INSERT INTO audit_logs(action,entity_type,entity_key,actor_type,actor_id,details,created_at)
        VALUES('ghl_sync_control_changed','system',$1,'user',$2,$3::jsonb,NOW())`,
-      [SETTING_KEY, actor, JSON.stringify({ epoch: transition.epoch, transition: "started" })],
+      [SETTING_KEY, actor, JSON.stringify(sanitizeAuditPayload({ epoch: transition.epoch, transition: "started" }))],
     );
     await client.query("COMMIT");
   } catch (error) {
@@ -761,7 +762,7 @@ export async function patchGhlSyncControl(input: {
     await finish.query(
       `INSERT INTO audit_logs(action,entity_type,entity_key,actor_type,actor_id,details,created_at)
        VALUES('ghl_sync_control_changed','system',$1,'user',$2,$3::jsonb,NOW())`,
-      [SETTING_KEY, actor, JSON.stringify({ epoch: next.epoch, enabled: next.enabled, permissionsEnabled: next.permissionsEnabled, ownerProfile: next.ownerProfile, selectedRuntime: next.selectedRuntime, transition: "committed" })],
+      [SETTING_KEY, actor, JSON.stringify(sanitizeAuditPayload({ epoch: next.epoch, enabled: next.enabled, permissionsEnabled: next.permissionsEnabled, ownerProfile: next.ownerProfile, selectedRuntime: next.selectedRuntime, transition: "committed" }))],
     );
     await finish.query("COMMIT");
     return next;
@@ -828,7 +829,7 @@ export async function recordGhlNativeReview(review: NativeReview, actorId: strin
     await client.query(
       `INSERT INTO audit_logs(action,entity_type,entity_key,actor_type,actor_id,details,created_at)
        VALUES('ghl_native_trigger_safety_reviewed','system',$1,'user',$2,$3::jsonb,NOW())`,
-      [SETTING_KEY, actorId, JSON.stringify({ epoch: transition.epoch, transition: "started", evidenceReference: review.evidenceReference })],
+      [SETTING_KEY, actorId, JSON.stringify(sanitizeAuditPayload({ epoch: transition.epoch, transition: "started", evidenceReference: review.evidenceReference }))],
     );
     await client.query("COMMIT");
     const now = new Date();
@@ -854,7 +855,7 @@ export async function recordGhlNativeReview(review: NativeReview, actorId: strin
       await finish.query(
         `INSERT INTO audit_logs(action,entity_type,entity_key,actor_type,actor_id,details,created_at)
          VALUES('ghl_native_trigger_safety_reviewed','system',$1,'user',$2,$3::jsonb,NOW())`,
-        [SETTING_KEY, actorId, JSON.stringify({ epoch: next.epoch, evidenceReference: nativeReview.evidenceReference, inventoryRevision: nativeReview.inventoryRevision, contractVersion: nativeReview.contractVersion, contractRevision: nativeReview.contractRevision, scopeRulesRevision: nativeReview.scopeRulesRevision, allowedOperations: nativeReview.allowedOperations, transition: "committed" })],
+        [SETTING_KEY, actorId, JSON.stringify(sanitizeAuditPayload({ epoch: next.epoch, evidenceReference: nativeReview.evidenceReference, inventoryRevision: nativeReview.inventoryRevision, contractVersion: nativeReview.contractVersion, contractRevision: nativeReview.contractRevision, scopeRulesRevision: nativeReview.scopeRulesRevision, allowedOperations: nativeReview.allowedOperations, transition: "committed" }))],
       );
       await finish.query("COMMIT");
       return next;
@@ -919,7 +920,7 @@ export async function revokeGhlNativeReview(reason: string, actorId: string, exp
     await finish.query(
       `INSERT INTO audit_logs(action,entity_type,entity_key,actor_type,actor_id,details,created_at)
        VALUES('ghl_native_review_revoked','system',$1,'user',$2,$3::jsonb,NOW())`,
-      [SETTING_KEY, actorId, JSON.stringify({ epoch: next.epoch, reason: next.nativeReview.revocationReason, contractRevision: priorReview.contractRevision ?? null, transition: "committed" })],
+      [SETTING_KEY, actorId, JSON.stringify(sanitizeAuditPayload({ epoch: next.epoch, reason: next.nativeReview.revocationReason, contractRevision: priorReview.contractRevision ?? null, transition: "committed" }))],
     );
     await finish.query("COMMIT");
     return next;

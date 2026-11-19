@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
@@ -193,17 +194,17 @@ export async function materializeCanonicalProviderImportRow(input:{
           WHERE id=${itemId}::uuid`);
         await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
           VALUES('canonical_import_row_held','cro03_enrichment_item',${itemId},
-            ${JSON.stringify({executionId:input.executionId,sourceRowNumber:input.sourceRowNumber,
-              rowFingerprint:fingerprint,reasonCode,diagnostic})}::jsonb,'system',${input.actorId})`);
+            ${JSON.stringify(sanitizeAuditPayload({executionId:input.executionId,sourceRowNumber:input.sourceRowNumber,
+              rowFingerprint:fingerprint,reasonCode,diagnostic}))}::jsonb,'system',${input.actorId})`);
         await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
           VALUES('canonical_import_hold_evidence','cro03_enrichment_item',${itemId},
-            ${JSON.stringify({holdEvidenceVersion:"native_revision_bound_v1",
+            ${JSON.stringify(sanitizeAuditPayload({holdEvidenceVersion:"native_revision_bound_v1",
               executionId:input.executionId,sourceRowNumber:input.sourceRowNumber,
               originalObservationId:identity.id,originalPayloadHash:identity.payload_hash,
               mappedFingerprint:identity.mappedFingerprint,rowFingerprint:fingerprint,
               rawEvidenceHash:identity.rawEvidenceHash,bridgeHash:identity.bridgeHash ?? null,
               coordinate:identity.coordinate ?? {format:"retained_logical",recordNumber:input.sourceRowNumber},
-              reasonCode,diagnostic})}::jsonb,'system',${input.actorId})`);
+              reasonCode,diagnostic}))}::jsonb,'system',${input.actorId})`);
         await pendingRow(tx,false);
         // Recovery deliberately relinquishes its item claim above. It is
         // checked immediately before that transition, not after clearing its

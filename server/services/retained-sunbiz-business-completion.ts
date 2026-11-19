@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 /**
  * Business-only completion of legacy Sunbiz promotions.
  *
@@ -203,11 +204,11 @@ export async function completeRetainedSunbizEntity(
     if (Number(link.business_id) !== resolution.business.id) throw new Error("RETAINED_REGISTRY_SOURCE_CONFLICT");
     await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
       VALUES(${COMPLETED_ACTION},'sunbiz_entity',${String(source.filing_number)},
-        ${JSON.stringify({ businessId: resolution.business.id, sourceLinkId: link.id, sourceEntityId: entityId,
+        ${JSON.stringify(sanitizeAuditPayload({ businessId: resolution.business.id, sourceLinkId: link.id, sourceEntityId: entityId,
           prospectId: verified.prospect_id, retainedClaimId: verified.claim_id, outcome: resolution.kind,
           projectedFields: projected, postalCodeRetained: resolution.kind === "created" ? !!postalCode : undefined,
           addressPurpose: "registered_principal_address", operatingLocationConfirmed: false,
-          paidProviderCalls: 0, outboundChanges: 0 })}::jsonb,
+          paidProviderCalls: 0, outboundChanges: 0 }))}::jsonb,
         'system','system:retained-sunbiz-business-completion')`);
     return { status: resolution.kind === "created" ? "created" : "matched", entityId,
       businessId: resolution.business.id, projected };
@@ -226,8 +227,8 @@ async function recordDisposition(source: any, outcome: { status: string; reasonC
   await db.execute(sql`
     INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
     SELECT ${DISPOSITION_ACTION},'sunbiz_entity',${key},
-      ${JSON.stringify({ sourceEntityId: Number(source.id), status: outcome.status, reasonCode: outcome.reasonCode ?? null,
-        sourceSnapshotHash: hash, paidProviderCalls: 0, outboundChanges: 0 })}::jsonb,
+      ${JSON.stringify(sanitizeAuditPayload({ sourceEntityId: Number(source.id), status: outcome.status, reasonCode: outcome.reasonCode ?? null,
+        sourceSnapshotHash: hash, paidProviderCalls: 0, outboundChanges: 0 }))}::jsonb,
       'system','system:retained-sunbiz-business-completion'
     WHERE NOT EXISTS (
       SELECT 1 FROM (SELECT details FROM audit_logs WHERE action=${DISPOSITION_ACTION} AND entity_key=${key}

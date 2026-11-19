@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import { completedValidationOperation } from "./fixtures/completed-validation-operation";
 /**
  * Task 1734: CRO-07 disposable certification.
  *
@@ -43,7 +44,7 @@ const nonce = randomUUID();
 try {
   const [
     { runDrizzleMigrations },
-    { pool },
+    { db, pool },
     cr06,
     cr04,
     readiness,
@@ -158,9 +159,9 @@ try {
   );
   await pool.query(
     `INSERT INTO provider_observations
-       (provider,subject_type,subject_id,email_token_hash,subject_generation,outcome,retryable,observed_at)
-     VALUES ('zerobounce','contact',$1,$2,1,'valid',FALSE,NOW())`,
-    [contact.rows[0].id, emailHash],
+       (provider,subject_type,subject_id,email_token_hash,subject_generation,outcome,retryable,observed_at,operation_id)
+     VALUES ('zerobounce','contact',$1,$2,1,'valid',FALSE,NOW(),$3)`,
+    [contact.rows[0].id, emailHash, await completedValidationOperation(db, contact.rows[0].id)],
   );
   const providerReady = await readiness.evaluateMarketingEmailEligibility(contact.rows[0].id);
   check(providerReady.allowed, "fixture contact has valid current provider evidence");
@@ -430,9 +431,9 @@ try {
     const fixtureContactId = inserted.rows[0].id;
     await pool.query(
       `INSERT INTO provider_observations
-         (provider,subject_type,subject_id,email_token_hash,subject_generation,outcome,retryable,observed_at)
-       VALUES ('zerobounce','contact',$1,$2,1,'valid',FALSE,NOW())`,
-      [fixtureContactId, fixtureEmailHash],
+         (provider,subject_type,subject_id,email_token_hash,subject_generation,outcome,retryable,observed_at,operation_id)
+       VALUES ('zerobounce','contact',$1,$2,1,'valid',FALSE,NOW(),$3)`,
+      [fixtureContactId, fixtureEmailHash, await completedValidationOperation(db, fixtureContactId)],
     );
     await cr04.evaluateCr04ChannelQualification(fixtureContactId, {
       channel: "email", sequenceId: sequence.rows[0].id, persist: true, scope: actor,

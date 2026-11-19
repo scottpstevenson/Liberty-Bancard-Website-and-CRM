@@ -1,3 +1,5 @@
+import {sanitizeChannelAuditText} from "./audit-sanitizer";
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 /**
  * Governed Data Health reconciliation.
  *
@@ -212,8 +214,8 @@ async function audit(c: Q, action: string, entityType: string, entityId: number,
   await c.query(
     `INSERT INTO audit_logs(user_id,action,entity_type,entity_id,entity_key,details,before_state,after_state,actor_type,actor_id)
      VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,'user',$1)`,
-    [actorId, action, entityType, entityId, `data_health_reconcile:${operationId}`, JSON.stringify({ operationId, detail: details }),
-      JSON.stringify(before), JSON.stringify(after)]);
+    [actorId, action, entityType, entityId, `data_health_reconcile:${operationId}`, JSON.stringify(sanitizeAuditPayload({ operationId, detail: sanitizeChannelAuditText(details) })),
+      JSON.stringify(sanitizeAuditPayload(before)), JSON.stringify(sanitizeAuditPayload(after))]);
 }
 
 /** Receipt ownership, read under a share lock so a takeover cannot interleave with this transaction. */

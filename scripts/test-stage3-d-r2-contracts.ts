@@ -100,12 +100,13 @@ check(["Show archived deals", "Hide empty stages", "Show unassigned deals only"]
 check(/aria-label=\{`Email \$\{partner\.email\}`\}/.test(read("client/src/pages/dashboard/PartnerReferralPipeline.tsx")), "Partner email icon link has an accessible name");
 check(/aria-label=\{`Archive source /.test(read("client/src/pages/dashboard/KnowledgeAdmin.tsx")), "Knowledge source archive icon button has an accessible name");
 const ssr = read("server/routes/ssr-routes.ts");
+check(/function sendPublicNotFound[\s\S]*?res\.status\(404\)[\s\S]*?res\.send\(getPublicNotFoundHtml\(\)\)/.test(ssr), "shared missing-page owner returns a branded HTTP 404");
 check(/if \(getCompareHtml\(slug\)\) xml \+= `[^`]*\/compare\//.test(ssr), "Compare sitemap lists only comparison pages that exist (no sitemap URL answers 404)");
 {
   // W-D: all 14 listed industries have server content (shared/public-industry-content.ts), so no listed page may
   // fall through to the client app; only an unknown slug is a real 404.
   const industryRoute = ssr.slice(ssr.indexOf('app.get("/industries/:slug"'), ssr.indexOf('app.get("/industries/:slug"') + 500);
-  check(/if \(!html\) return res\.status\(404\)\.end\(\)/.test(industryRoute) && !/INDUSTRY_SLUGS|return next\(\)/.test(industryRoute), "Every listed industry page is server-rendered; only an unknown industry slug answers 404 (no fall-through to the client app)");
+  check(/if \(!html\) return sendPublicNotFound\(res\)/.test(industryRoute) && !/INDUSTRY_SLUGS|return next\(\)/.test(industryRoute), "Every listed industry page is server-rendered; only an unknown industry slug answers 404 (no fall-through to the client app)");
   check(PUBLIC_INDUSTRIES.every(i => getIndustryHtml(i.slug)) && !getIndustryHtml("not-an-industry"), "All 14 listed industries return server HTML and an unknown slug returns none");
 }
 console.log(`PASS Stage 3 D-R2 contracts: ${checks} checks`);

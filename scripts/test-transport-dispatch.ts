@@ -23,6 +23,7 @@
  * Exits 0 if all assertions pass, 1 if any fail.
  */
 
+import { completedValidationOperation } from "./fixtures/completed-validation-operation";
 import { isColdOutreachSequence } from "../server/services/email-signatures";
 import { resolveSender, APPROVED_SENDER_SET } from "../server/services/sender-policy";
 import { generateUnsubscribeToken, verifyUnsubscribeToken } from "../server/services/unsubscribe-token";
@@ -311,6 +312,7 @@ async function testGmailUnavailableBlock() {
     contactId = contact.id;
 
     const [providerObservation] = await db.insert(providerObservations).values({
+      operationId: await completedValidationOperation(db, contactId),
       provider: "zerobounce",
       subjectType: "contact",
       subjectId: contactId,
@@ -333,7 +335,8 @@ async function testGmailUnavailableBlock() {
       name: `transport-test-noncold-${RUN_ID}`,
       sequenceFamily: "onboarding_step",
       triggerType: "onboarding_complete",
-      status: "active",
+      status: "paused",
+      triggerConfig: {communicationPurpose: "transactional"},
     });
     seqId = seq.id;
 
@@ -348,6 +351,7 @@ async function testGmailUnavailableBlock() {
     });
     stepId = step.id;
 
+    await storage.updateFollowUpSequence(seqId, {status: "active"});
     const enrollment = await storage.createSequenceEnrollment({
       contactId,
       sequenceId: seqId,

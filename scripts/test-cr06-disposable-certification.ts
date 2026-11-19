@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import { completedValidationOperation } from "./fixtures/completed-validation-operation";
 /**
  * Task 1722, corrections 7–9: CR-06's stateful certification.
  *
@@ -42,7 +43,7 @@ const fixtureHash = nonce.replace(/-/g, "").padEnd(64, "1");
 try {
   // Migrations are run twice, rather than assuming a developer's local schema
   // is current.  This also exercises the journal's upgrade/reapply control.
-  const [{ runDrizzleMigrations }, { pool }, cr06, cr04, feedback, readiness] = await Promise.all([
+  const [{ runDrizzleMigrations }, { db, pool }, cr06, cr04, feedback, readiness] = await Promise.all([
     import("../server/db-migrate"),
     import("../server/db"),
     import("../server/services/cr06-premium-campaigns"),
@@ -244,9 +245,9 @@ try {
   );
   await pool.query(
     `INSERT INTO provider_observations
-       (provider,subject_type,subject_id,email_token_hash,subject_generation,outcome,retryable,observed_at)
-     VALUES ('zerobounce','contact',$1,$2,1,'valid',FALSE,NOW())`,
-    [contact.rows[0].id, emailHash],
+       (provider,subject_type,subject_id,email_token_hash,subject_generation,outcome,retryable,observed_at,operation_id)
+     VALUES ('zerobounce','contact',$1,$2,1,'valid',FALSE,NOW(),$3)`,
+    [contact.rows[0].id, emailHash, await completedValidationOperation(db, contact.rows[0].id)],
   );
   const providerReady = await readiness.evaluateMarketingEmailEligibility(contact.rows[0].id);
   check(providerReady.allowed, "authority-owned current provider evidence qualifies the exact email generation");
@@ -514,9 +515,9 @@ try {
 
   await pool.query(
     `INSERT INTO provider_observations
-       (provider,subject_type,subject_id,email_token_hash,subject_generation,outcome,retryable,observed_at)
-     VALUES ('zerobounce','contact',$1,$2,1,'invalid',FALSE,NOW()+INTERVAL '1 second')`,
-    [contact.rows[0].id, emailHash],
+       (provider,subject_type,subject_id,email_token_hash,subject_generation,outcome,retryable,observed_at,operation_id)
+     VALUES ('zerobounce','contact',$1,$2,1,'invalid',FALSE,clock_timestamp(),$3)`,
+    [contact.rows[0].id, emailHash, await completedValidationOperation(db, contact.rows[0].id)],
   );
   await rejects(
     () => cr06.prepareCr06({
@@ -528,9 +529,9 @@ try {
   );
   await pool.query(
     `INSERT INTO provider_observations
-       (provider,subject_type,subject_id,email_token_hash,subject_generation,outcome,retryable,observed_at)
-     VALUES ('zerobounce','contact',$1,$2,1,'valid',FALSE,NOW()+INTERVAL '2 seconds')`,
-    [contact.rows[0].id, emailHash],
+       (provider,subject_type,subject_id,email_token_hash,subject_generation,outcome,retryable,observed_at,operation_id)
+     VALUES ('zerobounce','contact',$1,$2,1,'valid',FALSE,clock_timestamp(),$3)`,
+    [contact.rows[0].id, emailHash, await completedValidationOperation(db, contact.rows[0].id)],
   );
   await rejects(
     () => pool.query(

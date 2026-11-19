@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 /**
  * Automatic application of the independent domain + company + location assignment policy.
  *
@@ -78,7 +79,7 @@ export async function setDomainLocationAutomation(enabled: boolean, actorId: str
       [DOMAIN_LOCATION_AUTOMATION_KEY, JSON.stringify(state)]);
     await client.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
       VALUES($1,'domain_location_automation_authorized','contact_business_link_program',$2,$3::jsonb,'user',$1)`,
-      [actorId, DOMAIN_LOCATION_AUTOMATION_KEY, JSON.stringify({ enabled, rule: DOMAIN_LOCATION_RULE, paidProviderCalls: 0, outboundChanges: 0 })]);
+      [actorId, DOMAIN_LOCATION_AUTOMATION_KEY, JSON.stringify(sanitizeAuditPayload({ enabled, rule: DOMAIN_LOCATION_RULE, paidProviderCalls: 0, outboundChanges: 0 }))]);
     await client.query("COMMIT");
     return state;
   } catch (error) {
@@ -194,7 +195,7 @@ export async function processDomainLocationAutomationTick(budget: { maxDurationM
     if (committedThisTick > 0) {
       await pool.query(`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
         VALUES('domain_location_automation_committed','contact_business_link_program',$1,$2::jsonb,'system','system:domain-location-automation')`,
-        [DOMAIN_LOCATION_AUTOMATION_KEY, JSON.stringify({ committed: committedThisTick, rule: DOMAIN_LOCATION_RULE, authorizedBy: state.authorizedBy, paidProviderCalls: 0, outboundChanges: 0 })]).catch(() => undefined);
+        [DOMAIN_LOCATION_AUTOMATION_KEY, JSON.stringify(sanitizeAuditPayload({ committed: committedThisTick, rule: DOMAIN_LOCATION_RULE, authorizedBy: state.authorizedBy, paidProviderCalls: 0, outboundChanges: 0 }))]).catch(() => undefined);
     }
   }
 }

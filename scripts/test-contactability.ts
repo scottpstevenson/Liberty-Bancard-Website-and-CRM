@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import { completedValidationOperation } from "./fixtures/completed-validation-operation";
 /**
  * Wave 1A — Contactability Engine Smoke Test
  *
@@ -136,6 +137,7 @@ async function createTestContact(overrides: Record<string, unknown>): Promise<nu
   data.emailValidationUpdatedAt = new Date();
   const [row] = await db.insert(contacts).values(data as any).returning({ id: contacts.id });
   await db.insert(providerObservations).values({
+      operationId: await completedValidationOperation(db, row.id),
     provider: "zerobounce",
     subjectType: "contact",
     subjectId: row.id,

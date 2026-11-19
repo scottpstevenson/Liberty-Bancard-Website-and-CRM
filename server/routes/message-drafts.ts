@@ -61,10 +61,18 @@ async function authorizeContext(tx: Tx, user: any, context: Context) {
   const contact = (await tx.execute(sql`SELECT id,assigned_to,archived_at FROM contacts WHERE id=${contactId} FOR SHARE`)).rows[0] as any;
   if (!contact || contact.archived_at || !canAccessOwner(actor, contact.assigned_to, true)) throw new DraftDenied();
 }
+/** Legacy timestamp-without-time-zone values are stored in UTC. Give every
+ * response an explicit instant, including immutable command-cache replays. */
+function savedAtInstant(value: string | Date): string {
+  const text = value instanceof Date ? value.toISOString() : value;
+  const zoned = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(text)
+    ? text.replace(" ", "T") + "Z" : text;
+  return new Date(zoned).toISOString();
+}
 function view(row: any) {
   return { id: row.id, contextType: row.context_type, contextId: row.context_id,
     channel: row.channel, subject: row.subject, body: row.body, version: row.version,
-    savedAt: row.saved_at, delivered: false };
+    savedAt: savedAtInstant(row.saved_at), delivered: false };
 }
 export function registerMessageDraftRoutes(app: Express) {
   app.get("/api/message-drafts", isDashboardUser, async (req, res) => {
@@ -93,7 +101,7 @@ export function registerMessageDraftRoutes(app: Express) {
           WHERE actor_id=${actorId} AND command_id=${input.commandId}::uuid`)).rows[0] as any;
         if (replay) {
           if (replay.payload_hash !== hash) throw new DraftConflict("Draft retry payload changed; use a new command");
-          return replay.result;
+          return { ...replay.result, savedAt: savedAtInstant(replay.result.savedAt) };
         }
         const c = input.context;
         const current = (await tx.execute(sql`SELECT * FROM rep_message_drafts

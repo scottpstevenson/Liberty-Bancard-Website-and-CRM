@@ -17,6 +17,7 @@
  *
  * Exits 0 on pass, 1 on any assertion failure.
  */
+import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
 await assertDisposableTestInfrastructure({ operation: "Seed convergence integrity", requireRedis: false });
@@ -31,6 +32,16 @@ function findTarget(report: Awaited<ReturnType<typeof verifyProductionSeedConver
 
 async function main(): Promise<number> {
   const failures: string[] = [];
+  const fixtureKey = randomUUID();
+  const reviewer = rows(await db.execute(sql`INSERT INTO users(email,role,auth_provider)
+    VALUES(${`seed-verifier-${fixtureKey}@example.test`},'admin','local') RETURNING id`))[0];
+  const fixtureContact = rows(await db.execute(sql`INSERT INTO contacts(first_name,last_name,email,phone,record_class)
+    VALUES('Seed','Verifier',${`seed-verifier-${fixtureKey}@example.test`},'','production') RETURNING id`))[0];
+  await (await import("../server/services/commercial-link-authority")).decideContactBusinessLink({
+    contactId:Number(fixtureContact.id),decision:"missing",decisionKey:fixtureKey,reviewerId:String(reviewer.id),
+  });
+  // Native link decision and its immutable history remain in this private DB until launcher teardown.
+
 
   // Baseline: with an unmutated dev DB (already converged at startup), every
   // tightened target should read already_present. If this fails, the DB
@@ -154,7 +165,7 @@ async function main(): Promise<number> {
     DELETE FROM commercial_membership_revisions
     WHERE ctid = (
       SELECT r.ctid FROM commercial_membership_revisions r
-      WHERE r.edge_type='contact_business'
+      WHERE r.edge_type='contact_business' AND r.left_subject_id=${Number(fixtureContact.id)}
         AND EXISTS (
           SELECT 1 FROM contact_business_link_decisions d
           WHERE r.left_subject_type='contact' AND r.left_subject_id=d.contact_id

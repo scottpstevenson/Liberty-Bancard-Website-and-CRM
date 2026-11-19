@@ -970,7 +970,7 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
           )}
           <GhlAlertBanner role={role} />
           <div className="flex flex-1 overflow-hidden min-h-0">
-            <main className={`flex-1 overflow-y-auto overflow-x-hidden max-w-7xl mx-auto w-full${isContactRecordRoute || isPeopleRoute || location === "/dashboard/reporting" ? "" : " p-3 sm:p-6"}`} data-testid="dashboard-main">
+            <main className={`flex-1 overflow-y-auto overflow-x-hidden max-w-7xl mx-auto w-full${isContactRecordRoute || isPeopleRoute || location === "/dashboard/reporting" ? "" : " p-3 sm:p-6"}`} data-testid="dashboard-main" style={{ scrollPaddingBottom: "6rem", paddingBottom: "6rem" }}>
               <ErrorBoundary key={location}>
                 {canShowMerchantOperationsNav(role, location) ? (
                   <MerchantOperationsLayout role={role} path={location}>{children}</MerchantOperationsLayout>

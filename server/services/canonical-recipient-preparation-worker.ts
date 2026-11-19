@@ -1,3 +1,4 @@
+import {scrubErrorString} from "./audit-sanitizer";
 import { randomUUID } from "node:crypto";
 import { websiteSourceNeedsOwnershipReview } from "@shared/source-domain-provenance";
 import { websiteOwnershipSourceTypesSql } from "./website-ownership-evidence-sql";
@@ -329,7 +330,7 @@ export async function processCanonicalRecipientPreparationTick(
           SELECT 'system:canonical-recipient-preparation','canonical_preparation.upload_cohort_hold','contact',v.id,v.reason,
             jsonb_build_object('contactId',v.id,'reason',v.reason,'lane','upload_cohort','cohortCycle',${cohortCursor.cycles}::int),
             'system','canonical-recipient-preparation'
-          FROM (VALUES ${sql.join(holds.map(h=>sql`(${h.id}::integer,${h.reason}::text)`),sql`, `)}) v(id,reason)
+          FROM (VALUES ${sql.join(holds.map(h=>sql`(${h.id}::integer,${scrubErrorString(h.reason)}::text)`),sql`, `)}) v(id,reason)
           WHERE NOT EXISTS(SELECT 1 FROM audit_logs a WHERE a.action='canonical_preparation.upload_cohort_hold'
             AND a.entity_id=v.id AND a.entity_key=v.reason AND a.created_at>NOW()-INTERVAL '24 hours')`));
       }

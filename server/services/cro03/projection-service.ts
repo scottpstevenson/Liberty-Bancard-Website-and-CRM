@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import {withCro03bProjectionOwner} from "./projection-authority";
 import { db } from "../../db";
 import { resolveOrganization } from "../organization-resolver";
 import { decideContactBusinessLink } from "../commercial-link-authority";
@@ -29,12 +30,15 @@ export async function projectCro03bCanonical(input: {
   organization: { canonicalName: string; websiteDomain?: string; googlePlaceId?: string; mainPhone?: string; city?: string; state?: string };
   winners: Partial<Record<Cro03CandidateField, { value: string; candidateSetHash: string }>>;
 }) {
+  return withCro03bProjectionOwner(input.itemId,input.reviewerId,async()=>{
   const item = rows(await db.execute(sql`
     SELECT i.*,h.source_type,h.source_system,h.source_key
       FROM cro03b_recipe_items i JOIN cro03a_handoffs h ON h.id=i.handoff_id
      WHERE i.id=${input.itemId}::uuid
   `))[0];
   if (!item) throw new Error("CRO03B_ITEM_NOT_FOUND");
+  const {assertCro03bLegacySourceWriteAllowed}=await import("./admission-service");
+  await assertCro03bLegacySourceWriteAllowed({subjectType:String(item.source_type),subjectKey:String(item.source_key),writerKey:"cro03b:canonical-projection"});
   const organization = await resolveOrganization(input.organization);
   if (organization.kind === "deferred") {
     await db.execute(sql`
@@ -115,6 +119,7 @@ export async function projectCro03bCanonical(input: {
   return finalizeCro03bWinningEmail({
     itemId: input.itemId, contactId: contact.id, linkDisposition: "verified",
   });
+  });
 }
 
 export async function finalizeCro03bWinningEmail(input: {
@@ -133,7 +138,10 @@ export async function finalizeCro03bWinningEmail(input: {
     const prior = rows(await tx.execute(sql`
       SELECT * FROM cro03b_finalization_receipts WHERE item_id=${input.itemId}::uuid
     `))[0];
-    if (prior) return { state: prior.state, contactId: prior.contact_id, validationIntentId: prior.validation_intent_id, replayed: true };
+    if (prior?.validation_intent_id) return { state: prior.state, contactId: prior.contact_id, validationIntentId: prior.validation_intent_id, replayed: true };
+    if (prior && (Number(prior.subject_generation)!==Number(contact.email_mutation_generation) || prior.email_token_hash!==contact.email_token_hash)) {
+      return {state:"review_required",reasonCode:"winning_email_identity_changed",contactId:input.contactId,validationIntentId:null,replayed:false};
+    }
 
     await tx.execute(sql`
       UPDATE validation_intents
@@ -154,12 +162,21 @@ export async function finalizeCro03bWinningEmail(input: {
          AND subject_generation=${Number(contact.email_mutation_generation)}
          AND purpose='cro03_winning_email'
     `))[0];
+    if (!intent) {
+      await tx.execute(sql`UPDATE cro03b_recipe_items SET state='review_required',terminal_code='canonical_target_selection_required',updated_at=NOW() WHERE id=${input.itemId}::uuid`);
+      await tx.execute(sql`UPDATE cro03b_step_executions SET state='waiting',outcome_code='canonical_target_selection_required',updated_at=NOW() WHERE item_id=${input.itemId}::uuid AND step_key='finalization' AND state<>'completed'`);
+      return {state:"review_required",reasonCode:"canonical_target_selection_required",contactId:input.contactId,validationIntentId:null,replayed:false};
+    }
     const scoringRequestKey = `cro03b:${input.itemId}:score:g${contact.email_mutation_generation}`;
     await tx.execute(sql`
       INSERT INTO cro03b_finalization_receipts
         (item_id,contact_id,validation_intent_id,subject_generation,email_token_hash,link_disposition,scoring_request_key)
       VALUES (${input.itemId}::uuid,${input.contactId},${intent?.id ?? null}::uuid,
               ${Number(contact.email_mutation_generation)},${contact.email_token_hash},${input.linkDisposition},${scoringRequestKey})
+      ON CONFLICT(item_id) DO UPDATE SET validation_intent_id=EXCLUDED.validation_intent_id
+      WHERE cro03b_finalization_receipts.validation_intent_id IS NULL
+        AND cro03b_finalization_receipts.subject_generation=EXCLUDED.subject_generation
+        AND cro03b_finalization_receipts.email_token_hash=EXCLUDED.email_token_hash
     `);
     await tx.execute(sql`
       UPDATE cro03b_recipe_items SET state='waiting',terminal_code='validation_pending',updated_at=NOW()

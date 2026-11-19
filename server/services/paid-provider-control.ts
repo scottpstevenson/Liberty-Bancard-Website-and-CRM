@@ -333,8 +333,8 @@ export async function updateSfpPaidProviderControl(input: {
       INSERT INTO audit_logs (user_id,action,entity_type,entity_key,details,before_state,after_state,actor_type,actor_id)
       VALUES (${input.actorId},'sfp_provider_control_changed','provider_control',${input.provider},
               ${JSON.stringify(auditPayload)}::jsonb,
-              ${JSON.stringify({ enabled: current.enabled, circuitState: current.circuit_state, consumedUnits: current.consumed_units, reservedUnits: current.reserved_units, gatewayConsumedUnits: input.provider === "serper" ? Number(gateway?.window_calls ?? 0) : null })}::jsonb,
-              ${JSON.stringify(updated)}::jsonb,'user',${input.actorId})
+              ${JSON.stringify(sanitizeAuditPayload({ enabled: current.enabled, circuitState: current.circuit_state, consumedUnits: current.consumed_units, reservedUnits: current.reserved_units, gatewayConsumedUnits: input.provider === "serper" ? Number(gateway?.window_calls ?? 0) : null }))}::jsonb,
+              ${JSON.stringify(sanitizeAuditPayload(updated))}::jsonb,'user',${input.actorId})
     `);
     return {
       ...updated,

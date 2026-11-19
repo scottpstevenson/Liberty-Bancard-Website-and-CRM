@@ -56,9 +56,11 @@ const key = (browser: Browser, name: "Tab" | "Enter" | "Space" | "ArrowDown", ex
     ArrowDown: { key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 },
   }[name];
   const modifiers = extra.shift ? 8 : 0;
+  const nativeCodes = {Tab: 48, Enter: 36, Space: 49, ArrowDown: 125};
+  const native = process.platform === "darwin" ? {nativeVirtualKeyCode: nativeCodes[name]} : {};
   return (async () => {
-    await browser.call("Input.dispatchKeyEvent", { type: "keyDown", modifiers, ...table });
-    await browser.call("Input.dispatchKeyEvent", { type: "keyUp", modifiers, ...table });
+    await browser.call("Input.dispatchKeyEvent", { type: "keyDown", modifiers, ...native, ...table });
+    await browser.call("Input.dispatchKeyEvent", { type: "keyUp", modifiers, ...native, ...table });
   })();
 };
 const active = (browser: Browser) => browser.evaluate(`(()=>{const e=document.activeElement;if(!e)return null;
@@ -193,9 +195,21 @@ try {
   ok("An empty referral submit shows the error summary, moves focus to it, marks fields invalid and saves nothing");
 
   const selectByKeyboard = async (browserRef: Browser, id: string, value: string) => {
-    const steps = (await browserRef.evaluate(`(()=>{const s=document.getElementById(${JSON.stringify(id)});s.focus();return [...s.options].findIndex(o=>o.value===${JSON.stringify(value)})-s.selectedIndex})()`)) as number;
-    assert.ok(steps > 0, `option ${value} is below the current choice in ${id}`);
-    for (let i = 0; i < steps; i++) await key(browserRef, "ArrowDown");
+    const label = await browserRef.evaluate(`(()=>{const s=document.getElementById(${JSON.stringify(id)});s.focus();return [...s.options].find(o=>o.value===${JSON.stringify(value)})?.textContent})()`) as string;
+    assert.ok(label, `option ${value} exists in ${id}`);
+    // Native select popups are OS-owned on macOS. Type-ahead selects the
+    // actual option without opening that popup or assigning a DOM value.
+    await browserRef.call("Page.bringToFront");
+    await browserRef.call("Emulation.setFocusEmulationEnabled", {enabled:true});
+    const macCodes: Record<string,number> = {a:0,s:1,d:2,f:3,h:4,g:5,z:6,x:7,c:8,v:9,b:11,q:12,w:13,e:14,r:15,y:16,t:17,o:31,u:32,i:34,p:35,l:37,j:38,k:40,n:45,m:46};
+    for (const letter of label.trim().toLowerCase().slice(0,3)) {
+      const event = {key:letter,code:`Key${letter.toUpperCase()}`,text:letter,unmodifiedText:letter,
+        windowsVirtualKeyCode:letter.toUpperCase().charCodeAt(0),
+        ...(process.platform === "darwin" ? {nativeVirtualKeyCode:macCodes[letter] ?? 0} : {})};
+      await browserRef.call("Input.dispatchKeyEvent", {type:"keyDown",...event});
+      await browserRef.call("Input.dispatchKeyEvent", {type:"keyUp",...event});
+    }
+
     assert.equal(await browserRef.evaluate(`document.getElementById(${JSON.stringify(id)}).value`), value, `${id} selected ${value}`);
   };
   await browser.set("#partner-referral-fullName", PII.referral.name);
@@ -293,7 +307,7 @@ try {
   await fillStep("partner-agent-prospectingApproach", "Warm introductions from existing accounting clients and local business groups.");
   const interestOptions = (await browser.evaluate(`[...document.getElementById('partner-agent-leadSourceInterest').options].map(o=>o.value)`)) as string[];
   await fillStep("partner-agent-leadSourceInterest", null);
-  for (let i = 0; i < 1; i++) await key(browser, "ArrowDown");
+  await selectByKeyboard(browser, "partner-agent-leadSourceInterest", interestOptions[1]);
   assert.equal(await browser.evaluate(`document.getElementById('partner-agent-leadSourceInterest').value`), interestOptions[1], "A native select is changed with the keyboard");
   await tabTo(a => a.testid === "partner-agent-checkbox-contact-permission", "the contact-permission checkbox");
   await key(browser, "Space");

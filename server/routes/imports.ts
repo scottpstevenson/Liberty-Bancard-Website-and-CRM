@@ -1364,7 +1364,7 @@ Guidelines:
         return res.status(409).json({code:"CANONICAL_IMPORT_REPLAY_SCOPE_NOT_RECOVERABLE"});
       await db.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
         VALUES('canonical_import_replay_requested','import_execution',${executionId},
-          ${JSON.stringify({sourceRowNumbers,selectionOnly:true})}::jsonb,
+          ${JSON.stringify(sanitizeAuditPayload({sourceRowNumbers,selectionOnly:true}))}::jsonb,
           'user',${String((req.user as any).id)})`);
       const result=await processCanonicalImportRecoveryTick({
         maxItems:sourceRowNumbers.length,replay:{executionId,sourceRowNumbers}});

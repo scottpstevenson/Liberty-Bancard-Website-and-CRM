@@ -254,7 +254,10 @@ for (const [file, manifest] of CONSUMERS) {
   ok(importsAuthority(sf, authority, "commercial-resolution"), `${manifest.boundary} does not import the sole dual-read authority`);
   let calls = 0;
   walk(sf, (node) => {
-    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === authority) calls++;
+    if (ts.isCallExpression(node) && (
+      ts.isIdentifier(node.expression) && node.expression.text === authority ||
+      ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === authority
+    )) calls++;
   });
   ok(calls > 0, `${manifest.boundary} imports but never calls ${authority}`);
 }

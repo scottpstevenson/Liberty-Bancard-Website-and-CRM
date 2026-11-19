@@ -156,6 +156,8 @@ try {
        await browser.click('[data-testid="menu-action-edit"]');
        // Current C2 editor is inline. The native input helper verifies the
        // actual target; do not wait for a retired modal title.
+      for (let n = 0; n < 100 && !await browser.evaluate('!!document.querySelector("[data-testid=input-edit-firstname]")'); n++) await wait();
+      assert.ok(await browser.evaluate('!!document.querySelector("[data-testid=input-edit-firstname]")'), "native Edit command mounts its deferred inline editor");
       await browser.set('[data-testid="input-edit-firstname"]',"C1 Synthetic Updated");
       await browser.click('[data-testid="button-save-edit"]');
       await browser.waitFor(/C1 Synthetic Updated/);

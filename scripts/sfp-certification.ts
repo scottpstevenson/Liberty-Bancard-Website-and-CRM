@@ -1,3 +1,4 @@
+import {prepareSelectedTargets} from "./fixtures/prepare-selected-validation-recipients";
 /**
  * sfp-certification.ts
  *
@@ -195,13 +196,13 @@ await phase("2c. roi-cohort-selector.ts has no ORDER BY b.id LIMIT pre-ranking f
 await phase("2d. sfp-validation.ts uses the audited openSfpCandidatePlaintext() boundary for decryption (not masked_value direct)", async () => {
   const src = readFileSync("server/services/cro03/sfp-validation.ts", "utf8"); // raw, with comments
   assert(src.includes("openSfpCandidatePlaintext"), "sfp-validation.ts must use the audited openSfpCandidatePlaintext() boundary for real email decryption");
-  assert(src.includes("verifyEmail(realEmail)"), "Must call verifyEmail with decrypted realEmail");
+  assert(/verifyEmail\(realEmail\s*[,)]/.test(src), "Must call verifyEmail with decrypted realEmail");
 });
 
 await phase("2e. sfp-validation.ts never passes masked_value to ZeroBounce transport", async () => {
   const src = stripComments(readFileSync("server/services/cro03/sfp-validation.ts", "utf8"));
   // The transport is called with zbTransport(candidateId, _masked) — masked is _ prefixed (ignored)
-  assert(src.includes("verifyEmail(realEmail)"), "Must call verifyEmail with realEmail, not masked_value");
+  assert(/verifyEmail\(realEmail\s*[,)]/.test(src), "Must call verifyEmail with realEmail, not masked_value");
   assert(!src.includes("verifyEmail(cand.masked_value)"), "Must NOT call verifyEmail with masked_value");
   assert(!src.includes("verifyEmail(String(cand.masked_value))"), "Must NOT call verifyEmail with String(cand.masked_value)");
 });
@@ -651,6 +652,7 @@ await phase("7a. previewSfpValidation returns correct interface", async () => {
 
 await phase("7b. executeSfpValidation with fake transport validates ≤25 addresses", async () => {
   const { executeSfpValidation, previewSfpValidation } = await import("../server/services/cro03/sfp-validation");
+  await prepareSelectedTargets(cohortRunId, `cert:${RUN_ID}`);
   const preview7b = await previewSfpValidation(cohortRunId);
   validationSnapshotHash = preview7b.snapshotHash;
   validationSelectedBusinessIds = preview7b.selectedCandidates.map(candidate => candidate.businessId);
@@ -771,6 +773,9 @@ await phase("7f3. no_mx candidate rejected with ZERO provider reservation/attemp
     console.log("  i no-MX row assertion is isolated below: the main frozen cohort did not select this business in batch 1");
   }
   noMxCohortRunId = randomUUID();
+  // The isolated no-MX fixture must be in a supported current program. Keep
+  // its earlier Retail exclusion intact for the cohort/geography assertions.
+  await db.execute(sql`UPDATE businesses SET vertical='Dental' WHERE id=${noMxBizId}`);
   const noMxCohortHash = createHash("sha256").update(noMxCohortRunId).digest("hex");
   await db.execute(sql`
     INSERT INTO sfp_cohort_runs
@@ -795,6 +800,7 @@ await phase("7f3. no_mx candidate rejected with ZERO provider reservation/attemp
      WHERE id=${noMxCohortRunId}::uuid
   `);
   const { previewSfpValidation, executeSfpValidation } = await import("../server/services/cro03/sfp-validation");
+  await prepareSelectedTargets(noMxCohortRunId, `cert:${RUN_ID}`);
   const preview = await previewSfpValidation(noMxCohortRunId);
   assert.equal(preview.selectedCandidates.length, 1, "The isolated frozen cohort must select its no-MX candidate");
   assert.equal(preview.selectedCandidates[0]?.businessId, noMxBizId);
@@ -930,6 +936,8 @@ await phase("7j. Verified named contact validates with typed source pins and fak
   });
   const contactId = Number(contact.id);
   const sourceEventId = Number(contact._sourceEventId);
+  // Explicit fixture classification: the writer correctly defaults to unknown.
+  await db.execute(sql`UPDATE contacts SET record_class='production' WHERE id=${contactId}`);
   assert(contactId > 0 && sourceEventId > 0, "The contact writer must persist the contact and its source event");
   const {
     decideContactBusinessLink,
@@ -954,6 +962,7 @@ await phase("7j. Verified named contact validates with typed source pins and fak
     expectedRevision: 0,
   });
   const { previewSfpValidation, executeSfpValidation } = await import("../server/services/cro03/sfp-validation");
+  await prepareSelectedTargets(noMxCohortRunId, `cert:${RUN_ID}`);
   const preview = await previewSfpValidation(noMxCohortRunId);
   assert(preview.selectedCandidates.some(c => c.businessId === noMxBizId && c.candidateId === `contact:${contactId}`),
     "The alternate verified contact source must reopen the business after the no-MX free candidate was rejected");

@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 import crypto from "crypto";
 import { pool } from "../db";
 import { runFollowupEffect, EffectBindingConflictError } from "./followup-effects";
@@ -127,13 +128,13 @@ async function recordBookingIntent(client: { query: (q: string, v?: unknown[]) =
   if (exists.rows[0]) return;
   await client.query(
     `INSERT INTO audit_logs (user_id, action, entity_type, entity_key, details, actor_type, actor_id)
-     VALUES ($1, 'booking_command_intent', 'booking_command', $2, $3::jsonb, 'user', $1)`, [actorId, commandId, JSON.stringify(intent)]);
+     VALUES ($1, 'booking_command_intent', 'booking_command', $2, $3::jsonb, 'user', $1)`, [actorId, commandId, JSON.stringify(sanitizeAuditPayload(intent))]);
 }
 
 export async function recordBookingResolution(commandId: string, actorId: string, action: "booking_command_confirmed" | "booking_command_resolved", details: Record<string, unknown>) {
   await pool.query(
     `INSERT INTO audit_logs (user_id, action, entity_type, entity_key, details, actor_type, actor_id)
-     VALUES ($1, $2, 'booking_command', $3, $4::jsonb, 'user', $1)`, [actorId, action, commandId, JSON.stringify(details)]);
+     VALUES ($1, $2, 'booking_command', $3, $4::jsonb, 'user', $1)`, [actorId, action, commandId, JSON.stringify(sanitizeAuditPayload(details))]);
 }
 
 /**

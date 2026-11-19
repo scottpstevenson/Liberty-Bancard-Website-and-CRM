@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "../audit-sanitizer";
 import {readOutscraperMonthlyBudget,updateOutscraperMonthlyBudget} from '../outscraper-monthly-budget';
 import {resolveGeographyFromCandidates} from '../cro03/sfp-geography-resolver';
 import {isSfpValidationPromotionEnabled} from '../cro03/south-florida-prospecting';
@@ -115,7 +116,7 @@ export async function updateDiscoveryDefinition(id:string,actorId:string,input:{
     VALUES(${d.program_id}::uuid,${d.program_pin},${d.vertical},${d.county_fips},${input.areaType},${input.areaKey},${input.query},${input.resultLimit??d.result_limit}) RETURNING *`,tx);
   }
   const result=await one(sql`UPDATE discovery_definitions SET enabled=${input.enabled??d.enabled},result_limit=${input.resultLimit??d.result_limit},revision=revision+${input.resultLimit!==undefined&&input.resultLimit!==d.result_limit?1:0},updated_at=now() WHERE id=${id}::uuid RETURNING *`,tx);
-  await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,actor_type,actor_id,details) VALUES('discovery_definition_updated','discovery_definition',${id},'user',${actorId},${json(input)}::jsonb)`);return result;
+  await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,actor_type,actor_id,details) VALUES('discovery_definition_updated','discovery_definition',${id},'user',${actorId},${json(sanitizeAuditPayload(input))}::jsonb)`);return result;
  });
 }
 export async function recordDiscoveryCoverage(id:string,actorId:string,input:{coveredThrough:string;reference?:string}) {
@@ -323,7 +324,7 @@ export async function reconcileDiscoverySubmission(runId:string,actorId:string,i
    await tx.execute(sql`UPDATE discovery_lane SET run_id=NULL,token=NULL,updated_at=now() WHERE run_id=${runId}::uuid`);
   }
   await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,actor_type,actor_id,details)
-   VALUES('discovery_submission_reconciled','discovery_run',${runId},'user',${actorId},${json(input)}::jsonb)`);
+   VALUES('discovery_submission_reconciled','discovery_run',${runId},'user',${actorId},${json(sanitizeAuditPayload(input))}::jsonb)`);
   return {id:runId};
  });
 }

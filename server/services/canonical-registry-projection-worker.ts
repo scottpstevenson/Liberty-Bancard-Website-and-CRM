@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 import {randomUUID} from "node:crypto";
 import {sql} from "drizzle-orm";
 import {db} from "../db";
@@ -122,10 +123,10 @@ export async function processCanonicalRegistryProjectionTick(limit=10) {
         await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
           VALUES(${reason ? "canonical_registry_projection_held" : "canonical_registry_entity_fulfilled"},
             'cro03_enrichment_item',${String(candidate.id)},
-            ${JSON.stringify({sourceImportRunId:candidate.source_import_run_id,
+            ${JSON.stringify(sanitizeAuditPayload({sourceImportRunId:candidate.source_import_run_id,
               sourceObservationId:candidate.source_observation_id,businessId,reason,
               candidateIds:resolution.kind==="deferred" ? resolution.candidateIds : [],
-              providerCalls:0,contactsCreated:0})}::jsonb,'system','system:canonical-registry-projection')`);
+              providerCalls:0,contactsCreated:0}))}::jsonb,'system','system:canonical-registry-projection')`);
         if (reason) held++; else fulfilled++;
       });
     } catch (error) {

@@ -549,9 +549,12 @@ try {
     { file: "server/services/smtp-email.ts",       gate: "outbound-pause-authority" },
     { file: "server/services/sdr/ghl-client.ts",   gate: "assertPauseAllowed" },
     { file: "server/routes/inbox.ts",              gate: "outbound-pause-authority" },
-    { file: "server/routes/toolkit.ts",            gate: "outbound-pause-authority" },
+
   ];
 
+  const toolkit = fs.readFileSync("server/routes/toolkit.ts", "utf8");
+  if (/const sent = await sendGhlSms\(\{/.test(toolkit)) ok("toolkit SMS delegates to canonical sendGhlSms transport");
+  else fail("toolkit SMS must delegate to canonical sendGhlSms transport");
   for (const { file, gate } of TRANSPORT_BOUNDARY_CHECKS) {
     const src = fs.readFileSync(file, "utf8");
     if (src.includes(gate)) {
@@ -593,7 +596,7 @@ try {
     { file: "server/services/ghl.ts",           label: "ghl.ts sendGhlEmail/sendGhlSms/sendGhlEmailForMerchant" },
     { file: "server/services/smtp-email.ts",     label: "smtp-email.ts sendSmtpEmail" },
     { file: "server/routes/inbox.ts",            label: "inbox.ts GHL send" },
-    { file: "server/routes/toolkit.ts",          label: "toolkit.ts SMS reply" },
+
     // sdr/ghl-client.ts uses assertPauseAllowed() which registers before returning the token,
     // so the outer function holds the token before any recheckEpoch call
   ];

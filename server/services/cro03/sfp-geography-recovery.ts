@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "../audit-sanitizer";
 /**
  * Retained-evidence geography recovery.
  *
@@ -301,8 +302,8 @@ export async function recoverBusinessGeography(
         INSERT INTO audit_logs(user_id,action,entity_type,entity_id,entity_key,details,actor_type,actor_id)
         VALUES ('system:sfp-geography-recovery','sfp.geography_recovery.location_recorded','business_location',
           ${Number(inserted.id)},${String(businessId)},
-          ${JSON.stringify({ businessId, locationId: Number(inserted.id), version: GEOGRAPHY_RECOVERY_VERSION,
-            source: a.source, reference: a.reference ?? null, city: a.city, state: a.state, postalCode: a.postalCode })}::jsonb,
+          ${JSON.stringify(sanitizeAuditPayload({ businessId, locationId: Number(inserted.id), version: GEOGRAPHY_RECOVERY_VERSION,
+            source: a.source, reference: a.reference ?? null, city: a.city, state: a.state, postalCode: a.postalCode }))}::jsonb,
           'system','sfp-geography-recovery')
       `);
     }

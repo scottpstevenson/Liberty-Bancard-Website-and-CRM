@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 import crypto from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db, pool } from "../db";
@@ -63,7 +64,7 @@ export async function setContactLinkAutomation(enabled: boolean, actorId: string
       ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=NOW()`, [KEY, JSON.stringify(state)]);
     await client.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
       VALUES($1,'contact_link_automation_authorized','contact_link_program',$2,$3::jsonb,'user',$1)`,
-      [actorId, state.runId, JSON.stringify({ enabled, rule: RULE, paidProviderCalls: 0, outboundChanges: 0 })]);
+      [actorId, state.runId, JSON.stringify(sanitizeAuditPayload({ enabled, rule: RULE, paidProviderCalls: 0, outboundChanges: 0 }))]);
     await client.query("COMMIT");
     return state;
   } catch (error) {
@@ -182,7 +183,7 @@ export async function processContactLinkAutomationTick(
       for(const identity of mirrored) {
         await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
           VALUES('business_place_identity_mirrored','contact_link_program',${state.runId},
-            ${JSON.stringify({...identity,rule:MATERIALIZATION_RULE_VERSION,paidProviderCalls:0,outboundChanges:0})}::jsonb,
+            ${JSON.stringify(sanitizeAuditPayload({...identity,rule:MATERIALIZATION_RULE_VERSION,paidProviderCalls:0,outboundChanges:0}))}::jsonb,
             'system','system:contact-link-automation')`);
       }
     });
@@ -209,12 +210,12 @@ export async function processContactLinkAutomationTick(
             await authorityCheck(tx);
             await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
               VALUES('contact_link_materialization_outcome','contact',${String(candidate.contactId)},
-                ${JSON.stringify({status:materialized.status,
+                ${JSON.stringify(sanitizeAuditPayload({status:materialized.status,
                   reasonCode:"reasonCode" in materialized ? materialized.reasonCode : null,
                   businessId:"businessId" in materialized ? materialized.businessId ?? null : null,
                   contactRevision:candidate.contactRevision,
                   evidenceRevision:(candidate as any).materializationEvidenceRevision ?? null,
-                  runId:state.runId,materializerRule:MATERIALIZATION_RULE_VERSION,paidProviderCalls:0,outboundChanges:0})}::jsonb,
+                  runId:state.runId,materializerRule:MATERIALIZATION_RULE_VERSION,paidProviderCalls:0,outboundChanges:0}))}::jsonb,
                 'system','system:contact-link-automation')`);
           });
           state.materialization=state.materialization ?? {};

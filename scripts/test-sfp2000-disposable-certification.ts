@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import {prepareSelectedTargets} from "./fixtures/prepare-selected-validation-recipients";
 /**
  * test-sfp2000-disposable-certification.ts
  *
@@ -170,7 +171,7 @@ const freeEmail = `info@free-${RUN_ID}.example.com`;
        envelope_nonce, envelope_tag, envelope_key_version,
        normalized_value_hash, masked_value, created_at)
     VALUES (${generationId}::uuid, ${freeBizId}, 'email', 'business',
-      ${`${RUN_ID}-free.example.com`}, 'cert-seed', 'role', 'staged', 60,
+      ${`${RUN_ID}-free.example.com`}, 'cert-seed', 'role', 'staged', 90,
       ${sealedFree.ciphertext}, ${sealedFree.nonce}, ${sealedFree.tag}, 1,
       ${sealedFree.normalizedValueHash}, ${sealedFree.maskedValue}, NOW())
   `);
@@ -203,7 +204,7 @@ const thirdEmail = `support@third-${RUN_ID}.example.com`;
        envelope_nonce, envelope_tag, envelope_key_version,
        normalized_value_hash, masked_value, created_at)
     VALUES (${generationId}::uuid, ${thirdBizId}, 'email', 'business',
-      ${`${RUN_ID}-third.example.com`}, 'cert-seed', 'role', 'staged', 55,
+      ${`${RUN_ID}-third.example.com`}, 'cert-seed', 'role', 'staged', 90,
       ${sealedThird.ciphertext}, ${sealedThird.nonce}, ${sealedThird.tag}, 1,
       ${sealedThird.normalizedValueHash}, ${sealedThird.maskedValue}, NOW())
   `);
@@ -277,6 +278,7 @@ await db.execute(sql`
   UPDATE sfp_cohort_runs SET status='frozen',cohort_state='frozen',frozen_at=NOW()
    WHERE id=${priorCohortRunId}::uuid
 `);
+await prepareSelectedTargets(priorCohortRunId, `cert:${RUN_ID}`);
 const priorPreview = await previewSfpValidation(priorCohortRunId);
 const priorTransportCalls: string[] = [];
 const priorProviderFailureDiagnostics: Array<{ phase: string; code: string }> = [];
@@ -401,6 +403,7 @@ const repairFixture = rows(await db.execute(sql`
 `));
 check(repairFixture.length === 1 && String(repairFixture[0].validation_operation_id) === priorOpId,
   "T2K-03repair-setup", "one fixture-local projection link is missing; the exact settled receipt is preserved for guarded repair");
+await prepareSelectedTargets(cohortRunId, `cert:${RUN_ID}`);
 const preview1 = await previewSfpValidation(cohortRunId);
 check(preview1.gateOpen, "T2K-02setup", `validation gate must be open (reason: ${preview1.gateBlockedReason})`);
 

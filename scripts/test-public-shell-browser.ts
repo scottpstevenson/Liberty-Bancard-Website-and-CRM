@@ -50,6 +50,7 @@ let browser: Awaited<ReturnType<typeof privateStage3Browser>> | undefined;
 
 const open = async (viewport?: { width: number; height: number; mobile?: boolean }) => {
   browser = await privateStage3Browser(h.base, "", h.originalFetch, SHOTS, { realInput: true, startupTimeoutMs: 30000 });
+  await browser.call("Emulation.setEmulatedMedia", {features: [{name: "prefers-color-scheme", value: "light"}]});
   const v = viewport ?? { width: 1440, height: 1000 };
   await browser.call("Emulation.setDeviceMetricsOverride", { width: v.width, height: v.height, deviceScaleFactor: v.mobile ? 2 : 1, mobile: !!v.mobile });
   return browser;

@@ -32,6 +32,8 @@
 
 const SENSITIVE_KEYS = new Set([
   "to",
+  "recipient",
+  "recipients",
   "from",
   "cc",
   "bcc",

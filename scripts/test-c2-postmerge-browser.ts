@@ -63,7 +63,8 @@ try {
   await h.pool.query("UPDATE users SET tour_completed_at=NOW() WHERE id LIKE $1", [h.prefix+"%"]);
   const contact = (await h.pool.query(`INSERT INTO contacts(first_name,last_name,email,phone,record_class,assigned_to)
     VALUES('Repair','Fixture',$1,'','production',$2) RETURNING id`, [h.prefix+"@example.test",h.email("agent")])).rows[0].id;
-  const now = new Date(); now.setHours(9,17,23,456);
+  // Keep the seeded event inside the explicit October calendar query below.
+  const now = new Date("2026-10-20T09:17:23.456Z");
   const original = { startTime: now.toISOString(), endTime: new Date(now.getTime()+90*60000).toISOString() };
   repairId = (await h.pool.query(`INSERT INTO calendar_events(title,start_time,end_time,owner_id,contact_id)
     VALUES('C2 repair fixture',$1,$2,$3,$4) RETURNING id`,
@@ -91,13 +92,14 @@ try {
   await h.pool.query("UPDATE calendar_events SET start_time=$1,end_time=$2 WHERE id=$3",
     [original.startTime,original.endTime,repairId]);
   browser = await privateStage3Browser(h.base,"",h.originalFetch,directory,{realInput:true});
+  await browser.call("Emulation.setTimezoneOverride",{timezoneId:"UTC"});
   await browser.navigate("/login"); await browser.waitFor(/Sign In/);
   await browser.set('[data-testid="input-email"]',h.email("admin"));
   await browser.set('[data-testid="input-password"]',h.password);
   await browser.click('[data-testid="button-login"]');
   await browser.waitFor(/Dashboard|Today|My Day/);
   await browser.evaluate("localStorage.setItem('liberty_setup_notice_hidden','true');localStorage.setItem('libertycrm_tour_completed','true');localStorage.setItem('prefer_desktop','true')");
-  await browser.navigate("/dashboard/calendar");
+  await browser.navigate("/dashboard/calendar?cal_month=2026-10&cal_date=2026-10-20");
   await until(`!!document.querySelector('[data-testid="button-edit-invalid-date-event_${repairId}"]')`);
   await browser.click(`[data-testid="button-edit-invalid-date-event_${repairId}"]`);
   await nativeDateOrTime(`[data-testid="input-fix-date-event_${repairId}"]`, "10202026", "2026-10-20");
@@ -117,7 +119,7 @@ try {
   const saved = (await h.pool.query("SELECT start_time,end_time FROM calendar_events WHERE id=$1",[repairId])).rows[0];
   assert.equal(saved.start_time.toISOString(),"2026-10-20T14:30:00.000Z");
   assert.equal(saved.end_time-saved.start_time,45*60000);
-  await browser.navigate("/dashboard/calendar");
+  await browser.navigate("/dashboard/calendar?cal_month=2026-10&cal_date=2026-10-20");
   await until(`!!document.querySelector('[data-testid="calendar-day-2026-10-20"]') && !document.querySelector('[data-testid="card-invalid-date-events"]')`);
   await browser.click('[data-testid="calendar-day-2026-10-20"]');
   await browser.waitFor(/C2 repair fixture/);

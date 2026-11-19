@@ -252,7 +252,7 @@ await assertDisposableTestInfrastructure({
     const redisPrefix = getBullMqTestPrefix();
     await publishCro03cWorkerHeartbeat(redis, redisPrefix, {
       releaseSha: process.env.RELEASE_SHA!, processIdentity: workerIdentities[0],
-      bootIdentity: workerBootIdentity, queueTopologyHash, timestamp: now.toISOString(),
+      bootIdentity: workerBootIdentity, queueTopologyHash, environmentIdentity, deploymentIdentity, timestamp: now.toISOString(),
     });
     await db.execute(sql`
       INSERT INTO cro03c_runtime_attestations
@@ -272,7 +272,7 @@ await assertDisposableTestInfrastructure({
     const heartbeatKey = cro03cHeartbeatKey(redisPrefix, workerBootIdentity);
     await publishCro03cWorkerHeartbeat(redis, redisPrefix, {
       releaseSha: process.env.RELEASE_SHA!, processIdentity: workerIdentities[0],
-      bootIdentity: workerBootIdentity, queueTopologyHash,
+      bootIdentity: workerBootIdentity, queueTopologyHash, environmentIdentity, deploymentIdentity,
       timestamp: new Date(now.getTime() - 61_000).toISOString(),
     });
     await assert.rejects(
@@ -282,7 +282,7 @@ await assertDisposableTestInfrastructure({
     );
     await publishCro03cWorkerHeartbeat(redis, redisPrefix, {
       releaseSha: process.env.RELEASE_SHA!, processIdentity: workerIdentities[0],
-      bootIdentity: workerBootIdentity, queueTopologyHash, timestamp: new Date().toISOString(),
+      bootIdentity: workerBootIdentity, queueTopologyHash, environmentIdentity, deploymentIdentity, timestamp: new Date().toISOString(),
     });
     await redis.del(heartbeatKey);
     await assert.rejects(
@@ -292,12 +292,12 @@ await assertDisposableTestInfrastructure({
     );
     await publishCro03cWorkerHeartbeat(redis, redisPrefix, {
       releaseSha: process.env.RELEASE_SHA!, processIdentity: workerIdentities[0],
-      bootIdentity: workerBootIdentity, queueTopologyHash, timestamp: new Date().toISOString(),
+      bootIdentity: workerBootIdentity, queueTopologyHash, environmentIdentity, deploymentIdentity, timestamp: new Date().toISOString(),
     });
     const mixedBoot = `cro03c-cert-mixed-boot:${run}`;
     await publishCro03cWorkerHeartbeat(redis, redisPrefix, {
-      releaseSha: process.env.RELEASE_SHA!, processIdentity: `cro03c-cert-mixed-worker:${run}`,
-      bootIdentity: mixedBoot, queueTopologyHash, timestamp: new Date().toISOString(),
+      releaseSha: process.env.RELEASE_SHA!, processIdentity: workerIdentities[0],
+      bootIdentity: mixedBoot, queueTopologyHash, environmentIdentity, deploymentIdentity, timestamp: new Date().toISOString(),
     });
     await assert.rejects(
       assertCro03cDeploymentAuthorityBeforeIo({ runtimeAttestationId: attestationId, inventoryId }),
@@ -543,9 +543,14 @@ await assertDisposableTestInfrastructure({
         INSERT INTO contacts(first_name,last_name,email,phone,email_token_hash,email_mutation_generation)
         VALUES ('CRO03C','Validation',${email},'5550100000',${emailHash},1) RETURNING id
       `))[0];
-      await db.transaction((tx) => createValidationIntent(tx, {
+      assert.equal(await db.transaction((tx) => createValidationIntent(tx, {
         contactId: Number(contact.id), email, generation: 1, purpose: "cro03_winning_email",
-      }));
+      })), false, "Old command authority alone cannot create a current selected-recipient validation intent");
+      // Retained pre-canonical intent, not a new admission. The worker must
+      // contain it even if old command authorization is present or revoked.
+      await db.execute(sql`INSERT INTO validation_intents
+        (contact_id,normalized_email_token_hash,subject_generation,policy_version,purpose,state,enqueue_state)
+        VALUES(${Number(contact.id)},${emailHash},1,1,'cro03_winning_email','pending','deferred')`);
       const intent = rows(await db.execute(sql`
         SELECT id FROM validation_intents
          WHERE contact_id=${Number(contact.id)} AND normalized_email_token_hash=${emailHash}
@@ -573,7 +578,7 @@ await assertDisposableTestInfrastructure({
           transportCalls++;
           return { status: "valid", outcome: "completed" };
         },
-      }), "failed", `${label} authority race blocks validation`);
+      }), "failed", `${label}: legacy intent without current selection stays blocked`);
       assert.equal(transportCalls, 0, `${label} authority race reaches no transport`);
       assert.equal(Number(rows(await db.execute(sql`
         SELECT COUNT(*)::int AS n FROM provider_operations WHERE provider='zerobounce'
@@ -584,7 +589,9 @@ await assertDisposableTestInfrastructure({
       `))[0].n), beforeAttempts, `${label} authority race creates no provider attempt`);
       assert.equal(String(rows(await db.execute(sql`
         SELECT state FROM validation_intents WHERE id=${intentId}::uuid
-      `))[0].state), "blocked", `${label} authority race terminalizes as blocked`);
+      `))[0].state), "blocked", `${label}: legacy intent terminalizes as blocked`);
+      assert.equal(String(rows(await db.execute(sql`SELECT terminal_code FROM validation_intents WHERE id=${intentId}::uuid`))[0].terminal_code),
+        "canonical_target_selection_required", "The actual blocking authority is current recipient selection, not a retired command-only spend path");
     }
     try {
       // Race A: a receipt revoked after durable validation authorization but

@@ -889,15 +889,16 @@ async function runTests() {
         chainStep(6)?.data?.externalDeliveryState === "held",
     );
     assert(
-      "Upload-chain GHL projection remains held with no projection request",
+      "Upload-chain delegates statement metadata to the projection owner without sending",
       chainStep(7)?.success === true &&
-        chainStep(7)?.data?.state === "held" &&
-        chainStep(7)?.data?.statementStatusProjectionRequested === false,
+        chainStep(7)?.data?.state === "handed_off" &&
+        chainStep(7)?.data?.consumableCommand === "contact_provider_projection:pending" &&
+        chainStep(7)?.data?.providerWriteAttempted === false,
     );
     assert(
-      "Upload-chain merchant confirmation is held without external delivery",
+      "Upload-chain reports the separate acknowledgement owner without external delivery",
       chainStep(9)?.success === true &&
-        chainStep(9)?.data?.outcome === "held" &&
+        chainStep(9)?.data?.state === "no_inbound_request" &&
         chainStep(9)?.data?.externalAttempted === false,
     );
     assert(

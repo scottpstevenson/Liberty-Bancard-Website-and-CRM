@@ -17,6 +17,8 @@
  * Every check family has a negative control.
  */
 import { registerHooks } from "node:module";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Router } from "wouter";
@@ -40,7 +42,14 @@ registerHooks({
   },
   load(url, context, nextLoad) {
     if (/\.(png|jpe?g|svg|webp|avif|gif|ico|woff2?)(\?.*)?$/.test(url)) return { format: "module", shortCircuit: true, source: `export default ${JSON.stringify(url)};` };
-    return nextLoad(url, context);
+    if (context.format === "commonjs" && url.startsWith("file:") && /\.c?js$/.test(url))
+      return {format: "commonjs", shortCircuit: true, source: readFileSync(fileURLToPath(url), "utf8")};
+    const loaded = nextLoad(url, context);
+    // Node 22 synchronous hooks require source even for a CommonJS file
+    // whose default loader otherwise leaves source to the CJS loader.
+    if (loaded.source == null && loaded.format === "commonjs" && url.startsWith("file:"))
+      return {...loaded, source: readFileSync(fileURLToPath(url), "utf8")};
+    return loaded;
   },
 });
 // The page files use the classic JSX transform (no React import of their own), as the other in-process render suites do.

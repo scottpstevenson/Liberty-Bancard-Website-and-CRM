@@ -106,5 +106,5 @@ ok(/input\.mode === "dryRun" \? currentContactPolicySnapshot\(\)/.test(contactab
 ok(!/useQuery[\s\S]{0,200}launch-inventory[\s\S]{0,200}retryOnMount/.test(client) && /key="launch-inventory"/.test(client) && /key="independent-process-panel"/.test(client),
   "the inventory and process panels keep a stable key across backlog states, so a sibling change never restarts the read");
 
-console.log(`phase6 inventory reads: ok (${checks} checks)`);
+console.log(`phase6 inventory reads: PASS (${checks} checks)`);
 process.exit(0);

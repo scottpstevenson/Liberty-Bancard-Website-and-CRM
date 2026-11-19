@@ -46,6 +46,12 @@ function install() {
     requests.push({ method, path: url.pathname });
     const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }));
     if (url.pathname === "/api/auth/user") return json({ id: "u1", role: "admin", email: "a@example.test" });
+    if (url.pathname === "/api/content-workspace/premium-drafts") return json({status: "draft", note: "Synthetic empty draft inventory", families: [], problems: []});
+    if (url.pathname === "/api/content-workspace/overview") return json({
+      capturedAt: new Date().toISOString(), currentPackages: [], currentPackageCount: 0,
+      groups: {current_sfp: [], sales_library: [], merchant_lifecycle: [], history: [], diagnostics: []},
+      counts: {current_sfp: 0, sales_library: 0, merchant_lifecycle: 0, history: 0, diagnostics: 0, campaigns: 0, sequences: 0, campaignSteps: 0, sequenceSteps: 0},
+    });
     if (scenario === "timeout") {
       return new Promise<Response>((_, reject) => init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
     }
@@ -57,7 +63,7 @@ function install() {
     }
     if (url.pathname === `${ENDPOINT}/run-1/step`) return json({ run: run("complete", null) });
     if (lists.includes(url.pathname)) return json([]);
-    return json({ connected: true, configured: true });
+    return json({message: "Unrelated endpoint not provided by the mounted incoming-sync fixture"}, 404);
   }) as any;
 }
 

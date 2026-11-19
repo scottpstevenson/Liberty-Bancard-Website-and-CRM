@@ -235,6 +235,25 @@ try {
     "docs/certification/phase7/evidence/browser",
     { realInput: true },
   );
+  // Complete the actual first-login prerequisite before measuring reports. The
+  // tour opens on a delayed timer; checking for its text immediately races it.
+  await browser.navigate("/dashboard/reporting?tab=growth&growthView=conversion-funnel");
+  const actor = await h.request("admin", "GET", "/api/auth/user");
+  ok(actor.status === 200, "tour prerequisite reads the authenticated actor");
+  if (!actor.body.tourCompletedAt) {
+    await browser.waitFor(/Welcome to Liberty Bancard/);
+    await browser.click('[data-testid="button-tour-skip-text"]');
+    let completed = false;
+    for (let n = 0; n < 50; n++) {
+      const readback = await h.request("admin", "GET", "/api/auth/user");
+      if (readback.status === 200 && readback.body.tourCompletedAt) { completed = true; break; }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    ok(completed, "native tour skip persists for the current actor");
+    for (let n = 0; n < 50 && await browser.evaluate('!!document.querySelector("[data-testid=button-tour-skip]")'); n++)
+      await new Promise(resolve => setTimeout(resolve, 100));
+    ok(!await browser.evaluate('!!document.querySelector("[data-testid=button-tour-skip]")'), "tour modal unmounts before funnel and A/B interaction checks");
+  }
   for (const width of [320, 390, 454, 768, 1023, 1024, 1280])
     for (const theme of ["light", "dark"]) {
       await browser.call("Emulation.setDeviceMetricsOverride", {

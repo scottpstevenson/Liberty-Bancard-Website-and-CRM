@@ -186,7 +186,7 @@ try {
 } finally {
   await db.execute(sql`DELETE FROM merchant_applications WHERE legal_business_name=${`${tag} Co`}`);
   await db.execute(sql`DELETE FROM deals WHERE name=${tag}`);
-  await db.execute(sql`DELETE FROM contacts WHERE id IN (${productionContact},${qaContact},${testContact})`);
+  // Contact rows referenced by immutable journey evidence live until the launcher drops this private database.
   await db.execute(sql`DELETE FROM canonical_source_links WHERE stable_key LIKE ${`${tag}-%`}`);
   await db.execute(sql`DELETE FROM businesses WHERE canonical_name LIKE ${`${tag} %`}`);
 }

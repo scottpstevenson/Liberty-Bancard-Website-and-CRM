@@ -24,6 +24,9 @@
  * Exit 0 = all pass; 1 = any fail.
  */
 
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+await assertDisposableTestInfrastructure({operation: "owned outbound-boundary fixtures"});
+await (await import("../server/services/outbound-control-service")).initializePauseControl();
 import { pool } from "../server/db";
 import { invalidatePauseStateCache } from "../server/services/outbound-pause-authority";
 
@@ -48,6 +51,7 @@ async function setTestPauseState(paused: boolean): Promise<void> {
 // ── Fetch spy: counts (and blocks) any call to the GHL API host ─────────────
 const realFetch = globalThis.fetch.bind(globalThis);
 let ghlFetchCount = 0; // mutation (POST/PUT/PATCH/DELETE) attempts — the kill-line metric
+let allowInventoryFixture=false;
 let ghlReadCount = 0;  // reads are never pause-gated; tracked separately
 globalThis.fetch = ((input: any, init?: any) => {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input?.url ?? "";
@@ -55,6 +59,8 @@ globalThis.fetch = ((input: any, init?: any) => {
     const method = (init?.method || (typeof input === "object" && input?.method) || "GET").toUpperCase();
     if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) ghlFetchCount++;
     else ghlReadCount++;
+    if(allowInventoryFixture && method==='GET' && new URL(url).pathname==='/locations/ci-test-ghl-location/customFields')
+      return Promise.resolve(new Response(JSON.stringify({customFields:[]}),{status:200,headers:{'Content-Type':'application/json'}}));
     return Promise.reject(new Error("TEST SPY: real GHL call attempted — this is a kill-line failure"));
   }
   return realFetch(input, init);
@@ -166,6 +172,8 @@ async function main() {
     assert("entityKey name passes through", sanitizeEntityKey("Jane Doe Cafe") === "Jane Doe Cafe");
     assert("entityKey null passes through", sanitizeEntityKey(null) === null);
 
+    const recipients=(await import("../server/services/audit-sanitizer")).sanitizeAuditPayload({recipient:"fixture@example.test",recipients:["fixture@example.test"]}) as any;
+    assert("staff-recipient audit fields are redacted",recipients.recipient!=="fixture@example.test"&&!JSON.stringify(recipients.recipients).includes("fixture@example.test"));
     // ── 6. Interleaving: epoch changes between register and provider I/O ────
     // gatedGhlMutation must run authorize → registerInflight(token, epoch) →
     // recheckEpoch(epoch) → I/O. If the pause epoch advances after registration
@@ -223,13 +231,15 @@ async function main() {
       }
       // ghl.ts upsertGhlContact (used by syncContactToGhl → form sync)
       const { upsertGhlContact } = await import("../server/services/ghl");
-      let upsertDenied = false;
+      const {authorizeGhlCrmOperation}=await import("../server/services/ghl-sync-control");
+      const crmDecision=await authorizeGhlCrmOperation({method:"PUT",path:"/contacts/fixture-1626",locationId:process.env.GHL_LOCATION_ID});
+      assert("unselected CRM runtime is denied by its independent control",!crmDecision.allowed && crmDecision.reasonCode==='runtime_not_selected');
+      let upsertDenied=false;allowInventoryFixture=true;
       try {
-        await upsertGhlContact({ firstName: "T1626", email: "t-1626-upsert@example.invalid", phone: "+15550001626" } as any);
-      } catch (e: any) {
-        upsertDenied = /blocked by pause authority/i.test(String(e?.message));
-      }
-      assert("upsertGhlContact denied while paused (full protocol)", upsertDenied);
+        await upsertGhlContact({ghlContactId:'fixture-1626',firstName:'T1626',email:'t-1626-upsert@example.invalid',phone:'+15550001626'} as any);
+      } catch(e:any) {upsertDenied=String(e?.message).includes(`GHL CRM operation blocked: ${crmDecision.reasonCode}`);}
+      finally{allowInventoryFixture=false;}
+      assert("CRM identity upsert respects current CRM authority while outbound remains paused",upsertDenied);
       assert("no GHL fetch attempted by any paused mutation", ghlFetchCount === preCount, `delta=${ghlFetchCount - preCount}`);
       // Pause blocks must be circuit-breaker skips, never counted failures
       const { classifyGhlSyncError } = await import("../server/services/ghl-sync");
@@ -352,33 +362,26 @@ async function main() {
     }
 
     // ── 7. Static gate: every raw audit_logs insert site is sanitized ───────
-    // Regression guard for the audit boundary: any `INSERT INTO audit_logs`
-    // or `insert(auditLogs)` site anywhere in server/ must reference the
-    // canonical sanitizer within a few surrounding lines (or be one of the
-    // canonical writer files, which sanitize internally).
+    // Inspect actual SQL/ORM payload writers and canonical sanitizer bindings.
+    // Source-inspection strings and nearby unused imports are not evidence.
+    // Three exact onboarding ownership/replay journals retain their schema.
     console.log("  [7] static gate: raw audit_logs inserts route through sanitizer");
     {
-      const { execSync } = await import("child_process");
-      const fs = await import("fs");
-      const out = execSync(
-        `grep -rn "INSERT INTO audit_logs\\|insert(auditLogs)" server --include=*.ts || true`,
-        { encoding: "utf8" },
-      );
-      const CANONICAL_WRITERS = ["server/storage/audit.ts", "server/services/audit-change.ts"];
-      const offenders: string[] = [];
-      for (const line of out.split("\n").filter(Boolean)) {
-        const [file, lineNoStr] = line.split(":");
-        if (CANONICAL_WRITERS.includes(file)) continue;
-        const lineNo = parseInt(lineNoStr, 10);
-        const src = fs.readFileSync(file, "utf8").split("\n");
-        // Window covers payloads built shortly before the insert (e.g. a
-        // sanitized `auditDetails` variable) as well as inline payloads.
-        const window = src.slice(Math.max(0, lineNo - 20), lineNo + 14).join("\n");
-        if (!window.includes("sanitizeAuditPayload") && !window.includes("audit-sanitizer")) {
-          offenders.push(`${file}:${lineNo}`);
-        }
-      }
-      assert("every raw audit_logs insert references the sanitizer", offenders.length === 0, offenders.join(", "));
+      const {auditWriterBoundary,scanProductionAuditWriters}=await import("./lib/audit-writer-boundary");
+      const unsafe=`client.query("INSERT INTO audit_logs(details) VALUES($1)",[JSON.stringify({email:"fixture@example.test"})]);`;
+      const imported=`import {sanitizeAuditPayload} from "./audit-sanitizer";`;
+      assert("detector rejects an unsanitized real SQL writer",auditWriterBoundary(unsafe,"server/fixture.ts").findings.length===1);
+      assert("comments and unused imports cannot certify a writer",auditWriterBoundary(imported+"/* sanitizeAuditPayload */"+unsafe,"server/fixture.ts").findings.length===1);
+      assert("source-inspection strings are not database writes",auditWriterBoundary(`s.startsWith("INSERT INTO audit_logs");`,"server/fixture.ts").checked===0);
+      const safe=imported+`client.query("INSERT INTO audit_logs(details) VALUES($1)",[JSON.stringify(sanitizeAuditPayload({email:"fixture@example.test"}))]);`;
+      assert("an actual canonical payload qualifies",auditWriterBoundary(safe,"server/fixture.ts").findings.length===0);
+      assert("a distant sanitized binding remains valid",auditWriterBoundary(imported+`const data=sanitizeAuditPayload({email:"fixture@example.test"});`+"\n".repeat(40)+`client.query("INSERT INTO audit_logs(details) VALUES($1)",[JSON.stringify(data)]);`,"server/fixture.ts").findings.length===0);
+      assert("an arbitrary ORM payload is rejected",auditWriterBoundary(`tx.insert(auditLogs).values({details:{email:"fixture@example.test"}});`,"server/fixture.ts").findings.length===1);
+      const result=scanProductionAuditWriters();
+      assert("production audit writer census is nonempty",result.checked>=90,String(result.checked));
+      assert("three fixed-schema ownership/replay journals remain accounted for",result.journals===3,String(result.journals));
+      assert("production diagnostic payloads cross the actual sanitizer",result.findings.length===0,result.findings.join(", "));
+
     }
   } finally {
     // Restore original pause state (direct SQL — no coordinator holds)

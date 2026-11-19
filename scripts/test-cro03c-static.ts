@@ -243,7 +243,11 @@ const admission = source("server/services/cro03/admission-service.ts");
 assert.doesNotMatch(admission, /cro03c_generations|cro03c_live_v1/);
 
 const readiness = source("server/services/provider-readiness-control.ts");
-assert.equal((readiness.match(/hasCurrentCro03cValidationAuthority\(/g) ?? []).length, 4);
+// fe5d6c2c replaced contact-specific receipt copies with canonical address receipts.
+// Keep positive authority checks on the current claim, selection and pre-I/O owners.
+assert.match(readiness, /currentCanonicalValidationSelection\(Number\(contact.id\),tokenHash/);
+assert.match(readiness, /claimCanonicalAddressValidation/);
+assert.match(readiness, /markCanonicalAddressDispatch/);
 assert.match(readiness, /c\.command_type='initial_batch'/);
 assert.match(readiness, /a\.normalized_email_hash/);
 assert.match(readiness, /expected_provider_control_revision/);

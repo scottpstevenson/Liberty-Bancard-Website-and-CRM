@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 import {randomUUID} from "node:crypto";
 import {sql} from "drizzle-orm";
 import {db} from "../db";
@@ -188,10 +189,10 @@ export async function processCanonicalImportRecoveryTick(
           WHERE id=${String(selected.id)}::uuid`);
         await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
           VALUES('canonical_import_capability_opportunity','cro03_enrichment_item',${String(selected.id)},
-            ${JSON.stringify({executionId:selected.execution_id,sourceRowNumber:selected.source_row_number,
+            ${JSON.stringify(sanitizeAuditPayload({executionId:selected.execution_id,sourceRowNumber:selected.source_row_number,
               workClass:selected.work_class,rowFingerprint:retainedIdentity.fingerprint,
               ...(budget.replay ? {explicitReplay:true} : {}),
-              outcome:"blocked_source_capability",reasonCode:"PROVIDER_IMPORT_IDENTITY_BRIDGE_NATIVE_GUARD_MISSING"})}::jsonb,
+              outcome:"blocked_source_capability",reasonCode:"PROVIDER_IMPORT_IDENTITY_BRIDGE_NATIVE_GUARD_MISSING"}))}::jsonb,
             'system','system:canonical-import-recovery')`);
         return {...selected,capabilityBlocked:true};
       }
@@ -207,10 +208,10 @@ export async function processCanonicalImportRecoveryTick(
        await ownerAuthorityCheck(tx);
        await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
          VALUES('canonical_import_row_claimed','cro03_enrichment_item',${String(selected.id)},
-           ${JSON.stringify({executionId:selected.execution_id,sourceRowNumber:selected.source_row_number,
+           ${JSON.stringify(sanitizeAuditPayload({executionId:selected.execution_id,sourceRowNumber:selected.source_row_number,
               workClass:selected.work_class,rowFingerprint:identity.fingerprint,
               ...(budget.replay ? {explicitReplay:true} : {}),
-             bridgeHash:identity.bridgeHash ?? null})}::jsonb,'system','system:canonical-import-recovery')`);
+             bridgeHash:identity.bridgeHash ?? null}))}::jsonb,'system','system:canonical-import-recovery')`);
       return selected;
     }));
     if (!candidate) break;
@@ -271,12 +272,12 @@ export async function processCanonicalImportRecoveryTick(
         if (!receipt.length) throw new Error("CANONICAL_IMPORT_RECOVERY_FINALIZATION_LEASE_LOST");
         await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
           VALUES('canonical_import_row_fulfilled','cro03_enrichment_item',${String(candidate.id)},
-            ${JSON.stringify({executionId:candidate.execution_id,sourceRowNumber:candidate.source_row_number,
+            ${JSON.stringify(sanitizeAuditPayload({executionId:candidate.execution_id,sourceRowNumber:candidate.source_row_number,
               originalDisposition:result.disposition,businessId:result.businessId,contactIds:result.contactIds,
                 qualificationVersion:CANONICAL_IMPORT_FULFILLMENT_QUALIFICATION_VERSION,
                 ...(budget.replay ? {explicitReplay:true} : {}),
                rowFingerprint:identity?.fingerprint,bridgeHash:identity?.bridgeHash ?? null,
-              paidProviderCalls:0,outboundChanges:0})}::jsonb,'system','system:canonical-import-recovery')`);
+              paidProviderCalls:0,outboundChanges:0}))}::jsonb,'system','system:canonical-import-recovery')`);
       }));
       fulfilled++;
        rowOutcomes.push({...rowReference,outcome:"fulfilled"});

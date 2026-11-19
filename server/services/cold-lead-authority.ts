@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 import { pool } from "../db";
 import { contactScope, type RevenueUser } from "./revenue-read-authority";
 import { syntheticQaIdentitySql } from "@shared/synthetic-qa-identity";
@@ -65,7 +66,7 @@ export async function requestColdReengagement(user: RevenueUser, ids: number[]) 
     for (const outcome of outcomes) {
       await client.query(`INSERT INTO audit_logs(action,entity_type,entity_id,details)
         VALUES('re_engage_request_processed','contact',$1,$2::jsonb)`,
-      [outcome.contactId, JSON.stringify(outcome)]);
+      [outcome.contactId, JSON.stringify(sanitizeAuditPayload(outcome))]);
     }
     await client.query("COMMIT");
     return { denied: false as const, processed: true, enrolled: 0, outcomes,

@@ -111,14 +111,25 @@ const validationEffectsBefore = rows(await db.execute(sql`
     (SELECT COUNT(*)::int FROM provider_attempts a JOIN provider_operations o ON o.id=a.operation_id
       WHERE o.provider='zerobounce') AS attempts
 `))[0];
+const projectionCounts=()=>db.execute(sql`SELECT (SELECT count(*)::int FROM contacts) contacts,(SELECT count(*)::int FROM businesses) businesses`).then(r=>r.rows);
+const beforeDeniedReview=await projectionCounts();
+await assert.rejects(reviewAndProjectCro03bItem(String(item.id),"nonexistent-reviewer"),/CRO03B_PROJECTION_OWNER_UNAVAILABLE/);
+assert.deepEqual(await projectionCounts(),beforeDeniedReview,"unowned projection is denied before organization/contact writes");
 const projection = await reviewAndProjectCro03bItem(String(item.id), String(admin.id));
-assert.equal(projection.state, "validation_pending",
-  "the fixture's unique organization anchors and winning email must create a deferred validation intent");
+assert.equal(projection.state,"review_required","a projected contact without a current selected recipient remains held");
+assert.equal((projection as any).reasonCode,"canonical_target_selection_required");
+assert.equal((await db.execute(sql`SELECT id FROM validation_intents WHERE contact_id=${(projection as any).contactId}`)).rows.length,0,"projection cannot manufacture selected-recipient authority");
+const {assertCro03bLegacyContactWriteAllowed}=await import("../server/services/cro03/admission-service");
+await assert.rejects(assertCro03bLegacyContactWriteAllowed((projection as any).contactId,"unscoped-legacy-fixture"),/CRO03B_ACTIVE_RECIPE_WRITE_FENCED/,"projection ownership cannot escape its native call");
+// Exercise retained legacy terminal recovery separately; this fixture is not a
+// claim that current review grants validation or outreach authority.
+const {retainedCro03bFinalization}=await import("./fixtures/retained-cro03b-finalization");
+await retainedCro03bFinalization(db,String(item.id),(projection as any).contactId);
 const finalization = rows(await db.execute(sql`
   SELECT f.*,i.contact_id FROM cro03b_finalization_receipts f
   JOIN cro03b_recipe_items i ON i.id=f.item_id WHERE f.item_id=${item.id}::uuid
 `))[0];
-assert(finalization, "winning-email projection must persist its finalization receipt");
+assert(finalization, "retained recovery fixture must persist its finalization receipt");
 assert(finalization.validation_intent_id);
 const intents = rows(await db.execute(sql`
   SELECT purpose,enqueue_state,terminal_code,execution_authorized_at,execution_authority,COUNT(*)::int count
@@ -132,9 +143,12 @@ assert.deepEqual(intents, [{
   execution_authority: null, count: 1,
 }]);
 const { processValidationIntent } = await import("../server/services/provider-readiness-control");
+let forbiddenValidationCalls=0;
 assert.equal(await processValidationIntent(String(finalization.validation_intent_id), {
-  verifyEmail: async () => { throw new Error("CRO03B_FORBIDDEN_TRANSPORT"); },
-}), "not_found");
+  verifyEmail: async () => { forbiddenValidationCalls++; throw new Error("CRO03B_FORBIDDEN_TRANSPORT"); },
+}), "failed");
+assert.equal(forbiddenValidationCalls,0,"retained unselected intent is blocked before fake transport");
+assert.equal(rows(await db.execute(sql`SELECT terminal_code FROM validation_intents WHERE id=${finalization.validation_intent_id}::uuid`))[0].terminal_code,"canonical_target_selection_required");
 const validationEffectsAfter = rows(await db.execute(sql`
   SELECT
     (SELECT COUNT(*)::int FROM provider_operations WHERE provider='zerobounce') AS operations,

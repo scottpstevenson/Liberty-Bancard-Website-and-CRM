@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 /** Canonical Phase 7 experiment owner. No transport, enrollment or automatic content adoption. */
 import { createHash, randomUUID } from "node:crypto";
 import { pool } from "../db";
@@ -60,7 +61,7 @@ async function principal(client: any, actor: WorkActor) {
 async function audit(client: any, actor: string, id: string, action: string) {
   await client.query(
     `INSERT INTO audit_logs(action,entity_type,user_id,actor_type,details) VALUES($1,'cro07_experiment',$2,'user',$3)`,
-    [action, actor, JSON.stringify({ experimentId: id })],
+    [action, actor, JSON.stringify(sanitizeAuditPayload({ experimentId: id }))],
   );
 }
 export async function approvedArms(

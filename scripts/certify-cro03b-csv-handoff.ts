@@ -52,7 +52,7 @@
  *     values (12086 Miami-Dade and 12011 Broward) in their payloads. Both
  *     occurrence IDs are frozen in the same handoff. reviewAndProjectCro03bItem()
  *     must throw CRO03B_COUNTY_FIPS_CONFLICT; the item remains in review_required;
- *     zero business_locations, business_projections, or canonical_source_links rows
+ *     zero business_locations, cro03b_projection_receipts, or canonical_source_links rows
  *     are created for the conflicting handoff item.
  *
  *   Path F — Concurrent projection race:
@@ -100,8 +100,9 @@ const runDigits = run.replace(/[^0-9]/g, "").slice(-7).padStart(7, "0");
 
 // ── Shared admin fixture ─────────────────────────────────────────────────────
 
+await db.execute(sql`INSERT INTO users(email,first_name,last_name,role,auth_provider) VALUES (${`cro03b-csv-${run}@example.test`},'CSV','Certification','admin','local')`);
 const admin = rows(
-  await db.execute(sql`SELECT id FROM users WHERE role='admin' ORDER BY created_at LIMIT 1`),
+  await db.execute(sql`SELECT id FROM users WHERE email=${`cro03b-csv-${run}@example.test`} AND role='admin'`),
 )[0];
 assert(admin, "Admin user required for certification");
 
@@ -458,8 +459,8 @@ const pathBItemAfterReview = rows(await db.execute(sql`
 `))[0];
 assert.equal(
   pathBItemAfterReview.state,
-  "waiting",
-  `Path B: item must be in 'waiting' state after review (validation deferred); got '${pathBItemAfterReview.state}'`,
+  "review_required",
+  `Path B: unselected contact must remain in review_required; got '${pathBItemAfterReview.state}'`,
 );
 assert(pathBItemAfterReview.contact_id, "Path B: item must have a contact_id after projection");
 
@@ -472,7 +473,13 @@ assert(
   `Path B: at most one new contact created; before=${pathBContactsBefore} after=${pathBContactsAfter}`,
 );
 
-// ── B4: Assert exactly one deferred cro03_winning_email validation intent ─────
+// Current review is local-only and cannot grant selected-recipient authority.
+assert.equal((await db.execute(sql`SELECT id FROM validation_intents WHERE contact_id=${pathBItemAfterReview.contact_id}`)).rows.length,0);
+// Separate retained-data recovery fixture: exercise resume and replay without
+// reinstating the retired automatic validation grant.
+const {retainedCro03bFinalization}=await import("./fixtures/retained-cro03b-finalization");
+await retainedCro03bFinalization(db,String(pathBItem.id),Number(pathBItemAfterReview.contact_id));
+// ── B4: Assert exactly one retained deferred cro03_winning_email intent ─────
 
 const pathBFinalization = rows(await db.execute(sql`
   SELECT f.*, i.contact_id
@@ -538,7 +545,7 @@ const pathBItemCount = Number(
 );
 assert.equal(pathBItemCount, 1, "Path B: exactly one recipe item (no duplicate subject)");
 
-console.log("[cert] PASS Path B: contact projection → waiting → resume → completed; no duplicate subject");
+console.log("[cert] PASS Path B: current projection held; separate retained validation recovery completes without duplicate subject");
 
 // ═════════════════════════════════════════════════════════════════════════════
 // PATH C — No strong anchor (no website, no phone, no address) → CRO03B_STRONG_ORGANIZATION_ANCHOR_REQUIRED
@@ -1363,7 +1370,7 @@ console.log("[cert] PASS Path F: concurrent projection race → no silent canoni
 // countyFips values (12086 Miami-Dade and 12011 Broward). Both occurrence IDs
 // are frozen in the same handoff. reviewAndProjectCro03bItem() must throw
 // CRO03B_COUNTY_FIPS_CONFLICT; item remains review_required; zero
-// business_locations, business_projections, and canonical_source_links rows
+// business_locations, cro03b_projection_receipts, and canonical_source_links rows
 // are created for the conflicting handoff item.
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -1401,13 +1408,15 @@ const pathGBatch = await createCro03SourceBatch({
       sourceSystem: "apollo",
       provenance: { certPath: "G", countyFipsVariant: "miami-dade" },
       payload: { ...pathGBasePayload, businessName: `Cert G FIPS Conflict ${run.slice(0, 8)}`, countyFips: "12086" },
+      candidateValues:{business_name:`Cert G FIPS Conflict ${run.slice(0,8)}`,phone:pathGBasePayload.phone,address:pathGBasePayload.address,city:pathGBasePayload.city,state:pathGBasePayload.state},
     },
     {
       subjectType: "provider_csv_row",
       subjectKey: pathGSubjectKey2,
       sourceSystem: "apollo",
       provenance: { certPath: "G", countyFipsVariant: "broward" },
-      payload: { ...pathGBasePayload, businessName: `Cert G FIPS Conflict B ${run.slice(0, 8)}`, countyFips: "12011" },
+      payload: { ...pathGBasePayload, businessName: `Cert G FIPS Conflict ${run.slice(0, 8)}`, countyFips: "12011" },
+      candidateValues:{business_name:`Cert G FIPS Conflict ${run.slice(0,8)}`,phone:pathGBasePayload.phone,address:pathGBasePayload.address,city:pathGBasePayload.city,state:pathGBasePayload.state},
     },
   ],
 });
@@ -1560,7 +1569,7 @@ const pathGBaseline = rows(await db.execute(sql`
          WHERE canonical_name LIKE ${"Cert G FIPS Conflict%"}
       )
     ) AS locations,
-    (SELECT COUNT(*)::int FROM business_projections) AS projections,
+    (SELECT COUNT(*)::int FROM cro03b_projection_receipts) AS projections,
     (SELECT COUNT(*)::int FROM canonical_source_links
       WHERE stable_key IN (${pathGSubjectKey1}, ${pathGSubjectKey2})
     ) AS source_links
@@ -1614,20 +1623,20 @@ assert.equal(
 );
 console.log("[cert] Path G: zero business_locations rows created");
 
-// ── G9: Zero business_projections rows created ────────────────────────────────
+// ── G9: Zero cro03b_projection_receipts rows created ────────────────────────────────
 
 const pathGAfterProjections = Number(
   rows(await db.execute(sql`
-    SELECT COUNT(*)::int AS n FROM business_projections
+    SELECT COUNT(*)::int AS n FROM cro03b_projection_receipts
   `))[0]?.n ?? 0,
 );
 assert.equal(
   pathGAfterProjections,
   Number(pathGBaseline.projections),
-  `Path G: zero business_projections rows must be created; ` +
+  `Path G: zero cro03b_projection_receipts rows must be created; ` +
   `baseline=${pathGBaseline.projections} after=${pathGAfterProjections}`,
 );
-console.log("[cert] Path G: zero business_projections rows created");
+console.log("[cert] Path G: zero cro03b_projection_receipts rows created");
 
 // ── G10: Zero canonical_source_links rows created for this item's subjects ────
 

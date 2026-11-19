@@ -4,6 +4,9 @@
  */
 import assert from "node:assert/strict";
 
+// This unit replaces pool.connect before any query. Stateless CI deliberately
+// removes database credentials; provide an inert URL for module construction.
+process.env.DATABASE_URL = "postgresql://unit:unit@127.0.0.1:1/unit_disabled";
 const { pool, db } = await import("../server/db");
 
 let released: unknown[] = [];

@@ -269,7 +269,7 @@ export const MANDATORY_SUITES: Suite[] = [
   {name:"Stage 3 D GHL Ownership Readiness",script:"scripts/test-ghl-ownership-readiness.ts",timeoutSecs:60},
   {name:"Stage 3 D Hub Tab URL State",script:"scripts/test-stage3-d-hub-tabs.ts",timeoutSecs:60},
   {name:"Stage 3 D-R2 Contracts",script:"scripts/test-stage3-d-r2-contracts.ts",timeoutSecs:60},
-  {name:"Stage 3 D-V Contracts",script:"scripts/test-stage3-d-v-contracts.ts",timeoutSecs:90},
+  {name:"Stage 3 D-V Contracts",script:"scripts/test-stage3-d-v-contracts.ts",timeoutSecs:90,requiresDisposableInfra:true},
   {name:"Stage 3 D-R2 Retained Contact Core",script:"scripts/test-retained-contact-core.ts",timeoutSecs:60},
   {name:"Stage 3 D-R2 Heading Ownership Mounted",script:"scripts/test-stage3-d-r2-headings.ts",timeoutSecs:120},
   {name:"Stage 3 D-R2 Company Search Authority",script:"scripts/test-company-search-authority.ts",timeoutSecs:240,requiresDisposableTestDatabase:true},
@@ -377,7 +377,7 @@ export const MANDATORY_SUITES: Suite[] = [
   {name:"Canonical contact linking automation",script:"scripts/certification/test-crm-contact-link-automation.ts",
     timeoutSecs:180,requiresDisposableTestDatabase:true},
   {name:"Canonical provider intake and recovery",script:"scripts/certification/test-canonical-provider-import.ts",
-    timeoutSecs:180,requiresDisposableTestDatabase:true},
+    timeoutSecs:900,requiresDisposableTestDatabase:true},
   { name: "Canonical cohort-free recipient preparation",
     script: "scripts/certification/test-canonical-recipient-preparation.ts",
     timeoutSecs: 180, requiresDisposableTestDatabase: true },
@@ -633,7 +633,7 @@ export const MANDATORY_SUITES: Suite[] = [
   {
     name: "Release Artifact Gate (typecheck, production build, redacting artifact secret scan)",
     script: "scripts/release-artifact-gate.ts",
-    timeoutSecs: 300,
+    timeoutSecs: 600,
   },
   {
     name: "Merchant Migration Safety (dual-auth, no-value-logging, envelope inventory, restart-safe)",
@@ -1187,6 +1187,7 @@ export const MANDATORY_SUITES: Suite[] = [
     name: "NBA Engine (Wave 1B: 12 cases — lifecycle→action, DNC, pause, sequence collision, execute/dismiss, history, priority queue)",
     script: "scripts/test-nba.ts",
     timeoutSecs: 90,
+    requiresDisposableTestDatabase: true,
   },
   // ── Server-required suites (skipped when server absent; need live credentials) ─
   {

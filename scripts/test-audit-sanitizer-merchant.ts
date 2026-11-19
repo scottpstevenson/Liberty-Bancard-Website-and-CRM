@@ -184,6 +184,16 @@ console.log("\n== Channel audit boundary helpers ==");
   assert("oversized channel snapshot is replaced", oversized.truncated === true);
 }
 
+console.log("\n== Staff alert recipient addresses stay out of diagnostic audits ==");
+{
+  const input = { recipient: "fixture@example.test", recipients: ["second@example.test"], eventKind: "merchant_referral" };
+  const out = sanitizeAuditPayload(input) as Record<string, unknown>;
+  assertNoRaw("single recipient is redacted", out, "fixture@example.test");
+  assertNoRaw("recipient list is redacted", out, "second@example.test");
+  assert("event kind remains useful", out.eventKind === "merchant_referral");
+  assert("sanitizing an audit does not mutate its delivery payload", input.recipient === "fixture@example.test" && input.recipients[0] === "second@example.test");
+}
+
 console.log("\n================================");
 console.log(`Passed: ${passed}  Failed: ${failed}`);
 if (failed > 0) {

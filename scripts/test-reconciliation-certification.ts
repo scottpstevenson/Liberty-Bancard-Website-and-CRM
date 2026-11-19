@@ -227,8 +227,8 @@ async function main() {
 
   const censusRunR = await client.query(
     `INSERT INTO contact_census_runs
-       (id, environment_label, status, requested_by, denominator_at_start, max_contact_id_at_start)
-     VALUES ($1, 'development_preview', 'completed', 'test', 5, 1000)
+       (id, environment_label, status, requested_by, denominator_at_start, max_contact_id_at_start, selector_hash, rules_version, release_sha, db_identity_token)
+     VALUES ($1, 'development_preview', 'completed', 'test', 5, 1000, repeat('a',64), '1.0.0', repeat('b',40), 'disposable-certification')
      RETURNING id`,
     [RUN_ID],
   );
@@ -258,7 +258,11 @@ async function main() {
   for (let i = 0; i < contactIds.length; i++) {
     const lane = i === 4 ? "NEEDS_MULTIPLE_CONTACT_FIELDS" : "NEEDS_BUSINESS_MATERIALIZATION";
     await client.query(
-      `INSERT INTO contact_census_members (run_id, contact_id, primary_lane) VALUES ($1, $2, $3)`,
+      `INSERT INTO contact_census_members (run_id, contact_id, primary_lane, selection_hash,
+       record_class,identity_state,business_materialization_state,contactability_state,vertical_state,
+       validation_state,compliance_state,evidence_state,enrichment_state,phone_quality_state)
+       VALUES ($1,$2,$3,repeat('c',64),'production','email_only','absent','cold_contactable','unclassified',
+        'unvalidated','cold_ok','partial_existing','none','unique')`,
       [censusRunId, contactIds[i], lane],
     );
   }
@@ -483,8 +487,8 @@ async function main() {
 
   // Insert a proposal for JOHN → John name normalization
   // Use contact's REAL updated_at so CAS passes
-  const rawUpdatedAtR = await client.query(`SELECT updated_at FROM contacts WHERE id=$1`, [contactIds[0]]);
-  const realUpdatedAt = new Date(rawUpdatedAtR.rows[0].updated_at);
+  const rawUpdatedAtR = await client.query(`SELECT updated_at::text AS updated_at FROM contacts WHERE id=$1`, [contactIds[0]]);
+  const realUpdatedAt = rawUpdatedAtR.rows[0].updated_at;
 
   const proposalR = await client.query(
     `INSERT INTO contact_normalization_proposals
@@ -498,6 +502,14 @@ async function main() {
   assert(proposalId > 0, "normalization proposal inserted");
 
   // Call the ACTUAL approveProposal service with the test pool
+  const microContact = contactIds[3];
+  const microProposal = (await client.query(`INSERT INTO contact_normalization_proposals
+    (run_id,contact_id,proposal_type,field_name,current_value,proposed_value,contact_updated_at,before_values,confidence)
+    SELECT $1,id,'name_normalization','first_name',first_name,'Must Not Apply',updated_at,'{}',80 FROM contacts WHERE id=$2 RETURNING id`,
+    [testRunId,microContact])).rows[0].id;
+  await client.query(`UPDATE contacts SET updated_at=updated_at+interval '1 microsecond' WHERE id=$1`,[microContact]);
+  assertEq((await approveProposal(microProposal,"cert-admin",testPool)).outcome,"stale","one-microsecond concurrent change is rejected without rounding");
+  assert((await client.query('SELECT first_name FROM contacts WHERE id=$1',[microContact])).rows[0].first_name !== 'Must Not Apply','stale microsecond proposal makes no contact write');
   const approveResult = await approveProposal(proposalId, "cert-admin", testPool);
   assertEq(approveResult.outcome, "applied", "approveProposal() returns outcome=applied");
   assertEq((approveResult as any).fieldName, "first_name", "approveProposal() reports correct fieldName");

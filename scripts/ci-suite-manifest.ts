@@ -203,7 +203,7 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     isolateInfrastructure:true,
     capability:"deterministic-integration",providerDenial:"private compiled client, real admin/manager/agent sessions, disposable migrated database; real admin route module with a real post-commit response loss; provider egress denied by the fixture"},
   {name:"Stage 3 D-V Contracts",script:"scripts/test-stage3-d-v-contracts.ts",
-    capability:"deterministic-static",providerDenial:"pure helpers, source assertions and predicate construction only; no DB, server, browser or provider"},
+    capability:"deterministic-integration",providerDenial:"predicate construction imports the current DB-bound revenue authority; disposable database prerequisite, no SQL execution or provider calls"},
   {name:"Stage 3 D-V Landmarks Browser",script:"scripts/test-stage3-d-v-landmarks-browser.ts",
     isolateInfrastructure:true,
     capability:"deterministic-integration",providerDenial:"private compiled client, disposable migrated database; partner routes unregistered so the read answers 501; read-only; provider egress denied by the fixture"},
@@ -744,6 +744,7 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
   {
     name:"Canonical provider intake and recovery",
     script:"scripts/certification/test-canonical-provider-import.ts",
+    executionTimeoutMs:900000,
     capability:"deterministic-integration",
     providerDenial:"disposable PostgreSQL with fatal network denial; canonical local intake only",
   },
@@ -1008,6 +1009,7 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
   {
     name: "Release Artifact Gate",
     script: "scripts/release-artifact-gate.ts",
+    executionTimeoutMs: 600000,
     capability: "writable-build",
     providerDenial: "local typecheck/build/artifact scan only; no provider calls",
   },
@@ -1467,7 +1469,8 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
   {
     name: "NBA Engine",
     script: "scripts/test-nba.ts",
-    capability: "server-required",
+    capability: "deterministic-integration",
+    isolateInfrastructure: true,
     providerDenial: "no provider calls (startup-initialized pause state + NBA decision engine only)",
   },
   {

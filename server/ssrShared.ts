@@ -257,8 +257,10 @@ export function ssrHtmlShell({
   <meta name="twitter:image" content="${ogImageUrl}" />
 
   <!-- Public font recipe (shared with the hydrated app): IBM Plex Sans body faces and the Source Serif 4
-       display face are self-hosted; their @font-face rules ship in the app stylesheet. Only the display
-       face is preloaded because it is the above-the-fold heading face. -->
+       display face are self-hosted. Preload body and bold sans too: operational public
+       headings such as Support use the sans face and must not reflow on a late bold-font swap. -->
+  <link rel="preload" href="/fonts/ibm-plex-sans-400.ttf" as="font" type="font/ttf" crossorigin="" />
+  <link rel="preload" href="/fonts/ibm-plex-sans-700.ttf" as="font" type="font/ttf" crossorigin="" />
   <link rel="preload" href="/fonts/source-serif-4-latin-wght.woff2" as="font" type="font/woff2" crossorigin="" />
   <!-- GHL Chat Widget (Trust Center / SMS opt-in compliance) -->
   <script src="https://widgets.leadconnectorhq.com/loader.js" data-resources-url="https://widgets.leadconnectorhq.com/chat-widget/loader.js" data-widget-id="6a652f1fc4dda61f3fbae5f8" data-source="WEB_USER"></script>

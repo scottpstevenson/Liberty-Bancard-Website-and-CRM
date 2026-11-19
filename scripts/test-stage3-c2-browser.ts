@@ -888,6 +888,8 @@ try{
   await fs.writeFile(`${directory}/failure-receipt.json`,JSON.stringify({identity,status:"failed; no acceptance",
     error:error instanceof Error?error.message:"Unknown failure",boundedReceipts:receipts,
     executedReadFaults:browser?.readFaults,
+    pageExceptions:browser?.exceptions,
+    pageState:await browser?.evaluate("({path:location.pathname,readyState:document.readyState,visibility:document.visibilityState})"),
      responseFaultEvents:h.responseFaultEvents,
     recentRequestPaths:browser?.requests.slice(-35).map(request=>({path:new URL(request.url,h.base).pathname,status:request.status})),
     responseFaultsExecuted:h.responseLossCount(),externalEffects:h.externalCalls()},null,2)+"\n");

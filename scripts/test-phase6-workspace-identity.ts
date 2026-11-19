@@ -144,7 +144,7 @@ const hubs: Array<{ path: string; file: string; exclude?: string[]; extra?: Reco
   // master-leads and promotion-review are nested tabs inside the Staging tab, not top-level lead-ops tabs.
   { path: "/dashboard/lead-ops", file: "LeadOpsCenter", exclude: ["master-leads", "promotion-review"] },
   // The remaining report tabs are selected through the area buttons (Operations, Outreach, Financial), not TabsTrigger.
-  { path: "/dashboard/reporting", file: "ReportingHub", extra: { "outreach-analytics": "Outreach", operations: "Operations", financial: "Financial" } },
+  { path: "/dashboard/reporting", file: "ReportingHub", exclude: ["conversion-funnel"], extra: { "outreach-analytics": "Outreach", operations: "Operations", financial: "Financial" } },
 ];
 for (const hub of hubs) {
   const found = triggers(`client/src/pages/dashboard/${hub.file}.tsx`);

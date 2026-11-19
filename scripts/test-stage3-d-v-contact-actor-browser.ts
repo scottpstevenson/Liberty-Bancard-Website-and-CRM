@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { stage3BHttpFixture } from "./fixtures/stage3-b-http";
 import { privateStage3Browser } from "./fixtures/private-stage3-browser";
@@ -21,43 +20,12 @@ import { verifyCandidateIdentity } from "./fixtures/candidate-build-identity";
  * auth query is eligible for the app's own reconnect refetch) and synthetic offline/online events (the trigger for the
  * app's own /api/auth/user revalidation). Everything that clears, fences or recovers is the unmodified application.
  */
-const SERVING = "cafc77ab1ba7c5a834a84fa000299524516aa626";
 const directory = "docs/certification/stage3-d-v/contact-actor-browser";
-const git = (...args: string[]) => execFileSync("git", args, { encoding: "utf8" }).trim();
-const lines = (value: string) => value.split("\n").filter(Boolean);
-
-function servingBinding() {
-  assert.equal(git("cat-file", "-t", SERVING), "commit", "Serving commit must exist locally");
-  const changedSince = (paths: string[]) => [...new Set([
-    ...lines(git("diff", "--name-only", SERVING, "--", ...paths)),
-    ...lines(git("ls-files", "--others", "--exclude-standard", "--", ...paths)),
-  ])].sort();
-  const clientInputs = ["client", "shared", "migrations", "package.json", "package-lock.json", "vite.config.ts", "tsconfig.json"];
-  const clientChanged = changedSince(clientInputs);
-  // Server/auth files this suite actually loads and whose behavior the cases exercise.
-  const exercised = ["server/routes/contacts.ts", "server/routes/crm-operations.ts", "server/routes/activity.ts",
-    "server/routes/tickets-tasks.ts", "server/routes/notifications.ts", "server/routes/deals.ts",
-    "server/services/crm-object-access.ts", "server/middleware/csrf.ts",
-    "server/replit_integrations/auth/replitAuth.ts", "server/replit_integrations/auth/routes.ts",
-    "server/replit_integrations/auth/storage.ts", "server/replit_integrations/auth/index.ts", "server/storage.ts"];
-  const exercisedIdentical = Object.fromEntries(exercised.map(file =>
-    [file, git("rev-parse", `${SERVING}:${file}`) === git("hash-object", file)]));
-  return {
-    servingVersion: SERVING, workspaceHead: git("rev-parse", "HEAD"),
-    clientSharedMigrationsPackageChangedSinceServing: clientChanged,
-    exercisedServerAndAuthFilesIdenticalToServing: exercisedIdentical,
-    otherServerFilesChangedSinceServing: changedSince(["server"]).filter(file => !exercised.includes(file)),
-    scriptsAndDocsChangedSinceServing: changedSince(["scripts", "docs"]),
-    thisChangeIsTestAndEvidenceOnly: ["scripts/test-stage3-d-v-contact-actor-browser.ts (new)", "scripts/pre-deploy.ts (one roster line)", "docs/certification/stage3-d-v/contact-actor-browser/** (receipts)", "ledger and specification notes"],
-    note: "client/shared/migrations/package inputs and every exercised route/auth file must equal the serving commit; other server files (listed) changed after the serving commit by earlier unrelated work (database client BEGIN-failure release, timing/summary logging) and are loaded by the fixture only as infrastructure; test-db-transaction-begin-release.ts in the scripts list is that earlier work, not part of this change",
-  };
-}
-
-const binding = servingBinding();
-assert.deepEqual(binding.clientSharedMigrationsPackageChangedSinceServing, [], "Client inputs differ from the serving version");
-assert.ok(Object.values(binding.exercisedServerAndAuthFilesIdenticalToServing).every(Boolean), "Exercised server/auth files differ from the serving version");
+// Bind to the current complete built candidate, rather than requiring every
+// future implementation to equal the October certification commit.
 const fullIdentity = await verifyCandidateIdentity();
 const { inputs: _inputs, outputs: _outputs, ...identity } = fullIdentity as any;
+const binding = { candidateIdentity: identity, scope: "current compiled candidate and persisted actor transitions" };
 const checks: Array<{ case: string; claim: string }> = [];
 const observations: Array<{ case: string; observation: string }> = [];
 const screenshots: string[] = [];

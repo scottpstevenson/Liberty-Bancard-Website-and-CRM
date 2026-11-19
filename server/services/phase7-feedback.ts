@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 /** Authenticated mailbox metadata -> exact RFC-message lineage. No nearest-address/time attribution. */
 import { pool } from "../db";
 import {
@@ -199,11 +200,11 @@ export async function qualifyPhase7Reply(
       `INSERT INTO audit_logs(action,entity_type,user_id,actor_type,details)VALUES('phase7_reply_qualified','cro07_experiment',$1,'user',$2)`,
       [
         command.actor.id,
-        JSON.stringify({
+        JSON.stringify(sanitizeAuditPayload({
           experimentId: e.id,
           receiptId: r.id,
           classification: input.classification,
-        }),
+        })),
       ],
     );
     await c.query("COMMIT");
@@ -265,7 +266,7 @@ export async function applyPhase7Guardrails(client: any, experimentId: string) {
     );
     await client.query(
       `INSERT INTO audit_logs(action,entity_type,actor_type,details)VALUES('phase7_guardrail_stop','cro07_experiment','system',$1)`,
-      [JSON.stringify({ experimentId: e.id, breaches })],
+      [JSON.stringify(sanitizeAuditPayload({ experimentId: e.id, breaches }))],
     );
   }
   return { attempted, breaches };

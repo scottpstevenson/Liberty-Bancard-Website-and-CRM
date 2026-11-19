@@ -244,10 +244,11 @@ passes("unknown slugs and prototype names produce no document", () => {
 
 passes("the server route 404s an unknown slug and no longer falls through for listed ones", () => {
   const routes = read("server/routes/ssr-routes.ts");
+ensure(/function sendPublicNotFound[\s\S]*?res\.status\(404\)[\s\S]*?res\.send\(getPublicNotFoundHtml\(\)\)/.test(routes), "shared missing-page owner returns a branded HTTP 404");
   const at = routes.indexOf('app.get("/industries/:slug"');
   ensure(at > 0, "route missing");
   const body = routes.slice(at, at + 600);
-  ensure(/if \(!html\) return res\.status\(404\)\.end\(\);/.test(body), "route does not 404 on a miss");
+  ensure(/if \(!html\) return sendPublicNotFound\(res\);/.test(body), "route does not 404 on a miss");
   ensure(!/next\(\)/.test(body.slice(0, body.indexOf("});") + 3)), "industry route still falls through to the client");
   ensure(!/INDUSTRY_SLUGS/.test(routes), "route file still imports INDUSTRY_SLUGS");
 });

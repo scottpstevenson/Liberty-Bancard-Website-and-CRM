@@ -127,8 +127,10 @@ export async function approveProposal(
     const colQuoted = `"${fieldName}"`;
     const casUpdateR = await client.query(
       `UPDATE contacts SET ${colQuoted} = $2, updated_at = now()
-       WHERE id = $1 AND updated_at = $3`,
-      [proposal.contact_id, proposedValue, proposal.contact_updated_at],
+       WHERE id = $1 AND updated_at = (
+         SELECT contact_updated_at FROM contact_normalization_proposals WHERE id = $3
+       )`,
+      [proposal.contact_id, proposedValue, proposalId],
     );
 
     if ((casUpdateR.rowCount ?? 0) === 0) {

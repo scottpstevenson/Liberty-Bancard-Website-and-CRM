@@ -1,4 +1,5 @@
 #!/usr/bin/env npx tsx
+import {prepareSelectedTargets} from "./fixtures/prepare-selected-validation-recipients";
 /**
  * Task #2001 disposable-PostgreSQL certification.
  *
@@ -216,6 +217,7 @@ try {
   }
   async function validateFixtureCandidates(cohortId: string, label: string): Promise<FixtureValidationRun> {
     if (ownerHeartbeatError) throw ownerHeartbeatError;
+    await prepareSelectedTargets(cohortId, runKey);
     const preview = await previewSfpValidation(cohortId);
     check(preview.gateOpen, `${label} validation preview passes the governed runtime/provider gates`);
     check(preview.addressesForValidation > 0, `${label} validation selects at least one persisted source candidate`);
@@ -1490,7 +1492,7 @@ try {
     RETURNING id
   `))[0];
   const retryBusinessId = Number(retryBusiness.id);
-  await seedFrozenClassification(retryBusinessId, "Fitness/Recreation", 50, retryCohortRunId);
+  await seedFrozenClassification(retryBusinessId, "Healthcare", 50, retryCohortRunId);
   await db.execute(sql`
     UPDATE sfp_cohort_runs SET status='frozen', cohort_state='frozen', frozen_at=NOW()
      WHERE id=${retryCohortRunId}::uuid
@@ -1509,11 +1511,10 @@ try {
     RETURNING id
   `))[0];
   assert.ok(retryCandidate?.id);
-  // The source vertical remains raw-NULL; its frozen v2 target is
-  // Fitness/Recreation. No current v2 package is seeded for that target, so
-  // staging deterministically rejects with no_current_package_for_vertical.
-  // This keeps the worker retry-lifecycle exercise independent of raw
-  // business.vertical and preserves the v2 frozen-classification gate.
+  // A missing package is now a revision-bound permanent hold (covered by
+  // test-stage4b-staging-worker.ts), not a transient failure. Use the existing
+  // Healthcare package and a real transaction serialization failure below to
+  // preserve the five-attempt retry/ownership test.
   const retryValidation = await validateFixtureCandidates(retryCohortRunId, "retry-lifecycle");
   const retryEligibility = findFixtureValidationReceipt(
     retryValidation, retryBusinessId, String(retryCandidate.id),
@@ -1523,9 +1524,11 @@ try {
   const retryPreview = await previewStagingV2({
     cohortRunId: retryCohortRunId, eligibilityIds: [String(retryEligibility.id)], actorId: runKey,
   });
-  check(retryPreview.eligibleCount === 0 &&
-    retryPreview.rows[0]?.blockedReason === "no_current_package_for_vertical",
-  "retry fixture resolves its frozen v2 Fitness/Recreation decision and fails closed only because that target has no current package");
+  check(retryPreview.eligibleCount === 1,"retry fixture has a current package and a qualified current provider receipt");
+  assert.ok(Number.isSafeInteger(retryBusinessId) && retryBusinessId>0);
+  await db.execute(sql.raw(`CREATE FUNCTION sfp2001_retry_serialization_fault() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.canonical_business_id=${retryBusinessId} THEN RAISE EXCEPTION 'fixture serialization failure' USING ERRCODE='40001'; END IF; RETURN NEW; END $$`));
+  await db.execute(sql`CREATE TRIGGER sfp2001_retry_serialization_fault BEFORE INSERT OR UPDATE ON master_leads FOR EACH ROW EXECUTE FUNCTION sfp2001_retry_serialization_fault()`);
 
   const retryTick1 = await processSfpCampaignStagingTick();
   check(retryTick1.enabled === true, "retry-lifecycle tick runs with the capability/schedule on");
@@ -1590,6 +1593,8 @@ try {
   check(retryRunFinal?.state === "failed",
     "the owning run reports 'failed' once its item exhausts all retry attempts");
 
+  await db.execute(sql`DROP TRIGGER sfp2001_retry_serialization_fault ON master_leads`);
+  await db.execute(sql`DROP FUNCTION sfp2001_retry_serialization_fault()`);
   const claimedStragglers = rows(await db.execute(sql`
     SELECT COUNT(*)::int AS count FROM sfp_stage_items
      WHERE stage_run_id = ${String(retryRun.id)}::uuid AND state = 'claimed'

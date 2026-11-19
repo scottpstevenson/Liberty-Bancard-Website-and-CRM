@@ -1,3 +1,5 @@
+import {scrubErrorString} from "../services/audit-sanitizer";
+import {sanitizeAuditPayload} from "../services/audit-sanitizer";
 /**
  * Native database object reconciler.
  *
@@ -120,9 +122,9 @@ async function audit(connectionString: string, results: NativeObjectResult[], ac
       await client.query(
         `INSERT INTO audit_logs(user_id, action, entity_type, entity_key, details, actor_type, actor_id)
          VALUES ($1, 'native_object_reconcile', 'native_object', $2, $3::jsonb, 'system', $1)`,
-        [actorId, `${r.id}:${r.version}:${Date.now()}`, JSON.stringify({
-          status: r.status, detail: r.detail ?? null, attempts: r.attempts, paidProviderCalls: 0, outboundChanges: 0,
-        })]);
+        [actorId, `${r.id}:${r.version}:${Date.now()}`, JSON.stringify(sanitizeAuditPayload({
+          status: r.status, detail: r.detail ? scrubErrorString(r.detail) : null, attempts: r.attempts, paidProviderCalls: 0, outboundChanges: 0,
+        }))]);
     }
   } catch (error: any) {
     console.error("[NativeObjects] audit write failed:", error?.message);

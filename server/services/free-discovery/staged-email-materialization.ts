@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "../audit-sanitizer";
 /**
  * Staged-email materialization.
  *
@@ -539,12 +540,12 @@ export async function runStagedEmailMaterialization(input: {
     INSERT INTO audit_logs(user_id, action, entity_type, entity_key, details, actor_type, actor_id)
     VALUES (${input.actorId}, 'staged_email_materialization_run', 'free_discovery_candidates',
             ${`run:${Date.now()}`},
-            ${JSON.stringify({
+            ${JSON.stringify(sanitizeAuditPayload({
               ruleVersion: MATERIALIZATION_RULE_VERSION,
               examined: result.examined, created: result.created, linkedExisting: result.linkedExisting,
               alreadyLinked: result.alreadyLinked, held: result.held, skipped: result.skipped,
               failed: result.failed, pages: result.pages, nativeBlocked: result.nativeBlocked ?? null, paidProviderCalls: 0, outboundChanges: 0,
-            })}::jsonb, 'user', ${input.actorId})
+            }))}::jsonb, 'user', ${input.actorId})
   `).catch((error: any) => console.error("[StagedEmailMaterialization] audit write failed:", error?.message));
   return result;
 }

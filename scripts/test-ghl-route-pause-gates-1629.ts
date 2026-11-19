@@ -77,7 +77,7 @@ async function main(): Promise<void> {
   // separately asserted; the static allowlist below binds this helper to the
   // real call sites.
   const rejectingRoutes = [
-    "sdr", "admin", "underwriting", "deals",
+    "sdr", "admin", "deals",
     "documents", "partners", "partner-orgs:accept", "conversation-ai-config",
   ];
   for (const route of rejectingRoutes) {
@@ -139,7 +139,10 @@ async function main(): Promise<void> {
     reviewedEntryPasses(fs.readFileSync(entry.file, "utf8").split("\n"), entry),
   );
   assert("repeated route scans are deterministic", JSON.stringify(firstPass) === JSON.stringify(replay));
-  const reviewedRouteFiles = new Set(GHL_ROUTE_MUTATION_ALLOWLIST.map(entry => entry.file));
+  const reviewedRouteFiles = new Set(GHL_ROUTE_MUTATION_ALLOWLIST.map(entry => entry.file).filter(file => file !== "server/routes/toolkit.ts"));
+  // Toolkit delegates sending to the canonical sendGhlSms boundary, rather than mutating GHL here.
+  const delegatedToolkit = fs.readFileSync("server/routes/toolkit.ts", "utf8");
+  assert("toolkit SMS uses canonical transport", /const sent = await sendGhlSms\(\{/.test(delegatedToolkit));
   const expectedRouteFiles = new Set(
     rejectingRoutes.map(route => `server/routes/${route.split(":")[0]}.ts`),
   );

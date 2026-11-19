@@ -1,3 +1,4 @@
+import {existsSync} from "node:fs";
 import {spawn,type ChildProcess} from "node:child_process";
 import {mkdtemp,readFile,rm,mkdir,writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
@@ -28,7 +29,10 @@ export interface SessionOptions {
   userAgent?:string;
 }
 
-export const CHROMIUM_PATH=process.env.PUBLIC_SITE_CHROMIUM??"/repl/tools/bin/chromium";
+export const CHROMIUM_PATH = process.env.PUBLIC_SITE_CHROMIUM ?? [
+  "/repl/tools/bin/chromium", "/usr/bin/chromium", "/usr/bin/chromium-browser",
+  ...(process.platform === "darwin" ? ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"] : []),
+].find(existsSync);
 
 export interface BrowserHandle {
   newSession(options:SessionOptions):Promise<Session>;
@@ -91,20 +95,29 @@ class Cdp {
 }
 
 export async function launchBrowser():Promise<BrowserHandle> {
+  if (!CHROMIUM_PATH || !existsSync(CHROMIUM_PATH)) throw new Error("PUBLIC_CHROMIUM_NOT_AVAILABLE: install Chromium or set PUBLIC_SITE_CHROMIUM to its executable");
   const profile=await mkdtemp(path.join(tmpdir(),"public-site-browser-"));
   const child:ChildProcess=spawn(CHROMIUM_PATH,["--headless=new","--no-sandbox","--disable-gpu","--disable-dev-shm-usage",
+    ...(process.platform==="darwin"?["--use-mock-keychain","--password-store=basic"]:[]),
+    "--disable-background-timer-throttling","--disable-renderer-backgrounding","--disable-backgrounding-occluded-windows",
     "--hide-scrollbars","--force-color-profile=srgb","--disable-background-networking","--disable-extensions",
     "--remote-debugging-address=127.0.0.1","--remote-debugging-port=0",`--user-data-dir=${profile}`,"about:blank"],
     {stdio:["ignore","ignore","pipe"],detached:true,env:{PATH:process.env.PATH,HOME:profile}});
   let diagnostics="";
+  let launchError: Error | undefined;
+  child.on("error", error => { launchError = error; });
   child.stderr?.on("data",chunk=>{diagnostics=(diagnostics+String(chunk)).slice(-2000);});
   let port="";
   for(let i=0;i<300;i++){
     port=(await readFile(path.join(profile,"DevToolsActivePort"),"utf8").catch(()=>"")).split("\n")[0];
-    if(port)break;
+    if(port || launchError || child.exitCode !== null)break;
     await new Promise(r=>setTimeout(r,100));
   }
-  if(!/^\d+$/.test(port))throw new Error(`Chromium did not open a debugging port: ${diagnostics}`);
+  if(!/^\d+$/.test(port)) {
+    try { process.kill(-child.pid!, "SIGKILL"); } catch {}
+    await rm(profile, {recursive:true, force:true});
+    throw new Error(`Chromium did not open a debugging port: ${launchError?.message ?? diagnostics}`);
+  }
   const version=await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
   const browser=new Cdp();
   await browser.connect(version.webSocketDebuggerUrl);

@@ -31,7 +31,9 @@ requireText("server/storage/deals.ts", "ownerEmail");
 requireText("server/routes/contacts.ts", "parseStrictPagination");
 requireText("server/routes/deals.ts", "parseStrictPagination");
 requireText("server/routes/crm-operations.ts", "db.select().from(tickets).where(eq(tickets.contactId, contactId))");
-requireText("server/routes/crm-operations.ts", "db.select().from(tasks).where(eq(tasks.contactId, contactId))");
+assert.match(source("server/routes/crm-operations.ts"), /db\.select\(\{\.\.\.getTableColumns\(tasks\),effectiveState:taskStateSql\}\)\.from\(tasks\)\.where\(and\(eq\(tasks.contactId,contactId\),/,
+  "contact task read keeps the exact contact scope while returning derived effective state");
+requireText("server/routes/crm-operations.ts", 'taskReadPredicate({actor:req.user as any,asOf,timezone:"UTC"})');
 requireText("server/routes/inbox.ts", "authorizeInboxItemAccess");
 requireText("server/routes/inbox.ts", 'resultScope: complete ? "all_sources_exhausted" : "partial_source_pages"');
 requireText("server/routes/inbox-ownership.ts", "authorizeInboxItemAccess");

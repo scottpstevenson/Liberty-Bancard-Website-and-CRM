@@ -44,10 +44,12 @@ try {
   assert.ok(pair.every(response=>response.status===200));assert.equal(pair[0].body.changed,2);
   assert.equal((await h.pool.query("SELECT count(*)::int n FROM audit_logs WHERE action='contact_archived' AND entity_id IN ($1,$2)",[a.id,b.id])).rows[0].n,3);
   const request=await h.request("anonymous","POST","/api/data-requests",{email:a.email,fullName:"Fixture Subject",requestType:"delete",
-    status:"completed",processedBy:"forged",processedAt:"2026-01-01",executionState:"erased",version:99});
+    status:"completed",processedBy:"forged",processedAt:"2026-01-01",executionState:"erased",version:99},false,{"Idempotency-Key":randomUUID()});
   assert.equal(request.status,201,JSON.stringify(request.body));
-  assert.equal(request.body.status,"pending");assert.equal(request.body.processedBy,null);
-  assert.equal(request.body.executionState,"not_executed");assert.equal(request.body.version,1);
+  assert.equal(request.body.status,"pending");
+  assert.ok(!("processedBy" in request.body) && !("executionState" in request.body), "public receipt does not expose controlled review fields");
+  const storedRequest=(await h.pool.query("SELECT processed_by,execution_state,version FROM data_delete_requests WHERE id=$1",[request.body.id])).rows[0];
+  assert.deepEqual(storedRequest,{processed_by:null,execution_state:"not_executed",version:1});
   const path=`/api/data-requests/${request.body.id}`;
   const review={status:"processing",expectedVersion:1,subjectContactId:a.id,reviewEvidence:"Fixture record-match review",
     retentionReason:"Consent, audit, intake and send evidence retained; no erasure executed.",

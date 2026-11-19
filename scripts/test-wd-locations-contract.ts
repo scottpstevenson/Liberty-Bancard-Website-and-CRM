@@ -296,10 +296,11 @@ passes("invalid and prototype-name keys produce no document", () => {
 
 passes("the server routes answer an invalid key with 404, not the app shell", () => {
   const routes = read("server/routes/ssr-routes.ts");
+ensure(/function sendPublicNotFound[\s\S]*?res\.status\(404\)[\s\S]*?res\.send\(getPublicNotFoundHtml\(\)\)/.test(routes), "shared missing-page owner returns a branded HTTP 404");
   for (const handler of ["getLocationHtml(req.params.city, req.params.industry)", "getCityHubHtml(req.params.city)"]) {
     const at = routes.indexOf(handler);
     ensure(at > 0, `route for ${handler} not found`);
-    ensure(/if \(!html\) return res\.status\(404\)\.end\(\);/.test(routes.slice(at, at + 160)), `${handler} does not 404 on a miss`);
+    ensure(/if \(!html\) return sendPublicNotFound\(res\);/.test(routes.slice(at, at + 160)), `${handler} does not 404 on a miss`);
   }
   ensure(routes.indexOf('"/locations/:city/:industry"') < routes.indexOf('"/locations/:city"'), "detail route must be registered before the hub route");
   ensure(routes.indexOf('"/areas-served"') > 0, "areas-served has no server route");

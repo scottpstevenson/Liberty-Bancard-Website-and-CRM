@@ -65,6 +65,7 @@ const enrollmentMutationCounts: Record<string, number> = {
   "server/services/statement-acquisition.ts": 1,
   "server/services/vas-upsell.ts": 1,
   "server/services/workflow-executor.ts": 1,
+  "server/services/website-email-lane-store.ts": 1,
 };
 // The canonical preparation writer deliberately creates paused membership
 // only. Include it in the exhaustive census without treating held staging as
@@ -75,6 +76,13 @@ assert.match(preparation,
 assert.match(preparation, /outboundAuthorized:\s*false/);
 assert.match(preparation, /member\.status !== "paused"/);
 assert.doesNotMatch(preparation, /SET\s+status\s*=\s*'active'/i);
+// Website warm mail owns a separate durable admission. It cannot grant legacy
+// promotional execution; the worker excludes websiteAdmissionId rows.
+const warmLane = read("server/services/website-email-lane-store.ts");
+assert.match(warmLane, /boundary: "creation"/);
+assert.match(warmLane, /INSERT INTO website_lifecycle_admissions/);
+assert.match(warmLane, /website_admission_id/);
+assert.match(read("server/services/sequence-worker.ts"), /filter\(\(enrollment\) => enrollment.websiteAdmissionId == null\)/);
 const enrollmentMutationInventory = Object.keys(enrollmentMutationCounts).sort();
 
 const mutationPattern =
@@ -101,7 +109,7 @@ for (const file of enrollmentMutationInventory) {
     enrollmentMutationCounts[file],
     `${file} enrollment mutation callsite count changed; every callsite requires a separate boundary review`,
   );
-  if (file === "server/services/canonical-recipient-preparation.ts") {
+  if (file === "server/services/canonical-recipient-preparation.ts" || file === "server/services/website-email-lane-store.ts") {
     // This writer has the separately asserted paused-only contract above.
     // It cannot authorize execution; central lifecycle decisions remain
     // mandatory on every active writer and on all release/unpause paths.

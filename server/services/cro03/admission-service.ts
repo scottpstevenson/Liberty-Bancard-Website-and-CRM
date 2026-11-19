@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import {currentCro03bProjectionOwner} from "./projection-authority";
 import { db } from "../../db";
 import {
   candidateHash, canonicalCandidateDisplay, normalizeCandidateValue, stableCro03RecipeHash,
@@ -224,6 +225,7 @@ export async function assertCro03bLegacySourceWriteAllowed(input: {
       FROM cro03b_recipe_items i
       JOIN cro03a_handoffs h ON h.id=i.handoff_id
      WHERE h.source_type=${input.subjectType} AND h.source_key=${input.subjectKey}
+       AND i.id IS DISTINCT FROM ${currentCro03bProjectionOwner()?.sourceType === input.subjectType && currentCro03bProjectionOwner()?.sourceKey === input.subjectKey ? currentCro03bProjectionOwner()!.itemId : null}::uuid
        AND i.state IN ('queued','running','waiting','review_required')
      ORDER BY i.created_at,i.id LIMIT 1
   `))[0];
@@ -248,7 +250,8 @@ export async function assertCro03bLegacyContactWriteAllowed(contactId: number, w
     SELECT i.id,h.source_type,h.source_key
       FROM cro03b_recipe_items i
       JOIN cro03a_handoffs h ON h.id=i.handoff_id
-     WHERE (i.contact_id=${contactId}
+     WHERE i.id IS DISTINCT FROM ${currentCro03bProjectionOwner()?.itemId ?? null}::uuid
+       AND (i.contact_id=${contactId}
         OR EXISTS (
           SELECT 1 FROM contact_source_events e
            WHERE e.contact_id=${contactId} AND e.source_external_id=h.source_key

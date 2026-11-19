@@ -14,7 +14,8 @@ const h=await stage3BHttpFixture(async app=>{
   const {registerTicketsTasksRoutes}=await import("../server/routes/tickets-tasks");
   const {registerWorkflowsRoutes}=await import("../server/routes/workflows");
   const {registerAdminRoutes}=await import("../server/routes/admin");
-  registerContactsRoutes(app);registerCrmOperationsRoutes(app);registerKnowledgeAdminRoutes(app);
+  const {registerContactDeletionRoutes}=await import("../server/routes/contact-deletion");
+  registerContactDeletionRoutes(app);registerContactsRoutes(app);registerCrmOperationsRoutes(app);registerKnowledgeAdminRoutes(app);
   registerMessageDraftRoutes(app);registerNotificationsRoutes(app);registerTicketsTasksRoutes(app);
   registerWorkflowsRoutes(app);registerAdminRoutes(app);
   // Missing unrelated fixture services fail explicitly, never fabricate data.
@@ -37,7 +38,7 @@ try {
   await h.pool.query(`INSERT INTO knowledge_sources(title,source_type,status,audience,content)
     VALUES('Browser knowledge fixture','text_block','draft','staff','Fixture content')`);
   await h.pool.query("UPDATE users SET tour_completed_at=NOW() WHERE id=$1",[h.userId("admin")]);
-  browser=await privateStage3Browser(h.base,h.sessions.get("admin")!.cookie,h.originalFetch);
+  browser=await privateStage3Browser(h.base,h.sessions.get("admin")!.cookie,h.originalFetch,".local/tasks/stage3-b-browser",{realInput:true});
   await browser.call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await browser.navigate("/dashboard/knowledge-admin");
   await browser.waitFor(/Browser knowledge fixture/);
@@ -54,11 +55,15 @@ try {
   // Radix triggers use a pointer event; menu activation and native confirmation
   // are exercised in the actual page, not with direct request substitutes.
   const openMenu=()=>browser!.evaluate(`document.querySelector('[data-testid="button-actions-${contact.id}"]').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,ctrlKey:false}))`);
-  await openMenu();await browser.waitFor(/Archive/);
+  if (!await browser.evaluate(`!!document.querySelector('[data-testid="menu-archive-contact-${contact.id}"]')`)) await browser.click(`[data-testid="button-actions-${contact.id}"]`);
+  await browser.waitFor(/Archive/);
   browser.acceptDialogs(false);
   await browser.click(`[data-testid="menu-archive-contact-${contact.id}"]`);
   assert.equal((await h.pool.query("SELECT archived_at FROM contacts WHERE id=$1",[contact.id])).rows[0].archived_at,null,"Cancel performs no lifecycle write");
-  await openMenu();await browser.waitFor(/Archive/);
+  // Radix closes asynchronously after the cancelled native confirmation.
+  for(let n=0;n<100 && await browser.evaluate(`!!document.querySelector('[data-testid="menu-archive-contact-${contact.id}"]')`);n++) await new Promise(r=>setTimeout(r,25));
+  await browser.click(`[data-testid="button-actions-${contact.id}"]`);
+  for(let n=0;n<100 && !await browser.evaluate(`!!document.querySelector('[data-testid="menu-archive-contact-${contact.id}"]')`);n++) await new Promise(r=>setTimeout(r,25));
   browser.acceptDialogs(true);
   await browser.click(`[data-testid="menu-archive-contact-${contact.id}"]`);
   await browser.waitFor(/Contact archived/);
@@ -71,7 +76,8 @@ try {
   assert.equal((await h.pool.query("SELECT count(*)::int n FROM audit_logs WHERE entity_id=$1 AND action IN ('contact_archived','contact_restored')",[contact.id])).rows[0].n,2);
   await browser.navigate(`/dashboard/contacts/${contact.id}`);
   await browser.waitFor(/Browser Retained/);
-  await browser.click('[data-testid="button-compose-email-contact"]');
+  await browser.click('[data-testid="contact-more-actions"]');
+  await browser.click('[data-testid="menu-action-email"]');
   await browser.waitFor(/Saving never sends|No saved draft/);
   await browser.set('[data-testid="input-email-subject"]',"Retained browser draft");
   await browser.set('[data-testid="textarea-email-body"]',"Saved through the existing contextual composer. Not sent.");
@@ -79,7 +85,8 @@ try {
   await browser.waitFor(/Draft saved \(v1\)/);
   await browser.navigate(`/dashboard/contacts/${contact.id}`);
   await browser.waitFor(/Browser Retained/);
-  await browser.click('[data-testid="button-compose-email-contact"]');
+  await browser.click('[data-testid="contact-more-actions"]');
+  await browser.click('[data-testid="menu-action-email"]');
   await browser.waitFor(/Draft saved \(v1\)/);
   assert.equal(await browser.evaluate("document.querySelector('[data-testid=\"input-email-subject\"]').value"),"Retained browser draft");
   assert.match(await browser.evaluate("document.querySelector('[data-testid=\"textarea-email-body\"]').value"),/Saved through the existing/);
@@ -87,16 +94,17 @@ try {
   await browser.call("Input.dispatchKeyEvent",{type:"keyDown",key:"Tab",code:"Tab",windowsVirtualKeyCode:9});
   await browser.call("Input.dispatchKeyEvent",{type:"keyUp",key:"Tab",code:"Tab",windowsVirtualKeyCode:9});
   assert.ok(await browser.evaluate("document.activeElement.tagName!=='BODY'"),"keyboard focus stays in interactive draft dialog");
+  await browser.navigate(`/dashboard/contacts/${contact.id}?area=overview&section=overview`);
+  await browser.waitFor(/Browser Retained/);
   await browser.call("Emulation.setDeviceMetricsOverride",{width:402,height:874,deviceScaleFactor:1,mobile:true});
-  await browser.waitFor(/Switch to desktop view/);
-  await browser.evaluate("Array.from(document.querySelectorAll('button')).find(b=>b.innerText.includes('Switch to desktop view')).click()");
-  // The actual switch hard-navigates to Overview. Wait for that navigation
-  // before reopening the contact; otherwise it can win the next navigation.
+  await browser.waitFor(/This view is not in the mobile app/);
+  await browser.click('[data-testid="button-open-desktop-layout"]');
   await browser.waitFor(/Toggle Sidebar/);
-  assert.equal(await browser.evaluate("location.pathname"),"/dashboard");
+  assert.equal(await browser.evaluate("location.pathname"),`/dashboard/contacts/${contact.id}`,"the desktop choice preserves the actual contact destination");
   await browser.navigate(`/dashboard/contacts/${contact.id}`);
   await browser.waitFor(/Browser Retained/);
-  await browser.click('[data-testid="button-compose-email-contact"]');
+  await browser.click('[data-testid="contact-more-actions"]');
+  await browser.click('[data-testid="menu-action-email"]');
   await browser.waitFor(/Draft saved \(v1\)/);
   assert.equal(await browser.evaluate("document.querySelector('[data-testid=\"input-email-subject\"]').value"),"Retained browser draft");
   assert.equal(await browser.evaluate("document.documentElement.scrollWidth<=innerWidth+1"),true,"phone desktop-view draft has no horizontal overflow");
@@ -112,7 +120,7 @@ try {
   for(const width of [1440,402]){
     await browser.call("Emulation.setDeviceMetricsOverride",{width,height:874,deviceScaleFactor:1,mobile:width<500});
     await browser.navigate("/");
-    await browser.waitFor(/Payments that fit the way your business works\./);
+    await browser.waitFor(/Know what you’re paying\. See your options\./);
     for(let attempt=0;attempt<100;attempt++){
       if(await browser.evaluate("!!document.querySelector('[data-testid=\"text-hero-heading\"]')"))break;
       await new Promise(resolve=>setTimeout(resolve,100));

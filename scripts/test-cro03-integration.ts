@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import {retainedCro03ProviderOperation} from "./fixtures/retained-cro03-provider-operation";
 /**
  * CRO-03 disposable PostgreSQL concurrency/recovery certification.
  * The CI wrapper replaces the environment, reserves an isolated Redis prefix,
@@ -29,6 +30,7 @@ const { reserveCro03ProviderOperation } = await import(
   "../server/services/cro03/provider-context"
 );
 const { sealCandidate } = await import("../server/services/cro03/candidate-vault");
+const {hashCro03Evidence}=await import("../server/services/cro03/source-staging");
 const { candidateHash } = await import("../server/services/cro03/contracts");
 
 let assertions = 0;
@@ -169,29 +171,15 @@ async function createRoutableExecutionFixture(): Promise<{
      RETURNING id`,
     [batchId, contactId, `provider-fingerprint-${suffix}-${batchIds.length}`,
       `provider-membership-${suffix}-${batchIds.length}`,
-      JSON.stringify({
-         id: contactId,
-        companyName: "Certification Merchant",
-        website: "example.test",
-        phone: `556${suffix.slice(0, 7)}`,
-        email: `race-${suffix}-${contactIds.length - 1}@example.test`,
-        emailStatus: "valid",
-      }),
-      `subject-snapshot-${suffix}-${batchIds.length}`,
-      JSON.stringify({
-        policyVersion: 1,
-        providers: ["apollo", "zerobounce"],
-        recipes: [
-          { provider: "apollo", operation: "contact_enrichment", requiresPaidEligibility: true },
-          { provider: "zerobounce", operation: "email_validation_backlink", requiresPaidEligibility: false },
-        ],
-      }),
-      `route-plan-${suffix}-${batchIds.length}`],
+      JSON.stringify({id:contactId,companyName:"Certification Merchant",website:"example.test",phone:`556${suffix.slice(0,7)}`,email:`race-${suffix}-${contactIds.length-1}@example.test`,emailStatus:"valid"}),
+      hashCro03Evidence({id:contactId,companyName:"Certification Merchant",website:"example.test",phone:`556${suffix.slice(0,7)}`,email:`race-${suffix}-${contactIds.length-1}@example.test`,emailStatus:"valid"}),
+      JSON.stringify({policyVersion:1,providers:["apollo","zerobounce"],recipes:[{provider:"apollo",operation:"contact_enrichment",requiresPaidEligibility:true},{provider:"zerobounce",operation:"email_validation_backlink",requiresPaidEligibility:false}]}),
+      hashCro03Evidence({policyVersion:1,providers:["apollo","zerobounce"],recipes:[{provider:"apollo",operation:"contact_enrichment",requiresPaidEligibility:true},{provider:"zerobounce",operation:"email_validation_backlink",requiresPaidEligibility:false}]})],
   );
   const item = await pool.query<{ id: string }>(
     `INSERT INTO cro03_enrichment_items
-       (batch_id,membership_id,state,next_attempt_at,created_at)
-     VALUES ($1,$2,'queued','1999-01-01','1999-01-01') RETURNING id`,
+       (batch_id,membership_id,state,next_attempt_at,created_at,subject_snapshot_hash,route_plan_hash)
+     SELECT $1,$2,'queued','1999-01-01','1999-01-01',subject_snapshot_hash,route_plan_hash FROM cro03_batch_memberships WHERE id=$2 RETURNING id`,
     [batchId, membership.rows[0].id],
   );
   return { batchId, itemId: item.rows[0].id, contactId };
@@ -320,12 +308,13 @@ try {
     itemClaimToken: String(reclaimed!.claim_token ?? reclaimed!.claimToken),
     executionFence: Number(reclaimed!.execution_fence),
   };
-  const [reservationA, reservationB] = await Promise.all([
-    reserveCro03ProviderOperation(reservationInput),
-    reserveCro03ProviderOperation(reservationInput),
-  ]);
-  check(reservationA && reservationB && reservationA.operationId === reservationB.operationId,
-    "concurrent provider reservation replay returns one operation");
+  let retiredCallerDenied=false;
+  try { await reserveCro03ProviderOperation(reservationInput); } catch(error) { retiredCallerDenied=/Unapproved provider caller/.test(String(error)); }
+  check(retiredCallerDenied,"retired enrichment-factory caller cannot issue provider authority");
+  check(Number((await pool.query('SELECT count(*)::int n FROM provider_operations WHERE idempotency_key=$1',[reservationInput.operationIdempotencyKey])).rows[0].n)===0,"retired caller denial makes no reservation write");
+  // Remaining assertions exercise current accounting and recovery against retained
+  // pre-retirement data; the fixture does not certify a new reservation grant.
+  const reservationA=await retainedCro03ProviderOperation(pool,reservationInput);
   providerOperationIds.push(reservationA!.operationId);
   const operationCounts = await pool.query(
     `SELECT count(*)::int AS operations,
@@ -334,7 +323,7 @@ try {
     [reservationInput.operationIdempotencyKey],
   );
   check(operationCounts.rows[0].operations === 1 && operationCounts.rows[0].reserved === 1,
-    "provider budget authority reserves exactly once");
+    "retained accounting fixture begins with exactly one reserved operation");
 
   const providerRun = reservationRun;
   await Promise.all([
@@ -407,7 +396,7 @@ try {
       VALUES ($1,'apollo',1,'provider_pre_spend','planned','none',$2) RETURNING id`,
      [reservedCrash.itemIds[0], `${suffix}-reserved-crash`],
    );
-   const reservedCrashOperation = await reserveCro03ProviderOperation({
+   const reservedCrashOperation = await retainedCro03ProviderOperation(pool,{
      provider: "apollo",
      operationIdempotencyKey: `${fixtureKey}-reserved-crash`,
      targetFingerprint: suffix,
@@ -496,245 +485,61 @@ try {
    check(mismatchedReceipt,
      "database rejects receipt units and amount without matching terminal ledger evidence");
 
-  await pool.query(
-    `UPDATE provider_controls
-        SET enabled=TRUE, circuit_state='closed', local_budget_units=10,
-            reserved_units=0, consumed_units=0
-      WHERE provider='apollo'`,
-  );
-  const race = await createRoutableExecutionFixture();
-  let releasePreTransport!: () => void;
-  const preTransportReleased = new Promise<void>((resolve) => { releasePreTransport = resolve; });
-  let signalPreTransport!: () => void;
-  const atPreTransport = new Promise<void>((resolve) => { signalPreTransport = resolve; });
-  let transportCalls = 0;
-  const processing = processNextCro03Item({
-    allowCertificationTransport: true,
-    resolveFence: async () => ({
-      allowed: true,
-      resolution: "exclusive",
-      reasonCodes: [],
-      dependencyFingerprint: `provider-fingerprint-${suffix}-${batchIds.length}`,
-      policyVersion: 1,
-    } as any),
-    beforeProviderTransport: async () => {
-      signalPreTransport();
-      await preTransportReleased;
-    },
-    apollo: async () => {
-      transportCalls++;
-      return { outcome: "success", candidates: [] };
-    },
-  });
-  await atPreTransport;
-  await cancelCro03Batch(race.batchId);
-  releasePreTransport();
-  const raceResult = await processing;
-  const raceState = await pool.query(
-    `SELECT i.state, r.state AS run_state, r.billing_disposition,
-            l.disposition AS ledger_disposition
-       FROM cro03_enrichment_items i
-       JOIN cro03_provider_runs r ON r.item_id=i.id
-       JOIN cro03_provider_ledger l ON l.provider_run_id=r.id AND l.event_type='terminal'
-      WHERE i.id=$1`,
-    [race.itemId],
-  );
-  check(raceResult === "superseded" && transportCalls === 0,
-    "cancellation after reservation but before transport prevents the provider call");
-  check(raceState.rows[0].state === "cancelled" &&
-    raceState.rows[0].run_state === "superseded" &&
-    raceState.rows[0].billing_disposition === "released" &&
-    raceState.rows[0].ledger_disposition === "released",
-    "post-reservation cancellation releases economics without reviving cancelled work");
+  // The enrichment-factory caller is no longer approved for new provider
+  // dispatch. Exercise current cancellation/recovery on retained reservation
+  // data without reopening that caller or waiting for unreachable hooks.
+  async function retainedRun(dispatched:boolean) {
+    const fixture=await createRoutableExecutionFixture();
+    await pool.query(`UPDATE cro03_enrichment_items SET state='running',claim_token=$2,
+      execution_fence=1,lease_expires_at=NOW()+interval '5 minutes' WHERE id=$1`,[fixture.itemId,randomUUID()]);
+    const run=(await pool.query(`INSERT INTO cro03_provider_runs
+      (item_id,provider,route_policy_version,purpose,state,billing_disposition,target_fingerprint)
+      VALUES($1,'apollo',1,'provider_pre_spend','planned','none',$2) RETURNING id`,[fixture.itemId,suffix])).rows[0];
+    const operation=await retainedCro03ProviderOperation(pool,{provider:'apollo',operationIdempotencyKey:`${fixtureKey}-retained-${run.id}`,
+      targetFingerprint:suffix,purpose:'provider_pre_spend',providerRunId:run.id});
+    providerOperationIds.push(operation.operationId);
+    if(dispatched) {
+      const attempt=(await pool.query(`INSERT INTO provider_attempts(operation_id,attempt_number,outcome,dispatch_marked_at) VALUES($1,1,'pending',NOW()) RETURNING id`,[operation.operationId])).rows[0];
+      await pool.query(`UPDATE cro03_provider_runs SET state='running',provider_attempt_id=$2 WHERE id=$1`,[run.id,attempt.id]);
+    }
+    return {...fixture,runId:run.id,operationId:operation.operationId};
+  }
+  const reservedCancellation=await retainedRun(false);
+  check(await cancelCro03Batch(reservedCancellation.batchId),"operator cancellation accepts retained reserved work");
+  const reservedCancelled=(await pool.query(`SELECT r.state,r.billing_disposition,o.billing_state
+    FROM cro03_provider_runs r JOIN provider_operations o ON o.id=r.operation_id WHERE r.id=$1`,[reservedCancellation.runId])).rows[0];
+  check(reservedCancelled.state==='cancelled' && reservedCancelled.billing_disposition==='released' && reservedCancelled.billing_state==='released',
+    "retained undispatched reservation is cancelled and released without provider authority");
 
-  await pool.query(
-    `UPDATE provider_controls
-        SET enabled=TRUE, circuit_state='closed', local_budget_units=10,
-            reserved_units=0, consumed_units=0
-      WHERE provider='apollo'`,
-  );
-  const dispatchedRace = await createRoutableExecutionFixture();
-  let releaseAfterDispatch!: () => void;
-  const afterDispatchReleased = new Promise<void>((resolve) => { releaseAfterDispatch = resolve; });
-  let signalAfterDispatch!: () => void;
-  const atAfterDispatch = new Promise<void>((resolve) => { signalAfterDispatch = resolve; });
-  let dispatchedTransportCalls = 0;
-  const dispatchedProcessing = processNextCro03Item({
-    allowCertificationTransport: true,
-    resolveFence: async () => ({
-      allowed: true,
-      resolution: "exclusive",
-      reasonCodes: [],
-      dependencyFingerprint: `provider-fingerprint-${suffix}-${batchIds.length}`,
-      policyVersion: 1,
-    } as any),
-    afterProviderDispatch: async () => {
-      signalAfterDispatch();
-      await afterDispatchReleased;
-    },
-    apollo: async () => {
-      dispatchedTransportCalls++;
-      return { outcome: "success", candidates: [] };
-    },
-  });
-  await atAfterDispatch;
-  await pool.query(
-    `UPDATE cro03_enrichment_items
-        SET lease_expires_at=NOW()-INTERVAL '1 second'
-      WHERE id=$1`,
-    [dispatchedRace.itemId],
-  );
-  const takeoverAttempt = await claimNextCro03Item();
-  check(String(takeoverAttempt?.id ?? "") !== dispatchedRace.itemId,
-    "a dispatched provider run is never lease-reclaimed for duplicate transport");
-  await cancelCro03Batch(dispatchedRace.batchId);
-  releaseAfterDispatch();
-  await dispatchedProcessing;
-  const dispatchedState = await pool.query(
-    `SELECT count(*)::int AS runs,
-            max(r.billing_disposition) AS billing,
-            max(l.disposition) AS ledger
-       FROM cro03_provider_runs r
-        JOIN cro03_provider_ledger l ON l.provider_run_id=r.id AND l.event_type='terminal'
-      WHERE r.item_id=$1`,
-    [dispatchedRace.itemId],
-  );
-   check(dispatchedTransportCalls === 0 && dispatchedState.rows[0].runs === 1,
-     "cancellation after dispatch authorization but before adapter invocation prevents handoff");
-   check(dispatchedState.rows[0].billing === "released" &&
-     dispatchedState.rows[0].ledger === "released",
-     "revoked final adapter authority releases an unmade provider call");
+  const dispatchedCancellation=await retainedRun(true);
+  await pool.query(`UPDATE cro03_enrichment_items SET lease_expires_at=NOW()-interval '1 second' WHERE id=$1`,[dispatchedCancellation.itemId]);
+  const takeoverAttempt=await claimNextCro03Item();
+  check(String(takeoverAttempt?.id??'')!==dispatchedCancellation.itemId,"retained running provider work is not lease-reclaimed for duplicate dispatch");
+  await cancelCro03Batch(dispatchedCancellation.batchId);
+  await pool.query(`UPDATE provider_operations SET lease_expires_at=NOW()-interval '1 second' WHERE id=$1`,[dispatchedCancellation.operationId]);
+  check(await recoverExpiredCro03Dispatches()===1,"cancelled retained running work is recovered exactly once");
+  const recoveredState=(await pool.query(`SELECT i.state,r.state run_state,r.billing_disposition,o.billing_state
+    FROM cro03_enrichment_items i JOIN cro03_provider_runs r ON r.item_id=i.id
+    JOIN provider_operations o ON o.id=r.operation_id WHERE i.id=$1`,[dispatchedCancellation.itemId])).rows[0];
+  check(recoveredState.state==='cancelled' && recoveredState.run_state==='failed' && recoveredState.billing_disposition==='ambiguous' && recoveredState.billing_state==='ambiguous',
+    "retained dispatched cancellation/crash remains ambiguous rather than claiming a clean release");
+  check(await recoverExpiredCro03Dispatches()===0,"a second retained-dispatch recovery does not double-settle economics");
 
-  await pool.query(
-    `UPDATE provider_controls
-        SET enabled=TRUE, circuit_state='closed', local_budget_units=10,
-            reserved_units=0, consumed_units=0
-      WHERE provider='apollo'`,
-  );
-  const crashRace = await createRoutableExecutionFixture();
-  let releaseCrashedDispatch!: () => void;
-  const crashedDispatchReleased = new Promise<void>((resolve) => { releaseCrashedDispatch = resolve; });
-  let signalCrashedDispatch!: () => void;
-  const atCrashedDispatch = new Promise<void>((resolve) => { signalCrashedDispatch = resolve; });
-  let crashTransportCalls = 0;
-  const crashedProcessing = processNextCro03Item({
-    allowCertificationTransport: true,
-    resolveFence: async () => ({
-      allowed: true,
-      resolution: "exclusive",
-      reasonCodes: [],
-      dependencyFingerprint: `provider-fingerprint-${suffix}-${batchIds.length}`,
-      policyVersion: 1,
-    } as any),
-    afterProviderDispatch: async () => {
-      signalCrashedDispatch();
-      await crashedDispatchReleased;
-    },
-    apollo: async () => {
-      crashTransportCalls++;
-      return { outcome: "success", candidates: [] };
-    },
-  });
-  await atCrashedDispatch;
-  await cancelCro03Batch(crashRace.batchId);
-  await pool.query(
-    `UPDATE provider_operations SET lease_expires_at=NOW()-INTERVAL '1 second'
-      WHERE id=(SELECT operation_id FROM cro03_provider_runs WHERE item_id=$1)`,
-    [crashRace.itemId],
-  );
-  const recoveredDispatches = await recoverExpiredCro03Dispatches();
-  releaseCrashedDispatch();
-  await crashedProcessing;
-  const recoveredState = await pool.query(
-    `SELECT i.state, i.terminal_code, r.state AS run_state, r.billing_disposition,
-            l.disposition AS ledger_disposition, o.billing_state
-       FROM cro03_enrichment_items i
-       JOIN cro03_provider_runs r ON r.item_id=i.id
-        JOIN cro03_provider_ledger l ON l.provider_run_id=r.id AND l.event_type='terminal'
-       JOIN provider_operations o ON o.id=r.operation_id
-      WHERE i.id=$1`,
-    [crashRace.itemId],
-  );
-  check(recoveredDispatches === 1 && crashTransportCalls === 0,
-    "cancelled then crashed dispatched work is reconciled without redispatching transport");
-  check(recoveredState.rows[0].state === "cancelled" &&
-    recoveredState.rows[0].run_state === "failed" &&
-    recoveredState.rows[0].billing_disposition === "ambiguous" &&
-    recoveredState.rows[0].ledger_disposition === "ambiguous" &&
-    recoveredState.rows[0].billing_state === "ambiguous",
-    "cancellation-plus-crash recovery terminalizes item, run, operation, and economics");
+  const retiredRoute=await createRoutableExecutionFixture();
+  await pool.query(`UPDATE cro03_enrichment_items SET created_at='1900-01-01',next_attempt_at='1900-01-01' WHERE id=$1`,[retiredRoute.itemId]);
+  let forbiddenLegacyTransport=0,unreachableDispatchHooks=0;
+  let retiredRouteDenied=false;
+  try { await processNextCro03Item({allowCertificationTransport:true,
+    resolveFence:async()=>({allowed:true,resolution:'exclusive',reasonCodes:[],dependencyFingerprint:`provider-fingerprint-${suffix}-${batchIds.length}`,policyVersion:1} as any),
+    beforeProviderTransport:async()=>{unreachableDispatchHooks++;},
+    afterProviderDispatch:async()=>{unreachableDispatchHooks++;},
+    apollo:async()=>{forbiddenLegacyTransport++;return {outcome:'success',candidates:[]};}});
+  } catch(error) { if(!/Unapproved provider caller/.test(String(error))) throw error; retiredRouteDenied=true; }
+  const retiredRuns=await pool.query(`SELECT count(*)::int n FROM cro03_provider_runs WHERE item_id=$1 AND operation_id IS NOT NULL`,[retiredRoute.itemId]);
+  check(retiredRouteDenied && forbiddenLegacyTransport===0 && unreachableDispatchHooks===0 && retiredRuns.rows[0].n===0,
+    "retired legacy route invokes neither transport hooks nor adapters and obtains no provider operation");
 
-  await pool.query(
-    `UPDATE provider_controls
-        SET enabled=TRUE, circuit_state='closed', local_budget_units=10,
-            reserved_units=0, consumed_units=0
-      WHERE provider='apollo'`,
-  );
-  const routeChain = await createRoutableExecutionFixture();
-  await pool.query(
-    `UPDATE contacts
-        SET email_status='unvalidated', email_mutation_generation=1
-      WHERE id=$1`,
-    [routeChain.contactId],
-  );
-  const routeDeps = {
-    allowCertificationTransport: true,
-    resolveFence: async () => ({
-      allowed: true,
-      resolution: "exclusive",
-      reasonCodes: [],
-      dependencyFingerprint: `provider-fingerprint-${suffix}-${batchIds.length}`,
-      policyVersion: 1,
-    } as any),
-    apollo: async () => ({
-      outcome: "success" as const,
-      candidates: [{
-        field: "email" as const,
-        value: `winning-${suffix}@example.test`,
-        confidence: 99,
-        sourceRank: 1,
-      }],
-    }),
-  };
-  await processNextCro03Item(routeDeps);
-  const afterApollo = await pool.query(
-    `SELECT state, current_provider FROM cro03_enrichment_items WHERE id=$1`,
-    [routeChain.itemId],
-  );
-  check(afterApollo.rows[0].state === "waiting" &&
-    afterApollo.rows[0].current_provider === "apollo",
-    "multi-step route waits for its winning Apollo candidate projection");
-  await processNextCro03Mutation();
-  const afterProjection = await pool.query(
-    `SELECT state FROM cro03_enrichment_items WHERE id=$1`,
-    [routeChain.itemId],
-  );
-  check(afterProjection.rows[0].state === "queued",
-    "winning email projection requeues the item for its remaining provider step");
-  await processNextCro03Item(routeDeps);
-  const routeOrder = await pool.query(
-    `SELECT array_agg(provider ORDER BY created_at, provider)::text AS providers
-       FROM cro03_provider_runs WHERE item_id=$1`,
-    [routeChain.itemId],
-  );
-  const validationIntent = await pool.query(
-    `SELECT v.purpose, r.validation_intent_id, r.provider_outcome
-       FROM validation_intents v
-       JOIN cro03_provider_runs r ON r.validation_intent_id=v.id
-      WHERE v.contact_id=$1 AND v.purpose='cro03_winning_email'`,
-    [routeChain.contactId],
-  );
-  check(routeOrder.rows[0].providers === "{apollo,zerobounce}",
-    "Apollo and ZeroBounce execute in the persisted policy order");
-  check(validationIntent.rowCount === 1 && validationIntent.rows[0].provider_outcome === "no_result",
-    "ZeroBounce run links an existing-authority validation_pending intent without claiming success");
-
-  await pool.query(
-    `UPDATE provider_controls
-        SET enabled=TRUE, circuit_state='closed', local_budget_units=10,
-            reserved_units=0, consumed_units=0
-      WHERE provider='apollo'`,
-  );
+  await pool.query(`UPDATE provider_controls SET enabled=TRUE,circuit_state='closed',local_budget_units=10,reserved_units=0,consumed_units=0 WHERE provider='apollo'`);
   const accountingRace = await createExecutionFixture(1);
   const accountingToken = randomUUID();
   await pool.query(
@@ -750,7 +555,7 @@ try {
      VALUES ($1,'apollo',1,'provider_pre_spend','planned','none',$2) RETURNING id`,
     [accountingRace.itemIds[0], suffix],
   );
-  const accountingReservation = await reserveCro03ProviderOperation({
+  const accountingReservation = await retainedCro03ProviderOperation(pool,{
     provider: "apollo",
     operationIdempotencyKey: `${fixtureKey}-accounting-race`,
     targetFingerprint: suffix,
@@ -824,76 +629,7 @@ try {
     `CRO-03 disposable concurrency/recovery certification passed (${assertions} assertions; no provider/network transport).`,
   );
 } finally {
-  // This cleanup is permitted only after the disposable-infrastructure guard.
-  await pool.query("BEGIN");
-  try {
-    await pool.query(`ALTER TABLE cro03_receipts DISABLE TRIGGER cro03_receipt_immutable`);
-    await pool.query(`ALTER TABLE cro03_provider_ledger DISABLE TRIGGER cro03_ledger_immutable`);
-    await pool.query(`ALTER TABLE cro03_candidates DISABLE TRIGGER cro03_candidate_immutable`);
-    await pool.query(`ALTER TABLE cro03_batch_memberships DISABLE TRIGGER cro03_membership_immutable`);
-    if (batchIds.length) {
-      await pool.query(
-        `UPDATE cro03_provider_runs SET receipt_id=NULL
-          WHERE item_id IN (
-            SELECT id FROM cro03_enrichment_items WHERE batch_id = ANY($1::uuid[]))`,
-        [batchIds],
-      );
-      await pool.query(
-        `DELETE FROM cro03_receipts WHERE provider_run_id IN (
-           SELECT r.id FROM cro03_provider_runs r JOIN cro03_enrichment_items i ON i.id=r.item_id
-           WHERE i.batch_id = ANY($1::uuid[]))`,
-        [batchIds],
-      );
-      await pool.query(
-        `DELETE FROM cro03_provider_ledger WHERE provider_run_id IN (
-           SELECT r.id FROM cro03_provider_runs r JOIN cro03_enrichment_items i ON i.id=r.item_id
-           WHERE i.batch_id = ANY($1::uuid[]))`,
-        [batchIds],
-      );
-      await pool.query(
-        `DELETE FROM cro03_arbitration_decisions WHERE item_id IN (
-           SELECT id FROM cro03_enrichment_items WHERE batch_id = ANY($1::uuid[]))`,
-        [batchIds],
-      );
-      await pool.query(
-        `DELETE FROM cro03_mutation_commands WHERE item_id IN (
-           SELECT id FROM cro03_enrichment_items WHERE batch_id = ANY($1::uuid[]))`,
-        [batchIds],
-      );
-      await pool.query(
-        `DELETE FROM cro03_candidates WHERE item_id IN (
-           SELECT id FROM cro03_enrichment_items WHERE batch_id = ANY($1::uuid[]))`,
-        [batchIds],
-      );
-      await pool.query(
-        `DELETE FROM cro03_provider_runs WHERE item_id IN (
-           SELECT id FROM cro03_enrichment_items WHERE batch_id = ANY($1::uuid[]))`,
-        [batchIds],
-      );
-      await pool.query(`DELETE FROM cro03_enrichment_items WHERE batch_id = ANY($1::uuid[])`, [batchIds]);
-      await pool.query(`DELETE FROM cro03_batch_memberships WHERE batch_id = ANY($1::uuid[])`, [batchIds]);
-      await pool.query(`DELETE FROM cro03_enrichment_batches WHERE id = ANY($1::uuid[])`, [batchIds]);
-    }
-    if (providerOperationIds.length) {
-      await pool.query(`DELETE FROM provider_operations WHERE id = ANY($1::uuid[])`, [providerOperationIds]);
-    }
-    if (contactIds.length) {
-      await pool.query(`DELETE FROM contacts WHERE id = ANY($1::int[])`, [contactIds]);
-    }
-    await pool.query(
-      `UPDATE provider_controls
-          SET enabled=FALSE, local_budget_units=0, reserved_units=0, consumed_units=0
-        WHERE provider='apollo'`,
-    );
-    await pool.query(`ALTER TABLE cro03_receipts ENABLE TRIGGER cro03_receipt_immutable`);
-    await pool.query(`ALTER TABLE cro03_provider_ledger ENABLE TRIGGER cro03_ledger_immutable`);
-    await pool.query(`ALTER TABLE cro03_candidates ENABLE TRIGGER cro03_candidate_immutable`);
-    await pool.query(`ALTER TABLE cro03_batch_memberships ENABLE TRIGGER cro03_membership_immutable`);
-    await pool.query("COMMIT");
-  } catch (error) {
-    await pool.query("ROLLBACK");
-    throw error;
-  } finally {
-    await pool.end();
-  }
+  // Immutable evidence and inert fixtures are retained until the launcher drops
+  // this verified disposable database. Never disable native integrity triggers.
+  await pool.end();
 }

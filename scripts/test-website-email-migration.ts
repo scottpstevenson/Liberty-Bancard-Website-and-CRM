@@ -5,8 +5,8 @@
  *
  *  1. Fresh install through the harness; exact ledger hash; harness re-run leaves the ledger unchanged.
  *  2. SQL-to-Drizzle parity for every new table and the new enrollment column (columns, types, nullability, indexes, checks).
- *  3. Upgrade with historic rows: the prior head is the harness-migrated schema with exactly the 0382 objects reversed and
- *     its ledger row removed (an emulated 0381 head, stated as such); the harness then upgrades it and every historic row
+ *  3. Upgrade with historic rows: a copied migration journal stops at the actual 0381 head;
+ *     the production harness then upgrades it through the current journal and every historic row
  *     survives with legal values still legal, unknown values still rejected, and nothing opened.
  *  4. Partial schema: an interrupted earlier attempt (some objects present, no ledger row) converges without data loss.
  *  5. Rollback and replay with retained rows: the additive schema keeps rows, legacy writers still work unchanged,
@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { spawnSync } from "node:child_process";
 import { Client } from "pg";
 import { getTableConfig } from "drizzle-orm/pg-core";
@@ -30,7 +31,7 @@ if (/(prod|production|live)/i.test(source.pathname)) throw new Error("Refusing n
 const root = new URL(sourceUrl);
 root.pathname = "/postgres";
 const nonce = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
-const names = { clean: `we_clean_${nonce}`, upgrade: `we_upgrade_${nonce}`, partial: `we_partial_${nonce}` };
+const names = { clean: `we_clean_${nonce}`, upgrade: `we_upgrade_${nonce}`, partial: `we_partial_${nonce}`, prior: `we_prior_${nonce}` };
 const migrations = path.join(process.cwd(), "migrations");
 const TAG = "0382_website_email_lifecycle";
 const sql0382 = fs.readFileSync(path.join(migrations, `${TAG}.sql`), "utf8");
@@ -61,12 +62,22 @@ async function dropDb(name: string) {
     await client.query(`DROP DATABASE IF EXISTS "${name}"`);
   });
 }
-function migrate(databaseUrl: string) {
-  // A child process is intentional: server/db has a module-level pool, so each database needs its own harness process.
-  const result = spawnSync(process.execPath, [path.join(process.cwd(), "node_modules/tsx/dist/cli.mjs"), "server/db-migrate.ts"],
-    { env: { ...process.env, DATABASE_URL: databaseUrl }, encoding: "utf8", timeout: 240_000 });
+const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "website-email-upgrade-"));
+const journalPath = path.join(fixtureRoot, "migrations/meta/_journal.json");
+fs.cpSync(migrations, path.join(fixtureRoot, "migrations"), {recursive: true});
+fs.symlinkSync(path.join(process.cwd(), "shared"), path.join(fixtureRoot, "shared"));
+fs.symlinkSync(path.join(process.cwd(), "tsconfig.json"), path.join(fixtureRoot, "tsconfig.json"));
+const fullJournal = JSON.parse(fs.readFileSync(journalPath, "utf8"));
+const targetEntry = fullJournal.entries.find((entry: any) => entry.tag === TAG);
+assert.ok(targetEntry, "0382 must exist in the actual journal");
+function migrate(databaseUrl: string, prior = false) {
+  fs.writeFileSync(journalPath, JSON.stringify({...fullJournal, entries: prior
+    ? fullJournal.entries.filter((entry: any) => entry.idx < targetEntry.idx) : fullJournal.entries}));
+  const result = spawnSync(process.execPath, [path.join(process.cwd(), "node_modules/tsx/dist/cli.mjs"), "-e", `(async()=>{try{await (await import(${JSON.stringify(path.join(process.cwd(), "server/db-migrate.ts"))})).runDrizzleMigrations();}finally{await (await import(${JSON.stringify(path.join(process.cwd(), "server/db.ts"))})).pool.end();}})().catch(e=>{console.error(e);process.exitCode=1;});`],
+    { cwd: fixtureRoot, env: { ...process.env, DATABASE_URL: databaseUrl, TEST_DATABASE_URL: databaseUrl }, encoding: "utf8", timeout: 240_000 });
   if (result.status !== 0) throw new Error(`production migration harness failed: ${(result.stderr || result.stdout).slice(-2500)}`);
 }
+
 async function ledger(client: Client) {
   return (await client.query("SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY id")).rows;
 }
@@ -75,20 +86,6 @@ async function exists(client: Client, relation: string) {
 }
 async function hasColumn(client: Client) {
   return (await client.query(`SELECT 1 FROM information_schema.columns WHERE table_name='sequence_enrollments' AND column_name='website_admission_id'`)).rowCount === 1;
-}
-
-/** Reverse exactly what 0382 added, in dependency order, and restore the original 0119 provider CHECK. */
-async function reverseTo0381(client: Client) {
-  await client.query(`ALTER TABLE sequence_enrollments DROP CONSTRAINT IF EXISTS sequence_enrollments_website_admission_id_fk`);
-  await client.query(`DROP INDEX IF EXISTS sequence_enrollments_website_admission_idx`);
-  await client.query(`ALTER TABLE sequence_enrollments DROP COLUMN IF EXISTS website_admission_id`);
-  for (const table of ["website_inbound_evidence", "gmail_mailbox_reader_state", "website_email_send_receipts", "website_lifecycle_admissions",
-    "website_lifecycle_intents", "website_warm_revisions", "website_lifecycle_config_revisions"]) {
-    await client.query(`DROP TABLE IF EXISTS ${table}`);
-  }
-  await client.query(`ALTER TABLE communication_events DROP CONSTRAINT IF EXISTS communication_events_provider_gmail_chk`);
-  await client.query(`ALTER TABLE communication_events ADD CONSTRAINT communication_events_provider_check CHECK (provider IS NULL OR provider IN ('ghl','smtp','twilio','internal','manual'))`);
-  await client.query(`DELETE FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0382]);
 }
 
 /** Run one statement in its own transaction that is always rolled back; return the SQLSTATE it raised ('' if none). */
@@ -198,11 +195,12 @@ try {
     await client.query(`DELETE FROM website_lifecycle_config_revisions`);
   });
 
-  // ── 3. Upgrade with historic rows (emulated 0381 head) ──
+  // ── 3. Upgrade from the actual journal through 0381 ──
+  await admin(async (client) => { await client.query(`CREATE DATABASE "${names.prior}"`); });
+  migrate(urlFor(names.prior), true);
   console.log("\n[3] Upgrade with historic rows");
-  await admin(async (client) => { await client.query(`CREATE DATABASE "${names.upgrade}" TEMPLATE "${names.clean}"`); });
+  await admin(async (client) => { await client.query(`CREATE DATABASE "${names.upgrade}" TEMPLATE "${names.prior}"`); });
   const historic = await withDb(names.upgrade, async (client) => {
-    await reverseTo0381(client);
     for (const table of NEW_TABLES) ok(!(await exists(client, table)), `prior head has no ${table}`);
     ok(!(await hasColumn(client)), "prior head has no website_admission_id column");
     equal((await client.query(`SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1`, [hash0382])).rowCount, 0, "prior head has no 0382 ledger row");
@@ -216,8 +214,8 @@ try {
     ok(await hasColumn(client), "upgrade adds the enrollment marker column");
     const after = await ledger(client);
     equal(after.slice(0, priorLedger.length), priorLedger, "every prior ledger row is retained unchanged");
-    equal(after.length, priorLedger.length + 1, "exactly one ledger row is added");
-    equal(after[after.length - 1].hash, hash0382, "the added row is the exact 0382 hash");
+    equal(after.length, cleanLedger.length, "upgrade reaches the same complete journal as a fresh install");
+    equal(after.filter(row => row.hash === hash0382).length, 1, "upgrade records exactly one original 0382 hash among the later migrations");
     const enrollment = (await client.query(`SELECT id,sequence_id,contact_id,status,website_admission_id FROM sequence_enrollments WHERE id=$1`, [historic.enrollment])).rows[0];
     equal({ ...enrollment }, { id: historic.enrollment, sequence_id: historic.sequence, contact_id: historic.contact, status: "active", website_admission_id: null },
       "the historic enrollment survives unchanged and unmarked");
@@ -237,9 +235,8 @@ try {
 
   // ── 4. Partial schema ──
   console.log("\n[4] Partial schema from an interrupted earlier attempt");
-  await admin(async (client) => { await client.query(`CREATE DATABASE "${names.partial}" TEMPLATE "${names.clean}"`); });
+  await admin(async (client) => { await client.query(`CREATE DATABASE "${names.partial}" TEMPLATE "${names.prior}"`); });
   await withDb(names.partial, async (client) => {
-    await reverseTo0381(client);
     // Re-create a strict subset exactly as the migration would, with a retained row, and a half-swapped provider check.
     const parts = statements(sql0382);
     const code = (part: string) => part.split("\n").filter((line) => !line.trim().startsWith("--")).join("\n").trim();
@@ -305,6 +302,7 @@ try {
 
   console.log(`\nWebsite email lifecycle migration proof: PASS (${checks} checks)`);
 } finally {
+  fs.rmSync(fixtureRoot, {recursive:true,force:true});
   process.env.DATABASE_URL = sourceUrl;
   await Promise.all(Object.values(names).map((name) => dropDb(name).catch(() => undefined)));
 }

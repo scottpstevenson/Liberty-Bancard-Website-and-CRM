@@ -1,3 +1,4 @@
+import {sanitizeAuditPayload} from "./audit-sanitizer";
 /** Staff-only intake alerts. No customer send, approval, enrollment or historical backfill. */
 import {randomUUID} from 'node:crypto';
 import {sql} from 'drizzle-orm';
@@ -111,7 +112,7 @@ export async function processTeamIntakeAlerts(limit=20){
      WHERE id=${row.id}::uuid AND state='attempting' AND attempt_token=${token}::uuid RETURNING id`);
    if(!updated)throw Error('TEAM_INTAKE_SETTLEMENT_FENCE_LOST');
    await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,actor_type,details) VALUES('team_intake_alert_delivery','team_intake_alert',${String(row.id)},'system',
-     ${JSON.stringify({state,attempt:Number(row.attempt_count),reason,recipient:TEAM_INTAKE_RECIPIENT})}::jsonb)`);
+     ${JSON.stringify(sanitizeAuditPayload({state,attempt:Number(row.attempt_count),reason,recipient:TEAM_INTAKE_RECIPIENT}))}::jsonb)`);
   });
   if(state==='sent')stats.sent++;else if(state==='uncertain')stats.uncertain++;else if(state==='failed')stats.failed++;else stats.waiting++;
  }

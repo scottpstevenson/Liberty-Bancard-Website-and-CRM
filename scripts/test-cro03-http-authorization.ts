@@ -155,6 +155,14 @@ async function main(): Promise<void> {
   async function handoffFixture(ownerEmail: string): Promise<string> {
     const owner = await db.select({ id: users.id }).from(users).where(eq(users.email, ownerEmail));
     assert.equal(owner.length, 1, `handoff fixture owner ${ownerEmail} missing`);
+    const sourceEventKey = `cro03-http-source-${randomUUID()}`;
+    await (await import("../server/services/cro03/source-staging")).createCro03SourceBatch({
+      idempotencyKey: sourceEventKey, actorType: "user", actorId: String(owner[0].id), purpose: "staging_review",
+      subjects: [{subjectType:"prospect",subjectKey:sourceEventKey,sourceSystem:"prospects",
+        sourceObservedAt:new Date().toISOString(),sourceEventKey,timestampProvenance:"source",
+        provenance:{certification:true},payload:{businessName:sourceEventKey,city:"Miami",state:"FL"},
+        candidateValues:{business_name:sourceEventKey,city:"Miami",state:"FL"}}],
+    });
     const source = await pool.query<{
       occurrence_id: string; policy_id: string; policy_version: number; policy_hash: string;
     }>(`
@@ -163,8 +171,9 @@ async function main(): Promise<void> {
         CROSS JOIN LATERAL (
           SELECT id,version,policy_hash FROM cro03a_policy_documents ORDER BY created_at DESC LIMIT 1
         ) p
+       WHERE o.source_event_key=$1
        ORDER BY o.created_at DESC LIMIT 1
-    `);
+    `, [sourceEventKey]);
     assert.equal(source.rows.length, 1, "handoff fixture requires source occurrence and qualification policy");
     const ids = { run: randomUUID(), item: randomUUID(), decision: randomUUID(), handoff: randomUUID() };
     const row = source.rows[0];
