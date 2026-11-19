@@ -271,7 +271,7 @@ try {
   await browser.close();browser=undefined;
   assert.equal(h.externalCalls(),0);
   await fs.writeFile("docs/certification/stage3-c1/browser/receipts.json",JSON.stringify({identity,candidateUrl:h.base,status:"passed-declared-capabilities-only",receipts,requestReceipts},null,2));
-  console.log(`C1 compiled real sign-in and adopted browser receipts: ${receipts.length}; not a full roster/deploy approval.`);
+  console.log(`PASS C1 compiled real sign-in and adopted browser receipts: ${receipts.length}; not a full roster/deploy approval.`);
 } finally {
   await fs.mkdir("docs/certification/stage3-c1/browser",{recursive:true});
   await fs.writeFile("docs/certification/stage3-c1/browser/attempt.json",JSON.stringify({identity,candidateUrl:h.base,receipts,requestReceipts},null,2));

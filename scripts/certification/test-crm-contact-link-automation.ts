@@ -381,3 +381,4 @@ try {
   }
   await pool.end();
 }
+console.log(`PASS CRM contact-link automation (${checks} checks)`);

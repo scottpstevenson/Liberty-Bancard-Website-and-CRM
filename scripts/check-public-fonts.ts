@@ -118,4 +118,5 @@ type Sample = { label: string; selector: string; fonts: Array<{ family: string; 
   writeFileSync(out, JSON.stringify({ base, width, generatedAt: new Date().toISOString(), results }, null, 2));
   console.log(`report: ${out}`);
   if (strict && failed) process.exit(1);
+  if(results.length>0&&failed===0)console.log(`PASS public fonts: ${results.length} routes, zero findings`);
 })();

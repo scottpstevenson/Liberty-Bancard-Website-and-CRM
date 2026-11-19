@@ -316,7 +316,7 @@ try {
   check(again.phases.policyReused > 0 && again.phases.policyEvaluated === 0, "memoized answers are reused, not recomputed");
 
   check(getBlockedCertificationNetworkAttemptCount() === 0, "no provider network attempt was made");
-  console.log(`phase6 inventory set reads: ok (${checks} checks)`);
+  console.log(`phase6 inventory set reads: PASS (${checks} checks)`);
 } finally {
   await pool.end().catch(() => undefined);
 }

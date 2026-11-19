@@ -71,6 +71,7 @@ async function main(){
   }
   console.log(`\n${rows.length} page states, ${bad} with findings. Report: ${path.join(out,"report.json")}`);
   if(strict&&bad)process.exit(1);
+  if(rows.length>0&&bad===0)console.log(`PASS public mobile: ${rows.length} page states, zero findings`);
 }
 
 main().catch(error=>{console.error(error);process.exit(1);});

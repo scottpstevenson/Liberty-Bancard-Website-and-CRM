@@ -390,6 +390,7 @@ async function paintedFamilies(s: Awaited<ReturnType<Awaited<ReturnType<typeof l
   writeFileSync(out, JSON.stringify({ base, generatedAt: new Date().toISOString(), failures, report }, null, 2));
   console.log(`\n${failures.length} failure(s). report: ${out}`);
   if (strict && failures.length) process.exit(1);
+  if(failures.length===0)console.log("PASS W-D public browser families and negative controls, zero findings");
 })().catch((err) => {
   console.error(err);
   process.exit(1);

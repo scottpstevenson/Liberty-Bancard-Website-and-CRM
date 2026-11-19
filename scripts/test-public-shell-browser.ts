@@ -379,7 +379,7 @@ try {
   assert.equal(h.externalCalls(), 0, "no external call from the browser fixture");
   await fs.mkdir(SHOTS, { recursive: true });
   await fs.writeFile(path.join(SHOTS, "receipts.json"), JSON.stringify({ status: "passed", candidateUrl: h.base, receipts }, null, 2));
-  console.log(`Public shell compiled role flows: ${receipts.length} receipt groups; Chromium only, not a Safari or real-iPhone pass.`);
+  console.log(`PASS Public shell compiled role flows: ${receipts.length} receipt groups; Chromium only, not a Safari or real-iPhone pass.`);
 } finally {
   await browser?.close();
   await h.pool.query("DELETE FROM partners WHERE affiliate_code=$1", [`${h.prefix}-aff`]).catch(() => undefined);

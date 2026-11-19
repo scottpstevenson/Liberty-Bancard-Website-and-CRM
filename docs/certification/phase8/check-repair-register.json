@@ -534,6 +534,25 @@
     {
       "script": "scripts/certification-child-process.ts",
       "repair": "Treat EPERM from signal 0 as evidence of existence, not a terminal probe error. Actual TERM/KILL permission errors still reject. Real owned-child fault tests verify both paths; full bundled-rollback rerun remains required."
+    },
+    {
+      "script": "Direct module receipt producers",
+      "finding": "Actual CI passed 19 entries, then the Phase6 set-read suite completed139 real database assertions but exited65 because its terminal success said ok rather than a recognized assertion marker. Source inspection found further equivalent terminal vocabulary mismatches in direct module entries; their native assertions passed in frozen full1.",
+      "repair": "Add explicit PASS only at completed success branches in eleven test/report producers. Retain all assertions, strict/public failure exits, cleanup and the wrapper\u2019s zero-evidence rejection. Underscore-suffixed PASS labels now also have an unambiguous standalone terminal marker.",
+      "files": [
+        "scripts/test-phase6-inventory-set-reads.ts",
+        "scripts/test-phase6-backlog-lanes.ts",
+        "scripts/test-phase6-provenance-and-record-class.ts",
+        "scripts/test-stage4c1-workspace-navigation.ts",
+        "scripts/test-public-shell-browser.ts",
+        "scripts/test-stage3-c1-browser.ts",
+        "scripts/certification/test-crm-contact-link-automation.ts",
+        "scripts/check-public-site-mobile.ts",
+        "scripts/check-public-shell-design.ts",
+        "scripts/check-public-fonts.ts",
+        "scripts/check-wd-pv-browser.ts"
+      ],
+      "verification": "Actual current CI rerun required; previous partial CI run stopped honestly at20/184, not accepted as passing."
     }
   ],
   "branch": "codex/phase8-check-repairs-final",
@@ -562,6 +581,25 @@
       "result": "pass",
       "log": "phase8-final-certification-env-2.log",
       "scope": "real owned children, transient existence-probe denial, real termination denial still fails; check-mode and budget metadata parity"
+    },
+    {
+      "kind": "fresh final52d CI static",
+      "result": "pass",
+      "checks": "107/107 suites",
+      "log": "phase8-final-ci-static-2.log"
+    },
+    {
+      "kind": "fresh final52d CI artifact gate",
+      "result": "pass",
+      "log": "phase8-final-ci-build-2.log",
+      "scope": "coldTypeScript,production build,inventory,artifact credential scan"
+    },
+    {
+      "kind": "fresh final52d A/B browser",
+      "result": "pass",
+      "checks": 104,
+      "log": "phase8-final-ci-integration-1.log",
+      "scope": "actualCI17/184 before separate marker failure at20/184"
     }
   ]
 }

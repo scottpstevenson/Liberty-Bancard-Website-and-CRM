@@ -42,4 +42,4 @@ ok(!validatePackageTouches(good.slice(0, 2), { bookingAvailable: false }).ok, "t
 ok(!validatePackageTouches([...good.slice(0, 2), t("C", "Book at [sales_booking]", 5)], { bookingAvailable: false }).ok, "booking marker refused when no booking link is configured");
 ok(!validatePackageTouches([good[0], good[1], t("C", "x", 0)], { bookingAvailable: false }).ok, "zero follow-up delay refused");
 ok(!validatePackageTouches([good[0], good[1], t("C", "Call https://example.com", 5)], { bookingAvailable: false }).ok, "foreign link refused");
-console.log(`STAGE4C1_WORKSPACE_NAVIGATION_PASS (${n} checks)`);
+console.log(`PASS STAGE4C1_WORKSPACE_NAVIGATION_PASS (${n} checks)`);

@@ -191,5 +191,5 @@ try {
   await db.execute(sql`DELETE FROM businesses WHERE canonical_name LIKE ${`${tag} %`}`);
 }
 
-console.log(`PHASE6_PROVENANCE_RECORD_CLASS_PASS (${checks} checks)`);
+console.log(`PASS PHASE6_PROVENANCE_RECORD_CLASS_PASS (${checks} checks)`);
 process.exit(0);

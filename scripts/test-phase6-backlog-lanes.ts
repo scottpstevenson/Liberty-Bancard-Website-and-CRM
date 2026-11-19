@@ -207,7 +207,7 @@ try {
   same(strip(newer), strip(reference.value), "the newest generation serves the same answer");
 
   check(getBlockedCertificationNetworkAttemptCount() === 0, "no provider network attempt was made");
-  console.log(`phase6 backlog lanes: ok (${checks} checks)`);
+  console.log(`phase6 backlog lanes: PASS (${checks} checks)`);
 } finally {
   backlog.backlogReadDeps.stepQuery = (_lane, _key, query) => query;
   backlog.backlogReadDeps.layout = "parallel";

@@ -192,6 +192,7 @@ async function main() {
   }
   console.log(`\n${rows.length} page states, ${bad} with findings. Report: ${path.join(out, "report.json")}`);
   if (bad) process.exit(1);
+  if(rows.length>0)console.log(`PASS public shell: ${rows.length} page states, zero findings`);
 }
 
 main().catch((error) => {
