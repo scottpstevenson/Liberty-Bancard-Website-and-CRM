@@ -23,9 +23,20 @@ const open=async(role:'admin'|'manager',width:number)=>{
  await browser.call('Emulation.setDeviceMetricsOverride',{width,height:950,deviceScaleFactor:1,mobile:false});
  await browser.navigate('/dashboard/lead-ops?tab=imports');
  await browser.waitFor(/Scheduled Outscraper discovery|Open this page in the desktop layout/);
- if((await browser.text()).includes('Skip tour'))await browser.click('button[aria-label="Skip tour"]');
  if((await browser.text()).includes('Open this page in the desktop layout'))await browser.click('[data-testid="button-open-desktop-layout"]');
  await browser.waitFor(/CRM-wide Outscraper budget/);
+ const actor=await h.request(role,'GET','/api/auth/user');
+ assert.equal(actor.status,200,'Budget prerequisite reads the signed-in actor');
+ if(!actor.body.tourCompletedAt){
+  await browser.waitFor(/Welcome to Liberty Bancard/);
+  await browser.click('[data-testid="button-tour-skip-text"]');
+  let completed=false;
+  for(let i=0;i<50;i++){if((await h.request(role,'GET','/api/auth/user')).body.tourCompletedAt){completed=true;break;}await new Promise(r=>setTimeout(r,100));}
+  assert(completed,'Supported tour skip persists before budget interaction');
+ }
+ let ready=false;
+ for(let i=0;i<50;i++){if(await browser.evaluate("!document.querySelector('[data-testid=button-tour-skip]')&&getComputedStyle(document.body).pointerEvents!=='none'")){ready=true;break;}await new Promise(r=>setTimeout(r,100));}
+ assert(ready,'Tour modal releases pointer input before budget interaction');
 };
 try{
  const {pool}=await import('../server/db');

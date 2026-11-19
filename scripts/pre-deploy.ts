@@ -1292,7 +1292,7 @@ export const MANDATORY_SUITES: Suite[] = [
   {name:"Stage 4C1 premium SFP drafts (drift, claims, CTA, renderer)",script:"scripts/test-stage4c1-premium-drafts.ts",
     timeoutSecs:120},
   {name:"Stage 4C1 workspace navigation, cadence, purpose grouping and draft validation",script:"scripts/test-stage4c1-workspace-navigation.ts",
-    timeoutSecs:120},
+    timeoutSecs:120,requiresDisposableInfra:true},
 ];
 
 export interface SuiteSelection {

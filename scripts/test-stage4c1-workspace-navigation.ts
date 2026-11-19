@@ -1,4 +1,5 @@
-/** Pure checks for the 4C1 workspace: URL codec, cadence arithmetic, purpose grouping, package draft validation. No DB, network or provider. */
+/** Pure assertions for the 4C1 workspace. Imported owners require a configured
+ * disposable database; these cases do not query it or call a provider. */
 import assert from "node:assert/strict";
 import { contentWorkspaceState, contentWorkspaceUrl } from "../client/src/lib/crm-destination-state";
 import { classify } from "../server/services/content-workspace";

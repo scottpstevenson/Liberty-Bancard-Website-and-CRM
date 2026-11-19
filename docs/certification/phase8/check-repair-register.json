@@ -518,6 +518,25 @@
     {
       "script": "scripts/release-artifact-gate.ts",
       "repair": "Cold typecheck consumed most of the 300-second wrapper budget and build was terminated at its deadline. Both declared outer budgets now allow 600 seconds; final terminal result is still required."
+    },
+    {
+      "script": "scripts/test-outscraper-budget-browser.ts",
+      "repair": "Complete the actual delayed first-login tour for both roles, verify persisted completion and body pointer release before native budget input. Same cause as A/B, no application bypass."
+    },
+    {
+      "script": "scripts/test-stage4c1-workspace-navigation.ts",
+      "repair": "Its imported classifier/publisher require DB module construction; use the integration capability and declared disposable prerequisite."
+    },
+    {
+      "script": "scripts/ci-suite-manifest.ts",
+      "repair": "Preserve native read-only and strict public-suite options through both environment boundaries; reject unreviewed values. CI budgets cannot be shorter than registered native workloads. Preserve original timeout reason if owned child cleanup also fails."
     }
-  ]
+  ],
+  "branch": "codex/phase8-check-repairs-final",
+  "firstRepairCommit": "0ce4c6284d85e2d36323e9611fa67b40247abbf4",
+  "diagnosticInterference": {
+    "event": "A diagnostic CI image entry entered write mode because its read-only metadata was missing. Stopped, preserved75 generated outputs privately, restored original assets. Current source hash exactly matched build7 again.",
+    "impact": "Five overlapping native browser checks rejected source mismatch; not accepted as passes or product failures. Affected suites must be rerun.",
+    "localTooling": "Restricted PATH lacked rg; linked existing installed rg into task-owned toolchain. Both scanner rechecks pass, with no scanner exception."
+  }
 }

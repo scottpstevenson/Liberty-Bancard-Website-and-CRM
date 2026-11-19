@@ -4,6 +4,14 @@
  * Do not broaden this list to "all non-secret variables": an explicit list is
  * what prevents a newly-added provider credential from reaching a child process.
  */
+// Explicit suite metadata may only strengthen these read-only checks. Host
+// environment values are never inherited as suite options.
+export const CERTIFICATION_READONLY_SUITE_OPTIONS = Object.freeze({
+  PUBLIC_IMAGES_CHECK: "1",
+  PUBLIC_SITE_STRICT: "1",
+  PUBLIC_SITE_WIDTHS: "390,1440",
+} as const);
+
 const CERTIFICATION_ENV_ALLOWLIST = [
   "PATH",
   "HOME",
@@ -56,6 +64,7 @@ const CERTIFICATION_ENV_ALLOWLIST = [
 ] as const;
 
 const CERTIFICATION_DECLARED_OVERRIDE_ALLOWLIST = new Set([
+  ...Object.keys(CERTIFICATION_READONLY_SUITE_OPTIONS),
   "AUTH_ACTION_DB_TEST_OPT_IN",
   "CERTIFICATION_RUN_ID",
   "CERTIFICATION_SUITE_ID",
@@ -89,6 +98,10 @@ export function buildCertificationEnvironment(
   for (const [key, value] of Object.entries(declaredOverrides)) {
     if (!CERTIFICATION_DECLARED_OVERRIDE_ALLOWLIST.has(key)) {
       throw new Error(`Undeclared certification child environment override: ${key}`);
+    }
+    if (key in CERTIFICATION_READONLY_SUITE_OPTIONS && value !== undefined &&
+      value !== CERTIFICATION_READONLY_SUITE_OPTIONS[key as keyof typeof CERTIFICATION_READONLY_SUITE_OPTIONS]) {
+      throw new Error(`Certification read-only suite option has an unreviewed value: ${key}`);
     }
     if (value !== undefined) environment[key] = value;
   }

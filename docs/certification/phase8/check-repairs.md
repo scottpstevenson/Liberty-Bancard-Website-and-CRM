@@ -1,6 +1,6 @@
 # Phase 8 failed-check repairs
 
-Local branch: `codex/phase8-check-repairs`. This extends the Phase 8 candidate at `53ac8e946385e75711c746cd1bb54da70ecb298e`; it is not a production acceptance or release.
+Local branch: `codex/phase8-check-repairs-final`. This extends the Phase 8 candidate at `53ac8e946385e75711c746cd1bb54da70ecb298e`; it is not a production acceptance or release.
 
 All 61 original failures have a specific disposition. Eleven suites exposed real product defects (some also had broken setup); fifty were test, contract or harness failures. Several suites share one defect. The original evidence and baseline comparison remain in [failure-register.json](failure-register.json). The [repair register](check-repair-register.json) records each disposition.
 
@@ -77,3 +77,5 @@ Verification is in progress. Earlier bounded reruns and private prototypes are d
 The CI wrapper additionally needed the four setup/budget repairs listed in the structured register. The first cold build was terminated during compilation at the 300-second outer deadline; this is not a passing build. The final build receipt remains required.
 
 Intermediate generated historical screenshots/receipts (140 files) were preserved privately with hashes, then restored to their historical tracked versions. New repair evidence is kept separately.
+
+Follow-up runner repairs preserve the native roster’s read-only/strict options and workload budgets, with exact option validation. The budget UI test now completes the real first-login tour for admin and manager. The intermediate image-write interference is recorded in the structured register and its affected checks remain subject to rerun.

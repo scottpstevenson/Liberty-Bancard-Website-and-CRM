@@ -107,6 +107,25 @@ assert.throws(
   () => buildCertificationEnvironment(inherited, { UNDECLARED_OPT_IN: "1" }),
   /Undeclared certification child environment override/,
 );
+// Actual roster metadata must survive both child-environment boundaries.
+const { SUITE_MANIFEST } = await import("./ci-suite-manifest");
+const { MANDATORY_SUITES } = await import("./pre-deploy");
+for (const native of MANDATORY_SUITES) {
+  const entry = SUITE_MANIFEST.find(suite => suite.script === native.script && suite.capability !== "server-optional");
+  if (!entry) continue;
+  assert.ok((entry.executionTimeoutMs ?? 0) >= (native.timeoutSecs ?? 0) * 1000, `${native.script}: CI shortens the registered workload`);
+  for (const [key, value] of Object.entries(native.env ?? {}).filter(([key]) => key.startsWith("PUBLIC_")))
+    assert.equal(entry.requiredEnv?.[key], value, `${native.script}: CI drops ${key}`);
+}
+const imageEntry = SUITE_MANIFEST.find(suite => suite.script === "scripts/build-public-images.ts")!;
+const imageEnvironment = buildCertificationEnvironment(inherited, imageEntry.requiredEnv, "stateless");
+assert.equal(imageEnvironment.PUBLIC_IMAGES_CHECK, "1", "image CI is read-only");
+const secondBoundary = buildCertificationEnvironment(imageEnvironment, imageEntry.requiredEnv, "stateless");
+assert.equal(secondBoundary.PUBLIC_IMAGES_CHECK, "1", "read-only mode survives child re-sanitization");
+for (const [key, invalid] of [["PUBLIC_IMAGES_CHECK", "0"], ["PUBLIC_SITE_STRICT", "0"], ["PUBLIC_SITE_WIDTHS", "1"]])
+  assert.throws(() => buildCertificationEnvironment(inherited, { [key]: invalid }), /unreviewed value/);
+assert.equal(buildCertificationEnvironment({ ...inherited, PUBLIC_IMAGES_CHECK: "0" }).PUBLIC_IMAGES_CHECK, undefined, "host options are not inherited");
+
 const statelessEnvironment = buildCertificationEnvironment(inherited, {}, "stateless");
 for (const key of [
   "DATABASE_URL",

@@ -48,6 +48,8 @@
 
 import fs from "fs";
 import path from "path";
+import { MANDATORY_SUITES } from "./pre-deploy";
+import { CERTIFICATION_READONLY_SUITE_OPTIONS } from "./certification-process-env";
 
 export type SuiteCapability =
   | "deterministic-static"
@@ -449,8 +451,8 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
   {
     name: "Stage 4C1 workspace navigation, cadence, purpose grouping and draft validation",
     script: "scripts/test-stage4c1-workspace-navigation.ts",
-    capability: "deterministic-static",
-    providerDenial: "URL codec, cadence arithmetic, classifier and draft validator only; modules that hold a lazy DB pool are imported but never queried; no network, provider or send",
+    capability: "deterministic-integration",
+    providerDenial: "Pure assertions import the current DB-bound classifier/publisher; disposable DB prerequisite, no queries, provider calls or send",
   },
   {
     name: "Stage 4A UI Static Render (GHL sync status, catalog truth, identity health)",
@@ -1566,8 +1568,22 @@ function defineSuite(definition: SuiteManifestDefinition): SuiteManifestEntry {
   const stateful =
     definition.capability === "deterministic-integration" ||
     definition.capability === "server-required";
+  // The native roster owns the workload budget and public check modes. CI must
+  // not silently shorten a 1200s matrix to 300s, or turn an image check into a build.
+  const registered = MANDATORY_SUITES.find(suite => suite.script === definition.script);
+  const publicChecks = Object.fromEntries(Object.entries(registered?.env ?? {})
+    .filter(([key]) => key in CERTIFICATION_READONLY_SUITE_OPTIONS));
+  const requiredEnv = {
+    ...definition.requiredEnv,
+    ...publicChecks,
+    ...(definition.script === "server/tests/auth-actions.integration.test.ts" ? { AUTH_ACTION_DB_TEST_OPT_IN: "1" } : {}),
+  };
   return {
     ...definition,
+    executionTimeoutMs: definition.executionTimeoutMs ?? Math.max(
+      registered?.timeoutSecs ? registered.timeoutSecs * 1000 : 0,
+      definition.isolateInfrastructure ? 900000 : 300000,
+    ),
     database: definition.script==="scripts/test-toast-viewport-layout.mjs" ? "none" : stateful ? "disposable" : "none",
     redis:
       definition.script==="scripts/test-toast-viewport-layout.mjs" ? "none" : definition.capability === "deterministic-integration"
@@ -1594,10 +1610,7 @@ function defineSuite(definition: SuiteManifestDefinition): SuiteManifestEntry {
       definition.script === "scripts/test-backlog-preview.ts"
         ? "delegated-disposable"
         : "execute",
-    requiredEnv:
-      definition.script === "server/tests/auth-actions.integration.test.ts"
-        ? { AUTH_ACTION_DB_TEST_OPT_IN: "1" }
-        : undefined,
+    requiredEnv: Object.keys(requiredEnv).length ? requiredEnv : undefined,
   };
 }
 

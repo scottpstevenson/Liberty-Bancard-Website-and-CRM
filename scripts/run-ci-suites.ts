@@ -180,9 +180,10 @@ async function runSuite(suite: SuiteManifestEntry, capability: SuiteCapability):
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
+      const deadlineMessage = `${suite.name} exceeded the ${timeoutMs}ms CI suite timeout.`;
       void terminateCertificationChild(child).then(
-        () => reject(new Error(`${suite.name} exceeded the ${timeoutMs}ms CI suite timeout.`)),
-        reject,
+        () => reject(new Error(deadlineMessage)),
+        error => reject(new Error(`${deadlineMessage} Owned child cleanup also failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error })),
       );
     }, timeoutMs);
 
