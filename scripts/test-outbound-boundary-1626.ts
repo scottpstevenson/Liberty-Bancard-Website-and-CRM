@@ -368,12 +368,13 @@ async function main() {
       const {persistAlert,getRecentAlerts,acknowledgeAlert}=await import("../server/services/alert-feed");
       const address="audit-fixture@example.test",phone="+1 (212) 555-0199",key=randomUUID();
       const input={severity:"warning" as const,subsystem:"boundary_fixture",summary:`Fixture ${key}: provider rejected ${address} at ${phone}`,
-        details:{probe:{summary:`Nested provider failure for ${address}`},email:address}};
+        details:{probe:{summary:`Nested provider failure for ${address}`},email:address,accountNumber:9876543210}};
       const first=await persistAlert(input),again=await persistAlert(input);
       assert("sanitized alert replay deduplicates the same real stored row",first.created&&!again.created&&first.alertId===again.alertId);
       const stored=(await pool.query("SELECT details FROM audit_logs WHERE id=$1",[first.alertId])).rows[0].details;
       assert("stored outer and nested alert summaries redact email",!JSON.stringify(stored).includes(address));
       assert("stored alert summary redacts phone",!JSON.stringify(stored).includes("212) 555-0199"));
+      assert("numeric protected fields retain their canonical redaction token",stored.details.accountNumber==="[redacted]");
       assert("audit sanitization does not mutate the producer payload",input.summary.includes(address)&&input.details.probe.summary.includes(address));
       await acknowledgeAlert(first.alertId,"fixture:boundary",`Reviewed ${address} at ${phone}`);
       const ack=(await pool.query("SELECT details FROM audit_logs WHERE action='system_alert_acknowledged' AND entity_id=$1",[first.alertId])).rows[0].details;

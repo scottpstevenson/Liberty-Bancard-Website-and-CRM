@@ -546,10 +546,10 @@
   "focusedCurrentEvidence": [
     {
       "kind": "native private DB, outbound/audit boundary",
-      "checks": 63,
+      "checks": 64,
       "result": "pass",
-      "log": "phase8-final-alert-native-1.log",
-      "scope": "real persisted alert redaction, dedup, legacy read-only normalization, acknowledgement reason, producer payload immutability, current GHL fences, actual audit-writer AST census; no live sends"
+      "log": "phase8-final-alert-native-2.log",
+      "scope": "real persisted alert redaction, dedup, legacy read-only normalization, acknowledgement reason, producer payload immutability, current GHL fences, actual audit-writer AST census; no live sends; numeric protected fields preserve the canonical marker without double sanitization"
     },
     {
       "kind": "protected-field sanitizer",

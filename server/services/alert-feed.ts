@@ -33,7 +33,7 @@ function canonicalAlert(alert: AlertEntry) {
     severity: alert.severity,
     subsystem: String(alert.subsystem).slice(0, 120),
     summary: String(alert.summary).slice(0, 500),
-    details: sanitizeAuditPayload(alert.details ?? {}),
+    details: alert.details ?? {},
     incidentBucket: alert.incidentBucket ?? currentIncidentBucket(),
   }));
 }
@@ -80,7 +80,7 @@ export async function persistAlert(alert: AlertEntry): Promise<{
             severity: alert.severity,
             subsystem: String(alert.subsystem).slice(0, 120),
             summary: String(alert.summary).slice(0, 500),
-            details: sanitizeAuditPayload(alert.details ?? {}),
+            details: alert.details ?? {},
              incidentBucket,
            }))}::jsonb)
          RETURNING id, created_at
