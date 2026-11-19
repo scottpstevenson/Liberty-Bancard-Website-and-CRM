@@ -1,0 +1,171 @@
+{
+  "auditDateLocal": "2026-11-18",
+  "timezone": "America/New_York",
+  "method": "Fresh signed-in desktop Chrome reads as Scott Stevenson; public health GET; one SELECT-only aggregate catalog query in the Replit Production Database console with Enable Editing left off; read-only SSH workspace census. Transcribed aggregate evidence, no customer rows or credentials.",
+  "production": {
+    "origin": "https://libertybancard.com",
+    "health": {
+      "status": "ok",
+      "sha": "d67d24c61acc462931c418e8068624c86144c7ae",
+      "builtAt": "2026-11-19T01:49:10.247Z",
+      "env": "production",
+      "publishBuildId": "7f573214-cd61-416a-8dcf-e5d6639a58b9"
+    },
+    "catalogCheckedAt": "2026-11-19T03:23:31.88298+00:00",
+    "database": "neondb",
+    "outbound": {
+      "state": "paused",
+      "epoch": 4
+    },
+    "outscraperMonthlyLimitMicros": 50000000,
+    "pgStatStatementsInstalled": false,
+    "pgStatStatementsView": null,
+    "verifiedValidExistingIndexes": [
+      {
+        "name": "contacts_assigned_to_idx",
+        "table": "contacts",
+        "columns": [
+          "assigned_to"
+        ]
+      },
+      {
+        "name": "sequence_enrollments_contact_id_status_idx",
+        "table": "sequence_enrollments",
+        "columns": [
+          "contact_id",
+          "status"
+        ]
+      },
+      {
+        "name": "deals_pipeline_stage_idx",
+        "table": "deals",
+        "columns": [
+          "pipeline",
+          "stage"
+        ]
+      }
+    ],
+    "equivalentDefinitionCandidatesNotAuthorizedForRemoval": [
+      {
+        "table": "contacts",
+        "indexes": [
+          "contacts_ghl_contact_id_idx",
+          "idx_contacts_ghl_id"
+        ],
+        "definition": "btree (ghl_contact_id)"
+      },
+      {
+        "table": "deals",
+        "indexes": [
+          "deals_contact_id_idx",
+          "idx_deals_contact_id"
+        ],
+        "definition": "btree (contact_id)"
+      },
+      {
+        "table": "deals",
+        "indexes": [
+          "deals_pipeline_idx",
+          "idx_deals_pipeline"
+        ],
+        "definition": "btree (pipeline)"
+      },
+      {
+        "table": "deals",
+        "indexes": [
+          "deals_pipeline_stage_idx",
+          "idx_deals_pipeline_stage"
+        ],
+        "definition": "btree (pipeline, stage)"
+      }
+    ],
+    "tableStatisticsEstimatesNotExactCounts": [
+      {
+        "table": "audit_logs",
+        "estimatedLiveRows": 1920595,
+        "estimatedDeadRows": 595,
+        "sequentialScans": 26951,
+        "indexScans": 1910063719
+      },
+      {
+        "table": "contacts",
+        "estimatedLiveRows": 160794,
+        "estimatedDeadRows": 11588,
+        "sequentialScans": 3286676,
+        "indexScans": 1502073769
+      },
+      {
+        "table": "deals",
+        "estimatedLiveRows": 1580,
+        "estimatedDeadRows": 264,
+        "sequentialScans": 1462,
+        "indexScans": 53511
+      },
+      {
+        "table": "sequence_enrollments",
+        "estimatedLiveRows": 6487,
+        "estimatedDeadRows": 1175,
+        "sequentialScans": 3721,
+        "indexScans": 2281037
+      }
+    ],
+    "uiObservations": [
+      {
+        "route": "/dashboard/activation",
+        "view": "Kill Switch",
+        "observed": "Global pause checked and PAUSED; 0 cold emails today; website follow-up lane Closed."
+      },
+      {
+        "route": "/dashboard/activation",
+        "view": "Identity Wizard",
+        "observed": "Identity active badge displayed for a saved identity with a blank status."
+      },
+      {
+        "route": "/dashboard/system-health",
+        "view": "System Readiness",
+        "observed": "0 active sending identities; generic Redis card asserts durable queues active without showing selected-group/heartbeat evidence."
+      },
+      {
+        "route": "/dashboard/data-health",
+        "observed": "720 no-email contacts flagged active; 0 orphaned deals, 0 orphaned sequence enrollments, 0 null lifecycle states, 0 active enrollments missing next_action_at; separate historical GHL diagnostic 1446. These are defined metric populations, not a test-record deletion set."
+      },
+      {
+        "route": "/dashboard/lead-ops?tab=imports",
+        "observed": "63 recurring definitions; schedule Enabled; 1 new search today; selective worker Selected with fresh heartbeat; $50 cap; $0.58 known maximum liability. Test/demo-named historical staging lists remain visible; classification is unverified."
+      },
+      {
+        "route": "/dashboard/lead-ops?tab=imports",
+        "observed": "Scheduled run a875ccca-5961-42c5-b0cc-ef1c8850abac shows 34 rows, 27 new, 5 duplicates, 2 already-exists. Result copy says 27 new contacts added; source semantics require tracing before changing counts."
+      }
+    ]
+  },
+  "replitWorkspace": {
+    "head": "53b7de8eeb1ab09aacb79e4b3c45e4a80dc402eb",
+    "parent": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "subject": "Published your App",
+    "tree": "34ccfc6eed7181cd645c78d05dad38f780265a5c",
+    "diffFromGithubMain": "empty; same tracked source tree",
+    "workingTree": "clean",
+    "shellNode": "v22.23.5",
+    "shellNpm": "10.9.9",
+    "runningDevNodePath": ".local/production-audit-2026-11-18/node-v22.22.0-linux-x64/bin/node",
+    "diskReadingsNotDeploymentLayerMeasurements": {
+      ".local": "5.3G",
+      ".local/worktrees": "3.4G",
+      ".local/state": "1.7G",
+      ".cache": "1.2G",
+      "node_modules": "914M",
+      "dist": "42M"
+    },
+    "preservation": "No files, processes, worktrees or platform state changed during this audit. No Replit Agent messages. These disk readings do not prove which paths the deployment image includes."
+  },
+  "notVerified": [
+    "30-day production stability/SLO history",
+    "query-level latency distribution or production execution plans",
+    "dependency/constraint ownership and usage history for duplicate-index removal",
+    "record provenance of test/demo-named lists",
+    "fresh mobile, WebKit and non-admin role behavior",
+    "full CI roster completion",
+    "Open pull-request and task-owner collision census; recapture before implementation"
+  ]
+}

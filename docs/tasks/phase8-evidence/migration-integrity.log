@@ -1,0 +1,1068 @@
+
+[Rule 1] Root-level SQL files all present in journal:
+  PASS: 0000_faulty_gwen_stacy
+  PASS: 0001_smooth_hellion
+  PASS: 0002_old_sentry
+  PASS: 0003_tough_mandarin
+  PASS: 0004_dusty_naoko
+  PASS: 0005_shallow_stepford_cuckoos
+  PASS: 0006_live_chat_tables
+  PASS: 0007_ab_testing_linkedin_enrichment
+  PASS: 0008_document_vault_columns
+  PASS: 0009_residual_reconciliation
+  PASS: 0010_processor_boarding_mid_stats
+  PASS: 0011_underwriting_notes_log
+  PASS: 0012_user_sessions
+  PASS: 0012_verbal_commit_pipeline_stage
+  PASS: 0013_ai_audit_observability
+  PASS: 0014_dedup_sdr_indexes
+  PASS: 0014_startup_sql_consolidation
+  PASS: 0015_savings_share_token
+  PASS: 0016_referral_converted_at
+  PASS: 0016_share_view_count
+  PASS: 0017_tool_click_events
+  PASS: 0018_deal_vertical
+  PASS: 0019_onboarding_checklist
+  PASS: 0019_push_subscriptions
+  PASS: 0019_rate_review_requests
+  PASS: 0020_document_status
+  PASS: 0020_multi_location_fk
+  PASS: 0022_multi_location
+  PASS: 0023_multi_location_fk
+  PASS: 0024_deal_analysis_status
+  PASS: 0024_terminal_economics
+  PASS: 0025_statement_proposals
+  PASS: 0026_performance_indexes
+  PASS: 0027_underwriting_rules
+  PASS: 0028_bot_contexts_handoff_rules
+  PASS: 0028_outreach_intelligence
+  PASS: 0029_contacts_email_status_fix
+  PASS: 0030_workflow_trigger_conditions
+  PASS: 0031_registry_import
+  PASS: 0032_free_discovery_sources
+  PASS: 0033_free_contact_enrichment
+  PASS: 0034_ghl_delete_sync
+  PASS: 0035_communication_feedback
+  PASS: 0036_tcpa_consent_type
+  PASS: 0037_contactability_engine
+  PASS: 0038_offer_router_fields
+  PASS: 0039_wave6_sequence_families
+  PASS: 0040_analytics_events
+  PASS: 0041_wave10_merchant_app
+  PASS: 0042_sdr_merchants_owner_fields
+  PASS: 0043_sdr_business_domain_unique
+  PASS: 0044_statement_requests_and_ai_cache
+  PASS: 0045_channel_audit_log
+  PASS: 0046_csv_import_reconciliation
+  PASS: 0047_contacts_opted_out_email
+  PASS: 0048_outbound_send_counters
+  PASS: 0049_csv_import_progress_tracking
+  PASS: 0050_deals_auto_enrollment_suppression
+  PASS: 0051_csv_import_opt_out_protection
+  PASS: 0052_sequence_enrollments_active_unique
+  PASS: 0053_sla_task_source_identity
+  PASS: 0055_add_data_completeness_score
+  PASS: 0056_campaign_previews
+  PASS: 0057_contact_readiness_score
+  PASS: 0058_campaign_previews_readiness_breakdown
+  PASS: 0059_readiness_run_singleton
+  PASS: 0060_promotional_enrollment_jobs
+  PASS: 0061_prospect_lists_idempotency
+  PASS: 0062_prospects_provenance
+  PASS: 0063_sunbiz_filing_number_unique
+  PASS: 0064_prospects_email_unique
+  PASS: 0065_provenance_schema
+  PASS: 0066_ghl_contact_id_unique
+  PASS: 0067_contact_lead_scoring_jobs
+  PASS: 0068_registry_import_log_confidence
+  PASS: 0069_consent_audit_idempotency
+  PASS: 0070_prospect_conversion_claims
+  PASS: 0071_vertical_provenance_schema
+  PASS: 0072_system_audit_runs
+  PASS: 0073_system_audit_runs_v2
+  PASS: 0074_fix_ghl_identity_conflicts
+  PASS: 0075_admin_password_reset
+  PASS: 0076_outbound_launch_foundation
+  PASS: 0077_outbound_attestations
+  PASS: 0084_ai_assistant
+  PASS: 0085_admin_attestations_versioning
+  PASS: 0086_contacts_gclid
+  PASS: 0087_demo_archive_lead_staging
+  PASS: 0087_master_leads
+  PASS: 0088_suppression_compliance_fields
+  PASS: 0089_master_leads_extended
+  PASS: 0090_inbox_items_statement_reviews
+  PASS: 0091_merchant_onboarding_stages
+  PASS: 0092_sequence_outbound_channels
+  PASS: 0093_clear_test_ghl_ids
+  PASS: 0094_outbound_messages_sending_at
+  PASS: 0095_closed_won_onboarding
+  PASS: 0095_nps_survey_constraints
+  PASS: 0096_onboarding_deal_unique
+  PASS: 0096_residual_partner_commission
+  PASS: 0097_onboarding_sla_task_unique
+  PASS: 0098_archived_at_partial_indexes
+  PASS: 0099_agent_payouts
+  PASS: 0100_agent_payouts_partner_org
+  PASS: 0101_agent_payouts_partner_unique
+  PASS: 0102_agent_payouts_status_check
+  PASS: 0103_merchant_residuals_import_id
+  PASS: 0104_merchant_residuals_import_mid_unique
+  PASS: 0105_executive_kpi_tables
+  PASS: 0105_executive_weekly_snapshots
+  PASS: 0106_deferred_ghl_enrollments
+  PASS: 0106_executive_goals
+  PASS: 0109_fearless_starhawk
+  PASS: 0110_ghl_unsynced_contacts_idx
+  PASS: 0111_residual_txn_cost
+  PASS: 0112_contact_assigned_to
+  PASS: 0113_background_jobs_lock_token
+  PASS: 0113_vas_upsell_suppression
+  PASS: 0114_seq_enrollments_status_next_action_idx
+  PASS: 0115_automation_registry
+  PASS: 0116_contact_lifecycle_state
+  PASS: 0117_contact_nba
+  PASS: 0118_lead_sla_timer
+  PASS: 0119_communication_events
+  PASS: 0120_ghl_shadow_log
+  PASS: 0121_underwriting_conditions
+  PASS: 0122_merchant_mids
+  PASS: 0123_save_cases
+  PASS: 0124_entity_memory
+  PASS: 0125_ai_decision_log
+  PASS: 0126_ai_corrections_prompts
+  PASS: 0127_underwriting_task_automation_key_unique
+  PASS: 0128_tour_completed_at
+  PASS: 0129_deal_name
+  PASS: 0130_equipment_device_fields
+  PASS: 0131_deal_post_enrichment
+  PASS: 0132_outreach_queue_skipped_at
+  PASS: 0133_outbound_pause_control
+  PASS: 0134_outbound_inflight_sends
+  PASS: 0135_contacts_email_status_unvalidated_default
+  PASS: 0136_zerobounce_campaign_engine
+  PASS: 0137_logical_job_control_holds
+  PASS: 0138_post_enrichment_intent_fields
+  PASS: 0139_pe_intents_fk_repair
+  PASS: 0140_serper_control
+  PASS: 0141_serper_merchant_cooldown
+  PASS: 0142_merchant_application_protected_data
+  PASS: 0143_merchant_application_ein_unique
+  PASS: 0144_consent_authority_channel_state
+  PASS: 0145_consent_subject_upsert_race_fix
+  PASS: 0146_consent_audit_append_only_guard
+  PASS: 0147_statement_upload_commands
+  PASS: 0148_statement_upload_command_ownership
+  PASS: 0149_statement_proposals_deal_id_unique
+  PASS: 0150_commercial_classification
+  PASS: 0151_canonical_identity_merge
+  PASS: 0152_identity_observation_no_plaintext
+  PASS: 0153_contact_merge_unordered_pair_fence
+  PASS: 0154_identity_observation_current_validity
+  PASS: 0155_canonical_intake_authority
+  PASS: 0156_import_execution_source_payload
+  PASS: 0157_csv_import_execution_projection
+  PASS: 0158_provider_health_readiness_controls
+  PASS: 0159_campaign_queue_outbound_fence
+  PASS: 0160_seed_zerobounce_provider_control
+  PASS: 0161_statement_command_recovery
+  PASS: 0162_revenue_state_reconciliation
+  PASS: 0163_revenue_command_dispatch_recovery
+  PASS: 0164_bt12_effect_receipts_and_threshold_backfill
+  PASS: 0165_outbound_send_claim_lease
+  PASS: 0166_cro02_shadow_graph
+  PASS: 0167_cro02_shadow_aggregates
+  PASS: 0168_cro02_evidence_retention_guards
+  PASS: 0169_cro02_graph_command_guards
+  PASS: 0170_cro02_versioned_purpose_policies
+  PASS: 0171_cro02_evidence_snapshot_retention
+  PASS: 0172_cro02_reviewed_contact_business_links
+  PASS: 0173_cro02_graph_lock_order
+  PASS: 0174_cro03_durable_enrichment_factory
+  PASS: 0175_cro03_frozen_subject_plans
+  PASS: 0176_rvr03_auth_actions
+  PASS: 0177_cro03_source_staging_evidence
+  PASS: 0178_cr04_channel_cohort_authority
+  PASS: 0179_cr04_resumable_projection_runs
+  PASS: 0180_inbox_source_identity_statement_review_integrity
+  PASS: 0181_cr05_task_ticket_authority
+  PASS: 0182_cr06_premium_campaign_governance
+  PASS: 0183_cr06_preparation_fences
+  PASS: 0184_cr06_corrections
+  PASS: 0185_cr06_history_and_feedback
+  PASS: 0186_cr06_scoped_reservation_contract
+  PASS: 0187_cro03a_candidate_qualification
+  PASS: 0188_cro03b_unified_recipe
+  PASS: 0189_cro03b_uuid_census_cursor
+  PASS: 0190_cro03b_recipe_evidence_projection_binding
+  PASS: 0191_cro03b_terminal_hook_outbox
+  PASS: 0192_cro03b_denied_stage_accounting
+  PASS: 0193_cro03_ledger_lineage_drift_repair
+  PASS: 0194_cro03b_validation_execution_fence
+  PASS: 0195_cro03c_live_activation_authority
+  PASS: 0196_cro03c_dispatch_reconciliation
+  PASS: 0197_cro03c_initial_membership_ordinals
+  PASS: 0198_cro03c_initial_continuation
+  PASS: 0199_cro03c_opaque_stage_inputs
+  PASS: 0200_cro03c_deployment_inventory
+  PASS: 0201_cro03c_validation_command_caps
+  PASS: 0202_cro03c_transport_invocation_checkpoint
+  PASS: 0203_validate_publish_constraints
+  PASS: 0204_cro05a_inbound_revenue_operations
+  PASS: 0205_cro05a_equipment_fulfillment_truth
+  PASS: 0206_rate_review_request_command_ownership
+  PASS: 0207_cro07_controlled_delivery_feedback
+  PASS: 0208_cro07_corrections
+  PASS: 0209_cro07_feedback_experiment_integrity
+  PASS: 0210_cro07_provider_correlation
+  PASS: 0211_cro07_source_correlation
+  PASS: 0212_cro07_immutability_guards
+  PASS: 0213_cro08a_continuous_candidate_factory
+  PASS: 0214_cro08a_run_mode_widen
+  PASS: 0215_cro08a_occurrence_selected_handoffs
+  PASS: 0216_cro08a_generation_mode_widen
+  PASS: 0217_cro08a_generation_mode_widen_canary
+  PASS: 0218_rev05a_processor_activation
+  PASS: 0219_rev05a_mid_access_receipts
+  PASS: 0220_rev05a_boarding_status_fields
+  PASS: 0221_campaign_approvals
+  PASS: 0222_serper_lookup_attempts
+  PASS: 0223_contacts_active_created_at_idx
+  PASS: 0224_bulk_delete_tables
+  PASS: 0225_contact_census
+  PASS: 0226_census_ownership
+  PASS: 0227_contact_reconciliation
+  PASS: 0228_fix_recon_active_index
+  PASS: 0229_fix_proposal_status_reverted
+  PASS: 0230_identity_crosswalk_runs
+  PASS: 0231_identity_crosswalk_candidates
+  PASS: 0232_crosswalk_run_notes
+  PASS: 0233_quality_signal_projection
+  PASS: 0234_contact_remediation_operations
+  PASS: 0235_sales_knowledge_authority
+  PASS: 0236_rep_identity_canonical_queue
+  PASS: 0237_rev06a_credential_authority_matrix
+  PASS: 0238_rev06a_merchant_sandbox_snapshot
+  PASS: 0239_rev06a_mid_daily_stats_nullable
+  PASS: 0240_field_sales_territories
+  PASS: 0241_field_sales_routes
+  PASS: 0242_field_sales_visits
+  PASS: 0243_sales_rep_ops_readiness
+  PASS: 0244_source_registry
+  PASS: 0245_source_registry_csv_store
+  PASS: 0246_source_registry_reactivation
+  PASS: 0247_source_registry_manifest
+  PASS: 0248_canonical_source_links
+  PASS: 0249_canonical_conflict_evidence
+  PASS: 0250_free_enrichment_pipeline
+  PASS: 0251_processor_signals_unique
+  PASS: 0252_cro03c_candidate_evidence
+  PASS: 0253_cro03a_qualification_commands
+  PASS: 0254_cro03a_qualification_commands_claimed_at
+  PASS: 0255_mi06_business_email_winner
+  PASS: 0256_cro03a_policy_v3_dbpr_hr
+  PASS: 0257_mi07_master_lead_pipeline_cols
+  PASS: 0258_mi07_staging_intents
+  PASS: 0259_mi07_staging_receipts
+  PASS: 0260_mi07_dedup_unique_indexes
+  PASS: 0261_mi09_pilot_lifecycle
+  PASS: 0262_mi09_pilot_phase_command_type
+  PASS: 0263_audit_logs_action_created_at_idx
+  PASS: 0264_free_enrichment_queue_indexes
+  PASS: 0265_contacts_notnull_convergence
+  PASS: 0266_sunbiz_bootstrap_claims
+  PASS: 0267_mi09_free_enrichment_outcomes
+  PASS: 0268_mi09_pilot_evidence_links
+  PASS: 0269_paid_provider_controls_all
+  PASS: 0270_mi09_pilot_run_frozen_pricing
+  PASS: 0271_free_discovery_evidence
+  PASS: 0272_free_discovery_candidate_subject_scope
+  PASS: 0273_free_discovery_candidate_subject_type_consistency
+  PASS: 0274_cro03_observation_geo_backfill_sentinel
+  PASS: 0275_roi_candidate_scores_table
+  PASS: 0276_cohort_validation_runs_table
+  PASS: 0277_south_florida_prospecting
+  PASS: 0278_sfp_governed_operations
+  PASS: 0279_sfp_immutable_cohort_lifecycle
+  PASS: 0280_roi_candidate_scores_dedupe
+  PASS: 0281_sfp_corrections
+  PASS: 0282_sfp_lifecycle_evidence_and_snapshot
+  PASS: 0283_sfp_funnel_snapshot_immutability
+  PASS: 0284_sfp_cohort_size_range_check
+  PASS: 0285_sfp_program_max_cohort_size_range
+  PASS: 0286_sfp_subject_aware_suppression_evidence
+  PASS: 0287_sfp_classification_paid_evidence
+  PASS: 0288_sfp1999_idempotency_gap_immutability
+  PASS: 0289_sfp2000_policy_and_lineage
+  PASS: 0290_sfp2001_campaign_package_staging
+  PASS: 0291_sfp2001_corrective_patch
+  PASS: 0292_sfp2001_command_lifecycle
+  PASS: 0293_sfp2001_package_version_authority
+  PASS: 0294_task2002_sunbiz_bootstrap_ledger
+  PASS: 0295_task2002_sunbiz_full_backfill
+  PASS: 0296_task2002_soflo_priority
+  PASS: 0297_task2002_soflo_cursor_rewind
+  PASS: 0298_task2003_serper_call_log
+  PASS: 0299_sfp_soflo_target_v2_evidence
+  PASS: 0300_sfp_classification_snapshots
+  PASS: 0301_sfp_taxonomy_version_and_ready_held_bridge
+  PASS: 0302_sfp_v2_package_key_check
+  PASS: 0303_sfp_free_classification_continuation
+  PASS: 0304_sfp_identity_quarantine
+  PASS: 0305_sfp_wrong_site_derived_evidence
+  PASS: 0306_sfp_contact_eligibility_reference
+  PASS: 0307_serper_canonical_control_reconciliation
+  PASS: 0308_sfp_ready_held_review_status
+  PASS: 0309_sfp_verified_contact_source
+  PASS: 0310_sfp_named_email_eligibility_review
+  PASS: 0311_sfp_provider_operation_costs
+  PASS: 0312_contact_business_system_links
+  PASS: 0313_sfp_runtime_and_billing
+  PASS: 0314_sfp_verified_recipient_link_commitments
+  PASS: 0316_sfp_source_retrieval_indexes
+  PASS: 0317_sfp_provider_retrieval_tasks
+  PASS: 0318_sfp_ready_held_consumer
+  PASS: 0319_sfp_runtime_release_selector
+  PASS: 0320_sfp_contact_address_serialization
+  PASS: 0321_sfp_exact_dispatch_receipts
+  PASS: 0322_sfp_common_eligibility_lock_protocol
+  PASS: 0323_sunbiz_publish_safe_identity_keys
+  PASS: 0324_sfp_recipient_scoped_eligibility
+  PASS: 0325_crm_evidence_relationship_authority
+  PASS: 0326_sfp_global_recipient_slots
+  PASS: 0327_crm_effective_vertical_projection
+  PASS: 0328_sfp_recipient_association_pins
+  PASS: 0329_crm_native_contract_repair
+  PASS: 0330_canonical_address_validation
+  PASS: 0331_canonical_recipient_preparation
+  PASS: 0332_sfp_program_discovery_scope
+  PASS: 0333_canonical_relationship_lookup_indexes
+  PASS: 0334_rep_message_drafts
+  PASS: 0335_workflow_recovery_fence
+  PASS: 0336_recoverable_user_accounts
+  PASS: 0337_work_command_identity_indexes
+  PASS: 0338_task_native_identity_lookup
+  PASS: 0339_inbox_work_commands
+  PASS: 0340_notification_actor_state
+  PASS: 0341_contact_privacy_lifecycle
+  PASS: 0342_contact_lifecycle_receipts
+  PASS: 0343_note_commands
+  PASS: 0344_company_creator_authority
+  PASS: 0345_sequence_retirement
+  PASS: 0346_rep_invite_purpose
+  PASS: 0347_rfi_work_commands
+  PASS: 0348_import_identity_bridge_contract
+  PASS: 0349_source_family_relationship_identity
+  PASS: 0350_contact_coverage_indexed_keys
+  PASS: 0351_contact_email_absence_nullable
+  PASS: 0352_contact_mailbox_identity
+  PASS: 0353_contact_readiness_timestamp_parity
+  PASS: 0354_contact_coverage_single_rewrite
+  PASS: 0355_business_shared_domain_identity
+  PASS: 0356_contact_linker_indexed_domain
+  PASS: 0357_contact_incremental_change_probes
+  PASS: 0358_retained_sunbiz_contact_chain
+  PASS: 0359_email_prefilter
+  PASS: 0360_downgrade_undated_valid_email_status
+  PASS: 0361_first_party_staged_email_links
+  PASS: 0362_first_party_link_attribution
+  PASS: 0363_serper_lookup_memory
+  PASS: 0364_contact_link_dispositions
+  PASS: 0365_serper_credit_ledger_and_claim_pin
+  PASS: 0366_sfp_vertical_policy_acceptance
+  PASS: 0367_sfp_admission_tier_policy_accepted_constraint
+  PASS: 0368_zerobounce_ambiguous_recovery
+  PASS: 0369_serper_contact_page_lookups
+  PASS: 0370_inbound_acknowledgements
+  PASS: 0371_inbound_request_submitted_email
+  PASS: 0372_message_template_versions
+  PASS: 0373_partner_approval_deliveries
+  PASS: 0374_ghl_projection_generation_authority
+  PASS: 0375_ghl_projection_operations_and_intake_evidence
+  PASS: 0376_ghl_webhook_effect_steps_and_appointment_booked_owner
+  PASS: 0377_ghl_workflow_handoff_dispatches
+  PASS: 0378_stage4c2_appointment_followup_authority
+  PASS: 0379_stage4c2_correction_pass
+  PASS: 0380_stage5_underwriting_condition_integrity
+  PASS: 0381_stage5_condition_chase_versioning
+  PASS: 0382_website_email_lifecycle
+  PASS: 0383_sunbiz_entities_contact_evidence_index
+  PASS: 0384_partner_applications_introductions_policy
+  PASS: 0385_partner_review_decisions_and_introduction_completion
+  PASS: 0386_partner_introduction_checks_validated
+  PASS: 0387_phase7_conversion_integrity
+  PASS: 0388_scheduled_outscraper_discovery
+  PASS: 0389_discovery_id_checks_publish_safe
+  PASS: 0390_discovery_monthly_budget
+  PASS: 0391_contact_scoring_active_index
+  PASS: 0392_crm_outscraper_monthly_budget
+  PASS: 0393_team_intake_email_alerts
+
+[Rule 2] Journal entries all have a matching SQL file:
+  PASS: 0006_live_chat_tables
+  PASS: 0007_ab_testing_linkedin_enrichment
+  PASS: 0008_document_vault_columns
+  PASS: 0009_residual_reconciliation
+  PASS: 0010_processor_boarding_mid_stats
+  PASS: 0011_underwriting_notes_log
+  PASS: 0012_verbal_commit_pipeline_stage
+  PASS: 0012_user_sessions
+  PASS: 0013_ai_audit_observability
+  PASS: 0015_savings_share_token
+  PASS: 0000_faulty_gwen_stacy
+  PASS: 0001_smooth_hellion
+  PASS: 0002_old_sentry
+  PASS: 0003_tough_mandarin
+  PASS: 0004_dusty_naoko
+  PASS: 0005_shallow_stepford_cuckoos
+  PASS: 0014_startup_sql_consolidation
+  PASS: 0016_referral_converted_at
+  PASS: 0017_tool_click_events
+  PASS: 0018_deal_vertical
+  PASS: 0019_push_subscriptions
+  PASS: 0020_document_status
+  PASS: 0020_multi_location_fk
+  PASS: 0019_onboarding_checklist
+  PASS: 0022_multi_location
+  PASS: 0023_multi_location_fk
+  PASS: 0019_rate_review_requests
+  PASS: 0024_terminal_economics
+  PASS: 0024_deal_analysis_status
+  PASS: 0025_statement_proposals
+  PASS: 0026_performance_indexes
+  PASS: 0027_underwriting_rules
+  PASS: 0028_bot_contexts_handoff_rules
+  PASS: 0028_outreach_intelligence
+  PASS: 0029_contacts_email_status_fix
+  PASS: 0030_workflow_trigger_conditions
+  PASS: 0031_registry_import
+  PASS: 0032_free_discovery_sources
+  PASS: 0033_free_contact_enrichment
+  PASS: 0034_ghl_delete_sync
+  PASS: 0035_communication_feedback
+  PASS: 0036_tcpa_consent_type
+  PASS: 0037_contactability_engine
+  PASS: 0038_offer_router_fields
+  PASS: 0039_wave6_sequence_families
+  PASS: 0040_analytics_events
+  PASS: 0041_wave10_merchant_app
+  PASS: 0042_sdr_merchants_owner_fields
+  PASS: 0043_sdr_business_domain_unique
+  PASS: 0044_statement_requests_and_ai_cache
+  PASS: 0045_channel_audit_log
+  PASS: 0046_csv_import_reconciliation
+  PASS: 0047_contacts_opted_out_email
+  PASS: 0048_outbound_send_counters
+  PASS: 0049_csv_import_progress_tracking
+  PASS: 0050_deals_auto_enrollment_suppression
+  PASS: 0051_csv_import_opt_out_protection
+  PASS: 0052_sequence_enrollments_active_unique
+  PASS: 0053_sla_task_source_identity
+  PASS: 0055_add_data_completeness_score
+  PASS: 0056_campaign_previews
+  PASS: 0057_contact_readiness_score
+  PASS: 0058_campaign_previews_readiness_breakdown
+  PASS: 0059_readiness_run_singleton
+  PASS: 0060_promotional_enrollment_jobs
+  PASS: 0061_prospect_lists_idempotency
+  PASS: 0062_prospects_provenance
+  PASS: 0063_sunbiz_filing_number_unique
+  PASS: 0064_prospects_email_unique
+  PASS: 0065_provenance_schema
+  PASS: 0066_ghl_contact_id_unique
+  PASS: 0067_contact_lead_scoring_jobs
+  PASS: 0109_fearless_starhawk
+  PASS: 0068_registry_import_log_confidence
+  PASS: 0069_consent_audit_idempotency
+  PASS: 0070_prospect_conversion_claims
+  PASS: 0071_vertical_provenance_schema
+  PASS: 0072_system_audit_runs
+  PASS: 0073_system_audit_runs_v2
+  PASS: 0074_fix_ghl_identity_conflicts
+  PASS: 0075_admin_password_reset
+  PASS: 0076_outbound_launch_foundation
+  PASS: 0077_outbound_attestations
+  PASS: 0014_dedup_sdr_indexes
+  PASS: 0016_share_view_count
+  PASS: 0084_ai_assistant
+  PASS: 0085_admin_attestations_versioning
+  PASS: 0086_contacts_gclid
+  PASS: 0087_demo_archive_lead_staging
+  PASS: 0088_suppression_compliance_fields
+  PASS: 0087_master_leads
+  PASS: 0089_master_leads_extended
+  PASS: 0090_inbox_items_statement_reviews
+  PASS: 0092_sequence_outbound_channels
+  PASS: 0093_clear_test_ghl_ids
+  PASS: 0094_outbound_messages_sending_at
+  PASS: 0095_nps_survey_constraints
+  PASS: 0096_residual_partner_commission
+  PASS: 0095_closed_won_onboarding
+  PASS: 0096_onboarding_deal_unique
+  PASS: 0097_onboarding_sla_task_unique
+  PASS: 0098_archived_at_partial_indexes
+  PASS: 0099_agent_payouts
+  PASS: 0100_agent_payouts_partner_org
+  PASS: 0101_agent_payouts_partner_unique
+  PASS: 0102_agent_payouts_status_check
+  PASS: 0103_merchant_residuals_import_id
+  PASS: 0104_merchant_residuals_import_mid_unique
+  PASS: 0105_executive_kpi_tables
+  PASS: 0106_deferred_ghl_enrollments
+  PASS: 0110_ghl_unsynced_contacts_idx
+  PASS: 0111_residual_txn_cost
+  PASS: 0112_contact_assigned_to
+  PASS: 0105_executive_weekly_snapshots
+  PASS: 0106_executive_goals
+  PASS: 0113_vas_upsell_suppression
+  PASS: 0113_background_jobs_lock_token
+  PASS: 0114_seq_enrollments_status_next_action_idx
+  PASS: 0115_automation_registry
+  PASS: 0116_contact_lifecycle_state
+  PASS: 0117_contact_nba
+  PASS: 0118_lead_sla_timer
+  PASS: 0119_communication_events
+  PASS: 0120_ghl_shadow_log
+  PASS: 0121_underwriting_conditions
+  PASS: 0122_merchant_mids
+  PASS: 0123_save_cases
+  PASS: 0124_entity_memory
+  PASS: 0125_ai_decision_log
+  PASS: 0126_ai_corrections_prompts
+  PASS: 0127_underwriting_task_automation_key_unique
+  PASS: 0128_tour_completed_at
+  PASS: 0129_deal_name
+  PASS: 0130_equipment_device_fields
+  PASS: 0131_deal_post_enrichment
+  PASS: 0132_outreach_queue_skipped_at
+  PASS: 0133_outbound_pause_control
+  PASS: 0134_outbound_inflight_sends
+  PASS: 0135_contacts_email_status_unvalidated_default
+  PASS: 0136_zerobounce_campaign_engine
+  PASS: 0137_logical_job_control_holds
+  PASS: 0138_post_enrichment_intent_fields
+  PASS: 0139_pe_intents_fk_repair
+  PASS: 0140_serper_control
+  PASS: 0141_serper_merchant_cooldown
+  PASS: 0142_merchant_application_protected_data
+  PASS: 0143_merchant_application_ein_unique
+  PASS: 0144_consent_authority_channel_state
+  PASS: 0145_consent_subject_upsert_race_fix
+  PASS: 0146_consent_audit_append_only_guard
+  PASS: 0147_statement_upload_commands
+  PASS: 0148_statement_upload_command_ownership
+  PASS: 0149_statement_proposals_deal_id_unique
+  PASS: 0091_merchant_onboarding_stages
+  PASS: 0150_commercial_classification
+  PASS: 0151_canonical_identity_merge
+  PASS: 0152_identity_observation_no_plaintext
+  PASS: 0153_contact_merge_unordered_pair_fence
+  PASS: 0154_identity_observation_current_validity
+  PASS: 0155_canonical_intake_authority
+  PASS: 0156_import_execution_source_payload
+  PASS: 0157_csv_import_execution_projection
+  PASS: 0158_provider_health_readiness_controls
+  PASS: 0159_campaign_queue_outbound_fence
+  PASS: 0160_seed_zerobounce_provider_control
+  PASS: 0161_statement_command_recovery
+  PASS: 0162_revenue_state_reconciliation
+  PASS: 0163_revenue_command_dispatch_recovery
+  PASS: 0164_bt12_effect_receipts_and_threshold_backfill
+  PASS: 0165_outbound_send_claim_lease
+  PASS: 0166_cro02_shadow_graph
+  PASS: 0167_cro02_shadow_aggregates
+  PASS: 0168_cro02_evidence_retention_guards
+  PASS: 0169_cro02_graph_command_guards
+  PASS: 0170_cro02_versioned_purpose_policies
+  PASS: 0171_cro02_evidence_snapshot_retention
+  PASS: 0172_cro02_reviewed_contact_business_links
+  PASS: 0173_cro02_graph_lock_order
+  PASS: 0174_cro03_durable_enrichment_factory
+  PASS: 0175_cro03_frozen_subject_plans
+  PASS: 0176_rvr03_auth_actions
+  PASS: 0177_cro03_source_staging_evidence
+  PASS: 0178_cr04_channel_cohort_authority
+  PASS: 0179_cr04_resumable_projection_runs
+  PASS: 0180_inbox_source_identity_statement_review_integrity
+  PASS: 0181_cr05_task_ticket_authority
+  PASS: 0182_cr06_premium_campaign_governance
+  PASS: 0183_cr06_preparation_fences
+  PASS: 0184_cr06_corrections
+  PASS: 0185_cr06_history_and_feedback
+  PASS: 0186_cr06_scoped_reservation_contract
+  PASS: 0187_cro03a_candidate_qualification
+  PASS: 0188_cro03b_unified_recipe
+  PASS: 0189_cro03b_uuid_census_cursor
+  PASS: 0190_cro03b_recipe_evidence_projection_binding
+  PASS: 0191_cro03b_terminal_hook_outbox
+  PASS: 0192_cro03b_denied_stage_accounting
+  PASS: 0193_cro03_ledger_lineage_drift_repair
+  PASS: 0194_cro03b_validation_execution_fence
+  PASS: 0195_cro03c_live_activation_authority
+  PASS: 0196_cro03c_dispatch_reconciliation
+  PASS: 0197_cro03c_initial_membership_ordinals
+  PASS: 0198_cro03c_initial_continuation
+  PASS: 0199_cro03c_opaque_stage_inputs
+  PASS: 0200_cro03c_deployment_inventory
+  PASS: 0201_cro03c_validation_command_caps
+  PASS: 0202_cro03c_transport_invocation_checkpoint
+  PASS: 0203_validate_publish_constraints
+  PASS: 0204_cro05a_inbound_revenue_operations
+  PASS: 0205_cro05a_equipment_fulfillment_truth
+  PASS: 0206_rate_review_request_command_ownership
+  PASS: 0207_cro07_controlled_delivery_feedback
+  PASS: 0208_cro07_corrections
+  PASS: 0209_cro07_feedback_experiment_integrity
+  PASS: 0210_cro07_provider_correlation
+  PASS: 0211_cro07_source_correlation
+  PASS: 0212_cro07_immutability_guards
+  PASS: 0213_cro08a_continuous_candidate_factory
+  PASS: 0214_cro08a_run_mode_widen
+  PASS: 0215_cro08a_occurrence_selected_handoffs
+  PASS: 0216_cro08a_generation_mode_widen
+  PASS: 0217_cro08a_generation_mode_widen_canary
+  PASS: 0218_rev05a_processor_activation
+  PASS: 0219_rev05a_mid_access_receipts
+  PASS: 0220_rev05a_boarding_status_fields
+  PASS: 0221_campaign_approvals
+  PASS: 0222_serper_lookup_attempts
+  PASS: 0223_contacts_active_created_at_idx
+  PASS: 0224_bulk_delete_tables
+  PASS: 0225_contact_census
+  PASS: 0226_census_ownership
+  PASS: 0227_contact_reconciliation
+  PASS: 0228_fix_recon_active_index
+  PASS: 0229_fix_proposal_status_reverted
+  PASS: 0230_identity_crosswalk_runs
+  PASS: 0231_identity_crosswalk_candidates
+  PASS: 0232_crosswalk_run_notes
+  PASS: 0233_quality_signal_projection
+  PASS: 0234_contact_remediation_operations
+  PASS: 0235_sales_knowledge_authority
+  PASS: 0236_rep_identity_canonical_queue
+  PASS: 0237_rev06a_credential_authority_matrix
+  PASS: 0238_rev06a_merchant_sandbox_snapshot
+  PASS: 0239_rev06a_mid_daily_stats_nullable
+  PASS: 0240_field_sales_territories
+  PASS: 0241_field_sales_routes
+  PASS: 0242_field_sales_visits
+  PASS: 0243_sales_rep_ops_readiness
+  PASS: 0244_source_registry
+  PASS: 0245_source_registry_csv_store
+  PASS: 0246_source_registry_reactivation
+  PASS: 0247_source_registry_manifest
+  PASS: 0248_canonical_source_links
+  PASS: 0249_canonical_conflict_evidence
+  PASS: 0250_free_enrichment_pipeline
+  PASS: 0251_processor_signals_unique
+  PASS: 0252_cro03c_candidate_evidence
+  PASS: 0253_cro03a_qualification_commands
+  PASS: 0254_cro03a_qualification_commands_claimed_at
+  PASS: 0255_mi06_business_email_winner
+  PASS: 0256_cro03a_policy_v3_dbpr_hr
+  PASS: 0257_mi07_master_lead_pipeline_cols
+  PASS: 0258_mi07_staging_intents
+  PASS: 0259_mi07_staging_receipts
+  PASS: 0260_mi07_dedup_unique_indexes
+  PASS: 0261_mi09_pilot_lifecycle
+  PASS: 0262_mi09_pilot_phase_command_type
+  PASS: 0263_audit_logs_action_created_at_idx
+  PASS: 0264_free_enrichment_queue_indexes
+  PASS: 0265_contacts_notnull_convergence
+  PASS: 0266_sunbiz_bootstrap_claims
+  PASS: 0267_mi09_free_enrichment_outcomes
+  PASS: 0268_mi09_pilot_evidence_links
+  PASS: 0269_paid_provider_controls_all
+  PASS: 0270_mi09_pilot_run_frozen_pricing
+  PASS: 0271_free_discovery_evidence
+  PASS: 0272_free_discovery_candidate_subject_scope
+  PASS: 0273_free_discovery_candidate_subject_type_consistency
+  PASS: 0274_cro03_observation_geo_backfill_sentinel
+  PASS: 0275_roi_candidate_scores_table
+  PASS: 0276_cohort_validation_runs_table
+  PASS: 0277_south_florida_prospecting
+  PASS: 0278_sfp_governed_operations
+  PASS: 0279_sfp_immutable_cohort_lifecycle
+  PASS: 0280_roi_candidate_scores_dedupe
+  PASS: 0281_sfp_corrections
+  PASS: 0282_sfp_lifecycle_evidence_and_snapshot
+  PASS: 0283_sfp_funnel_snapshot_immutability
+  PASS: 0284_sfp_cohort_size_range_check
+  PASS: 0285_sfp_program_max_cohort_size_range
+  PASS: 0286_sfp_subject_aware_suppression_evidence
+  PASS: 0287_sfp_classification_paid_evidence
+  PASS: 0288_sfp1999_idempotency_gap_immutability
+  PASS: 0289_sfp2000_policy_and_lineage
+  PASS: 0290_sfp2001_campaign_package_staging
+  PASS: 0291_sfp2001_corrective_patch
+  PASS: 0292_sfp2001_command_lifecycle
+  PASS: 0293_sfp2001_package_version_authority
+  PASS: 0294_task2002_sunbiz_bootstrap_ledger
+  PASS: 0295_task2002_sunbiz_full_backfill
+  PASS: 0296_task2002_soflo_priority
+  PASS: 0297_task2002_soflo_cursor_rewind
+  PASS: 0298_task2003_serper_call_log
+  PASS: 0299_sfp_soflo_target_v2_evidence
+  PASS: 0300_sfp_classification_snapshots
+  PASS: 0301_sfp_taxonomy_version_and_ready_held_bridge
+  PASS: 0302_sfp_v2_package_key_check
+  PASS: 0303_sfp_free_classification_continuation
+  PASS: 0304_sfp_identity_quarantine
+  PASS: 0305_sfp_wrong_site_derived_evidence
+  PASS: 0306_sfp_contact_eligibility_reference
+  PASS: 0307_serper_canonical_control_reconciliation
+  PASS: 0308_sfp_ready_held_review_status
+  PASS: 0309_sfp_verified_contact_source
+  PASS: 0310_sfp_named_email_eligibility_review
+  PASS: 0311_sfp_provider_operation_costs
+  PASS: 0312_contact_business_system_links
+  PASS: 0313_sfp_runtime_and_billing
+  PASS: 0314_sfp_verified_recipient_link_commitments
+  PASS: 0316_sfp_source_retrieval_indexes
+  PASS: 0317_sfp_provider_retrieval_tasks
+  PASS: 0318_sfp_ready_held_consumer
+  PASS: 0320_sfp_contact_address_serialization
+  PASS: 0319_sfp_runtime_release_selector
+  PASS: 0321_sfp_exact_dispatch_receipts
+  PASS: 0322_sfp_common_eligibility_lock_protocol
+  PASS: 0323_sunbiz_publish_safe_identity_keys
+  PASS: 0324_sfp_recipient_scoped_eligibility
+  PASS: 0325_crm_evidence_relationship_authority
+  PASS: 0326_sfp_global_recipient_slots
+  PASS: 0327_crm_effective_vertical_projection
+  PASS: 0328_sfp_recipient_association_pins
+  PASS: 0329_crm_native_contract_repair
+  PASS: 0330_canonical_address_validation
+  PASS: 0331_canonical_recipient_preparation
+  PASS: 0332_sfp_program_discovery_scope
+  PASS: 0333_canonical_relationship_lookup_indexes
+  PASS: 0334_rep_message_drafts
+  PASS: 0335_workflow_recovery_fence
+  PASS: 0336_recoverable_user_accounts
+  PASS: 0337_work_command_identity_indexes
+  PASS: 0338_task_native_identity_lookup
+  PASS: 0339_inbox_work_commands
+  PASS: 0340_notification_actor_state
+  PASS: 0341_contact_privacy_lifecycle
+  PASS: 0342_contact_lifecycle_receipts
+  PASS: 0343_note_commands
+  PASS: 0344_company_creator_authority
+  PASS: 0345_sequence_retirement
+  PASS: 0346_rep_invite_purpose
+  PASS: 0347_rfi_work_commands
+  PASS: 0348_import_identity_bridge_contract
+  PASS: 0349_source_family_relationship_identity
+  PASS: 0350_contact_coverage_indexed_keys
+  PASS: 0351_contact_email_absence_nullable
+  PASS: 0352_contact_mailbox_identity
+  PASS: 0353_contact_readiness_timestamp_parity
+  PASS: 0354_contact_coverage_single_rewrite
+  PASS: 0355_business_shared_domain_identity
+  PASS: 0356_contact_linker_indexed_domain
+  PASS: 0357_contact_incremental_change_probes
+  PASS: 0358_retained_sunbiz_contact_chain
+  PASS: 0359_email_prefilter
+  PASS: 0360_downgrade_undated_valid_email_status
+  PASS: 0361_first_party_staged_email_links
+  PASS: 0362_first_party_link_attribution
+  PASS: 0363_serper_lookup_memory
+  PASS: 0364_contact_link_dispositions
+  PASS: 0365_serper_credit_ledger_and_claim_pin
+  PASS: 0366_sfp_vertical_policy_acceptance
+  PASS: 0367_sfp_admission_tier_policy_accepted_constraint
+  PASS: 0368_zerobounce_ambiguous_recovery
+  PASS: 0369_serper_contact_page_lookups
+  PASS: 0370_inbound_acknowledgements
+  PASS: 0371_inbound_request_submitted_email
+  PASS: 0372_message_template_versions
+  PASS: 0373_partner_approval_deliveries
+  PASS: 0374_ghl_projection_generation_authority
+  PASS: 0375_ghl_projection_operations_and_intake_evidence
+  PASS: 0376_ghl_webhook_effect_steps_and_appointment_booked_owner
+  PASS: 0377_ghl_workflow_handoff_dispatches
+  PASS: 0378_stage4c2_appointment_followup_authority
+  PASS: 0379_stage4c2_correction_pass
+  PASS: 0380_stage5_underwriting_condition_integrity
+  PASS: 0381_stage5_condition_chase_versioning
+  PASS: 0382_website_email_lifecycle
+  PASS: 0383_sunbiz_entities_contact_evidence_index
+  PASS: 0384_partner_applications_introductions_policy
+  PASS: 0385_partner_review_decisions_and_introduction_completion
+  PASS: 0386_partner_introduction_checks_validated
+  PASS: 0387_phase7_conversion_integrity
+  PASS: 0388_scheduled_outscraper_discovery
+  PASS: 0389_discovery_id_checks_publish_safe
+  PASS: 0390_discovery_monthly_budget
+  PASS: 0391_contact_scoring_active_index
+  PASS: 0392_crm_outscraper_monthly_budget
+  PASS: 0393_team_intake_email_alerts
+
+[Rule 3] Journal `when` timestamps are ordered (new entries strictly advance):
+  PASS: Historical journal timestamps are non-decreasing and newly added timestamps strictly advance
+
+[Rule 4] Required additive outbound migrations present and safe:
+  PASS: 0076_outbound_launch_foundation — present, additive-only
+  PASS: 0077_outbound_attestations — present, additive-only
+
+[Rule 5] Guarded migrations are absent from journal (intentional gate):
+  PASS: 0054_sla_task_stalling_unique_index is in guarded/ and absent from journal
+
+[Rule 6] No unaccounted root SQL files (not in journal and not a known guard):
+  PASS: All root SQL files are accounted for (journaled or known-guarded)
+
+[Rule 7] Post-baseline entries (idx > 153) must have `when` > 1793300000000:
+  PASS: Baseline anchor confirmed: idx=153 tag=0091_merchant_onboarding_stages when=1793300000000
+  PASS: Dynamic high-water mark: 1793300000000 (static floor: 1793300000000)
+  PASS: idx=154 0150_commercial_classification: when=1793400000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=155 0151_canonical_identity_merge: when=1793500000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=156 0152_identity_observation_no_plaintext: when=1793600000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=157 0153_contact_merge_unordered_pair_fence: when=1793700000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=158 0154_identity_observation_current_validity: when=1793800000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=159 0155_canonical_intake_authority: when=1793900000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=160 0156_import_execution_source_payload: when=1794000000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=161 0157_csv_import_execution_projection: when=1794100000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=162 0158_provider_health_readiness_controls: when=1794200000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=163 0159_campaign_queue_outbound_fence: when=1794300000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=164 0160_seed_zerobounce_provider_control: when=1794400000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=165 0161_statement_command_recovery: when=1794500000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=166 0162_revenue_state_reconciliation: when=1794600000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=167 0163_revenue_command_dispatch_recovery: when=1794700000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=168 0164_bt12_effect_receipts_and_threshold_backfill: when=1794800000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=169 0165_outbound_send_claim_lease: when=1794900000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=170 0166_cro02_shadow_graph: when=1795000000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=171 0167_cro02_shadow_aggregates: when=1795100000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=172 0168_cro02_evidence_retention_guards: when=1795200000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=173 0169_cro02_graph_command_guards: when=1795300000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=174 0170_cro02_versioned_purpose_policies: when=1795400000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=175 0171_cro02_evidence_snapshot_retention: when=1795500000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=176 0172_cro02_reviewed_contact_business_links: when=1795600000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=177 0173_cro02_graph_lock_order: when=1795700000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=178 0174_cro03_durable_enrichment_factory: when=1795800000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=179 0175_cro03_frozen_subject_plans: when=1795900000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=180 0176_rvr03_auth_actions: when=1796000000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=181 0177_cro03_source_staging_evidence: when=1796100000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=182 0178_cr04_channel_cohort_authority: when=1796200000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=183 0179_cr04_resumable_projection_runs: when=1796300000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=184 0180_inbox_source_identity_statement_review_integrity: when=1796400000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=185 0181_cr05_task_ticket_authority: when=1796500000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=186 0182_cr06_premium_campaign_governance: when=1796600000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=187 0183_cr06_preparation_fences: when=1796700000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=188 0184_cr06_corrections: when=1796800000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=189 0185_cr06_history_and_feedback: when=1796900000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=190 0186_cr06_scoped_reservation_contract: when=1797000000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=191 0187_cro03a_candidate_qualification: when=1797100000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=192 0188_cro03b_unified_recipe: when=1797200000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=193 0189_cro03b_uuid_census_cursor: when=1797300000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=194 0190_cro03b_recipe_evidence_projection_binding: when=1797400000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=195 0191_cro03b_terminal_hook_outbox: when=1797500000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=196 0192_cro03b_denied_stage_accounting: when=1797600000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=197 0193_cro03_ledger_lineage_drift_repair: when=1797700000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=198 0194_cro03b_validation_execution_fence: when=1797800000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=199 0195_cro03c_live_activation_authority: when=1797900000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=200 0196_cro03c_dispatch_reconciliation: when=1798000000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=201 0197_cro03c_initial_membership_ordinals: when=1798100000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=202 0198_cro03c_initial_continuation: when=1798200000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=203 0199_cro03c_opaque_stage_inputs: when=1798300000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=204 0200_cro03c_deployment_inventory: when=1798400000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=205 0201_cro03c_validation_command_caps: when=1798500000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=206 0202_cro03c_transport_invocation_checkpoint: when=1798600000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=207 0203_validate_publish_constraints: when=1798700000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=208 0204_cro05a_inbound_revenue_operations: when=1798800000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=209 0205_cro05a_equipment_fulfillment_truth: when=1798900000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=210 0206_rate_review_request_command_ownership: when=1799000000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=211 0207_cro07_controlled_delivery_feedback: when=1799100000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=212 0208_cro07_corrections: when=1799200000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=213 0209_cro07_feedback_experiment_integrity: when=1799300000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=214 0210_cro07_provider_correlation: when=1799400000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=215 0211_cro07_source_correlation: when=1799500000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=216 0212_cro07_immutability_guards: when=1799600000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=217 0213_cro08a_continuous_candidate_factory: when=1799700000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=218 0214_cro08a_run_mode_widen: when=1799800000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=219 0215_cro08a_occurrence_selected_handoffs: when=1799800100000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=220 0216_cro08a_generation_mode_widen: when=1799800200000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=221 0217_cro08a_generation_mode_widen_canary: when=1799800300000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=222 0218_rev05a_processor_activation: when=1799900000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=223 0219_rev05a_mid_access_receipts: when=1799900100000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=224 0220_rev05a_boarding_status_fields: when=1799900200000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=225 0221_campaign_approvals: when=1799900300000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=226 0222_serper_lookup_attempts: when=1799900400000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=227 0223_contacts_active_created_at_idx: when=1800000000000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=228 0224_bulk_delete_tables: when=1800000000001 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=229 0225_contact_census: when=1800000000100 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=230 0226_census_ownership: when=1800000000200 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=231 0227_contact_reconciliation: when=1800000000300 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=232 0228_fix_recon_active_index: when=1800000000400 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=233 0229_fix_proposal_status_reverted: when=1800000000500 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=234 0230_identity_crosswalk_runs: when=1800000000600 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=235 0231_identity_crosswalk_candidates: when=1800000000700 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=236 0232_crosswalk_run_notes: when=1800000000800 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=237 0233_quality_signal_projection: when=1800000000900 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=238 0234_contact_remediation_operations: when=1800000001000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=239 0235_sales_knowledge_authority: when=1800000001100 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=240 0236_rep_identity_canonical_queue: when=1800000001200 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=241 0237_rev06a_credential_authority_matrix: when=1800000002200 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=242 0238_rev06a_merchant_sandbox_snapshot: when=1800000003200 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=243 0239_rev06a_mid_daily_stats_nullable: when=1800000004200 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=244 0240_field_sales_territories: when=1800000004300 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=245 0241_field_sales_routes: when=1800000004400 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=246 0242_field_sales_visits: when=1800000004500 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=247 0243_sales_rep_ops_readiness: when=1800000004600 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=248 0244_source_registry: when=1800000004700 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=249 0245_source_registry_csv_store: when=1800000004800 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=250 0246_source_registry_reactivation: when=1800000004900 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=251 0247_source_registry_manifest: when=1800000005000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=252 0248_canonical_source_links: when=1800000005100 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=253 0249_canonical_conflict_evidence: when=1800000005200 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=254 0250_free_enrichment_pipeline: when=1800000005300 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=255 0251_processor_signals_unique: when=1800000005400 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=256 0252_cro03c_candidate_evidence: when=1800000006000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=257 0253_cro03a_qualification_commands: when=1800000006200 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=258 0254_cro03a_qualification_commands_claimed_at: when=1800000006300 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=259 0255_mi06_business_email_winner: when=1800000006400 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=260 0256_cro03a_policy_v3_dbpr_hr: when=1800000006500 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=261 0257_mi07_master_lead_pipeline_cols: when=1800000006600 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=262 0258_mi07_staging_intents: when=1800000006700 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=263 0259_mi07_staging_receipts: when=1800000006800 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=264 0260_mi07_dedup_unique_indexes: when=1800000006900 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=265 0261_mi09_pilot_lifecycle: when=1800000007000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=266 0262_mi09_pilot_phase_command_type: when=1800000007100 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=267 0263_audit_logs_action_created_at_idx: when=1800000007200 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=268 0264_free_enrichment_queue_indexes: when=1800000007300 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=269 0265_contacts_notnull_convergence: when=1800000007400 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=270 0266_sunbiz_bootstrap_claims: when=1800000007500 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=271 0267_mi09_free_enrichment_outcomes: when=1800000007600 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=272 0268_mi09_pilot_evidence_links: when=1800000007700 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=273 0269_paid_provider_controls_all: when=1800000007800 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=274 0270_mi09_pilot_run_frozen_pricing: when=1800000007900 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=275 0271_free_discovery_evidence: when=1800000008000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=276 0272_free_discovery_candidate_subject_scope: when=1800000008100 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=277 0273_free_discovery_candidate_subject_type_consistency: when=1800000008200 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=278 0274_cro03_observation_geo_backfill_sentinel: when=1800000008300 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=279 0275_roi_candidate_scores_table: when=1800000009000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=280 0276_cohort_validation_runs_table: when=1800000009100 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=281 0277_south_florida_prospecting: when=1800000009200 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=282 0278_sfp_governed_operations: when=1800000009300 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=283 0279_sfp_immutable_cohort_lifecycle: when=1800000009400 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=284 0280_roi_candidate_scores_dedupe: when=1800000009500 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=285 0281_sfp_corrections: when=1800000009600 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=286 0282_sfp_lifecycle_evidence_and_snapshot: when=1800000009700 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=287 0283_sfp_funnel_snapshot_immutability: when=1800000010000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=288 0284_sfp_cohort_size_range_check: when=1800000010100 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=289 0285_sfp_program_max_cohort_size_range: when=1800000010200 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=290 0286_sfp_subject_aware_suppression_evidence: when=1800000010300 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=291 0287_sfp_classification_paid_evidence: when=1800000010400 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=292 0288_sfp1999_idempotency_gap_immutability: when=1800000010500 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=293 0289_sfp2000_policy_and_lineage: when=1800000010600 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=294 0290_sfp2001_campaign_package_staging: when=1800000010700 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=295 0291_sfp2001_corrective_patch: when=1800000010800 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=296 0292_sfp2001_command_lifecycle: when=1800000010900 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=297 0293_sfp2001_package_version_authority: when=1800000011000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=298 0294_task2002_sunbiz_bootstrap_ledger: when=1800000011100 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=299 0295_task2002_sunbiz_full_backfill: when=1800000011200 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=300 0296_task2002_soflo_priority: when=1800000011300 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=301 0297_task2002_soflo_cursor_rewind: when=1800000011400 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=302 0298_task2003_serper_call_log: when=1800000011500 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=303 0299_sfp_soflo_target_v2_evidence: when=1800000011600 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=304 0300_sfp_classification_snapshots: when=1800000011700 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=305 0301_sfp_taxonomy_version_and_ready_held_bridge: when=1800000011800 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=306 0302_sfp_v2_package_key_check: when=1800000012800 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=307 0303_sfp_free_classification_continuation: when=1800000012900 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=308 0304_sfp_identity_quarantine: when=1800000013000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=309 0305_sfp_wrong_site_derived_evidence: when=1800000013100 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=310 0306_sfp_contact_eligibility_reference: when=1800000013200 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=311 0307_serper_canonical_control_reconciliation: when=1800000013300 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=312 0308_sfp_ready_held_review_status: when=1800000013301 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=313 0309_sfp_verified_contact_source: when=1800000013400 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=314 0310_sfp_named_email_eligibility_review: when=1800000013500 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=315 0311_sfp_provider_operation_costs: when=1800000013600 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=316 0312_contact_business_system_links: when=1800000013700 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=317 0313_sfp_runtime_and_billing: when=1800000013800 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=318 0314_sfp_verified_recipient_link_commitments: when=1800000013900 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=319 0316_sfp_source_retrieval_indexes: when=1800000014000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=320 0317_sfp_provider_retrieval_tasks: when=1800000014100 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=321 0318_sfp_ready_held_consumer: when=1800000014200 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=322 0320_sfp_contact_address_serialization: when=1800000014300 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=323 0319_sfp_runtime_release_selector: when=1800000014400 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=324 0321_sfp_exact_dispatch_receipts: when=1800000014500 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=325 0322_sfp_common_eligibility_lock_protocol: when=1800000014600 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=326 0323_sunbiz_publish_safe_identity_keys: when=1800000014700 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=327 0324_sfp_recipient_scoped_eligibility: when=1800000014800 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=328 0325_crm_evidence_relationship_authority: when=1800000014900 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=329 0326_sfp_global_recipient_slots: when=1800000015000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=330 0327_crm_effective_vertical_projection: when=1800000015100 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=331 0328_sfp_recipient_association_pins: when=1800000015200 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=332 0329_crm_native_contract_repair: when=1800000015300 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=333 0330_canonical_address_validation: when=1800000015400 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=334 0331_canonical_recipient_preparation: when=1800000015500 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=335 0332_sfp_program_discovery_scope: when=1800000015600 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=336 0333_canonical_relationship_lookup_indexes: when=1800000015700 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=337 0334_rep_message_drafts: when=1800000015800 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=338 0335_workflow_recovery_fence: when=1800000015900 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=339 0336_recoverable_user_accounts: when=1800000016000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=340 0337_work_command_identity_indexes: when=1800000016100 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=341 0338_task_native_identity_lookup: when=1800000016200 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=342 0339_inbox_work_commands: when=1800000016300 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=343 0340_notification_actor_state: when=1800000016400 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=344 0341_contact_privacy_lifecycle: when=1800000016500 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=345 0342_contact_lifecycle_receipts: when=1800000016600 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=346 0343_note_commands: when=1800000016700 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=347 0344_company_creator_authority: when=1800000016800 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=348 0345_sequence_retirement: when=1800000016900 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=349 0346_rep_invite_purpose: when=1800000017000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=350 0347_rfi_work_commands: when=1800100017000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=351 0348_import_identity_bridge_contract: when=1800200017000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=352 0349_source_family_relationship_identity: when=1800300017000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=353 0350_contact_coverage_indexed_keys: when=1800400017000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=354 0351_contact_email_absence_nullable: when=1800400018000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=355 0352_contact_mailbox_identity: when=1800400019000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=356 0353_contact_readiness_timestamp_parity: when=1800400020000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=357 0354_contact_coverage_single_rewrite: when=1800400021000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=358 0355_business_shared_domain_identity: when=1800400022000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=359 0356_contact_linker_indexed_domain: when=1800400023000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=360 0357_contact_incremental_change_probes: when=1800400024000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=361 0358_retained_sunbiz_contact_chain: when=1800400025000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=362 0359_email_prefilter: when=1800400026000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=363 0360_downgrade_undated_valid_email_status: when=1800400027000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=364 0361_first_party_staged_email_links: when=1800400028000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=365 0362_first_party_link_attribution: when=1800400029000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=366 0363_serper_lookup_memory: when=1800400030000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=367 0364_contact_link_dispositions: when=1800400040000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=368 0365_serper_credit_ledger_and_claim_pin: when=1800400050000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=369 0366_sfp_vertical_policy_acceptance: when=1800400060000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=370 0367_sfp_admission_tier_policy_accepted_constraint: when=1800400070000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=371 0368_zerobounce_ambiguous_recovery: when=1800400080000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=372 0369_serper_contact_page_lookups: when=1800400160000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=373 0370_inbound_acknowledgements: when=1800400170000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=374 0371_inbound_request_submitted_email: when=1800400180000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=375 0372_message_template_versions: when=1800400190000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=376 0373_partner_approval_deliveries: when=1800400200000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=377 0374_ghl_projection_generation_authority: when=1800400210000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=378 0375_ghl_projection_operations_and_intake_evidence: when=1800400220000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=379 0376_ghl_webhook_effect_steps_and_appointment_booked_owner: when=1800400230000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=380 0377_ghl_workflow_handoff_dispatches: when=1800400240000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=381 0378_stage4c2_appointment_followup_authority: when=1800400250000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=382 0379_stage4c2_correction_pass: when=1800400260000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=383 0380_stage5_underwriting_condition_integrity: when=1800400270000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=384 0381_stage5_condition_chase_versioning: when=1800400280000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=385 0382_website_email_lifecycle: when=1800400290000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=386 0383_sunbiz_entities_contact_evidence_index: when=1800400300000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=387 0384_partner_applications_introductions_policy: when=1800400310000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=388 0385_partner_review_decisions_and_introduction_completion: when=1800400320000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=389 0386_partner_introduction_checks_validated: when=1800400330000 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=390 0387_phase7_conversion_integrity: when=1800400330001 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=391 0388_scheduled_outscraper_discovery: when=1800400330002 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=392 0389_discovery_id_checks_publish_safe: when=1800400330003 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=393 0390_discovery_monthly_budget: when=1800400330004 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=394 0391_contact_scoring_active_index: when=1800400330005 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=395 0392_crm_outscraper_monthly_budget: when=1800400330006 > dynamic-high-water (1793300000000) — valid
+  PASS: idx=396 0393_team_intake_email_alerts: when=1800400330007 > dynamic-high-water (1793300000000) — valid
+
+[Rule 8] Snapshot migration policy (0109 — fresh-bootstrap only):
+  PASS: 0109_fearless_starhawk classified as fresh-bootstrap-only snapshot (148 bare CREATE TABLE statements, no IF NOT EXISTS). Safe via db-migrate.ts baseline on existing databases.
+
+─────────────────────────────────────────────────────
+WARNINGS:
+  WARN: Duplicate when=1780400000000: [0020_document_status, 0020_multi_location_fk] — historical; new entries must use a strictly higher value
+  WARN: Duplicate when=1781100000000: [0024_deal_analysis_status, 0025_statement_proposals] — historical; new entries must use a strictly higher value
+
+✓ Migration integrity check PASSED (1045 checks, 2 warning(s))
