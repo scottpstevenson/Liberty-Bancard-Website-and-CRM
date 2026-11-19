@@ -8,7 +8,13 @@
     "negativeControlOrLimit": "No 30-day observation fabricated",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "roadmap Phase8 P8-1..4",
+    "rootCauseOrEvidenceLimitation": "No roadmap defect; engineering is separate from elapsed stability",
+    "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
+    "passingAfterProof": "README.md",
+    "negativeControl": "No 30-day observation fabricated",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V02",
@@ -19,7 +25,13 @@
     "negativeControlOrLimit": "Hash restoration; originals no longer executable current paths",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "scripts/archive/phase8 and archive-manifest.json",
+    "rootCauseOrEvidenceLimitation": "Obsolete repair files mixed with current tools; preserve recovery bytes",
+    "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
+    "passingAfterProof": "archive-manifest.json",
+    "negativeControl": "Hash restoration; originals no longer executable current paths",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V03",
@@ -30,7 +42,13 @@
     "negativeControlOrLimit": "Actual wrong hash, changed content and absent backup refused",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "three historical backfill CLIs / scripts/phase8/legacy-backup.ts",
+    "rootCauseOrEvidenceLimitation": "Unrelated ancient filename glob could satisfy recovery precondition; snapshot not bound to intended source/content/database",
+    "failingBeforeControl": "Inspected old ensureBackupExists prefix scan and dry-run path; old unrelated historical backup was not bound to database/source/content.",
+    "passingAfterProof": "../../../scripts/certification/test-phase8-backup.ts",
+    "negativeControl": "Actual wrong hash, changed content and absent backup refused",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V04",
@@ -41,7 +59,13 @@
     "negativeControlOrLimit": "Production-like target refuses before DB import",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "scripts/test-infrastructure-guard.ts and seven guarded utilities",
+    "rootCauseOrEvidenceLimitation": "Existing safe restriction retained; live names are not synthetic evidence",
+    "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
+    "passingAfterProof": "../../../scripts/test-cleanup-guard.ts",
+    "negativeControl": "Production-like target refuses before DB import",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V05",
@@ -52,7 +76,13 @@
     "negativeControlOrLimit": "720 is no-email population, not synthetic count",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "GET /api/prospect-lists / seed-automation.seedDemoProspects",
+    "rootCauseOrEvidenceLimitation": "Immutable creation/file/actor evidence missing; names/seed association do not prove safe cleanup",
+    "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
+    "passingAfterProof": "live-retention-review.json",
+    "negativeControl": "720 is no-email population, not synthetic count",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V06",
@@ -63,7 +93,13 @@
     "negativeControlOrLimit": "Legacy entry points cannot schedule paid fallback",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "GHL/re-enrichment/lead-finder starters and all caller references",
+    "rootCauseOrEvidenceLimitation": "Unreachable discovery interval after explicit refusal; do not revive disabled entry points",
+    "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
+    "passingAfterProof": "scheduler-ownership.md",
+    "negativeControl": "Legacy entry points cannot schedule paid fallback",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V07",
@@ -74,7 +110,13 @@
     "negativeControlOrLimit": "No new send or provider authority",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "daily-outreach / sdr.sweepLeads / existing followup_effect_receipts",
+    "rootCauseOrEvidenceLimitation": "Lease alone covers concurrency, not sequential effect replay; unknown delivery must retain allowance",
+    "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
+    "passingAfterProof": "Native Phase8 period suite: actual concurrent daily command held/completed; real unavailable daily/SDR refusal; accepted/unknown message receipt replay reserves and calls recording provider once.",
+    "negativeControl": "No new send or provider authority",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V08",
@@ -85,7 +127,13 @@
     "negativeControlOrLimit": "Native concurrency/replay/rollback and DST cancellation controls",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "inbox-rotation / scheduled-period / sending_identities.counter_date",
+    "rootCauseOrEvidenceLimitation": "Timeout handle was untracked and fixed UTC-5 ignored DST; unconditional reset erased same-day consumption",
+    "failingBeforeControl": "Executed before-reproduction.log: double Start created 2 timeout handles; repeated reset erased consumed allowance to 0.",
+    "passingAfterProof": "../../../scripts/certification/test-phase8-periods.ts",
+    "negativeControl": "Native concurrency/replay/rollback and DST cancellation controls",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V09",
@@ -96,7 +144,13 @@
     "negativeControlOrLimit": "Concurrent automatic runs + manual refresh preserve row cardinality",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "funnel-metrics / manual aggregate route / scheduled_period_receipts",
+    "rootCauseOrEvidenceLimitation": "Hourly callback had no durable per-period completion; explicit manual refresh must still recompute mutable facts",
+    "failingBeforeControl": "Source absence of durable ownership confirmed; no baseline connected funnel-duplication reproduction is claimed.",
+    "passingAfterProof": "../../../scripts/certification/test-phase8-periods.ts",
+    "negativeControl": "Concurrent automatic runs + manual refresh preserve row cardinality",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V10",
@@ -107,7 +161,13 @@
     "negativeControlOrLimit": "Native catalog/retained query outputs",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "contacts/deals/enrollment native indexes and actual storage readers",
+    "rootCauseOrEvidenceLimitation": "Old missing-index hypotheses already satisfied; no blind index additions",
+    "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
+    "passingAfterProof": "index-decisions.md",
+    "negativeControl": "Native catalog/retained query outputs",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V11",
@@ -118,7 +178,13 @@
     "negativeControlOrLimit": "Equivalent native definitions, private rollback; insufficient repeatable performance benefit for DDL",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "post-merge.sh / server/add-indexes.sql / native pg_index",
+    "rootCauseOrEvidenceLimitation": "Ad-hoc index replay could recreate equivalent aliases outside journal ownership; measured benefit insufficient for drops",
+    "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
+    "passingAfterProof": "index-decisions.md",
+    "negativeControl": "Equivalent native definitions, private rollback; insufficient repeatable performance benefit for DDL",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V12",
@@ -129,7 +195,13 @@
     "negativeControlOrLimit": "Synthetic local plans/timings only; no timed production usage interval",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "production catalog / local native workload script",
+    "rootCauseOrEvidenceLimitation": "No pg_stat_statements or timed production usage interval; estimates are not exact counts",
+    "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
+    "passingAfterProof": "index-decisions.md",
+    "negativeControl": "Synthetic local plans/timings only; no timed production usage interval",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V13",
@@ -140,7 +212,13 @@
     "negativeControlOrLimit": "No invented contact_id column or index",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "contacts route history and audit_logs entity_type/entity_id/entity_key",
+    "rootCauseOrEvidenceLimitation": "Old example referred to a nonexistent contactId storage column",
+    "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
+    "passingAfterProof": "index-decisions.md",
+    "negativeControl": "No invented contact_id column or index",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V14",
@@ -151,7 +229,13 @@
     "negativeControlOrLimit": "Historical proof retained; current overlays link scoped evidence",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "roadmap / knowledge brief / Phase7 living owner status / replit.md",
+    "rootCauseOrEvidenceLimitation": "Dated status text read as current readiness; historical evidence must remain preserved",
+    "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
+    "passingAfterProof": "documentation-status-index.json",
+    "negativeControl": "Historical proof retained; current overlays link scoped evidence",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V15",
@@ -162,7 +246,13 @@
     "negativeControlOrLimit": "Zero high/critical must be re-read from run receipt; lower advisories disclosed",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "package-lock.json / current npm registry audit policy",
+    "rootCauseOrEvidenceLimitation": "Old nine-high claim is not current audit result; lower advisory exposure is not certified unreachable",
+    "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
+    "passingAfterProof": "README.md",
+    "negativeControl": "Zero high/critical must be re-read from run receipt; lower advisories disclosed",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V16",
@@ -173,7 +263,13 @@
     "negativeControlOrLimit": "No focused pass represented as full release pass",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "both suite manifests / canonical disposable predeploy runner",
+    "rootCauseOrEvidenceLimitation": "Planning checks were bounded, not a completed required roster",
+    "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
+    "passingAfterProof": "Canonical final roster execution receipt records every exit; clean baseline is 219/306 pass and 87 failures, not a green release gate.",
+    "negativeControl": "No focused pass represented as full release pass",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V17",
@@ -184,7 +280,13 @@
     "negativeControlOrLimit": "Native API roles + mounted saved-disabled and unavailable states",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "ActivationPanel / shared sender identity state / admin readiness reader",
+    "rootCauseOrEvidenceLimitation": "Row existence and nonexistent status field caused disagreement; warmup examples also exceeded actual 35-email ceiling",
+    "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
+    "passingAfterProof": "../../../shared/sender-identity-state.ts",
+    "negativeControl": "Native API roles + mounted saved-disabled and unavailable states",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V18",
@@ -195,7 +297,13 @@
     "negativeControlOrLimit": "Malformed/partial/disabled/stale/queue unavailable controls",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "admin worker-heartbeats / WorkerRuntimeSummary / ActivationPanel",
+    "rootCauseOrEvidenceLimitation": "Configured Redis and local SDR pause state were presented as global runtime authority",
+    "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
+    "passingAfterProof": "../../../shared/worker-runtime-state.ts",
+    "negativeControl": "Malformed/partial/disabled/stale/queue unavailable controls",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V19",
@@ -206,7 +314,13 @@
     "negativeControlOrLimit": "Actual import DTO updated-row HTTP assertion; writer traced in routes/imports.ts",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "imports.ts durable outcomes and LeadImports presentation",
+    "rootCauseOrEvidenceLimitation": "Generic newRecords source-row dispositions were labeled distinct new contacts",
+    "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
+    "passingAfterProof": "../../../client/src/pages/dashboard/LeadImports.tsx",
+    "negativeControl": "Actual import DTO updated-row HTTP assertion; writer traced in routes/imports.ts",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   },
   {
     "id": "P8-V20",
@@ -217,6 +331,12 @@
     "negativeControlOrLimit": "Broken-link census/build smoke; platform compressed layer size unverified",
     "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
     "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
-    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent",
+    "productionOwnerAndAffectedCallers": "build-locked.sh / post-merge / .replitignore / publish-inputs census",
+    "rootCauseOrEvidenceLimitation": "Workspace caches/worktrees inflated deploy inputs; unpinned npm and ad-hoc post-merge SQL diverged from declared owners",
+    "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
+    "passingAfterProof": "../../../scripts/phase8/publish-inputs.mjs",
+    "negativeControl": "Broken-link census/build smoke; platform compressed layer size unverified",
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
   }
 ]

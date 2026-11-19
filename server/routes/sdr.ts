@@ -2100,7 +2100,7 @@ export function registerSdrRoutes(app: Express) {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
     try {
       const result = await sweepLeads();
-      res.json(result);
+      res.status(result.execution==="unavailable"?503:200).json(result);
     } catch (err: any) {
       serverError(res, err);
     }

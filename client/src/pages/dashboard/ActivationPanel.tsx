@@ -1,5 +1,5 @@
 import {WorkerRuntimeSummary} from "@/components/WorkerRuntimeSummary";
-import {isUsableSenderIdentity,remainingDailyCapacity} from "@shared/sender-identity-state";
+import {isUsableSenderIdentity,remainingDailyCapacity,effectiveSenderDailyLimit} from "@shared/sender-identity-state";
 import { PageTitle } from "@/components/ui/page-header";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -343,11 +343,14 @@ function SendingIdentityWizard({ identities, ghlHealth, onTestGhl, ghlTesting }:
   const step2Done = hasIdentity;
   const step3Done = isUsableSenderIdentity(firstIdentity??{}) && firstIdentity?.warmupStatus === "warm";
 
+  const scheduleNow=new Date();
+  const scheduleIdentity={isActive:true,dailyLimit:firstIdentity?.dailyLimit??Math.max(20,Math.min(35,parseInt(form.dailyLimit,10)||30))};
+  const warmingLimit=(days:number)=>effectiveSenderDailyLimit({...scheduleIdentity,warmupStatus:'warming',warmupStartedAt:new Date(scheduleNow.getTime()-days*86400000)},scheduleNow);
   const warmupSchedule = [
-    { day: "Day 1-3", limit: 10, label: "Initial warmup" },
-    { day: "Day 4-7", limit: 25, label: "Ramp-up" },
-    { day: "Day 8-14", limit: 50, label: "Mid warmup" },
-    { day: "Day 15+", limit: form.dailyLimit ? parseInt(form.dailyLimit, 10) : 50, label: "Full daily limit" },
+    {day:'Day 1',limit:warmingLimit(0),label:'Initial warmup'},
+    {day:'Day 4',limit:warmingLimit(3),label:'Daily ramp'},
+    {day:'Day 8',limit:warmingLimit(7),label:'Daily ramp'},
+    {day:'After graduation',limit:effectiveSenderDailyLimit({...scheduleIdentity,warmupStatus:'warm'},scheduleNow),label:'Subject to health and configured ceiling'},
   ];
 
   return (
@@ -471,7 +474,7 @@ function SendingIdentityWizard({ identities, ghlHealth, onTestGhl, ghlTesting }:
                   <span className="font-medium text-sm">Warmup schedule</span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  New identities are throttled in stages to protect deliverability. The system enforces these caps automatically — review the schedule below.
+                  Illustrative limits for a warming sender with a recorded start date, using the same capacity rule as the server. Current warmup status, health and configured ceiling govern eligibility; this view changes no sending settings.
                 </p>
                 <div className="overflow-x-auto mt-2">
                   <table className="w-full text-xs border" data-testid="table-warmup-schedule">
@@ -1036,7 +1039,8 @@ export default function ActivationPanel() {
   const ghlHealth = ghlHealthQuery.data;
   const appHealth = appHealthQuery.data;
   const flags = flagsQuery.data;
-  const identities = identitiesQuery.data || [];
+  const identitiesValid=Array.isArray(identitiesQuery.data)&&identitiesQuery.data.every(i=>i&&typeof i.id==="number"&&typeof i.label==="string"&&typeof i.emailAddress==="string");
+  const identities = identitiesValid ? identitiesQuery.data! : [];
   const attempts = attemptsQuery.data || [];
   const events = eventsQuery.data || [];
   const stuckLeads = stuckQuery.data || [];
@@ -1160,7 +1164,7 @@ export default function ActivationPanel() {
         </TabsContent>
 
         <TabsContent value="wizard" className="space-y-4">
-          {identitiesQuery.isLoading ? <p role="status">Loading sender identities…</p> : identitiesQuery.isError ? <div role="alert">Sender identities unavailable. <Button variant="outline" onClick={()=>identitiesQuery.refetch()}>Retry identities</Button></div> : <SendingIdentityWizard
+          {identitiesQuery.isLoading ? <p role="status">Loading sender identities…</p> : identitiesQuery.isError||!identitiesValid ? <div role="alert">Sender identities unavailable. <Button variant="outline" onClick={()=>identitiesQuery.refetch()}>Retry identities</Button></div> : <SendingIdentityWizard
             identities={identities}
             ghlHealth={ghlHealth}
             onTestGhl={() => ghlTestMutation.mutate()}

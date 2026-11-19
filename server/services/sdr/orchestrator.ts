@@ -1272,26 +1272,26 @@ async function processLead(lead: SdrLeadState): Promise<void> {
   }
 }
 
-export async function sweepLeads(): Promise<{ processed: number; errors: number; reviewMode?: boolean; skippedSends?: number }> {
+export async function sweepLeads(): Promise<{ processed: number; errors: number; reviewMode?: boolean; skippedSends?: number; execution?: "completed"|"held"|"unavailable"|"paused"|"disabled" }> {
   const { acquireJobLock, releaseJobLock, startJobLockHeartbeat } = await import("../job-registry");
   const lease = await acquireJobLock("sdr-orchestrator");
   if (lease.status !== "acquired") {
     console.warn(`[SDR Orchestrator] Lease ${lease.status}; refusing duplicate sweep`);
-    return { processed: 0, errors: 0 };
+    return { processed: 0, errors: 0,execution:lease.status };
   }
   const heartbeat = startJobLockHeartbeat("sdr-orchestrator", lease.lockToken);
   if (isSweeping) {
     console.log("[SDR Orchestrator] Sweep already in progress, skipping");
     heartbeat.stop();
     await releaseJobLock("sdr-orchestrator", true, undefined, lease.lockToken);
-    return { processed: 0, errors: 0 };
+    return { processed: 0, errors: 0,execution:"held" };
   }
 
   if (globalPaused) {
     console.log(`[SDR Orchestrator] Globally paused (${globalPauseReason}), skipping sweep`);
     heartbeat.stop();
     await releaseJobLock("sdr-orchestrator", true, undefined, lease.lockToken);
-    return { processed: 0, errors: 0 };
+    return { processed: 0, errors: 0,execution:"paused" };
   }
 
   // ── Global-pause gate (upgraded to OutboundPauseAuthority + coordinator) ──
@@ -1303,14 +1303,14 @@ export async function sweepLeads(): Promise<{ processed: number; errors: number;
       console.log(`[SDR Orchestrator] Blocked by OutboundPauseAuthority (reason=${decision.reasonCode}) — skipping sweep`);
       heartbeat.stop();
       await releaseJobLock("sdr-orchestrator", true, undefined, lease.lockToken);
-      return { processed: 0, errors: 0 };
+      return { processed: 0, errors: 0,execution:decision.reasonCode==="safe_default"?"unavailable":"paused" };
     }
     const coordOk = await canExecute("sdr-orchestrator");
     if (!coordOk) {
       console.log("[SDR Orchestrator] Blocked by coordinator hold on 'sdr-orchestrator' — skipping sweep");
       heartbeat.stop();
       await releaseJobLock("sdr-orchestrator", true, undefined, lease.lockToken);
-      return { processed: 0, errors: 0 };
+      return { processed: 0, errors: 0,execution:"held" };
     }
   }
 
@@ -1322,7 +1322,7 @@ export async function sweepLeads(): Promise<{ processed: number; errors: number;
     console.log("[SDR Orchestrator] Kill switch active for sdr-orchestrator — skipping sweep");
     heartbeat.stop();
     await releaseJobLock("sdr-orchestrator", true, undefined, lease.lockToken);
-    return { processed: 0, errors: 0 };
+    return { processed: 0, errors: 0,execution:"disabled" };
   }
 
   const reviewMode = featureFlags.ORCHESTRATOR_REVIEW_MODE;
@@ -1391,7 +1391,7 @@ export async function sweepLeads(): Promise<{ processed: number; errors: number;
     await releaseJobLock("sdr-orchestrator", true, undefined, lease.lockToken);
   }
 
-  return { processed, errors, reviewMode, skippedSends };
+  return { processed, errors, reviewMode, skippedSends,execution:"completed" };
 }
 
 export function startOrchestrator() {

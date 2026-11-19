@@ -29,6 +29,9 @@ try{
   const {COLD_OUTREACH_FROM}=await import('../../server/services/sender-policy');
   await pool.query("INSERT INTO sending_identities(label,domain,email_address,is_active,warmup_status,daily_limit,sent_today,counter_date) VALUES('Other canonical consumer','example.test',$1,true,'warm',2,2,'2000-01-01')",[COLD_OUTREACH_FROM]);
   check((await (await import('../../server/services/sfp-sender-capacity')).readSelectedSender())?.sentToday===0,'SFP capacity reader respects expired inbox counter period without resetting stored history');
+  const outreach=await import('../../server/services/daily-outreach');
+  const cycles=await Promise.all([outreach.runDailyOutreach(),outreach.runDailyOutreach()]);
+  check(cycles.some(r=>r.execution==='completed')&&cycles.some(r=>r.execution==='held'),'Actual concurrent daily outreach commands share the registry owner while outbound stays paused');
   const registry=await import('../../server/services/job-registry');
   const owner=await registry.acquireJobLock('inbox-rotation');assert.equal(owner.status,'acquired');
   check((await inbox.runDailyMaintenance()).execution==='held','Concurrent real maintenance refuses held registry lease');
@@ -37,7 +40,7 @@ try{
   check(owner.status==='acquired'&&(await registry.releaseJobLock('inbox-rotation',true,undefined,owner.lockToken)).status==='stale_owner','Stale owner cannot release a replacement lease');
   if(takeover.status==='acquired')await registry.releaseJobLock('inbox-rotation',true,undefined,takeover.lockToken);
   await pool.query('ALTER TABLE background_jobs RENAME TO phase8_private_unavailable_jobs');
-  try{check((await inbox.runDailyMaintenance()).execution==='unavailable','Unavailable native registry refuses maintenance without fallback');}finally{await pool.query('ALTER TABLE phase8_private_unavailable_jobs RENAME TO background_jobs');}
+  try{check((await inbox.runDailyMaintenance()).execution==='unavailable','Unavailable native registry refuses maintenance without fallback');check((await outreach.runDailyOutreach()).execution==='unavailable','Actual daily command reports unavailable, not completed zero work');check((await (await import('../../server/services/sdr/orchestrator')).sweepLeads()).execution==='unavailable','Actual SDR sweep reports unavailable, not completed zero work');}finally{await pool.query('ALTER TABLE phase8_private_unavailable_jobs RENAME TO background_jobs');}
   const row=(await pool.query("INSERT INTO sending_identities(label,domain,email_address,is_active,warmup_status,daily_limit,sent_today,counter_date) VALUES('Phase8 Fixture','example.test','phase8@example.test',true,'warm',2,0,'2000-01-01') RETURNING id")).rows[0];
   check(!!await inbox.reserveSend(row.id,1),'Reservation lazily rolls an expired day before consuming allowance');
   const first=await inbox.runDailyMaintenance();check(first.execution==='completed'&&await count('SELECT sent_today FROM sending_identities WHERE id=$1',[row.id])===1,'Maintenance cannot erase a current-day reservation');
@@ -66,7 +69,6 @@ try{
   check(unknown.state==='unknown'&&replayUnknown.state==='unknown'&&replayUnknown.replay&&dispatches===2&&await count('SELECT sent_today FROM sending_identities WHERE id=$1',[sender])===2,'Unknown provider outcome retains capacity and cannot automatically repeat');
   const refused=await runInboxSendEffect({...acceptedKey,effectKey:'phase8-known-refused'},sender,1,async()=>({success:false,error:'Outbound paused: private fixture'}));
   check(refused.state==='refused'&&await count('SELECT sent_today FROM sending_identities WHERE id=$1',[sender])===2,'Proven refusal releases only its period-bound reservation');
-  const outreach=await import('../../server/services/daily-outreach');
   assert.throws(()=>outreach.startDailyOutreachWorker(),/LEGACY_DAILY_OUTREACH_RETIRED/);check(!outreach.isWorkerRunning(),'Retired legacy dispatcher cannot start a Redis-outage fallback');
   const {featureFlags}=await import('../../server/services/feature-flags');
   const orchestrator=await import('../../server/services/sdr/orchestrator');

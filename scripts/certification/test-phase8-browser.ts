@@ -34,7 +34,7 @@ try{
    const facts=await browser.evaluate(`({width:innerWidth,scroll:document.documentElement.scrollWidth,url:location.pathname+location.search,emptyButtons:[...document.querySelectorAll('button')].filter(e=>e.getClientRects().length&&!e.textContent.trim()&&!e.getAttribute('aria-label')&&!e.getAttribute('title')&&!e.querySelector('svg')).length})`);
    check(facts.scroll<=facts.width+1,`${width} ${theme} route ${i} stays within viewport`);
    if(i===0){await browser.waitFor(/Profile: off|Profile off|profile.*off/i);check(!/Durable queues active/.test(await browser.text()),'Configured Redis never claims active workers');}
-   if(i===1){check(!(await browser.text()).includes('Identity active'),'Saved disabled identity never claims active');await browser.waitFor(/Outbound: paused/);check(!(await browser.text()).includes('Pause All Outbound'),'Local SDR control is not mislabeled as the global outbound control');}
+   if(i===1){check(!(await browser.text()).includes('Identity active'),'Saved disabled identity never claims active');await browser.waitFor(/Outbound: paused/);check(!(await browser.text()).includes('Pause All Outbound'),'Local SDR control is not mislabeled as the global outbound control');check(await browser.evaluate("[...document.querySelectorAll('[data-testid=table-warmup-schedule] tbody tr')].every(r=>Number(r.children[1].textContent)<=35)"),'Mounted warmup examples respect native hard ceiling');}
    await browser.screenshot(`${width}-${theme}-${i}`);rows.push({...facts,width,theme,route:i});
   }
  }

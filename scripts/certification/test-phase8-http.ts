@@ -27,6 +27,10 @@ try{
  await h.pool.query('ALTER TABLE sending_identities RENAME TO phase8_unavailable_sender_fixture');
  try{const unavailable=await h.request('admin','GET','/api/admin/system-readiness');assert.equal(unavailable.status,200);check(unavailable.body.sendingIdentities.available===false&&unavailable.body.sendingIdentities.activeCount===null,'Partial readiness cannot turn unavailable sender evidence into zero/healthy');}
  finally{await h.pool.query('ALTER TABLE phase8_unavailable_sender_fixture RENAME TO sending_identities');}
+ const sweep=await h.request('manager','POST','/api/sdr/orchestrator/sweep',{});assert.equal(sweep.status,200);check(sweep.body.execution==='paused'&&sweep.body.processed===0,'Manual SDR HTTP command reports paused instead of completed zero work');
+ await h.pool.query('ALTER TABLE background_jobs RENAME TO phase8_unavailable_http_registry');
+ try{const s=await h.request('manager','POST','/api/sdr/orchestrator/sweep',{});const m=await h.request('admin','POST','/api/sdr/inbox-maintenance',{});check(s.status===503&&s.body.execution==='unavailable'&&m.status===503&&m.body.execution==='unavailable','Real HTTP commands return unavailable instead of claiming successful zero-work completion');}
+ finally{await h.pool.query('ALTER TABLE phase8_unavailable_http_registry RENAME TO background_jobs');}
  const maintenance=await h.request('admin','POST','/api/sdr/inbox-maintenance',{});
  assert.equal(maintenance.status,200,JSON.stringify(maintenance.body));assert.equal(maintenance.body.execution,"completed");
  const replay=await h.request("admin","POST","/api/sdr/inbox-maintenance",{});assert.equal(replay.status,200);assert.equal(replay.body.execution,"replayed");
