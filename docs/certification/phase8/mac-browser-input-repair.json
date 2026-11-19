@@ -1,0 +1,21 @@
+{
+  "platform": "darwin",
+  "applicationSourceUnchangedFrom": "b9b6e8bf91c2577a79a6b9d87f69fd190537a568",
+  "fixture": "scripts/fixtures/private-stage3-browser.ts",
+  "rootCause": "Native editor select-all was not invoked by headless Mac key modifiers; insertText appended instead of replacing.",
+  "before": {
+    "initial": "50",
+    "requested": "20",
+    "actual": "5020",
+    "logSha256": "13bf9518d859aa1e006c07b16577c023ed36447b9da4d080c3522e2186ce73e7"
+  },
+  "after": {
+    "initial": "50",
+    "requested": "20",
+    "actual": "20",
+    "logSha256": "ea9d6e456bf22f7c222de6f9a9e6a9e29ee91b7458aeff4725a63fe93befb0c4",
+    "nativeCommand": "Meta+A with the native Chromium selectAll editor command"
+  },
+  "productionSettingsChanged": false,
+  "qualification": "Scratch loopback HTML input plus actual compiled CRM budget form. CRM budget save test uses a disposable database; production $50 cap unchanged."
+}

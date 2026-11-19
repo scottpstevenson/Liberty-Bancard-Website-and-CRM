@@ -11,6 +11,7 @@ const h=await stage3BHttpFixture(async app=>{
  (await import('../../server/routes/admin')).registerAdminRoutes(app);
  (await import('../../server/routes/sdr')).registerSdrRoutes(app);
  (await import('../../server/routes/imports')).registerImportsRoutes(app);
+ app.get('/phase8-native-input-probe',(_req,res)=>res.type('html').send('<!doctype html><input id=phase8-native-input aria-label="Native editing fixture" value=50>'));
  // Deliberate unavailable contract for unrelated panels, never fake successful positive DTOs.
  app.use('/api',(_req,res)=>res.status(501).json({message:'Unrelated source not mounted in Phase 8 fixture'}));
  const {static:serveStatic}=await import('express');app.use(serveStatic(root));app.use((_req,res)=>res.sendFile('index.html',{root}));
@@ -24,6 +25,7 @@ try{
  await h.pool.query("INSERT INTO sending_identities(label,domain,email_address,is_active,warmup_status,daily_limit) VALUES('Saved disabled','example.test','phase8-browser@example.test',false,'warm',10)");
  await h.pool.query('UPDATE users SET tour_completed_at=now() WHERE id=$1',[h.userId('admin')]);
  browser=await privateStage3Browser(h.base,h.sessions.get('admin')!.cookie,h.originalFetch,evidence,{realInput:true});
+ await browser.navigate('/phase8-native-input-probe');await browser.set('#phase8-native-input','20');check(await browser.evaluate("document.querySelector('#phase8-native-input').value")==='20','Native keyboard harness replaces existing field content rather than appending');
  const routes=[{url:'/dashboard/system-health?systemTab=readiness',tab:'[data-testid="tab-system-readiness"]',pattern:/Worker selection and heartbeat/},{url:'/dashboard/activation',tab:'[data-testid="tab-identity-wizard"]',pattern:/Identity saved — not usable/},{url:'/dashboard/lead-ops?tab=imports',tab:'',pattern:/Lead Operations|Lead Ops|Imports/}];
  for(const width of [1280,768,390])for(const theme of ['light','dark']){
   await browser.call('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});

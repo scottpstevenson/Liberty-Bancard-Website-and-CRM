@@ -10644,6 +10644,27 @@
       "controllingReference": "docs/certification/phase8/README.md"
     },
     {
+      "path": "docs/certification/phase8/mac-browser-input-repair.json",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/certification/phase8/native-input-after.log",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/certification/phase8/native-input-before.log",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
       "path": "docs/certification/phase8/scheduler-ownership.md",
       "classification": "Phase 8 current evidence/authority",
       "owner": "Phase 8 task",

@@ -269,7 +269,8 @@
     "failingBeforeControl": "Not a new defect claim; current baseline/source and preflight evidence establish the original condition.",
     "passingAfterProof": "Canonical final roster execution receipt records every exit; clean baseline is 219/306 pass and 87 failures, not a green release gate.",
     "negativeControl": "No focused pass represented as full release pass",
-    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed."
+    "migrationAndPermissionImpact": "No new role grants, activation or production writes. Additive 0394 is Publish-owned; native upgrade/replay privately rehearsed.",
+    "harnessRepair": "mac-browser-input-repair.json: exact native scratch input before/after plus compiled CRM budget save; baseline application comparisons use only the corrected test helper."
   },
   {
     "id": "P8-V17",

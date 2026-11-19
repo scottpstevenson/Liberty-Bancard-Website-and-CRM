@@ -197,8 +197,10 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
       await click(selector);
       assert.equal(await evaluate(`document.activeElement?.matches(${JSON.stringify(selector)})`),true,
         `Real text input must focus ${selector}, never select body text`);
-      await call("Input.dispatchKeyEvent",{type:"keyDown",key:"a",code:"KeyA",modifiers:2,windowsVirtualKeyCode:65});
-      await call("Input.dispatchKeyEvent",{type:"keyUp",key:"a",code:"KeyA",modifiers:2,windowsVirtualKeyCode:65});
+      // Mac headless Chromium needs its native editor command as well as Meta;
+      // modifiers alone leave the previous value selected incorrectly (50 + 20 became 5020).
+      await call("Input.dispatchKeyEvent",{type:"keyDown",key:"a",code:"KeyA",modifiers:globalThis.process.platform==="darwin"?4:2,windowsVirtualKeyCode:65,...(globalThis.process.platform==="darwin"?{commands:["selectAll"]}:{})});
+      await call("Input.dispatchKeyEvent",{type:"keyUp",key:"a",code:"KeyA",modifiers:globalThis.process.platform==="darwin"?4:2,windowsVirtualKeyCode:65});
       onInputStart?.();
       await call("Input.insertText",{text:value});
     };
