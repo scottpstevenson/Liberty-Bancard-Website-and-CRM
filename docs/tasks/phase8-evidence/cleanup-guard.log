@@ -1,0 +1,7 @@
+  PASS scripts/cleanup-demo-data.ts uses the pre-import guard and refuses a non-test invocation
+  PASS scripts/purge-test-contacts.ts uses the pre-import guard and refuses a non-test invocation
+  PASS scripts/cleanup-test-data.ts uses the pre-import guard and refuses a non-test invocation
+  PASS scripts/cleanup-smoke-contacts.ts uses the pre-import guard and refuses a non-test invocation
+  PASS stateful tests verify and enforce an isolated BullMQ Redis namespace
+
+✓ BT-06 cleanup guard regression tests passed.

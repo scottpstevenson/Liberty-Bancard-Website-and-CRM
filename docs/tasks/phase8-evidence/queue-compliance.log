@@ -1,0 +1,12 @@
+╔═══════════════════════════════════════════════════════╗
+║  Queue Compliance Check (#1532)                       ║
+╚═══════════════════════════════════════════════════════╝
+
+✅ No direct qm.pauseQueue()/qm.resumeQueue() in route files
+✅ No hard-coded outbound queue-name list
+✅ No getQueueManager() in route files (must use requireQueueManagerReady/getQueueManagerProducers)
+✅ Outbound-effect handlers check both authority AND coordinator.canExecute()
+✅ sequence-worker does not mutate enrollment status to 'paused' on hold (VFC-22 fix)
+✅ Logical job manifest valid (all QUEUE_NAMES have entries, no unclassified)
+
+✅ All queue compliance checks pass.

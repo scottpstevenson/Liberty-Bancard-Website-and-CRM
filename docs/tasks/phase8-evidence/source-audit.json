@@ -1,0 +1,82 @@
+{
+  "auditDate": "2026-11-18",
+  "timezone": "America/New_York",
+  "sourceSha": "d67d24c61acc462931c418e8068624c86144c7ae",
+  "sourceTree": "34ccfc6eed7181cd645c78d05dad38f780265a5c",
+  "roadmap": "docs/LIBERTY_BANCARD_MASTER_AUDIT_ROADMAP.md#phase-8--cleanup--hardening",
+  "trackedDocumentationFiles": 880,
+  "trackedMarkdownDocumentationFiles": 157,
+  "migrationJournal": {
+    "entries": 397,
+    "last": {
+      "idx": 396,
+      "version": "7",
+      "when": 1800400330007,
+      "tag": "0393_team_intake_email_alerts",
+      "breakpoints": true
+    },
+    "maxWhen": 1800400330007
+  },
+  "archiveCandidates": [
+    {
+      "path": "scripts/archive/reroute-sequence-ctas.DONE.js",
+      "bytes": 1338,
+      "sha256": "3061a6179d6a634bd788cf031afbf0f5e91528d11144ae89ce9b6ec8215f2214",
+      "disposition": "candidate only; references, retention and restoration must be reviewed before any move/removal"
+    },
+    {
+      "path": "scripts/backfill-backup-2026-07-08T21-10-20-550Z.json",
+      "bytes": 391785,
+      "sha256": "0a478ef39f276668b705860a51f36730af219c522d7b70749423e3436e6d333e",
+      "disposition": "candidate only; references, retention and restoration must be reviewed before any move/removal"
+    },
+    {
+      "path": "scripts/backfill-backup-2026-07-08T21-15-07-291Z.json",
+      "bytes": 426839,
+      "sha256": "ff1e26630bc4d8b83d980b42eb1bd4b9eaeecc5297ed552c5e106e323180f0a6",
+      "disposition": "candidate only; references, retention and restoration must be reviewed before any move/removal"
+    },
+    {
+      "path": "scripts/backfill-backup-2026-07-08T21-32-21-974Z.json",
+      "bytes": 428421,
+      "sha256": "cb17c85f6dba06f3681a5cdf54e98d219c5d202234941f6dcb527cf3af16649e",
+      "disposition": "candidate only; references, retention and restoration must be reviewed before any move/removal"
+    },
+    {
+      "path": "scripts/fix-server-errors-pass2.py",
+      "bytes": 1837,
+      "sha256": "a2ad591169015b1a3e955c082ee7a26adec2b159edb57e9668645b3fc25153e9",
+      "disposition": "candidate only; references, retention and restoration must be reviewed before any move/removal"
+    },
+    {
+      "path": "scripts/fix-server-errors-pass3.py",
+      "bytes": 1876,
+      "sha256": "ea2c16ed5b3456885f9ecb3d79ff0cc104c195d0a74f8050237f4340f3ef8bf1",
+      "disposition": "candidate only; references, retention and restoration must be reviewed before any move/removal"
+    }
+  ],
+  "dependencyAudit": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 1,
+      "moderate": 16,
+      "high": 0,
+      "critical": 0,
+      "total": 17
+    },
+    "lockSha256": "452de1ab7c2045bf9029ceda8cb5c15d078645c8835b2a092ba995e86d15945c",
+    "mode": "npm audit --package-lock-only --json; registry result at audit time; no install or fix"
+  },
+  "checks": {
+    "typescript": "pass",
+    "cleanupGuard": "pass: 5 guarded/isolation assertions",
+    "migrationIntegrity": "pass: 1045 checks, 2 historical duplicate-when warnings",
+    "queueCompliance": "pass",
+    "ciManifest": "pass: 306 mandatory suites classified"
+  },
+  "limits": [
+    "No full-roster test run in this planning audit",
+    "No application build in this planning audit",
+    "No production writes, cleanup, provider calls, sends, worker activation or publication"
+  ]
+}
