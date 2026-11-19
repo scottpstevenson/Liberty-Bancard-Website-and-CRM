@@ -1,3 +1,4 @@
+import {WorkerRuntimeSummary} from "@/components/WorkerRuntimeSummary";
 import {isUsableSenderIdentity,remainingDailyCapacity} from "@shared/sender-identity-state";
 import { PageTitle } from "@/components/ui/page-header";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -1085,22 +1086,26 @@ export default function ActivationPanel() {
             <RefreshCw className="w-4 h-4 mr-1" /> Refresh All
           </Button>
           {health?.globalPaused ? (
-            <Button variant="default" onClick={() => resumeMutation.mutate()} disabled={resumeMutation.isPending} data-testid="button-resume-all">
-              <Play className="w-4 h-4 mr-1" /> Resume All
+            <Button variant="default" onClick={() => resumeMutation.mutate()} disabled={resumeMutation.isPending||!health||healthQuery.isError} data-testid="button-resume-all">
+              <Play className="w-4 h-4 mr-1" /> Resume SDR sweep
             </Button>
           ) : (
-            <Button variant="destructive" onClick={() => pauseMutation.mutate()} disabled={pauseMutation.isPending} data-testid="button-pause-all">
-              <Pause className="w-4 h-4 mr-1" /> Pause All Outbound
+            <Button variant="destructive" onClick={() => pauseMutation.mutate()} disabled={pauseMutation.isPending||!health||healthQuery.isError} data-testid="button-pause-all">
+              <Pause className="w-4 h-4 mr-1" /> Pause SDR sweep
             </Button>
           )}
         </div>
       </div>
 
+      <section aria-label="Outbound and worker observations" className="rounded-lg border p-3 space-y-2">
+        <WorkerRuntimeSummary />
+        <p className="text-xs text-muted-foreground">The SDR sweep control only pauses or resumes this orchestrator. Canonical outbound permission remains independently enforced.</p>
+      </section>
       {health?.globalPaused && (
         <Card className="border-destructive bg-destructive/10">
           <CardContent className="py-3 flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-destructive" />
-            <span className="font-medium text-destructive" data-testid="text-pause-reason">GLOBAL PAUSE ACTIVE: {health.globalPauseReason}</span>
+            <span className="font-medium text-destructive" data-testid="text-pause-reason">SDR SWEEP PAUSE ACTIVE: {health.globalPauseReason}</span>
           </CardContent>
         </Card>
       )}

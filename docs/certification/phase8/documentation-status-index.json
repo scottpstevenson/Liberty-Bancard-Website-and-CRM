@@ -10564,5 +10564,154 @@
       "textRead": true,
       "title": "Worker Architecture Runbook \u2014 Task #1803"
     }
+  ],
+  "additionalArtifacts": [
+    {
+      "path": "docs/certification/phase8/README.md",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/certification/phase8/archive-manifest.json",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/certification/phase8/before-reproduction.log",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/certification/phase8/before-reproduction.ts.txt",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/certification/phase8/dependency-dispositions.json",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/certification/phase8/documentation-links.json",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/certification/phase8/documentation-status-index.json",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/certification/phase8/fix-effectiveness.json",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/certification/phase8/index-decisions.md",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/certification/phase8/index-workload.json",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/certification/phase8/live-retention-review.json",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/certification/phase8/scheduler-ownership.md",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/tasks/phase8-cleanup-hardening-preflight-build.md",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/tasks/phase8-evidence/ci-manifest.log",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/tasks/phase8-evidence/cleanup-guard.log",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/tasks/phase8-evidence/live-audit.json",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/tasks/phase8-evidence/migration-integrity.log",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/tasks/phase8-evidence/production-catalog-query.sql.txt",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/tasks/phase8-evidence/queue-compliance.log",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/tasks/phase8-evidence/source-audit.json",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    },
+    {
+      "path": "docs/tasks/phase8-evidence/typescript.log",
+      "classification": "Phase 8 current evidence/authority",
+      "owner": "Phase 8 task",
+      "status": "scope and executed results stated in evidence, no production certification",
+      "controllingReference": "docs/certification/phase8/README.md"
+    }
   ]
 }

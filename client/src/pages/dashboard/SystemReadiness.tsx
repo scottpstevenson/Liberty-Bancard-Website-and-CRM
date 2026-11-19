@@ -250,7 +250,7 @@ export default function SystemReadiness() {
     <div className="space-y-6 pb-12">
       <PageHeader
         title="System Readiness"
-        subtitle="Full health check of all integrations and pipeline dependencies. Resolving all action items ensures every pipeline runs smoothly once configured."
+        subtitle="Configuration and observed runtime status. Worker selection, pause controls and completed work are separate facts."
         actions={
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} data-testid="button-refresh-readiness">
             <RefreshCw className={`w-4 h-4 mr-2 ${isFetching ? "animate-spin" : ""}`} />

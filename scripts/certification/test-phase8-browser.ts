@@ -34,12 +34,18 @@ try{
    const facts=await browser.evaluate(`({width:innerWidth,scroll:document.documentElement.scrollWidth,url:location.pathname+location.search,emptyButtons:[...document.querySelectorAll('button')].filter(e=>e.getClientRects().length&&!e.textContent.trim()&&!e.getAttribute('aria-label')&&!e.getAttribute('title')&&!e.querySelector('svg')).length})`);
    check(facts.scroll<=facts.width+1,`${width} ${theme} route ${i} stays within viewport`);
    if(i===0){await browser.waitFor(/Profile: off|Profile off|profile.*off/i);check(!/Durable queues active/.test(await browser.text()),'Configured Redis never claims active workers');}
-   if(i===1)check(!(await browser.text()).includes('Identity active'),'Saved disabled identity never claims active');
+   if(i===1){check(!(await browser.text()).includes('Identity active'),'Saved disabled identity never claims active');await browser.waitFor(/Outbound: paused/);check(!(await browser.text()).includes('Pause All Outbound'),'Local SDR control is not mislabeled as the global outbound control');}
    await browser.screenshot(`${width}-${theme}-${i}`);rows.push({...facts,width,theme,route:i});
   }
  }
  await browser.call('Emulation.setDeviceMetricsOverride',{width:1280,height:1000,deviceScaleFactor:1,mobile:false});
  await browser.navigate('/dashboard/system-health');await browser.waitFor(/System Readiness/);await browser.click('[data-testid="tab-system-readiness"]');await browser.waitFor(/Worker selection and heartbeat/);
+ const selectedUrl=await browser.evaluate('location.pathname+location.search');
+ await browser.navigate('/dashboard/activation');await browser.waitFor(/Activation Control Panel/);
+ const history=await browser.call('Page.getNavigationHistory');const prior=[...history.entries].reverse().find((e:any)=>e.url===h.base+selectedUrl);assert(prior);
+ await browser.call('Page.navigateToHistoryEntry',{entryId:prior.id});await browser.waitFor(/Worker selection and heartbeat/);
+ check(await browser.evaluate('location.pathname+location.search')===selectedUrl,'Back restores the selected diagnostic destination');
+ await browser.call('Page.reload');await browser.waitFor(/Worker selection and heartbeat/);check(await browser.evaluate('location.pathname+location.search')===selectedUrl,'Reload preserves diagnostic selection');
  await browser.call('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});await browser.call('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
  check(await browser.evaluate("document.activeElement!==document.body"),'Keyboard Tab reaches an actual focusable control');
  await browser.evaluate("document.documentElement.style.zoom='2'");check(await browser.evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'200% reflow remains bounded');await browser.screenshot('zoom-200');

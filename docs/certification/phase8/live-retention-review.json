@@ -1,0 +1,98 @@
+{
+  "observedAt": "2026-11-19T05:57:20Z",
+  "target": "https://libertybancard.com",
+  "account": "Scott Stevenson / scott@libertybancard.com",
+  "method": "read-only signed-in CRM import table and rendered GET /api/prospect-lists JSON; no writes or hidden browser state",
+  "lists": [
+    {
+      "id": 7,
+      "name": "Florida Business Leads - Demo",
+      "records": 25,
+      "enriched": 25,
+      "qualified": 21,
+      "fileName": null,
+      "actor": null,
+      "uploadedBy": "system",
+      "status": "completed",
+      "createdAt": "2026-02-10T18:27:05.449Z",
+      "sourceAssociation": "server/services/seed-automation.ts seedDemoProspects uses exact name/description and explicit DEV_SEED_DEMO opt-in; association is not immutable proof of original creation",
+      "disposition": "retain unchanged; source name/file alone does not prove synthetic records or safe deletion",
+      "missingEvidence": [
+        "original file hash",
+        "immutable actor/import provenance",
+        "record-level classification"
+      ],
+      "owner": "Liberty data owner; any later supported reversible archive requires separate authorization"
+    },
+    {
+      "id": 5,
+      "name": "Test Corevt Small",
+      "records": 4,
+      "fileName": "test-corevt.zip",
+      "status": "ready",
+      "disposition": "retain unchanged; source name/file alone does not prove synthetic records or safe deletion",
+      "missingEvidence": [
+        "original file hash",
+        "immutable actor/import provenance",
+        "record-level classification"
+      ],
+      "owner": "Liberty data owner; any later supported reversible archive requires separate authorization"
+    },
+    {
+      "id": 4,
+      "name": "Test Corevt Small",
+      "records": 0,
+      "fileName": "test-corevt.zip",
+      "status": "processing",
+      "disposition": "retain unchanged; source name/file alone does not prove synthetic records or safe deletion",
+      "missingEvidence": [
+        "original file hash",
+        "immutable actor/import provenance",
+        "record-level classification"
+      ],
+      "owner": "Liberty data owner; any later supported reversible archive requires separate authorization"
+    },
+    {
+      "id": 2,
+      "name": "Test Sunbiz Import",
+      "records": 5,
+      "fileName": "test-sunbiz.csv",
+      "status": "ready",
+      "disposition": "retain unchanged; source name/file alone does not prove synthetic records or safe deletion",
+      "missingEvidence": [
+        "original file hash",
+        "immutable actor/import provenance",
+        "record-level classification"
+      ],
+      "owner": "Liberty data owner; any later supported reversible archive requires separate authorization"
+    },
+    {
+      "id": 1,
+      "name": "Test Sunbiz Import",
+      "records": 5,
+      "fileName": "test-sunbiz.csv",
+      "status": "ready",
+      "disposition": "retain unchanged; source name/file alone does not prove synthetic records or safe deletion",
+      "missingEvidence": [
+        "original file hash",
+        "immutable actor/import provenance",
+        "record-level classification"
+      ],
+      "owner": "Liberty data owner; any later supported reversible archive requires separate authorization"
+    }
+  ],
+  "controls": {
+    "outbound": {
+      "state": "paused",
+      "source": "database",
+      "reason": "Re-paused after owner-approved QA deal cleanup",
+      "reader": "/api/admin/worker-heartbeats"
+    },
+    "outscraper": {
+      "limitDollars": 50,
+      "knownMaximumLiabilityDollars": 0.88,
+      "reader": "Scheduled discovery CRM-wide budget card"
+    }
+  },
+  "limitations": "No production row mutation, account/provider activation or synthetic classification. This is current serving main observation, not candidate deployment verification."
+}
