@@ -361,6 +361,33 @@ async function main() {
       }
     }
 
+    // Native alert persistence, deduplication and legacy readback remain private.
+    console.log("  [6b] real alert audit summaries and acknowledgement reasons");
+    {
+      const {randomUUID}=await import("node:crypto");
+      const {persistAlert,getRecentAlerts,acknowledgeAlert}=await import("../server/services/alert-feed");
+      const address="audit-fixture@example.test",phone="+1 (212) 555-0199",key=randomUUID();
+      const input={severity:"warning" as const,subsystem:"boundary_fixture",summary:`Fixture ${key}: provider rejected ${address} at ${phone}`,
+        details:{probe:{summary:`Nested provider failure for ${address}`},email:address}};
+      const first=await persistAlert(input),again=await persistAlert(input);
+      assert("sanitized alert replay deduplicates the same real stored row",first.created&&!again.created&&first.alertId===again.alertId);
+      const stored=(await pool.query("SELECT details FROM audit_logs WHERE id=$1",[first.alertId])).rows[0].details;
+      assert("stored outer and nested alert summaries redact email",!JSON.stringify(stored).includes(address));
+      assert("stored alert summary redacts phone",!JSON.stringify(stored).includes("212) 555-0199"));
+      assert("audit sanitization does not mutate the producer payload",input.summary.includes(address)&&input.details.probe.summary.includes(address));
+      await acknowledgeAlert(first.alertId,"fixture:boundary",`Reviewed ${address} at ${phone}`);
+      const ack=(await pool.query("SELECT details FROM audit_logs WHERE action='system_alert_acknowledged' AND entity_id=$1",[first.alertId])).rows[0].details;
+      assert("real immutable acknowledgement reason is scrubbed",!JSON.stringify(ack).includes(address)&&!JSON.stringify(ack).includes("212) 555-0199"));
+      const legacy={severity:"warning",subsystem:"boundary_fixture",summary:`Legacy ${address}`,details:{probe:{summary:`Old ${address}`}}};
+      const legacyId=(await pool.query("INSERT INTO audit_logs(action,entity_type,entity_key,actor_type,details) VALUES('system_alert','system_alert',$1,'system',$2::jsonb) RETURNING id",[`legacy:${key}`,JSON.stringify(legacy)])).rows[0].id;
+      const legacyBefore=(await pool.query("SELECT details::text AS value FROM audit_logs WHERE id=$1",[legacyId])).rows[0].value;
+      const view=await getRecentAlerts(50),item=view.alerts.find(alert=>Number(alert.id)===Number(legacyId));
+      assert("legacy alert view is available and scrubbed",!view.degraded&&!!item&&!JSON.stringify(item).includes(address));
+      const unchanged=(await pool.query("SELECT details::text AS value FROM audit_logs WHERE id=$1",[legacyId])).rows[0].value;
+      assert("legacy audit evidence is never rewritten for read normalization",unchanged===legacyBefore);
+      // Immutable fixture events stay until the disposable launcher drops this DB.
+    }
+
     // ── 7. Static gate: every raw audit_logs insert site is sanitized ───────
     // Inspect actual SQL/ORM payload writers and canonical sanitizer bindings.
     // Source-inspection strings and nearby unused imports are not evidence.
@@ -376,6 +403,7 @@ async function main() {
       const safe=imported+`client.query("INSERT INTO audit_logs(details) VALUES($1)",[JSON.stringify(sanitizeAuditPayload({email:"fixture@example.test"}))]);`;
       assert("an actual canonical payload qualifies",auditWriterBoundary(safe,"server/fixture.ts").findings.length===0);
       assert("a distant sanitized binding remains valid",auditWriterBoundary(imported+`const data=sanitizeAuditPayload({email:"fixture@example.test"});`+"\n".repeat(40)+`client.query("INSERT INTO audit_logs(details) VALUES($1)",[JSON.stringify(data)]);`,"server/fixture.ts").findings.length===0);
+      assert("a sanitized child cannot certify unsanitized sibling fields",auditWriterBoundary(imported+`client.query("INSERT INTO audit_logs(details) VALUES($1)",[JSON.stringify({details:sanitizeAuditPayload({}),email:"fixture@example.test"})]);`,"server/fixture.ts").findings.length===1);
       assert("an arbitrary ORM payload is rejected",auditWriterBoundary(`tx.insert(auditLogs).values({details:{email:"fixture@example.test"}});`,"server/fixture.ts").findings.length===1);
       const result=scanProductionAuditWriters();
       assert("production audit writer census is nonempty",result.checked>=90,String(result.checked));

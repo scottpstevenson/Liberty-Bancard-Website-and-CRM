@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { terminateCertificationChild } from "./certification-child-process";
 import { readFileSync } from "node:fs";
 import { buildCertificationEnvironment } from "./certification-process-env";
 
@@ -175,6 +176,43 @@ for (const [outerPath, childPath] of [
       `${childPath} does not install the fixed local-only AI constructor environment`,
     );
   }
+}
+
+// Real owned children, with fault injection confined to this child's signal probe.
+async function stubbornChild() {
+  const child=spawn(process.execPath,["-e","process.on('SIGTERM',()=>{});console.log('READY');setInterval(()=>{},1000)"],{
+    detached:process.platform!=="win32",env:buildCertificationEnvironment(inherited,{},"stateless"),stdio:["ignore","pipe","pipe"],
+  });
+  const exited=new Promise<void>(resolve=>child.once("exit",()=>resolve()));
+  try { await new Promise<void>((resolve,reject)=>{
+    const timer=setTimeout(()=>reject(new Error("Owned cleanup fixture startup timed out")),10000);
+    child.once("error",error=>{clearTimeout(timer);reject(error);});
+    child.stdout!.once("data",()=>{clearTimeout(timer);resolve();});
+  }); } catch(error) { await terminateCertificationChild(child); throw error; }
+  return {child,exited,target:process.platform==="win32"?child.pid!:-child.pid!};
+}
+{
+  const owned=await stubbornChild(),originalKill=process.kill;let injected=0;
+  try {
+    process.kill=((pid:number,signal:NodeJS.Signals|number=0)=>{
+      if(pid===owned.target&&signal===0&&injected++===0)throw Object.assign(new Error("fixture existence probe"),{code:"EPERM"});
+      return originalKill.call(process,pid,signal);
+    }) as typeof process.kill;
+    await terminateCertificationChild(owned.child,{graceMs:100});await owned.exited;
+    assert.ok(injected>=1,"the actual owned group exercised EPERM on signal 0");
+    assert.ok(owned.child.exitCode!==null||owned.child.signalCode!==null,"real owned child terminated");
+  } finally {process.kill=originalKill;await terminateCertificationChild(owned.child);}
+}
+{
+  const owned=await stubbornChild(),originalKill=process.kill;
+  try {
+    process.kill=((pid:number,signal:NodeJS.Signals|number=0)=>{
+      if(pid===owned.target&&signal==="SIGTERM")throw Object.assign(new Error("fixture actual signal denial"),{code:"EPERM"});
+      return originalKill.call(process,pid,signal);
+    }) as typeof process.kill;
+    await assert.rejects(()=>terminateCertificationChild(owned.child,{graceMs:100}),(error:any)=>error.code==="EPERM");
+    assert.equal(owned.child.exitCode,null,"a refused termination is not claimed as cleanup");
+  } finally {process.kill=originalKill;await terminateCertificationChild(owned.child,{graceMs:100});await owned.exited;}
 }
 
 const queueManager = readFileSync("server/services/queue-manager.ts", "utf8");

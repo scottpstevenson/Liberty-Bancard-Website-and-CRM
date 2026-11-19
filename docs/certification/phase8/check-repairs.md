@@ -79,3 +79,5 @@ The CI wrapper additionally needed the four setup/budget repairs listed in the s
 Intermediate generated historical screenshots/receipts (140 files) were preserved privately with hashes, then restored to their historical tracked versions. New repair evidence is kept separately.
 
 Follow-up runner repairs preserve the native roster’s read-only/strict options and workload budgets, with exact option validation. The budget UI test now completes the real first-login tour for admin and manager. The intermediate image-write interference is recorded in the structured register and its affected checks remain subject to rerun.
+
+Additional native audit proof reproduced and repaired provider text in outer/nested alert summaries and acknowledgement reasons. The 63-check native boundary suite and 44-case sanitizer suite pass. Legacy alert reads are scrubbed without updating stored rows; structured summary counts remain intact. The partial-object audit-gate exemption is removed. Process-cleanup regressions cover actual owned children and preserve real signal permission failures. Final compiled and full-suite evidence is still in progress.

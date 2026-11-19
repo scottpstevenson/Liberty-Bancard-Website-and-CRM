@@ -2,7 +2,7 @@
  * Append-only, durable admin incident feed backed by audit_logs.
  */
 import crypto from "crypto";
-import { sanitizeAuditPayload } from "./audit-sanitizer";
+import { sanitizeAuditPayload, sanitizeChannelAuditText } from "./audit-sanitizer";
 
 export type AlertSeverity = "critical" | "warning" | "info";
 export interface AlertEntry {
@@ -28,14 +28,14 @@ function stableJson(value: unknown): string {
 function canonicalAlert(alert: AlertEntry) {
   // The fingerprint is based on the already-sanitized operational shape, not
   // arbitrary caller object ordering.
-  return stableJson({
+  return stableJson(sanitizeAuditPayload({
     v: ALERT_FINGERPRINT_VERSION,
     severity: alert.severity,
     subsystem: String(alert.subsystem).slice(0, 120),
     summary: String(alert.summary).slice(0, 500),
     details: sanitizeAuditPayload(alert.details ?? {}),
     incidentBucket: alert.incidentBucket ?? currentIncidentBucket(),
-  });
+  }));
 }
 function currentIncidentBucket(now = new Date()): string {
   return now.toISOString().slice(0, 13);
@@ -75,14 +75,14 @@ export async function persistAlert(alert: AlertEntry): Promise<{
        const inserted = await tx.execute(sql`
         INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, details)
         VALUES ('system_alert', 'system_alert', ${fingerprint}, 'system',
-          ${JSON.stringify({
+          ${JSON.stringify(sanitizeAuditPayload({
             fingerprintVersion: ALERT_FINGERPRINT_VERSION,
             severity: alert.severity,
             subsystem: String(alert.subsystem).slice(0, 120),
             summary: String(alert.summary).slice(0, 500),
             details: sanitizeAuditPayload(alert.details ?? {}),
              incidentBucket,
-           })}::jsonb)
+           }))}::jsonb)
          RETURNING id, created_at
       `);
        const row = (inserted.rows as any[])[0];
@@ -109,11 +109,15 @@ export async function getRecentAlerts(limit = 50): Promise<AlertFeedReadResult> 
       ORDER BY a.id DESC LIMIT ${bounded}
     `);
     return {
-      alerts: (rows.rows as any[]).map((r) => ({
-        id: r.id, severity: r.details?.severity ?? "info", subsystem: r.details?.subsystem ?? "unknown",
-        summary: r.details?.summary ?? "", details: r.details?.details ?? {},
-        acknowledged: r.acknowledged === true || r.acknowledged === "t", createdAt: r.created_at,
-      })),
+      alerts: (rows.rows as any[]).map((r) => {
+        // Legacy immutable rows are normalized only in the returned view.
+        const safe = sanitizeAuditPayload(r.details ?? {}) as Record<string, any>;
+        return {
+          id: r.id, severity: safe.severity ?? "info", subsystem: safe.subsystem ?? "unknown",
+          summary: safe.summary ?? "", details: safe.details ?? {},
+          acknowledged: r.acknowledged === true || r.acknowledged === "t", createdAt: r.created_at,
+        };
+      }),
       degraded: false,
     };
   } catch (err: any) {
@@ -138,7 +142,7 @@ export async function acknowledgeAlert(id: number, actor?: string, reason?: stri
         await tx.execute(sql`
           INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, actor_id, details)
           VALUES ('system_alert_acknowledged', 'system_alert', ${id}, 'user', ${actor?.slice(0, 160) ?? "unknown"},
-            ${JSON.stringify(sanitizeAuditPayload({ reason: boundedReason || null }))}::jsonb)
+            ${JSON.stringify(sanitizeAuditPayload({ reason: sanitizeChannelAuditText(boundedReason) || null }))}::jsonb)
         `);
       }
       return true;

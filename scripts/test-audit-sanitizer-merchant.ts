@@ -194,6 +194,12 @@ console.log("\n== Staff alert recipient addresses stay out of diagnostic audits 
   assert("sanitizing an audit does not mutate its delivery payload", input.recipient === "fixture@example.test" && input.recipients[0] === "second@example.test");
 }
 
+const summaryFixture=sanitizeAuditPayload({summary:"Provider failed for summary@example.test",probe:{summary:"Nested summary@example.test"}});
+assertNoRaw("outer and nested diagnostic summaries are scrubbed",summaryFixture,"summary@example.test");
+const structuredSummary=sanitizeAuditPayload({summary:{processed:3,email:"summary@example.test"}}) as any;
+assert("structured summary counts retain their schema",structuredSummary.summary.processed===3);
+assertNoRaw("structured summaries still redact sensitive fields",structuredSummary,"summary@example.test");
+
 console.log("\n================================");
 console.log(`Passed: ${passed}  Failed: ${failed}`);
 if (failed > 0) {

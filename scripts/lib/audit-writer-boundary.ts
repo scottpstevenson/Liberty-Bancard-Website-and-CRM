@@ -34,10 +34,6 @@ export function auditWriterBoundary(source:string,file:string) {
    const v=matches.sort((a,b)=>b.pos-a.pos)[0];return v?safe(v.initializer,seen):false;
   }
   if(ts.isParenthesizedExpression(n)||ts.isAsExpression(n)||ts.isTypeAssertionExpression(n)||ts.isNonNullExpression(n))return safe(n.expression,seen);
-  // Existing alert records enumerate bounded diagnostic scalars around a
-  // canonically sanitized details object. Arbitrary spread payloads do not qualify.
-  if(ts.isObjectLiteralExpression(n)&&!n.properties.some(ts.isSpreadAssignment))
-   return n.properties.some(p=>ts.isPropertyAssignment(p)&&p.name.getText(sf)==="details"&&safe(p.initializer,seen));
   return false;
  }
  function journal(n:ts.CallExpression):boolean {

@@ -258,7 +258,11 @@ export function sanitizeAuditPayload(payload: unknown, depth = 0): unknown {
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(payload as Record<string, unknown>)) {
       const normalizedKey = key.toLowerCase().replace(/[_-]/g, "");
-      if (ERROR_KEYS.has(normalizedKey)) {
+      if (normalizedKey === "summary" && typeof value === "string") {
+        // Probe summaries embed provider exceptions. Structured count summaries
+        // still recurse normally, preserving their diagnostic schema.
+        out[key] = scrubErrorString(value);
+      } else if (ERROR_KEYS.has(normalizedKey)) {
         out[key] = typeof value === "string" ? scrubErrorString(value) : value == null ? value : "[redacted]";
       } else if (isSensitiveSubtreeKey(key)) {
         // Wholesale-redact owner/bank/principal subtrees: every descendant is

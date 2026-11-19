@@ -68,7 +68,11 @@ function ownedProcessTreeExists(child: ChildProcess): boolean {
     process.kill(process.platform === "win32" ? child.pid : -child.pid, 0);
     return true;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") return false;
+    // signal 0 is an existence probe. EPERM does not prove the group is gone;
+    // keep waiting/escalating. Real TERM/KILL permission errors still throw.
+    if (code === "EPERM") return true;
     throw error;
   }
 }
