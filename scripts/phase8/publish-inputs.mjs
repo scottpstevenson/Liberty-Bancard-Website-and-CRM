@@ -1,0 +1,7 @@
+/** Read-only input census, not a claim about Replit's compressed deployment layers. */
+import fs from 'node:fs';import path from 'node:path';import {execFileSync} from 'node:child_process';import {createHash} from 'node:crypto';
+const excluded=['.git','.cache','generated-artifacts','.local/worktrees'];let bytes=0,files=0;const links=[],broken=[];
+function walk(rel){if(excluded.some(p=>rel===p||rel.startsWith(p+'/')))return;const p=path.resolve(rel||'.'),s=fs.lstatSync(p);if(s.isSymbolicLink()){let target;try{target=fs.realpathSync(p);}catch{broken.push(rel);}links.push({path:rel,target});return;}if(s.isDirectory()){for(const name of fs.readdirSync(p))walk(rel?rel+'/'+name:name);}else if(s.isFile()){bytes+=s.size;files++;}}
+walk('');
+const report={source:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),lockSha256:createHash('sha256').update(fs.readFileSync('package-lock.json')).digest('hex'),excluded,files,regularFileBytes:bytes,symlinks:links,brokenSymlinks:broken,qualification:'local effective regular-file census only; directory links listed separately; Replit hosting/Nix/cache layers and platform compressed artifact headroom must be observed at Publish; no platform state removed'};
+fs.mkdirSync('generated-artifacts/phase8',{recursive:true});fs.writeFileSync('generated-artifacts/phase8/publish-inputs.json',JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify({files,bytes,broken:broken.length,symlinks:links.length}));if(broken.length)process.exitCode=1;

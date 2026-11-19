@@ -1,3 +1,4 @@
+import {runInboxSendEffect} from './inbox-send-effect';
 import { storage } from "../../storage";
 import { db } from "../../db";
 import { sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrMerchants, contacts, deals } from "@shared/schema";
@@ -11,7 +12,7 @@ import { isGhlConfigured } from "../ghl";
 import { FIRST_PARTY_BOOK_URL, SECURE_UPLOAD_URL, resolveSalesBooking } from "../message-cta-contract";
 // sendGhlEmail / sendGhlSms routed through ChannelOrchestrator (Wave 1A) — see below.
 import { resolveVoiceScriptForLead, buildGhlVoicePayload } from "./voice-orchestrator";
-import { selectBestInbox, recordSend, rollbackSend, recordBounce, recordDelivered } from "./inbox-rotation";
+import { selectBestInbox, recordBounce, recordDelivered } from "./inbox-rotation";
 import { tagContactForInboxOrganization } from "../ghl-workflow-enrollment";
 import { getCanonicalLeadVertical } from "./vertical-resolver";
 import { resolveCanonicalVertical, getResolutionStrength } from "./canonical-vertical-resolver";
@@ -46,6 +47,8 @@ let dailyCounters: DailyCounters = {
 };
 
 let sweepInterval: ReturnType<typeof setInterval> | null = null;
+let initialSweep: ReturnType<typeof setTimeout> | null = null;
+let schedulerGeneration=0;
 let isSweeping = false;
 let globalPaused = false;
 let globalPauseReason = "";
@@ -705,27 +708,12 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
     return false;
   }
 
-  const slotReserved = await recordSend(selectedInbox.id, lead.merchantId);
-  if (!slotReserved) {
-    console.log(`[SDR Orchestrator] Inbox ${selectedInbox.emailAddress} hit daily cap (atomic check) for lead ${lead.id} — aborting send`);
-    try {
-      await storage.createAuditLog({
-        action: "DAILY_CAP_REACHED",
-        entityType: "sdr_lead",
-        entityId: lead.id,
-        details: `Send slot reservation failed — inbox ${selectedInbox.emailAddress} at daily cap for lead ${lead.id}`,
-      });
-    } catch { /* non-fatal */ }
-    return false;
-  }
-
   // ── Communication arbitration: suppress if rep recently touched this prospect ──
   if (lead.contactId) {
     try {
       const { shouldSuppress: arbCheck, logArbitrationSuppression } = await import("../communication-arbitration");
       const arb = await arbCheck(lead.contactId, "email");
       if (arb.suppressed) {
-        await rollbackSend(selectedInbox.id);
         await logArbitrationSuppression(lead.contactId, "email", arb);
         // Defer the lead's next action to arb.resumeAfter so the orchestrator
         // does not retry before the suppression window expires.
@@ -760,10 +748,9 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
     // The SDR orchestrator's own arbitration check (above) is supplementary;
     // the orchestrator is the authoritative compliance gate.
     const { channelOrchestrator } = await import("../transports/index");
-    const result = await channelOrchestrator.sendEmail(
-      { contactId: lead.contactId, subject, body, fromEmail: selectedInbox.emailAddress, fromName: selectedInbox.label },
-      {},
-    );
+    const effect=await runInboxSendEffect({effectKey:`sdr-email:${lead.id}:${attemptNumber}`,ownerKind:'sdr-email',ownerId:String(lead.id),channel:'email'},selectedInbox.id,lead.merchantId,
+      ()=>channelOrchestrator.sendEmail({contactId:lead.contactId!,subject,body,fromEmail:selectedInbox.emailAddress,fromName:selectedInbox.label},{}));
+    const result={success:effect.state==='accepted',messageId:effect.state==='accepted'?effect.detail:undefined,error:effect.state==='accepted'?undefined:effect.detail??effect.state};
 
     await logChannelAttempt({
       leadStateId: lead.id,
@@ -779,7 +766,7 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
 
     if (result.success) {
       dailyCounters.emailsSent++;
-      await recordDelivered(selectedInbox.id);
+      if(!effect.replay)await recordDelivered(selectedInbox.id);
       trackSendForKillSwitch(result.messageId);
       await db.update(sdrLeadState).set({
         emailAttempts: attemptNumber,
@@ -815,7 +802,6 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
 
     return result.success;
   } catch (err: any) {
-    await rollbackSend(selectedInbox.id);
     const errorLower = (err.message || "").toLowerCase();
     if (errorLower.includes("bounce") || errorLower.includes("invalid") || errorLower.includes("undeliverable")) {
       await recordBounce(selectedInbox.id);
@@ -1419,9 +1405,10 @@ export function startOrchestrator() {
     return;
   }
 
+  const generation=++schedulerGeneration;
   // Hydrate pause state from DB before first sweep — restores operator decisions across restarts.
   // Fire-and-forget; completes well within the 10-second initial sweep delay.
-  storage.getSystemSetting("sdrOrchestratorPaused")
+  const restoredPause=storage.getSystemSetting("sdrOrchestratorPaused")
     .then((saved: unknown) => {
       if (
         saved &&
@@ -1440,23 +1427,27 @@ export function startOrchestrator() {
         }
       }
     })
-    .catch(err =>
-      console.error("[SDR Orchestrator] Failed to restore pause state from DB:", err)
-    );
+    .then(()=>true).catch(err => {
+      console.error("[SDR Orchestrator] Failed to restore pause state from DB:", err);return false;
+    });
+  const ownedSweep=async()=>{if(!await restoredPause||generation!==schedulerGeneration)return;await sweepLeads();};
 
   console.log(`[SDR Orchestrator] Starting sweep every ${ORCHESTRATOR_SWEEP_MINUTES} minutes (batch=${featureFlags.ORCHESTRATOR_BATCH_SIZE}, reviewMode=${featureFlags.ORCHESTRATOR_REVIEW_MODE})`);
   sweepInterval = setInterval(async () => {
     try {
-      await sweepLeads();
+      await ownedSweep();
     } catch (err) {
       console.error("[SDR Orchestrator] Sweep error:", err);
     }
   }, ORCHESTRATOR_SWEEP_MINUTES * 60 * 1000);
 
-  setTimeout(() => sweepLeads().catch(err => console.error("[SDR Orchestrator] Initial sweep error:", err)), 10000);
+  initialSweep=setTimeout(() => {initialSweep=null;void ownedSweep().catch(err => console.error("[SDR Orchestrator] Initial sweep error:", err));},10000);
+  initialSweep.unref?.();sweepInterval.unref?.();
 }
 
 export function stopOrchestrator() {
+  schedulerGeneration++;
+  if(initialSweep){clearTimeout(initialSweep);initialSweep=null;}
   if (sweepInterval) {
     clearInterval(sweepInterval);
     sweepInterval = null;

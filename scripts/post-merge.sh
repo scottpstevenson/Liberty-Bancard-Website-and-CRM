@@ -1,13 +1,11 @@
 #!/bin/bash
-set -e
-
-npm ci --include=dev --ignore-scripts --prefer-offline --no-audit --no-fund
-
-# Use the migration runner (non-interactive) instead of drizzle-kit push,
-# which prompts when adding unique constraints to tables with existing data.
-npx tsx scripts/migrate.ts
-
-if [ -f "server/add-indexes.sql" ]; then
-  psql "$DATABASE_URL" -f server/add-indexes.sql 2>/dev/null || true
+set -euo pipefail
+if [ "${NODE_ENV:-development}" = production ] || [ "${REPLIT_DEPLOYMENT:-}" = 1 ]; then
+  echo 'Post-merge is development-only; production schema is Publish-owned' >&2
+  exit 1
 fi
-psql "$DATABASE_URL" -f migrations/0009_residual_reconciliation.sql 2>/dev/null || true
+bash scripts/with-pinned-npm.sh ci --include=dev --ignore-scripts --prefer-offline --no-audit --no-fund
+node scripts/verify-development-database.mjs
+# The journal owns schema changes. Do not replay ad-hoc index/residual SQL or
+# swallow DDL errors; that previously recreated equivalent legacy indexes.
+node node_modules/tsx/dist/cli.mjs scripts/migrate.ts

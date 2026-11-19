@@ -808,13 +808,15 @@ export const LOGICAL_JOB_MANIFEST: readonly ManifestEntry[] = [
     releaseController: "website_lifecycle_config_revision",
   },
 
+  {logicalKey:"nightly-funnel-aggregation",physicalQueue:"non_bullmq",jobNamePattern:"startNightlyAggregation",handler:"Owned IANA daily timer; serializable database-only period receipt; explicit manual refresh shares projection lock",owner:"sdr/funnel-metrics",effect:"infrastructure",canRunWhileGlobalOutboundPaused:true,backlogSource:"none",releaseController:null},
+
   // ── Legacy / non-BullMQ schedulers ───────────────────────────────────────
 
   {
     logicalKey: "legacy-sla-worker",
     physicalQueue: "legacy_interval",
     jobNamePattern: "startSlaWorker",
-    handler: "Legacy SLA worker (setInterval fallback when BullMQ unavailable)",
+    handler: "Uncalled compatibility SLA interval; canonical queue owns normal startup; no automatic Redis fallback",
     owner: "sla-worker",
     effect: "infrastructure",
     canRunWhileGlobalOutboundPaused: true,
@@ -825,7 +827,7 @@ export const LOGICAL_JOB_MANIFEST: readonly ManifestEntry[] = [
     logicalKey: "legacy-daily-outreach",
     physicalQueue: "legacy_interval",
     jobNamePattern: "startDailyOutreachWorker",
-    handler: "Legacy daily outreach worker (setInterval fallback)",
+    handler: "Retired legacy daily outreach starter (explicit refusal; canonical queue owns recurrence)",
     owner: "daily-outreach",
     effect: "promotional_send",
     canRunWhileGlobalOutboundPaused: false,
@@ -858,7 +860,7 @@ export const LOGICAL_JOB_MANIFEST: readonly ManifestEntry[] = [
     logicalKey: "inbox-rotation",
     physicalQueue: "non_bullmq",
     jobNamePattern: "inbox-rotation",
-    handler: "SDR inbox rotation scheduler",
+    handler: "Owned IANA daily timer; same-transaction period receipt and dated counters; background profile controlled",
     owner: "sdr-orchestrator",
     effect: "infrastructure",
     canRunWhileGlobalOutboundPaused: true,

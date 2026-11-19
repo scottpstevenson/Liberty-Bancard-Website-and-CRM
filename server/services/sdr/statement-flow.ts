@@ -1,10 +1,11 @@
+import {runInboxSendEffect} from './inbox-send-effect';
 import { db, pool } from "../../db";
 import { sdrLeadState, sdrLeadEvents } from "@shared/schema";
 import type { SdrLeadState } from "@shared/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { storage } from "../../storage";
 import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "../ghl";
-import { selectBestInbox, recordSend, rollbackSend } from "./inbox-rotation";
+import { selectBestInbox } from "./inbox-rotation";
 import crypto from "crypto";
 import { runFollowupEffect, hasAcceptedEffect } from "../followup-effects";
 import { resolveSmsRecipient, smsDenialDetail, parseSmsDenialDetail } from "../sms-recipient-authority";
@@ -32,25 +33,10 @@ async function deliverStatementEmail(
   lead: SdrLeadState, effectKey: string, subject: string, body: string,
 ): Promise<ChannelResult> {
   if (!isGhlConfigured() || !lead.contactId) return { channel: "email", state: "refused", detail: !lead.contactId ? "no_contact" : "ghl_not_configured" };
-  const outcome = await runFollowupEffect(
-    { effectKey, ownerKind: "statement", ownerId: String(lead.id), channel: "email" },
-    async () => {
-      const selectedInbox = await selectBestInbox(lead.merchantId, lead.vertical || undefined);
-      if (!selectedInbox) return { success: false, error: "no_inbox_available" };
-      const reserved = await recordSend(selectedInbox.id, lead.merchantId);
-      if (!reserved) {
-        storage.createAuditLog({ action: "DAILY_CAP_REACHED", entityType: "sdr_lead", entityId: lead.id, details: `StatementFlow inbox ${selectedInbox.emailAddress} at daily cap — statement email not sent` }).catch(() => {});
-        return { success: false, error: "daily_cap_reached" };
-      }
-      try {
-        const result = await sendGhlEmail({ contactId: lead.contactId!, subject, body, fromEmail: selectedInbox.emailAddress, fromName: selectedInbox.label });
-        if (!result.success) await rollbackSend(selectedInbox.id);
-        return result;
-      } catch (sendErr) {
-        await rollbackSend(selectedInbox.id);
-        throw sendErr;
-      }
-    });
+  const selectedInbox=await selectBestInbox(lead.merchantId,lead.vertical||undefined);
+  if(!selectedInbox)return {channel:'email',state:'refused',detail:'no_inbox_available'};
+  const outcome=await runInboxSendEffect({effectKey,ownerKind:'statement',ownerId:String(lead.id),channel:'email'},selectedInbox.id,lead.merchantId,
+    ()=>sendGhlEmail({contactId:lead.contactId!,subject,body,fromEmail:selectedInbox.emailAddress,fromName:selectedInbox.label}));
   return { channel: "email", state: outcome.state, detail: outcome.detail };
 }
 

@@ -1,20 +1,17 @@
 -- Performance indexes for high-volume tables
--- Safe: CREATE INDEX IF NOT EXISTS prevents duplicates
+-- Historical manual reference, not run by post-merge. Canonical journal/model indexes own these paths.
+-- IF NOT EXISTS checks names, not equivalent definitions; do not recreate aliases.
 
 -- contacts (152K rows): phone, status, ghl_contact_id are common filters
 -- Email is a nonunique delivery mailbox (contacts_active_email_idx WHERE archived_at IS NULL).
 CREATE INDEX IF NOT EXISTS idx_contacts_phone ON contacts(phone);
 CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts(status);
-CREATE INDEX IF NOT EXISTS idx_contacts_ghl_id ON contacts(ghl_contact_id);
 CREATE INDEX IF NOT EXISTS idx_contacts_created_at ON contacts(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_contacts_lead_score ON contacts(lead_score DESC);
 CREATE INDEX IF NOT EXISTS idx_contacts_business_id ON contacts(business_id);
 
 -- deals (502 rows): pipeline, stage, contact_id are core CRM filters
-CREATE INDEX IF NOT EXISTS idx_deals_pipeline ON deals(pipeline);
 CREATE INDEX IF NOT EXISTS idx_deals_stage ON deals(stage);
-CREATE INDEX IF NOT EXISTS idx_deals_contact_id ON deals(contact_id);
-CREATE INDEX IF NOT EXISTS idx_deals_pipeline_stage ON deals(pipeline, stage);
 CREATE INDEX IF NOT EXISTS idx_deals_created_at ON deals(created_at DESC);
 
 -- tickets: status, priority, contact_id for dashboard filtering

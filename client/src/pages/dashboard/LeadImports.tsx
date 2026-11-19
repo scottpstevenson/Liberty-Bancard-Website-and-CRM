@@ -130,7 +130,7 @@ function getOutcomeSummary(imp: CsvImport): { label: string; className: string }
 
   if (newRecords === 0 && alreadyExists > 0 && invalidOrErrored === 0) {
     return {
-      label: `Processed successfully — no new contacts, ${alreadyExists.toLocaleString()} already exist`,
+      label: `Processed successfully — no rows recorded as new, ${alreadyExists.toLocaleString()} already exist`,
       className: "text-blue-600 dark:text-blue-400",
     };
   }
@@ -143,7 +143,7 @@ function getOutcomeSummary(imp: CsvImport): { label: string; className: string }
       className: "text-amber-600 dark:text-amber-400",
     };
   }
-  return { label: `${newRecords.toLocaleString()} new contacts added`, className: "text-green-600 dark:text-green-400" };
+  return { label: `${newRecords.toLocaleString()} rows recorded as new`, className: "text-green-600 dark:text-green-400" };
 }
 
 function VerticalBreakdownChart({ breakdown }: { breakdown: Record<string, number> | null }) {
@@ -735,6 +735,7 @@ export default function LeadImports() {
     totalImports: number;
     totalRowsProcessed: number;
     totalRecordsImported: number;
+    totalUpdatedRows: number;
     totalDuplicatesSkipped: number;
     totalSkippedRows: number;
     totalAlreadyExists: number;
@@ -890,7 +891,7 @@ export default function LeadImports() {
       const deferredToStaging = data.deferredToStaging || 0;
 
       let title = "Import Complete";
-      let description = `${inserted.toLocaleString()} new contact(s) imported. ${data.dealsCreated || 0} deal(s) created. Format: ${data.sourceFormat?.replace(/_/g, " ")}`;
+      let description = `${inserted.toLocaleString()} row(s) recorded as new at intake. ${data.dealsCreated || 0} deal(s) created. Format: ${data.sourceFormat?.replace(/_/g, " ")}`;
 
       if (deferredToStaging > 0 && inserted === 0) {
         // Outscraper / Apollo rows go to compliance staging — not directly to contacts
@@ -899,8 +900,8 @@ export default function LeadImports() {
       } else if (deferredToStaging > 0) {
         description += ` ${deferredToStaging.toLocaleString()} row(s) staged for compliance review (Lead Ops Center).`;
       } else if (inserted === 0 && alreadyExists > 0) {
-        title = "Import Processed — No New Contacts";
-        description = `All ${alreadyExists.toLocaleString()} row(s) already exist in your CRM — no new contacts were added.`;
+        title = "Import Processed — No New Rows";
+        description = `All ${alreadyExists.toLocaleString()} row(s) already exist in your CRM — no rows were recorded as new.`;
         if (invalidOrErrored > 0) {
           description += ` ${invalidOrErrored.toLocaleString()} row(s) were invalid or skipped.`;
         }
@@ -1216,7 +1217,7 @@ export default function LeadImports() {
                 <Users className="h-5 w-5 text-green-600 dark:text-green-400" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">New Contacts Added</p>
+                <p className="text-sm text-muted-foreground">Rows Recorded as New</p>
                 <p className="text-2xl font-bold" data-testid="text-total-records">{fmtStat(importStats?.totalRecordsImported)}</p>
               </div>
             </div>
@@ -1274,7 +1275,7 @@ export default function LeadImports() {
       )}
       {importStats && (
       <p className="text-xs text-muted-foreground" data-testid="text-stats-reconciliation">
-        Across all imports in this scope: rows processed ({fmtStat(importStats.totalRowsProcessed)}) = new contacts added ({fmtStat(importStats.totalRecordsImported)}) + already exists ({fmtStat(importStats.totalAlreadyExists)}) + invalid or error rows ({(importStats.totalInvalidRows + importStats.totalErrors).toLocaleString()}). These are intake row counts; they do not show later enrichment, deals or delivery.
+        Across all imports in this scope: rows processed ({fmtStat(importStats.totalRowsProcessed)}) = rows recorded as new ({fmtStat(importStats.totalRecordsImported)}) + updated ({fmtStat(importStats.totalUpdatedRows ?? 0)}) + already exists ({fmtStat(importStats.totalAlreadyExists)}) + invalid or error rows ({(importStats.totalInvalidRows + importStats.totalErrors).toLocaleString()}). These are source-row dispositions, not distinct people or businesses. Business resolution, contact materialization, recipient qualification, enrollment and delivery are separate outcomes.
       </p>
       )}
 

@@ -1,0 +1,222 @@
+[
+  {
+    "id": "P8-V01",
+    "originalClaim": "Correct roadmap is Cleanup & Hardening, four P8 rows; 30-day stability is unverified",
+    "confirmedFact": "Correct roadmap is Cleanup & Hardening, four P8 rows; 30-day stability is unverified",
+    "disposition": "Retain roadmap; separate stability/release from engineering",
+    "evidence": "README.md",
+    "negativeControlOrLimit": "No 30-day observation fabricated",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V02",
+    "originalClaim": "Six tracked file candidates total 1,252,096 bytes: two repair Python files, three July backup JSONs, one archived CTA script",
+    "confirmedFact": "Six tracked file candidates total 1,252,096 bytes: two repair Python files, three July backup JSONs, one archived CTA script",
+    "disposition": "Five byte-identical archives; completed CTA script Git-restorable",
+    "evidence": "archive-manifest.json",
+    "negativeControlOrLimit": "Hash restoration; originals no longer executable current paths",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V03",
+    "originalClaim": "`backfill-templates-apply.ts` and `backfill-sdr-campaigns.ts` still scan scripts/ for backup files; dry-run writes there",
+    "confirmedFact": "`backfill-templates-apply.ts` and `backfill-sdr-campaigns.ts` still scan scripts/ for backup files; dry-run writes there",
+    "disposition": "Exact backup hash/age/source/content/target replaces ancient glob",
+    "evidence": "../../../scripts/certification/test-phase8-backup.ts",
+    "negativeControlOrLimit": "Actual wrong hash, changed content and absent backup refused",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V04",
+    "originalClaim": "`cleanup-test-data.ts` has a pre-import disposable guard; internals include heuristic contact matching and merchant-role removal",
+    "confirmedFact": "`cleanup-test-data.ts` has a pre-import disposable guard; internals include heuristic contact matching and merchant-role removal",
+    "disposition": "Preserve seven pre-import disposable guards; no live cleanup",
+    "evidence": "../../../scripts/test-cleanup-guard.ts",
+    "negativeControlOrLimit": "Production-like target refuses before DB import",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V05",
+    "originalClaim": "Live staging lists include Demo/Test-labelled items; provenance unverified. Data Health's 720 is no-email/active, not a synthetic-record count",
+    "confirmedFact": "Live staging lists include Demo/Test-labelled items; provenance unverified. Data Health's 720 is no-email/active, not a synthetic-record count",
+    "disposition": "Retain live labelled records; provenance unresolved; no name-based classification",
+    "evidence": "README.md",
+    "negativeControlOrLimit": "720 is no-email population, not synthetic count",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V06",
+    "originalClaim": "`ghl-sync.startAutoSyncLoop` and re-enrichment starter are disabled; nightly discovery throws before old interval code",
+    "confirmedFact": "`ghl-sync.startAutoSyncLoop` and re-enrichment starter are disabled; nightly discovery throws before old interval code",
+    "disposition": "Keep GHL/re-enrichment disabled; remove unreachable discovery body",
+    "evidence": "scheduler-ownership.md",
+    "negativeControlOrLimit": "Legacy entry points cannot schedule paid fallback",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V07",
+    "originalClaim": "Daily outreach and SDR sweep already acquire heartbeat-backed DB leases",
+    "confirmedFact": "Daily outreach and SDR sweep already acquire heartbeat-backed DB leases",
+    "disposition": "Preserve daily/SDR canonical leases/transports; retire uncalled duplicate daily interval; cancel SDR initial callback",
+    "evidence": "scheduler-ownership.md",
+    "negativeControlOrLimit": "No new send or provider authority",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V08",
+    "originalClaim": "Inbox scheduler tests `dailyMaintenanceInterval` but recursively schedules timeout handles without assigning it; fixed UTC-5 midnight arithmetic ignores DST",
+    "confirmedFact": "Inbox scheduler tests `dailyMaintenanceInterval` but recursively schedules timeout handles without assigning it; fixed UTC-5 midnight arithmetic ignores DST",
+    "disposition": "Fix owned timer, receipt and date-scoped allowance",
+    "evidence": "../../../scripts/certification/test-phase8-periods.ts",
+    "negativeControlOrLimit": "Native concurrency/replay/rollback and DST cancellation controls",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V09",
+    "originalClaim": "Funnel aggregation has a local hourly timer; execution ownership and all callers require completion of the census",
+    "confirmedFact": "Funnel aggregation has a local hourly timer; execution ownership and all callers require completion of the census",
+    "disposition": "DB-only serializable projection lock; automatic receipt; manual explicit refresh",
+    "evidence": "../../../scripts/certification/test-phase8-periods.ts",
+    "negativeControlOrLimit": "Concurrent automatic runs + manual refresh preserve row cardinality",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V10",
+    "originalClaim": "Assigned-contact, enrollment contact/status and deal pipeline/stage indexes exist and are valid in production",
+    "confirmedFact": "Assigned-contact, enrollment contact/status and deal pipeline/stage indexes exist and are valid in production",
+    "disposition": "Named indexes already present; no new speculative indexes",
+    "evidence": "index-decisions.md",
+    "negativeControlOrLimit": "Native catalog/retained query outputs",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V11",
+    "originalClaim": "Four pairs have equivalent production index definitions: GHL contact ID; deal contact ID, pipeline, pipeline/stage",
+    "confirmedFact": "Four pairs have equivalent production index definitions: GHL contact ID; deal contact ID, pipeline, pipeline/stage",
+    "disposition": "Retain four aliases; remove ad-hoc recreation path",
+    "evidence": "index-decisions.md",
+    "negativeControlOrLimit": "Equivalent native definitions, private rollback; insufficient repeatable performance benefit for DDL",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V12",
+    "originalClaim": "Production lacks pg_stat_statements; cumulative table counters and row/dead-row estimates were read",
+    "confirmedFact": "Production lacks pg_stat_statements; cumulative table counters and row/dead-row estimates were read",
+    "disposition": "Retain read-only statistics; no production ANALYZE or extension",
+    "evidence": "index-decisions.md",
+    "negativeControlOrLimit": "Synthetic local plans/timings only; no timed production usage interval",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V13",
+    "originalClaim": "Audit-log schema/installed indexes use entity_type/entity_id/entity_key",
+    "confirmedFact": "Audit-log schema/installed indexes use entity_type/entity_id/entity_key",
+    "disposition": "Trace entity_type/entity_id history and current indexes",
+    "evidence": "index-decisions.md",
+    "negativeControlOrLimit": "No invented contact_id column or index",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V14",
+    "originalClaim": "880 tracked docs paths / 157 Markdown docs; Phase 7 owner-status text still reports 41 TypeScript diagnostics and unpublished state",
+    "confirmedFact": "880 tracked docs paths / 157 Markdown docs; Phase 7 owner-status text still reports 41 TypeScript diagnostics and unpublished state",
+    "disposition": "Index all 880 artifacts/157 Markdown and reconcile living authority",
+    "evidence": "documentation-status-index.json",
+    "negativeControlOrLimit": "Historical proof retained; current overlays link scoped evidence",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V15",
+    "originalClaim": "Fresh npm lock-only audit: 0 high, 0 critical, 16 moderate, 1 low",
+    "confirmedFact": "Fresh npm lock-only audit: 0 high, 0 critical, 16 moderate, 1 low",
+    "disposition": "Fresh lock audit; no dependency version/lock change",
+    "evidence": "README.md",
+    "negativeControlOrLimit": "Zero high/critical must be re-read from run receipt; lower advisories disclosed",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V16",
+    "originalClaim": "Fresh TypeScript, cleanup guard, migration integrity, queue compliance and CI manifest checks pass; manifest has 306 suites",
+    "confirmedFact": "Fresh TypeScript, cleanup guard, migration integrity, queue compliance and CI manifest checks pass; manifest has 306 suites",
+    "disposition": "Register new suites in both manifests and execute full canonical gate",
+    "evidence": "README.md",
+    "negativeControlOrLimit": "No focused pass represented as full release pass",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V17",
+    "originalClaim": "Live identity wizard says Identity active for a saved identity with blank status; source uses identities.length > 0; System Readiness reports 0 active",
+    "confirmedFact": "Live identity wizard says Identity active for a saved identity with blank status; source uses identities.length > 0; System Readiness reports 0 active",
+    "disposition": "Canonical enabled/warmup eligibility; saved and usable distinct; query failure unavailable",
+    "evidence": "../../../shared/sender-identity-state.ts",
+    "negativeControlOrLimit": "Native API roles + mounted saved-disabled and unavailable states",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V18",
+    "originalClaim": "System Readiness's Redis copy claims durable queues active; live discovery correctly exposes selective profile and heartbeat",
+    "confirmedFact": "System Readiness's Redis copy claims durable queues active; live discovery correctly exposes selective profile and heartbeat",
+    "disposition": "Show selected profile and actual per-queue observation",
+    "evidence": "../../../shared/worker-runtime-state.ts",
+    "negativeControlOrLimit": "Malformed/partial/disabled/stale/queue unavailable controls",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V19",
+    "originalClaim": "Live discovery import history labels 27 new as contacts; `LeadImports.tsx` unconditionally labels generic newRecords as contacts",
+    "confirmedFact": "Live discovery import history labels 27 new as contacts; `LeadImports.tsx` unconditionally labels generic newRecords as contacts",
+    "disposition": "Source-row disposition labels; distinguish updated/rejected/duplicate/later entities",
+    "evidence": "../../../client/src/pages/dashboard/LeadImports.tsx",
+    "negativeControlOrLimit": "Actual import DTO updated-row HTTP assertion; writer traced in routes/imports.ts",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  },
+  {
+    "id": "P8-V20",
+    "originalClaim": "Replit .local 5.3G, .cache 1.2G, node_modules 914M, dist 42M; .local/worktrees 3.4G; .replitignore currently excludes generated-artifacts",
+    "confirmedFact": "Replit .local 5.3G, .cache 1.2G, node_modules 914M, dist 42M; .local/worktrees 3.4G; .replitignore currently excludes generated-artifacts",
+    "disposition": "Exclude generated artifacts/cache/worktrees without deleting platform state; locked deploy build",
+    "evidence": "../../../scripts/phase8/publish-inputs.mjs",
+    "negativeControlOrLimit": "Broken-link census/build smoke; platform compressed layer size unverified",
+    "sourceBaseline": "d67d24c61acc462931c418e8068624c86144c7ae",
+    "productionImpact": "No live writes or activation; candidate-only native additive migration for V08/V09",
+    "remainingLiveEvidence": "Separate serving-candidate/schema/managed-diff and UI readback after authorized release; stability remains independent"
+  }
+]

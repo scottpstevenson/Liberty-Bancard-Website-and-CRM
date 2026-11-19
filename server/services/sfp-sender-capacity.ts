@@ -29,7 +29,7 @@ export interface SelectedSender {
 export async function readSelectedSender(): Promise<SelectedSender | null> {
   const r = await pool.query(
     `SELECT id, email_address AS "emailAddress", is_active AS "isActive", warmup_status AS "warmupStatus",
-            COALESCE(daily_limit,0)::int AS "dailyLimit", COALESCE(sent_today,0)::int AS "sentToday"
+            COALESCE(daily_limit,0)::int AS "dailyLimit", (CASE WHEN counter_date < (now() AT TIME ZONE 'America/New_York')::date THEN 0 ELSE COALESCE(sent_today,0) END)::int AS "sentToday"
        FROM sending_identities WHERE lower(email_address)=lower($1) ORDER BY id LIMIT 1`, [COLD_OUTREACH_FROM]);
   const row = r.rows[0];
   if (!row) return null;
@@ -113,11 +113,11 @@ export async function reserveSenderCapacity(now: Date = new Date()): Promise<Res
     const identity = await client.query(
       `INSERT INTO outbound_send_counters (date, channel, scope, count, updated_at)
        SELECT $1, $2, $3, 1, now() FROM sending_identities si
-        WHERE si.id=$4 AND si.is_active IS NOT FALSE AND 1 <= COALESCE(si.daily_limit,0) - COALESCE(si.sent_today,0)
+        WHERE si.id=$4 AND si.is_active IS NOT FALSE AND 1 <= COALESCE(si.daily_limit,0) - (CASE WHEN si.counter_date < (now() AT TIME ZONE 'America/New_York')::date THEN 0 ELSE COALESCE(si.sent_today,0) END)
        ON CONFLICT (date, channel, scope) DO UPDATE
          SET count = outbound_send_counters.count + 1, updated_at = now()
          WHERE outbound_send_counters.count + 1 <=
-           (SELECT COALESCE(daily_limit,0) - COALESCE(sent_today,0) FROM sending_identities WHERE id=$4)
+           (SELECT COALESCE(daily_limit,0) - (CASE WHEN counter_date < (now() AT TIME ZONE 'America/New_York')::date THEN 0 ELSE COALESCE(sent_today,0) END) FROM sending_identities WHERE id=$4)
        RETURNING count`,
       [day, SENDER_COUNTER_CHANNEL, senderScope(sender.id), sender.id]);
     if (identity.rows.length === 0) { await client.query("ROLLBACK"); return { ok: false, reason: "SENDER_DAILY_LIMIT" }; }

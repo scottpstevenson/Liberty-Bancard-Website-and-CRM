@@ -1574,35 +1574,7 @@ function getNextRunTime(): Date {
 }
 
 export function startNightlyDiscovery(): void {
-  throw new Error(
-    "DURABLE_DISCOVERY_AUTHORITY_REQUIRED: legacy nightly discovery is retired. Use the durable BullMQ enrichment pipeline instead."
-  );
-  const { featureFlags } = require("../../services/feature-flags");
-  if (!featureFlags.NIGHTLY_DISCOVERY_ENABLED) {
-    console.log("[LeadFinder] NIGHTLY_DISCOVERY_ENABLED=false, nightly discovery not started");
-    return;
-  }
-
-  if (nightlyInterval) {
-    console.log("[LeadFinder] Nightly discovery already running");
-    return;
-  }
-
-  const checkInterval = () => {
-    const now = new Date();
-    const nextRun = getNextRunTime();
-    const msUntilRun = nextRun.getTime() - now.getTime();
-
-    if (msUntilRun <= 60000) {
-      console.log("[LeadFinder] Starting nightly discovery run...");
-      runLeadDiscovery("nightly").catch(err =>
-        console.error("[LeadFinder] Nightly discovery error:", err)
-      );
-    }
-  };
-
-  nightlyInterval = setInterval(checkInterval, 60000);
-  console.log("[LeadFinder] Nightly discovery scheduler started (2 AM EST)");
+  throw new Error("DURABLE_DISCOVERY_AUTHORITY_REQUIRED: legacy nightly discovery is retired. Use the durable BullMQ enrichment pipeline instead.");
 }
 
 export function stopNightlyDiscovery(): void {

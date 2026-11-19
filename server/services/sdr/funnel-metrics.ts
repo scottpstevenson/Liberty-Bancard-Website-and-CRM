@@ -1,3 +1,5 @@
+import {createDailyTimer,previousEasternDate} from "../../../shared/daily-schedule";
+import {runScheduledPeriod} from "../scheduled-period";
 import { easternDayStart, nextDate } from "../../../shared/conversion-funnel";
 import { db } from "../../db";
 import {
@@ -18,7 +20,7 @@ import { eq, sql, and, gte, lte } from "drizzle-orm";
 // CRO-02 observation runs via the CRO02_OBSERVATION BullMQ job — not called inline here.
 import { ratePercent, type RateEvidence } from "@shared/rate-evidence";
 
-let aggregationInterval: ReturnType<typeof setInterval> | null = null;
+
 
 function getEstDateString(date?: Date): string {
   return (date || new Date()).toLocaleDateString("en-CA", {
@@ -28,13 +30,13 @@ function getEstDateString(date?: Date): string {
 
 import { countSdrEventKinds, type SdrEventKind } from "./event-kinds";
 
-export async function aggregateDailyMetrics(dateStr?: string): Promise<void> {
+export async function aggregateDailyMetrics(dateStr?: string, options: {scheduled?:boolean} = {}): Promise<void> {
   const targetDate =
-    dateStr || getEstDateString(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    dateStr || previousEasternDate();
   console.log(`[FunnelMetrics] Aggregating metrics for ${targetDate}...`);
 
   try {
-    await db.transaction(
+    await runScheduledPeriod("funnel-aggregation",targetDate,
       async (db) => {
         // These retained columns store UTC in timestamp-without-time-zone. ISO strings avoid node-pg serializing Dates in the process timezone.
         const startOfDay = easternDayStart(targetDate).toISOString();
@@ -396,7 +398,7 @@ export async function aggregateDailyMetrics(dateStr?: string): Promise<void> {
           `[FunnelMetrics] Aggregated ${groups.size + 1} metric rows for ${targetDate}`,
         );
       },
-      { isolationLevel: "repeatable read" },
+      options.scheduled === true,
     );
   } catch (err) {
     console.error("[FunnelMetrics] Aggregation error:", err);
@@ -684,35 +686,11 @@ export async function getWeeklyKpiDigestData(): Promise<any> {
   };
 }
 
-export function startNightlyAggregation(): void {
-  if (aggregationInterval) {
-    console.log("[FunnelMetrics] Aggregation already scheduled");
-    return;
-  }
-
-  console.log("[FunnelMetrics] Nightly aggregation scheduled (runs daily at midnight EST)");
-
-  aggregationInterval = setInterval(async () => {
-    const now = new Date();
-    const estHour = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" })).getHours();
-
-    if (estHour === 0) {
-      try {
-        await aggregateDailyMetrics();
-      } catch (err) {
-        console.error("[FunnelMetrics] Nightly aggregation error:", err);
-      }
-    }
-  }, 60 * 60 * 1000);
-}
-
-export function stopNightlyAggregation(): void {
-  if (aggregationInterval) {
-    clearInterval(aggregationInterval);
-    aggregationInterval = null;
-    console.log("[FunnelMetrics] Nightly aggregation stopped");
-  }
-}
+const aggregationTimer=createDailyTimer(()=>aggregateDailyMetrics(undefined,{scheduled:true}),{
+ onError:error=>console.error("[FunnelMetrics] Nightly aggregation error:",error),
+});
+export function startNightlyAggregation():void{aggregationTimer.start();}
+export function stopNightlyAggregation():void{aggregationTimer.stop();}
 
 export async function getOperatorKpis(range: string = "today"): Promise<any> {
   const now = new Date();

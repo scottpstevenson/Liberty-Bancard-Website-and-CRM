@@ -2248,7 +2248,7 @@ export function registerSdrRoutes(app: Express) {
     try {
       const { runDailyMaintenance } = await import("../services/sdr/inbox-rotation");
       const result = await runDailyMaintenance();
-      res.json(result);
+      res.status(["failed","unavailable"].includes(result.execution)?503:200).json(result);
     } catch (err: any) {
       serverError(res, err);
     }

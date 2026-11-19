@@ -1,3 +1,4 @@
+import {isUsableSenderIdentity} from "../services/sdr/sender-identity-state";
 import type { Express } from "express";
 import { claimPublicInbound } from "../services/public-inbound-intake";
 import { resolveReviewAssignment, reviewMetadata } from "../services/inbound-review-policy";
@@ -1776,10 +1777,11 @@ export function registerAdminRoutes(app: Express) {
 
       // Sending identities
       let sendingIdentityCount = 0;
+      let sendingIdentitiesAvailable=true;
       try {
         const identities = await storage.getSendingIdentities();
-        sendingIdentityCount = identities.filter((i: any) => i.status === "active").length;
-      } catch { /* ignore */ }
+        sendingIdentityCount = identities.filter(isUsableSenderIdentity).length;
+      } catch { sendingIdentitiesAvailable=false; }
 
       // Feature flags
       const flags = {
@@ -1827,7 +1829,8 @@ export function registerAdminRoutes(app: Express) {
       if (!openaiConfigured) {
         actions.push("Set AI_INTEGRATIONS_OPENAI_API_KEY — AI enrichment, intent classification, blueprint/proposal generation will all fail");
       }
-      if (sendingIdentityCount < 3) {
+      if(!sendingIdentitiesAvailable)actions.push("Sender identity observations unavailable — retry before making a readiness decision");
+      else if (sendingIdentityCount < 3) {
         actions.push(`Add more sending identities — only ${sendingIdentityCount} active (recommend 3+ for inbox rotation)`);
       }
       if (!redisReal) {
@@ -1849,7 +1852,7 @@ export function registerAdminRoutes(app: Express) {
         openai: { configured: openaiConfigured },
         redis: { real: redisReal, url: redisReal ? "configured" : "not set (BullMQ unavailable)" },
         sdr: flags,
-        sendingIdentities: { activeCount: sendingIdentityCount },
+        sendingIdentities: { activeCount: sendingIdentitiesAvailable?sendingIdentityCount:null, available:sendingIdentitiesAvailable },
         env: envChecks,
         actions,
         overallHealthy: actions.length === 0,
@@ -2729,6 +2732,7 @@ export function registerAdminRoutes(app: Express) {
   // for this process — that loop does not write a BullMQ heartbeat, so including it
   // would produce a permanently stale/misleading entry.
   app.get("/api/admin/worker-heartbeats", requireRole("admin", "manager"), async (_req, res) => {
+    res.setHeader("Cache-Control","no-store");
     try {
       const { QUEUE_CONFIGS: QC, getEffectiveQueueIntervals, isLegacyGhlSyncClaimed, QUEUE_NAMES: QN, getQueueManagerProducers, getWorkerCapabilityStatus, deriveQueueFreshness } = await import("../services/queue-manager");
       const live = getEffectiveQueueIntervals();
@@ -2772,11 +2776,13 @@ export function registerAdminRoutes(app: Express) {
             ? (lastSeenMs === null || (now - lastSeenMs) > expectedMs * 2)
             : false;
 
+          let queuePaused:boolean|null=null;
           let backlog: { waiting: number; active: number; delayed: number; failed: number } | null = null;
           try {
             const queue = qm?.getQueue(config.name);
             if (queue) {
               const counts = await queue.getJobCounts("waiting", "active", "delayed", "failed");
+              queuePaused=await queue.isPaused();
               backlog = {
                 waiting: counts.waiting ?? 0,
                 active: counts.active ?? 0,
@@ -2799,10 +2805,13 @@ export function registerAdminRoutes(app: Express) {
             stale,
             backlog,
             backlogAvailable: backlog !== null,
+            queuePaused,
           };
         })
       );
       res.json({
+        backgroundProfile:(await import("../services/background-profile")).getBackgroundProfile(),
+        selectedGroups:(await import("../services/background-profile")).getSelectiveGroups(),
         heartbeats: entries,
         asOf: new Date(now).toISOString(),
         legacyGhlActive: legacyGhl,

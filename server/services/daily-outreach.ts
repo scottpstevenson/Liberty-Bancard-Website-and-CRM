@@ -782,35 +782,9 @@ let dailyOutreachInterval: NodeJS.Timeout | null = null;
 let enrichmentInterval: NodeJS.Timeout | null = null;
 let workerRunning = false;
 
-export function startDailyOutreachWorker(intervalMinutes: number = 60): void {
-  if (dailyOutreachInterval) clearInterval(dailyOutreachInterval);
-  if (enrichmentInterval) clearInterval(enrichmentInterval);
-
-  workerRunning = true;
-  console.log(`[Daily Outreach Worker] Started - outreach every ${intervalMinutes}min, enrichment every 10min`);
-
-  enrichmentInterval = setInterval(async () => {
-    try {
-      console.log("[Enrichment Worker] Running enrichment batch...");
-      await reEnrichAllSunbizEntities(ENRICHMENT_BATCH_SIZE);
-    } catch (err) {
-      console.error("[Enrichment Worker] Error:", err);
-    }
-  }, 10 * 60 * 1000);
-
-  dailyOutreachInterval = setInterval(async () => {
-    try {
-      await runDailyOutreach();
-    } catch (err) {
-      console.error("[Daily Outreach Worker] Error:", err);
-    }
-  }, intervalMinutes * 60 * 1000);
-
-  storage.setSystemSetting("outreach_worker_status", {
-    running: true,
-    startedAt: new Date().toISOString(),
-    intervalMinutes,
-  });
+/** Canonical queue owns recurring outreach/enrichment; never create a Redis-failure fallback. */
+export function startDailyOutreachWorker(_intervalMinutes: number = 60): void {
+  throw new Error("LEGACY_DAILY_OUTREACH_RETIRED: use the governed daily-outreach queue");
 }
 
 export function stopDailyOutreachWorker(): void {

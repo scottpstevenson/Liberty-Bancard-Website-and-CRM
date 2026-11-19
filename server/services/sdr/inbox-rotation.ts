@@ -1,10 +1,12 @@
+import {easternDate} from "../../../shared/conversion-funnel";
+import {createDailyTimer} from "../../../shared/daily-schedule";
+import {runScheduledPeriod} from "../scheduled-period";
+import {isUsableSenderIdentity,effectiveSenderDailyLimit} from "./sender-identity-state";
 import { db } from "../../db";
 import { sendingIdentities, identityPerformanceDaily, domainBusinessLog } from "@shared/schema";
 import type { SendingIdentity, InsertIdentityPerformanceDaily } from "@shared/schema";
 import { eq, and, desc, sql, gte, lte, asc } from "drizzle-orm";
 
-const WARMUP_START_LIMIT = 5;
-const WARMUP_DAILY_INCREMENT = 3;
 const WARMUP_DURATION_DAYS = 14;
 const BOUNCE_RATE_THRESHOLD = 0.05;
 const COMPLAINT_RATE_THRESHOLD = 0.001;
@@ -81,7 +83,7 @@ export async function selectBestInbox(
 
   const available = allIdentities.filter((id) => {
     const effectiveLimit = getEffectiveDailyLimit(id);
-    return (id.sentToday || 0) < effectiveLimit;
+    return (id.counterDate===easternDate()?(id.sentToday || 0):0) < effectiveLimit;
   });
 
   if (available.length === 0) return null;
@@ -99,7 +101,7 @@ export async function selectBestInbox(
     // Explicit fallback: if all other domains have been used for this business,
     // check if Scott's identity is still within its daily limit before giving up.
     const scottIdentity = available.find(id => id.emailAddress === SCOTT_EMAIL);
-    if (scottIdentity && (scottIdentity.sentToday || 0) < getEffectiveDailyLimit(scottIdentity)) {
+    if (scottIdentity && (scottIdentity.counterDate===easternDate()?(scottIdentity.sentToday || 0):0) < getEffectiveDailyLimit(scottIdentity)) {
       console.log(`[Inbox Rotation] Falling back to Scott's identity for business ${businessId} (all other domains exhausted)`);
       return scottIdentity;
     }
@@ -138,81 +140,32 @@ export async function selectBestInbox(
  * so concurrent sends cannot race past the daily cap.
  * Returns true when the increment succeeded, false when the cap was already reached.
  */
-export async function recordSend(
-  identityId: number,
-  businessId: number
-): Promise<boolean> {
-  // Read identity once to compute the warmup-aware effective limit.
-  const [identity] = await db
-    .select()
-    .from(sendingIdentities)
-    .where(eq(sendingIdentities.id, identityId))
-    .limit(1);
-
-  if (!identity) return false;
-
-  const effectiveLimit = getEffectiveDailyLimit(identity);
-
-  // Atomic increment — only executes when still under the daily cap.
-  const updated = await db
-    .update(sendingIdentities)
-    .set({
-      sentToday: sql`COALESCE(${sendingIdentities.sentToday}, 0) + 1`,
-      lastUsedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(sendingIdentities.id, identityId),
-        sql`COALESCE(${sendingIdentities.sentToday}, 0) < ${effectiveLimit}`
-      )
-    )
-    .returning({ id: sendingIdentities.id });
-
-  if (updated.length === 0) {
-    console.log(`[Inbox Rotation] Daily cap reached for identity ${identityId} (limit: ${effectiveLimit}), blocking send`);
-    return false;
-  }
-
-  await db.insert(domainBusinessLog).values({
-    domain: identity.domain,
-    businessId,
-  });
-
-  // Update daily performance counters using SQL expression to avoid read-write race.
-  const today = getEstDateString();
-  const existing = await db
-    .select()
-    .from(identityPerformanceDaily)
-    .where(
-      and(
-        eq(identityPerformanceDaily.sendingIdentityId, identityId),
-        eq(identityPerformanceDaily.date, today)
-      )
-    )
-    .limit(1);
-
-  if (existing[0]) {
-    await db
-      .update(identityPerformanceDaily)
-      .set({ emailsSent: sql`COALESCE(${identityPerformanceDaily.emailsSent}, 0) + 1` })
-      .where(eq(identityPerformanceDaily.id, existing[0].id));
-  } else {
-    await db.insert(identityPerformanceDaily).values({
-      sendingIdentityId: identityId,
-      date: today,
-      emailsSent: 1,
-    });
-  }
-
-  return true;
+/** Reservations serialize on the native identity row and roll over its day before consuming capacity. */
+export async function reserveSend(identityId:number,businessId:number):Promise<{periodKey:string}|null>{
+ return db.transaction(async tx=>{
+  const [identity]=await tx.select().from(sendingIdentities).where(eq(sendingIdentities.id,identityId)).limit(1).for("update");
+  if(!identity||!isUsableSenderIdentity(identity))return null;
+  const today=String((await tx.execute(sql`SELECT to_char(now() AT TIME ZONE 'America/New_York','YYYY-MM-DD') AS today`)).rows[0].today);
+  if(identity.counterDate>today)return null;
+  const used=identity.counterDate===today?(identity.sentToday??0):0;
+  if(used>=getEffectiveDailyLimit(identity))return null;
+  await tx.update(sendingIdentities).set({sentToday:used+1,counterDate:today,
+   ...(identity.counterDate!==today?{bouncesToday:0,complaintsToday:0}:{}),lastUsedAt:new Date(),updatedAt:new Date()}).where(eq(sendingIdentities.id,identityId));
+  await tx.insert(domainBusinessLog).values({domain:identity.domain,businessId});
+  const [performance]=await tx.select().from(identityPerformanceDaily).where(and(eq(identityPerformanceDaily.sendingIdentityId,identityId),eq(identityPerformanceDaily.date,today))).limit(1);
+  if(performance)await tx.update(identityPerformanceDaily).set({emailsSent:sql`COALESCE(${identityPerformanceDaily.emailsSent},0)+1`}).where(eq(identityPerformanceDaily.id,performance.id));
+  else await tx.insert(identityPerformanceDaily).values({sendingIdentityId:identityId,date:today,emailsSent:1});
+  return {periodKey:today};
+ });
 }
+/** Compatibility callers receive the former boolean result; real send callers retain the reservation period. */
+export async function recordSend(identityId:number,businessId:number):Promise<boolean>{return !!await reserveSend(identityId,businessId);}
 
 /**
  * Rolls back a previously-reserved send slot when the provider send fails
  * after slot reservation. Decrements sentToday by 1, never below 0.
  */
-export async function rollbackSend(identityId: number): Promise<void> {
+export async function rollbackSend(identityId: number, periodKey: string = easternDate()): Promise<void> {
   try {
     await db
       .update(sendingIdentities)
@@ -220,7 +173,7 @@ export async function rollbackSend(identityId: number): Promise<void> {
         sentToday: sql`GREATEST(COALESCE(${sendingIdentities.sentToday}, 0) - 1, 0)`,
         updatedAt: new Date(),
       })
-      .where(eq(sendingIdentities.id, identityId));
+      .where(and(eq(sendingIdentities.id, identityId),eq(sendingIdentities.counterDate,periodKey)));
   } catch (err) {
     console.warn(`[Inbox Rotation] rollbackSend failed for identity ${identityId}:`, err);
   }
@@ -253,7 +206,10 @@ export async function recordBounce(identityId: number): Promise<void> {
   await db
     .update(sendingIdentities)
     .set({
-      bouncesToday: (identity[0].bouncesToday || 0) + 1,
+      bouncesToday: sql`CASE WHEN ${sendingIdentities.counterDate}=(now() AT TIME ZONE 'America/New_York')::date THEN COALESCE(${sendingIdentities.bouncesToday},0)+1 ELSE 1 END`,
+      counterDate: sql`(now() AT TIME ZONE 'America/New_York')::date`,
+      sentToday: sql`CASE WHEN ${sendingIdentities.counterDate}=(now() AT TIME ZONE 'America/New_York')::date THEN ${sendingIdentities.sentToday} ELSE 0 END`,
+      complaintsToday: sql`CASE WHEN ${sendingIdentities.counterDate}=(now() AT TIME ZONE 'America/New_York')::date THEN ${sendingIdentities.complaintsToday} ELSE 0 END`,
       updatedAt: new Date(),
     })
     .where(eq(sendingIdentities.id, identityId));
@@ -284,7 +240,10 @@ export async function recordComplaint(identityId: number): Promise<void> {
   await db
     .update(sendingIdentities)
     .set({
-      complaintsToday: (identity[0].complaintsToday || 0) + 1,
+      complaintsToday: sql`CASE WHEN ${sendingIdentities.counterDate}=(now() AT TIME ZONE 'America/New_York')::date THEN COALESCE(${sendingIdentities.complaintsToday},0)+1 ELSE 1 END`,
+      counterDate: sql`(now() AT TIME ZONE 'America/New_York')::date`,
+      sentToday: sql`CASE WHEN ${sendingIdentities.counterDate}=(now() AT TIME ZONE 'America/New_York')::date THEN ${sendingIdentities.sentToday} ELSE 0 END`,
+      bouncesToday: sql`CASE WHEN ${sendingIdentities.counterDate}=(now() AT TIME ZONE 'America/New_York')::date THEN ${sendingIdentities.bouncesToday} ELSE 0 END`,
       updatedAt: new Date(),
     })
     .where(eq(sendingIdentities.id, identityId));
@@ -356,27 +315,17 @@ export function clampDailyLimit(limit: number): number {
 }
 
 function getEffectiveDailyLimit(identity: SendingIdentity): number {
-  if (identity.warmupStatus === "warm") {
-    const limit = identity.dailyLimit || 30;
-    return Math.min(limit, MAX_SAFE_DAILY_LIMIT);
-  }
-  if (identity.warmupStatus === "warming") {
-    const days = daysSince(identity.warmupStartedAt);
-    const warmupLimit = WARMUP_START_LIMIT + days * WARMUP_DAILY_INCREMENT;
-    const configuredLimit = Math.min(identity.dailyLimit || 30, MAX_SAFE_DAILY_LIMIT);
-    return Math.min(warmupLimit, configuredLimit);
-  }
-  return 0;
+  return effectiveSenderDailyLimit(identity);
 }
 
-export async function runWarmupManager(): Promise<{
+export async function runWarmupManager(executor: Pick<typeof db,"select"|"update"|"execute"> = db): Promise<{
   transitioned: number;
   updated: number;
 }> {
   let transitioned = 0;
   let updated = 0;
 
-  const warmingIdentities = await db
+  const warmingIdentities = await executor
     .select()
     .from(sendingIdentities)
     .where(eq(sendingIdentities.warmupStatus, "warming"));
@@ -388,7 +337,7 @@ export async function runWarmupManager(): Promise<{
   for (const identity of warmingIdentities) {
     const days = daysSince(identity.warmupStartedAt);
     if (days >= WARMUP_DURATION_DAYS) {
-      const recentStats = await db
+      const recentStats = await executor
         .select({
           totalSent: sql<number>`COALESCE(SUM(${identityPerformanceDaily.emailsSent}), 0)`,
           totalBounced: sql<number>`COALESCE(SUM(${identityPerformanceDaily.bounced}), 0)`,
@@ -408,7 +357,7 @@ export async function runWarmupManager(): Promise<{
       const minVolume = stats ? stats.totalSent >= 10 : false;
 
       if (minVolume && bounceRate <= BOUNCE_RATE_THRESHOLD && complaintRate <= COMPLAINT_RATE_THRESHOLD) {
-        await db
+        await executor
           .update(sendingIdentities)
           .set({ warmupStatus: "warm", updatedAt: new Date() })
           .where(eq(sendingIdentities.id, identity.id));
@@ -426,14 +375,14 @@ export async function runWarmupManager(): Promise<{
   return { transitioned, updated };
 }
 
-export async function calculateHealthScores(): Promise<{
+export async function calculateHealthScores(executor: Pick<typeof db,"select"|"update"|"execute"> = db): Promise<{
   updated: number;
   paused: number;
 }> {
   let updated = 0;
   let paused = 0;
 
-  const allIdentities = await db
+  const allIdentities = await executor
     .select()
     .from(sendingIdentities)
     .where(
@@ -445,7 +394,7 @@ export async function calculateHealthScores(): Promise<{
   const sevenDaysAgoStr = sevenDaysAgo.toISOString().slice(0, 10);
 
   for (const identity of allIdentities) {
-    const stats = await db
+    const stats = await executor
       .select({
         totalSent: sql<number>`COALESCE(SUM(${identityPerformanceDaily.emailsSent}), 0)`,
         totalDelivered: sql<number>`COALESCE(SUM(${identityPerformanceDaily.delivered}), 0)`,
@@ -464,7 +413,7 @@ export async function calculateHealthScores(): Promise<{
 
     const s = stats[0];
     if (!s || s.totalSent === 0) {
-      await db
+      await executor
         .update(sendingIdentities)
         .set({ healthScore: 100, updatedAt: new Date() })
         .where(eq(sendingIdentities.id, identity.id));
@@ -495,7 +444,7 @@ export async function calculateHealthScores(): Promise<{
       score < HEALTH_SCORE_PAUSE_THRESHOLD;
 
     if (shouldPause && identity.warmupStatus !== "paused") {
-      await db
+      await executor
         .update(sendingIdentities)
         .set({
           healthScore: score,
@@ -509,7 +458,7 @@ export async function calculateHealthScores(): Promise<{
         `[Inbox Rotation] Identity ${identity.label} auto-paused (health: ${score}, bounce: ${(bounceRate * 100).toFixed(1)}%, complaint: ${(complaintRate * 100).toFixed(2)}%)`
       );
     } else {
-      await db
+      await executor
         .update(sendingIdentities)
         .set({ healthScore: score, updatedAt: new Date() })
         .where(eq(sendingIdentities.id, identity.id));
@@ -520,10 +469,11 @@ export async function calculateHealthScores(): Promise<{
   return { updated, paused };
 }
 
-export async function resetDailySendCounts(): Promise<number> {
-  const result = await db
+export async function resetDailySendCounts(executor: Pick<typeof db,"select"|"update"|"execute"> = db): Promise<number> {
+  const result = await executor
     .update(sendingIdentities)
-    .set({ sentToday: 0, bouncesToday: 0, complaintsToday: 0, updatedAt: new Date() })
+    .set({ sentToday: 0, bouncesToday: 0, complaintsToday: 0, counterDate: sql`(now() AT TIME ZONE 'America/New_York')::date`, updatedAt: new Date() })
+    .where(sql`${sendingIdentities.counterDate} < (now() AT TIME ZONE 'America/New_York')::date`)
     .returning();
   return result.length;
 }
@@ -586,6 +536,9 @@ export async function getInboxHealthDashboard(): Promise<{
 
       return {
         ...identity,
+        sentToday: identity.counterDate===easternDate()?identity.sentToday:0,
+        bouncesToday: identity.counterDate===easternDate()?identity.bouncesToday:0,
+        complaintsToday: identity.counterDate===easternDate()?identity.complaintsToday:0,
         effectiveDailyLimit: getEffectiveDailyLimit(identity),
         last7Days: {
           sent: s.totalSent,
@@ -622,62 +575,46 @@ export async function runDailyMaintenance(): Promise<{
   countersReset: number;
   warmup: { transitioned: number; updated: number };
   health: { updated: number; paused: number };
+  execution: "completed"|"replayed"|"held"|"unavailable"|"failed";
 }> {
   const { acquireJobLock, releaseJobLock, startJobLockHeartbeat, JOB_NAMES } = await import("../job-registry");
   const lease = await acquireJobLock(JOB_NAMES.INBOX_ROTATION);
-  if (lease.status !== "acquired") return { countersReset: 0, warmup: { transitioned: 0, updated: 0 }, health: { updated: 0, paused: 0 } };
+  if (lease.status !== "acquired") return { countersReset: 0, warmup: { transitioned: 0, updated: 0 }, health: { updated: 0, paused: 0 },execution:lease.status };
   const lockToken = lease.lockToken;
   const heartbeat = startJobLockHeartbeat(JOB_NAMES.INBOX_ROTATION, lockToken);
 
   try {
-    const countersReset = await resetDailySendCounts();
-    heartbeat.assertOwned();
-    const warmup = await runWarmupManager();
-    heartbeat.assertOwned();
-    const health = await calculateHealthScores();
+    const period = easternDate();
+    const completed = await runScheduledPeriod("inbox-maintenance",period,async tx=>{
+      const owner=await tx.execute(sql`SELECT lock_token FROM background_jobs WHERE job_name=${JOB_NAMES.INBOX_ROTATION} AND lock_token=${lockToken} AND status='running' FOR UPDATE`);
+      if(!owner.rows.length)throw Error("INBOX_MAINTENANCE_STALE_OWNER");
+      heartbeat.assertOwned();
+      const countersReset=await resetDailySendCounts(tx);
+      const warmup=await runWarmupManager(tx);
+      const health=await calculateHealthScores(tx);
+      heartbeat.assertOwned();
+      return {countersReset,warmup,health};
+    });
+    const {countersReset,warmup,health}=completed.value??{countersReset:0,warmup:{transitioned:0,updated:0},health:{updated:0,paused:0}};
 
     console.log(
       `[Inbox Rotation] Daily maintenance: ${countersReset} counters reset, ${warmup.transitioned} warmed up, ${health.paused} paused`
     );
 
     await releaseJobLock(JOB_NAMES.INBOX_ROTATION, true, undefined, lockToken);
-    return { countersReset, warmup, health };
+    return { countersReset, warmup, health,execution:completed.replayed?"replayed":"completed" };
   } catch (err: any) {
     console.error("[Inbox Rotation] Daily maintenance error:", err);
     await releaseJobLock(JOB_NAMES.INBOX_ROTATION, false, err?.message ?? String(err), lockToken);
-    return { countersReset: 0, warmup: { transitioned: 0, updated: 0 }, health: { updated: 0, paused: 0 } };
+    return { countersReset: 0, warmup: { transitioned: 0, updated: 0 }, health: { updated: 0, paused: 0 },execution:"failed" };
   } finally {
     heartbeat.stop();
   }
 }
 
-let dailyMaintenanceInterval: ReturnType<typeof setInterval> | null = null;
-
-export function startDailyMaintenanceScheduler(): void {
-  if (dailyMaintenanceInterval) return;
-
-  function msUntilNextMidnightEST(): number {
-    const now = new Date();
-    const estOffset = -5;
-    const utcHour = now.getUTCHours();
-    const estHour = (utcHour + estOffset + 24) % 24;
-    const hoursUntilMidnight = (24 - estHour) % 24 || 24;
-    return hoursUntilMidnight * 60 * 60 * 1000 - now.getUTCMinutes() * 60 * 1000 - now.getUTCSeconds() * 1000;
-  }
-
-  function scheduleNext() {
-    const ms = msUntilNextMidnightEST();
-    console.log(`[Inbox Rotation] Daily maintenance scheduled in ${(ms / 1000 / 60 / 60).toFixed(1)} hours`);
-    setTimeout(async () => {
-      try {
-        await runDailyMaintenance();
-      } catch (err) {
-        console.error("[Inbox Rotation] Daily maintenance error:", err);
-      }
-      scheduleNext();
-    }, ms);
-  }
-
-  scheduleNext();
-  console.log("[Inbox Rotation] Daily maintenance scheduler started");
-}
+const dailyMaintenanceTimer=createDailyTimer(runDailyMaintenance,{
+ onError:error=>console.error("[Inbox Rotation] Daily maintenance error:",error),
+});
+export function startDailyMaintenanceScheduler():void{dailyMaintenanceTimer.start();}
+export function stopDailyMaintenanceScheduler():void{dailyMaintenanceTimer.stop();}
+export function isDailyMaintenanceScheduled():boolean{return dailyMaintenanceTimer.isRunning();}

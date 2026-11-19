@@ -16,9 +16,12 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
       partition:{default_zoom_level:{x:Math.log(options.zoom)/Math.log(1.2)}},
     }));
   }
-  const process=spawn((existsSync("/repl/tools/bin/chromium")?"/repl/tools/bin/chromium":"/usr/bin/chromium"),["--headless","--no-sandbox","--disable-gpu",
+  const executable=["/repl/tools/bin/chromium","/usr/bin/chromium",...(globalThis.process.platform==="darwin"?["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]:[])].find(existsSync);
+  assert.ok(executable,"PRIVATE_CHROMIUM_NOT_AVAILABLE: install the supported browser on this host");
+  const process=spawn(executable,["--headless","--no-sandbox","--disable-gpu",
     ...(options.singleProcess?["--no-zygote","--single-process"]:[]),
     "--disable-dev-shm-usage",
+    ...(globalThis.process.platform==="darwin"?["--use-mock-keychain","--password-store=basic"]:[]),
     "--window-size=1440,1000",
     "--disable-background-networking","--disable-extensions","--remote-debugging-address=127.0.0.1",
     "--remote-debugging-port=0",`--user-data-dir=${profile}`,"about:blank"],{stdio:["ignore","ignore","pipe"],detached:true,
@@ -120,11 +123,11 @@ export async function privateStage3Browser(base:string,cookie:string,originalFet
     });
     await call("Page.enable");await call("Runtime.enable");await call("Network.enable");
     if(options.realInput)await call("Network.setCacheDisabled",{cacheDisabled:true});
-    await call("Fetch.enable",{patterns:[{urlPattern:"*"}]});
     for(const entry of cookie ? cookie.split("; ") : []){
       const i=entry.indexOf("=");
-      await call("Network.setCookie",{name:entry.slice(0,i),value:entry.slice(i+1),url:base});
+      await call("Storage.setCookies",{cookies:[{name:entry.slice(0,i),value:entry.slice(i+1),url:base}]});
     }
+    await call("Fetch.enable",{patterns:[{urlPattern:"*"}]});
     const evaluate=async(expression:string)=>{
       const result=await call("Runtime.evaluate",{expression,returnByValue:true,awaitPromise:true});
       if(result.exceptionDetails)throw new Error("Private browser evaluation failed; expression and response omitted");

@@ -1,5 +1,8 @@
 # Liberty Bancard — Master Audit Roadmap
 
+> **Current-status overlay — Phase 8, November 19, 2026:** Dated historical claims below remain evidence for their original candidate. Current source, implemented changes and verification limits are recorded in [Phase 8 engineering evidence](certification/phase8/README.md). Old diagnostic counts and unpublished states are not current readiness claims.
+
+
 > **Created:** 2026-08-13 | **Branch:** main | **SHA:** `2075729957b5592504bbd49584c98c2ac684ebf9`
 > 
 > This roadmap is the sequenced plan for auditing, hardening, and improving the Liberty Bancard platform from its current pre-launch state to a healthy, high-performing production system. It is **phased by risk priority** — earlier phases address production safety and data integrity; later phases address revenue optimization and operator experience.

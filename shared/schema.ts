@@ -6190,6 +6190,16 @@ export const WARMUP_STATUSES = ["warming", "warm", "paused", "disabled"] as cons
 
 export const MAILBOX_TYPES = ["google_workspace", "microsoft_365", "smtp", "other"] as const;
 
+/** Database-only periodic effects commit their unique receipt with their writes. */
+export const scheduledPeriodReceipts = pgTable("scheduled_period_receipts", {
+  jobKey: text("job_key").notNull(),
+  periodKey: date("period_key").notNull(),
+  completedAt: timestamp("completed_at", {withTimezone:true}).notNull().defaultNow(),
+}, t => [
+  primaryKey({columns:[t.jobKey,t.periodKey]}),
+  check("scheduled_period_job_check", sql`${t.jobKey} IN ('inbox-maintenance','funnel-aggregation')`),
+]);
+
 export const sendingIdentities = pgTable("sending_identities", {
   id: serial("id").primaryKey(),
   label: text("label").notNull(),
@@ -6203,6 +6213,7 @@ export const sendingIdentities = pgTable("sending_identities", {
   warmupStartedAt: timestamp("warmup_started_at"),
   dailyLimit: integer("daily_limit").default(30),
   sentToday: integer("sent_today").default(0),
+  counterDate: date("counter_date").notNull().default(sql`((now() AT TIME ZONE 'America/New_York')::date)`),
   bouncesToday: integer("bounces_today").default(0),
   complaintsToday: integer("complaints_today").default(0),
   healthScore: real("health_score").default(100),
@@ -6216,6 +6227,7 @@ export const insertSendingIdentitySchema = createInsertSchema(sendingIdentities)
   id: true,
   createdAt: true,
   updatedAt: true,
+  counterDate: true,
 });
 
 export type SendingIdentity = typeof sendingIdentities.$inferSelect;

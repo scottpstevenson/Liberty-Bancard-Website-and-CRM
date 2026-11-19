@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {assertDisposableTestInfrastructure} from '../test-infrastructure-guard';
+import {applyCertificationProviderDenyBoundary} from '../certification-provider-deny';
+await assertDisposableTestInfrastructure({operation:'Phase 8 failing-before reproduction'});
+applyCertificationProviderDenyBoundary({fatal:true});
+const {pool}=await import('../../server/db');
+const m=await import('../../server/services/sdr/inbox-rotation');
+try{
+ let scheduled=0;const original=globalThis.setTimeout;
+ globalThis.setTimeout=((()=>{scheduled++;return 123;}) as any);
+ try{m.startDailyMaintenanceScheduler();m.startDailyMaintenanceScheduler();}finally{globalThis.setTimeout=original;}
+ const r=await pool.query("INSERT INTO sending_identities(label,domain,email_address,sent_today) VALUES('Phase8 fixture','example.test','phase8@example.test',3) RETURNING id");
+ await m.resetDailySendCounts();await pool.query('UPDATE sending_identities SET sent_today=5 WHERE id=$1',[r.rows[0].id]);await m.resetDailySendCounts();
+ const after=await pool.query('SELECT sent_today FROM sending_identities WHERE id=$1',[r.rows[0].id]);
+ console.log('PHASE8_BEFORE',JSON.stringify({duplicateTimers:scheduled,sameDayCounterAfterSecondReset:after.rows[0].sent_today}));
+ assert.equal(scheduled,2);assert.equal(after.rows[0].sent_today,0);
+}finally{await pool.end();}

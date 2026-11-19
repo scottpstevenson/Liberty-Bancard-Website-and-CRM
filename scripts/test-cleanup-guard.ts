@@ -9,6 +9,9 @@ import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard"
 
 let failed = 0;
 for (const script of [
+  "scripts/backfill-templates-apply.ts",
+  "scripts/backfill-sdr-campaigns.ts",
+  "scripts/backfill-templates-dryrun.ts",
   "scripts/cleanup-demo-data.ts",
   "scripts/purge-test-contacts.ts",
   "scripts/cleanup-test-data.ts",

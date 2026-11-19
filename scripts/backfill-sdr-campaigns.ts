@@ -13,7 +13,7 @@
  * and matches by campaignId + stepOrder — never by stepType.
  *
  * SAFETY GATES
- *   - Backup-exists check before any writes
+ *   - Exact source/target/content-bound backup check inside a disposable-only transaction
  *   - Banned phrase audit — aborts if any fire
  *   - Soft-flag phrases — warns and requires --force if found without caveat
  *   - Merge-tag audit — aborts on unsupported tags
@@ -29,7 +29,10 @@
 
 import fs from "fs";
 import path from "path";
-import { db } from "../server/db";
+import {assertDisposableTestInfrastructure} from "./test-infrastructure-guard";
+import {currentBackupBinding,retainBoundBackup,requireBoundBackup} from "./phase8/legacy-backup";
+await assertDisposableTestInfrastructure({operation:"Phase8 fixture-only historical content utility"});
+const {db:rootDb,pool}=await import("../server/db");
 import { campaigns, campaignSteps } from "../shared/schema";
 import { eq, and, asc } from "drizzle-orm";
 
@@ -115,21 +118,7 @@ function checkSoftFlags(text: string, label: string): boolean {
   return warned;
 }
 
-function ensureBackupExists(): void {
-  const scriptsDir = path.join(process.cwd(), "scripts");
-  const backups = fs.readdirSync(scriptsDir).filter(
-    f => (f.startsWith("backfill-backup-") || f.startsWith("sdr-backup-")) && f.endsWith(".json")
-  );
-  if (backups.length === 0) {
-    console.error(
-      "\n🛑 KILL LINE: No backup JSON found in scripts/. Run the dry-run script first:\n" +
-      "   npx tsx scripts/backfill-templates-dryrun.ts\n" +
-      "   (or any prior backfill-backup-*.json file is sufficient)\n"
-    );
-    process.exit(2);
-  }
-  console.log(`✅ Backup found: scripts/${backups.sort().at(-1)}`);
-}
+
 
 // ── SDR Campaign Content Map ──────────────────────────────────────────────────
 // Key: exact campaign name as stored in the DB
@@ -1067,10 +1056,10 @@ function preFlight(): void {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-async function main() {
+async function main(db: Parameters<Parameters<typeof rootDb.transaction>[0]>[0]) {
   console.log(`=== SDR Campaign Content Backfill — ${DRY_RUN ? "DRY RUN" : "APPLY"} ===\n`);
 
-  if (!DRY_RUN) ensureBackupExists();
+  if (!DRY_RUN) await requireBoundBackup(db,"sdr-campaign");
 
   preFlight();
 
@@ -1183,10 +1172,9 @@ async function main() {
     console.log(`\n✅ Apply complete. Re-run with --dry-run to verify all steps show [ALREADY CURRENT].\n`);
   }
 
-  process.exit(0);
+
 }
 
-main().catch(err => {
-  console.error("Fatal:", err);
-  process.exit(1);
-});
+rootDb.transaction(tx=>main(tx),{isolationLevel:"serializable"}).catch(err=>{
+ console.error("Historical content fixture failed:",err.message);process.exitCode=1;
+}).finally(()=>pool.end());

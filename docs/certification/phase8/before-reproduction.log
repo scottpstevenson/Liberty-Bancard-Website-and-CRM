@@ -1,0 +1,21 @@
+[migrate] Starting migration runner...
+[DB Migrate] Applied canonical 0109_fearless_starhawk snapshot to empty database.
+[DB Migrate] Completed fresh 0109 snapshot with 0076_outbound_launch_foundation.
+[DB Migrate] Completed fresh 0109_fearless_starhawk with 0106_deferred_ghl_enrollments.
+[DB Migrate] Baselined 109 pre-existing migration(s) — only new migrations will be applied.
+[DB Migrate] All Drizzle journal migrations up to date.
+[DB Migrate] Phase 3 preconditions verified (0 conflicts, 0 legacy rows). Applying 0054_sla_task_stalling_unique_index...
+[DB Migrate] Phase 3 index 'tasks_sla_stalling_active_unique' applied successfully. SLA worker will use conflict-safe ON CONFLICT path.
+[DB Migrate] Test schema complete; optional Knowledge content/embedding bootstrap not invoked.
+[migrate] Done.
+TASK2161_SUITE scripts/certification/phase8-before-reproduction.ts
+[Phase 8 failing-before reproduction] disposable database confirmed: test_sfp2060_task2161_cc2e7335eaf04b04a873f2d17a4b4565
+[Inbox Rotation] Daily maintenance scheduled in 23.7 hours
+[Inbox Rotation] Daily maintenance scheduler started
+[Inbox Rotation] Daily maintenance scheduled in 23.7 hours
+[Inbox Rotation] Daily maintenance scheduler started
+(node:27924) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PHASE8_BEFORE {"duplicateTimers":2,"sameDayCounterAfterSecondReset":0}
+TASK2161_SUITE_RESULT scripts/certification/phase8-before-reproduction.ts  exit=0
+TASK2161_RUN_RESULT {"failures":[]}

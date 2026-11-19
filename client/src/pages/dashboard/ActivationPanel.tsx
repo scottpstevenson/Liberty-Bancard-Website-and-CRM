@@ -1,3 +1,4 @@
+import {isUsableSenderIdentity,remainingDailyCapacity} from "@shared/sender-identity-state";
 import { PageTitle } from "@/components/ui/page-header";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -67,6 +68,8 @@ interface FeatureFlagsData {
 }
 
 interface SendingIdentity {
+  isActive?: boolean | null;
+  counterDate?: string | null;
   id: number;
   label: string;
   emailAddress: string;
@@ -283,7 +286,8 @@ function SendingIdentityWizard({ identities, ghlHealth, onTestGhl, ghlTesting }:
   const [form, setForm] = useState<IdentityFormState>(emptyIdentityForm);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const hasIdentity = identities.length > 0;
-  const firstIdentity = identities[0];
+  const usableIdentities = identities.filter(isUsableSenderIdentity);
+  const firstIdentity = usableIdentities[0] ?? identities[0];
 
   const ghlReady = !!ghlHealth?.configured && !!ghlHealth?.authTest;
 
@@ -336,7 +340,7 @@ function SendingIdentityWizard({ identities, ghlHealth, onTestGhl, ghlTesting }:
 
   const step1Done = ghlReady;
   const step2Done = hasIdentity;
-  const step3Done = hasIdentity && (firstIdentity?.warmupStatus === "warm" || firstIdentity?.healthScore !== null);
+  const step3Done = isUsableSenderIdentity(firstIdentity??{}) && firstIdentity?.warmupStatus === "warm";
 
   const warmupSchedule = [
     { day: "Day 1-3", limit: 10, label: "Initial warmup" },
@@ -351,8 +355,8 @@ function SendingIdentityWizard({ identities, ghlHealth, onTestGhl, ghlTesting }:
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
             <Mail className="w-4 h-4" /> First Sending Identity Wizard
-            <Badge variant={hasIdentity ? "default" : "secondary"}>
-              {hasIdentity ? "Identity active" : "Action required"}
+            <Badge variant={usableIdentities.length ? "default" : "secondary"}>
+              {usableIdentities.length ? "Identity usable" : hasIdentity ? "Identity saved — not usable" : "Action required"}
             </Badge>
           </CardTitle>
         </CardHeader>
@@ -447,7 +451,7 @@ function SendingIdentityWizard({ identities, ghlHealth, onTestGhl, ghlTesting }:
                   </div>
                 ) : (
                   <div className="text-xs text-muted-foreground" data-testid="text-identity-summary">
-                    {firstIdentity.label} &lt;{firstIdentity.emailAddress}&gt; · status {firstIdentity.status}
+                    {firstIdentity.label} &lt;{firstIdentity.emailAddress}&gt; · {isUsableSenderIdentity(firstIdentity) ? "usable" : "not usable"} · {firstIdentity.isActive===true?"enabled":"disabled"} · {remainingDailyCapacity(firstIdentity)} capacity remaining
                     {firstIdentity.warmupStatus ? ` · warmup ${firstIdentity.warmupStatus}` : ""}
                     {firstIdentity.healthScore !== null ? ` · health ${firstIdentity.healthScore}` : ""}
                   </div>
@@ -1151,12 +1155,12 @@ export default function ActivationPanel() {
         </TabsContent>
 
         <TabsContent value="wizard" className="space-y-4">
-          <SendingIdentityWizard
+          {identitiesQuery.isLoading ? <p role="status">Loading sender identities…</p> : identitiesQuery.isError ? <div role="alert">Sender identities unavailable. <Button variant="outline" onClick={()=>identitiesQuery.refetch()}>Retry identities</Button></div> : <SendingIdentityWizard
             identities={identities}
             ghlHealth={ghlHealth}
             onTestGhl={() => ghlTestMutation.mutate()}
             ghlTesting={ghlTestMutation.isPending}
-          />
+          />}
         </TabsContent>
 
         <TabsContent value="status" className="space-y-4">

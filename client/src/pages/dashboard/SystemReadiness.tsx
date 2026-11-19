@@ -1,3 +1,4 @@
+import {WorkerRuntimeSummary} from "@/components/WorkerRuntimeSummary";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/crm/CrmPresentation";
@@ -57,7 +58,7 @@ interface ReadinessData {
     smsEnabled: boolean;
     nightlyDiscoveryEnabled: boolean;
   };
-  sendingIdentities: { activeCount: number };
+  sendingIdentities: { activeCount: number | null; available?:boolean };
   env: Record<string, boolean>;
   actions: string[];
   overallHealthy: boolean;
@@ -455,7 +456,7 @@ export default function SystemReadiness() {
                     <Database className="w-4 h-4 text-primary" />
                     Redis / Job Queue
                   </div>
-                  <StatusBadge status={data.redis.real ? "ok" : "warning"} />
+                  <Badge variant="outline">{data.redis.real?"Configured":"Not configured"}</Badge>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
@@ -469,9 +470,10 @@ export default function SystemReadiness() {
                   </p>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    Durable BullMQ queues active: GHL sync (45s), SLA checks (5m), sequences (30s), enrichment (10m), discovery (daily).
+                    Redis configuration is not proof of worker activity.
                   </p>
                 )}
+              <WorkerRuntimeSummary />
               </CardContent>
             </Card>
 
@@ -503,23 +505,23 @@ export default function SystemReadiness() {
                     <Send className="w-4 h-4 text-primary" />
                     Sending Identities
                   </div>
-                  <StatusBadge status={data.sendingIdentities.activeCount >= 3 ? "ok" : data.sendingIdentities.activeCount > 0 ? "warning" : "error"} />
+                  {data.sendingIdentities.activeCount===null?<Badge variant="outline">Unavailable</Badge>:<StatusBadge status={data.sendingIdentities.activeCount >= 3 ? "ok" : data.sendingIdentities.activeCount > 0 ? "warning" : "error"} />}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Active identities</span>
-                  <span className={`font-mono font-semibold ${data.sendingIdentities.activeCount >= 3 ? "text-green-600" : "text-yellow-600"}`}>
-                    {data.sendingIdentities.activeCount}
+                  <span className="text-muted-foreground">Usable identities</span>
+                  <span className={`font-mono font-semibold ${(data.sendingIdentities.activeCount??0) >= 3 ? "text-green-600" : "text-yellow-600"}`}>
+                    {data.sendingIdentities.activeCount??"Unavailable"}
                   </span>
                 </div>
-                {data.sendingIdentities.activeCount < 3 ? (
+                {data.sendingIdentities.activeCount===null?<p role="status">Sender identities unavailable. Retry readiness before making a decision.</p>:data.sendingIdentities.activeCount < 3 ? (
                   <p className="text-xs text-yellow-600 dark:text-yellow-400">
                     Recommend 3+ for inbox rotation and deliverability protection. Add identities in Email Health.
                   </p>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    Inbox rotation active. Monitor bounce rates and health scores in Inbox Health.
+                    Usable identities configured. Sending still depends on pause, capacity and current channel authority.
                   </p>
                 )}
                 <div className="flex items-center gap-2">

@@ -9,7 +9,10 @@
 
 import fs from "fs";
 import path from "path";
-import { db } from "../server/db";
+import {assertDisposableTestInfrastructure} from "./test-infrastructure-guard";
+import {currentBackupBinding,retainBoundBackup,requireBoundBackup} from "./phase8/legacy-backup";
+await assertDisposableTestInfrastructure({operation:"Phase8 fixture-only historical content utility"});
+const {db:rootDb,pool}=await import("../server/db");
 import { followUpSequences, sequenceSteps, campaigns, campaignSteps } from "../shared/schema";
 import { VERTICAL_OUTREACH_TEMPLATES, getVerticalTemplate } from "../server/services/vertical-email-sms-templates";
 import { asc, eq } from "drizzle-orm";
@@ -54,7 +57,7 @@ function extractVerticalKey(name: string): string | null {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-async function main() {
+async function main(db: Parameters<Parameters<typeof rootDb.transaction>[0]>[0]) {
   console.log("=== Backfill Templates — DRY RUN ===\n");
 
   // ── 1. Sequences ─────────────────────────────────────────────────────────────
@@ -268,9 +271,6 @@ async function main() {
   console.log(`  Unmapped names (skipped):                         ${allUnmapped.length}`);
 
   // ── 6. Write backup JSON ──────────────────────────────────────────────────────
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const backupPath = path.join(process.cwd(), "scripts", `backfill-backup-${timestamp}.json`);
-
   const fullBackup = {
     generatedAt: new Date().toISOString(),
     sequenceSteps: seqRows.map(r => ({
@@ -296,16 +296,15 @@ async function main() {
     })),
   };
 
-  fs.writeFileSync(backupPath, JSON.stringify(fullBackup, null, 2));
-  console.log(`\n✅ Backup written to: ${backupPath}`);
+  const retained=retainBoundBackup(await currentBackupBinding(db),fullBackup);
+  console.log(`\nBound fixture backup: ${retained.file}\nSHA256: ${retained.digest}`);
   console.log("   Includes: stepId, sequenceId/campaignId, sequenceName/campaignName,");
   console.log("   sequenceStatus, stepOrder, actionType, subject, body/bodyTemplate.");
   console.log("\nDry run complete. Review the inventory above, then run the apply script.\n");
 
-  process.exit(0);
+
 }
 
-main().catch(err => {
-  console.error("Fatal:", err);
-  process.exit(1);
-});
+rootDb.transaction(tx=>main(tx),{isolationLevel:"serializable"}).catch(err=>{
+ console.error("Historical content fixture failed:",err.message);process.exitCode=1;
+}).finally(()=>pool.end());

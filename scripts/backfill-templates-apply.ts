@@ -10,7 +10,7 @@
  *   npx tsx scripts/backfill-templates-apply.ts --include-active
  *
  * Kill lines enforced:
- *   - Will not run unless a backup JSON exists in scripts/
+ *   - Disposable test database only; exact --backup and --sha256 from the matching dry-run required
  *   - Sequence steps use `body`; campaign steps use `bodyTemplate` — never mixed
  *   - Does not touch status, enrolledAt, isActive, or any send-queue field
  *   - Active sequences are skipped unless --include-active is passed
@@ -19,7 +19,10 @@
 
 import fs from "fs";
 import path from "path";
-import { db } from "../server/db";
+import {assertDisposableTestInfrastructure} from "./test-infrastructure-guard";
+import {currentBackupBinding,retainBoundBackup,requireBoundBackup} from "./phase8/legacy-backup";
+await assertDisposableTestInfrastructure({operation:"Phase8 fixture-only historical content utility"});
+const {db:rootDb,pool}=await import("../server/db");
 import {
   followUpSequences,
   sequenceSteps,
@@ -126,33 +129,17 @@ function getEmailSlot(
 
 // ── Backup guard ───────────────────────────────────────────────────────────────
 
-function ensureBackupExists(): void {
-  const scriptsDir = path.join(process.cwd(), "scripts");
-  const backups = fs
-    .readdirSync(scriptsDir)
-    .filter(f => f.startsWith("backfill-backup-") && f.endsWith(".json"));
 
-  if (backups.length === 0) {
-    console.error(
-      "\n🛑 KILL LINE: No backup JSON found in scripts/. Run the dry-run script first:\n" +
-        "   npx tsx scripts/backfill-templates-dryrun.ts\n"
-    );
-    process.exit(2);
-  }
-
-  const newest = backups.sort().at(-1)!;
-  console.log(`✅ Backup found: scripts/${newest}`);
-}
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-async function main() {
+async function main(db: Parameters<Parameters<typeof rootDb.transaction>[0]>[0]) {
   console.log("=== Backfill Templates — APPLY ===\n");
   if (INCLUDE_ACTIVE) {
     console.log("⚠  --include-active flag is set: active sequences will also be updated.\n");
   }
 
-  ensureBackupExists();
+  await requireBoundBackup(db,"vertical-template");
 
   let seqStepsUpdated = 0;
   let campStepsUpdated = 0;
@@ -333,10 +320,9 @@ async function main() {
   console.log(`  Active sequences skipped:    ${activeSkipped.length}`);
   console.log("\n✅ Apply complete.\n");
 
-  process.exit(0);
+
 }
 
-main().catch(err => {
-  console.error("Fatal:", err);
-  process.exit(1);
-});
+rootDb.transaction(tx=>main(tx),{isolationLevel:"serializable"}).catch(err=>{
+ console.error("Historical content fixture failed:",err.message);process.exitCode=1;
+}).finally(()=>pool.end());

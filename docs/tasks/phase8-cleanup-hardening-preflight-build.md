@@ -1,7 +1,7 @@
 # Phase 8 — Cleanup & Hardening
 ## Liberty premium preflight + build task
 
-**Status:** Planning complete; task draft ready for review. Build has not started.
+**Status:** Authorized implementation in progress on `codex/phase8-cleanup-hardening`; see `../certification/phase8/README.md` for evidence and independent release gates.
 **Roadmap owner:** `docs/LIBERTY_BANCARD_MASTER_AUDIT_ROADMAP.md`, Phase 8, P8-1–P8-4.
 **Prepared:** November 18, 2026, America/New_York.
 **Planning branch:** `codex/phase8-preflight-plan`. Future implementation belongs on a separate `codex/phase8-cleanup-hardening` branch rebased from the then-current main.

@@ -1,0 +1,43 @@
+[
+  {
+    "originalPath": "scripts/fix-server-errors-pass2.py",
+    "archivePath": "scripts/archive/phase8/fix-server-errors-pass2.py",
+    "sha256": "a2ad591169015b1a3e955c082ee7a26adec2b159edb57e9668645b3fc25153e9",
+    "bytes": 1837,
+    "disposition": "retained byte-for-byte; historical only"
+  },
+  {
+    "originalPath": "scripts/fix-server-errors-pass3.py",
+    "archivePath": "scripts/archive/phase8/fix-server-errors-pass3.py",
+    "sha256": "ea2c16ed5b3456885f9ecb3d79ff0cc104c195d0a74f8050237f4340f3ef8bf1",
+    "bytes": 1876,
+    "disposition": "retained byte-for-byte; historical only"
+  },
+  {
+    "originalPath": "scripts/backfill-backup-2026-07-08T21-32-21-974Z.json",
+    "archivePath": "scripts/archive/phase8/backfill-backup-2026-07-08T21-32-21-974Z.json",
+    "sha256": "cb17c85f6dba06f3681a5cdf54e98d219c5d202234941f6dcb527cf3af16649e",
+    "bytes": 428421,
+    "disposition": "retained byte-for-byte; historical only"
+  },
+  {
+    "originalPath": "scripts/backfill-backup-2026-07-08T21-15-07-291Z.json",
+    "archivePath": "scripts/archive/phase8/backfill-backup-2026-07-08T21-15-07-291Z.json",
+    "sha256": "ff1e26630bc4d8b83d980b42eb1bd4b9eaeecc5297ed552c5e106e323180f0a6",
+    "bytes": 426839,
+    "disposition": "retained byte-for-byte; historical only"
+  },
+  {
+    "originalPath": "scripts/backfill-backup-2026-07-08T21-10-20-550Z.json",
+    "archivePath": "scripts/archive/phase8/backfill-backup-2026-07-08T21-10-20-550Z.json",
+    "sha256": "0a478ef39f276668b705860a51f36730af219c522d7b70749423e3436e6d333e",
+    "bytes": 391785,
+    "disposition": "retained byte-for-byte; historical only"
+  },
+  {
+    "originalPath": "scripts/archive/reroute-sequence-ctas.DONE.js",
+    "sha256": "3061a6179d6a634bd788cf031afbf0f5e91528d11144ae89ce9b6ec8215f2214",
+    "disposition": "completed unused script removed from working tree; retained in Git",
+    "restoreSource": "d67d24c61acc462931c418e8068624c86144c7ae:scripts/archive/reroute-sequence-ctas.DONE.js"
+  }
+]

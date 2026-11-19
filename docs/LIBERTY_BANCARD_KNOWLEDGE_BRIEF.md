@@ -1,5 +1,8 @@
 # Liberty Bancard — Master Knowledge Brief
 
+> **Current-status overlay — Phase 8, November 19, 2026:** Dated historical claims below remain evidence for their original candidate. Current source, implemented changes and verification limits are recorded in [Phase 8 engineering evidence](certification/phase8/README.md). Old diagnostic counts and unpublished states are not current readiness claims.
+
+
 > **Canonical technical and product orientation document. Created August 13, 2026.**
 > Future agents: treat this as orientation, not unquestionable truth. Verify current Git SHA before every major task. Use live code as source of truth.
 
@@ -1179,8 +1182,8 @@ All public forms are under `/api/public/*` with no authentication, `publicRateLi
 | `createContactGhlFirst()` | Compatibility wrapper → delegates to `writeContact()` | LOW — safe wrapper |
 | `sendGhlEmail()` / `sendGhlSms()` direct calls | Wave 2 backlog — 16 files still use direct GHL calls | MEDIUM — bypass ChannelOrchestrator compliance fence |
 | `setInterval` GHL sync fallback | Runs if BullMQ unavailable | LOW — intentional fallback |
-| `scripts/archive/reroute-sequence-ctas.DONE.js` | Archived — completed | None |
-| Python repair scripts (`fix-server-errors-pass*.py`) | Historical repair scripts | None (archivable) |
+| `scripts/archive/reroute-sequence-ctas.DONE.js` | Removed in Phase 8; exact Git restoration retained | Phase 8 archive manifest |
+| Python repair scripts (`scripts/archive/phase8/fix-server-errors-pass*.py`) | Archived byte-for-byte | Phase 8 archive manifest |
 | Legacy `waveStatus` field on sequences | Replaced by `status` | LOW |
 | `campaigns.ts:1209` direct `createSequenceEnrollment` | Bypasses canonical enrollment | **HIGH** |
 
