@@ -1,3 +1,12 @@
+import {
+  PAYARC_TRADITIONAL_CONTRACT,
+  PAYARC_TRADITIONAL_PATHS,
+  validatePayarcPayload,
+  payarcPatchSchema,
+  payarcIdentifier,
+  decodePayarcObservation,
+  payarcBoardingStatus,
+} from "@shared/payarc-traditional";
 /**
  * Payarc Processor Adapter (REV-05A)
  *
@@ -7,7 +16,7 @@
  * CHANGES FROM PRE-REV-05A:
  *   - ping() no longer returns true on HTTP 404. Only 2xx = success.
  *   - getHealthState() returns typed ProcessorHealthState enum.
- *   - Simulation fallback in boardMerchant() is preserved (dev/test only).
+ *   - Traditional lead identity is persisted before signature dispatch.
  *   - Simulation path in getDailyStats REMOVED.
  *   - Task #1777: documented bounded reads (batch reports, residual summaries/line items,
  *     dispute case list, dispute chart) live in payarc-reads.ts and are exposed here.
@@ -15,11 +24,14 @@
  *   - Transport remains paused until activation snapshot is confirmed.
  *
  * Program-aware routing:
- *   Traditional: POST /v1/applicants
+ *   Traditional: POST /v1/agent-hub/apply/add-lead; separate durable signature step
  *   Payfac: POST /v1/agent-hub/apply/add-lead/ (NOT activated — program must
  *           be confirmed in activation snapshot before Payfac transport activates)
  */
-import { checkProcessorBaseUrl, checkPayarcPartnerEnvironment } from "./processor-base-url";
+import {
+  checkProcessorBaseUrl,
+  checkPayarcPartnerEnvironment,
+} from "./processor-base-url";
 import type {
   IProcessorAdapter,
   MerchantProfile,
@@ -67,91 +79,6 @@ function maskMid(mid: string): string {
 }
 const TIMEOUT_MS = 20_000;
 
-function generateMockApplicationId(): string {
-  const ts = Date.now().toString(36).toUpperCase();
-  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `PAYARC-${ts}-${rand}`;
-}
-
-/** Map Payarc applicant status string → our shared status enum */
-/**
- * Strict status decode (S5-17). Returns null for a missing or unrecognized provider
- * status so a status observation is never silently applied as "submitted".
- */
-function parsePayarcStatus(raw: unknown): BoardingStatusResult["status"] | null {
-  if (typeof raw !== "string" || raw.trim() === "") return null;
-  switch (raw.trim().toLowerCase()) {
-    case "approved": case "active": return "approved";
-    case "declined": case "rejected": case "denied": return "declined";
-    case "under_review": case "in_review": case "review": case "processing": return "under_review";
-    case "more_info_needed": case "information_needed": case "pending_info": case "additional_info": return "more_info_needed";
-    case "submitted": case "pending": return "submitted";
-    default: return null;
-  }
-}
-
-/** Non-empty provider identifier (string or finite number) or null. */
-function providerIdentifier(v: unknown): string | null {
-  if (typeof v === "string" && v.trim() !== "") return v.trim();
-  if (typeof v === "number" && Number.isFinite(v)) return String(v);
-  return null;
-}
-
-/** Build the Payarc applicant payload from our internal MerchantProfile */
-function buildApplicantPayload(p: MerchantProfile): Record<string, unknown> {
-  const payload: Record<string, unknown> = {
-    legal_name: p.legalBusinessName,
-    ...(p.dba && { dba_name: p.dba }),
-    ...(p.ein && { ein: p.ein }),
-    ...(p.businessType && { business_type: p.businessType }),
-    ...(p.businessAddress && { address: p.businessAddress }),
-    ...(p.businessCity && { city: p.businessCity }),
-    ...(p.businessState && { state: p.businessState }),
-    ...(p.businessZip && { zip: p.businessZip }),
-    ...(p.businessPhone && { phone: p.businessPhone }),
-    ...(p.businessEmail && { email: p.businessEmail }),
-    ...(p.website && { website: p.website }),
-    ...(p.vertical && { mcc_description: p.vertical }),
-    ...(p.estimatedMonthlyVolume && {
-      monthly_volume: parseFloat(p.estimatedMonthlyVolume) || undefined,
-      annual_card_volume: (parseFloat(p.estimatedMonthlyVolume) || 0) * 12,
-    }),
-    ...(p.estimatedAvgTicket && { avg_ticket: parseFloat(p.estimatedAvgTicket) || undefined }),
-    ...(p.preferredProgram && { preferred_program: p.preferredProgram }),
-    source: "LibertyBancard-CRM",
-  };
-
-  // Owner object
-  const hasOwner = p.ownerFirstName || p.ownerLastName || p.ownerEmail || p.ownerSsn;
-  if (hasOwner) {
-    payload.owner = {
-      ...(p.ownerFirstName && { first_name: p.ownerFirstName }),
-      ...(p.ownerLastName && { last_name: p.ownerLastName }),
-      ...(p.ownerEmail && { email: p.ownerEmail }),
-      ...(p.ownerPhone && { phone: p.ownerPhone }),
-      ...(p.ownerDob && { dob: p.ownerDob }),
-      ...(p.ownerSsn && { ssn: p.ownerSsn }),
-      ...(p.ownerAddress && { address: p.ownerAddress }),
-      ...(p.ownerCity && { city: p.ownerCity }),
-      ...(p.ownerState && { state: p.ownerState }),
-      ...(p.ownerZip && { zip: p.ownerZip }),
-      ownership_pct: 100,
-    };
-  }
-
-  // Bank object
-  const hasBank = p.bankRoutingNumber || p.bankAccountNumber;
-  if (hasBank) {
-    payload.bank = {
-      ...(p.bankRoutingNumber && { routing_number: p.bankRoutingNumber }),
-      ...(p.bankAccountNumber && { account_number: p.bankAccountNumber }),
-      ...(p.bankAccountType && { account_type: p.bankAccountType }),
-    };
-  }
-
-  return payload;
-}
-
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
 
 /**
@@ -169,15 +96,20 @@ function getRateLimitBackoffMs(): number {
  * If the value is 0, absent, or unparseable, insert a back-off delay
  * before the next request to prevent 429 exhaustion.
  */
-async function applyRateLimitBackoff(headers: Headers, path: string): Promise<void> {
-  const remaining = headers.get("x-ratelimit-remaining") ?? headers.get("X-RateLimit-Remaining");
+async function applyRateLimitBackoff(
+  headers: Headers,
+  path: string,
+): Promise<void> {
+  const remaining =
+    headers.get("x-ratelimit-remaining") ??
+    headers.get("X-RateLimit-Remaining");
   const remainingCount = remaining !== null ? parseInt(remaining, 10) : NaN;
   if (isNaN(remainingCount) || remainingCount <= 1) {
     const delayMs = getRateLimitBackoffMs();
     console.warn(
       `[PayarcAdapter] Rate-limit back-off: X-RateLimit-Remaining=${remaining ?? "absent"} on ${path} — pausing ${delayMs}ms`,
     );
-    await new Promise(r => setTimeout(r, delayMs));
+    await new Promise((r) => setTimeout(r, delayMs));
   }
 }
 
@@ -185,11 +117,17 @@ async function applyRateLimitBackoff(headers: Headers, path: string): Promise<vo
  * Transport guard shared by boarding, status and health: the snapshot base URL must pass the same validator the admin
  * route used when the snapshot was created, and the partner credential environment must not contradict the host.
  */
-function guardPartnerBase(snapshotUrl: string): { ok: true; baseUrl: string } | { ok: false; error: string } {
+function guardPartnerBase(
+  snapshotUrl: string,
+): { ok: true; baseUrl: string } | { ok: false; error: string } {
   const checked = checkProcessorBaseUrl("payarc", snapshotUrl);
-  if (!checked.ok) return { ok: false, error: `Payarc transport refused: ${checked.reason}` };
+  if (!checked.ok)
+    return { ok: false, error: `Payarc transport refused: ${checked.reason}` };
+  if (!process.env.PAYARC_PARTNER_KEY_ENVIRONMENT)
+    return { ok: false, error: "PAYARC_PARTNER_KEY_ENVIRONMENT_REQUIRED" };
   const env = checkPayarcPartnerEnvironment(checked.environment);
-  if (!env.ok) return { ok: false, error: `Payarc transport refused: ${env.reason}` };
+  if (!env.ok)
+    return { ok: false, error: `Payarc transport refused: ${env.reason}` };
   return { ok: true, baseUrl: checked.baseUrl };
 }
 
@@ -201,7 +139,13 @@ async function payarcRequest<T = unknown>(
   body?: unknown,
   attempt = 0,
   extraHeaders?: Record<string, string>,
-): Promise<{ ok: boolean; status: number; data: T; text: string; headers: Headers }> {
+): Promise<{
+  ok: boolean;
+  status: number;
+  data: T;
+  text: string;
+  headers: Headers;
+}> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -225,7 +169,13 @@ async function payarcRequest<T = unknown>(
     });
     if (resp.status >= 300 && resp.status < 400) {
       clearTimeout(timer);
-      return { ok: false, status: resp.status, data: {} as T, text: "", headers: resp.headers };
+      return {
+        ok: false,
+        status: resp.status,
+        data: {} as T,
+        text: "",
+        headers: resp.headers,
+      };
     }
 
     const text = await resp.text();
@@ -241,7 +191,13 @@ async function payarcRequest<T = unknown>(
     // Apply rate-limit back-off before returning so every call site is protected.
     await applyRateLimitBackoff(resp.headers, path);
 
-    return { ok: resp.ok, status: resp.status, data, text, headers: resp.headers };
+    return {
+      ok: resp.ok,
+      status: resp.status,
+      data,
+      text,
+      headers: resp.headers,
+    };
   } catch (err: any) {
     clearTimeout(timer);
     // REV-05A: Never retry POST/PATCH/DELETE on AbortError or network errors.
@@ -252,8 +208,16 @@ async function payarcRequest<T = unknown>(
     // Only GET (read-only) requests are safe to retry on transient errors.
     if (attempt === 0 && method === "GET" && err.code === "ECONNRESET") {
       console.warn(`[PayarcAdapter] GET ${path} — retrying after ECONNRESET`);
-      await new Promise(r => setTimeout(r, 1_000));
-      return payarcRequest(apiKey, baseUrl, method, path, body, 1, extraHeaders);
+      await new Promise((r) => setTimeout(r, 1_000));
+      return payarcRequest(
+        apiKey,
+        baseUrl,
+        method,
+        path,
+        body,
+        1,
+        extraHeaders,
+      );
     }
     throw err;
   }
@@ -281,7 +245,9 @@ export class PayarcFetchError extends Error {
     public readonly path: string,
     public readonly body: string,
   ) {
-    super(`Payarc fetch failed: ${httpStatus} on ${path} — ${body.slice(0, 120)}`);
+    super(
+      `Payarc fetch failed: ${httpStatus} on ${path} — ${body.slice(0, 120)}`,
+    );
     this.name = "PayarcFetchError";
   }
 }
@@ -303,7 +269,11 @@ export async function payarcFetchAll<T = unknown>(
   while (true) {
     // Absolute ceiling — prevents runaway loops from buggy/malicious metadata.
     if (page > PAYARC_FETCH_MAX_PAGES) {
-      throw new PayarcFetchError(200, basePath, `Pagination exceeded ${PAYARC_FETCH_MAX_PAGES} pages — possible loop or malformed last_page metadata`);
+      throw new PayarcFetchError(
+        200,
+        basePath,
+        `Pagination exceeded ${PAYARC_FETCH_MAX_PAGES} pages — possible loop or malformed last_page metadata`,
+      );
     }
 
     const sep = basePath.includes("?") ? "&" : "?";
@@ -338,22 +308,28 @@ export async function payarcFetchAll<T = unknown>(
     } else if (Array.isArray(data)) {
       rows = data as T[];
     } else {
-      throw new PayarcFetchError(200, path, `Unexpected response shape: ${text?.slice(0, 200)}`);
+      throw new PayarcFetchError(
+        200,
+        path,
+        `Unexpected response shape: ${text?.slice(0, 200)}`,
+      );
     }
 
     items.push(...rows);
 
     // Record ceiling — prevents OOM from unreasonably large datasets.
     if (items.length > PAYARC_FETCH_MAX_RECORDS) {
-      throw new PayarcFetchError(200, path, `Response exceeded ${PAYARC_FETCH_MAX_RECORDS} total records — possible metadata error or credential scope mismatch`);
+      throw new PayarcFetchError(
+        200,
+        path,
+        `Response exceeded ${PAYARC_FETCH_MAX_RECORDS} total records — possible metadata error or credential scope mismatch`,
+      );
     }
 
     // Pagination termination: resolve authoritative metadata first.
     const meta = data?.meta;
     const lastPage: number | undefined =
-      meta?.last_page ??
-      meta?.pagination?.total_pages ??
-      data?.data?.last_page;
+      meta?.last_page ?? meta?.pagination?.total_pages ?? data?.data?.last_page;
     const reportedCurrentPage: number | undefined =
       meta?.current_page ??
       meta?.pagination?.current_page ??
@@ -463,7 +439,9 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
    *   - sandbox_verified requires explicit authenticated 2xx from identity endpoint.
    *   - production_authorized requires sandbox_verified + activation snapshot.
    */
-  async getHealthState(snapshotAuthorizedBaseUrl?: string | null): Promise<ProcessorHealthState> {
+  async getHealthState(
+    snapshotAuthorizedBaseUrl?: string | null,
+  ): Promise<ProcessorHealthState> {
     if (!this.isConfigured()) {
       return "missing_credentials";
     }
@@ -527,38 +505,42 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
   async boardMerchant(profile: MerchantProfile): Promise<BoardingResult> {
     if (this.isConfigured()) {
       try {
-        const body = buildApplicantPayload(profile);
-        // Forward the stable provider idempotency key as the standard HTTP
-        // Idempotency-Key header so Payarc can deduplicate retries server-side.
-        // NOTE: Payarc server-side deduplication via this header is NOT certified
-        // by public docs. Liberty-local idempotency (outbox dedupe) is authoritative.
-        const idempotencyHeaders: Record<string, string> = profile.providerIdempotencyKey
-          ? { "Idempotency-Key": profile.providerIdempotencyKey }
-          : {};
-
-        // Program-aware endpoint routing (REV-05A §5):
-        // Traditional: POST /v1/applications  (canonical path for sandbox and production)
-        // Payfac:      POST /v1/agent-hub/apply/add-lead/  (NOT activated — owner must
-        //              set processorProgram='payfac' in activation snapshot)
-        // The program is sourced from the activation snapshot, passed via profile.
-        const program = (profile as any).processorProgram ?? "traditional";
-        const submitPath = program === "payfac"
-          ? "/agent-hub/apply/add-lead/"
-          : "/applications";
+        if (profile.processorProgram !== "traditional")
+          return {
+            success: false,
+            permanent: true,
+            error: "PAYARC_PROGRAM_NOT_IMPLEMENTED",
+          };
+        const body = profile.payarcTraditionalPayload;
+        const missing = validatePayarcPayload(body);
+        if (missing.length)
+          return {
+            success: false,
+            permanent: true,
+            error:
+              "PAYARC_PREPARATION_REQUIRED: " + missing.slice(0, 30).join(", "),
+          };
+        const submitPath = PAYARC_TRADITIONAL_PATHS.create;
+        // Payarc header deduplication is unverified; durable local step claims own replay safety.
+        const idempotencyHeaders: Record<string, string> = {};
 
         // REV-05A: fail-closed when no snapshot-authorized URL is provided.
         // No fallback to the env-var URL — using an unapproved endpoint for
         // authenticated merchant submissions is an authorization boundary violation.
-        const snapshotUrl = (profile as any).snapshotAuthorizedBaseUrl as string | undefined;
+        const snapshotUrl = (profile as any).snapshotAuthorizedBaseUrl as
+          | string
+          | undefined;
         if (!snapshotUrl) {
           return {
             success: false,
-            error: "[REV-05A] PayarcAdapter.boardMerchant blocked: snapshotAuthorizedBaseUrl required. " +
-                   "Obtain an activation snapshot before calling adapter transport methods.",
+            error:
+              "[REV-05A] PayarcAdapter.boardMerchant blocked: snapshotAuthorizedBaseUrl required. " +
+              "Obtain an activation snapshot before calling adapter transport methods.",
           };
         }
         const guardedBase = guardPartnerBase(snapshotUrl);
-        if (!guardedBase.ok) return { success: false, permanent: true, error: guardedBase.error };
+        if (!guardedBase.ok)
+          return { success: false, permanent: true, error: guardedBase.error };
         const effectiveBaseUrl = guardedBase.baseUrl;
 
         const { ok, status, data } = await payarcRequest<any>(
@@ -576,12 +558,19 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
           // S5-17: only a definite client-side rejection is an ordinary failure. A 5xx,
           // gateway timeout (408) or any other non-4xx response may have been produced AFTER
           // the provider committed the application, so it is ambiguous — never auto-retried.
-          const definiteRejection = status >= 400 && status < 500 && status !== 408;
+          const definiteRejection =
+            status >= 400 && status < 500 && status !== 408;
           if (definiteRejection) {
             // Permanent: the request itself (or the credential) is wrong, so repeating it cannot succeed.
             // 429 is the provider declining to process now; that one is retryable later.
             const permanent = status !== 429;
-            return { success: false, httpStatus: status, permanent, retryable: !permanent, error: `Payarc API error (${status})` };
+            return {
+              success: false,
+              httpStatus: status,
+              permanent,
+              retryable: !permanent,
+              error: `Payarc API error (${status})`,
+            };
           }
           return {
             success: false,
@@ -594,32 +583,33 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
         // Identity comes only from the documented identifier fields; a missing, blank or
         // non-scalar identifier is ambiguous (the provider answered 2xx).
         const applicant = data?.data ?? data;
-        const applicationId = providerIdentifier(applicant?.object_id) ?? providerIdentifier(applicant?.id);
+        const applicationId = payarcIdentifier(applicant?.MerchantCode);
 
         if (!applicationId) {
           // No application ID in response — classify as ambiguous.
           // Caller must NOT retry immediately; use ambiguous_reconciliation path.
-          console.error("[PayarcAdapter] boardMerchant: no application ID in response — classifying as ambiguous");
+          console.error(
+            "[PayarcAdapter] boardMerchant: no application ID in response — classifying as ambiguous",
+          );
           return {
             success: false,
             ambiguous: true,
-            error: "Payarc returned success but no application ID — ambiguous result, hold for reconciliation",
+            error:
+              "Payarc returned success but no application ID — ambiguous result, hold for reconciliation",
           };
         }
 
-        // No invented estimate: only a provider-supplied date is reported.
-        const providerEstimate = typeof applicant?.estimated_decision_date === "string" && applicant.estimated_decision_date.trim() !== ""
-          ? applicant.estimated_decision_date
-          : undefined;
 
         return {
           success: true,
           processorApplicationId: applicationId,
           // An accepted application with a missing/unrecognized status is still accepted
           // (we hold its provider id); the status simply starts as "submitted".
-          status: parsePayarcStatus(applicant?.status) ?? "submitted",
-          message: `Application ${applicationId} submitted to Payarc.${providerEstimate ? ` Estimated decision: ${providerEstimate}.` : ""}`,
-          estimatedDecisionDate: providerEstimate,
+          status: "submitted",
+          contractVersion: PAYARC_TRADITIONAL_CONTRACT,
+          phase: "lead_created",
+          message:
+            "Payarc lead created. Signature delivery is a separate tracked step.",
         };
       } catch (err: any) {
         // REV-05A: ALL exceptions from a POST transport call are classified as
@@ -633,7 +623,7 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
         console.error(`[PayarcAdapter] boardMerchant ${errLabel}`);
         return {
           success: false,
-          ambiguous: true,  // always ambiguous for POST transport errors
+          ambiguous: true, // always ambiguous for POST transport errors
           error: isTimeout
             ? "Payarc request timed out — ambiguous result, hold for reconciliation"
             : `Payarc boarding request failed (${errLabel}) — ambiguous result, hold for reconciliation`,
@@ -645,27 +635,37 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
     // credentials are absent. Use MockProcessorAdapter for non-production testing.
     return {
       success: false,
-      error: "[REV-05A] PayarcAdapter.boardMerchant: PAYARC_API_KEY not configured. " +
-             "Simulation mode has been removed. Use MockProcessorAdapter for testing.",
+      error:
+        "[REV-05A] PayarcAdapter.boardMerchant: PAYARC_API_KEY not configured. " +
+        "Simulation mode has been removed. Use MockProcessorAdapter for testing.",
     };
   }
 
   // ── getMerchantStatus ─────────────────────────────────────────────────────
 
-  async getMerchantStatus(processorApplicationId: string, options?: { snapshotAuthorizedBaseUrl?: string }): Promise<BoardingStatusResult> {
+  async getMerchantStatus(
+    processorApplicationId: string,
+    options?: { snapshotAuthorizedBaseUrl?: string },
+  ): Promise<BoardingStatusResult> {
     // REV-05A: fail-closed when no snapshot-authorized URL is provided.
     if (!options?.snapshotAuthorizedBaseUrl) {
       return {
         success: false,
         processorApplicationId,
         status: "submitted",
-        error: "[REV-05A] PayarcAdapter.getMerchantStatus blocked: snapshotAuthorizedBaseUrl required. " +
-               "Obtain an activation snapshot before calling adapter transport methods.",
+        error:
+          "[REV-05A] PayarcAdapter.getMerchantStatus blocked: snapshotAuthorizedBaseUrl required. " +
+          "Obtain an activation snapshot before calling adapter transport methods.",
       };
     }
     const guardedBase = guardPartnerBase(options.snapshotAuthorizedBaseUrl);
     if (!guardedBase.ok) {
-      return { success: false, processorApplicationId, status: "submitted", error: guardedBase.error };
+      return {
+        success: false,
+        processorApplicationId,
+        status: "submitted",
+        error: guardedBase.error,
+      };
     }
     const effectiveBaseUrl = guardedBase.baseUrl;
     if (this.isConfigured()) {
@@ -673,8 +673,9 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
         const { ok, status, data } = await payarcRequest<any>(
           this.apiKey!,
           effectiveBaseUrl,
-          "GET",
-          `/applications/${encodeURIComponent(processorApplicationId)}`,
+          "POST",
+          PAYARC_TRADITIONAL_PATHS.status,
+          { MerchantCode: processorApplicationId },
         );
 
         if (!ok) {
@@ -687,42 +688,23 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
         }
 
         const applicant = data?.data ?? data;
-        // S5-17: correlate the response to the requested application and decode strictly.
-        const returnedId = providerIdentifier(applicant?.object_id) ?? providerIdentifier(applicant?.id);
-        if (returnedId && returnedId !== processorApplicationId) {
-          return {
-            success: false,
-            processorApplicationId,
-            status: "submitted",
-            error: "Payarc status response identifies a different application — observation discarded",
-          };
-        }
-        // Contract (recorded, tested): the resource is addressed by the requested application id in the URL path, so a
-        // body that carries no identifier is attributed to that request; a body that names ANOTHER application is
-        // discarded above. The result says which case applied so the apply layer can keep the evidence.
-        const identityEchoed = returnedId === processorApplicationId;
-        const mappedStatus = parsePayarcStatus(applicant?.status);
-        if (!mappedStatus) {
-          return {
-            success: false,
-            processorApplicationId,
-            status: "submitted",
-            error: "Payarc status response has a missing or unrecognized status — observation not applied",
-          };
-        }
-        // A merchant identifier is not a MID without contract proof: only an explicit mid counts.
-        const mid = providerIdentifier(applicant?.mid) ?? providerIdentifier(applicant?.merchant?.mid);
-
+        const lifecycle = decodePayarcObservation(
+          applicant,
+          processorApplicationId,
+        );
         return {
           success: true,
           processorApplicationId,
-          status: mappedStatus,
-          identityEchoed,
-          mid: mid ?? undefined,
-          message: applicant?.message || applicant?.status_message || undefined,
-          moreInfoRequest: applicant?.additional_info_request || applicant?.info_request || undefined,
-          declineReason: applicant?.decline_reason || applicant?.rejection_reason || undefined,
-          approvedAt: applicant?.approved_at || applicant?.approval_date || undefined,
+          status: payarcBoardingStatus(lifecycle),
+          identityEchoed: true,
+          mid: lifecycle.mid,
+          payarcLifecycle: lifecycle,
+          ...(lifecycle.phase === "documents_needed"
+            ? {
+                moreInfoRequest:
+                  "Payarc requires additional documentation. Review the existing application with underwriting.",
+              }
+            : {}),
         };
       } catch {
         return {
@@ -740,8 +722,9 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
       success: false,
       processorApplicationId,
       status: "submitted",
-      error: "[REV-05A] PayarcAdapter.getMerchantStatus: PAYARC_API_KEY not configured. " +
-             "Simulation mode has been removed. Use MockProcessorAdapter for testing.",
+      error:
+        "[REV-05A] PayarcAdapter.getMerchantStatus: PAYARC_API_KEY not configured. " +
+        "Simulation mode has been removed. Use MockProcessorAdapter for testing.",
     };
   }
 
@@ -789,7 +772,10 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
     options?: { snapshotAuthorizedBaseUrl?: string | null },
   ): Promise<Transaction[] | HeldResult> {
     if (!this.isMerchantConfigured()) {
-      return { status: "held", reason: "PAYARC_MERCHANT_API_KEY not configured" };
+      return {
+        status: "held",
+        reason: "PAYARC_MERCHANT_API_KEY not configured",
+      };
     }
 
     // Snapshot-authorized URL is mandatory — no fallback to a derived host.
@@ -798,7 +784,8 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
     if (!options?.snapshotAuthorizedBaseUrl) {
       return {
         status: "held",
-        reason: "getTransactions blocked: snapshotAuthorizedBaseUrl required. Call requireConfirmedActivationSnapshot('payarc','get_charges') before this method.",
+        reason:
+          "getTransactions blocked: snapshotAuthorizedBaseUrl required. Call requireConfirmedActivationSnapshot('payarc','get_charges') before this method.",
       };
     }
     const baseUrl = options.snapshotAuthorizedBaseUrl.replace(/\/$/, "");
@@ -815,7 +802,9 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
       );
 
       if (raw.length === 0) {
-        console.info(`[PayarcAdapter] getTransactions: 0 charges (${startDate}–${endDate}, mid=${midMasked})`);
+        console.info(
+          `[PayarcAdapter] getTransactions: 0 charges (${startDate}–${endDate}, mid=${midMasked})`,
+        );
         return [];
       }
 
@@ -825,18 +814,22 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
       for (let i = 0; i < raw.length; i++) {
         const rec = raw[i];
         const recAccountId = String(
-          rec.merchant_account_number ?? rec.mid ?? rec.merchant_id ?? ""
+          rec.merchant_account_number ?? rec.mid ?? rec.merchant_id ?? "",
         );
         if (!recAccountId) {
           // No identifier — cannot verify binding; fail closed.
-          console.error(`[PayarcAdapter] getTransactions: record[${i}] missing merchant identifier — cannot verify MID binding (mid=${midMasked})`);
+          console.error(
+            `[PayarcAdapter] getTransactions: record[${i}] missing merchant identifier — cannot verify MID binding (mid=${midMasked})`,
+          );
           return {
             status: "held",
             reason: `Record[${i}] has no merchant identifier — MID binding unverifiable. Cannot persist against merchant mid=${midMasked}.`,
           };
         }
         if (recAccountId !== mid) {
-          console.error(`[PayarcAdapter] getTransactions: record[${i}] MID mismatch (expected=${midMasked}, got=${maskMid(recAccountId)})`);
+          console.error(
+            `[PayarcAdapter] getTransactions: record[${i}] MID mismatch (expected=${midMasked}, got=${maskMid(recAccountId)})`,
+          );
           return {
             status: "held",
             reason: `MID correlation mismatch on record[${i}]: expected ${midMasked} but got ${maskMid(recAccountId)}. Credential may be scoped to a different merchant. Cannot persist misattributed data.`,
@@ -846,35 +839,64 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
 
       // Validate all records before mapping — any malformed required field
       // returns HeldResult for the whole call rather than persisting fabricated values.
-      const KNOWN_STATUSES = new Set(["approved", "captured", "declined", "failed", "reversed", "voided", "refunded"]);
+      const KNOWN_STATUSES = new Set([
+        "approved",
+        "captured",
+        "declined",
+        "failed",
+        "reversed",
+        "voided",
+        "refunded",
+      ]);
       for (let i = 0; i < raw.length; i++) {
         const c = raw[i];
         // amount must be a number — no zero-fill for missing/non-numeric amounts
         if (typeof c.amount !== "number") {
-          console.error(`[PayarcAdapter] getTransactions: record[${i}] amount is not numeric (mid=${midMasked})`);
-          return { status: "held", reason: `Record[${i}] amount is not numeric (got ${typeof c.amount}) — cannot persist fabricated zero value. Provider schema may have drifted.` };
+          console.error(
+            `[PayarcAdapter] getTransactions: record[${i}] amount is not numeric (mid=${midMasked})`,
+          );
+          return {
+            status: "held",
+            reason: `Record[${i}] amount is not numeric (got ${typeof c.amount}) — cannot persist fabricated zero value. Provider schema may have drifted.`,
+          };
         }
         // date must be present — no substitution with startDate
         const dateRaw = c.created_at ?? c.transaction_date;
         if (!dateRaw) {
-          console.error(`[PayarcAdapter] getTransactions: record[${i}] missing date field (mid=${midMasked})`);
-          return { status: "held", reason: `Record[${i}] has no date field — cannot persist with fabricated date. Provider schema may have drifted.` };
+          console.error(
+            `[PayarcAdapter] getTransactions: record[${i}] missing date field (mid=${midMasked})`,
+          );
+          return {
+            status: "held",
+            reason: `Record[${i}] has no date field — cannot persist with fabricated date. Provider schema may have drifted.`,
+          };
         }
         // status must map to a known value — no default "pending" for unknown statuses
-        const statusRaw = String(c.status ?? c.charge_status ?? "").toLowerCase();
+        const statusRaw = String(
+          c.status ?? c.charge_status ?? "",
+        ).toLowerCase();
         if (!statusRaw || !KNOWN_STATUSES.has(statusRaw)) {
-          console.error(`[PayarcAdapter] getTransactions: record[${i}] unrecognized status="${statusRaw}" (mid=${midMasked})`);
-          return { status: "held", reason: `Record[${i}] has unrecognized status "${statusRaw}" — cannot map to known transaction state. Provider schema may have drifted.` };
+          console.error(
+            `[PayarcAdapter] getTransactions: record[${i}] unrecognized status="${statusRaw}" (mid=${midMasked})`,
+          );
+          return {
+            status: "held",
+            reason: `Record[${i}] has unrecognized status "${statusRaw}" — cannot map to known transaction state. Provider schema may have drifted.`,
+          };
         }
       }
 
       return raw.map((c): Transaction => {
         const amountCents = c.amount as number; // validated above
-        const statusRaw = String(c.status ?? c.charge_status ?? "").toLowerCase();
+        const statusRaw = String(
+          c.status ?? c.charge_status ?? "",
+        ).toLowerCase();
         const mappedStatus: Transaction["status"] =
-          statusRaw === "approved" || statusRaw === "captured" ? "approved"
-          : statusRaw === "declined" || statusRaw === "failed" ? "declined"
-          : "reversed"; // refunded | reversed | voided — all validated above
+          statusRaw === "approved" || statusRaw === "captured"
+            ? "approved"
+            : statusRaw === "declined" || statusRaw === "failed"
+              ? "declined"
+              : "reversed"; // refunded | reversed | voided — all validated above
 
         return {
           id: String(c.id ?? c.charge_id ?? ""),
@@ -892,11 +914,21 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
       });
     } catch (err: any) {
       if (err instanceof PayarcFetchError) {
-        console.error(`[PayarcAdapter] getTransactions: provider returned HTTP ${err.httpStatus} (mid=${midMasked})`);
-        return { status: "held", reason: `Provider returned HTTP ${err.httpStatus} on ${err.path}` };
+        console.error(
+          `[PayarcAdapter] getTransactions: provider returned HTTP ${err.httpStatus} (mid=${midMasked})`,
+        );
+        return {
+          status: "held",
+          reason: `Provider returned HTTP ${err.httpStatus} on ${err.path}`,
+        };
       }
-      console.error(`[PayarcAdapter] getTransactions error (mid=${midMasked}): ${err?.message}`);
-      return { status: "held", reason: `getTransactions fetch failed: ${err?.message}` };
+      console.error(
+        `[PayarcAdapter] getTransactions error (mid=${midMasked}): ${err?.message}`,
+      );
+      return {
+        status: "held",
+        reason: `getTransactions fetch failed: ${err?.message}`,
+      };
     }
   }
 
@@ -905,14 +937,20 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
    * return decimal text, nullable calculated values, and either merchant aggregates or fee line
    * items, none of which fit `Residual`. Use getResidualReport().
    */
-  async getResiduals(_month: string, _agentId?: string): Promise<Residual[] | HeldResult> {
+  async getResiduals(
+    _month: string,
+    _agentId?: string,
+  ): Promise<Residual[] | HeldResult> {
     return held(
       "use_typed_residual_report",
       "getResiduals() returns the legacy numeric shape, which cannot represent the documented residual envelopes. Use getResidualReport() with an explicit source, bounded dates, and (for /agent_residual/summary) a bank value.",
     );
   }
 
-  private readContext(keyClass: "partner" | "merchant", options?: PayarcReadOptions): ReadContext {
+  private readContext(
+    keyClass: "partner" | "merchant",
+    options?: PayarcReadOptions,
+  ): ReadContext {
     return {
       keyClass,
       apiKey: keyClass === "partner" ? this.apiKey : this.merchantApiKey,
@@ -921,19 +959,31 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
     };
   }
 
-  async getBatchReports(request: BatchReportRequest, options?: PayarcReadOptions): Promise<BatchReportResult | HeldResult> {
+  async getBatchReports(
+    request: BatchReportRequest,
+    options?: PayarcReadOptions,
+  ): Promise<BatchReportResult | HeldResult> {
     return runBatchReports(this.readContext("partner", options), request);
   }
 
-  async getResidualReport(request: ResidualReportRequest, options?: PayarcReadOptions): Promise<ResidualReportResult | HeldResult> {
+  async getResidualReport(
+    request: ResidualReportRequest,
+    options?: PayarcReadOptions,
+  ): Promise<ResidualReportResult | HeldResult> {
     return runResidualReport(this.readContext("partner", options), request);
   }
 
-  async listDisputeCases(request: DisputeCaseListRequest, options?: PayarcReadOptions): Promise<DisputeCaseListResult | HeldResult> {
+  async listDisputeCases(
+    request: DisputeCaseListRequest,
+    options?: PayarcReadOptions,
+  ): Promise<DisputeCaseListResult | HeldResult> {
     return runDisputeCaseList(this.readContext("merchant", options), request);
   }
 
-  async getDisputeChart(request: DisputeChartRequest, options?: PayarcReadOptions): Promise<DisputeChartResult | HeldResult> {
+  async getDisputeChart(
+    request: DisputeChartRequest,
+    options?: PayarcReadOptions,
+  ): Promise<DisputeChartResult | HeldResult> {
     return runDisputeChart(this.readContext("merchant", options), request);
   }
 
@@ -959,14 +1009,18 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
     options?: { snapshotAuthorizedBaseUrl?: string | null },
   ): Promise<DailyStats[] | HeldResult> {
     if (!this.isMerchantConfigured()) {
-      return { status: "held", reason: "PAYARC_MERCHANT_API_KEY not configured" };
+      return {
+        status: "held",
+        reason: "PAYARC_MERCHANT_API_KEY not configured",
+      };
     }
 
     // Snapshot-authorized URL is mandatory — no fallback to a derived host.
     if (!options?.snapshotAuthorizedBaseUrl) {
       return {
         status: "held",
-        reason: "getDailyStats blocked: snapshotAuthorizedBaseUrl required. Call requireConfirmedActivationSnapshot('payarc','get_daily_stats') before this method.",
+        reason:
+          "getDailyStats blocked: snapshotAuthorizedBaseUrl required. Call requireConfirmedActivationSnapshot('payarc','get_daily_stats') before this method.",
       };
     }
     const baseUrl = options.snapshotAuthorizedBaseUrl.replace(/\/$/, "");
@@ -984,7 +1038,9 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
 
       if (raw.length === 0) {
         // Missing days stay missing — never zero-fill (§10)
-        console.info(`[PayarcAdapter] getDailyStats: 0 statements (${startDate}–${endDate}, mid=${midMasked})`);
+        console.info(
+          `[PayarcAdapter] getDailyStats: 0 statements (${startDate}–${endDate}, mid=${midMasked})`,
+        );
         return [];
       }
 
@@ -994,17 +1050,21 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
       for (let i = 0; i < raw.length; i++) {
         const rec = raw[i];
         const recAccountId = String(
-          rec.merchant_account_number ?? rec.mid ?? rec.merchant_id ?? ""
+          rec.merchant_account_number ?? rec.mid ?? rec.merchant_id ?? "",
         );
         if (!recAccountId) {
-          console.error(`[PayarcAdapter] getDailyStats: record[${i}] missing merchant identifier (mid=${midMasked})`);
+          console.error(
+            `[PayarcAdapter] getDailyStats: record[${i}] missing merchant identifier (mid=${midMasked})`,
+          );
           return {
             status: "held",
             reason: `Record[${i}] has no merchant identifier — MID binding unverifiable. Cannot persist against merchant mid=${midMasked}.`,
           };
         }
         if (recAccountId !== mid) {
-          console.error(`[PayarcAdapter] getDailyStats: record[${i}] MID mismatch (expected=${midMasked}, got=${maskMid(recAccountId)})`);
+          console.error(
+            `[PayarcAdapter] getDailyStats: record[${i}] MID mismatch (expected=${midMasked}, got=${maskMid(recAccountId)})`,
+          );
           return {
             status: "held",
             reason: `MID correlation mismatch on record[${i}]: expected ${midMasked} but got ${maskMid(recAccountId)}. Credential may be scoped to a different merchant. Cannot persist misattributed data.`,
@@ -1017,45 +1077,80 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
       for (let i = 0; i < raw.length; i++) {
         const s = raw[i];
         // date must be present and non-empty — no empty-string date permitted
-        const dateRaw = s.date ?? s.batch_date ?? s.from_date ?? s.settlement_date;
+        const dateRaw =
+          s.date ?? s.batch_date ?? s.from_date ?? s.settlement_date;
         if (!dateRaw || String(dateRaw).trim() === "") {
-          console.error(`[PayarcAdapter] getDailyStats: record[${i}] missing date field (mid=${midMasked})`);
-          return { status: "held", reason: `Record[${i}] has no date field — cannot persist statement without a date. Provider schema may have drifted.` };
+          console.error(
+            `[PayarcAdapter] getDailyStats: record[${i}] missing date field (mid=${midMasked})`,
+          );
+          return {
+            status: "held",
+            reason: `Record[${i}] has no date field — cannot persist statement without a date. Provider schema may have drifted.`,
+          };
         }
         // At least one primary financial field must be a number.
         // All-absent financials are a contract drift signal, not legitimate zero-activity.
-        const hasGross = typeof s.gross_amount === "number"
-          || typeof s.net_amount === "number"
-          || typeof s.settled_amount === "number";
+        const hasGross =
+          typeof s.gross_amount === "number" ||
+          typeof s.net_amount === "number" ||
+          typeof s.settled_amount === "number";
         if (!hasGross) {
-          console.error(`[PayarcAdapter] getDailyStats: record[${i}] no recognizable primary amount field (mid=${midMasked})`);
-          return { status: "held", reason: `Record[${i}] has no recognizable gross/net/settled amount field — cannot persist fabricated zero-dollar statement. Provider schema may have drifted.` };
+          console.error(
+            `[PayarcAdapter] getDailyStats: record[${i}] no recognizable primary amount field (mid=${midMasked})`,
+          );
+          return {
+            status: "held",
+            reason: `Record[${i}] has no recognizable gross/net/settled amount field — cannot persist fabricated zero-dollar statement. Provider schema may have drifted.`,
+          };
         }
       }
 
       return raw.map((s): DailyStats => {
         // Field mapping — amounts in cents → dollars.
         // All records are pre-validated above; required fields are present.
-        const grossCents = typeof s.gross_amount === "number" ? s.gross_amount
-          : typeof s.net_amount === "number" ? s.net_amount
-          : (s.settled_amount as number); // at least one guaranteed by validation
-        const feeCents = typeof s.fee_amount === "number" ? s.fee_amount
-          : typeof s.fees === "number" ? s.fees : undefined;
-        const txCount = typeof s.transaction_count === "number" ? s.transaction_count
-          : typeof s.count === "number" ? s.count : undefined;
-        const refundCents = typeof s.refund_amount === "number" ? s.refund_amount : undefined;
-        const refundCount = typeof s.refund_count === "number" ? s.refund_count : undefined;
-        const cbCents = typeof s.chargeback_amount === "number" ? s.chargeback_amount : undefined;
-        const cbCount = typeof s.chargeback_count === "number" ? s.chargeback_count : undefined;
+        const grossCents =
+          typeof s.gross_amount === "number"
+            ? s.gross_amount
+            : typeof s.net_amount === "number"
+              ? s.net_amount
+              : (s.settled_amount as number); // at least one guaranteed by validation
+        const feeCents =
+          typeof s.fee_amount === "number"
+            ? s.fee_amount
+            : typeof s.fees === "number"
+              ? s.fees
+              : undefined;
+        const txCount =
+          typeof s.transaction_count === "number"
+            ? s.transaction_count
+            : typeof s.count === "number"
+              ? s.count
+              : undefined;
+        const refundCents =
+          typeof s.refund_amount === "number" ? s.refund_amount : undefined;
+        const refundCount =
+          typeof s.refund_count === "number" ? s.refund_count : undefined;
+        const cbCents =
+          typeof s.chargeback_amount === "number"
+            ? s.chargeback_amount
+            : undefined;
+        const cbCount =
+          typeof s.chargeback_count === "number"
+            ? s.chargeback_count
+            : undefined;
 
         const gross = grossCents / 100;
         const fee = feeCents !== undefined ? feeCents / 100 : undefined;
-        const effectiveRate = (fee !== undefined && gross > 0) ? fee / gross : undefined;
-        const avgTicket = (txCount !== undefined && txCount > 0) ? gross / txCount : undefined;
+        const effectiveRate =
+          fee !== undefined && gross > 0 ? fee / gross : undefined;
+        const avgTicket =
+          txCount !== undefined && txCount > 0 ? gross / txCount : undefined;
 
         return {
           mid,
-          date: String(s.date ?? s.batch_date ?? s.from_date ?? s.settlement_date), // validated above
+          date: String(
+            s.date ?? s.batch_date ?? s.from_date ?? s.settlement_date,
+          ), // validated above
           volume: gross,
           txCount,
           avgTicket,
@@ -1067,11 +1162,21 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
       });
     } catch (err: any) {
       if (err instanceof PayarcFetchError) {
-        console.error(`[PayarcAdapter] getDailyStats: provider returned HTTP ${err.httpStatus} (mid=${midMasked})`);
-        return { status: "held", reason: `Provider returned HTTP ${err.httpStatus} on ${err.path}` };
+        console.error(
+          `[PayarcAdapter] getDailyStats: provider returned HTTP ${err.httpStatus} (mid=${midMasked})`,
+        );
+        return {
+          status: "held",
+          reason: `Provider returned HTTP ${err.httpStatus} on ${err.path}`,
+        };
       }
-      console.error(`[PayarcAdapter] getDailyStats error (mid=${midMasked}): ${err?.message}`);
-      return { status: "held", reason: `getDailyStats fetch failed: ${err?.message}` };
+      console.error(
+        `[PayarcAdapter] getDailyStats error (mid=${midMasked}): ${err?.message}`,
+      );
+      return {
+        status: "held",
+        reason: `getDailyStats fetch failed: ${err?.message}`,
+      };
     }
   }
 
@@ -1085,10 +1190,13 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
    * Upload endpoint requires multipart/form-data with evidence files — not confirmed.
    * Will implement once evidence upload is verified via sandbox probe.
    */
-  async submitDisputeEvidence(_submission: DisputeEvidenceSubmission): Promise<ChargebackResult | HeldResult> {
+  async submitDisputeEvidence(
+    _submission: DisputeEvidenceSubmission,
+  ): Promise<ChargebackResult | HeldResult> {
     return {
       status: "held",
-      reason: "POST /v1/cases/{id}/upload not yet probed. GET /v1/cases confirmed 200 (dispute listing works). Evidence upload requires multipart/form-data — field schema not confirmed. Will implement after sandbox upload probe succeeds.",
+      reason:
+        "POST /v1/cases/{id}/upload not yet probed. GET /v1/cases confirmed 200 (dispute listing works). Evidence upload requires multipart/form-data — field schema not confirmed. Will implement after sandbox upload probe succeeds.",
     };
   }
 
@@ -1097,7 +1205,9 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
    * Delegates to submitDisputeEvidence() so existing callers continue to work
    * without modification during the REV-06A transition.
    */
-  async submitChargeback(submission: ChargebackSubmission): Promise<ChargebackResult | HeldResult> {
+  async submitChargeback(
+    submission: ChargebackSubmission,
+  ): Promise<ChargebackResult | HeldResult> {
     return this.submitDisputeEvidence({
       mid: submission.mid,
       caseId: submission.caseNumber ?? "",
@@ -1114,58 +1224,89 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
   // ── updateMerchant ────────────────────────────────────────────────────────
 
   async updateMerchant(
-    processorApplicationId: string,
-    updates: Partial<MerchantProfile>,
-    options?: { snapshotAuthorizedBaseUrl?: string },
+    _processorApplicationId: string,
+    _profile: Partial<MerchantProfile>,
   ): Promise<MerchantUpdateResult> {
-    // REV-05A: fail-closed unless a snapshot-authorized URL is provided.
-    // Using the env-var base URL without an owner-approved snapshot allows
-    // authenticated PATCH traffic to unapproved endpoints.
-    if (!options?.snapshotAuthorizedBaseUrl) {
-      return {
-        success: false,
-        error: "[REV-05A] PayarcAdapter.updateMerchant blocked: snapshotAuthorizedBaseUrl required. " +
-               "Obtain an activation snapshot before calling adapter transport methods.",
-      };
-    }
-
-    if (this.isConfigured()) {
-      try {
-        const body: Record<string, unknown> = {
-          ...(updates.legalBusinessName && { legal_name: updates.legalBusinessName }),
-          ...(updates.dba && { dba_name: updates.dba }),
-          ...(updates.businessPhone && { phone: updates.businessPhone }),
-          ...(updates.businessEmail && { email: updates.businessEmail }),
-          ...(updates.website && { website: updates.website }),
-          ...(updates.businessAddress && { address: updates.businessAddress }),
-          ...(updates.businessCity && { city: updates.businessCity }),
-          ...(updates.businessState && { state: updates.businessState }),
-          ...(updates.businessZip && { zip: updates.businessZip }),
-        };
-
-        const { ok, status, data } = await payarcRequest<any>(
-          this.apiKey!,
-          options.snapshotAuthorizedBaseUrl.replace(/\/$/, ""),
-          "PATCH",
-          `/applications/${processorApplicationId}`,
-          body,
-        );
-
-        if (!ok) {
-          const msg = data?.message || data?.error || `HTTP ${status}`;
-          return { success: false, error: `Payarc update error (${status}): ${msg}` };
-        }
-
-        return { success: true, message: "Merchant profile updated in Payarc." };
-      } catch {
-        return { success: false, error: "Payarc update request failed" };
-      }
-    }
-
-    // Simulation REMOVED — return error when unconfigured
     return {
       success: false,
-      error: "PAYARC_API_KEY not configured. Cannot update merchant profile.",
+      error: "PAYARC_CORRECTION_REQUIRES_REVIEWED_TRADITIONAL_COMMAND",
     };
+  }
+}
+
+export async function requestPayarcSignature(
+  merchantCode: string,
+  baseUrl: string,
+): Promise<{
+  ok: boolean;
+  ambiguous: boolean;
+  retryable: boolean;
+  httpStatus?: number;
+}> {
+  const guard = guardPartnerBase(baseUrl);
+  if (
+    !guard.ok ||
+    !payarcIdentifier(merchantCode) ||
+    !process.env.PAYARC_API_KEY
+  )
+    return { ok: false, ambiguous: false, retryable: false };
+  try {
+    const r = await payarcRequest<any>(
+      process.env.PAYARC_API_KEY,
+      guard.baseUrl,
+      "POST",
+      PAYARC_TRADITIONAL_PATHS.signature,
+      { MerchantCode: merchantCode, generate_form: false, validate: false },
+    );
+    const v = r.data?.data ?? r.data;
+    return {
+      ok: r.ok && v?.MerchantCode === merchantCode,
+      ambiguous: r.ok
+        ? v?.MerchantCode !== merchantCode
+        : !(r.status >= 400 && r.status < 500 && r.status !== 408),
+      retryable: r.status === 429,
+      httpStatus: r.status,
+    };
+  } catch {
+    return { ok: false, ambiguous: true, retryable: false };
+  }
+}
+
+/** Reviewed correction for an existing MerchantCode. No lead recreation. */
+export async function updatePayarcTraditionalLead(
+  merchantCode: string,
+  payload: Record<string, unknown>,
+  baseUrl: string,
+): Promise<{ ok: boolean; ambiguous: boolean; httpStatus?: number }> {
+  const guard = guardPartnerBase(baseUrl);
+  if (
+    !guard.ok ||
+    !payarcIdentifier(merchantCode) ||
+    !process.env.PAYARC_API_KEY ||
+    validatePayarcPayload(payload).length
+  )
+    return { ok: false, ambiguous: false };
+  try {
+    const { Owners: _unchangedOwners, ...patch } = payload;
+    if (validatePayarcPayload(patch, payarcPatchSchema).length)
+      return { ok: false, ambiguous: false };
+    const r = await payarcRequest<any>(
+      process.env.PAYARC_API_KEY,
+      guard.baseUrl,
+      "PATCH",
+      PAYARC_TRADITIONAL_PATHS.update(merchantCode),
+      patch,
+    );
+    const v = r.data?.data ?? r.data;
+    const id = payarcIdentifier(v?.MerchantCode) ?? payarcIdentifier(v?.id);
+    return {
+      ok: r.ok && id === merchantCode,
+      ambiguous: r.ok
+        ? id !== merchantCode
+        : !(r.status >= 400 && r.status < 500 && r.status !== 408),
+      httpStatus: r.status,
+    };
+  } catch {
+    return { ok: false, ambiguous: true };
   }
 }

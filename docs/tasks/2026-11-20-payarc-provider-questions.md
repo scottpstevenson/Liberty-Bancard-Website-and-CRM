@@ -1,0 +1,15 @@
+# Payarc provider follow-up — prepared, not sent
+
+Liberty Bancard sandbox partner profile: scott@libertybancard.com, partner 000703 (profile displays Test Test). The signed-in PartnerHub dashboard returned unauthorized application data and lacked My Merchants/API Keys. A subsequent sign-in displayed Login attempt failed. Please confirm the correct sandbox partner account/role, restore the intended permissions and confirm where its partner Bearer token is obtained. Merchant access is a separate working scope and does not resolve this.
+
+Confirmed merchant-side sandbox evidence, November 20, 2026: Test Merchant/scott+1@libertybancard.com; active token privately matched to Replit's saved merchant key; GET charges and webhook subscriptions returned 200/empty; bounded GET cases returned 200/empty; dispute-chart returned 200 and a populated, parsed aggregate response. GET accounts/me returned 422, so it is not being used as proof of identity. No new token, transaction or application was created. No credentials are included here.
+
+Please provide/confirm:
+
+1. Sandbox partner token entitlement for Traditional add-lead, lead-status, submit-for-signature, patch lead and onboarding documents, plus partner batch/residual reports. Confirm its environment before any attempt at another host.
+2. Named synthetic Traditional onboarding fixture, approved test identity/bank values, expected signature delivery and a method to exercise documents-needed, declined, approved, boarded and processing-ready outcomes. Liberty will not use a real merchant or real application for this acceptance.
+3. The actual partner onboarding webhook registration (distinct from merchant transaction webhooks), event names, raw delivery sample, authentication/signing algorithm, exact signature/timestamp headers and canonical bytes, secret/public-key provisioning and rotation, event identity/replay behavior, and authentic signed fixtures. The public webhook page provides events but no verifier contract; Liberty will use authenticated polling until this is verified.
+4. Owner correction contract: the published Add Traditional Lead schema takes Owners as an array, whereas Patch Traditional Lead publishes Owners as an object containing questionnaire-like fields. Confirm the real owner/beneficial-owner update payload. Liberty currently patches supported business/pricing fields only while owners remain unchanged; it holds owner changes rather than guessing.
+5. An eligible synthetic dispute case and the exact evidence-upload multipart field schema/limits. The working test merchant currently has no dispute cases, so an evidence-upload round trip cannot be certified from that account's current data.
+
+Contacts and support subject format are recorded in the October 5 provisioning email. This note is a review artifact only; no support message has been sent and no webhook registration requested by this task.

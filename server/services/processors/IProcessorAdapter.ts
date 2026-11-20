@@ -89,6 +89,8 @@ export interface MerchantProfile {
    * MUST be confirmed by owner via activation snapshot before transport activates.
    */
   processorProgram?: "traditional" | "payfac";
+  /** Validated, protected, revision-bound Traditional request prepared by the CRM. */
+  payarcTraditionalPayload?: Record<string, unknown>;
   preferredProgram?: string;
   offerPath?: string;
   /** Stable per-submission idempotency key derived at enqueue time. Adapters
@@ -106,6 +108,8 @@ export interface BoardingResult {
   message?: string;
   error?: string;
   estimatedDecisionDate?: string;
+  contractVersion?: string;
+  phase?: string;
   /**
    * Set to 'ambiguous' when the provider call timed out or returned no
    * application ID. Callers must NOT retry immediately — classify as
@@ -131,6 +135,7 @@ export interface BoardingStatusResult {
   approvedAt?: string;
   /** True when the provider response itself named the requested application; false when attribution rests on the request path alone. */
   identityEchoed?: boolean;
+  payarcLifecycle?: import("../../../shared/payarc-traditional").PayarcObservation;
   error?: string;
 }
 

@@ -1,3 +1,4 @@
+import PayarcPreparation from "./PayarcPreparation";
 import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -16,6 +17,16 @@ import {
 } from "lucide-react";
 
 interface BoardingStatus {
+  payarcLifecycle?: {
+    phase: string;
+    signature_state: string;
+    last_polled_at: string | null;
+    last_error: string | null;
+    environment: string;
+    statusWorkerEnabled: boolean;
+    signatureWorkerEnabled: boolean;
+    workerSelected: boolean;
+  } | null;
   boardingStatus: string;
   processorApplicationId: string | null;
   midMasked: string | null;
@@ -322,7 +333,19 @@ export default function BoardingPanel({ dealId, dealStage, dealPipeline, onStatu
   }
 
   const s = status;
-  const cfg = STATUS_CONFIG[s.boardingStatus] || { label: `Unrecognized status: ${s.boardingStatus}`, color: "bg-red-100 text-red-700 border-red-200", icon: AlertCircle };
+  const legacyConfig = STATUS_CONFIG[s.boardingStatus] || {
+    label: `Unrecognized status: ${s.boardingStatus}`,
+    color: "bg-red-100 text-red-700 border-red-200",
+    icon: AlertCircle,
+  };
+  const cfg = s.payarcLifecycle
+    ? {
+        ...legacyConfig,
+        label: s.payarcLifecycle.phase
+          .replace(/_/g, " ")
+          .replace(/\b\w/g, (c) => c.toUpperCase()),
+      }
+    : legacyConfig;
   const StatusIcon = cfg.icon;
   const resubmittable = s.boardingStatus === "not_submitted" || s.boardingStatus === "declined" || s.boardingStatus === "dead_letter";
   const canRefresh = !!s.processorApplicationId && (s.boardingStatus === "submitted" || s.boardingStatus === "under_review" || s.boardingStatus === "more_info_needed");
@@ -469,6 +492,45 @@ export default function BoardingPanel({ dealId, dealStage, dealPipeline, onStatu
         </div>
       )}
 
+      {canOperate && <PayarcPreparation key={dealId} dealId={dealId} />}
+      {s.payarcLifecycle && (
+        <section className="rounded-xl border bg-muted/30 p-4 space-y-2">
+          <h4 className="font-semibold">
+            Payarc lifecycle · {s.payarcLifecycle.environment}
+          </h4>
+          <p className="capitalize">
+            {s.payarcLifecycle.phase.replace(/_/g, " ")}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Signature delivery: {s.payarcLifecycle.signature_state}. Last
+            processor check:{" "}
+            {s.payarcLifecycle.last_polled_at
+              ? new Date(s.payarcLifecycle.last_polled_at).toLocaleString()
+              : "Not yet checked"}
+            .
+          </p>
+          <p className="text-sm">
+            Automatic status sync:{" "}
+            {s.payarcLifecycle.statusWorkerEnabled
+              ? s.payarcLifecycle.workerSelected
+                ? "configured"
+                : "configured, worker off"
+              : "off"}
+            . Signature dispatch:{" "}
+            {s.payarcLifecycle.signatureWorkerEnabled
+              ? s.payarcLifecycle.workerSelected
+                ? "configured"
+                : "configured, worker off"
+              : "off"}
+            .
+          </p>
+          {s.payarcLifecycle.last_error && (
+            <p role="status" className="text-sm text-destructive">
+              {s.payarcLifecycle.last_error}
+            </p>
+          )}
+        </section>
+      )}
       {(s.processorApplicationId || s.hasMid) && (
         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
           {s.processorApplicationId && (

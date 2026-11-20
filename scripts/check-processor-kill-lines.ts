@@ -134,7 +134,7 @@ check("KL4: payarc.adapter.ts ping() does not return true on HTTP 404", () => {
 
 check("KL5: Payarc webhook handler does not mutate canonical state", () => {
   const src = readFile("server/routes/boarding.ts");
-  const webhookSection = src.match(/POST.*\/api\/webhooks\/payarc[\s\S]{0,3000}/);
+  const webhookSection = src.match(/app\.post\("\/api\/webhooks\/payarc"[\s\S]{0,800}/);
   if (!webhookSection) {
     fail("KL5: POST /api/webhooks/payarc endpoint not found in boarding.ts");
     return;
@@ -146,8 +146,8 @@ check("KL5: Payarc webhook handler does not mutate canonical state", () => {
     fail("KL5: Payarc webhook handler mutates canonical state (must be inert until PAYARC_WEBHOOK_VERIFIED=true)");
     return;
   }
-  if (!section.includes("PAYARC_WEBHOOK_VERIFIED")) {
-    fail("KL5: Payarc webhook handler missing PAYARC_WEBHOOK_VERIFIED flag check");
+  if (!section.includes("PAYARC_WEBHOOK_AUTH_CONTRACT_REQUIRED") || !section.includes("status(503)")) {
+    fail("KL5: unconfigured Payarc webhook must refuse unauthenticated delivery before persistence");
     return;
   }
   pass("KL5: Payarc webhook endpoint is inert pending fixture verification");

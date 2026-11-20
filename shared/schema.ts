@@ -11993,3 +11993,27 @@ export const intakeOperations = pgTable("intake_operations", {
   createdAt: timestamp("created_at", {withTimezone:true}).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", {withTimezone:true}).notNull().defaultNow(),
 }, t => [primaryKey({columns:[t.sourceKind,t.sourceId]}),check("intake_operations_source_kind_check",sql`${t.sourceKind} IN ('forms','merchants','applications','introductions','referrals','merchant_referrals')`)]);
+
+// Payarc Traditional lifecycle; no activation/backfill is implied by these rows.
+export const payarcPreparations = pgTable('payarc_preparations', {
+ applicationId:integer('application_id').primaryKey().references(()=>merchantApplications.id),
+ applicationRevision:text('application_revision').notNull(),payloadCiphertext:text('payload_ciphertext').notNull(),preparedBy:text('prepared_by').notNull(),preparedAt:timestamp('prepared_at',{withTimezone:true}).notNull().defaultNow(),
+});
+export const payarcCases = pgTable('payarc_cases', {
+ dealId:integer('deal_id').primaryKey().references(()=>deals.id),applicationId:integer('application_id').notNull().references(()=>merchantApplications.id),
+ contractVersion:text('contract_version').notNull(),environment:text('environment').notNull(),merchantCode:text('merchant_code').notNull(),ownerFingerprint:text('owner_fingerprint').notNull(),
+ phase:text('phase').notNull().default('lead_created'),observation:jsonb('observation').notNull().default(sql`'{}'::jsonb`),
+ signatureState:text('signature_state').notNull().default('pending'),signatureAttempts:integer('signature_attempts').notNull().default(0),signatureLease:uuid('signature_lease'),
+ signatureStartedAt:timestamp('signature_started_at',{withTimezone:true}),signatureSentAt:timestamp('signature_sent_at',{withTimezone:true}),pollLease:uuid('poll_lease'),pollLeaseExpiresAt:timestamp('poll_lease_expires_at',{withTimezone:true}),
+ nextPollAt:timestamp('next_poll_at',{withTimezone:true}).notNull().defaultNow(),lastPolledAt:timestamp('last_polled_at',{withTimezone:true}),lastError:text('last_error'),
+ createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+ check('payarc_cases_contract_version_check',sql`${t.contractVersion}='traditional-apply-v1'`),check('payarc_cases_environment_check',sql`${t.environment} IN ('sandbox','production')`),
+ check('payarc_cases_signature_state_check',sql`${t.signatureState} IN ('pending','attempting','sent','uncertain','failed')`),check('payarc_cases_signature_attempts_check',sql`${t.signatureAttempts} BETWEEN 0 AND 5`),
+ unique('payarc_cases_environment_merchant_code_key').on(t.environment,t.merchantCode),index('payarc_cases_due_idx').on(t.nextPollAt),
+]);
+export const payarcCorrectionCommands=pgTable('payarc_correction_commands',{
+ id:uuid('id').primaryKey(),dealId:integer('deal_id').notNull().references(()=>payarcCases.dealId),applicationRevision:text('application_revision').notNull(),
+ state:text('state').notNull().default('pending'),createdBy:text('created_by').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+ startedAt:timestamp('started_at',{withTimezone:true}),settledAt:timestamp('settled_at',{withTimezone:true}),
+},t=>[check('payarc_correction_commands_state_check',sql`${t.state} IN ('pending','attempting','updated','uncertain','failed')`),uniqueIndex('payarc_correction_active_idx').on(t.dealId).where(sql`state IN ('pending','attempting','uncertain')`)]);

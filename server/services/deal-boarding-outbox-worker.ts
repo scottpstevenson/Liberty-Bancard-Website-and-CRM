@@ -246,6 +246,10 @@ async function commitBoardingSuccess(params: {
   /** The provider's own status at acceptance (R04). Only in-flight statuses are persisted as the deal status. */
   providerStatus?: string | null;
   identity?: ProviderOperationIdentity | null;
+  contractVersion?: string;
+  payarcSentPayload?: Record<string,unknown>;
+  applicationId?: number;
+  authorizedBaseUrl?: string | null;
 }): Promise<boolean> {
   const {
     dealId, contactId, owner, processorName, processorApplicationId,
@@ -270,10 +274,20 @@ async function commitBoardingSuccess(params: {
       ))
       .returning({ id: dealBoardingOutbox.id });
     if (owned.length === 0) return false;
+    if (params.contractVersion === 'traditional-apply-v1' && params.applicationId && params.authorizedBaseUrl) {
+      const environment=params.authorizedBaseUrl.startsWith('https://testapi.')?'sandbox':'production';
+      const {fingerprint}=await import("./merchant-protected-data");
+      const ownerFingerprint=fingerprint("payarc-owners-v1:"+JSON.stringify(params.payarcSentPayload?.Owners));
+      await tx.execute(sql`INSERT INTO payarc_cases(deal_id,application_id,contract_version,environment,merchant_code,owner_fingerprint)
+        VALUES(${dealId},${params.applicationId},'traditional-apply-v1',${environment},${processorApplicationId},${ownerFingerprint})
+        ON CONFLICT(deal_id) DO NOTHING`);
+    }
     if (setSubmittedFields) {
       const logEntry = {
         timestamp: new Date().toISOString(),
         event: "submitted",
+        contractVersion: params.contractVersion ?? null,
+        phase: params.contractVersion ? "lead_created" : null,
         processor: processorName,
         processorApplicationId,
         estimatedDecisionDate: estimatedDecisionDate ?? null,
@@ -653,6 +667,11 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettleme
   (payload as any).processorProgram = snapshot.processorProgram;
   (payload as any).snapshotAuthorizedBaseUrl = snapshot.authorizedBaseUrl;
 
+  if (processor.name === 'payarc') {
+    const {readPayarcPreparation}=await import('./payarc-preparation');
+    (payload as any).payarcTraditionalPayload=await readPayarcPreparation(application.id);
+  }
+
   // S5-14: a previous attempt wrote DISPATCH_STARTED and never settled (crash, takeover or
   // lost response). The provider may already hold the application, and Payarc dedupe by
   // header is not certified, so re-sending could create a duplicate. Hold for reconciliation.
@@ -734,6 +753,7 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<BoardingSettleme
     owner: deal.owner ?? null,
     processorName: processor.name,
     processorApplicationId: result.processorApplicationId as string,
+    contractVersion: result.contractVersion, payarcSentPayload:(payload as any).payarcTraditionalPayload, applicationId: application.id, authorizedBaseUrl: snapshot.authorizedBaseUrl,
     estimatedDecisionDate: result.estimatedDecisionDate ?? null,
     existingLog: (deal.boardingLog as any[]) || [],
     setSubmittedFields: true,

@@ -1,0 +1,1376 @@
+{
+  "source": "https://docs.payarc.net/reference/patch-traditional-lead",
+  "retrieved": "2026-11-20",
+  "request": {
+    "type": "object",
+    "properties": {
+      "Lead": {
+        "type": "object",
+        "required": [
+          "MerchantName",
+          "ContactFirstName",
+          "ContactLastName",
+          "ContactEmail",
+          "DiscountRateProgram",
+          "Industry",
+          "LegalName",
+          "OfficeAddress",
+          "OfficeCity",
+          "OfficeState",
+          "OfficeZipCode",
+          "RegisteredAddress",
+          "RegisteredCity",
+          "RegisteredState",
+          "RegisteredZipCode",
+          "ContactPhoneNo",
+          "TaxId",
+          "DateIncorporated",
+          "StateOfIncorporation",
+          "OwnershipType",
+          "CustomerSupportNumber",
+          "BusinessSummary",
+          "BankAccountNo",
+          "BankRoutingNo"
+        ],
+        "properties": {
+          "MerchantName": {
+            "type": "string"
+          },
+          "ContactFirstName": {
+            "type": "string"
+          },
+          "ContactLastName": {
+            "type": "string"
+          },
+          "ContactEmail": {
+            "type": "string"
+          },
+          "DiscountRateProgram": {
+            "type": "string",
+            "enum": [
+              "tiered",
+              "interchange",
+              "bundleRate"
+            ]
+          },
+          "Industry": {
+            "type": "string",
+            "enum": [
+              "nutra",
+              "cloud-based-storage-internet-provider-tech-support",
+              "money_transfer_msb",
+              "medical-dental-device-sales",
+              "general-retail-rest-low-risk",
+              "smokeshope-cbd",
+              "hemp-hemp-derived-CBD-paraphernalia-supplement",
+              "card-present-firearms-CNP-b-2-b-firearms",
+              "gadget",
+              "digital-goods-marketplace-nontravel",
+              "marijuana-marketing",
+              "other_high_risk",
+              "consumer-lending",
+              "debt-relief-mobile-payment-application-short-term-lender",
+              "timeshare-sales",
+              "online-dating",
+              "document_prep_services",
+              "credit_repair",
+              "debt-collection",
+              "seo",
+              "business_ops_consutling",
+              "idtheft_addresschange_visapassportservice-personal-credit-protection-warranties",
+              "deferred-delivery-multilevel-marketing",
+              "online-gaming",
+              "telemedicine-services",
+              "charitable-crowd-funding",
+              "medical-plan-discount",
+              "discount-membership"
+            ]
+          },
+          "LegalName": {
+            "type": "string"
+          },
+          "OfficeAddress": {
+            "type": "string"
+          },
+          "OfficeCity": {
+            "type": "string"
+          },
+          "OfficeState": {
+            "type": "string",
+            "enum": [
+              "AR",
+              "AS",
+              "AZ",
+              "CA",
+              "CO",
+              "CT",
+              "DC",
+              "DE",
+              "FL",
+              "FM",
+              "GA",
+              "GU",
+              "HI",
+              "IA",
+              "ID",
+              "IL",
+              "IN",
+              "KS",
+              "KY",
+              "LA",
+              "MA",
+              "MD",
+              "ME",
+              "MH",
+              "MI",
+              "MN",
+              "MO",
+              "MP",
+              "MS",
+              "MT",
+              "NC",
+              "ND",
+              "NE",
+              "NH",
+              "NJ",
+              "NM",
+              "NV",
+              "NY",
+              "OH",
+              "OK",
+              "OR",
+              "PA",
+              "PR",
+              "PW",
+              "RI",
+              "SC",
+              "SD",
+              "TN",
+              "TX",
+              "UT",
+              "VA",
+              "VI",
+              "VT",
+              "WA",
+              "WI",
+              "WV",
+              "WY"
+            ]
+          },
+          "OfficeZipCode": {
+            "type": "string"
+          },
+          "RegisteredAddress": {
+            "type": "string"
+          },
+          "RegisteredCity": {
+            "type": "string"
+          },
+          "RegisteredState": {
+            "type": "string",
+            "enum": [
+              "AR",
+              "AS",
+              "AZ",
+              "CA",
+              "CO",
+              "CT",
+              "DC",
+              "DE",
+              "FL",
+              "FM",
+              "GA",
+              "GU",
+              "HI",
+              "IA",
+              "ID",
+              "IL",
+              "IN",
+              "KS",
+              "KY",
+              "LA",
+              "MA",
+              "MD",
+              "ME",
+              "MH",
+              "MI",
+              "MN",
+              "MO",
+              "MP",
+              "MS",
+              "MT",
+              "NC",
+              "ND",
+              "NE",
+              "NH",
+              "NJ",
+              "NM",
+              "NV",
+              "NY",
+              "OH",
+              "OK",
+              "OR",
+              "PA",
+              "PR",
+              "PW",
+              "RI",
+              "SC",
+              "SD",
+              "TN",
+              "TX",
+              "UT",
+              "VA",
+              "VI",
+              "VT",
+              "WA",
+              "WI",
+              "WV",
+              "WY"
+            ]
+          },
+          "RegisteredZipCode": {
+            "type": "string"
+          },
+          "ContactPhoneNo": {
+            "type": "string"
+          },
+          "TaxId": {
+            "type": "string"
+          },
+          "DateIncorporated": {
+            "type": "string",
+            "format": "date"
+          },
+          "StateOfIncorporation": {
+            "type": "string",
+            "enum": [
+              "AR",
+              "AS",
+              "AZ",
+              "CA",
+              "CO",
+              "CT",
+              "DC",
+              "DE",
+              "FL",
+              "FM",
+              "GA",
+              "GU",
+              "HI",
+              "IA",
+              "ID",
+              "IL",
+              "IN",
+              "KS",
+              "KY",
+              "LA",
+              "MA",
+              "MD",
+              "ME",
+              "MH",
+              "MI",
+              "MN",
+              "MO",
+              "MP",
+              "MS",
+              "MT",
+              "NC",
+              "ND",
+              "NE",
+              "NH",
+              "NJ",
+              "NM",
+              "NV",
+              "NY",
+              "OH",
+              "OK",
+              "OR",
+              "PA",
+              "PR",
+              "PW",
+              "RI",
+              "SC",
+              "SD",
+              "TN",
+              "TX",
+              "UT",
+              "VA",
+              "VI",
+              "VT",
+              "WA",
+              "WI",
+              "WV",
+              "WY"
+            ]
+          },
+          "OwnershipType": {
+            "type": "string",
+            "enum": [
+              "sole_prop",
+              "private_corp",
+              "llc",
+              "partnership",
+              "public_corporation",
+              "government",
+              "non_profit"
+            ]
+          },
+          "CustomerSupportNumber": {
+            "type": "string"
+          },
+          "BusinessSummary": {
+            "type": "string"
+          },
+          "BankAccountNo": {
+            "type": "string"
+          },
+          "BankRoutingNo": {
+            "type": "string"
+          },
+          "Website": {
+            "type": "string"
+          },
+          "AccountUpdater": {
+            "type": "number",
+            "format": "double"
+          },
+          "MinMonthlyFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "MonthlyFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "PosFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "PciFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "TerminalFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "GatewayFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "StatementFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "RiskAnalysisFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "WebMonitoringFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "BankSponsorFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "AmexSponsorFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "BatchFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "ChargebackFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "ChargebackReversalFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "RetrievalFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "ArbitrationFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "VoiceAuthFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "DebitCardAuthsFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "EbtAuthsFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "AccountUpdateOtherFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "GatewayTranactionsFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "PerAchRejectFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "DeclinesFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "RefundsFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "AvsFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "EthocaVerifiAlertsFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "RapidDisputeResolutionFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "CurrentyAcceptCreditCards": {
+            "type": "number",
+            "format": "double"
+          },
+          "CardPresentPct": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "MotoPct": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "TotalMonthlyProcessing": {
+            "type": "number",
+            "format": "double"
+          },
+          "AvgTicketValue": {
+            "type": "number",
+            "format": "double"
+          },
+          "HighTicketValue": {
+            "type": "number",
+            "format": "double"
+          },
+          "DesiredDescriptor": {
+            "type": "string"
+          },
+          "EbtFnsNumber": {
+            "type": "string"
+          },
+          "ProcessingTerminated": {
+            "type": "boolean"
+          },
+          "PersonalOrBusiness": {
+            "type": "string",
+            "enum": [
+              "Personal",
+              "Business"
+            ]
+          },
+          "Bankruptcy": {
+            "type": "boolean"
+          },
+          "BankruptcyType": {
+            "type": "string",
+            "enum": [
+              "Personal",
+              "Business"
+            ]
+          },
+          "AmexProcessingPerYear": {
+            "type": "number",
+            "format": "double"
+          },
+          "OtherFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "OtherFeeName": {
+            "type": "string"
+          },
+          "CommentsOther": {
+            "type": "string"
+          },
+          "MonthlyOtherFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "MonthlyOtherFeeName": {
+            "type": "string"
+          },
+          "AmexEsaNumber": {
+            "type": "string"
+          },
+          "DriverLicenseOrId": {
+            "type": "string"
+          },
+          "NotProcessingInfo": {
+            "type": "string"
+          },
+          "RiskLevel": {
+            "type": "string",
+            "enum": [
+              "LowRisk",
+              "MidRisk",
+              "HighRisk"
+            ]
+          },
+          "AdditionalComments": {
+            "type": "string"
+          },
+          "SameDayFunding": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no"
+            ]
+          },
+          "timeZoneDiff": {
+            "type": "string",
+            "enum": [
+              "est",
+              "cst",
+              "mst",
+              "pst",
+              "ast",
+              "hst"
+            ]
+          },
+          "MerchantPciFeeYearly": {
+            "type": "number",
+            "format": "double"
+          },
+          "MerchantAnnualFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "MerchantDebitAccess": {
+            "type": "number",
+            "format": "double"
+          },
+          "MerchantBreachProtectionFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "MerchantSameDayFundingRate": {
+            "type": "number",
+            "format": "double"
+          },
+          "MerchantWirelessFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "MerchantResidualTemplates": {
+            "type": "string"
+          }
+        }
+      },
+      "BlendedRatePricing": {
+        "type": "object",
+        "properties": {
+          "FlatRatePct": {
+            "type": "number",
+            "format": "double"
+          },
+          "Authorizations": {
+            "type": "number",
+            "format": "double"
+          },
+          "CashDiscountRatePct": {
+            "type": "number",
+            "format": "double"
+          },
+          "CashDiscountFee": {
+            "type": "number",
+            "format": "double"
+          },
+          "SurchargeFeeRate": {
+            "type": "number",
+            "format": "double"
+          },
+          "SurchargeFeeAmount": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "TieredPricing": {
+        "type": "object",
+        "properties": {
+          "QualifiedPctVS": {
+            "type": "number",
+            "format": "double"
+          },
+          "QualifiedPctAX": {
+            "type": "number",
+            "format": "double"
+          },
+          "QualifiedPctDS": {
+            "type": "number",
+            "format": "double"
+          },
+          "QualifiedPctDB": {
+            "type": "number",
+            "format": "double"
+          },
+          "MidQualifiedPctVS": {
+            "type": "number",
+            "format": "double"
+          },
+          "MidQualifiedPctAX": {
+            "type": "number",
+            "format": "double"
+          },
+          "MidQualifiedPctDS": {
+            "type": "number",
+            "format": "double"
+          },
+          "MidQualifiedPctDB": {
+            "type": "number",
+            "format": "double"
+          },
+          "NonQualifiedPctVS": {
+            "type": "number",
+            "format": "double"
+          },
+          "NonQualifiedPctAX": {
+            "type": "number",
+            "format": "double"
+          },
+          "NonQualifiedPctDS": {
+            "type": "number",
+            "format": "double"
+          },
+          "NonQualifiedPctDB": {
+            "type": "number",
+            "format": "double"
+          },
+          "QualifiedAuthVS": {
+            "type": "number",
+            "format": "double"
+          },
+          "QualifiedAuthAX": {
+            "type": "number",
+            "format": "double"
+          },
+          "QualifiedAuthDS": {
+            "type": "number",
+            "format": "double"
+          },
+          "QualifiedAuthDB": {
+            "type": "number",
+            "format": "double"
+          },
+          "MidQualifiedAuthVS": {
+            "type": "number",
+            "format": "double"
+          },
+          "MidQualifiedAuthAX": {
+            "type": "number",
+            "format": "double"
+          },
+          "MidQualifiedAuthDS": {
+            "type": "number",
+            "format": "double"
+          },
+          "MidQualifiedAuthDB": {
+            "type": "number",
+            "format": "double"
+          },
+          "NonQualifiedAuthVS": {
+            "type": "number",
+            "format": "double"
+          },
+          "NonQualifiedAuthAX": {
+            "type": "number",
+            "format": "double"
+          },
+          "NonQualifiedAuthDS": {
+            "type": "number",
+            "format": "double"
+          },
+          "NonQualifiedAuthDB": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "Owners": {
+        "type": "object",
+        "properties": {
+          "WebsitePayments": {
+            "type": "string",
+            "enum": [
+              "No",
+              "Yes",
+              "NoWebSite"
+            ]
+          },
+          "SSLProvider": {
+            "type": "string"
+          },
+          "ProdSoldNorthAmericaPct": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ProdSoldEuropePct": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ProdSoldOtherMarketsPct": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "SellBusinessPct": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "SellConsumerPct": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ReturnPolicy": {
+            "type": "string",
+            "enum": [
+              "GreaterThan30Days",
+              "LessThan30Days",
+              "NoReturns",
+              "OtherReason"
+            ]
+          },
+          "NoRefundsInfo": {
+            "type": "string"
+          },
+          "ReturnPolicyOther": {
+            "type": "string"
+          },
+          "MonthlyRefundsPct": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "RefundDays": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Refund100Pct": {
+            "type": "boolean"
+          },
+          "RefundLess100PctInfo": {
+            "type": "string"
+          },
+          "WhenIsCustomerCharged": {
+            "type": "string",
+            "enum": [
+              "ShipmentOrCompletionOfService",
+              "Order"
+            ]
+          },
+          "IsShipmentTraceable": {
+            "type": "boolean"
+          },
+          "IsDeliveryReceiptRequested": {
+            "type": "boolean"
+          },
+          "OrderTurnaroundTime": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "AdvancedDeposits": {
+            "type": "boolean"
+          },
+          "DepositPct": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "DepositAmt": {
+            "type": "number",
+            "format": "double"
+          },
+          "WarehouseAddress": {
+            "type": "string"
+          },
+          "WarehouseCity": {
+            "type": "string"
+          },
+          "WarehouseState": {
+            "type": "string"
+          },
+          "WarehouseCountry": {
+            "type": "string"
+          },
+          "WarehouseZipCode": {
+            "type": "string"
+          },
+          "OwnProductAtTimeOfSale": {
+            "type": "boolean"
+          },
+          "OtherCompaniesInvolved": {
+            "type": "boolean"
+          },
+          "OtherCompaniesInvolvedInfo": {
+            "type": "string"
+          },
+          "AdvertiseInfo": {
+            "type": "string"
+          },
+          "WhoEntersCardInfo": {
+            "type": "string",
+            "enum": [
+              "Consumer",
+              "FulfillmentCenter",
+              "Merchant"
+            ]
+          },
+          "IsProcessingSeasonal": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth1": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth2": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth3": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth4": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth5": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth6": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth7": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth8": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth9": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth10": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth11": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth12": {
+            "type": "boolean"
+          },
+          "MembershipPayments": {
+            "type": "boolean"
+          },
+          "MembershipPaymentsPct": {
+            "type": "number",
+            "format": "double"
+          },
+          "PackageUsageTime": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "WhoManagesRecurringPayments": {
+            "type": "string",
+            "enum": [
+              "PayArcsVaultModule",
+              "Other"
+            ]
+          },
+          "RecurringPaymentProvider": {
+            "type": "string"
+          },
+          "CaptureAVS": {
+            "type": "boolean"
+          },
+          "CaptureAVSAction": {
+            "type": "string",
+            "enum": [
+              "Decline",
+              "SendResponse"
+            ]
+          },
+          "CaptureCVV": {
+            "type": "boolean"
+          },
+          "PerformVerifiedByVisa": {
+            "type": "boolean"
+          },
+          "DoPayArcFraudCheck": {
+            "type": "boolean"
+          },
+          "": {
+            "type": "string"
+          }
+        }
+      },
+      "InterchangePlusPricing": {
+        "type": "object",
+        "properties": {
+          "PricingPctVS": {
+            "type": "number",
+            "format": "double"
+          },
+          "PricingPctAX": {
+            "type": "number",
+            "format": "double"
+          },
+          "PricingPctDS": {
+            "type": "number",
+            "format": "double"
+          },
+          "AuthorizationsVS": {
+            "type": "number",
+            "format": "double"
+          },
+          "AuthorizationsAX": {
+            "type": "number",
+            "format": "double"
+          },
+          "AuthorizationsDS": {
+            "type": "number",
+            "format": "double"
+          },
+          "": {
+            "type": "string"
+          }
+        }
+      },
+      "Questionnaire": {
+        "type": "object",
+        "properties": {
+          "WebsitePayments": {
+            "type": "string",
+            "enum": [
+              "No",
+              "Yes",
+              "NoWebSite"
+            ]
+          },
+          "SSLProvider": {
+            "type": "string"
+          },
+          "ProdSoldNorthAmericaPct": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ProdSoldEuropePct": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ProdSoldOtherMarketsPct": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "SellBusinessPct": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "SellConsumerPct": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ReturnPolicy": {
+            "type": "string",
+            "enum": [
+              "GreaterThan30Days",
+              "LessThan30Days",
+              "NoReturns",
+              "OtherReason"
+            ]
+          },
+          "NoRefundsInfo": {
+            "type": "string"
+          },
+          "ReturnPolicyOther": {
+            "type": "string"
+          },
+          "MonthlyRefundsPct": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "RefundDays": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Refund100Pct": {
+            "type": "boolean"
+          },
+          "RefundLess100PctInfo": {
+            "type": "string"
+          },
+          "WhenIsCustomerCharged": {
+            "type": "string",
+            "enum": [
+              "ShipmentOrCompletionOfService",
+              "Order"
+            ]
+          },
+          "IsShipmentTraceable": {
+            "type": "boolean"
+          },
+          "IsDeliveryReceiptRequested": {
+            "type": "boolean"
+          },
+          "OrderTurnaroundTime": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "AdvancedDeposits": {
+            "type": "boolean"
+          },
+          "DepositPct": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "DepositAmt": {
+            "type": "number",
+            "format": "double"
+          },
+          "WarehouseAddress": {
+            "type": "string"
+          },
+          "WarehouseCity": {
+            "type": "string"
+          },
+          "WarehouseState": {
+            "type": "string"
+          },
+          "WarehouseCountry": {
+            "type": "string"
+          },
+          "WarehouseZipCode": {
+            "type": "string"
+          },
+          "OwnProductAtTimeOfSale": {
+            "type": "boolean"
+          },
+          "OtherCompaniesInvolved": {
+            "type": "boolean"
+          },
+          "OtherCompaniesInvolvedInfo": {
+            "type": "string"
+          },
+          "AdvertiseInfo": {
+            "type": "string"
+          },
+          "WhoEntersCardInfo": {
+            "type": "string",
+            "enum": [
+              "Consumer",
+              "FulfillmentCenter",
+              "Merchant"
+            ]
+          },
+          "IsProcessingSeasonal": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth1": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth2": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth3": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth4": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth5": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth6": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth7": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth8": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth9": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth10": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth11": {
+            "type": "boolean"
+          },
+          "ProcessingSeasonalMonth12": {
+            "type": "boolean"
+          },
+          "MembershipPayments": {
+            "type": "boolean"
+          },
+          "MembershipPaymentsPct": {
+            "type": "number",
+            "format": "double"
+          },
+          "PackageUsageTime": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "WhoManagesRecurringPayments": {
+            "type": "string",
+            "enum": [
+              "PayArcsVaultModule",
+              "Other"
+            ]
+          },
+          "RecurringPaymentProvider": {
+            "type": "string"
+          },
+          "CaptureAVS": {
+            "type": "boolean"
+          },
+          "CaptureAVSAction": {
+            "type": "string",
+            "enum": [
+              "Decline",
+              "SendResponse"
+            ]
+          },
+          "CaptureCVV": {
+            "type": "boolean"
+          },
+          "PerformVerifiedByVisa": {
+            "type": "boolean"
+          },
+          "DoPayArcFraudCheck": {
+            "type": "boolean"
+          },
+          "": {
+            "type": "string"
+          }
+        }
+      },
+      "TSQuestionery": {
+        "type": "object",
+        "required": [
+          "MerchantCurvPos",
+          "TerminalType",
+          "TerminalGatewaySetup",
+          "TerminalGateway",
+          "TerminalPinDebit",
+          "TerminalEbtFns",
+          "TerminalPrimaryMethod",
+          "TerminalPaxPos",
+          "TerminalDejavooPosDebit",
+          "TerminalDejavooPosCash",
+          "TerminalDejavooPosGift",
+          "TerminalBatchAutoClose",
+          "TerminalTrackClerks",
+          "TerminalOptionInvoice",
+          "TerminalOptionTax",
+          "TerminalCityTaxPct",
+          "TerminalStateTaxPct",
+          "TerminalOptionSignature",
+          "TerminalDeployment"
+        ],
+        "properties": {
+          "MerchantCurvPos": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "TerminalType": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "TerminalGatewaySetup": {
+            "type": "string"
+          },
+          "TerminalGateway": {
+            "type": "string"
+          },
+          "TerminalPinDebit": {
+            "type": "string"
+          },
+          "TerminalEbtFns": {
+            "type": "string"
+          },
+          "TerminalPrimaryMethod": {
+            "type": "string"
+          },
+          "TerminalEmvQuantity": {
+            "type": "object",
+            "properties": {
+              "dejavoo": {
+                "type": "object",
+                "properties": {
+                  "qd2": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "qd3": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "qd2wifi": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "qd4": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "qd5": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "z11": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "z8": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "z9": {
+                    "type": "integer",
+                    "format": "int32"
+                  }
+                }
+              },
+              "mobileReaders": {
+                "type": "object",
+                "properties": {
+                  "b250": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "bbpos": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "idynamo5": {
+                    "type": "integer",
+                    "format": "int32"
+                  }
+                }
+              },
+              "pax": {
+                "type": "object",
+                "properties": {
+                  "a80": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "a920": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "a920pro": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "sp30": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "sp300": {
+                    "type": "integer",
+                    "format": "int32"
+                  }
+                }
+              }
+            }
+          },
+          "TerminalPaxPos": {
+            "type": "string"
+          },
+          "TerminalDejavooPosDebit": {
+            "type": "string"
+          },
+          "TerminalDejavooPosCash": {
+            "type": "string"
+          },
+          "TerminalDejavooPosGift": {
+            "type": "string"
+          },
+          "TerminalBatchAutoClose": {
+            "type": "string"
+          },
+          "TerminalOptionTip": {
+            "type": "string"
+          },
+          "TerminalTrackClerks": {
+            "type": "string"
+          },
+          "TerminalOptionInvoice": {
+            "type": "string"
+          },
+          "TerminalOptionTax": {
+            "type": "string"
+          },
+          "TerminalCityTaxPct": {
+            "type": "number",
+            "format": "float"
+          },
+          "TerminalStateTaxPct": {
+            "type": "number",
+            "format": "float"
+          },
+          "TerminalOptionSignature": {
+            "type": "string"
+          },
+          "TerminalHeader": {
+            "type": "string"
+          },
+          "TerminalFooter": {
+            "type": "string"
+          },
+          "TerminalDeployment": {
+            "type": "string"
+          },
+          "TerminalShippingName": {
+            "type": "string"
+          },
+          "TerminalShippingContactName": {
+            "type": "string"
+          },
+          "TerminalShippingAddress": {
+            "type": "string"
+          },
+          "TerminalShippingCity": {
+            "type": "string"
+          },
+          "TerminalShippingState": {
+            "type": "string"
+          },
+          "TerminalShippingZipCode": {
+            "type": "string"
+          },
+          "TerminalShippingPhoneNo": {
+            "type": "string"
+          },
+          "TerminalShippingPreferred": {
+            "type": "string"
+          },
+          "TerminalComments": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
