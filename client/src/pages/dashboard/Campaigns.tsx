@@ -488,6 +488,7 @@ function CampaignDetail({ campaign, currentPackage = false }: { campaign: Campai
           }
           title={
             campaign.status === "active" ? "Pause this campaign" :
+            currentPackage ? "Use Canonical Enrichment release for the paired SFP sequence" :
             (campaign.status === "draft" || campaign.status === "paused") && !approvalStatus?.approved ? "An admin must approve this campaign for launch before it can be activated" :
             "Activate this campaign"
           }
@@ -511,6 +512,7 @@ function CampaignDetail({ campaign, currentPackage = false }: { campaign: Campai
           }}
           disabled={currentPackage || queueMutation.isPending || (isCrmMode && previewStatus !== "done")}
           title={
+            currentPackage ? "Current SFP recipients are released through Canonical Enrichment" :
             isCrmMode && previewStatus === "idle" ? "Run Preview Audience first to confirm exact eligible count" :
             isCrmMode && previewStatus === "running" ? "Preview is computing — please wait" :
             isCrmMode && previewStatus === "error" ? "Preview failed — please re-run before queuing" :
@@ -631,6 +633,8 @@ function CampaignDetail({ campaign, currentPackage = false }: { campaign: Campai
             variant="outline"
             size="sm"
             onClick={() => setShowStepForm(!showStepForm)}
+            disabled={currentPackage}
+            title={currentPackage ? "Use Open content workspace above to edit the paired package" : undefined}
             data-testid={`button-add-step-${campaign.id}`}
           >
             <Plus className="w-4 h-4 mr-1" /> Add Step
@@ -681,6 +685,8 @@ function CampaignDetail({ campaign, currentPackage = false }: { campaign: Campai
                     variant="ghost"
                     size="icon"
                     aria-label="Edit step"
+                    disabled={currentPackage}
+                    title={currentPackage ? "Edit the paired package in Content workspace" : undefined}
                     onClick={() => {
                       if (editingStep?.id === step.id) {
                         setEditingStep(null);
@@ -700,7 +706,7 @@ function CampaignDetail({ campaign, currentPackage = false }: { campaign: Campai
                     size="icon"
                     aria-label="Delete step"
                     onClick={() => deleteStepMutation.mutate(step.id)}
-                    disabled={deleteStepMutation.isPending}
+                    disabled={currentPackage || deleteStepMutation.isPending}
                     data-testid={`button-delete-step-${step.id}`}
                   >
                     <Trash2 className="w-4 h-4" />
