@@ -1,3 +1,5 @@
+import { registerGoogleOfflineRoutes } from "./google-offline-conversions";
+import { offlineConfig } from "../services/google-offline-conversions";
 import { readClientTrackingReadiness } from "../services/client-tracking-readiness";
 /**
  * Acquisition Command Center — API routes
@@ -52,6 +54,7 @@ const PLANNING = {
 };
 
 export function registerAcquisitionRoutes(app: Express): void {
+  registerGoogleOfflineRoutes(app);
 
   // ── Acquisition funnel metrics ─────────────────────────────────────────────
   app.get("/api/acquisition/funnel", isDashboardUser, async (req, res) => {
@@ -155,9 +158,10 @@ export function registerAcquisitionRoutes(app: Express): void {
         dealStages: dealStages.rows.map(r => ({ stage: r.stage, count: parseInt(r.cnt, 10) })),
         planning: PLANNING,
         ghlConfigured: isGhlConfigured(),
-        googleAdsApiConfigured: false,
+        googleAdsApiConfigured: false, // Legacy funnel flag: spend synchronization is separate from the offline outbox.
+        googleAdsOfflineConfigured: offlineConfig().credentialsConfigured && offlineConfig().mappingsConfigured,
         googleAdsDeveloperTokenPresent: !!process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
-        googleAdsUploadStatus: "not_configured_no_verified_uploader",
+        googleAdsUploadStatus: offlineConfig().uploadsEnabled ? "opted_in_receipt_required" : "implemented_uploads_disabled",
       });
     } catch (err: any) {
       console.error("[Acquisition] /funnel error:", err.message);
@@ -459,21 +463,21 @@ export function registerAcquisitionRoutes(app: Express): void {
 
       res.json({
         days,
-        googleAdsApiConfigured: false,
+        googleAdsApiConfigured: offlineConfig().credentialsConfigured && offlineConfig().mappingsConfigured,
         googleAdsDeveloperTokenPresent: !!process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
-        googleAdsUploadStatus: "not_configured_no_verified_uploader",
+        googleAdsUploadStatus: offlineConfig().uploadsEnabled ? "opted_in_receipt_required" : "implemented_uploads_disabled",
         clientTracking: await readClientTrackingReadiness(),
         gclidCaptureWired: true,
         gclidCaptureActive: rows.rows.some((r: any) => !!r.gclid),
         observedExportRowsWithGclid: rows.rows.filter((r: any) => !!r.gclid).length,
         gclidObservationScope: "Returned conversion export rows only; absence does not prove capture is disabled",
-        note: "This is an operator review export, not upload acceptance. Values and currency are intentionally blank; email and campaign metadata are excluded. Verify event provenance, advertising consent, click-time ordering and the matching Google Ads conversion names before importing. No automatic uploader is configured.",
+        note: "This is an operator review export, not upload acceptance. Values and currency are intentionally blank; email and campaign metadata are excluded. Verify event provenance, advertising consent, click-time ordering and the matching Google Ads conversion names before importing. The legacy CSV is separate from the occurrence-bound Google Data Manager outbox; it is not the automated delivery source.",
         setupSteps: [
           "Enable auto-tagging in your Google Ads account",
           "Verify a consented auto-tagged visit retains gclid through the accepted request and CRM contact",
-          "Configure the intended public GA4, Meta and explicit Google Ads conversion destination at client build time",
+          "Verify the intended public GA4 and saved-lead Ads destination in the client build; Meta is independent",
           "Review consent, event provenance, unique order IDs and conversion-name mapping before any manual import",
-          "Automatic upload requires an implemented uploader, authorized account credentials and a successful provider receipt; a developer token alone is insufficient",
+          "Use Reports / Sales & Growth / Conversion Funnel for the Google CRM outcome outbox, credentials, mapped actions and retained provider status; uploads require the separate explicit opt-in",
         ],
         totalRows: rows.rows.length,
         conversions: rows.rows,

@@ -1,3 +1,4 @@
+import { revokeAdsMeasurement, retryAdsMeasurementRevocation } from "./ads-measurement-consent";
 import { publicTrackingContext, safeReferrer, safeCampaignValue } from "./tracking-context";
 
 declare global {
@@ -20,6 +21,7 @@ export type TrackingConsentPreferences = { analytics: boolean; marketing: boolea
 export type CookieConsentPreferences = TrackingConsentPreferences & {
   necessary: boolean;
   functional: boolean;
+  adsMeasurement?: boolean;
 };
 
 const CONSENT_KEY = "lb_cookie_consent";
@@ -151,6 +153,7 @@ function initTracking() {
 initTracking();
 
 export function getStoredCookieConsent(): { level: string | null; preferences: CookieConsentPreferences } {
+  retryAdsMeasurementRevocation();
   let level: string | null = null;
   let preferences = DEFAULT_COOKIE_PREFERENCES;
   try {
@@ -163,6 +166,7 @@ export function getStoredCookieConsent(): { level: string | null; preferences: C
         analytics: parsed.analytics === true,
         marketing: parsed.marketing === true,
         functional: parsed.functional === true,
+        adsMeasurement: typeof parsed.adsMeasurement === "boolean" ? parsed.adsMeasurement : undefined,
       };
     }
   } catch {
@@ -172,9 +176,11 @@ export function getStoredCookieConsent(): { level: string | null; preferences: C
 }
 
 export function saveCookieConsent(level: string, preferences: CookieConsentPreferences): void {
+  if(!preferences.marketing || !preferences.adsMeasurement)revokeAdsMeasurement();
+  else retryAdsMeasurementRevocation();
   try {
     localStorage.setItem(CONSENT_KEY, level);
-    localStorage.setItem(CONSENT_PREFS_KEY, JSON.stringify(preferences));
+    localStorage.setItem(CONSENT_PREFS_KEY, JSON.stringify({ ...preferences, adsMeasurement: preferences.adsMeasurement === true }));
   } catch {
     // Consent is still applied for this page even if persistence is unavailable.
   }

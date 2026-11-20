@@ -75,7 +75,7 @@ console.log(`LAUNCH_READINESS_CONTRACTS_PASS ${checks}`);
   const vendor: any[][] = [], meta: any[][] = [], loaded: any[] = [];
   const storage = new Map<string, string>();
   const store = { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => storage.set(k, v), removeItem: (k: string) => storage.delete(k) };
-  const browser: any = { URL, URLSearchParams, console, module: { exports: {} }, exports: {}, localStorage: store, sessionStorage: store,
+  const browser: any = { URL, URLSearchParams, crypto: globalThis.crypto, console, module: { exports: {} }, exports: {}, localStorage: store, sessionStorage: store,
     window: { location: { pathname: '/upload-statement', origin: 'https://libertybancard.com', hostname: 'libertybancard.com', search: '?utm_source=google&utm_campaign=statement-review&email=private@example.test&token=secret#x' }, gtag: (...v: any[]) => vendor.push(v), fbq: (...v: any[]) => meta.push(v), dataLayer: [] },
     document: { cookie: '', referrer: 'https://www.google.com/search?q=private@example.test', head: { appendChild: (v: any) => loaded.push(v) }, createElement: () => ({}), getElementsByTagName: () => [] } };
   vm.runInNewContext(bundle.outputFiles[0].text, browser);
@@ -117,6 +117,19 @@ console.log(`LAUNCH_READINESS_CONTRACTS_PASS ${checks}`);
   let attribution = api.getStoredUTMParams();
   check(attribution.gclid === 'test-click-123' && attribution.utmCampaign === 'review' && attribution.landingPage === '/upload-statement', 'Consented auto-tagged arrival retains click ID, campaign and sanitized landing path');
   check(!JSON.stringify([...storage.values()]).includes('never-store'), 'Attribution storage never retains arbitrary query fields');
+  check(!api.getStoredUTMParams().adsMeasurementConsent, 'An existing marketing preference never silently grants offline CRM sharing');
+  api.saveCookieConsent('custom', { necessary: true, functional: false, analytics: true, marketing: true, adsMeasurement: true });
+  const offlineAttribution=api.getStoredUTMParams();
+  check(offlineAttribution.adsMeasurementConsent===true && offlineAttribution.adsMeasurementVersion==='ads-measurement-v1' && /^[a-f0-9]{64}$/.test(offlineAttribution.adsMeasurementKey), 'Explicit offline measurement choice supplies a separate versioned consent and unguessable revocation capability');
+  api.saveCookieConsent('custom', { necessary: true, functional: false, analytics: true, marketing: true, adsMeasurement: false });
+  check(!api.getStoredUTMParams().adsMeasurementConsent && !storage.has('lb_ads_measurement_key'), 'Offline measurement withdrawal stops new sharing while preserving independent analytics preferences');
+  api.saveCookieConsent('custom', { necessary:true,functional:false,analytics:true,marketing:true,adsMeasurement:true });
+  const nextMeasurementKey=api.getStoredUTMParams().adsMeasurementKey;
+  api.saveCookieConsent('custom', { necessary:true,functional:false,analytics:true,marketing:true,adsMeasurement:false });
+  check(nextMeasurementKey!==offlineAttribution.adsMeasurementKey && JSON.parse(storage.get('lb_ads_measurement_revoke')??'[]').includes(offlineAttribution.adsMeasurementKey) && JSON.parse(storage.get('lb_ads_measurement_revoke')??'[]').includes(nextMeasurementKey), 'Rapid consent changes retain every outstanding revocation and issue a fresh capability for a new grant');
+  check(!JSON.stringify(vendor).includes(nextMeasurementKey) && !JSON.stringify(meta).includes(nextMeasurementKey), 'First-party revocation capabilities never enter vendor commands');
+
+
   browser.window.location.search = '?utm_source=meta&utm_campaign=retargeting';
   api.captureUTMParams();
   check(api.getFirstTouchUTMParams().utmSource === 'google' && api.getStoredUTMParams().utmSource === 'meta', 'First and latest campaign touches stay distinct');

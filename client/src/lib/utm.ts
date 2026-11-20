@@ -1,3 +1,4 @@
+import { adsMeasurementKey } from "./ads-measurement-consent";
 import { publicTrackingContext, safeCampaignValue } from "./tracking-context";
 
 const UTM_STORAGE_KEY = "lb_utm_params";
@@ -13,14 +14,19 @@ export interface UTMParams {
   utmTerm?: string;
   landingPage?: string;
   gclid?: string;
+  gbraid?: string;
+  wbraid?: string;
+  adsMeasurementConsent?: boolean;
+  adsMeasurementVersion?: string;
+  adsMeasurementKey?: string;
   gclidPresent?: boolean;
   fbclidPresent?: boolean;
   msclkidPresent?: boolean;
 }
 
 function consent() {
-  try { const p = JSON.parse(localStorage.getItem("lb_cookie_prefs") || "{}"); return { analytics: p.analytics === true, marketing: p.marketing === true }; }
-  catch { return { analytics: false, marketing: false }; }
+  try { const p = JSON.parse(localStorage.getItem("lb_cookie_prefs") || "{}"); return { analytics: p.analytics === true, marketing: p.marketing === true, adsMeasurement: p.adsMeasurement === true }; }
+  catch { return { analytics: false, marketing: false, adsMeasurement: false }; }
 }
 function read(key: string) { try { return sessionStorage.getItem(key); } catch { return null; } }
 function write(key: string, value: string) { try { sessionStorage.setItem(key, value); } catch { /* Storage restrictions never break intake. */ } }
@@ -42,9 +48,9 @@ export function captureUTMParams(): void {
   }
   if (!read(LANDING_PAGE_KEY)) write(LANDING_PAGE_KEY, window.location.pathname);
   if (!allowed.marketing) { remove(CLICK_IDS_KEY); return; }
-  const gclid = params.get("gclid");
-  const validGclid = gclid && /^[a-zA-Z0-9_-]{1,500}$/.test(gclid) ? gclid : undefined;
-  if (validGclid || params.has("fbclid") || params.has("msclkid")) write(CLICK_IDS_KEY, JSON.stringify({ gclid: validGclid, gclidPresent: !!validGclid, fbclidPresent: params.has("fbclid"), msclkidPresent: params.has("msclkid") }));
+  const ids:Record<string,string|boolean>={};
+  for(const key of ['gclid','gbraid','wbraid']){const value=params.get(key);if(value&&/^[A-Za-z0-9_-]{1,500}$/.test(value))ids[key]=value;}
+  if(Object.keys(ids).length || params.has('fbclid') || params.has('msclkid'))write(CLICK_IDS_KEY,JSON.stringify({...ids,gclidPresent:!!ids.gclid,fbclidPresent:params.has('fbclid'),msclkidPresent:params.has('msclkid')}));
 }
 
 export function getStoredUTMParams(): UTMParams {
@@ -58,11 +64,12 @@ export function getStoredUTMParams(): UTMParams {
     const landing = read(LANDING_PAGE_KEY); if (landing && publicTrackingContext(landing)) params.landingPage = landing;
     if (allowed.marketing) {
       const ids = JSON.parse(read(CLICK_IDS_KEY) || "{}");
-      if (typeof ids.gclid === "string" && /^[a-zA-Z0-9_-]{1,500}$/.test(ids.gclid)) params.gclid = ids.gclid;
+      for(const key of ["gclid","gbraid","wbraid"] as const)if(typeof ids[key]==="string"&&/^[A-Za-z0-9_-]{1,500}$/.test(ids[key]))params[key]=ids[key];
       if (ids.gclidPresent === true) params.gclidPresent = true;
       if (ids.fbclidPresent === true) params.fbclidPresent = true;
       if (ids.msclkidPresent === true) params.msclkidPresent = true;
     }
+    if(allowed.marketing && allowed.adsMeasurement && (params.gclid||params.gbraid||params.wbraid)){const key=adsMeasurementKey();if(key){params.adsMeasurementConsent=true;params.adsMeasurementVersion="ads-measurement-v1";params.adsMeasurementKey=key;}}
     return params;
   } catch { return {}; }
 }

@@ -558,6 +558,10 @@ app.use((req, _res, next) => {
         pauseInitialized = false;
       }
 
+      if(process.env.GOOGLE_OFFLINE_UPLOAD_ENABLED === "true"){
+        const {startGoogleOfflineWorker}=await import("./services/google-offline-conversions");
+        startGoogleOfflineWorker();
+      }
       if(process.env.PHASE7_MEASUREMENT_ENABLED === "true"){
         const {startPhase7MeasurementWorker}=await import("./services/ab-test-worker");
         startPhase7MeasurementWorker();

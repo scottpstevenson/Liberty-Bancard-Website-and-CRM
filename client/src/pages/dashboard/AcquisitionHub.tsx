@@ -129,8 +129,8 @@ function OverviewTab({ days }: { days: number }) {
         <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950">
           <Info className="w-4 h-4 text-blue-600" />
           <AlertDescription className="text-blue-800 dark:text-blue-200">
-            <strong>Live Google Ads reporting and automatic uploads are not configured.</strong> A developer token alone does not provide account authorization or an uploader.
-            Review event evidence in <strong>Offline Conversions</strong> and check spend directly in Google Ads until those integrations have a verified provider receipt.
+            <strong>Live Google Ads spend synchronization is not configured.</strong> A developer token alone does not provide account authorization.
+            Google CRM outcome delivery is managed in Reports / Sales & Growth / Conversion Funnel. Check spend directly in Google Ads.
           </AlertDescription>
         </Alert>
       )}
@@ -648,9 +648,9 @@ function OfflineConversionsTab({ days }: { days: number }) {
           <CardContent className="pt-5">
             <p className="text-xs text-muted-foreground">Google Ads API</p>
             <Badge className="mt-2" variant={d.googleAdsApiConfigured ? "default" : "secondary"}>
-              {d.googleAdsApiConfigured ? "Configured — receipt required" : "No verified uploader"}
+              {d.googleAdsApiConfigured ? "Configured — receipt required" : "Connection not configured"}
             </Badge>
-            {!d.googleAdsApiConfigured && <p className="text-xs text-muted-foreground mt-1">An authorized uploader and provider receipt are still required</p>}
+            {!d.googleAdsApiConfigured && <p className="text-xs text-muted-foreground mt-1">Data Manager delivery and processing receipts are shown above</p>}
           </CardContent>
         </Card>
         <Card>

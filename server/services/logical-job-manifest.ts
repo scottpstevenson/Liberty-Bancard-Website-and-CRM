@@ -60,6 +60,7 @@ export type BacklogSource =
   | "sfp_outreach_eligibility"
   | "sunbiz_bootstrap_runs"
   | "website_lifecycle_admissions"
+  | "ads_offline_conversions"
   | "team_intake_alerts"
   | "none";
 
@@ -100,6 +101,7 @@ export interface ManifestEntry {
 // ---------------------------------------------------------------------------
 
 export const LOGICAL_JOB_MANIFEST: readonly ManifestEntry[] = [
+  { logicalKey:"google-offline-conversions",physicalQueue:"legacy_interval",jobNamePattern:"google-offline-measurement:tick",handler:"Consented CRM outcome ingestion and Google processing-status reconciliation",owner:"google-offline-conversions",effect:"external_data_sync",canRunWhileGlobalOutboundPaused:true,backlogSource:"ads_offline_conversions",releaseController:"GOOGLE_OFFLINE_UPLOAD_ENABLED" },
   {
     logicalKey:"team-intake-email-alerts",
     physicalQueue:"legacy_interval",

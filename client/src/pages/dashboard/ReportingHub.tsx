@@ -1,3 +1,4 @@
+import { GoogleOfflineConversionsPanel } from "@/components/GoogleOfflineConversionsPanel";
 import { useLocation, useSearch } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Reporting from "./Reporting";
@@ -78,7 +79,7 @@ export default function ReportingHub() {
         )}
         <TabsContent value="overview"><Reporting /></TabsContent>
         <TabsContent value="growth">{growthState.issues.length?<CrmDataState state="conflict" message="Invalid growth view; no alternate report was requested."/>:<GrowthKPI />}</TabsContent>
-        <TabsContent value="conversion-funnel">{growthState.issues.length?<CrmDataState state="conflict" message="Invalid growth view; no cohort was requested."/>:<ConversionFunnel />}</TabsContent>
+        <TabsContent value="conversion-funnel">{growthState.issues.length?<CrmDataState state="conflict" message="Invalid growth view; no cohort was requested."/>:<div className="space-y-5"><ConversionFunnel /><GoogleOfflineConversionsPanel /></div>}</TabsContent>
         <TabsContent value="win-loss"><WinLoss /></TabsContent>
         <TabsContent value="outreach-analytics"><OutreachAnalytics /></TabsContent>
         <TabsContent value="operations"><OperationsReport /></TabsContent>

@@ -343,6 +343,7 @@ export const MANDATORY_SUITES: Suite[] = [
   {name:"Phase 6 Closure Browser (five widths, 200% zoom, Back/reload, late response, actor change, revocation, keyboard, role matrix)",script:"scripts/test-phase6-browser.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
   {name:"Phase 8 Mounted Browser",script:"scripts/certification/test-phase8-browser.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
   {name:"Phase 8 Migration Upgrade",script:"scripts/certification/test-phase8-upgrade.ts",timeoutSecs:600},
+  {name:"Google Offline Conversions",script:"scripts/certification/test-google-offline-conversions.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
   {name:"Launch Readiness HTTP",script:"scripts/certification/test-launch-readiness-http.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
   {name:"Launch Retained Category Recovery",script:"scripts/certification/test-launch-retained-recovery.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
   {name:"Launch Readiness Contracts",script:"scripts/test-launch-readiness-contracts.ts",timeoutSecs:120},

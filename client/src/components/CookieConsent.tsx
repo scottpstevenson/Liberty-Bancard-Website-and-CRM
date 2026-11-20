@@ -11,6 +11,7 @@ type ConsentPreferences = {
   analytics: boolean;
   marketing: boolean;
   functional: boolean;
+  adsMeasurement?: boolean;
 };
 
 export function CookieConsent() {
@@ -23,6 +24,7 @@ export function CookieConsent() {
     setPrefs(stored.preferences);
     if (stored.level) {
       applyConsentPreferences(stored.preferences);
+      if(stored.preferences.marketing && stored.preferences.adsMeasurement === undefined){setShowPrefs(true);setVisible(true);}
     } else {
       setVisible(true);
     }
@@ -44,7 +46,7 @@ export function CookieConsent() {
   if (!visible) return null;
 
   const acceptAll = () => {
-    const all = { necessary: true, analytics: true, marketing: true, functional: true };
+    const all = { necessary: true, analytics: true, marketing: true, functional: true, adsMeasurement: true };
     saveCookieConsent("all", all);
     setVisible(false);
   };
@@ -67,7 +69,7 @@ export function CookieConsent() {
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-[9999] p-4" data-testid="cookie-consent-banner">
-      <Card className="max-w-2xl mx-auto p-4 shadow-lg">
+      <Card className="max-w-2xl mx-auto max-h-[calc(100dvh-2rem)] overflow-y-auto p-4 shadow-lg">
         <div className="flex items-start gap-3">
           <Shield className="w-5 h-5 text-primary mt-0.5 shrink-0" />
           <div className="flex-1 space-y-3">
@@ -76,7 +78,7 @@ export function CookieConsent() {
                 <div>
                   <p className="text-sm font-medium text-foreground mb-1">We value your privacy</p>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    We use cookies and similar technologies to improve your experience, analyze site traffic, and personalize content. By clicking "Accept All," you consent to our use of cookies. You can manage your preferences or reject non-essential cookies.{" "}
+                    We use cookies and similar technologies to improve your experience, analyze site traffic, personalize content, and measure Google campaign results through reviewed CRM outcomes using ad click identifiers. By clicking "Accept All," you consent to our use of cookies. You can manage your preferences or reject non-essential cookies.{" "}
                     <Link href="/privacy-policy" className="underline">Privacy Policy</Link>{" | "}
                     <Link href="/cookie-policy" className="underline">Cookie Policy</Link>
                   </p>
@@ -102,18 +104,19 @@ export function CookieConsent() {
                     { key: "necessary" as const, label: "Strictly Necessary", desc: "Required for the website to function. Cannot be disabled.", locked: true },
                     { key: "functional" as const, label: "Functional", desc: "Enable enhanced functionality and personalization.", locked: false },
                     { key: "analytics" as const, label: "Analytics", desc: "Help us understand how visitors interact with our website.", locked: false },
+                    { key: "adsMeasurement" as const, label: "Google campaign outcomes", desc: "With Marketing enabled, share ad click identifiers and reviewed CRM outcomes with Google to measure campaigns. No names, emails or phone numbers are shared.", locked: false },
                     { key: "marketing" as const, label: "Marketing", desc: "Used to deliver relevant advertisements and track campaigns.", locked: false },
                   ]).map((item) => (
                     <label
                       key={item.key}
                       className="flex min-h-11 items-center gap-3 p-2 rounded-md hover-elevate cursor-pointer"
                     >
-                      <div
-                        className={`w-8 h-5 rounded-full relative transition-colors ${prefs[item.key] ? "bg-primary" : "bg-muted"} ${item.locked ? "opacity-60" : ""}`}
+                      <button type="button" role="switch" aria-label={item.label} aria-checked={prefs[item.key] === true} disabled={item.locked}
+                        className={`shrink-0 w-8 h-5 rounded-full relative transition-colors ${prefs[item.key] ? "bg-primary" : "bg-muted"} ${item.locked ? "opacity-60" : ""}`}
                         onClick={(e) => { e.preventDefault(); if (!item.locked) togglePref(item.key); }}
                       >
-                        <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${prefs[item.key] ? "translate-x-3.5" : "translate-x-0.5"}`} />
-                      </div>
+                        <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${prefs[item.key] ? "translate-x-3.5" : "translate-x-0.5"}`} />
+                      </button>
                       <div className="flex-1">
                         <span className="text-xs font-medium text-foreground">{item.label}</span>
                         <span className="text-xs text-muted-foreground ml-1">- {item.desc}</span>

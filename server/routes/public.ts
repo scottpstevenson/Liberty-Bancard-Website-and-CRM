@@ -173,6 +173,12 @@ export function registerPublicRoutes(app: Express) {
   }) {
     const requestId = req.inboundRequestId as string | undefined;
     if (!requestId) return null;
+    if(refs.contactId){
+      // Capture before acceptance so subsequent Closed Won evidence can retain the occurrence's own click.
+      // Measurement failure must never block an otherwise valid business request.
+      try { await (await import('../services/google-offline-conversions')).captureOfflineAttribution(requestId,refs.contactId,req.body??{}); }
+      catch { console.error('[Google offline] Accepted-intake attribution capture unavailable'); }
+    }
     const request = await orchestrateInboundRequest({ requestId, ...refs });
     return { success: true, requestReceipt: request.id, status: request.lifecycleState };
   }
@@ -872,6 +878,11 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         utmTerm: z.string().max(200).optional(),
         landingPage: z.string().max(1000).optional(),
         gclid: z.string().max(500).optional(),
+        gbraid: z.string().max(500).optional(),
+        wbraid: z.string().max(500).optional(),
+        adsMeasurementConsent: z.boolean().optional(),
+        adsMeasurementVersion: z.literal("ads-measurement-v1").optional(),
+        adsMeasurementKey: z.string().regex(/^[a-f0-9]{64}$/).optional(),
         gclidPresent: z.boolean().optional(),
         fbclidPresent: z.boolean().optional(),
         msclkidPresent: z.boolean().optional(),
@@ -1087,6 +1098,11 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         utmTerm: z.string().max(200).optional(),
         landingPage: z.string().max(1000).optional(),
         gclid: z.string().max(500).optional(),
+        gbraid: z.string().max(500).optional(),
+        wbraid: z.string().max(500).optional(),
+        adsMeasurementConsent: z.boolean().optional(),
+        adsMeasurementVersion: z.literal("ads-measurement-v1").optional(),
+        adsMeasurementKey: z.string().regex(/^[a-f0-9]{64}$/).optional(),
         gclidPresent: z.boolean().optional(),
         fbclidPresent: z.boolean().optional(),
         msclkidPresent: z.boolean().optional(),

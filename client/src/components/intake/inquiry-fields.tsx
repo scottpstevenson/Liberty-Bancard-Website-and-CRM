@@ -70,6 +70,11 @@ export function inquiryAttribution() {
   set("utmTerm", clamp(stored.utmTerm, 200));
   set("landingPage", clamp(stored.landingPage, 1000));
   set("gclid", clamp(stored.gclid, 500));
+  set("gbraid",clamp(stored.gbraid,500));
+  set("wbraid",clamp(stored.wbraid,500));
+  set("adsMeasurementConsent",stored.adsMeasurementConsent);
+  set("adsMeasurementVersion",stored.adsMeasurementVersion);
+  set("adsMeasurementKey",stored.adsMeasurementKey);
   if (stored.gclidPresent) out.gclidPresent = true;
   if (stored.fbclidPresent) out.fbclidPresent = true;
   if (stored.msclkidPresent) out.msclkidPresent = true;
