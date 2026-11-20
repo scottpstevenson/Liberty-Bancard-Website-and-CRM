@@ -6,6 +6,8 @@ Confirmed merchant-side sandbox evidence, November 20, 2026: Test Merchant/scott
 
 Please provide/confirm:
 
+Production partner access is now verified for GET /agent-hub/sub-agents (200, empty) and residual details (200, empty). With no merchants yet, empty results are expected. A validation-only submit-for-signature request using a nonexistent reference returns 422/errors.apply_app_id with the production key; the same route without authentication returns 401. No application creation or actual signature request was made. Please confirm this partner's Traditional add-lead and actual signature-delivery entitlement without asking Liberty to create a live application just to check permissions.
+
 1. Sandbox partner token entitlement for Traditional add-lead, lead-status, submit-for-signature, patch lead and onboarding documents, plus partner batch/residual reports. Confirm its environment before any attempt at another host.
 2. Named synthetic Traditional onboarding fixture, approved test identity/bank values, expected signature delivery and a method to exercise documents-needed, declined, approved, boarded and processing-ready outcomes. Liberty will not use a real merchant or real application for this acceptance.
 3. The actual partner onboarding webhook registration (distinct from merchant transaction webhooks), event names, raw delivery sample, authentication/signing algorithm, exact signature/timestamp headers and canonical bytes, secret/public-key provisioning and rotation, event identity/replay behavior, and authentic signed fixtures. The public webhook page provides events but no verifier contract; Liberty will use authenticated polling until this is verified.

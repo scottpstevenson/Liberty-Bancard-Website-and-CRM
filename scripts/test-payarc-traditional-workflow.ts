@@ -36,7 +36,11 @@ let creates = 0,
   signatures = 0,
   patches = 0,
   polls = 0,
-  signatureFailure = false;
+  signatureFailure = false,
+  validationFailure = false,
+  validationRevisionRace = false,
+  revokeDuringValidation = false,
+  validations = 0;
 let phase = "submitted_to_underwriting";
 let holdCreate = false;
 globalThis.fetch = (async (input: any, init: any) => {
@@ -50,8 +54,15 @@ globalThis.fetch = (async (input: any, init: any) => {
     if (holdCreate) throw Error("lost");
     data = { MerchantCode: "MC-fixture" };
   } else if (url.endsWith("/submit-for-signature")) {
-    signatures++;
-    if (signatureFailure) throw Error("lost");
+    if(body.validate === true){
+      validations++;
+      if(validationRevisionRace) await q("UPDATE merchant_applications SET updated_at=clock_timestamp() WHERE id IN(SELECT application_id FROM payarc_cases WHERE merchant_code=$1)",[body.MerchantCode]);
+      if(revokeDuringValidation) await q("UPDATE processor_activation_snapshots SET status='held' WHERE processor_name='payarc'");
+      if(validationFailure) return new Response(JSON.stringify({errors:{apply_app_id:["invalid"]}}),{status:422});
+    } else {
+      signatures++;
+      if (signatureFailure) throw Error("lost");
+    }
     data = { MerchantCode: body.MerchantCode };
   } else if (url.endsWith("/lead-status")) {
     polls++;
@@ -213,11 +224,33 @@ try {
     "Signature transport closed by default",
   );
   process.env.PAYARC_SIGNATURE_ENABLED = "true";
+  await prep.savePayarcPreparation(a.id,{...extras,BusinessSummary:"Changed after creating lead"},h.email("admin"));
+  eq((await lifecycle.dispatchPayarcSignature(d.id)).state,"failed","Changed application must be corrected at Payarc before signature");
+  eq(validations,0,"Stale provider payload sends no validation or signature request");
+  eq((await lifecycle.readPayarcLifecycle(d.id)).last_error,"SIGNATURE_PAYLOAD_CHANGED","Changed payload has a specific CRM hold");
+  await prep.savePayarcPreparation(a.id,extras,h.email("admin"));
+  await q("UPDATE payarc_cases SET signature_state='pending' WHERE deal_id=$1",[d.id]);
+  validationFailure = true;
+  eq((await lifecycle.dispatchPayarcSignature(d.id)).state,"failed","Provider validation refusal holds signature step");
+  eq(signatures,0,"Failed validation sends no signature email");
+  eq((await lifecycle.readPayarcLifecycle(d.id)).last_error,"SIGNATURE_VALIDATION_HTTP_422","Validation failure is visible without provider body");
+  eq(creates,1,"Validation failure retains existing lead");
+  validationFailure = false;
+  await q("UPDATE payarc_cases SET signature_state='pending' WHERE deal_id=$1",[d.id]);
+  validationRevisionRace = true;
+  eq((await lifecycle.dispatchPayarcSignature(d.id)).state,"failed","Application revision changing during validation blocks delivery");
+  eq(signatures,0,"No email when review fence changes after validation");
+  eq((await lifecycle.readPayarcLifecycle(d.id)).last_error,"SIGNATURE_REVIEW_CHANGED","Review change is visible");
+  validationRevisionRace = false;
+  await prep.savePayarcPreparation(a.id,extras,h.email("admin"));
+  // Fixture-only reset represents a reviewed correction; correction behavior is exercised below.
+  await q("UPDATE payarc_cases SET signature_state='pending' WHERE deal_id=$1",[d.id]);
   await Promise.all([
     lifecycle.dispatchPayarcSignature(d.id),
     lifecycle.dispatchPayarcSignature(d.id),
   ]);
   eq(signatures, 1, "Concurrent signature dispatch sends once");
+  eq(validations,3,"One provider validation per claimed attempt, never per concurrent caller");
   c = (await q("SELECT * FROM payarc_cases WHERE deal_id=$1", [d.id]))[0];
   eq(c.signature_state, "sent", "Signature receipt persisted");
   eq(
@@ -274,12 +307,19 @@ try {
   );
   await lifecycle.dispatchPayarcSignature(d.id);
   eq(signatures, 2, "Uncertain signature is never automatically retried");
-  eq((await q("SELECT count(*)::int n FROM tasks WHERE source='payarc-lifecycle'"))[0].n,1,'Uncertain signature creates one review task');
+  eq((await q("SELECT count(*)::int n FROM tasks WHERE source='payarc-lifecycle' AND automation_key=$1",[`payarc-signature:${d.id}:delivery`]))[0].n,1,'Uncertain delivery has its own deduplicated review task');
   await q("UPDATE payarc_cases SET phase='documents_needed',signature_state='sent' WHERE deal_id=$1",[d.id]);
   eq((await h.request('admin','POST',path,{...body,extras:{...extras,OwnerTitle:'President'}})).status,200,'Changed owner title is prepared locally');
   eq((await h.request('admin','POST',`/api/deals/${d.id}/payarc-correction`,{commandKey:randomUUID()})).status,200,'Owner correction enters reviewed command');
   await lifecycle.dispatchPayarcCorrections();eq(patches,1,'Unsupported owner correction sends no PATCH');
   eq((await lifecycle.readPayarcLifecycle(d.id)).last_error,'PAYARC_OWNER_CORRECTION_CONTRACT_REQUIRED','Owner correction needs provider contract clarification');
+  await prep.savePayarcPreparation(a.id,extras,h.email("admin"));
+  await q("UPDATE payarc_cases SET signature_state='pending',signature_attempts=0 WHERE deal_id=$1",[d.id]);
+  signatureFailure = false;
+  revokeDuringValidation = true;
+  eq((await lifecycle.dispatchPayarcSignature(d.id)).state,"failed","Operation revocation during validation blocks delivery");
+  eq(signatures,2,"Revoked authority never sends a signature request");
+  eq((await lifecycle.readPayarcLifecycle(d.id)).last_error,"SIGNATURE_AUTHORITY_CHANGED","Authority change is recorded");
   const before = (
     await q("SELECT count(*)::int n FROM payarc_webhook_events")
   )[0].n;

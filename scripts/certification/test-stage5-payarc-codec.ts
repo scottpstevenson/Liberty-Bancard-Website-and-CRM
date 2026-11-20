@@ -10,7 +10,7 @@ import {
 process.env.PAYARC_API_KEY = "fixture-not-a-key";
 process.env.PAYARC_PARTNER_KEY_ENVIRONMENT = "sandbox";
 process.env.PAYARC_RATE_LIMIT_BACKOFF_MS = "1";
-const { PayarcProcessorAdapter, requestPayarcSignature } = await import(
+const { PayarcProcessorAdapter, requestPayarcSignature, validatePayarcSignature } = await import(
   "../../server/services/processors/payarc.adapter"
 );
 let checks = 0;
@@ -223,6 +223,33 @@ try {
     );
     checks++;
   }
+  stub(201, { MerchantCode: "MC-1" });
+  stub(200,{data:[],meta:{}});
+  check(await adapter.getHealthState("https://testapi.payarc.net/v1") === "sandbox_verified",
+    "empty documented partner read proves credential health without merchants");
+  check(calls.at(-1).url.endsWith("/agent-hub/sub-agents") && calls.at(-1).method === "GET",
+    "health uses documented non-mutating Traditional partner endpoint");
+  stub(200,{});
+  check(await adapter.getHealthState("https://testapi.payarc.net/v1") === "configured_unverified",
+    "malformed health response is not verified");
+  stub(403,{});
+  check(await adapter.getHealthState("https://testapi.payarc.net/v1") === "configured_unverified",
+    "partner entitlement refusal is not healthy");
+  stub(201, { MerchantCode: "MC-1" });
+  check((await validatePayarcSignature("MC-1", "https://testapi.payarc.net/v1")).ok,
+    "documented validation response correlated");
+  check(JSON.parse(calls.at(-1).body).validate === true && JSON.parse(calls.at(-1).body).generate_form === false,
+    "validation never requests delivery or a signing link");
+  stub(422, { errors: { apply_app_id: ["invalid"] } });
+  const rejectedValidation = await validatePayarcSignature("MC-1", "https://testapi.payarc.net/v1");
+  check(!rejectedValidation.ok && !rejectedValidation.retryable && rejectedValidation.httpStatus === 422,
+    "definite validation refusal is retained without signature dispatch");
+  stub(200, {}, true);
+  check((await validatePayarcSignature("MC-1", "https://testapi.payarc.net/v1")).retryable,
+    "lost validation response can safely retry validation");
+  stub(201, { MerchantCode: "OTHER" });
+  check(!(await validatePayarcSignature("MC-1", "https://testapi.payarc.net/v1")).ok,
+    "foreign validation response never authorizes signature dispatch");
   stub(201, { MerchantCode: "MC-1" });
   check(
     (await requestPayarcSignature("MC-1", "https://testapi.payarc.net/v1")).ok,

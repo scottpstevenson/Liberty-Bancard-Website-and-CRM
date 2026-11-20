@@ -434,10 +434,11 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
    * Returns the typed health/readiness state of this adapter.
    *
    * Rules:
-   *   - HTTP 404 from identity endpoint = configured_unverified (not valid).
+   *   - Probe the documented Traditional partner read, not /accounts/me.
+   *   - HTTP 404 = configured_unverified (not valid).
    *   - Any non-2xx = configured_unverified or lower.
-   *   - sandbox_verified requires explicit authenticated 2xx from identity endpoint.
-   *   - production_authorized requires sandbox_verified + activation snapshot.
+   *   - The legacy sandbox_verified enum means authenticated read health only.
+   *     It never grants application/signature authority, including on a production host.
    */
   async getHealthState(
     snapshotAuthorizedBaseUrl?: string | null,
@@ -460,14 +461,14 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
     const probeBase = guarded.baseUrl;
 
     try {
-      const { ok, status } = await payarcRequest<any>(
+      const { ok, status, data } = await payarcRequest<any>(
         this.apiKey!,
         probeBase,
         "GET",
-        "/accounts/me",
+        "/agent-hub/sub-agents",
       );
 
-      if (ok) {
+      if (ok && Array.isArray(data?.data)) {
         // Only 2xx proves the token is valid and the API is reachable.
         // We do not check activation snapshot here — that is a separate gate
         // in the outbox worker. Health state is about credential validity only.
@@ -579,8 +580,8 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
           };
         }
 
-        // Payarc returns { data: { object_id, id, status, ... } } or flat { object_id, ... }
-        // Identity comes only from the documented identifier fields; a missing, blank or
+        // Traditional returns MerchantCode, either flat or in its data envelope.
+        // Identity comes only from that documented field; a missing, blank or
         // non-scalar identifier is ambiguous (the provider answered 2xx).
         const applicant = data?.data ?? data;
         const applicationId = payarcIdentifier(applicant?.MerchantCode);
@@ -1231,6 +1232,30 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
       success: false,
       error: "PAYARC_CORRECTION_REQUIRES_REVIEWED_TRADITIONAL_COMMAND",
     };
+  }
+}
+
+/** Provider-documented validation-only request: never generates a form or sends for signature. */
+export async function validatePayarcSignature(
+  merchantCode: string,
+  baseUrl: string,
+): Promise<{ ok: boolean; retryable: boolean; httpStatus?: number }> {
+  const guard = guardPartnerBase(baseUrl);
+  if (!guard.ok || !payarcIdentifier(merchantCode) || !process.env.PAYARC_API_KEY)
+    return { ok: false, retryable: false };
+  try {
+    const r = await payarcRequest<any>(process.env.PAYARC_API_KEY, guard.baseUrl,
+      "POST", PAYARC_TRADITIONAL_PATHS.signature,
+      { MerchantCode: merchantCode, generate_form: false, validate: true });
+    const v = r.data?.data ?? r.data;
+    return {
+      ok: r.ok && v?.MerchantCode === merchantCode,
+      retryable: r.status === 429 || r.status === 408 || r.status >= 500,
+      httpStatus: r.status,
+    };
+  } catch {
+    // No submission was attempted; a lost validation response is safe to validate again.
+    return { ok: false, retryable: true };
   }
 }
 

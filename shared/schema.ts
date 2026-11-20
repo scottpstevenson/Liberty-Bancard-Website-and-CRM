@@ -12001,7 +12001,7 @@ export const payarcPreparations = pgTable('payarc_preparations', {
 });
 export const payarcCases = pgTable('payarc_cases', {
  dealId:integer('deal_id').primaryKey().references(()=>deals.id),applicationId:integer('application_id').notNull().references(()=>merchantApplications.id),
- contractVersion:text('contract_version').notNull(),environment:text('environment').notNull(),merchantCode:text('merchant_code').notNull(),ownerFingerprint:text('owner_fingerprint').notNull(),
+ contractVersion:text('contract_version').notNull(),environment:text('environment').notNull(),merchantCode:text('merchant_code').notNull(),ownerFingerprint:text('owner_fingerprint').notNull(),payloadFingerprint:text('payload_fingerprint').notNull(),
  phase:text('phase').notNull().default('lead_created'),observation:jsonb('observation').notNull().default(sql`'{}'::jsonb`),
  signatureState:text('signature_state').notNull().default('pending'),signatureAttempts:integer('signature_attempts').notNull().default(0),signatureLease:uuid('signature_lease'),
  signatureStartedAt:timestamp('signature_started_at',{withTimezone:true}),signatureSentAt:timestamp('signature_sent_at',{withTimezone:true}),pollLease:uuid('poll_lease'),pollLeaseExpiresAt:timestamp('poll_lease_expires_at',{withTimezone:true}),

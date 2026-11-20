@@ -13,6 +13,7 @@ CREATE TABLE payarc_cases (
  environment text NOT NULL CHECK(environment IN ('sandbox','production')),
  merchant_code text NOT NULL,
  owner_fingerprint text NOT NULL,
+ payload_fingerprint text NOT NULL,
  phase text NOT NULL DEFAULT 'lead_created',
  observation jsonb NOT NULL DEFAULT '{}'::jsonb,
  signature_state text NOT NULL DEFAULT 'pending' CHECK(signature_state IN ('pending','attempting','sent','uncertain','failed')),

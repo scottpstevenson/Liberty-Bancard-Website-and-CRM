@@ -278,8 +278,9 @@ async function commitBoardingSuccess(params: {
       const environment=params.authorizedBaseUrl.startsWith('https://testapi.')?'sandbox':'production';
       const {fingerprint}=await import("./merchant-protected-data");
       const ownerFingerprint=fingerprint("payarc-owners-v1:"+JSON.stringify(params.payarcSentPayload?.Owners));
-      await tx.execute(sql`INSERT INTO payarc_cases(deal_id,application_id,contract_version,environment,merchant_code,owner_fingerprint)
-        VALUES(${dealId},${params.applicationId},'traditional-apply-v1',${environment},${processorApplicationId},${ownerFingerprint})
+      const payloadFingerprint=fingerprint("payarc-payload-v1:"+JSON.stringify(params.payarcSentPayload));
+      await tx.execute(sql`INSERT INTO payarc_cases(deal_id,application_id,contract_version,environment,merchant_code,owner_fingerprint,payload_fingerprint)
+        VALUES(${dealId},${params.applicationId},'traditional-apply-v1',${environment},${processorApplicationId},${ownerFingerprint},${payloadFingerprint})
         ON CONFLICT(deal_id) DO NOTHING`);
     }
     if (setSubmittedFields) {

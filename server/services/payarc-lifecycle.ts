@@ -3,7 +3,10 @@ import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { requireConfirmedActivationSnapshot } from "./processors/registry";
-import { requestPayarcSignature } from "./processors/payarc.adapter";
+import {
+  requestPayarcSignature,
+  validatePayarcSignature,
+} from "./processors/payarc.adapter";
 import { checkProcessorBaseUrl } from "./processors/processor-base-url";
 import { evaluateBoardingReadiness } from "./boarding-readiness";
 const rows = (r: any): any[] => r.rows ?? r;
@@ -52,12 +55,88 @@ export async function dispatchPayarcSignature(dealId: number) {
    WHERE deal_id=${dealId} AND signature_state='pending' AND signature_attempts<5 AND environment=${base.environment}
    AND EXISTS(SELECT 1 FROM deals d JOIN merchant_applications a ON a.id=c.application_id JOIN payarc_preparations p ON p.application_id=a.id
    WHERE d.id=c.deal_id AND d.processor_application_id=c.merchant_code AND d.archived_at IS NULL AND a.deal_id=d.id AND p.application_revision=a.updated_at::text)
-   RETURNING merchant_code,signature_attempts`),
+   RETURNING merchant_code,signature_attempts,application_id,payload_fingerprint`),
     );
     return claimed;
   });
   if (!c) return { state: "not_claimed" };
-  const result = await requestPayarcSignature(c.merchant_code, base.baseUrl);
+  const { readPayarcPreparation } = await import("./payarc-preparation");
+  const { fingerprint } = await import("./merchant-protected-data");
+  let failureCode: string | null = null;
+  try {
+    const payload = await readPayarcPreparation(c.application_id);
+    if (
+      fingerprint("payarc-payload-v1:" + JSON.stringify(payload)) !==
+      c.payload_fingerprint
+    )
+      failureCode = "SIGNATURE_PAYLOAD_CHANGED";
+  } catch {
+    failureCode = "SIGNATURE_PREPARATION_STALE";
+  }
+  const validation = failureCode
+    ? { ok: false, retryable: false, httpStatus: undefined }
+    : await validatePayarcSignature(c.merchant_code, base.baseUrl);
+  if (validation.ok) {
+    try {
+      const current = await requireConfirmedActivationSnapshot(
+        "payarc",
+        "request_signature",
+      );
+      const currentBase = checkProcessorBaseUrl(
+        "payarc",
+        current.authorizedBaseUrl,
+      );
+      if (
+        current.processorProgram !== "traditional" ||
+        !currentBase.ok ||
+        currentBase.baseUrl !== base.baseUrl
+      )
+        failureCode = "SIGNATURE_AUTHORITY_CHANGED";
+    } catch {
+      failureCode = "SIGNATURE_AUTHORITY_CHANGED";
+    }
+  }
+  if (validation.ok && !failureCode) {
+    // Validation is read-only but may take time. Recheck the actual application, review
+    // and lease after it returns, before sending the provider email.
+    const stillReviewed = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT id FROM deals WHERE id=${dealId} FOR UPDATE`);
+      await tx.execute(
+        sql`SELECT id FROM merchant_applications WHERE id=${c.application_id} FOR UPDATE`,
+      );
+      const [owned] = rows(
+        await tx.execute(
+          sql`SELECT deal_id FROM payarc_cases WHERE deal_id=${dealId} AND signature_lease=${token}::uuid AND signature_state='attempting' FOR UPDATE`,
+        ),
+      );
+      if (!owned) return false;
+      const verdict = await evaluateBoardingReadiness(
+        dealId,
+        { includeFieldCompleteness: false },
+        tx,
+      );
+      if (!verdict.ready) return false;
+      try {
+        const payload = await readPayarcPreparation(c.application_id, tx);
+        return (
+          fingerprint("payarc-payload-v1:" + JSON.stringify(payload)) ===
+          c.payload_fingerprint
+        );
+      } catch {
+        return false;
+      }
+    });
+    if (!stillReviewed) failureCode = "SIGNATURE_REVIEW_CHANGED";
+  }
+  const result =
+    validation.ok && !failureCode
+      ? await requestPayarcSignature(c.merchant_code, base.baseUrl)
+      : {
+          ...validation,
+          ok: false,
+          retryable: failureCode ? false : validation.retryable,
+          ambiguous: false,
+        };
   const state = result.ok
     ? "sent"
     : result.ambiguous
@@ -67,7 +146,7 @@ export async function dispatchPayarcSignature(dealId: number) {
         : "failed";
   await db.execute(sql`UPDATE payarc_cases SET signature_state=${state},signature_sent_at=CASE WHEN ${result.ok} THEN now() ELSE signature_sent_at END,
  phase=CASE WHEN ${result.ok} THEN 'awaiting_signature' WHEN ${result.ambiguous} THEN 'reconciliation_required' ELSE phase END,
- last_error=${result.ok ? null : result.ambiguous ? "SIGNATURE_OUTCOME_UNCERTAIN" : `SIGNATURE_HTTP_${result.httpStatus ?? "REFUSED"}`},signature_lease=NULL,next_poll_at=now()+interval '5 minutes',updated_at=now()
+ last_error=${result.ok ? null : (failureCode ?? (result.ambiguous ? "SIGNATURE_OUTCOME_UNCERTAIN" : `${validation.ok ? "SIGNATURE" : "SIGNATURE_VALIDATION"}_HTTP_${result.httpStatus ?? "REFUSED"}`))},signature_lease=NULL,next_poll_at=now()+interval '5 minutes',updated_at=now()
  WHERE deal_id=${dealId} AND signature_lease=${token}::uuid AND signature_state='attempting'`);
   if (state === "uncertain" || state === "failed") {
     const { storage } = await import("../storage");
@@ -76,12 +155,17 @@ export async function dispatchPayarcSignature(dealId: number) {
       dealId,
       contactId: deal?.contactId ?? undefined,
       assignedTo: deal?.owner ?? undefined,
-      title: "Review Payarc signature delivery",
+      title:
+        validation.ok && !failureCode
+          ? "Review Payarc signature delivery"
+          : "Correct Payarc signature validation",
       description:
-        "Reconcile the existing Payarc application delivery receipt before resending. Do not create another lead.",
+        validation.ok && !failureCode
+          ? "Reconcile the existing Payarc application delivery receipt before resending. Do not create another lead."
+          : "Payarc signature validation did not pass. Review the existing application and correct it before requesting signature delivery. No signature request was sent by this attempt.",
       priority: "high",
       source: "payarc-lifecycle",
-      automationKey: `payarc-signature:${dealId}`,
+      automationKey: `payarc-signature:${dealId}:${failureCode ?? (validation.ok ? "delivery" : "validation")}`,
     });
   }
   return { state };
@@ -279,7 +363,7 @@ export async function dispatchPayarcCorrections() {
     );
     if (sent.ok && settled.length)
       await tx.execute(
-        sql`UPDATE payarc_cases SET signature_state='pending',signature_attempts=0,phase='lead_created',next_poll_at=now(),last_error=NULL,updated_at=now() WHERE deal_id=${result.deal_id} AND merchant_code=${result.merchant_code}`,
+        sql`UPDATE payarc_cases SET signature_state='pending',signature_attempts=0,payload_fingerprint=${fingerprint("payarc-payload-v1:" + JSON.stringify(payload))},phase='lead_created',next_poll_at=now(),last_error=NULL,updated_at=now() WHERE deal_id=${result.deal_id} AND merchant_code=${result.merchant_code}`,
       );
   });
 }
