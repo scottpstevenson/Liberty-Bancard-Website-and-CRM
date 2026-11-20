@@ -714,15 +714,15 @@ export function registerActivationRoutes(app: Express, dependencies: {
         },
         {
           id: "sdr_enabled",
-          label: "SDR_ENABLED feature flag on",
-          ok: featureFlags.SDR_ENABLED === true,
-          detail: featureFlags.SDR_ENABLED ? "Enabled" : "Set SDR_ENABLED=true to activate SDR pipeline",
+          label: "Legacy SDR producer (only required for legacy outreach)",
+          ok: process.env.LEGACY_OUTREACH_ENABLED !== "true" || featureFlags.SDR_ENABLED === true,
+          detail: featureFlags.SDR_ENABLED ? "Enabled" : "Off. This legacy producer is separate from canonical release authority.",
         },
         {
           id: "orchestrator_enabled",
-          label: "ORCHESTRATOR_ENABLED feature flag on",
-          ok: featureFlags.ORCHESTRATOR_ENABLED === true,
-          detail: featureFlags.ORCHESTRATOR_ENABLED ? "Enabled" : "Set ORCHESTRATOR_ENABLED=true to start orchestrator",
+          label: "Legacy SDR orchestrator (only required for legacy outreach)",
+          ok: process.env.LEGACY_OUTREACH_ENABLED !== "true" || featureFlags.ORCHESTRATOR_ENABLED === true,
+          detail: featureFlags.ORCHESTRATOR_ENABLED ? "Enabled" : "Off. Canonical sequence releases do not require the legacy orchestrator; do not enable it for that launch.",
         },
         {
           id: "admin_digest_email",
@@ -908,22 +908,25 @@ export function registerActivationRoutes(app: Express, dependencies: {
 
       // consent_tier_migration
       let consentTierStatus: "green" | "yellow" | "red" = "yellow";
+      let consentTierReadFailed = false;
       try {
-        const [{ consentTierCol }] = (await db.execute(sql`
+        const consentTierResult = await db.execute(sql`
           SELECT column_name AS "consentTierCol" FROM information_schema.columns
-          WHERE table_name = 'contacts' AND column_name = 'consent_tier' LIMIT 1
-        `)) as any;
-        consentTierStatus = consentTierCol ? "green" : "yellow";
+          WHERE table_schema = 'public' AND table_name = 'contacts' AND column_name = 'consent_tier' LIMIT 1
+        `);
+        const consentTierCol = consentTierResult.rows[0]?.consentTierCol;
+        consentTierStatus = consentTierCol ? "green" : "red";
       } catch {
+        consentTierReadFailed = true;
         consentTierStatus = "yellow";
       }
       items.push({
         key: "consent_tier_migration",
         label: "Consent Tier Migration Applied",
         status: consentTierStatus,
-        value: consentTierStatus === "green" ? "Column present" : "Unable to verify",
+        value: consentTierStatus === "green" ? "Column present" : consentTierReadFailed ? "Lookup unavailable" : "Column missing",
         description: "contacts.consent_tier column required for PEWC consent routing.",
-        remediation: consentTierStatus !== "green" ? "Run pending Drizzle migrations: npx tsx scripts/migrate.ts" : null,
+        remediation: consentTierReadFailed ? "Retry the schema lookup and inspect database availability; this does not establish a missing migration." : consentTierStatus === "red" ? "Inspect the migration ledger and intended database before applying a schema repair." : null,
         source: "information_schema.columns",
       });
 
@@ -996,8 +999,8 @@ export function registerActivationRoutes(app: Express, dependencies: {
           label: fc.label,
           status: val === "true" ? "green" : "yellow",
           value: val || "Not set",
-          description: `${fc.envKey} feature flag controls activation of the ${fc.label.replace(" Flag", "")} subsystem.`,
-          remediation: val !== "true" ? `Set ${fc.envKey}=true in environment variables to activate.` : null,
+          description: `${fc.envKey} controls only its named subsystem. Off may be intentional; it is not a canonical email launch prerequisite. NIGHTLY_DISCOVERY_ENABLED is separate from scheduled-discovery.`,
+          remediation: val !== "true" ? `Leave off unless this specific feature is selected and its own prerequisites are verified.` : null,
           source: `process.env.${fc.envKey}`,
         });
       }

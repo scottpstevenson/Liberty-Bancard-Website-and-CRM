@@ -6,7 +6,7 @@ import { isGhlConfigured } from "./ghl";
 import { sanitizeFirstName } from "./contact-name-utils";
 import { getEmailSignatureHtml, type EmailSignature } from "./email-signatures";
 import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
-import { campaignMergeFields, applyCampaignMergeFields } from "./campaign-merge-fields";
+import { campaignMergeFields, applyCampaignMergeFields, leftoverTokens, assertCampaignTemplateSupported } from "./campaign-merge-fields";
 import { logAiCall } from "./ai-audit-logger";
 import { evaluateContactability, evaluateContactDecisions } from "./contactability";
 import { READINESS_MODEL_VERSION } from "./contact-readiness";
@@ -76,6 +76,7 @@ async function generatePersonalizedEmail(
   stepBody: string,
   stepNumber: number
 ): Promise<{ subject: string; body: string }> {
+  assertCampaignTemplateSupported(stepSubject, stepBody);
   const mergeFields = campaignMergeFields(prospect);
 
   const subject = applyCampaignMergeFields(stepSubject, mergeFields);
@@ -147,22 +148,13 @@ async function generateContactCampaignEmail(
   stepBody: string,
   stepNumber: number
 ): Promise<{ subject: string; body: string }> {
-  const mergeFields: Record<string, string> = {
-    "{{first_name}}": sanitizeFirstName(contact.firstName) || "there",
-    "{{last_name}}": contact.lastName || "",
-    "{{company_name}}": contact.companyName || "your business",
-    "{{vertical}}": contact.vertical || "your industry",
-    "{{city}}": contact.city || "",
-    "{{state}}": contact.state || "",
-  };
-
-  let subject = stepSubject;
-  let body = stepBody;
-
-  for (const [key, value] of Object.entries(mergeFields)) {
-    subject = subject.replace(new RegExp(key.replace(/[{}]/g, "\\$&"), "g"), value);
-    body = body.replace(new RegExp(key.replace(/[{}]/g, "\\$&"), "g"), value);
-  }
+  const mergeFields = campaignMergeFields({
+    ownerFirstName: contact.firstName, ownerLastName: contact.lastName,
+    companyName: contact.companyName, vertical: contact.vertical, city: contact.city, state: contact.state,
+  });
+  assertCampaignTemplateSupported(stepSubject, stepBody);
+  let subject = applyCampaignMergeFields(stepSubject, mergeFields);
+  let body = applyCampaignMergeFields(stepBody, mergeFields);
 
   if (campaign.aiPersonalization) {
     try {
@@ -1217,6 +1209,12 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
       }
 
       const campaign = msg.campaignId ? await storage.getCampaign(msg.campaignId) : null;
+      if (campaign && await isCurrentSfpCampaign(campaign.id)) {
+        await storage.updateOutboundMessage(msg.id, { status: "failed", error: "Current SFP package requires canonical sequence release" });
+        failed++; continue;
+      }
+      try { assertCampaignTemplateSupported(msg.subject || "", msg.body || ""); }
+      catch { await storage.updateOutboundMessage(msg.id, { status: "failed", error: "Unsupported campaign merge fields" }); failed++; continue; }
       let subject = msg.subject || "";
       let body = msg.body || "";
 
@@ -1242,6 +1240,9 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
         continue;
       }
 
+      if (leftoverTokens(`${subject}\n${body}`).length) {
+        await storage.updateOutboundMessage(msg.id, { status: "failed", error: "Unresolved campaign merge fields" }); failed++; continue;
+      }
       const signature = getEmailSignatureHtml("sales", storedSig);
       const bodyWithSig = body + signature;
 
@@ -1434,6 +1435,11 @@ async function sendContactCampaignMessage(
 
   // Personalize
   const campaign = msg.campaignId ? await storage.getCampaign(msg.campaignId) : null;
+  if (campaign && await isCurrentSfpCampaign(campaign.id)) {
+    await storage.updateOutboundMessage(msg.id, { status: "failed", error: "Current SFP package requires canonical sequence release" }); return "failed";
+  }
+  try { assertCampaignTemplateSupported(msg.subject || "", msg.body || ""); }
+  catch { await storage.updateOutboundMessage(msg.id, { status: "failed", error: "Unsupported campaign merge fields" }); return "failed"; }
   let subject = msg.subject || "";
   let body = msg.body || "";
 
@@ -1445,6 +1451,9 @@ async function sendContactCampaignMessage(
     body = personalized.body;
   }
 
+  if (leftoverTokens(`${subject}\n${body}`).length) {
+    await storage.updateOutboundMessage(msg.id, { status: "failed", error: "Unresolved campaign merge fields" }); return "failed";
+  }
   const signature = getEmailSignatureHtml("sales", storedSig);
   const bodyWithSig = body + signature;
 
@@ -1573,4 +1582,9 @@ export async function getCampaignAnalytics(campaignId: number) {
       bounceRate: stats.sent > 0 ? ((stats.bounced / stats.sent) * 100).toFixed(1) : "0",
     },
   };
+}
+
+async function isCurrentSfpCampaign(campaignId: number): Promise<boolean> {
+  const result = await db.execute(sql`SELECT 1 FROM sfp_campaign_package_versions WHERE lifecycle_state='current' AND campaign_id=${campaignId} LIMIT 1`);
+  return result.rows.length > 0;
 }

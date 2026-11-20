@@ -67,13 +67,19 @@ const WORKFLOW_EMAIL_EDITS: Record<string, EmailEdit[]> = {
     ],
   }],
   "E. Proposal Follow-Up Cadence": [{
-    edits: [{
+    edits: [
+      { from: "Want to do a quick 5-minute recap?", to: "Want to book a time to review it?" },
+      {
       from: "<p>Your analysis is saved and ready whenever you want to revisit. Just reply to this email or book a call: {{calendarLink}}</p>",
       to: `<p>If you would like us to review your statement, you can upload it here: <a href='${UPLOAD_URL}'>Upload your statement</a></p><p>You can also reply to this email or book a call: {{calendarLink}}</p>`,
     }],
   }],
   "F. Closed Won - Onboarding Kickoff": [{
-    edits: [{
+    edits: [
+      { from: "Your merchant application takes about 5 minutes to complete.", to: "Complete your merchant application through the secure application page." },
+      { from: "Complete the application (5 min)", to: "Complete the secure application" },
+      { from: "Underwriting review (typically 24-48 hours)", to: "Underwriting review; timing depends on the application and required documents" },
+      {
       from: "<p>You can upload these documents through your merchant portal or reply to this email with them attached.</p>",
       to: "<p>Your representative will share a secure link for documents.</p>",
     }, {
@@ -104,9 +110,17 @@ const REMOVED_ACTIONS: Record<string, (a: any) => boolean> = {
 };
 
 const TEMPLATE_EDITS: Record<string, Edit[]> = {
+  "Welcome Onboarding Email": [
+    { from: "Complete the merchant application (5 min)", to: `<a href="${MERCHANT_APPLICATION_URL}">Complete the secure merchant application</a>` },
+    { from: "Provide a voided check or bank letter", to: "Ask your representative for a secure upload link for any required bank documents" },
+  ],
+  "Support Acknowledgment": [{
+    from: "Our typical response time is within 4 hours during business hours.",
+    to: "Our support team will review your request and follow up using the details you provided.",
+  }],
   "Proposal Email": [{ from: "Book a 10-minute call</a>", to: "Book a call</a>" }],
   "90-Day Reactivation Email": [{ from: "Book a 10-minute review</a>", to: "Book a review</a>" }],
-  "30-Day Nurture Email": [{
+  "30-Day Nurture Email": [{ from: "Book a 5-minute recap", to: "Book a review" }, {
     from: "<p>Your statement analysis is saved and the numbers haven't changed. When you're ready, we're here.</p>",
     to: "<p>If you would like us to review your statement, we can pick it up whenever you are ready.</p>",
   }],

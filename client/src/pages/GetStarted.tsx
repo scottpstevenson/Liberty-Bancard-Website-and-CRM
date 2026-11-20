@@ -16,7 +16,7 @@ import { PublicIntakeNotice } from "@/components/PublicIntakeNotice";
 import { getStoredUTMParams } from "@/lib/utm";
 import { useToast } from "@/hooks/use-toast";
 import { trackConversion, trackQuizStart, trackQuizComplete, trackFormSubmission } from "@/lib/tracking";
-import { trackConversion as trackConversionV2, trackPhoneCallClick } from "@/lib/analytics";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { ArrowLeft, ArrowRight, Loader2, CheckCircle, DollarSign, Landmark, Percent, Monitor, Scale, HelpCircle, Stethoscope, Car, UtensilsCrossed, Wrench, Store, MoreHorizontal, Upload, FileText, Phone, Zap, ShieldCheck, BadgeCheck } from "lucide-react";
 import { PublicImage } from "@/components/public/PublicImage";
@@ -226,8 +226,7 @@ function GetStartedQuiz() {
         if (consentNotice) toast({ title: "Request saved", description: consentNotice });
         trackQuizComplete();
         trackFormSubmission("get_started_submission");
-        trackConversion("get_started_submission");
-        trackConversionV2("get_started_submission");
+        trackConversion("get_started_submission", undefined, outcome.receipt);
       }
       setSubmitted(true);
     } else if (outcome.kind === "rejected") {

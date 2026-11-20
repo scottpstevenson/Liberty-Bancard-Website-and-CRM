@@ -119,7 +119,8 @@ eq(byKey(sequenceLaneStates({ sequence: { id: 10, status: "active", totalSteps: 
 // Screens use the shared vocabulary and do not wake or create anything.
 const sequencesSrc = read("client/src/pages/dashboard/Sequences.tsx");
 ok(sequencesSrc.includes("sequenceLaneStates") && sequencesSrc.includes("select-package-filter"), "Sequences shows the lane states and a current-package view");
-ok(sequencesSrc.includes("packageFilter") && sequencesSrc.includes('useState<"all" | PackageScope>("all")'), "the package view is a filter that defaults to everything, so nothing is hidden by default");
+ok(sequencesSrc.includes("packageFilter") && sequencesSrc.includes('useState<"all" | PackageScope>("current")'), "production package view defaults to current content while retaining the All filter");
+ok(sequencesSrc.includes('catalogRead.status === "ready" && packageFilter !== "all"'), "Unavailable catalog never hides records as though no current package exists");
 ok(read("client/src/pages/dashboard/Campaigns.tsx").includes("campaignLaneStates"), "Campaigns shows the lane states");
 const queueSrc = read("client/src/pages/dashboard/OutreachQueue.tsx");
 ok(!queueSrc.includes("All caught up") && queueSrc.includes("text-queue-empty-scope"), "an empty legacy queue no longer reads as caught up");

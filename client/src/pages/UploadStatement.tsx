@@ -93,7 +93,7 @@ export default function UploadStatement() {
     trackedReceipt.current = current.receipt;
     trackStatementUploadCompleted({ page: "/upload-statement", ctaLocation: "form" });
     trackFormSubmission("statement_upload");
-    trackConversion("statement_upload");
+    trackConversion("statement_upload", { receipt: current.receipt });
   }, [intake.state]);
 
   // Compatible entry points: `?terminal=yes` and `?interest0=yes` carry context into the review request. They are never

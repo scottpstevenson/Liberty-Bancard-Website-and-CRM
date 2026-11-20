@@ -484,13 +484,15 @@ await test("W09 identity fields passed to readCro03cWorkerFleet in all verificat
   );
   // live-execution CALL SITES (not import statements) must pass env/deployment.
   // Split on the actual call pattern `readCro03cWorkerFleet({` to avoid matching imports.
-  const leFleetCalls = leSrc.split("readCro03cWorkerFleet({").slice(1);
-  assert(leFleetCalls.length >= 2, "Expected at least 2 readCro03cWorkerFleet call sites in live-execution.ts");
+  // September 30 refactor moved fleet discovery to runtime-fleet-snapshot.ts; verify both real owners.
+  const fleetSnapshotSrc = fs.readFileSync(path.join(import.meta.dirname ?? __dirname, "../server/services/cro03/runtime-fleet-snapshot.ts"), "utf8");
+  const leFleetCalls = [leSrc, fleetSnapshotSrc].flatMap(source => source.split("readCro03cWorkerFleet({").slice(1));
+  assert(leFleetCalls.length >= 2, "Expected authority verification and runtime snapshot fleet readers");
   for (const call of leFleetCalls) {
     const callBody = call.slice(0, call.indexOf("});") + 3);
     assert(
       callBody.includes("expectedEnvironmentIdentity") && callBody.includes("expectedDeploymentIdentity"),
-      `All readCro03cWorkerFleet({ calls in live-execution.ts must pass env/deployment identity.\nMissing in block:\n${callBody.trim().slice(0, 200)}`,
+      `All authority and runtime snapshot fleet readers must pass env/deployment identity.\nMissing in block:\n${callBody.trim().slice(0, 200)}`,
     );
   }
 });

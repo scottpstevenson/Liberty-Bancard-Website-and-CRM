@@ -1,5 +1,7 @@
 # 24-Hour Launch Checklist — Liberty Bancard CRM
 
+> Historical July 2026 checklist. For current canonical SFP release, website Gmail, provider/consent boundaries and ad tracking, use [the controlled launch operator guide](launch-readiness-operator-guide.md). Do not enable every queue, legacy producer or GHL workflow based on this retained checklist.
+
 **Prepared:** July 26, 2026 | See `docs/go-live-audit-report-2026.md` for full context
 
 > Complete phases in order. Do NOT unpause outbound until Phase 1 is fully confirmed ✅.

@@ -304,7 +304,7 @@ function ApplicationDetailBody({ id, canDecide, onChanged }: { id: string; canDe
         <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Terms"><span data-testid="application-terms-state">{d.partner.terms === "Terms pending" ? "Terms pending: none recorded" : "Terms recorded"}</span></Field>
           <Field label="Partner account">{d.partner.status ?? "—"}</Field>
-          <Field label="Assigned owner"><span data-testid="application-owner">{ownerText({ assignedOwner: d.assignment.owner, assignedOwnerName: d.assignment.ownerName })}</span>{!d.assignment.owner && d.assignment.gap ? ` (${d.assignment.gap})` : ""}</Field>
+          <Field label="Assigned owner"><span data-testid="application-owner">{ownerText({ assignedOwner: d.assignment.owner, assignedOwnerName: d.assignment.ownerName })}</span>{!d.assignment.owner && d.assignment.gap ? ` (${d.assignment.gap})` : ""}{!d.assignment.owner && canDecide && <a className="mt-1 block underline underline-offset-2" href="/dashboard/data-requests#review-ownership" data-testid="application-review-policy-link">Configure review owner and due time</a>}</Field>
           <Field label="Due">{d.assignment.dueAt ? fmt(d.assignment.dueAt) : d.assignment.gap ? `Held: ${d.assignment.gap}` : "No due time set"}</Field>
           <Field label="Related contact">
             {d.contactId ? <OpenLink href={contactHref(d.contactId)} testId="link-open-contact">Open contact #{d.contactId}</OpenLink> : "None linked to this application"}

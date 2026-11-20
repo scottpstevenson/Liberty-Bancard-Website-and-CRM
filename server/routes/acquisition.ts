@@ -1,3 +1,4 @@
+import { readClientTrackingReadiness } from "../services/client-tracking-readiness";
 /**
  * Acquisition Command Center — API routes
  *
@@ -459,12 +460,16 @@ export function registerAcquisitionRoutes(app: Express): void {
       res.json({
         days,
         googleAdsApiConfigured: !!process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
-        gclidCaptureActive: false,
-        note: "gclid raw capture not yet wired to forms. Set up ValueTrack parameters in Google Ads to capture gclid, then wire to form UTM capture middleware. Use the CSV export to manually import offline conversions into Google Ads until API is connected.",
+        clientTracking: await readClientTrackingReadiness(),
+        gclidCaptureWired: true,
+        gclidCaptureActive: rows.rows.some((r: any) => !!r.gclid),
+        observedExportRowsWithGclid: rows.rows.filter((r: any) => !!r.gclid).length,
+        gclidObservationScope: "Returned conversion export rows only; absence does not prove capture is disabled",
+        note: "Click capture is wired through first-party attribution and supported form payloads. Confirm an accepted, consented ad journey retains its click ID through qualification. API credentials alone do not prove uploads; use the reviewed CSV export until upload receipt acceptance is complete.",
         setupSteps: [
           "Enable auto-tagging in your Google Ads account",
-          "Add ValueTrack {gclid} parameter to your final URL suffix",
-          "Wire gclid capture in the UTM middleware (already built in — enable GCLID_CAPTURE=true)",
+          "Verify a consented auto-tagged visit retains gclid through the accepted request and CRM contact",
+          "Configure the intended public GA4, Meta and explicit Google Ads conversion destination at client build time",
           "Upload this CSV to Google Ads > Tools > Conversions > Upload",
           "Or connect the Google Ads API with GOOGLE_ADS_DEVELOPER_TOKEN for automatic upload",
         ],

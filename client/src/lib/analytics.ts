@@ -1,4 +1,4 @@
-import { getStoredUTMParams } from "@/lib/utm";
+import { trackConversion as trackAcceptedConversion, hasAnalyticsConsent } from "@/lib/tracking";
 
 /**
  * Fire a server-side phone_call_click analytics event.
@@ -9,6 +9,7 @@ export async function trackPhoneCallClick(params: {
   dealId?: number;
   sourcePage?: string;
 }): Promise<void> {
+  if (!hasAnalyticsConsent()) return;
   try {
     const sessionId =
       typeof window !== "undefined"
@@ -48,50 +49,8 @@ export interface ConversionParams {
   [key: string]: unknown;
 }
 
-/**
- * Centralized conversion-event helper. Fires a GA4 `generate_lead` event with
- * the form name and any captured UTM parameters from sessionStorage. Also
- * forwards to the legacy GA `conversion` event and Facebook Pixel `Lead` for
- * back-compat with existing GA goals.
- */
+/** Compatibility adapter: all callers use the same consent and dispatch owner. Arbitrary form values never reach pixels. */
 export function trackConversion(name: string, params: ConversionParams = {}): void {
-  const utm = getStoredUTMParams();
-  const value = typeof params.value === "number" ? params.value : 0;
-  const currency = (params.currency as string) || "USD";
-
-  const payload: Record<string, unknown> = {
-    form_name: name,
-    event_label: name,
-    event_category: "conversion",
-    value,
-    currency,
-    utm_source: utm.utmSource,
-    utm_medium: utm.utmMedium,
-    utm_campaign: utm.utmCampaign,
-    utm_content: utm.utmContent,
-    utm_term: utm.utmTerm,
-    landing_page: utm.landingPage,
-    ...params,
-  };
-
-  // Strip undefined values so GA4 DebugView doesn't show empty params
-  Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
-
-  try {
-    if (typeof window !== "undefined" && window.gtag) {
-      window.gtag("event", "generate_lead", payload);
-      // Back-compat: also fire the legacy "conversion" event used by older GA goals
-      window.gtag("event", "conversion", payload);
-    }
-  } catch {}
-
-  try {
-    if (typeof window !== "undefined" && window.fbq) {
-      window.fbq("track", "Lead", {
-        content_name: name,
-        value,
-        currency,
-      });
-    }
-  } catch {}
+  trackAcceptedConversion(name, typeof params.value === "number" ? params.value : undefined,
+    typeof params.receipt === "string" ? params.receipt : undefined);
 }

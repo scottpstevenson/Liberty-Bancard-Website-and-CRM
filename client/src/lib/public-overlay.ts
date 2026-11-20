@@ -18,7 +18,7 @@ import { useSyncExternalStore } from "react";
  * Priority (highest first): open chat panel > consent > dialog/menu > focused
  * field (phone) > sticky dock > launcher visible.
  */
-export type PublicOverlayFlag = "consent" | "dock" | "dialog" | "field" | "chat";
+export type PublicOverlayFlag = "consent" | "dock" | "dialog" | "field" | "chat" | "conversion";
 
 interface ChatApi {
   /** The vendor exposes `isLoaded` as a boolean property; older loaders used a function. */

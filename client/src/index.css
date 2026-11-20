@@ -773,3 +773,10 @@ html[data-public-overlay]:not([data-public-chat-active])[data-public-overlay~="d
   .auth-page input:not(.sr-only):not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
   .auth-page textarea, .auth-page select { font-size: 1rem; }
 }
+
+/* Conversion help/consent remains readable before focus and after the keyboard closes. Explicitly opened chat wins. */
+html[data-public-overlay~="conversion"]:not([data-public-chat-active]) chat-widget {
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

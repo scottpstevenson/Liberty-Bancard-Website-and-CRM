@@ -1,3 +1,4 @@
+import { assertCampaignTemplateSupported } from "../services/campaign-merge-fields";
 import type { Express, Request, Response } from "express";
 import { canMutateOwnedCampaignObject as canMutateOwned, type OwnershipActor } from "../services/campaign-ownership";
 import { readSequenceRuntimeStatus } from "../services/sequence-runtime-status";
@@ -85,9 +86,9 @@ function canMutateOwnedCampaignObject(req: Request, createdBy: string | null | u
 // edit through the generic routes would drift one half away from the pinned version, so those routes refuse it and
 // point to the package publication command. Pin membership is monotonic (the home rows stay current across versions),
 // so checking before the write is sufficient.
-async function currentPackageKeyFor(kind: "campaign" | "sequence", id: number): Promise<string | null> {
+async function currentPackageKeyFor(kind: "campaign" | "sequence", id: number, executor: Pick<typeof db, "execute"> = db): Promise<string | null> {
   const col = kind === "campaign" ? sql`campaign_id` : sql`sequence_id`;
-  const r: any = await db.execute(sql`SELECT package_key FROM sfp_campaign_package_versions WHERE lifecycle_state='current' AND ${col}=${id} LIMIT 1`);
+  const r: any = await executor.execute(sql`SELECT package_key FROM sfp_campaign_package_versions WHERE lifecycle_state='current' AND ${col}=${id} LIMIT 1`);
   return (r?.rows ?? r ?? [])[0]?.package_key ?? null;
 }
 async function refuseIfPinned(res: Response, kind: "campaign" | "sequence", id: number): Promise<boolean> {
@@ -285,6 +286,9 @@ export function registerCampaignsRoutes(app: Express) {
           return { updated, auditAction: "campaign_paused" as const, previousStatus: campaign.status };
         }
         if (campaign.status === "paused" || campaign.status === "draft") {
+          if (await currentPackageKeyFor("campaign", id, tx)) throw Object.assign(new Error("Current SFP packages launch through Canonical Enrichment release and their approved sequence, not generic campaign activation."), { httpStatus: 409 });
+          const steps = await tx.select().from(campaignSteps).where(eq(campaignSteps.campaignId, id));
+          for (const step of steps) assertCampaignTemplateSupported(step.subject ?? "", step.bodyTemplate ?? "");
           if (campaign.approvedRevision == null || campaign.approvedRevision !== campaign.contentRevision) {
             throw Object.assign(
               new Error("Campaign must be approved (POST /api/campaigns/:id/approve) at its current revision before it can be activated"),
@@ -340,6 +344,9 @@ export function registerCampaignsRoutes(app: Express) {
       // this transaction to finish (and then bumps past whatever we just
       // approved, which is also correct).
       const result = await withLockedCampaign(campaignId, async (tx, campaign) => {
+        if (await currentPackageKeyFor("campaign", campaignId, tx)) throw Object.assign(new Error("Review current SFP content in Content workspace and launch through Canonical Enrichment; generic campaign approval is not SFP release authority."), { httpStatus: 409 });
+        const steps = await tx.select().from(campaignSteps).where(eq(campaignSteps.campaignId, campaignId));
+        for (const step of steps) assertCampaignTemplateSupported(step.subject ?? "", step.bodyTemplate ?? "");
         // Paused campaigns must be re-approvable too: a campaign that has
         // gone live and been paused (or a pre-existing campaign that predates
         // this approval system and has approvedRevision = NULL) otherwise has

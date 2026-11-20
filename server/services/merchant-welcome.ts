@@ -19,9 +19,9 @@ function buildMerchantWelcomeEmail(firstName: string, companyName: string): stri
 
   <p>Welcome to Liberty Bancard. We're glad to have <strong>${displayBiz}</strong> on board.</p>
 
-  <p>Here's what happens in the next 48 hours:</p>
+  <p>Here are the next steps:</p>
 
-  <p><strong>Step 1 — Complete your merchant application (5 minutes)</strong><br/>
+  <p><strong>Step 1 — Complete your secure merchant application</strong><br/>
   <a href="https://libertybancard.com/merchant-application" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;margin-top:8px;">Start Your Application &rarr;</a></p>
 
   <p><strong>Step 2 — Upload required documents</strong><br/>
@@ -31,20 +31,20 @@ function buildMerchantWelcomeEmail(firstName: string, companyName: string): stri
     <li>Voided check or bank letter</li>
     <li>Government-issued photo ID</li>
   </ul>
-  <p>You can upload these through your merchant portal or reply to this email with them attached.</p>
+  <p>Use your authenticated merchant portal or ask your representative for a secure document-upload link. Do not email bank documents or identity documents as attachments.</p>
 
   <p><strong>What happens next:</strong></p>
   <ol>
-    <li>Complete the application (5 min)</li>
+    <li>Complete the secure application</li>
     <li>Upload documents</li>
-    <li>Underwriting review (24–48 hours)</li>
+    <li>Underwriting review; timing depends on the application and required documents</li>
     <li>Terminal setup and configuration (if applicable)</li>
     <li>Go-live and first batch</li>
   </ol>
 
   <p>You'll have a dedicated contact throughout this process. Questions? Reply to this email or call 954-266-8214 / <a href="mailto:support@libertybancard.com">support@libertybancard.com</a>.</p>
 
-  <p>Looking forward to saving you money on processing.</p>
+  <p>We look forward to reviewing the processing options with you.</p>
 
   ${signature}
 </div>

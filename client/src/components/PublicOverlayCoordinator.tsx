@@ -1,3 +1,4 @@
+import { useLocation } from "wouter";
 import { useEffect } from "react";
 import { getChatApi, isChatReady, setPublicChatReady, setPublicOverlayFlag } from "@/lib/public-overlay";
 
@@ -14,6 +15,12 @@ const PHONE_QUERY = "(max-width: 767px)";
  * never reads the vendor's shadow DOM.
  */
 export function PublicOverlayCoordinator() {
+  const [location] = useLocation();
+  useEffect(() => {
+    const formRoute = /^\/(upload-statement|get-started|free-analysis|estimate|free-smart-terminal|contact|about-contact|partners|affiliate)(\/|$)/.test(location);
+    setPublicOverlayFlag("conversion", formRoute);
+    return () => setPublicOverlayFlag("conversion", false);
+  }, [location]);
   useEffect(() => {
     let frame = 0;
     const syncDialog = () => {

@@ -177,7 +177,7 @@ export async function previewAssetStep(input: AssetStepPreviewInput): Promise<As
     const fields = campaignMergeFields({ ownerFirstName: "Alex", ownerLastName: "Sample", companyName: "Sample Business LLC", vertical: "retail", city: "Miami", state: "FL" });
     const subject = applyCampaignMergeFields(input.draft ? input.draft.subject ?? "" : step.subject ?? "", fields);
     const body = applyCampaignMergeFields(input.draft ? input.draft.body : step.bodyTemplate ?? "", fields);
-    const warnings = leftoverTokens(`${subject}\n${body}`).map((t) => `${t} is not a campaign merge field. The campaign send path does not block it, so it would be delivered literally.`);
+    const warnings = leftoverTokens(`${subject}\n${body}`).map((t) => `${t} is not a campaign merge field. Approval and dispatch are blocked until it is replaced with a supported field.`);
     if (campaign.aiPersonalization) warnings.push("AI personalization is on for this campaign: the sent wording may be rewritten at send time. This preview shows the wording that is given to it (and what is sent if it is flagged or fails).");
     const html = body + getEmailSignatureHtml("sales", await getStoredSignature("sales"));
     const result = await composeSmtpFinal(subject, html, "legacy_smtp", complianceLoader);

@@ -183,3 +183,7 @@ If either variable is absent the script skips cleanly (exit 0) rather than faili
 5. **Confirm `AI_INTEGRATIONS_OPENAI_API_KEY` works** — the AI Advisors tab will show an error if the key is invalid.
 6. **Send a test GHL webhook** — confirm the endpoint returns 200 (not 401 or 503).
 7. **Submit a test lead form** — verify the contact appears in GHL within ~45 seconds (one sync cycle).
+
+## Public acquisition build settings (November 2026)
+
+Configure `VITE_GA4_MEASUREMENT_ID` (`G-...`), `VITE_FB_PIXEL_ID` (numeric) and `VITE_GOOGLE_ADS_LEAD_CONVERSION` (`AW-.../label`) in the client build environment for the intended properties. These are public identifiers, not credentials. `VITE_GA_ID` remains a GA4 compatibility alias. Missing IDs do not enable tracking; configured IDs still require cookie consent and accepted-event/provider receipt verification. The production build writes a public `tracking-readiness.json` configuration receipt; it is not a delivery attestation. Rebuilding is necessary after changing these values. A server-side Google Ads developer token alone establishes neither a configured client tag nor a working offline upload. See [current operator guide](launch-readiness-operator-guide.md).

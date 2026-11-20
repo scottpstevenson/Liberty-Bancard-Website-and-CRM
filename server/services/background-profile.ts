@@ -139,6 +139,9 @@ export const WORKER_CAPABILITY_GROUPS = {
     "abandoned-statement",
     "proposal-followup",
   ],
+  /** Sequences consumer only; its handler is restricted to canonical releases, even if a legacy flag is on.
+   * Selection is not send authority: pause, content, release and recipient gates remain mandatory. */
+  "canonical-sequences": ["sequences"],
   /**
    * Operational health and reporting workers, EXCLUDING health-monitor.
    * Every job here sends email, Slack, or a report to a human — none are
@@ -446,3 +449,8 @@ export function getQueuesForCapabilityGroups(groups: WorkerCapabilityGroup[]): r
  * Do NOT populate this in code without runtime evidence.
  */
 export const CORE_QUEUE_ALLOWLIST: string[] = [];
+
+/** The narrow capability never acquires legacy campaign/producer authority through an ambient feature flag. */
+export function useCanonicalSequenceRunner(legacyOutreachEnabled: boolean): boolean {
+  return !legacyOutreachEnabled || getBackgroundProfile() === "selective" && getSelectiveGroups().includes("canonical-sequences");
+}

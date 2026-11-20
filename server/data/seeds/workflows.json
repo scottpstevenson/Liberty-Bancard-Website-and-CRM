@@ -176,7 +176,7 @@
         {
           "type": "send_ghl_email",
           "subject": "Quick follow-up on your processing review",
-          "body": "<p>Hi {{contact.firstName}},</p><p>Just following up on the statement analysis we sent over. A few merchants in {{contact.vertical}} have seen great results switching to our recommended program.</p><p>Want to do a quick 5-minute recap? {{calendarLink}}</p><p>Best,<br/>Liberty Bancard Team</p><p style='font-size:11px;color:#999;'>Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>"
+          "body": "<p>Hi {{contact.firstName}},</p><p>Just following up on the statement analysis we sent over. We can walk through the findings and answer questions about the available options.</p><p>Want to book a time to review it? {{calendarLink}}</p><p>Best,<br/>Liberty Bancard Team</p><p style='font-size:11px;color:#999;'>Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>"
         },
         {
           "type": "wait",
@@ -241,7 +241,7 @@
         {
           "type": "send_ghl_email",
           "subject": "Welcome to Liberty Bancard - Your Application & Next Steps",
-          "body": "<p>Hi {{contact.firstName}},</p><p>Welcome aboard! We're excited to get {{contact.companyName}} set up with better processing.</p><p><strong>Step 1: Complete Your Application</strong></p><p>Your merchant application takes about 5 minutes to complete. Click below to get started:</p><p><a href='https://libertybancard.com/merchant-application' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Start Your Application</a></p><p><strong>Step 2: Upload Required Documents</strong></p><p>To complete underwriting, we'll need:</p><ul><li>Most recent processing statement</li><li>Voided check or bank letter</li><li>Government-issued photo ID</li></ul><p>Your representative will share a secure link for documents.</p><p><strong>What Happens Next:</strong></p><ol><li>Complete the application (5 min)</li><li>Upload required documents</li><li>Underwriting review (typically 24-48 hours)</li><li>Terminal setup and configuration (if applicable)</li><li>Go-live and first batch!</li></ol><p>You'll have a dedicated point of contact throughout. We'll keep you updated at every step.</p><p>Best,<br/>Liberty Bancard Team</p>"
+          "body": "<p>Hi {{contact.firstName}},</p><p>Welcome aboard! We're excited to get {{contact.companyName}} set up with better processing.</p><p><strong>Step 1: Complete Your Application</strong></p><p>Complete your merchant application through the secure application page. Click below to get started:</p><p><a href='https://libertybancard.com/merchant-application' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Start Your Application</a></p><p><strong>Step 2: Upload Required Documents</strong></p><p>To complete underwriting, we'll need:</p><ul><li>Most recent processing statement</li><li>Voided check or bank letter</li><li>Government-issued photo ID</li></ul><p>Your representative will share a secure link for documents.</p><p><strong>What Happens Next:</strong></p><ol><li>Complete the secure application</li><li>Upload required documents</li><li>Underwriting review; timing depends on the application and required documents</li><li>Terminal setup and configuration (if applicable)</li><li>Go-live and first batch!</li></ol><p>You'll have a dedicated point of contact throughout. We'll keep you updated at every step.</p><p>Best,<br/>Liberty Bancard Team</p>"
         },
         {
           "type": "send_ghl_sms",
@@ -271,11 +271,11 @@
         {
           "type": "send_ghl_email",
           "subject": "Your Liberty Bancard Application is Waiting",
-          "body": "<p>Hi {{contact.firstName}},</p><p>We noticed you haven't completed your merchant application yet. It only takes about 5 minutes!</p><p><a href='https://libertybancard.com/merchant-application' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Complete Your Application</a></p><p>Once submitted, we can begin underwriting and get you set up quickly.</p><p>Need help? Just reply to this email or call us at 954-266-8214.</p><p>Best,<br/>Liberty Bancard Team</p>"
+          "body": "<p>Hi {{contact.firstName}},</p><p>We noticed you haven't completed your merchant application yet. Your representative can help you finish the required details.</p><p><a href='https://libertybancard.com/merchant-application' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Complete Your Application</a></p><p>Once submitted, we can begin underwriting and get you set up quickly.</p><p>Need help? Just reply to this email or call us at 954-266-8214.</p><p>Best,<br/>Liberty Bancard Team</p>"
         },
         {
           "type": "send_ghl_sms",
-          "body": "Hi {{contact.firstName}}, friendly reminder to complete your Liberty Bancard application at libertybancard.com/merchant-application. Only takes 5 min! Need help? Reply here or call 954-266-8214."
+          "body": "Hi {{contact.firstName}}, friendly reminder to complete your Liberty Bancard application at libertybancard.com/merchant-application. Need help? Reply here or call 954-266-8214."
         },
         {
           "type": "create_audit_log",
@@ -564,7 +564,7 @@
       "category": "onboarding",
       "channel": "email",
       "subject": "Welcome to Liberty Bancard - Let's Get Started",
-      "body": "<p>Hi {{contact.firstName}},</p>\n<p>Welcome to Liberty Bancard! We're excited to get {{contact.companyName}} set up.</p>\n<p><strong>Your onboarding checklist:</strong></p>\n<ol>\n<li>Complete the merchant application (5 min)</li>\n<li>Provide a voided check or bank letter</li>\n<li>Confirm terminal/equipment needs</li>\n</ol>\n<p>We'll keep you updated through every step. Questions? Reply to this email anytime.</p>\n<p>Best,<br/>Liberty Bancard Team</p>",
+      "body": "<p>Hi {{contact.firstName}},</p>\n<p>Welcome to Liberty Bancard! We're excited to get {{contact.companyName}} set up.</p>\n<p><strong>Your onboarding checklist:</strong></p>\n<ol>\n<li><a href=\"https://libertybancard.com/merchant-application\">Complete the secure merchant application</a></li>\n<li>Ask your representative for a secure upload link for any required bank documents</li>\n<li>Confirm terminal/equipment needs</li>\n</ol>\n<p>We'll keep you updated through every step. Questions? Reply to this email anytime.</p>\n<p>Best,<br/>Liberty Bancard Team</p>",
       "mergeFields": [
         "contact.firstName",
         "contact.companyName"
@@ -587,7 +587,7 @@
       "category": "onboarding",
       "channel": "email",
       "subject": "Your Liberty Bancard Application is Waiting",
-      "body": "<p>Hi {{contact.firstName}},</p>\n<p>We noticed you haven't completed your merchant application yet for {{contact.companyName}}. It only takes about 5 minutes!</p>\n<p><a href=\"https://libertybancard.com/merchant-application\" style=\"display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;\">Complete Your Application</a></p>\n<p>Once submitted, we can begin underwriting and get you processing within days.</p>\n<p>Need help? Just reply to this email or call us at 954-266-8214.</p>\n<p>Best,<br/>Liberty Bancard Team</p>",
+      "body": "<p>Hi {{contact.firstName}},</p>\n<p>We noticed you haven't completed your merchant application yet for {{contact.companyName}}. Your representative can help you finish the required details.</p>\n<p><a href=\"https://libertybancard.com/merchant-application\" style=\"display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;\">Complete Your Application</a></p>\n<p>Once submitted, the application and required documents can be reviewed for underwriting.</p>\n<p>Need help? Just reply to this email or call us at 954-266-8214.</p>\n<p>Best,<br/>Liberty Bancard Team</p>",
       "mergeFields": [
         "contact.firstName",
         "contact.companyName"
@@ -599,7 +599,7 @@
       "category": "onboarding",
       "channel": "sms",
       "subject": null,
-      "body": "Hi {{contact.firstName}}, friendly reminder to complete your Liberty Bancard application at libertybancard.com/merchant-application. Only takes 5 min! Need help? Reply here or call 954-266-8214.",
+      "body": "Hi {{contact.firstName}}, friendly reminder to complete your Liberty Bancard application at libertybancard.com/merchant-application. Need help? Reply here or call 954-266-8214.",
       "mergeFields": [
         "contact.firstName"
       ],
@@ -610,7 +610,7 @@
       "category": "nurture",
       "channel": "email",
       "subject": "Still thinking about your processing?",
-      "body": "<p>Hi {{contact.firstName}},</p>\n<p>We know switching processors is a big decision. No rush - but we wanted to check in.</p>\n<p>If you would like us to review your statement, we can pick it up whenever you are ready.</p>\n<p><a href=\"{{calendarLink}}\">Book a 5-minute recap</a> whenever it works for you.</p>\n<p>Best,<br/>Liberty Bancard Team</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+      "body": "<p>Hi {{contact.firstName}},</p>\n<p>We know switching processors is a big decision. No rush - but we wanted to check in.</p>\n<p>If you would like us to review your statement, we can pick it up whenever you are ready.</p>\n<p><a href=\"{{calendarLink}}\">Book a review</a> whenever it works for you.</p>\n<p>Best,<br/>Liberty Bancard Team</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
       "mergeFields": [
         "contact.firstName",
         "calendarLink"
@@ -646,7 +646,7 @@
       "category": "support",
       "channel": "email",
       "subject": "We received your support request - Liberty Bancard",
-      "body": "<p>Hi {{contact.firstName}},</p>\n<p>We received your support request and a team member will be in touch shortly.</p>\n<p>Our typical response time is within 4 hours during business hours.</p>\n<p>Best,<br/>Liberty Bancard Support Team</p>",
+      "body": "<p>Hi {{contact.firstName}},</p>\n<p>We received your support request and a team member will be in touch shortly.</p>\n<p>Our support team will review your request and follow up using the details you provided.</p>\n<p>Best,<br/>Liberty Bancard Support Team</p>",
       "mergeFields": [
         "contact.firstName"
       ],

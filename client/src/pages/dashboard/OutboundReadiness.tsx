@@ -616,8 +616,8 @@ export default function OutboundReadiness() {
               <div className="rounded-md border p-3 space-y-1">
                 <div className="flex items-center gap-2 font-medium"><MessageSquare className="h-3.5 w-3.5 text-blue-600" /> Cold Email</div>
                 <p className="text-xs text-muted-foreground">From: Scott@mail.libertybancard.com</p>
-                <div className="flex items-center gap-1 text-xs text-muted-foreground"><ChevronRight className="h-3 w-3" /><span>GHL Conversations API (primary)</span></div>
-                <div className="flex items-center gap-1 text-xs text-muted-foreground"><ChevronRight className="h-3 w-3" /><span>SMTP fallback if configured (adds List-Unsubscribe header)</span></div>
+                <div className="flex items-center gap-1 text-xs text-muted-foreground"><ChevronRight className="h-3 w-3" /><span>SFP and contact campaigns: SMTP with compliance headers</span></div>
+                <div className="flex items-center gap-1 text-xs text-muted-foreground"><ChevronRight className="h-3 w-3" /><span>Website requested follow-up: separate Gmail OAuth lane; GHL handoffs are feature-specific</span></div>
               </div>
               <div className="rounded-md border border-red-100 bg-red-50/30 p-3 space-y-1">
                 <div className="flex items-center gap-2 font-medium"><Mail className="h-3.5 w-3.5 text-purple-600" /> Department / Transactional Email</div>

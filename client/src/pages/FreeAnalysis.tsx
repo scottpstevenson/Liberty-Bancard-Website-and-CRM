@@ -12,7 +12,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { getStoredUTMParams } from "@/lib/utm";
 import { useToast } from "@/hooks/use-toast";
 import { trackQuizStart, trackQuizStep, trackQuizComplete, trackConversion, trackFormSubmission } from "@/lib/tracking";
-import { trackConversion as trackConversionV2, trackPhoneCallClick } from "@/lib/analytics";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
 import {
   ArrowLeft,
@@ -343,8 +343,7 @@ export default function FreeAnalysis() {
       // No financial value is sent: the quiz computes none.
       trackQuizComplete();
       trackFormSubmission("free_analysis_quiz");
-      trackConversion("free_analysis_quiz");
-      trackConversionV2("free_analysis_quiz");
+      trackConversion("free_analysis_quiz", undefined, submissionIdempotencyKey.current ?? undefined);
     } catch (error: any) {
       setSubmitError(getFormErrorMessage(error));
     } finally {

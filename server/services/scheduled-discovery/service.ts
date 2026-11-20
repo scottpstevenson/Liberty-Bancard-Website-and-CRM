@@ -1,3 +1,4 @@
+import { CLASSIFIER_VERSION } from "../cro03/sfp-vertical-classifier";
 import {sanitizeAuditPayload} from "../audit-sanitizer";
 import {readOutscraperMonthlyBudget,updateOutscraperMonthlyBudget} from '../outscraper-monthly-budget';
 import {resolveGeographyFromCandidates} from '../cro03/sfp-geography-resolver';
@@ -176,8 +177,16 @@ async function retainResult(run:any,result:OutscraperSearchResult) {
 async function releaseLane(runId:string){await db.execute(sql`UPDATE discovery_lane SET run_id=NULL,token=NULL,updated_at=now() WHERE run_id=${runId}::uuid`);}
 export async function requestRetainedDiscoveryImport(runId:string,actorId:string) {
  await db.transaction(async tx=>{
+  const current=await one(sql`SELECT state,totals,import_execution_id FROM discovery_runs WHERE id=${runId}::uuid FOR UPDATE`,tx);
   await assertDiscoveryImportScope(tx,runId);
-  const r=await one(sql`UPDATE discovery_runs SET import_requested=true,updated_at=now() WHERE id=${runId}::uuid AND state IN ('preview_ready','results_retained','importing','completed') RETURNING id`,tx);
+  // Completed zero-row imports can be reclassified from retained evidence after a ruleset repair. Never replay a
+  // partially imported run into a different execution identity, nor erase its original import ledger or raw artifact.
+  if(current?.state==='completed' && Number(current.totals?.importedRows ?? -1)!==0) return; // Idempotent no-op for imports that already wrote rows.
+  const r=await one(sql`UPDATE discovery_runs SET import_requested=true,
+    state=CASE WHEN state='completed' THEN 'results_retained' ELSE state END,
+    preview=CASE WHEN state='completed' THEN NULL ELSE preview END,
+    completed_at=CASE WHEN state='completed' THEN NULL ELSE completed_at END,updated_at=now()
+    WHERE id=${runId}::uuid AND state IN ('preview_ready','results_retained','importing','completed') RETURNING id`,tx);
   if(!r)throw new Error('DISCOVERY_ARTIFACT_NOT_READY');
   await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,actor_type,actor_id) VALUES('discovery_retained_import_requested','discovery_run',${runId},'user',${actorId})`);
  });
@@ -193,7 +202,7 @@ async function fulfillRetained(run:any) {
  // Re-evaluate actual scope at commit. Do not freeze preview matches or counts as write authority.
  const all=artifact.rows.map((raw:any)=>normalizeDiscoveryRow(raw,run.snapshot));
  const accepted=all.filter((r:ArtifactRow)=>r.state==='eligible').map((r:ArtifactRow)=>r.mapped);
- const envelope={runId:run.id,providerTaskId:run.provider_task_id,contentHash:artifact.content_hash,mapperVersion:MAPPER_VERSION,matchingPolicy:MATCHING_POLICY};
+ const envelope={runId:run.id,providerTaskId:run.provider_task_id,contentHash:artifact.content_hash,mapperVersion:MAPPER_VERSION,matchingPolicy:MATCHING_POLICY,classifierVersion:CLASSIFIER_VERSION};
  const fileHash=contentHash(envelope);const filename=`Scheduled discovery ${run.id}`;
  const claim=await claimCsvExecution({fileHash,totalRows:accepted.length,actorType:'system',actorId:run.actor_id,sourcePayload:accepted,
   metadata:{sourceFormat:'google_maps_outscraper',fileName:filename,...envelope,scheduledDiscoveryRunId:run.id}});

@@ -7,7 +7,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { usePublicIntake } from "@/hooks/use-public-intake";
 import { PublicIntakeNotice } from "@/components/PublicIntakeNotice";
 import { trackConversion, trackFormSubmission } from "@/lib/tracking";
-import { trackConversion as trackConversionV2 } from "@/lib/analytics";
 import { INQUIRY_GENERAL_INTENTS, INQUIRY_NOTE_MAX } from "@shared/public-inquiry";
 import {
   EMPTY_PERSON,
@@ -62,8 +61,7 @@ export function GeneralInquiryForm() {
       // Once per saved request: a replay of the same confirmed request is not a second conversion.
       if (outcome.fresh !== false) {
         trackFormSubmission("general_inquiry_submission");
-        trackConversion("general_inquiry_submission");
-        trackConversionV2("general_inquiry_submission");
+        trackConversion("general_inquiry_submission", undefined, outcome.receipt);
       }
     } else if (outcome.kind === "rejected") {
       if (outcome.fieldErrors) {

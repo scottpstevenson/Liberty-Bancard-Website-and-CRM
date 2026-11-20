@@ -91,7 +91,7 @@ export default function Support() {
     if (outcome.kind === "saved") {
       // Conversion and the confirmation page follow ONLY a confirmed save (never a 202, an unreadable body or a failure), and the
       // conversion is recorded once per saved request: a replay of the same confirmed request is not a second conversion.
-      if (outcome.fresh !== false) trackConversion("support_request", { issue_type: data.issueType, priority: data.priority });
+      if (outcome.fresh !== false) trackConversion("support_request", { receipt: outcome.receipt });
       const reference = outcome.receipt.replace(/-/g, "").slice(0, 8).toUpperCase();
       setLocation(`/thanks-support?ref=${reference}`);
     } else if (outcome.kind === "rejected") {

@@ -174,7 +174,11 @@ async function main() {
   console.log("PASS\n");
 }
 
-main().catch(err => {
+main().finally(async () => {
+  // This suite imports the real pg pool for its fail-closed checks. Close its owned connection after assertions.
+  const { pool } = await import("../server/db");
+  await pool.end();
+}).catch(err => {
   console.error("FATAL:", err);
   process.exit(1);
 });

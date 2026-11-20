@@ -5,6 +5,7 @@ import {withTransactionPhase} from "../lib/transaction-observability";
 import {
   getBackgroundProfile,
   getSelectiveGroups,
+  useCanonicalSequenceRunner,
   getQueuesForCapabilityGroups,
   isQueueSelectedByBackgroundProfile,
   CORE_QUEUE_ALLOWLIST,
@@ -1871,7 +1872,8 @@ export class QueueManager {
               || (queueName === QUEUE_NAMES.GHL_SYNC && _activeGroups.includes("ghl-sync-only" as any))
               // The narrow statement-upload capability owns exactly this physical queue; the broader critical-commands
               // group (which also contains it) keeps working unchanged.
-              || (queueName === QUEUE_NAMES.STATEMENT_UPLOAD && _activeGroups.includes("statement-upload" as any));
+              || (queueName === QUEUE_NAMES.STATEMENT_UPLOAD && _activeGroups.includes("statement-upload" as any))
+              || (queueName === QUEUE_NAMES.SEQUENCES && _activeGroups.includes("canonical-sequences"));
           if (!_profileSelected || !_groupSelected) {
             console.info(JSON.stringify({
               event: "job:selective_capability_suppressed",
@@ -2114,7 +2116,7 @@ export class QueueManager {
           // response rows rather than globally treating that mixed queue as
           // promotional.
           decideCr06PromotionalLifecycle({ boundary: "queue_runner", purpose: "transactional" });
-          if (featureFlags.LEGACY_OUTREACH_ENABLED) {
+          if (!useCanonicalSequenceRunner(featureFlags.LEGACY_OUTREACH_ENABLED)) {
             await runSequencesTick();
           } else {
             // The legacy flag stays a containment switch for old producers. A live,

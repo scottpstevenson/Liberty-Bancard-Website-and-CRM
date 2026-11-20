@@ -6,10 +6,13 @@ declare global {
   }
 }
 
-const viteEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
+// Direct properties are required for Vite build-time replacement. The process fallback is for isolated Node tests only.
 const runtimeEnv = (globalThis as typeof globalThis & { process?: { env?: Record<string, string | undefined> } }).process?.env;
-const GA_ID = (viteEnv?.VITE_GA4_MEASUREMENT_ID || viteEnv?.VITE_GA_ID || runtimeEnv?.VITE_GA4_MEASUREMENT_ID || runtimeEnv?.VITE_GA_ID) as string | undefined;
-const FB_PIXEL_ID = (viteEnv?.VITE_FB_PIXEL_ID || runtimeEnv?.VITE_FB_PIXEL_ID) as string | undefined;
+const GA_ID = typeof import.meta.env !== "undefined"
+  ? import.meta.env.VITE_GA4_MEASUREMENT_ID || import.meta.env.VITE_GA_ID
+  : runtimeEnv?.VITE_GA4_MEASUREMENT_ID || runtimeEnv?.VITE_GA_ID;
+const FB_PIXEL_ID = typeof import.meta.env !== "undefined" ? import.meta.env.VITE_FB_PIXEL_ID : runtimeEnv?.VITE_FB_PIXEL_ID;
+const ADS_DESTINATION = typeof import.meta.env !== "undefined" ? import.meta.env.VITE_GOOGLE_ADS_LEAD_CONVERSION : runtimeEnv?.VITE_GOOGLE_ADS_LEAD_CONVERSION;
 
 export type TrackingConsentPreferences = { analytics: boolean; marketing: boolean };
 export type CookieConsentPreferences = TrackingConsentPreferences & {
@@ -33,6 +36,7 @@ let gaScriptInjected = false;
 let gaConfigured = false;
 let metaScriptInjected = false;
 let metaInitialized = false;
+let adsConfigured = false;
 
 function ensureGtag() {
   if (typeof window === "undefined") return;
@@ -45,11 +49,12 @@ function ensureGtag() {
 }
 
 function loadGaScript() {
-  if (!GA_ID || gaScriptInjected || typeof document === "undefined") return;
+  const tagId = GA_ID || (marketingConsent && /^AW-\d+\/[A-Za-z0-9_-]+$/.test(ADS_DESTINATION ?? "") ? ADS_DESTINATION!.split("/")[0] : undefined);
+  if (!tagId || gaScriptInjected || typeof document === "undefined") return;
   gaScriptInjected = true;
   const script = document.createElement("script");
   script.async = true;
-  script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`;
+  script.src = `https://www.googletagmanager.com/gtag/js?id=${tagId}`;
   document.head.appendChild(script);
 }
 
@@ -151,6 +156,13 @@ export function applyConsentPreferences(preferences: TrackingConsentPreferences)
     });
   }
   configureGaIfAllowed();
+  if (marketingConsent && /^AW-\d+\/[A-Za-z0-9_-]+$/.test(ADS_DESTINATION ?? "")) {
+    loadGaScript();
+    if (!adsConfigured && typeof window !== "undefined") {
+      window.gtag?.("config", ADS_DESTINATION!.split("/")[0], { send_page_view: false });
+      adsConfigured = true;
+    }
+  }
   loadAndInitializeMetaPixel();
 }
 
@@ -176,23 +188,31 @@ export function trackPageView(path?: string) {
   }
 }
 
-export function trackConversion(type: string, value?: number) {
-  if (GA_ID && analyticsConsent) {
-    gtagEvent("event", "conversion", {
-      send_to: GA_ID,
-      event_category: "conversion",
-      event_label: type,
-      value: value || 0,
-    });
+/** One conversion owner. The receipt is used locally for replay suppression, never included in event payloads. */
+const conversionOccurrences = new Set<string>();
+const LEAD_FORMS = new Set(["general_inquiry_submission", "terminal_inquiry_submission", "get_started_submission", "free_analysis_quiz", "estimate_request", "statement_upload", "merchant_application"]);
+export function trackConversion(type: string, value?: number, receipt?: string): void {
+  if (typeof window === "undefined" || (!analyticsConsent && !marketingConsent)) return;
+  const occurrence = receipt ? `${type}:${receipt}` : null;
+  if (occurrence && conversionOccurrences.has(occurrence)) return;
+  if (occurrence) {
+    conversionOccurrences.add(occurrence);
+    // Intake already persists its once-per-receipt claim; this is a bounded second line of defense for callers.
+    if (conversionOccurrences.size > 1000) conversionOccurrences.delete(conversionOccurrences.values().next().value!);
   }
-  if (FB_PIXEL_ID && marketingConsent) {
-    fbqEvent("track", "Lead", {
-      content_name: type,
-      value: value || 0,
-      currency: "USD",
-    });
+  const isLead = LEAD_FORMS.has(type);
+  if (GA_ID && analyticsConsent) gtagEvent("event", isLead ? "generate_lead" : "form_submission", {
+    form_name: type, event_category: "conversion", value: value ?? 0, currency: "USD",
+  });
+  // A GA4 G- measurement ID is not a Google Ads conversion destination.
+  if (isLead && marketingConsent && /^AW-\d+\/[A-Za-z0-9_-]+$/.test(ADS_DESTINATION ?? "")) {
+    ensureGtag();
+    window.gtag?.("event", "conversion", { send_to: ADS_DESTINATION, value: value ?? 0, currency: "USD" });
   }
+  if (isLead && FB_PIXEL_ID && marketingConsent) fbqEvent("track", "Lead", { content_name: type, value: value ?? 0, currency: "USD" });
 }
+
+export function hasAnalyticsConsent(): boolean { return analyticsConsent; }
 
 /**
  * Partner-program funnel events. Consent-gated like every other analytics event, sent to GA only (never the ad pixel),
@@ -261,27 +281,14 @@ export function trackQuizComplete() {
     });
   }
   if (FB_PIXEL_ID) {
-    fbqEvent("track", "CompleteRegistration", {
+    fbqEvent("trackCustom", "QuizCompleted", {
       content_name: "free_analysis_quiz",
     });
   }
 }
 
 export function trackFormSubmission(formName: string, value?: number) {
-  if (GA_ID) {
-    gtagEvent("event", "form_submission", {
-      event_category: "conversion",
-      event_label: formName,
-      value: value || 0,
-    });
-  }
-  if (FB_PIXEL_ID) {
-    fbqEvent("track", "Lead", {
-      content_name: formName,
-      value: value || 0,
-      currency: "USD",
-    });
-  }
+  if (GA_ID) gtagEvent("event", "form_submission", { event_category: "engagement", event_label: formName, value: value ?? 0 });
 }
 
 export function trackCalendarBooking(source?: string) {
@@ -464,7 +471,7 @@ export function trackMerchantApplication() {
     });
   }
   if (FB_PIXEL_ID) {
-    fbqEvent("track", "CompleteRegistration", {
+    fbqEvent("trackCustom", "MerchantApplicationRecorded", {
       content_name: "merchant_application",
     });
   }
@@ -492,7 +499,7 @@ export function trackEstimateRequest() {
     });
   }
   if (FB_PIXEL_ID) {
-    fbqEvent("track", "Lead", {
+    fbqEvent("trackCustom", "EstimateRequestRecorded", {
       content_name: "estimate_request",
     });
   }
@@ -544,7 +551,7 @@ export function trackStatementUploadCompleted(params?: { page?: string; ctaLocat
     });
   }
   if (FB_PIXEL_ID) {
-    fbqEvent("track", "Lead", {
+    fbqEvent("trackCustom", "StatementUploadCompleted", {
       content_name: "statement_upload_completed",
       page: params?.page,
     });

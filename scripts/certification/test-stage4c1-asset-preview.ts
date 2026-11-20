@@ -102,7 +102,7 @@ check(/interpolateSequenceText\(text, \{/.test(workerSrc) && !/\.replace\(\/\\\{
 // Campaign: merge fields, sales signature, SMTP; leftover tokens and AI rewrite are disclosed.
 const camp = await previewAssetStep({ assetType: "campaign", assetId: BASE + 4, stepId: cs1 });
 check(camp.ok && camp.final?.transport.name === "legacy_smtp" && camp.final!.subject === "Alex, a question" && camp.final!.html.includes("Hi Alex at Sample Business LLC in Miami"), "A legacy campaign step applies the engine's merge fields and sales signature");
-check(camp.warnings.some((w) => w.includes("{{unknown_token}}") && /literally/.test(w)) && camp.warnings.some((w) => /AI personalization is on/.test(w)) && camp.asset?.aiPersonalization === true, "A token the campaign path would send literally, and the AI rewrite, are both disclosed");
+check(camp.warnings.some((w) => w.includes("{{unknown_token}}") && /blocked/.test(w)) && camp.warnings.some((w) => /AI personalization is on/.test(w)) && camp.asset?.aiPersonalization === true, "An unsupported token approval/dispatch hold and the AI rewrite are both disclosed");
 check((await previewAssetStep({ assetType: "campaign", assetId: BASE + 4, stepId: cs2 })).error?.code === "UNSUPPORTED_CHANNEL", "A campaign SMS step is refused");
 check((await previewAssetStep({ assetType: "campaign", assetId: BASE + 4, stepId: 2000000000 })).error?.code === "STEP_NOT_FOUND", "A step id that is not in this campaign is not accepted");
 

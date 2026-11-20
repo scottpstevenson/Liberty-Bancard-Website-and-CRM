@@ -382,7 +382,7 @@ export default function IncidentsDashboard() {
           <Activity className="w-5 h-5" />
           <h2 className="text-lg font-semibold">Incident Feed</h2>
           {totalIssues > 0 && (
-            <Badge variant="destructive">{totalIssues} issue{totalIssues !== 1 ? "s" : ""}</Badge>
+            <Badge variant="destructive">{totalIssues} sampled record{totalIssues !== 1 ? "s" : ""}</Badge>
           )}
         </div>
         <Button size="sm" variant="outline" onClick={() => refetch()}>
@@ -396,10 +396,10 @@ export default function IncidentsDashboard() {
           <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
           <div>
             <span className="font-semibold text-amber-800 dark:text-amber-300">
-              {staleCount} stale DLQ job{staleCount !== 1 ? "s" : ""} may be masking new failures.
+              {staleCount} retained exhausted job{staleCount !== 1 ? "s" : ""} older than seven days.
             </span>{" "}
             <span className="text-amber-700 dark:text-amber-400">
-              These jobs are older than 7 days and exhausted all retry attempts. Use "Purge stale" below to clear them so real new failures become visible immediately.
+              These are historical records, not a count of current product defects. Review queue, timestamp and cause before retrying or removing evidence. Detailed status may be incomplete when a queue is unavailable.
             </span>
           </div>
         </div>

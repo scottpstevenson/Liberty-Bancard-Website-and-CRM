@@ -853,9 +853,7 @@ export default function MerchantApplication() {
   const completeSubmission = async (data: { id: number; esignCapability?: string }) => {
       trackMerchantApplication();
       trackConversion("merchant_application", {
-        application_id: data.id,
-        estimated_volume: estimatedMonthlyVolume,
-        program: preferredProgram,
+        receipt: `merchant-application:${data.id}`,
       });
       setApplicationId(data.id);
 

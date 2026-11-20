@@ -218,7 +218,7 @@ export default function Sequences() {
   // Package grouping comes only from the catalog authority. It labels and filters; it never changes what a sequence can do,
   // and while the catalog cannot be read no sequence is hidden or called "other".
   const catalogRead = useCatalogReadiness();
-  const [packageFilter, setPackageFilter] = useState<"all" | PackageScope>("all");
+  const [packageFilter, setPackageFilter] = useState<"all" | PackageScope>("current");
   const packageCounts = { current: 0, historical: 0, other: 0 };
   for (const seq of sequences) {
     const scope = packageScopeOf(catalogRead, "sequence", seq.id);
@@ -861,7 +861,7 @@ export default function Sequences() {
               return { seq, bucket, wiring };
             });
             const filtered = enriched.filter(({ seq, bucket, wiring }) => {
-              if (packageFilter !== "all" && packageScopeOf(catalogRead, "sequence", seq.id) !== packageFilter) return false;
+              if (catalogRead.status === "ready" && packageFilter !== "all" && packageScopeOf(catalogRead, "sequence", seq.id) !== packageFilter) return false;
               if (bucketFilter !== "all" && bucket !== bucketFilter) return false;
               if (statusFilter !== "all" && seq.status !== statusFilter) return false;
               if (wiringFilter === "missing" && wiring.status !== "missing" && wiring.status !== "invalid_stale") return false;

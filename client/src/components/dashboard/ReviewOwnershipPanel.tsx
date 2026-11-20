@@ -62,7 +62,7 @@ export function ReviewOwnershipPanel() {
   if (!data) return null;
 
   return (
-    <Card data-testid="card-review-ownership">
+    <Card id="review-ownership" data-testid="card-review-ownership">
       <CardHeader><CardTitle className="text-base">Review owner and due time</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">

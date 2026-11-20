@@ -624,7 +624,7 @@ function StatementSlaAlert() {
 // ─── Tab: Offline Conversions ─────────────────────────────────────────────────
 
 function OfflineConversionsTab({ days }: { days: number }) {
-  const { data, isLoading } = useQuery<{ totalRows: number; googleAdsApiConfigured: boolean; gclidCaptureActive: boolean; setupSteps: string[]; note: string }>({
+  const { data, isLoading } = useQuery<{ totalRows: number; googleAdsApiConfigured: boolean; gclidCaptureActive: boolean; observedExportRowsWithGclid?: number; clientTracking?: { available: boolean; ga4: string; metaPixel: string; googleAdsLead: string; acceptance: string }; setupSteps: string[]; note: string }>({
     queryKey: ["/api/acquisition/offline-conversions/export", days],
   });
   if (isLoading) return <div className="py-12 text-center text-muted-foreground animate-pulse">Checking conversion data…</div>;
@@ -648,7 +648,7 @@ function OfflineConversionsTab({ days }: { days: number }) {
           <CardContent className="pt-5">
             <p className="text-xs text-muted-foreground">Google Ads API</p>
             <Badge className="mt-2" variant={d.googleAdsApiConfigured ? "default" : "secondary"}>
-              {d.googleAdsApiConfigured ? "✓ Connected" : "Not Connected"}
+              {d.googleAdsApiConfigured ? "Credentials present — upload unverified" : "Credentials missing"}
             </Badge>
             {!d.googleAdsApiConfigured && <p className="text-xs text-muted-foreground mt-1">Set GOOGLE_ADS_DEVELOPER_TOKEN</p>}
           </CardContent>
@@ -656,18 +656,18 @@ function OfflineConversionsTab({ days }: { days: number }) {
         <Card>
           <CardContent className="pt-5">
             <p className="text-xs text-muted-foreground">gclid Capture</p>
-            <Badge className="mt-2 bg-green-600" variant="default">Active</Badge>
-            <p className="text-xs text-muted-foreground mt-1">Wired to all 3 lead forms — stored per contact</p>
+            <Badge className="mt-2" variant={d.gclidCaptureActive ? "default" : "secondary"}>{d.gclidCaptureActive ? "Observed in export" : "No click ID observed in this export"}</Badge>
+            <p className="text-xs text-muted-foreground mt-1">{d.observedExportRowsWithGclid ?? 0} returned conversion rows carry a click ID. Capture wiring alone is not attribution acceptance.</p>
           </CardContent>
         </Card>
       </div>
 
       <StatementSlaAlert />
-
+      {d.clientTracking && <p className="text-sm text-muted-foreground" data-testid="client-tracking-readiness">Client artifact: GA4 {d.clientTracking.ga4}; Meta Pixel {d.clientTracking.metaPixel}; Google Ads lead destination {d.clientTracking.googleAdsLead}. {d.clientTracking.acceptance}</p>}
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Manual Import Flow (Until API Connected)</CardTitle>
+          <CardTitle className="text-base">Reviewed manual import flow (until upload acceptance is verified)</CardTitle>
           <CardDescription>{d.note}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

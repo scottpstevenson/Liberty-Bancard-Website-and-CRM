@@ -140,7 +140,7 @@ type PreviewPollResponse = {
   error?: string;
 };
 
-function CampaignDetail({ campaign }: { campaign: Campaign }) {
+function CampaignDetail({ campaign, currentPackage = false }: { campaign: Campaign; currentPackage?: boolean }) {
   const { toast } = useToast();
   const [showStepForm, setShowStepForm] = useState(false);
   const [editingStep, setEditingStep] = useState<CampaignStep | null>(null);
@@ -465,8 +465,9 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
         </div>
       )}
 
+      {currentPackage && <p className="text-sm text-muted-foreground" data-testid="current-package-release-guidance">This campaign is a content projection of the current SFP package. Review its paired sequence and use <a className="underline underline-offset-2" href="/dashboard/canonical-enrichment?view=backlog">Canonical Enrichment release</a> for recipients. Generic campaign approval, activation and queueing are unavailable.</p>}
       <div className="flex flex-wrap items-center gap-2">
-        {(campaign.status === "draft" || campaign.status === "paused") && isAdmin && !approvalStatus?.approved && (
+        {!currentPackage && (campaign.status === "draft" || campaign.status === "paused") && isAdmin && !approvalStatus?.approved && (
           <Button
             variant="outline"
             size="sm"
@@ -481,7 +482,7 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
           size="sm"
           onClick={() => toggleStatusMutation.mutate()}
           disabled={
-            toggleStatusMutation.isPending ||
+            (currentPackage && campaign.status !== "active") || toggleStatusMutation.isPending ||
             (campaign.status !== "active" && campaign.status !== "paused" && campaign.status !== "draft") ||
             ((campaign.status === "draft" || campaign.status === "paused") && !approvalStatus?.approved)
           }
@@ -508,7 +509,7 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
               queueMutation.mutate();
             }
           }}
-          disabled={queueMutation.isPending || (isCrmMode && previewStatus !== "done")}
+          disabled={currentPackage || queueMutation.isPending || (isCrmMode && previewStatus !== "done")}
           title={
             isCrmMode && previewStatus === "idle" ? "Run Preview Audience first to confirm exact eligible count" :
             isCrmMode && previewStatus === "running" ? "Preview is computing — please wait" :
@@ -1114,7 +1115,7 @@ export default function Campaigns() {
 
   // Ownership grouping comes only from the catalog authority. When it is unavailable the filter is not offered and no
   // campaign is hidden or relabeled; "Other" is everything the authority did not mark current or historical.
-  const [ownershipFilter, setOwnershipFilter] = useState<"all" | "current" | "historical" | "other">("all");
+  const [ownershipFilter, setOwnershipFilter] = useState<"all" | "current" | "historical" | "other">("current");
   const ownershipOf = (id: number): "current" | "historical" | "other" => {
     const cls = catalogClassByCampaign?.get(id)?.catalogClass;
     return cls === "current" || cls === "historical" ? cls : "other";
@@ -1579,7 +1580,7 @@ export default function Campaigns() {
                     {isExpanded ? "Collapse" : "Manage Steps"}
                   </Button>
 
-                  {isExpanded && <CampaignDetail campaign={campaign} />}
+                  {isExpanded && <CampaignDetail campaign={campaign} currentPackage={ownershipOf(campaign.id) === "current"} />}
                 </CardContent>
               </Card>
             );

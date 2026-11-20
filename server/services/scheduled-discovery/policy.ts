@@ -3,7 +3,7 @@ import {resolveGeographyFromCandidates} from '../cro03/sfp-geography-resolver';
 import {classifyVertical} from '../cro03/sfp-vertical-classifier';
 import {parseOutscraperEmails,parseOutscraperContacts} from '../sdr/sfp-provider-contracts';
 import {normalizeStateIdentity} from '../../../shared/state-identity';
-import {normalizeDomain,normalizePhoneE164} from '../sdr/dedupe';
+import {normalizeDomain,normalizePhoneE164} from '../../../shared/business-normalization';
 import type {OrganizationIdentity} from '../organization-resolution-policy';
 export const MATCHING_POLICY='scheduled-discovery-v1' as const;
 export const MAPPER_VERSION='outscraper-artifact-v1' as const;

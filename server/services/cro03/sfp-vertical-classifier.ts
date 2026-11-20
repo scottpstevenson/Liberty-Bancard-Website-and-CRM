@@ -45,7 +45,8 @@ import { createHash } from "crypto";
 // v3: legal-name target inference requires a specific service phrase and
 // rejects supplier/advisory contexts. Existing v2 evidence is intentionally
 // stale for admission; it must be reclassified under these rules.
-export const CLASSIFIER_VERSION = 3 as const;
+// v4: curated returned Maps categories used by scheduled discovery. Query text never supplies evidence.
+export const CLASSIFIER_VERSION = 4 as const;
 
 /**
  * SFP South Florida target-vertical taxonomy v2 (2026-09). Replaces the
@@ -146,12 +147,12 @@ const NOT_TARGET_LABELS = new Set([
 const EXACT_ALIASES_V2: Record<string, string[]> = {
   "Automotive": [
     "auto repair", "automotive repair", "auto repair shop", "car repair",
-    "automotive", "auto service", "auto body shop", "tire shop", "auto shop",
+    "automotive", "auto service", "auto body shop", "tire shop", "auto shop", "car dealer",
   ],
   "Healthcare": [
     "dental", "dentist", "dental office", "dentistry", "med spa", "medspa",
     "medical spa", "med-spa", "medical clinic", "doctor's office",
-    "physician office", "urgent care", "chiropractor", "physical therapy",
+    "physician office", "urgent care", "chiropractor", "physical therapy", "physical therapist",
   ],
   "Beauty/Spa": [
     "hair salon", "salon", "spa", "nail salon", "beauty salon", "barber shop",
@@ -160,10 +161,11 @@ const EXACT_ALIASES_V2: Record<string, string[]> = {
   "Construction/Trades/Home Services": [
     "construction", "general contractor", "plumbing", "plumber", "roofing",
     "electrician", "hvac", "landscaping", "home services", "handyman",
+    "hvac contractor", "roofing contractor", "landscaping service",
   ],
   "Fitness/Recreation": [
     "gym", "fitness center", "yoga studio", "crossfit", "martial arts",
-    "personal training", "recreation center",
+    "personal training", "recreation center", "martial arts school", "personal trainer",
   ],
 };
 

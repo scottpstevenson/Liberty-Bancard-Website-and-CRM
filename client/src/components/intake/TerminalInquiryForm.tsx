@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { usePublicIntake } from "@/hooks/use-public-intake";
 import { PublicIntakeNotice } from "@/components/PublicIntakeNotice";
 import { trackConversion, trackFormSubmission } from "@/lib/tracking";
-import { trackConversion as trackConversionV2 } from "@/lib/analytics";
 import {
   INQUIRY_BUSINESS_TYPES,
   INQUIRY_LEASE_ANSWERS,
@@ -79,8 +78,7 @@ export function TerminalInquiryForm({ offer }: { offer: "free-terminal" | null }
       // Conversion fires only after a confirmed save, never for a pending, unreadable or failed response, and once per saved request.
       if (outcome.fresh !== false) {
         trackFormSubmission("terminal_inquiry_submission");
-        trackConversion("terminal_inquiry_submission");
-        trackConversionV2("terminal_inquiry_submission");
+        trackConversion("terminal_inquiry_submission", undefined, outcome.receipt);
       }
     } else if (outcome.kind === "rejected") {
       if (outcome.fieldErrors) {

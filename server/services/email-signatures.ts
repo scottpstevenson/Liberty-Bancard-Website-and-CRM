@@ -41,7 +41,7 @@ const DEFAULT_SIGNATURES: Record<SignatureType, EmailSignature> = {
     phone: "954-266-8214",
     email: "Scott@mail.libertybancard.com",
     website: BASE_URL,
-    calendlyLink: "https://api.leadconnectorhq.com/widget/booking/liberty-bancard",
+    calendlyLink: "https://libertybancard.com/book",
   },
   support: {
     name: "Liberty Bancard Support",

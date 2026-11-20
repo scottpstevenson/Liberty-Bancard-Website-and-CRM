@@ -120,7 +120,7 @@ export default function Estimate() {
         if (consentNotice) toast({ title: "Request saved", description: consentNotice });
         trackEstimateRequest();
         trackFormSubmission("estimate_request");
-        trackConversionV2("estimate_request");
+        trackConversionV2("estimate_request", { receipt: outcome.receipt });
       }
       setLocation("/thanks-estimate");
     } else if (outcome.kind === "rejected") {
