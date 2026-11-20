@@ -43,10 +43,16 @@ All 13 formerly enabled auto-apply recommendation types were disabled through th
 
 ## Required external handoff, not missing implementation
 
-Two specific Google steps are pending the user:
+Google customer-data acknowledgment and Cloud passkey verification were completed by the user on November 20. The acknowledgment was applied in Ads. Both new actions were created and verified after reload in customer `345-511-8578`:
 
-1. **Google customer-data acknowledgment.** Creating the offline actions requires affirming compliance with Google's EU user consent and Customer data policies. This has not been checked or accepted by the agent. The action-time confirmation question is pending, and the Ads dialog is retained. Once confirmed, create and verify `Liberty CRM - Qualified Lead` and `Liberty CRM - Closed Won` as Website (Import from clicks) / `UPLOAD_CLICKS`, Count One, no default monetary value, Secondary during setup. Do not repurpose the browser saved-lead action or old HubSpot actions. Record the actual numeric IDs; none is invented.
-2. **Cloud passkey and project authorization.** The Cloud tab is signed to `scott@libertybancard.com` but is stopped at Google's passkey verification. The user must complete that verification and identify the Liberty-owned project. Then enable/verify Data Manager API and authorize a supported credential with `https://www.googleapis.com/auth/datamanager`; any material account grant or policy acceptance requires its specific user confirmation. No browser auth caches, Gmail tokens or another project's credentials are reused.
+| Action | Numeric ID | Saved settings |
+| --- | --- | --- |
+| Liberty CRM - Qualified Lead | `7911081311` | Import from clicks, Secondary, One conversion, no value, 90-day click window |
+| Liberty CRM - Closed Won | `7911081314` | Import from clicks, Secondary, One conversion, no value, 90-day click window |
+
+Google disables Secondary during initial creation of these new goal categories; it was set through each saved action's settings and verified after reload. Ads still reports no campaigns running. Both actions await a data source; creation alone is not ingestion acceptance.
+
+The signed-in Cloud project is **Liberty Bancard CRM Production**, ID `stalwart-way-503120-n9`, number `35087801791`, under `scott@libertybancard.com`. Data Manager API is not yet enabled: its Enable page explicitly requires Google APIs Terms of Service acceptance, and the separate action-time confirmation is pending. The existing production web OAuth client is preserved. A separate Desktop client named `Liberty CRM Offline Conversions` is prepared but not created; the credential-creation handoff is pending. No service account, API key, new OAuth credential or token has been created by the agent. Subsequent consent must authorize only the Data Manager scope `https://www.googleapis.com/auth/datamanager`. No browser auth caches, Gmail tokens or another project's credentials are reused.
 
 After those steps, install the authorized secret via the normal secret-management path without printing it, set the verified action IDs below, and perform validate-only preflight with the actual authorized account. A valid token or a 200 ingestion acknowledgment alone is not final processing/matching proof. Publication, migration and real forward conversion acceptance remain separately authorized steps; they were prohibited in this task. No synthetic conversion was uploaded to Google.
 
@@ -55,8 +61,8 @@ After those steps, install the authorized secret via the normal secret-managemen
 | Setting | Purpose |
 | --- | --- |
 | `GOOGLE_OFFLINE_CREDENTIALS_JSON` | Private supported Google `authorized_user` or `service_account` credential JSON; keep in secrets, never source/logs. Google Cloud API and Ads account access must be authorized. |
-| `GOOGLE_OFFLINE_QUALIFIED_ACTION_ID` | Actual verified numeric Qualified Lead offline action in customer `3455118578`. |
-| `GOOGLE_OFFLINE_WON_ACTION_ID` | Actual verified numeric Closed Won offline action in that same customer. |
+| `GOOGLE_OFFLINE_QUALIFIED_ACTION_ID` | Verified value `7911081311` in customer `3455118578`. |
+| `GOOGLE_OFFLINE_WON_ACTION_ID` | Verified value `7911081314` in that same customer. |
 | `CREDENTIAL_ENCRYPTION_KEY` | Existing authenticated encryption owner for retained click identifiers. |
 | `GOOGLE_OFFLINE_UPLOAD_ENABLED` | Defaults off. Explicit future opt-in for this measurement worker only. |
 
