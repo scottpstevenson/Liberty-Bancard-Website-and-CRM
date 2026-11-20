@@ -1,6 +1,7 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild, loadEnv } from "vite";
 import path from "node:path";
+import { libertyProductionTracking } from "../shared/liberty-tracking-config";
 import { publicTrackingReadiness } from "../shared/public-tracking-readiness";
 import { rm, readFile, writeFile } from "fs/promises";
 import { execFileSync } from "node:child_process";
@@ -50,7 +51,7 @@ async function buildAll() {
 
   console.log("building client...");
   await viteBuild({ mode: "production" });
-  const trackingReadiness = publicTrackingReadiness(loadEnv("production", path.resolve("client"), "VITE_"));
+  const trackingReadiness = publicTrackingReadiness(libertyProductionTracking(loadEnv("production", path.resolve("client"), "VITE_")));
   await writeFile("dist/public/tracking-readiness.json", JSON.stringify({ ...trackingReadiness, artifactSha: publishIdentity.artifactSha, builtAt: publishBuiltAt }) + "\n");
   console.log("[Public tracking configuration]", JSON.stringify(trackingReadiness));
 

@@ -6,11 +6,16 @@ const h = await stage3BHttpFixture(async app => {
   (await import("../../server/routes/campaigns")).registerCampaignsRoutes(app);
   (await import("../../server/routes/activation")).registerActivationRoutes(app);
   (await import("../../server/routes/acquisition")).registerAcquisitionRoutes(app);
+  (await import("../../server/routes/analytics")).registerAnalyticsRoutes(app);
 }, undefined, { backgroundProfile: "off" });
 let checks = 0;
 const check = (condition: unknown, label: string) => { assert(condition, label); checks++; console.log("PASS " + label); };
 try {
   await h.pool.query("INSERT INTO outbound_pause_control(id,state,epoch,reason) VALUES(1,'paused',4,'private launch repair fixture') ON CONFLICT(id) DO UPDATE SET state='paused',epoch=4");
+  const beforeBooked = (await h.pool.query("SELECT count(*)::int AS n FROM analytics_events WHERE event_name='appointment_booked'")).rows[0].n;
+  const falseBooking = await fetch(`${h.base}/api/public/booking-confirmed?btk=visitor-controlled-claim`, { redirect: "manual" });
+  check(falseBooking.status === 302 && falseBooking.headers.get("location") === "/thanks-call", "Scheduler return URL remains navigable without claiming a booking");
+  check((await h.pool.query("SELECT count(*)::int AS n FROM analytics_events WHERE event_name='appointment_booked'")).rows[0].n === beforeBooked, "A fabricated browser return cannot create an appointment conversion");
   const beforeBudget = (await h.pool.query("SELECT * FROM outscraper_budget_policy")).rows;
   const campaign = (await h.pool.query("INSERT INTO campaigns(name,status,ai_personalization) VALUES('Launch repair fixture','draft',false) RETURNING id")).rows[0].id;
   await h.pool.query("INSERT INTO campaign_steps(campaign_id,step_order,step_type,subject,body_template,channel) VALUES($1,1,'email','Hi {{unknownField}}','Hello {{companyName}}','email')", [campaign]);
@@ -42,7 +47,20 @@ try {
   const acquisition = await h.request("admin", "GET", "/api/acquisition/offline-conversions/export?days=30");
   assert.equal(acquisition.status, 200, JSON.stringify(acquisition.body));
   check(acquisition.body.gclidCaptureWired === true && acquisition.body.observedExportRowsWithGclid === 0 && acquisition.body.gclidCaptureActive === false, "Actual export reports wired capture separately from absent observed click IDs");
+  check(acquisition.body.googleAdsApiConfigured === false, "A developer-token flag cannot claim an implemented uploader");
   check(acquisition.body.clientTracking?.available === false || acquisition.body.clientTracking?.version === 1, "Export exposes artifact-derived tracking readiness or explicit unavailable state");
+  const contact = (await h.pool.query("INSERT INTO contacts(first_name,last_name,email,phone,gclid) VALUES('Synthetic','Measurement','private-measurement@example.test','','fixture-click-123') RETURNING id")).rows[0].id;
+  await h.pool.query(`INSERT INTO analytics_events(event_name,event_id,contact_id,metadata) VALUES
+    ('statement_uploaded','fixture-statement',$1,'{}'),
+    ('appointment_booked','fixture-false-booking',$1,'{"source":"browser_return"}'),
+    ('appointment_booked','fixture-verified-booking',$1,'{"source":"ghl_webhook"}'),
+    ('closed_won','fixture-no-click',NULL,'{}')`, [contact]);
+  const review = await h.request("admin", "GET", "/api/acquisition/offline-conversions/export?days=30");
+  check(review.body.conversions.some((r:any)=>r.event_id==='fixture-verified-booking') && !review.body.conversions.some((r:any)=>r.event_id==='fixture-false-booking'), "Only authenticated webhook booking evidence enters conversion review");
+  const csvResponse = await fetch(h.base + '/api/acquisition/offline-conversions/export?format=csv', { headers: { Cookie: h.sessions.get('admin')!.cookie } });
+  const csv = await csvResponse.text();
+  check(csvResponse.status === 200 && csv.includes('fixture-statement') && csv.includes('fixture-verified-booking') && !csv.includes('fixture-no-click'), "Review CSV exports only identifiable click-matched rows");
+  check(!csv.includes('private-measurement') && !csv.includes('fixture-false-booking') && csv.includes('+00:00') && csv.includes('\"\",\"\",\"fixture-statement\"'), "CSV omits contact data and fabricated money, uses UTC and stable event IDs");
   check((await h.request("agent", "GET", "/api/activation/readiness")).status === 403, "Readiness remains restricted to administrator/manager");
   const afterBudget = (await h.pool.query("SELECT * FROM outscraper_budget_policy")).rows;
   assert.deepEqual(beforeBudget, afterBudget);

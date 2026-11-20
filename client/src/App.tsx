@@ -1076,6 +1076,10 @@ function useReferralTracking() {
 function usePageTracking() {
   const [location] = useLocation();
   useEffect(() => {
+    window.addEventListener("lb:consent-changed", captureUTMParams);
+    return () => window.removeEventListener("lb:consent-changed", captureUTMParams);
+  }, []);
+  useEffect(() => {
     captureUTMParams();
     // Only partnership pages record a first touch. The module (zod schema, form helpers) loads on demand so it stays out
     // of the main bundle; the exact allowlist check lives in capturePartnerFirstTouch.

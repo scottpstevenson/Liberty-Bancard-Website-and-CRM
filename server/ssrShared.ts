@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { serializeJsonLd } from "../shared/json-ld";
+import { LIBERTY_SEARCH_VERIFICATION } from "../shared/liberty-tracking-config";
 import { PUBLIC_FOOTER_GROUPS, PUBLIC_FOOTER_ISO_DISCLOSURE, PUBLIC_FOOTER_TAGLINE } from "../shared/public-footer-links";
 import { PUBLIC_CONTACT_CHANNELS } from "../shared/public-contact-content";
 import { PUBLIC_NAV_CTA, PUBLIC_NAV_GROUPS, PUBLIC_NAV_UTILITIES } from "../shared/public-navigation";
@@ -217,7 +218,7 @@ export function ssrHtmlShell({
     .map((s) => `<script type="application/ld+json">${serializeJsonLd(s)}</script>`)
     .join("\n    ");
 
-  const gscVerify = process.env.GSC_VERIFICATION || "";
+  const gscVerify = process.env.GSC_VERIFICATION ?? LIBERTY_SEARCH_VERIFICATION;
   const bingVerify = process.env.BING_VERIFICATION || "";
   const verificationMeta = [
     gscVerify ? `<meta name="google-site-verification" content="${escapeHtml(gscVerify)}" />` : "",

@@ -1,3 +1,5 @@
+import { publicTrackingContext, safeReferrer, safeCampaignValue } from "./tracking-context";
+
 declare global {
   interface Window {
     gtag?: (...args: any[]) => void;
@@ -37,6 +39,44 @@ let gaConfigured = false;
 let metaScriptInjected = false;
 let metaInitialized = false;
 let adsConfigured = false;
+let lastAnalyticsView = "";
+let lastMarketingView = "";
+let previousPublicLocation = "";
+function currentContext() {
+  // The verified production destinations must never receive local/dev acceptance traffic.
+  if (typeof window !== "undefined" && ["G-L2VK5474GD", "AW-17130296245/cKygCOvUjbwdELWnrug_"].some(id => id === GA_ID || id === ADS_DESTINATION)
+    && !["libertybancard.com", "www.libertybancard.com"].includes(window.location.hostname)) return null;
+  return typeof window === "undefined" ? null : publicTrackingContext(window.location.pathname, window.location.search, window.location.origin);
+}
+function metaContextAllowed() {
+  if (!currentContext()) return false;
+  // Meta reads document URLs itself. Suppress the pixel on token-bearing or arbitrary query routes.
+  const params = new URLSearchParams(window.location.search);
+  return [...params].every(([key, value]) =>
+    (/^utm_(source|medium|campaign|content|term)$/.test(key) && !!safeCampaignValue(value)) ||
+    (/^(gclid|fbclid|msclkid)$/.test(key) && /^[a-zA-Z0-9_-]{1,500}$/.test(value)) ||
+    (/^(terminal|interest0)$/.test(key) && value === "yes")) &&
+    !/@|%40|(?:email|phone|token|secret)=/i.test(document.referrer || "");
+}
+function cleanProperties(input: Record<string, unknown> = {}) {
+  const out: Record<string, unknown> = {};
+  const allowed = new Set(["event_category", "event_label", "form_id", "form_name", "audience", "journey_stage", "outcome", "source", "path", "profession", "source_page", "calculator_path", "step", "step_name", "quiz_step_number", "quiz_step_name", "cta_location", "ctaLocation", "ctaLabel", "offer", "competitor", "industry", "city", "content_name", "error_message"]);
+  for (const [key, value] of Object.entries(input)) {
+    if (!allowed.has(key)) continue;
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0 && value < 100) out[key] = value;
+    if (typeof value === "string" && /^[a-zA-Z0-9_ /.,'’?!&()-]{1,120}$/.test(value) && !/\d{7,}/.test(value)) out[key] = value;
+  }
+  return out;
+}
+function clearTrackingCookies(analytics: boolean, marketing: boolean) {
+  if (typeof document === "undefined" || typeof document.cookie !== "string") return;
+  for (const cookie of document.cookie.split(";")) {
+    const name = cookie.split("=")[0].trim();
+    if (!(analytics && /^_ga(?:_|$)|^_gid$|^_gat/.test(name)) && !(marketing && /^_gcl_|^_fbp$|^_fbc$/.test(name))) continue;
+    const host = window.location.hostname;
+    for (const domain of ["", host, "." + host, ".libertybancard.com"]) document.cookie = `${name}=; Max-Age=0; Path=/; SameSite=Lax${domain ? `; Domain=${domain}` : ""}`;
+  }
+}
 
 function ensureGtag() {
   if (typeof window === "undefined") return;
@@ -50,7 +90,7 @@ function ensureGtag() {
 
 function loadGaScript() {
   const tagId = GA_ID || (marketingConsent && /^AW-\d+\/[A-Za-z0-9_-]+$/.test(ADS_DESTINATION ?? "") ? ADS_DESTINATION!.split("/")[0] : undefined);
-  if (!tagId || gaScriptInjected || typeof document === "undefined") return;
+  if (!currentContext() || (!analyticsConsent && !marketingConsent) || !tagId || gaScriptInjected || typeof document === "undefined") return;
   gaScriptInjected = true;
   const script = document.createElement("script");
   script.async = true;
@@ -59,14 +99,14 @@ function loadGaScript() {
 }
 
 function configureGaIfAllowed() {
-  if (!GA_ID || !analyticsConsent || gaConfigured || typeof window === "undefined") return;
+  if (!currentContext() || !GA_ID || !analyticsConsent || gaConfigured || typeof window === "undefined") return;
   ensureGtag();
-  window.gtag!("config", GA_ID, { send_page_view: false });
+  window.gtag!("config", GA_ID, { send_page_view: false, ...currentContext(), page_referrer: safeReferrer(document.referrer || ""), allow_google_signals: false, allow_ad_personalization_signals: false });
   gaConfigured = true;
 }
 
 function loadAndInitializeMetaPixel() {
-  if (!FB_PIXEL_ID || !marketingConsent || metaInitialized || typeof window === "undefined" || typeof document === "undefined") return;
+  if (!metaContextAllowed() || !FB_PIXEL_ID || !marketingConsent || metaInitialized || typeof window === "undefined" || typeof document === "undefined") return;
   const f = window as Window & { _fbq?: (...args: any[]) => void };
   if (!f.fbq) {
     const n: any = (f.fbq = function () {
@@ -87,8 +127,8 @@ function loadAndInitializeMetaPixel() {
     if (firstScript?.parentNode) firstScript.parentNode.insertBefore(script, firstScript);
     else document.head.appendChild(script);
   }
+  f.fbq!("set", "autoConfig", false, FB_PIXEL_ID);
   f.fbq!("init", FB_PIXEL_ID);
-  f.fbq!("track", "PageView");
   metaInitialized = true;
 }
 
@@ -104,10 +144,8 @@ function initTracking() {
     ad_user_data: "denied",
     ad_personalization: "denied",
   });
-  if (GA_ID) {
-    window.gtag!("js", new Date());
-    loadGaScript();
-  }
+  // Basic consent mode: no vendor script or configuration before an affirmative preference.
+  window.gtag!("js", new Date());
 }
 
 initTracking();
@@ -144,55 +182,78 @@ export function saveCookieConsent(level: string, preferences: CookieConsentPrefe
 }
 
 export function applyConsentPreferences(preferences: TrackingConsentPreferences): void {
-  analyticsConsent = preferences.analytics;
-  marketingConsent = preferences.marketing;
+  const revokedAnalytics = analyticsConsent && !preferences.analytics;
+  const revokedMarketing = marketingConsent && !preferences.marketing;
+  analyticsConsent = preferences.analytics === true;
+  marketingConsent = preferences.marketing === true;
+  const active = !!currentContext();
   ensureGtag();
   if (typeof window !== "undefined") {
+    if (GA_ID) (window as any)[`ga-disable-${GA_ID}`] = !active || !analyticsConsent;
     window.gtag!("consent", "update", {
-      analytics_storage: preferences.analytics ? "granted" : "denied",
-      ad_storage: preferences.marketing ? "granted" : "denied",
-      ad_user_data: preferences.marketing ? "granted" : "denied",
-      ad_personalization: preferences.marketing ? "granted" : "denied",
+      analytics_storage: active && analyticsConsent ? "granted" : "denied",
+      ad_storage: active && marketingConsent ? "granted" : "denied",
+      // Measurement does not require personalization or uploading visitor-provided contact data.
+      ad_user_data: "denied",
+      ad_personalization: "denied",
     });
+    if (metaInitialized) window.fbq?.("consent", active && marketingConsent && metaContextAllowed() ? "grant" : "revoke");
   }
+  clearTrackingCookies(revokedAnalytics, revokedMarketing);
+  if (!analyticsConsent) lastAnalyticsView = "";
+  if (!marketingConsent) lastMarketingView = "";
+  if (active && (analyticsConsent || marketingConsent)) loadGaScript();
   configureGaIfAllowed();
-  if (marketingConsent && /^AW-\d+\/[A-Za-z0-9_-]+$/.test(ADS_DESTINATION ?? "")) {
-    loadGaScript();
+  if (active && marketingConsent && /^AW-\d+\/[A-Za-z0-9_-]+$/.test(ADS_DESTINATION ?? "")) {
     if (!adsConfigured && typeof window !== "undefined") {
-      window.gtag?.("config", ADS_DESTINATION!.split("/")[0], { send_page_view: false });
+      window.gtag?.("config", ADS_DESTINATION!.split("/")[0], { send_page_view: false, ...currentContext(), page_referrer: safeReferrer(document.referrer || ""), allow_ad_personalization_signals: false });
       adsConfigured = true;
     }
   }
   loadAndInitializeMetaPixel();
+  emitPageView();
+  if (typeof window !== "undefined" && typeof CustomEvent !== "undefined") window.dispatchEvent?.(new CustomEvent("lb:consent-changed"));
+}
+
+function emitPageView() {
+  const context = currentContext();
+  if (!context) { lastAnalyticsView = ""; lastMarketingView = ""; return; }
+  const key = context.page_location;
+  if (GA_ID && analyticsConsent && lastAnalyticsView !== key) {
+    window.gtag?.("set", { ...context, page_referrer: previousPublicLocation || safeReferrer(document.referrer || "") });
+    window.gtag?.("event", "page_view", { send_to: GA_ID, ...context, page_referrer: previousPublicLocation || safeReferrer(document.referrer || "") });
+    lastAnalyticsView = key;
+  }
+  if (FB_PIXEL_ID && marketingConsent && metaInitialized && lastMarketingView !== key) {
+    fbqEvent("track", "PageView");
+    lastMarketingView = key;
+  }
+  if ((GA_ID && analyticsConsent) || (FB_PIXEL_ID && marketingConsent)) previousPublicLocation = context.page_location;
 }
 
 function gtagEvent(...args: any[]) {
-  if (analyticsConsent && typeof window !== "undefined" && window.gtag) {
-    window.gtag(...args);
+  const context = currentContext();
+  if (analyticsConsent && context && typeof window !== "undefined" && window.gtag) {
+    window.gtag("event", args[1], { ...cleanProperties(args[2]), ...context, send_to: GA_ID });
   }
 }
 
 function fbqEvent(...args: any[]) {
-  if (marketingConsent && metaInitialized && typeof window !== "undefined" && window.fbq) {
-    window.fbq(...args);
+  if (marketingConsent && metaContextAllowed() && metaInitialized && typeof window !== "undefined" && window.fbq) {
+    window.fbq(args[0], args[1], cleanProperties(args[2]));
   }
 }
 
-export function trackPageView(path?: string) {
-  const pagePath = path || window.location.pathname;
-  if (GA_ID && analyticsConsent) {
-    gtagEvent("config", GA_ID, { page_path: pagePath });
-  }
-  if (FB_PIXEL_ID && marketingConsent) {
-    fbqEvent("track", "PageView");
-  }
+/** Router is the only page-view owner. Re-renders are idempotent; back/forward after another route emits a new view. */
+export function trackPageView(_path?: string) {
+  applyConsentPreferences({ analytics: analyticsConsent, marketing: marketingConsent });
 }
 
 /** One conversion owner. The receipt is used locally for replay suppression, never included in event payloads. */
 const conversionOccurrences = new Set<string>();
 const LEAD_FORMS = new Set(["general_inquiry_submission", "terminal_inquiry_submission", "get_started_submission", "free_analysis_quiz", "estimate_request", "statement_upload", "merchant_application"]);
 export function trackConversion(type: string, value?: number, receipt?: string): void {
-  if (typeof window === "undefined" || (!analyticsConsent && !marketingConsent)) return;
+  if (typeof window === "undefined" || !currentContext() || (!analyticsConsent && !marketingConsent)) return;
   const occurrence = receipt ? `${type}:${receipt}` : null;
   if (occurrence && conversionOccurrences.has(occurrence)) return;
   if (occurrence) {
@@ -202,17 +263,18 @@ export function trackConversion(type: string, value?: number, receipt?: string):
   }
   const isLead = LEAD_FORMS.has(type);
   if (GA_ID && analyticsConsent) gtagEvent("event", isLead ? "generate_lead" : "form_submission", {
-    form_name: type, event_category: "conversion", value: value ?? 0, currency: "USD",
+    form_name: type, event_category: "conversion", journey_stage: "lead", outcome: "accepted",
   });
   // A GA4 G- measurement ID is not a Google Ads conversion destination.
   if (isLead && marketingConsent && /^AW-\d+\/[A-Za-z0-9_-]+$/.test(ADS_DESTINATION ?? "")) {
     ensureGtag();
-    window.gtag?.("event", "conversion", { send_to: ADS_DESTINATION, value: value ?? 0, currency: "USD" });
+    window.gtag?.("event", "conversion", { send_to: ADS_DESTINATION, ...currentContext(), page_referrer: safeReferrer(document.referrer || "") });
   }
-  if (isLead && FB_PIXEL_ID && marketingConsent) fbqEvent("track", "Lead", { content_name: type, value: value ?? 0, currency: "USD" });
+  if (isLead && FB_PIXEL_ID && marketingConsent) fbqEvent("track", "Lead", { content_name: type });
 }
 
-export function hasAnalyticsConsent(): boolean { return analyticsConsent; }
+export function hasAnalyticsConsent(): boolean { return analyticsConsent && !!currentContext(); }
+export function hasMarketingConsent(): boolean { return marketingConsent && !!currentContext(); }
 
 /**
  * Partner-program funnel events. Consent-gated like every other analytics event, sent to GA only (never the ad pixel),
@@ -291,36 +353,13 @@ export function trackFormSubmission(formName: string, value?: number) {
   if (GA_ID) gtagEvent("event", "form_submission", { event_category: "engagement", event_label: formName, value: value ?? 0 });
 }
 
+/** Compatibility name: callers open a scheduler; only its verified server webhook can establish a booking. */
 export function trackCalendarBooking(source?: string) {
-  const label = source ? `calendar_booking_${source}` : "calendar_booking";
-  if (GA_ID) {
-    gtagEvent("event", "calendar_booking", {
-      event_category: "conversion",
-      event_label: label,
-      source: source || "unknown",
-      page_path: typeof window !== "undefined" ? window.location.pathname : undefined,
-    });
-  }
-  if (FB_PIXEL_ID) {
-    fbqEvent("track", "Schedule", {
-      content_name: label,
-      source: source || "unknown",
-    });
-  }
+  trackBookingCtaClick({ ctaLocation: source });
 }
 
 export function trackStatementUpload() {
-  if (GA_ID) {
-    gtagEvent("event", "statement_upload", {
-      event_category: "conversion",
-      event_label: "statement_upload",
-    });
-  }
-  if (FB_PIXEL_ID) {
-    fbqEvent("track", "Lead", {
-      content_name: "statement_upload",
-    });
-  }
+  trackStatementUploadCompleted();
 }
 
 export function trackStatementUploadStarted(params?: { page?: string; ctaLocation?: string }) {
@@ -369,7 +408,7 @@ export interface CtaTrackParams {
 
 export function trackPhoneCtaClick(params?: CtaTrackParams) {
   if (GA_ID) {
-    gtagEvent("event", "phone_cta_click", {
+    gtagEvent("event", "phone_click", {
       event_category: "engagement",
       event_label: "phone_cta_click",
       ...params,
@@ -583,4 +622,11 @@ export function trackThankYouPageView(formId: string) {
   if (FB_PIXEL_ID) {
     fbqEvent("trackCustom", "ThankYouPageView", { form_id: formId });
   }
+}
+
+/** No form values or private record paths; the shared sinks enforce consent and public-route scope. */
+export function trackFormAbandoned(formId: string) {
+  if (!/^[a-z0-9_-]{1,64}$/.test(formId)) return;
+  if (GA_ID) gtagEvent("event", "form_abandoned", { form_id: formId, event_category: "engagement" });
+  if (FB_PIXEL_ID) fbqEvent("trackCustom", "FormAbandoned", { form_id: formId });
 }

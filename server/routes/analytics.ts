@@ -1335,23 +1335,10 @@ export function registerAnalyticsRoutes(app: Express, readOptions?: {
     res.status(204).end();
   });
 
-  app.get("/api/public/booking-confirmed", async (req, res) => {
-    try {
-      const bookingTrackingId = String(req.query.btk || "");
-      if (!bookingTrackingId || bookingTrackingId.length < 5) {
-        return res.status(204).end();
-      }
-      const { recordAnalyticsEvent } = await import("../services/analytics-events");
-      await recordAnalyticsEvent({
-        eventName: "appointment_booked",
-        bookingTrackingId,
-        pagePath: "/booking-confirmation",
-        metadata: { source: "booking_bridge", btk: bookingTrackingId },
-      });
-      res.redirect(302, "/thanks-call");
-    } catch {
-      res.redirect(302, "/thanks-call");
-    }
+  // A return URL is visitor controlled. It cannot prove an appointment exists or create a business conversion.
+  // The authenticated GHL appointment webhook remains the confirmed-booking owner.
+  app.get("/api/public/booking-confirmed", (_req, res) => {
+    res.redirect(302, "/thanks-call");
   });
 
   // ── Newsletter article signup attribution ────────────────────────────────

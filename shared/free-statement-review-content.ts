@@ -88,9 +88,11 @@ export const FSR_META = {
     "Upload your merchant processing statement for a free, no-obligation review of your fees, category by category.",
 } as const;
 
+const FSR_HERO_LINES = ["Know where", "your processing", "fees go."] as const;
 export const FSR_HERO = {
   badge: "STATEMENT REVIEW",
-  heading: "See what you’re really paying to accept cards.",
+  heading: FSR_HERO_LINES.join(" "),
+  headingLines: FSR_HERO_LINES,
   sub: "Send us a recent processing statement. We’ll explain the charges and help you compare your current costs with an actual Liberty proposal.",
   button: "Get my statement review",
   support: "Understand the full cost before you change processors.",

@@ -28,6 +28,12 @@ export function CookieConsent() {
     }
   }, []);
 
+  useEffect(() => {
+    const open = () => { setPrefs(getStoredCookieConsent().preferences); setShowPrefs(true); setVisible(true); };
+    window.addEventListener("lb:open-cookie-preferences", open);
+    return () => window.removeEventListener("lb:open-cookie-preferences", open);
+  }, []);
+
   // Consent takes precedence over the third-party chat launcher so its greeting
   // can never sit on top of Reject / Accept / Manage.
   useEffect(() => {

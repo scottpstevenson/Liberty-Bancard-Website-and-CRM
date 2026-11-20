@@ -1,4 +1,4 @@
-import { trackConversion as trackAcceptedConversion, hasAnalyticsConsent } from "@/lib/tracking";
+import { trackConversion as trackAcceptedConversion, hasAnalyticsConsent, trackPhoneCtaClick } from "@/lib/tracking";
 
 /**
  * Fire a server-side phone_call_click analytics event.
@@ -10,6 +10,7 @@ export async function trackPhoneCallClick(params: {
   sourcePage?: string;
 }): Promise<void> {
   if (!hasAnalyticsConsent()) return;
+  trackPhoneCtaClick({});
   try {
     const sessionId =
       typeof window !== "undefined"

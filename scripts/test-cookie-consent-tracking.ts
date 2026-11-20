@@ -43,7 +43,7 @@ function createBrowserMocks() {
 
 async function loadTracking(scenario: string) {
   const mocks = createBrowserMocks();
-  process.env.VITE_FB_PIXEL_ID = "test-pixel-id";
+  process.env.VITE_FB_PIXEL_ID = "123456789";
   const tracking = await import(`../client/src/lib/tracking.ts?scenario=${scenario}`);
   return { ...mocks, tracking };
 }
@@ -74,9 +74,9 @@ async function runTests() {
     assert(
       update?.analytics_storage === "granted" &&
         update?.ad_storage === "granted" &&
-        update?.ad_user_data === "granted" &&
-        update?.ad_personalization === "granted",
-      "Accept sends granted updates for analytics and all ad consent keys",
+        update?.ad_user_data === "denied" &&
+        update?.ad_personalization === "denied",
+      "Accept grants measurement storage without enabling personalization or contact-data uploads",
     );
     assert(fbqCalls.filter((args) => args[0] === "init").length === 1, "Accept initializes Meta Pixel exactly once");
   }

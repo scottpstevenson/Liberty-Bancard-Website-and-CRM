@@ -1,9 +1,11 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "wouter";
+import { hasAnalyticsConsent, hasMarketingConsent, trackFormAbandoned } from "@/lib/tracking";
 
 const ABANDONED_FORMS_KEY = "lb_abandoned_forms";
 
 function getAbandonedForms(): Set<string> {
+  if (!hasAnalyticsConsent() && !hasMarketingConsent()) return new Set();
   try {
     const stored = sessionStorage.getItem(ABANDONED_FORMS_KEY);
     return new Set(stored ? JSON.parse(stored) : []);
@@ -13,6 +15,7 @@ function getAbandonedForms(): Set<string> {
 }
 
 function markFormAbandoned(formId: string): void {
+  if (!hasAnalyticsConsent() && !hasMarketingConsent()) return;
   try {
     const forms = getAbandonedForms();
     forms.add(formId);
@@ -21,30 +24,7 @@ function markFormAbandoned(formId: string): void {
 }
 
 function fireAbandonmentEvent(formId: string): void {
-  const payload = JSON.stringify({ formId, pagePath: window.location.pathname });
-
-  try {
-    if (typeof window !== "undefined" && (window as any).gtag) {
-      (window as any).gtag("event", "form_abandoned", {
-        event_category: "engagement",
-        event_label: formId,
-        form_id: formId,
-        page_path: window.location.pathname,
-      });
-    }
-  } catch {}
-
-  try {
-    if (typeof window !== "undefined" && (window as any).fbq) {
-      (window as any).fbq("trackCustom", "FormAbandoned", { form_id: formId });
-    }
-  } catch {}
-
-  try {
-    if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
-      navigator.sendBeacon("/api/analytics/noop", payload);
-    }
-  } catch {}
+  trackFormAbandoned(formId);
 }
 
 /**
@@ -88,6 +68,7 @@ export function useFormAbandonment(formId: string, isDirty: boolean): void {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (
+        (hasAnalyticsConsent() || hasMarketingConsent()) &&
         document.visibilityState === "hidden" &&
         isDirtyRef.current &&
         !submittedRef.current &&
@@ -107,6 +88,7 @@ export function useFormAbandonment(formId: string, isDirty: boolean): void {
 
   useEffect(() => {
     if (
+      (hasAnalyticsConsent() || hasMarketingConsent()) &&
       prevLocation.current !== location &&
       isDirtyRef.current &&
       !submittedRef.current &&

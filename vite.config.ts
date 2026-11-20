@@ -1,4 +1,5 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
+import { libertyProductionTracking, LIBERTY_SEARCH_VERIFICATION } from "./shared/liberty-tracking-config";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
@@ -15,6 +16,13 @@ const bookingUrl =
 
 export default defineConfig({
   plugins: [
+    {
+      name: "liberty-search-verification",
+      transformIndexHtml() {
+        const token = process.env.GSC_VERIFICATION ?? LIBERTY_SEARCH_VERIFICATION;
+        return token ? [{ tag: "meta", attrs: { name: "google-site-verification", content: token }, injectTo: "head" as const }] : [];
+      },
+    },
     tailwindcss(),
     react(),
     runtimeErrorOverlay(),
@@ -56,6 +64,7 @@ export default defineConfig({
     },
   },
   define: {
+    ...(process.env.NODE_ENV === "production" ? Object.fromEntries(Object.entries(libertyProductionTracking(loadEnv("production", path.resolve(import.meta.dirname, "client"), "VITE_"))).filter(([key]) => ["VITE_GA4_MEASUREMENT_ID", "VITE_GOOGLE_ADS_LEAD_CONVERSION"].includes(key)).map(([key, value]) => [`import.meta.env.${key}`, JSON.stringify(value)])) : {}),
     // Inject GHL_BOOKING_URL so operators only need one env var.
     // If VITE_GHL_BOOKING_URL is already set, it takes precedence at runtime
     // because Vite inlines VITE_* vars before this define runs.

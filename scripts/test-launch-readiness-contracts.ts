@@ -42,9 +42,9 @@ try {
 } finally { if (oldProfile === undefined) delete process.env.BACKGROUND_JOB_PROFILE; else process.env.BACKGROUND_JOB_PROFILE = oldProfile; }
 
 // Bundle the actual two client entry points with public fixture IDs. Execute in a VM with network-free browser sinks.
-const bundle = await build({ stdin: { contents: 'export * from "./client/src/lib/tracking"; export { trackConversion as compatibilityConversion } from "./client/src/lib/analytics";', resolveDir: process.cwd() }, bundle: true, write: false, platform: "browser", format: "cjs", define: { "import.meta.env": JSON.stringify({ VITE_GA4_MEASUREMENT_ID: "G-FIXTURE123", VITE_FB_PIXEL_ID: "123456789", VITE_GOOGLE_ADS_LEAD_CONVERSION: "AW-123456/fixture_label" }) } });
+const bundle = await build({ stdin: { contents: 'export * from "./client/src/lib/tracking"; export * from "./client/src/lib/utm"; export { trackConversion as compatibilityConversion } from "./client/src/lib/analytics";', resolveDir: process.cwd() }, bundle: true, write: false, platform: "browser", format: "cjs", define: { "import.meta.env": JSON.stringify({ VITE_GA4_MEASUREMENT_ID: "G-FIXTURE123", VITE_FB_PIXEL_ID: "123456789", VITE_GOOGLE_ADS_LEAD_CONVERSION: "AW-123456/fixture_label" }) } });
 const calls: any[][] = [], pixels: any[][] = [], scripts: any[] = [];
-const context: any = { module: { exports: {} }, exports: {}, console, document: { head: { appendChild: (v: any) => scripts.push(v) }, createElement: () => ({}), getElementsByTagName: () => [] }, window: { location: { pathname: "/get-started" }, gtag: (...args: any[]) => calls.push(args), fbq: (...args: any[]) => pixels.push(args), dataLayer: [] } };
+const context: any = { URL, URLSearchParams, module: { exports: {} }, exports: {}, console, document: { head: { appendChild: (v: any) => scripts.push(v) }, createElement: () => ({}), getElementsByTagName: () => [] }, window: { location: { pathname: "/get-started" }, gtag: (...args: any[]) => calls.push(args), fbq: (...args: any[]) => pixels.push(args), dataLayer: [] } };
 vm.runInNewContext(bundle.outputFiles[0].text, context);
 const t = context.module.exports;
 t.trackConversion("get_started_submission", undefined, "receipt-denied"); t.compatibilityConversion("get_started_submission", { receipt: "receipt-denied" });
@@ -59,12 +59,81 @@ t.trackConversion("support_request", undefined, "support-receipt");
 check(calls.filter(c => c[0] === "event" && c[1] === "generate_lead").length === 1 && pixels.filter(c => c[1] === "Lead").length === 1, "Support requests are not paid-acquisition leads");
 t.trackEstimateRequest(); t.trackStatementUploadCompleted(); t.trackQuizComplete(); t.trackMerchantApplication();
 check(pixels.filter(c => c[0] === "track" && c[1] === "Lead").length === 1, "Form-specific diagnostics never add a second advertising Lead");
-const previousEvents = calls.filter(c => c[0] === "event").length, previousPixels = pixels.length;
+const pixelEvents = () => pixels.filter(c => c[0] !== "consent").length;
+const previousEvents = calls.filter(c => c[0] === "event").length, previousPixels = pixelEvents();
 t.applyConsentPreferences({ analytics: false, marketing: false });
 t.trackConversion("get_started_submission", undefined, "receipt-two"); t.compatibilityConversion("get_started_submission", { receipt: "receipt-two" });
-check(calls.filter(c => c[0] === "event").length === previousEvents && pixels.length === previousPixels, "Revocation immediately suppresses both conversion entry points");
+check(calls.filter(c => c[0] === "event").length === previousEvents && pixelEvents() === previousPixels, "Revocation immediately suppresses both conversion entry points");
 t.applyConsentPreferences({ analytics: true, marketing: false });
 t.trackConversion("get_started_submission", undefined, "receipt-three");
-check(calls.filter(c => c[0] === "event" && c[1] === "generate_lead").length === 2 && pixels.length === previousPixels, "Analytics-only consent does not emit ad events");
+check(calls.filter(c => c[0] === "event" && c[1] === "generate_lead").length === 2 && pixelEvents() === previousPixels, "Analytics-only consent does not emit ad events");
 check(scripts.some(s => String(s.src).includes("G-FIXTURE123")), "Compiled client initializes the configured GA4 tag");
 console.log(`LAUNCH_READINESS_CONTRACTS_PASS ${checks}`);
+
+// Route/consent acceptance uses the compiled production owner, without vendor network access.
+{
+  const vendor: any[][] = [], meta: any[][] = [], loaded: any[] = [];
+  const storage = new Map<string, string>();
+  const store = { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => storage.set(k, v), removeItem: (k: string) => storage.delete(k) };
+  const browser: any = { URL, URLSearchParams, console, module: { exports: {} }, exports: {}, localStorage: store, sessionStorage: store,
+    window: { location: { pathname: '/upload-statement', origin: 'https://libertybancard.com', hostname: 'libertybancard.com', search: '?utm_source=google&utm_campaign=statement-review&email=private@example.test&token=secret#x' }, gtag: (...v: any[]) => vendor.push(v), fbq: (...v: any[]) => meta.push(v), dataLayer: [] },
+    document: { cookie: '', referrer: 'https://www.google.com/search?q=private@example.test', head: { appendChild: (v: any) => loaded.push(v) }, createElement: () => ({}), getElementsByTagName: () => [] } };
+  vm.runInNewContext(bundle.outputFiles[0].text, browser);
+  const api = browser.module.exports;
+  check(loaded.length === 0, 'Default denied loads no third-party script');
+  api.trackPageView('/upload-statement');
+  check(!vendor.some(v => v[0] === 'event'), 'Denied initial route records no page view');
+  api.applyConsentPreferences({ analytics: true, marketing: false });
+  check(loaded.length === 1 && vendor.filter(v => v[1] === 'page_view').length === 1, 'Consent grant initializes one loader and one current-page view');
+  api.trackPageView('/upload-statement'); api.trackPageView('/upload-statement');
+  check(vendor.filter(v => v[1] === 'page_view').length === 1, 'Repeated router renders never duplicate a page view');
+  let payload = vendor.find(v => v[1] === 'page_view')[2];
+  check(payload.page_location === 'https://libertybancard.com/upload-statement?utm_source=google&utm_campaign=statement-review', 'Page location retains allowed attribution and strips private query/hash');
+  check(payload.page_referrer === 'https://www.google.com/', 'Referrer retains acquisition origin without search text or PII');
+  browser.window.location.pathname = '/about-contact'; browser.window.location.search = '';
+  api.trackPageView('/about-contact');
+  browser.window.location.pathname = '/upload-statement'; api.trackPageView('/upload-statement');
+  check(vendor.filter(v => v[1] === 'page_view').length === 3, 'Navigate and back produce one view each');
+  browser.window.location.pathname = '/industries/auto-repair-payment-processing'; api.trackPageView();
+  browser.window.location.pathname = '/industries/retail-payment-processing'; api.trackPageView();
+  check(vendor.filter(v => v[1] === 'page_view').length === 5 && vendor.at(-1)[2].page_path === '/industries/retail-payment-processing', 'Known public landing pages retain separate approved URLs and page views');
+
+  const beforePrivate = vendor.filter(v => v[0] === 'event').length;
+  browser.window.location.pathname = '/dashboard/contacts/42';
+  api.trackPageView('/dashboard/contacts/42'); api.trackConversion('get_started_submission', undefined, 'private-receipt'); api.trackBookingCtaClick({ ctaLocation: 'private' });
+  check(vendor.filter(v => v[0] === 'event').length === beforePrivate && browser.window['ga-disable-G-FIXTURE123'] === true, 'Private CRM route disables collection and suppresses every public event owner');
+  check(!JSON.stringify(vendor).includes('/dashboard/contacts') && !JSON.stringify(vendor).includes('private@example.test'), 'No private path or visitor contact value reaches vendor commands');
+  browser.window.location.pathname = '/upload-statement'; api.trackPageView();
+  api.applyConsentPreferences({ analytics: true, marketing: true });
+  const beforeLead = vendor.filter(v => v[1] === 'generate_lead').length;
+  api.trackConversion('statement_upload', 9999, 'saved-receipt'); api.compatibilityConversion('statement_upload', { receipt: 'saved-receipt' });
+  check(vendor.filter(v => v[1] === 'generate_lead').length === beforeLead + 1, 'One saved statement receipt yields one lead across both callers');
+  check(vendor.filter(v => v[1] === 'generate_lead' || v[1] === 'conversion').every(v => !('value' in v[2]) && !('currency' in v[2])), 'Lead and advertising conversions carry no invented revenue');
+  api.trackCalendarBooking('footer');
+  check(vendor.some(v => v[1] === 'booking_cta_click') && !vendor.some(v => v[1] === 'appointment_booked' || v[1] === 'calendar_booking') && !meta.some(v => v[1] === 'Schedule'), 'Opening scheduler records intent, never a confirmed appointment');
+  browser.window.location.search = '?utm_source=google&utm_campaign=review&gclid=test-click-123&email=never-store@example.test';
+  api.saveCookieConsent('custom', { necessary: true, functional: false, analytics: true, marketing: true });
+  api.captureUTMParams();
+  let attribution = api.getStoredUTMParams();
+  check(attribution.gclid === 'test-click-123' && attribution.utmCampaign === 'review' && attribution.landingPage === '/upload-statement', 'Consented auto-tagged arrival retains click ID, campaign and sanitized landing path');
+  check(!JSON.stringify([...storage.values()]).includes('never-store'), 'Attribution storage never retains arbitrary query fields');
+  browser.window.location.search = '?utm_source=meta&utm_campaign=retargeting';
+  api.captureUTMParams();
+  check(api.getFirstTouchUTMParams().utmSource === 'google' && api.getStoredUTMParams().utmSource === 'meta', 'First and latest campaign touches stay distinct');
+  api.saveCookieConsent('custom', { necessary: true, functional: false, analytics: true, marketing: false });
+  check(!api.getStoredUTMParams().gclid && !storage.has('lb_click_ids'), 'Advertising withdrawal removes retained advertising click IDs');
+  browser.window.location.search = '?utm_source=private@example.test&utm_campaign=1234567890';
+  api.clearUTMParams(); api.captureUTMParams();
+  check(!api.getStoredUTMParams().utmSource && !api.getStoredUTMParams().utmCampaign, 'Email-like and phone-like campaign labels cannot enter attribution');
+  browser.window.location.search = '?utm_source=google&utm_medium=cpc&utm_campaign=gads_123456789012&utm_content=ad_987654321012';
+  api.captureUTMParams();
+  check(api.getStoredUTMParams().utmCampaign === 'gads_123456789012' && api.getStoredUTMParams().utmContent === 'ad_987654321012', 'Google ValueTrack campaign and creative identifiers survive attribution validation');
+  api.saveCookieConsent('essential', { necessary: true, functional: false, analytics: false, marketing: false });
+  check(Object.keys(api.getStoredUTMParams()).length === 0, 'Rejecting measurement clears campaign persistence');
+  api.applyConsentPreferences({ analytics: false, marketing: false });
+  const revoked = vendor.filter(v => v[0] === 'event').length;
+  api.trackPageView(); api.trackConversion('statement_upload', undefined, 'revoked'); api.trackFormAbandoned('upload_statement');
+  check(vendor.filter(v => v[0] === 'event').length === revoked, 'Withdrawal immediately suppresses views, conversions and abandonment diagnostics');
+  check(vendor.filter(v => v[0] === 'consent').every(v => v[2].ad_user_data === 'denied' && v[2].ad_personalization === 'denied'), 'No measurement preference enables contact-data uploading or personalization');
+}
+console.log(`MEASUREMENT_ROUTE_ACCEPTANCE_PASS total=${checks}`);

@@ -129,8 +129,8 @@ function OverviewTab({ days }: { days: number }) {
         <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950">
           <Info className="w-4 h-4 text-blue-600" />
           <AlertDescription className="text-blue-800 dark:text-blue-200">
-            <strong>Google Ads API not connected.</strong> Set <code className="text-xs bg-blue-100 px-1 rounded">GOOGLE_ADS_DEVELOPER_TOKEN</code> to pull live spend data.
-            Until then, use the <strong>Offline Conversions</strong> tab to export events for manual import, and track spend directly in your Google Ads account.
+            <strong>Live Google Ads reporting and automatic uploads are not configured.</strong> A developer token alone does not provide account authorization or an uploader.
+            Review event evidence in <strong>Offline Conversions</strong> and check spend directly in Google Ads until those integrations have a verified provider receipt.
           </AlertDescription>
         </Alert>
       )}
@@ -648,9 +648,9 @@ function OfflineConversionsTab({ days }: { days: number }) {
           <CardContent className="pt-5">
             <p className="text-xs text-muted-foreground">Google Ads API</p>
             <Badge className="mt-2" variant={d.googleAdsApiConfigured ? "default" : "secondary"}>
-              {d.googleAdsApiConfigured ? "Credentials present — upload unverified" : "Credentials missing"}
+              {d.googleAdsApiConfigured ? "Configured — receipt required" : "No verified uploader"}
             </Badge>
-            {!d.googleAdsApiConfigured && <p className="text-xs text-muted-foreground mt-1">Set GOOGLE_ADS_DEVELOPER_TOKEN</p>}
+            {!d.googleAdsApiConfigured && <p className="text-xs text-muted-foreground mt-1">An authorized uploader and provider receipt are still required</p>}
           </CardContent>
         </Card>
         <Card>
@@ -667,7 +667,7 @@ function OfflineConversionsTab({ days }: { days: number }) {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Reviewed manual import flow (until upload acceptance is verified)</CardTitle>
+          <CardTitle className="text-base">Offline conversion review — not yet upload-certified</CardTitle>
           <CardDescription>{d.note}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -684,8 +684,8 @@ function OfflineConversionsTab({ days }: { days: number }) {
             Download Conversion CSV ({d.totalRows} rows, last {days}d)
           </Button>
           <p className="text-xs text-muted-foreground">
-            Upload this CSV in Google Ads → Tools &amp; Settings → Conversions → Upload.
-            The CSV includes: StatementUpload, BookedCall, ApplicationSubmit, MerchantApproved, ClosedWon events.
+            Review the matching action names, consent and event provenance before importing into Google Ads. Values are blank; no revenue is assumed.
+            Historical events are retained for review. Their presence does not prove conversion eligibility or Google acceptance.
           </p>
         </CardContent>
       </Card>

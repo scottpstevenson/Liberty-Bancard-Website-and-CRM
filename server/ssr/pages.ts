@@ -194,7 +194,6 @@ export function getUploadStatementHtml(): string {
       <ol>
         ${FSR_DELIVERABLE.rows.map((row) => `<li>${row}</li>`).join("\n        ")}
       </ol>
-      <p class="ssr-card-text">${FSR_DELIVERABLE.sampleLabel}</p>
     </div>
   </section>
 

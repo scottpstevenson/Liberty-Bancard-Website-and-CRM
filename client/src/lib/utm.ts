@@ -1,3 +1,5 @@
+import { publicTrackingContext, safeCampaignValue } from "./tracking-context";
+
 const UTM_STORAGE_KEY = "lb_utm_params";
 const LANDING_PAGE_KEY = "lb_landing_page";
 const CLICK_IDS_KEY = "lb_click_ids";
@@ -16,64 +18,62 @@ export interface UTMParams {
   msclkidPresent?: boolean;
 }
 
+function consent() {
+  try { const p = JSON.parse(localStorage.getItem("lb_cookie_prefs") || "{}"); return { analytics: p.analytics === true, marketing: p.marketing === true }; }
+  catch { return { analytics: false, marketing: false }; }
+}
+function read(key: string) { try { return sessionStorage.getItem(key); } catch { return null; } }
+function write(key: string, value: string) { try { sessionStorage.setItem(key, value); } catch { /* Storage restrictions never break intake. */ } }
+function remove(key: string) { try { sessionStorage.removeItem(key); } catch { /* Best effort. */ } }
+const FIRST_TOUCH_KEY = "lb_first_utm_params";
+
 export function captureUTMParams(): void {
+  const allowed = consent();
+  if (!allowed.analytics && !allowed.marketing) { clearUTMParams(); return; }
+  if (!publicTrackingContext(window.location.pathname)) return;
   const params = new URLSearchParams(window.location.search);
-  const utmSource = params.get("utm_source");
-  const utmMedium = params.get("utm_medium");
-  const utmCampaign = params.get("utm_campaign");
-  const utmContent = params.get("utm_content");
-  const utmTerm = params.get("utm_term");
-
-  if (utmSource || utmMedium || utmCampaign || utmContent || utmTerm) {
-    const utmData: UTMParams = {};
-    if (utmSource) utmData.utmSource = utmSource;
-    if (utmMedium) utmData.utmMedium = utmMedium;
-    if (utmCampaign) utmData.utmCampaign = utmCampaign;
-    if (utmContent) utmData.utmContent = utmContent;
-    if (utmTerm) utmData.utmTerm = utmTerm;
-    sessionStorage.setItem(UTM_STORAGE_KEY, JSON.stringify(utmData));
+  const touch: UTMParams = {};
+  for (const [query, field] of [["utm_source", "utmSource"], ["utm_medium", "utmMedium"], ["utm_campaign", "utmCampaign"], ["utm_content", "utmContent"], ["utm_term", "utmTerm"]] as const) {
+    const value = safeCampaignValue(params.get(query)); if (value) touch[field] = value;
   }
-
-  if (!sessionStorage.getItem(LANDING_PAGE_KEY)) {
-    sessionStorage.setItem(LANDING_PAGE_KEY, window.location.pathname + window.location.search);
+  if (Object.keys(touch).length) {
+    write(UTM_STORAGE_KEY, JSON.stringify(touch));
+    if (!read(FIRST_TOUCH_KEY)) write(FIRST_TOUCH_KEY, JSON.stringify(touch));
   }
-
-  const gclidVal = params.get("gclid");
-  const gclidPresent = !!gclidVal;
-  const fbclidPresent = params.has("fbclid");
-  const msclkidPresent = params.has("msclkid");
-  if (gclidPresent || fbclidPresent || msclkidPresent) {
-    sessionStorage.setItem(
-      CLICK_IDS_KEY,
-      JSON.stringify({ gclid: gclidVal || undefined, gclidPresent, fbclidPresent, msclkidPresent })
-    );
-  }
+  if (!read(LANDING_PAGE_KEY)) write(LANDING_PAGE_KEY, window.location.pathname);
+  if (!allowed.marketing) { remove(CLICK_IDS_KEY); return; }
+  const gclid = params.get("gclid");
+  const validGclid = gclid && /^[a-zA-Z0-9_-]{1,500}$/.test(gclid) ? gclid : undefined;
+  if (validGclid || params.has("fbclid") || params.has("msclkid")) write(CLICK_IDS_KEY, JSON.stringify({ gclid: validGclid, gclidPresent: !!validGclid, fbclidPresent: params.has("fbclid"), msclkidPresent: params.has("msclkid") }));
 }
 
 export function getStoredUTMParams(): UTMParams {
+  captureUTMParams();
+  const allowed = consent();
+  if (!allowed.analytics && !allowed.marketing) return {};
   try {
-    const stored = sessionStorage.getItem(UTM_STORAGE_KEY);
-    const landingPage = sessionStorage.getItem(LANDING_PAGE_KEY);
-    const clickIds = sessionStorage.getItem(CLICK_IDS_KEY);
-    const params: UTMParams = stored ? JSON.parse(stored) : {};
-    if (landingPage) params.landingPage = landingPage;
-    if (clickIds) {
-      const ids = JSON.parse(clickIds);
-      if (ids.gclid) params.gclid = ids.gclid;
-      if (ids.gclidPresent) params.gclidPresent = true;
-      if (ids.fbclidPresent) params.fbclidPresent = true;
-      if (ids.msclkidPresent) params.msclkidPresent = true;
+    const params: UTMParams = {};
+    const stored = JSON.parse(read(UTM_STORAGE_KEY) || "{}");
+    for (const field of ["utmSource", "utmMedium", "utmCampaign", "utmContent", "utmTerm"] as const) { const value = safeCampaignValue(stored[field]); if (value) params[field] = value; }
+    const landing = read(LANDING_PAGE_KEY); if (landing && publicTrackingContext(landing)) params.landingPage = landing;
+    if (allowed.marketing) {
+      const ids = JSON.parse(read(CLICK_IDS_KEY) || "{}");
+      if (typeof ids.gclid === "string" && /^[a-zA-Z0-9_-]{1,500}$/.test(ids.gclid)) params.gclid = ids.gclid;
+      if (ids.gclidPresent === true) params.gclidPresent = true;
+      if (ids.fbclidPresent === true) params.fbclidPresent = true;
+      if (ids.msclkidPresent === true) params.msclkidPresent = true;
     }
     return params;
-  } catch {
-    return {};
-  }
+  } catch { return {}; }
+}
+
+export function getFirstTouchUTMParams(): UTMParams {
+  if (!consent().analytics && !consent().marketing) return {};
+  try { const raw = JSON.parse(read(FIRST_TOUCH_KEY) || "{}"); return Object.fromEntries(Object.entries(raw).filter(([, value]) => safeCampaignValue(value))); } catch { return {}; }
 }
 
 export function clearUTMParams(): void {
-  sessionStorage.removeItem(UTM_STORAGE_KEY);
-  sessionStorage.removeItem(LANDING_PAGE_KEY);
-  sessionStorage.removeItem(CLICK_IDS_KEY);
+  for (const key of [UTM_STORAGE_KEY, FIRST_TOUCH_KEY, LANDING_PAGE_KEY, CLICK_IDS_KEY]) remove(key);
 }
 
 /**

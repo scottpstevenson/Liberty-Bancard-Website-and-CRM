@@ -155,7 +155,9 @@ export function registerAcquisitionRoutes(app: Express): void {
         dealStages: dealStages.rows.map(r => ({ stage: r.stage, count: parseInt(r.cnt, 10) })),
         planning: PLANNING,
         ghlConfigured: isGhlConfigured(),
-        googleAdsApiConfigured: !!process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
+        googleAdsApiConfigured: false,
+        googleAdsDeveloperTokenPresent: !!process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
+        googleAdsUploadStatus: "not_configured_no_verified_uploader",
       });
     } catch (err: any) {
       console.error("[Acquisition] /funnel error:", err.message);
@@ -412,14 +414,15 @@ export function registerAcquisitionRoutes(app: Express): void {
            COALESCE(ae.gclid_present, c.gclid IS NOT NULL, false) AS gclid_present,
            c.gclid AS gclid,
            COALESCE(ae.vertical, c.industry, c.vertical, '') AS vertical,
-           '1.00' AS conversion_value
+           NULL::text AS conversion_value
          FROM analytics_events ae
          LEFT JOIN contacts c ON c.id = ae.contact_id
          WHERE ae.occurred_at >= $1
            AND ae.event_name IN (
              'statement_uploaded', 'call_booked', 'merchant_application_submitted',
-             'merchant_approved', 'deal_closed_won'
+             'merchant_approved', 'deal_closed_won', 'appointment_booked', 'closed_won'
            )
+           AND (ae.event_name <> 'appointment_booked' OR ae.metadata->>'source' = 'ghl_webhook')
          ORDER BY ae.occurred_at DESC
          LIMIT 5000`,
         [since],
@@ -428,27 +431,24 @@ export function registerAcquisitionRoutes(app: Express): void {
       if (req.query.format === "csv") {
         // Google Ads offline conversion format:
         // https://support.google.com/google-ads/answer/7014069
-        const header = "Google Click ID,Conversion Name,Conversion Time,Conversion Value,Conversion Currency,Email,Campaign,Source,Medium,Vertical,Event ID\n";
-        const csvRows = rows.rows.map(r => {
+        const header = "Google Click ID,Conversion Name,Conversion Time,Conversion Value,Conversion Currency,Order ID\n";
+        const csvRows = rows.rows.filter(r => typeof r.gclid === "string" && /^[A-Za-z0-9_-]{1,500}$/.test(r.gclid) && !!r.event_id).map(r => {
           const convName = {
             statement_uploaded: "StatementUpload",
             call_booked: "BookedCall",
+            appointment_booked: "BookedCall",
+            closed_won: "ClosedWon",
             merchant_application_submitted: "ApplicationSubmit",
             merchant_approved: "MerchantApproved",
             deal_closed_won: "ClosedWon",
           }[r.event_name] ?? r.event_name;
-          const ts = new Date(r.occurred_at).toISOString();
+          const ts = new Date(r.occurred_at).toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "+00:00");
           return [
             r.gclid ?? "",           // actual gclid for Google Ads matching
             convName,
             ts,
-            r.conversion_value,
-            "USD",
-            r.contact_email,
-            r.utm_campaign,
-            r.utm_source,
-            r.utm_medium,
-            r.vertical,
+            "",
+            "",
             r.event_id ?? "",
           ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",");
         });
@@ -459,19 +459,21 @@ export function registerAcquisitionRoutes(app: Express): void {
 
       res.json({
         days,
-        googleAdsApiConfigured: !!process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
+        googleAdsApiConfigured: false,
+        googleAdsDeveloperTokenPresent: !!process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
+        googleAdsUploadStatus: "not_configured_no_verified_uploader",
         clientTracking: await readClientTrackingReadiness(),
         gclidCaptureWired: true,
         gclidCaptureActive: rows.rows.some((r: any) => !!r.gclid),
         observedExportRowsWithGclid: rows.rows.filter((r: any) => !!r.gclid).length,
         gclidObservationScope: "Returned conversion export rows only; absence does not prove capture is disabled",
-        note: "Click capture is wired through first-party attribution and supported form payloads. Confirm an accepted, consented ad journey retains its click ID through qualification. API credentials alone do not prove uploads; use the reviewed CSV export until upload receipt acceptance is complete.",
+        note: "This is an operator review export, not upload acceptance. Values and currency are intentionally blank; email and campaign metadata are excluded. Verify event provenance, advertising consent, click-time ordering and the matching Google Ads conversion names before importing. No automatic uploader is configured.",
         setupSteps: [
           "Enable auto-tagging in your Google Ads account",
           "Verify a consented auto-tagged visit retains gclid through the accepted request and CRM contact",
           "Configure the intended public GA4, Meta and explicit Google Ads conversion destination at client build time",
-          "Upload this CSV to Google Ads > Tools > Conversions > Upload",
-          "Or connect the Google Ads API with GOOGLE_ADS_DEVELOPER_TOKEN for automatic upload",
+          "Review consent, event provenance, unique order IDs and conversion-name mapping before any manual import",
+          "Automatic upload requires an implemented uploader, authorized account credentials and a successful provider receipt; a developer token alone is insufficient",
         ],
         totalRows: rows.rows.length,
         conversions: rows.rows,
@@ -588,18 +590,16 @@ export function registerAcquisitionRoutes(app: Express): void {
           id: "gclid_capture",
           category: "Tracking",
           label: "Google Click ID (gclid) Capture",
-          status: !!process.env.GCLID_CAPTURE ? "pass" : "warn",
-          detail: "gclid raw capture requires enabling GCLID_CAPTURE=true and adding ValueTrack to Google Ads URLs",
+          status: "warn",
+          detail: "Capture is wired through consented first-party attribution; verify auto-tagging and the click ID on an accepted CRM record. No GCLID_CAPTURE flag is required.",
           blockerForScale: false,
         },
         {
           id: "google_ads_api",
           category: "Integration",
-          label: "Google Ads API Connected",
-          status: !!process.env.GOOGLE_ADS_DEVELOPER_TOKEN ? "pass" : "warn",
-          detail: !!process.env.GOOGLE_ADS_DEVELOPER_TOKEN
-            ? "Google Ads API configured"
-            : "Not connected — use CSV export for manual offline conversion upload",
+          label: "Google Ads Offline Upload",
+          status: "warn",
+          detail: "Automatic upload is not configured. A developer token does not establish OAuth authorization, an uploader or a provider acceptance receipt.",
           blockerForScale: false,
         },
         {
