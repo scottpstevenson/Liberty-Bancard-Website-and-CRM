@@ -54,9 +54,20 @@ Google disables Secondary during initial creation of these new goal categories; 
 
 The signed-in Cloud project is **Liberty Bancard CRM Production**, ID `stalwart-way-503120-n9`, number `35087801791`, under `scott@libertybancard.com`. Data Manager API is now **Enabled**, verified in its Cloud API/Service Details screen after the user's separate enable/terms confirmation. The user created and downloaded a separate Desktop OAuth client named `Liberty CRM Offline Conversions`; its downloaded JSON was verified to belong to this project and restricted to local user-only file permissions. The existing production web OAuth client is preserved. No service account or API key was created.
 
-A standard PKCE loopback OAuth flow is staged for only `https://www.googleapis.com/auth/datamanager`, with Scott's exact account shown on Google's consent screen. Google describes this permission as seeing/editing/creating/importing/deleting customer data across Ads, Marketing Platform and Analytics. The action-time **Allow** confirmation is pending. No refresh token has been issued or saved yet. Any resulting token remains outside Git in local private storage. No browser auth caches, Gmail tokens or another project's credentials are reused.
+The user confirmed the exact Data Manager permission on Google's consent screen under `scott@libertybancard.com`. The standard PKCE loopback flow completed with only `https://www.googleapis.com/auth/datamanager`. A supported `authorized_user` credential was saved outside Git in local user-only storage; its refresh token successfully authenticated both independent production-transport checks. No browser auth caches, Gmail tokens or another project's credentials were reused.
 
-After those steps, install the authorized secret via the normal secret-management path without printing it, set the verified action IDs below, and perform validate-only preflight with the actual authorized account. A valid token or a 200 ingestion acknowledgment alone is not final processing/matching proof. Publication, migration and real forward conversion acceptance remain separately authorized steps; they were prohibited in this task. No synthetic conversion was uploaded to Google.
+## Connected provider preflight completed
+
+The production `offlineEventBody` and `googleOfflineTransport` functions were executed directly with the saved credential against Google Data Manager API. The isolated harness supplied an unreachable unused database URL; it neither connected to a database nor started workers. A fetch guard rejected every request except `events:ingest` with `validateOnly: true`. Both verified action destinations returned HTTP 200 without field warnings:
+
+| Action | Validation request ID |
+| --- | --- |
+| Qualified Lead `7911081311` | `v-aa75590f-005d-4a3b-a4fd-9890bfcd023c` |
+| Closed Won `7911081314` | `v-e8d799bb-3ffa-4a7c-85d8-88eb289cac37` |
+
+The inputs were explicitly synthetic validation-only identifiers, with no customer data, contact details or monetary values. Google documents that validate-only requests are validated but not executed. These responses prove the saved authorization, API access and configured destination payloads pass Google's synchronous validation; they do **not** prove a real ad match or a production CRM conversion receipt. Full receipt: `/Users/matt/.local/share/liberty-dev/offline-google-validate-receipt.json`.
+
+Private local environment configuration is prepared with both verified action IDs and `GOOGLE_OFFLINE_UPLOAD_ENABLED=false`. It has not been installed into Replit or production. Publication, remote branch sync, additive migration, remote secret installation and real forward conversion acceptance remain rollout steps. No real or synthetic conversion was executed in Google. No source was pushed or published; outbound pause and the $50 Outscraper cap were untouched.
 
 ## Server configuration
 
