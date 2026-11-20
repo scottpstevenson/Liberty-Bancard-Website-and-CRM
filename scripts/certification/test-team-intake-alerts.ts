@@ -68,7 +68,7 @@ try{
  await pool.query('DROP TRIGGER fixture_alert_failure ON team_intake_alerts');
  const content=svc.renderTeamIntakeAlert(ma);
  check(content.html.includes('&lt;img')&&!content.html.includes('<img')&&content.html.includes('&amp;'),'Untrusted fields are HTML escaped');
- check(content.subject==='Liberty Bancard: New merchant referral'&&content.text.includes('/dashboard/portfolio'),'Server-owned subject and CRM link; no customer-supplied URL');
+ check(content.subject==='Liberty Bancard: New merchant referral'&&content.text.includes('/dashboard/intake?tab=referrals'),'Server-owned subject and CRM link; no customer-supplied URL');
  let c=await claim(ma);const lease={alertId:c.id,attemptToken:c.attempt_token};
  check((await pause.authorizeTeamIntakeAlertSend(content,lease)).allowed,'Exact staff intake message obtains a lease while globally paused');
  const before=calls.length;

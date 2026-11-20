@@ -1,3 +1,4 @@
+import { IntakeRecordActions } from "@/components/intake/IntakeRecordActions";
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
@@ -305,7 +306,7 @@ export function PartnerIntroductionsReview() {
     { id: "reason", label: "Reason", render: (r) => reasonText(r.reviewReason) },
     { id: "links", label: "Linked records", render: (r) => [r.contactId ? `Contact #${r.contactId}` : null, r.referralId ? `Referral #${r.referralId}` : null].filter(Boolean).join(" · ") || "None" },
     { id: "open", label: "Open", render: (r) => (
-      <Button variant="outline" size="sm" className="min-h-11" onClick={(e) => { e.stopPropagation(); setOpenId(r.id); }} data-testid={`button-open-introduction-${r.id}`}>Open</Button>
+      <div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" className="min-h-11" onClick={(e) => { e.stopPropagation(); setOpenId(r.id); }} data-testid={`button-open-introduction-${r.id}`}>Open</Button><IntakeRecordActions kind="introductions" id={r.id} /></div>
     ) },
   ];
 
@@ -349,6 +350,7 @@ export function PartnerIntroductionsReview() {
                 <p className="text-xs text-muted-foreground">Submitted {fmtBusiness(r.createdAt)} · {completionText(r)}</p>
                 {r.reviewReason ? <p className="text-xs text-muted-foreground">{reasonText(r.reviewReason)}</p> : null}
                 <Button variant="outline" className="mt-2 min-h-11 w-full" onClick={() => setOpenId(r.id)}>Open</Button>
+                  <IntakeRecordActions kind="introductions" id={r.id} />
               </div>
             )}
           />

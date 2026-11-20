@@ -8973,5 +8973,104 @@
       "forbidden": "existing wrapper/child denial before mount/request",
       "conflict": "reason + permitted fallback"
     }
+  },
+  {
+    "id": "R-148",
+    "pattern": "/dashboard/intake",
+    "currentTarget": "IntakeCenter",
+    "guard": "ProtectedRoute: admin/manager",
+    "owner": "C4",
+    "workspace": "C4 / Intake Center",
+    "sourceDeclarations": [
+      "<Route path=\"/dashboard/intake\">\n          <ProtectedRoute component={IntakeCenter} allowedRoles={[\"admin\", \"manager\"]} />\n        </Route>"
+    ],
+    "renderOwner": "C4 / Intake Center",
+    "actualWrapperKinds": [
+      "ProtectedRoute"
+    ],
+    "component": "IntakeCenter",
+    "componentPolicy": {
+      "source": "client/src/pages/dashboard/IntakeCenter.tsx",
+      "selectors": [
+        "forms",
+        "merchants",
+        "applications",
+        "introductions",
+        "referrals"
+      ],
+      "queryKeys": [
+        "merchantReferralPage",
+        "tab",
+        "status",
+        "formPage",
+        "formType",
+        "formStatus",
+        "ref",
+        "intake",
+        "days",
+        "appStatus",
+        "appPath",
+        "appProfession",
+        "appOwner",
+        "appPage",
+        "application",
+        "introState",
+        "introPage",
+        "introduction"
+      ],
+      "children": [],
+      "interpretation": "Only the selected panel mounts; existing API authorization remains authoritative."
+    },
+    "wrapperRoles": [
+      "admin",
+      "manager"
+    ],
+    "childCapabilities": {},
+    "entityParameters": [],
+    "queryPolicy": {
+      "allowed": [
+        "merchantReferralPage",
+        "tab",
+        "status",
+        "formPage",
+        "formType",
+        "formStatus",
+        "ref",
+        "intake",
+        "days",
+        "appStatus",
+        "appPath",
+        "appProfession",
+        "appOwner",
+        "appPage",
+        "application",
+        "introState",
+        "introPage",
+        "introduction",
+        "contactId",
+        "companyId",
+        "businessId",
+        "dealId",
+        "sourceId",
+        "from"
+      ],
+      "selectors": [
+        "forms",
+        "merchants",
+        "applications",
+        "introductions",
+        "referrals"
+      ],
+      "duplicates": "equal-collapse; conflict explicit safe fallback",
+      "unknown": "not authority; adopted codecs strip unregistered keys"
+    },
+    "fragmentPolicy": "registered local anchor matching #[a-z][a-z0-9_-]{0,63}; never external navigation",
+    "futureTarget": "/dashboard/intake",
+    "status": "activated unified intake entrance; existing review handlers retained",
+    "outcomes": {
+      "invalid": "reason + permitted fallback; no name lookup",
+      "forbidden": "existing wrapper/child denial before mount/request",
+      "conflict": "reason + permitted fallback"
+    }
   }
 ]

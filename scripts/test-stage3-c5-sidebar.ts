@@ -10,13 +10,13 @@ const guardRoles = (guard: string) => {
   return m ? m[1].split("/").map(x => x.trim()) : null; // null = any authenticated employee
 };
 
-assert.deepEqual(employeeSidebarEntries.map(e => e.label), [...EMPLOYEE_SIDEBAR_ORDER], "exact eleven-entry order");
-assert.equal(employeeSidebarEntries.length, 11);
+assert.deepEqual(employeeSidebarEntries.map(e => e.label), [...EMPLOYEE_SIDEBAR_ORDER], "approved intake entry order");
+assert.equal(employeeSidebarEntries.length, 12);
 
 const expected: Record<string, string[]> = {
   admin: [...EMPLOYEE_SIDEBAR_ORDER],
   manager: [...EMPLOYEE_SIDEBAR_ORDER],
-  agent: EMPLOYEE_SIDEBAR_ORDER.filter(l => l !== "Campaigns" && l !== "Administration"),
+  agent: EMPLOYEE_SIDEBAR_ORDER.filter(l => l !== "Campaigns" && l !== "Administration" && l !== "Intake Center"),
 };
 for (const role of ["admin", "manager", "agent"]) {
   assert.deepEqual(employeeSidebarFor(role).map(i => i.entry.label), expected[role], `${role} visible entries`);
@@ -32,6 +32,10 @@ assert.equal(href("agent", "today"), "/dashboard/my-day");
 assert.equal(href("agent", "reports"), "/dashboard/my-earnings");
 assert.equal(href("agent", "prospecting"), "/dashboard/outreach-queue");
 assert.equal(href("agent", "campaigns"), undefined, "no invented agent campaign access");
+
+assert.equal(href("agent", "intake-center"), undefined);
+assert.equal(href("manager", "intake-center"), "/dashboard/intake");
+assert.equal(activeSidebarId("admin", "/dashboard/intake?tab=applications"), "intake-center");
 
 // Every visible target resolves to a registered route whose guard admits that role.
 for (const role of ["admin", "manager", "agent"]) {

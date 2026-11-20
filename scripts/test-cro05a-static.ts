@@ -40,7 +40,7 @@ const authority = source("server/services/inbound-request-authority.ts");
 const publicRoutes = source("server/routes/public.ts");
 const importsRoutes = source("server/routes/imports.ts");
 const leadOpsRoutes = source("server/routes/lead-ops.ts");
-const leadOpsUi = source("client/src/pages/dashboard/LeadOpsCenter.tsx") + "\n" + source("client/src/components/lead-ops/InboundRequestList.tsx");
+const leadOpsUi = source("client/src/pages/dashboard/LeadOpsCenter.tsx") + "\n" + source("client/src/components/lead-ops/InboundRequestList.tsx") + "\n" + source("client/src/components/lead-ops/InboundOperationsPanel.tsx");
 const statementWorker = source("server/services/statement-command-worker.ts");
 const statementChain = source("server/services/statement-upload-chain.ts");
 const statementAnalyzer = source("server/services/statement-analyzer.ts");
@@ -107,6 +107,8 @@ check("every public POST route is enumerated and every intake is authority-owned
 });
 
 check("all CRO-05A source classes are frozen in the source policy", () => {
+  assert.match(authority, /INBOUND_MANIFEST_VERSION_V3 = "cro05a-v3"/);
+  assert.match(authority, /row.manifestVersion === INBOUND_MANIFEST_VERSION_V3 \? POLICY_MAP_V3/);
   const classes = [
     "sales_request",
     "support_request",
@@ -121,7 +123,7 @@ check("all CRO-05A source classes are frozen in the source policy", () => {
   for (const sourceClass of classes) {
     assert.match(authority, new RegExp(`"${sourceClass}"`), `missing source class ${sourceClass}`);
   }
-  assert.match(authority, /INBOUND_MANIFEST_VERSION\s*=\s*"cro05a-v3"/);
+  assert.match(authority, /INBOUND_MANIFEST_VERSION\s*=\s*"cro05a-v4"/);
   assert.match(authority, /INBOUND_MANIFEST_VERSION_V2\s*=\s*"cro05a-v2"/);
   assert.match(authority, /FROZEN cro05a-v2 contract/);
   assert.match(authority, /resolveStoredInboundPolicy[\s\S]*INBOUND_POLICY_DRIFT/);

@@ -2479,8 +2479,8 @@ export const teamIntakeAlerts = pgTable("team_intake_alerts", {
   updatedAt: timestamp("updated_at", {withTimezone:true}).notNull().defaultNow(),
 }, t => [
   check("team_intake_alert_recipient_check", sql`${t.recipient}='scott@libertybancard.com'`),
-  check("team_intake_alert_source_check", sql`${t.sourceKind} IN ('application','introduction','referral','merchant_referral')`),
-  check("team_intake_alert_event_check", sql`(${t.sourceKind}='application' AND ${t.eventKind} IN ('sales_agent_application','referral_partner_application')) OR (${t.sourceKind}<>'application' AND ${t.eventKind}='merchant_referral')`),
+  check("team_intake_alert_source_check", sql`${t.sourceKind} IN ('application','introduction','referral','merchant_referral','inbound','merchant_application')`),
+  check("team_intake_alert_event_check", sql`(${t.sourceKind}='application' AND ${t.eventKind} IN ('sales_agent_application','referral_partner_application')) OR (${t.sourceKind}='inbound' AND ${t.eventKind}='website_submission') OR (${t.sourceKind}='merchant_application' AND ${t.eventKind}='merchant_application') OR (${t.sourceKind} IN ('introduction','referral','merchant_referral') AND ${t.eventKind}='merchant_referral')`),
   check("team_intake_alert_key_check", sql`${t.eventKey}=${t.sourceKind}||':'||${t.sourceId}`),
   check("team_intake_alert_payload_check", sql`jsonb_typeof(${t.payload})='object'`),
   check("team_intake_alert_state_check", sql`${t.state} IN ('pending','attempting','sent','uncertain','failed')`),
@@ -11982,3 +11982,14 @@ export const adsOfflineConversions=pgTable("ads_offline_conversions",{
   check("ads_offline_conversions_state_check",sql`${t.state} IN ('pending','attempting','submitted','processed','processed_with_warnings','failed','uncertain','revoked')`),check("ads_offline_conversions_attempt_count_check",sql`${t.attemptCount} BETWEEN 0 AND 5`),
   check("ads_offline_conversions_claim_check",sql`${t.state}<>'attempting' OR (${t.claimToken} IS NOT NULL AND ${t.leaseExpiresAt} IS NOT NULL)`),check("ads_offline_conversions_receipt_check",sql`${t.state} NOT IN ('submitted','processed','processed_with_warnings') OR (${t.providerRequestId} IS NOT NULL AND ${t.actionId} IS NOT NULL)`),
 ]);
+
+// One durable follow-up projection per intake source; email remains owned by inbound acknowledgements.
+export const intakeOperations = pgTable("intake_operations", {
+  sourceKind: text("source_kind").notNull(), sourceId: text("source_id").notNull(),
+  requestId: uuid("request_id").references(() => inboundRequests.id),
+  taskId: integer("task_id").references(() => tasks.id),
+  notificationId: integer("notification_id").references(() => notifications.id),
+  ready: boolean("ready").notNull().default(false),
+  createdAt: timestamp("created_at", {withTimezone:true}).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", {withTimezone:true}).notNull().defaultNow(),
+}, t => [primaryKey({columns:[t.sourceKind,t.sourceId]}),check("intake_operations_source_kind_check",sql`${t.sourceKind} IN ('forms','merchants','applications','introductions','referrals','merchant_referrals')`)]);

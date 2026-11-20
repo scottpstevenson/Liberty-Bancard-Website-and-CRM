@@ -76,6 +76,7 @@ const STATEMENT_REVIEW_EVENT="statement_uploaded";
 const INBOUND_REVIEW_EVENTS=[STATEMENT_REVIEW_EVENT,"public_inquiry_received","support_request_received",
   "estimate_request_received","quiz_lead_received","callback_request_received"];
 const STATEMENT_REVIEW_LINK_PATTERN="^/dashboard/lead-ops\\?tab=pipeline&ref=[0-9A-F]{8}$";
+const INTAKE_LINK_PATTERN="^/dashboard/intake\\?tab=(forms&ref=[0-9a-fA-F]{8}|merchants|applications(&application=[0-9a-f-]{36})?|introductions(&introduction=[0-9a-f-]{36})?|referrals)$";
 function readExpression(actor:Actor) {
   return sql<boolean>`COALESCE((SELECT s.read_at IS NOT NULL FROM notification_actor_states s
     WHERE s.actor_id=${actor.id} AND s.notification_id=${notifications.id}),FALSE)
@@ -108,6 +109,7 @@ function scope(actor:Actor,category="all") {
     sql`(${value("link")} IS NULL OR ${value("link")}='/dashboard' OR
       (${actor.role==="admin"} AND (${sql.join(Object.entries(adminQueueLinks).map(([event,link])=>
         sql`(${value("eventType")}=${event} AND ${value("link")}=${link})`),sql` OR `)})) OR
+      (${privileged} AND ${value("eventType")} = 'intake_received' AND ${value("link")} ~ ${INTAKE_LINK_PATTERN}) OR
       (${privileged} AND ${value("eventType")} IN (${sql.join(INBOUND_REVIEW_EVENTS.map(event=>sql`${event}`),sql`,`)}) AND ${value("link")} ~ ${STATEMENT_REVIEW_LINK_PATTERN}) OR
       (${sql.join(targetKinds.map(kind=>{
         const linkedId=positive(sql`substring(${value("link")} from ${legacyPatterns[kind]})`);
@@ -159,6 +161,8 @@ function destination(metadata:any,context:{inboundRequestId?:string|null;privile
   if(INBOUND_REVIEW_EVENTS.includes(metadata?.eventType) && typeof metadata.link==="string"
     && new RegExp(STATEMENT_REVIEW_LINK_PATTERN).test(metadata.link))
     return requestReview(metadata.link);
+  if(context.privileged && metadata?.eventType === "intake_received" && typeof metadata.link === "string" && new RegExp(INTAKE_LINK_PATTERN).test(metadata.link))
+    return {state:"available",url:metadata.link,actionLabel:"Open Intake Center"};
   const target=typedTarget(metadata);
   if(!target && metadata?.eventType && adminQueueLinks[metadata.eventType]===metadata?.link)
     return {state:"available",url:metadata.link,

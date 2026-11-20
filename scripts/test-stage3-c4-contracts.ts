@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import {applicationStatuses,boardingStatuses,outreachViews,leaderboardMetrics,leaderboardPeriods,retainedSelection,
+import {intakeViews,intakeViewLabels,applicationStatuses,boardingStatuses,outreachViews,leaderboardMetrics,leaderboardPeriods,retainedSelection,
   retainedSelectionUrl,outreachAliasUrl} from "../client/src/lib/crm-destination-state";
 import {readFileSync} from "node:fs";
 import {financialState,financialUrl,selectValue,revenueViews,underwritingViews,supportViews,onboardingViews} from "../client/src/lib/crm-destination-state";
@@ -105,7 +105,7 @@ for(const raw of ["?rfiView=bad","?rfiView=Open&rfiView=Closed"]){
   assert.equal(c4WorkspaceSelection(url.search,"rfiView",rfiViews,"all").issues.length,1);
 }
 const panels=JSON.parse(readFileSync("docs/certification/stage3-c1/panel-dispositions.json","utf8"));
-assert.equal(routes.filter((r:any)=>r.owner==="C4").length,39);
+assert.equal(routes.filter((r:any)=>r.owner==="C4").length,40);
 assert.equal(panels.filter((p:any)=>p.owner==="C4").length,70);
 for(const selector of revenueViews)
   assert.equal(selectValue(new URLSearchParams({revenueView:selector}),"revenueView",revenueViews,"dashboard").value,selector);
@@ -321,3 +321,18 @@ assert.deepEqual(projectPayoutLedger([],{month:null,status:null},"2026-10-09T00:
 const outreachSource=readFileSync("client/src/pages/dashboard/OutreachAnalytics.tsx","utf8");
 assert.doesNotMatch(outreachSource,/if\s*\(campaignsError\s*\|\|\s*!campaigns\)\s*{\s*return/,"Campaign failure must not remove independent child selectors");
 console.log("C4 codec/source contracts PASS; assignment 39/70 is not a dynamic control or action pass.");
+
+// Unified intake keeps independent worklist state across tab changes and merchant status changes.
+const intakeSearch = "tab=forms&formPage=2&formStatus=review_required&status=submitted&appStatus=all&appPage=3&introState=pending_review&application=00000000-0000-0000-0000-000000000001&unknown=drop";
+for (const tab of intakeViews) {
+  const url = new URL(retainedSelectionUrl("/dashboard/intake", intakeSearch, "#records", "tab", intakeViews, tab), "http://isolated.test");
+  assert.equal(url.searchParams.get("tab"), tab);
+  for (const key of ["formPage", "formStatus", "status", "appStatus", "appPage", "introState", "application"]) assert.equal(url.searchParams.get(key), new URLSearchParams(intakeSearch).get(key));
+  assert.equal(url.searchParams.has("unknown"), false);
+  assert.equal(url.hash, "#records");
+  assert.ok(intakeViewLabels[tab]);
+}
+assert.equal(new URL(retainedSelectionUrl("/dashboard/intake", "tab=merchants&appPage=3", "", "status", applicationStatuses, "submitted"), "http://isolated.test").searchParams.get("tab"), "merchants");
+assert.equal(retainedSelection("tab=bad", "tab", intakeViews, "forms").issues[0].kind, "invalid");
+assert.equal(retainedSelection("tab=merchants&tab=forms", "tab", intakeViews, "forms").issues[0].kind, "conflict");
+console.log("Unified intake retained state: PASS");

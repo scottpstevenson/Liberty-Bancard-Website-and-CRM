@@ -1,3 +1,4 @@
+import { IntakeRecordActions } from "@/components/intake/IntakeRecordActions";
 import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, getCsrfToken } from "@/lib/queryClient";
@@ -1068,8 +1069,8 @@ function ApplicationDetailView({
 
 const LIST_PAGE_SIZE = 50;
 
-export default function MerchantApplicationsList() {
-  const statusState=useC4RetainedSelection("/dashboard/merchant-applications","status",applicationStatuses,"all");
+export function MerchantApplicationsPanel({basePath="/dashboard/merchant-applications"}: {basePath?: string}) {
+  const statusState=useC4RetainedSelection(basePath,"status",applicationStatuses,"all");
   // "In progress" is not a separate list: the server's Draft filter already covers saved drafts and applications still
   // being filled in, so a retained in_progress selection resolves to that one tab and its count.
   const statusFilter=statusState.value==="in_progress" ? "draft" : statusState.value;
@@ -1269,6 +1270,7 @@ export default function MerchantApplicationsList() {
                         >
                           Review
                         </Button>
+                        <IntakeRecordActions kind="merchants" id={String(app.id)} />
                       </TableCell>
                     </TableRow>
                   );
@@ -1290,3 +1292,5 @@ export default function MerchantApplicationsList() {
     </CrmPage>
   );
 }
+
+export default function MerchantApplicationsList() { return <MerchantApplicationsPanel />; }

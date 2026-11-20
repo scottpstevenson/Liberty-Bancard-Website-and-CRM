@@ -1,3 +1,4 @@
+import {brandedIntakeEmail} from "./intake-email-layout";
 import {sanitizeAuditPayload} from "./audit-sanitizer";
 /** Staff-only intake alerts. No customer send, approval, enrollment or historical backfill. */
 import {randomUUID} from 'node:crypto';
@@ -8,7 +9,7 @@ export const TEAM_INTAKE_RECIPIENT='scott@libertybancard.com';
 export const TEAM_INTAKE_MAX_ATTEMPTS=5;
 type Tx=Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Executor=Pick<Tx,'execute'>;
-export type TeamIntakeSource='application'|'introduction'|'referral'|'merchant_referral';
+export type TeamIntakeSource='application'|'introduction'|'referral'|'merchant_referral'|'inbound'|'merchant_application';
 export type TeamIntakeClaim={alertId:string;attemptToken:string};
 const rows=(r:any):any[]=>r.rows??r;
 const query=async(tx:Executor,q:any)=>rows(await tx.execute(q));
@@ -18,7 +19,9 @@ const escape=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const uuid=(v:string)=>/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 
 async function source(tx:Executor,kind:TeamIntakeSource,id:string){
- if(['application','introduction'].includes(kind)?!uuid(id):!(/^[1-9]\d{0,9}$/.test(id)&&Number(id)<=2147483647))return null;
+ if(['application','introduction','inbound'].includes(kind)?!uuid(id):!(/^[1-9]\d{0,9}$/.test(id)&&Number(id)<=2147483647))return null;
+ if(kind==='inbound')return one(tx,sql`SELECT source_type AS company,submitted_email AS email FROM inbound_requests WHERE id=${id}::uuid`);
+ if(kind==='merchant_application')return one(tx,sql`SELECT owner_first_name AS name,legal_business_name AS company,owner_email AS email FROM merchant_applications WHERE id=${Number(id)}`);
  if(kind==='application')return one(tx,sql`SELECT a.path,p.contact_name AS name,p.company_name AS company,p.email
    FROM partner_applications a JOIN partners p ON p.id=a.partner_id WHERE a.id=${id}::uuid`);
  if(kind==='introduction')return one(tx,sql`SELECT i.contact_name AS name,i.business_name AS company,i.contact_email AS email,p.company_name AS referrer
@@ -35,7 +38,7 @@ export async function enqueueTeamIntakeAlert(tx:Executor,kind:TeamIntakeSource,i
  const record=await source(tx,kind,id);
  if(!record)throw Error('TEAM_INTAKE_SOURCE_MISSING');
  if(record.introduction_owned)return; // The introduction already owns the alert, including held/duplicate referrals.
- const eventKind=kind==='application'?(record.path==='sales_agent'?'sales_agent_application':'referral_partner_application'):'merchant_referral';
+ const eventKind=kind==='inbound'?'website_submission':kind==='merchant_application'?'merchant_application':kind==='application'?(record.path==='sales_agent'?'sales_agent_application':'referral_partner_application'):'merchant_referral';
  if(kind==='application'&&!['sales_agent','referral'].includes(record.path))throw Error('TEAM_INTAKE_APPLICATION_PATH_INVALID');
  const payload={name:clean(record.name),company:clean(record.company),email:clean(record.email,254),referrer:clean(record.referrer)};
  await tx.execute(sql`INSERT INTO team_intake_alerts(event_key,event_kind,source_kind,source_id,recipient,payload)
@@ -44,15 +47,15 @@ export async function enqueueTeamIntakeAlert(tx:Executor,kind:TeamIntakeSource,i
 }
 
 export function renderTeamIntakeAlert(row:{event_kind:string;source_kind:string;source_id:string;payload:any}){
- const title=row.event_kind==='sales_agent_application'?'New sales-agent application':row.event_kind==='referral_partner_application'?'New referral-partner application':'New merchant referral';
+ const title=row.source_kind==='inbound'?'New website submission':row.source_kind==='merchant_application'?'New merchant application':row.event_kind==='sales_agent_application'?'New sales-agent application':row.event_kind==='referral_partner_application'?'New referral-partner application':'New merchant referral';
  const tab=row.source_kind==='application'?'applications':row.source_kind==='introduction'?'introductions':'referrals';
- const path=row.source_kind==='merchant_referral'?'/dashboard/portfolio':`/dashboard/referral-program?tab=${tab}`;
+ const path=row.source_kind==='inbound'?`/dashboard/intake?tab=forms&ref=${row.source_id.replaceAll('-','').slice(0,8)}`:row.source_kind==='merchant_application'?'/dashboard/intake?tab=merchants':row.source_kind==='merchant_referral'?'/dashboard/intake?tab=referrals':`/dashboard/intake?tab=${tab}${row.source_kind==='application'?'&application='+row.source_id:row.source_kind==='introduction'?'&introduction='+row.source_id:''}`;
  const link=`https://libertybancard.com${path}`;
- const label=row.source_kind==='merchant_referral'?'Open merchant portfolio':'Open referral program';
+ const label='Open Intake Center';
  const p=row.payload??{};
  const fields=[['Name',clean(p.name)],['Company',clean(p.company)],['Email',clean(p.email,254)],['Referred by',clean(p.referrer)],['Reference',clean(row.source_id)]];
  const text=[title,'Received for review.',...fields.filter(([,v])=>v).map(([k,v])=>`${k}: ${v}`),`${label}: ${link}`].join('\n');
- const html=`<h2>${title}</h2><p>Received for review.</p><dl>${fields.filter(([,v])=>v).map(([k,v])=>`<dt>${k}</dt><dd>${escape(v)}</dd>`).join('')}</dl><p><a href="${link}">${label}</a></p>`;
+ const html=brandedIntakeEmail(title,`Received for review.\n\n${fields.filter(([,v])=>v).map(([k,v])=>`${k}: ${v}`).join('\n')}`,`<p><a href="${escape(link)}">${label}</a></p>`,false);
  return {to:TEAM_INTAKE_RECIPIENT,subject:`Liberty Bancard: ${title}`,html,text,category:'internal_ops' as const};
 }
 

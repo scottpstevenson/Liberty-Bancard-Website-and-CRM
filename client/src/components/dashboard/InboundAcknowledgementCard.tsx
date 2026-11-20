@@ -22,6 +22,7 @@ const REQUEST_TYPES: Array<{ value: string; label: string }> = [
   { value: "support_request", label: "Support requests" },
   { value: "fulfillment_request", label: "Equipment orders" },
   { value: "partner_application_request", label: "Partner applications" },
+  { value: "intake_submission_request", label: "Merchant application and referrer receipts; staff intake correspondence" },
   { value: "privacy_request", label: "Privacy requests (receipt goes only to the submitted email)" },
 ];
 

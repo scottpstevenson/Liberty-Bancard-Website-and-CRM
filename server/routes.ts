@@ -1,3 +1,4 @@
+import {registerIntakeCenterRoutes} from "./routes/intake-center";
 import {registerScheduledDiscoveryRoutes} from "./routes/scheduled-discovery";
 import type { Express } from "express";
 import { createServer, type Server } from "http";
@@ -231,6 +232,7 @@ export async function registerRoutes(
   registerMyDayRoutes(app);
   registerLiveChatRoutes(app);
   registerInboundAcknowledgementRoutes(app);
+  registerIntakeCenterRoutes(app);
   registerWebsiteEmailRoutes(app);
   registerChargebacksRoutes(app);
   registerToolkitRoutes(app);

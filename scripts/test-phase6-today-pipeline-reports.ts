@@ -76,7 +76,8 @@ ok(read("client/src/pages/dashboard/SalesRepHome.tsx").includes("<TodayWorkQueue
 
 // ── CRM-21 Intake entrance ──────────────────────────────────────────────────────────────────────────────────────────
 const leadOps = read("client/src/pages/dashboard/LeadOpsCenter.tsx");
-ok(leadOps.includes("Intake: website requests") && leadOps.includes('data-testid="card-inbound-operations"'), "the website-request card is titled Intake and keeps its test id");
+const inboundPanel = read("client/src/components/lead-ops/InboundOperationsPanel.tsx");
+ok(leadOps.includes("<InboundOperationsPanel") && inboundPanel.includes("Intake: website requests") && inboundPanel.includes('data-testid="card-inbound-operations"'), "the website-request card is titled Intake and keeps its test id");
 ok(leadOps.includes('data-testid="details-pipeline-maintenance"') && /<details[^>]*details-pipeline-maintenance/.test(leadOps.replace(/\s+/g, " ")), "maintenance panels sit behind a collapsed disclosure");
 ok(!/<details[^>]*details-pipeline-maintenance[^>]*\sopen[\s>]/.test(leadOps), "the maintenance disclosure is collapsed by default");
 ok(read("client/src/pages/dashboard/TasksAppointments.tsx").includes('data-testid="link-work-intake"'), "Work links to Intake for management");
@@ -163,7 +164,7 @@ const hub = read("client/src/pages/dashboard/ReportingHub.tsx");
 ok(hub.includes('title="Reports"') && hub.includes('aria-pressed={activeArea === "sales"}') && hub.includes("aria-label=\"Report areas\""), "Reports title and the selected area are apparent");
 const sidebar = read("client/src/lib/employee-sidebar.ts");
 ok(/id: "reports", label: "Reports"/.test(sidebar), "the sidebar name matches the Reports page title");
-ok((sidebar.match(/\{ id: "/g) ?? []).length === 11, "the sidebar keeps exactly eleven entries");
+ok((sidebar.match(/\{\s*id:\s*"/g) ?? []).length === 12, "the sidebar includes the approved Intake Center");
 
 // ── Dense worklists keep every fact ─────────────────────────────────────────────────────────────────────────────────
 const css = read("client/src/styles/crm-theme.css");

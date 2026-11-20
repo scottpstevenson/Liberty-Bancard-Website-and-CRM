@@ -40,7 +40,8 @@ type InboundTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
  * orchestration resolve THAT contract (see resolveStoredInboundPolicy), never the current one. v2 is frozen below and
  * must never be edited: a retried v2 occurrence keeps exactly its original effect set and never gains a warm effect.
  */
-export const INBOUND_MANIFEST_VERSION = "cro05a-v3";
+export const INBOUND_MANIFEST_VERSION = "cro05a-v4";
+const INBOUND_MANIFEST_VERSION_V3 = "cro05a-v3";
 export const INBOUND_MANIFEST_VERSION_V2 = "cro05a-v2";
 const INBOUND_CONTEXT_UNAVAILABLE_PREFIX = "Inbound context is unavailable or changed.";
 const BUSINESS_DAY_START_HOUR_UTC = 9;
@@ -53,6 +54,7 @@ export type InboundSourceClass =
   | "support_request"
   | "fulfillment_request"
   | "partner_application_request"
+  | "intake_submission_request"
   | "privacy_request"
   | "marketing_opt_in"
   | "content_reputation"
@@ -176,13 +178,19 @@ const INBOUND_SOURCE_POLICIES_V3_ADDITIONS: readonly SourcePolicy[] = [
   { sourceCategory: "website_form", sourceType: "general_inquiry", sourceClass: "sales_request", effects: SALES_EFFECTS, forbiddenEffects: ["promotional_enrollment", "proposal_send"] },
 ];
 
-export const INBOUND_SOURCE_POLICIES: readonly SourcePolicy[] = [
+const INBOUND_SOURCE_POLICIES_V3: readonly SourcePolicy[] = [
   ...INBOUND_SOURCE_POLICIES_V2.map(withWarmEffects),
   ...INBOUND_SOURCE_POLICIES_V3_ADDITIONS,
 ];
 
+export const INBOUND_SOURCE_POLICIES: readonly SourcePolicy[] = [
+  ...INBOUND_SOURCE_POLICIES_V3,
+  ...["merchant_application", "referral_submission", "intake_followup"].map((sourceType): SourcePolicy => ({sourceCategory:"manual_crm", sourceType, sourceClass:"intake_submission_request", effects:REVIEW_QUEUE_EFFECTS, forbiddenEffects:REVIEW_QUEUE_FORBIDDEN})),
+];
+
 const policyKey = (policy: Pick<SourcePolicy, "sourceCategory" | "sourceType">) => `${policy.sourceCategory}|${policy.sourceType}`;
 const POLICY_MAP = new Map(INBOUND_SOURCE_POLICIES.map((policy) => [policyKey(policy), policy]));
+const POLICY_MAP_V3 = new Map(INBOUND_SOURCE_POLICIES_V3.map((policy) => [policyKey(policy), policy]));
 const POLICY_MAP_V2 = new Map(INBOUND_SOURCE_POLICIES_V2.map((policy) => [policyKey(policy), policy]));
 
 export function getInboundSourcePolicy(sourceCategory: string, sourceType: string): SourcePolicy {
@@ -202,6 +210,7 @@ export function resolveStoredInboundPolicy(row: {
   manifestHash: string;
 }): SourcePolicy {
   const table = row.manifestVersion === INBOUND_MANIFEST_VERSION ? POLICY_MAP
+    : row.manifestVersion === INBOUND_MANIFEST_VERSION_V3 ? POLICY_MAP_V3
     : row.manifestVersion === INBOUND_MANIFEST_VERSION_V2 ? POLICY_MAP_V2
     : null;
   if (!table) throw new Error(`INBOUND_POLICY_VERSION_UNSUPPORTED:${row.manifestVersion}`);
@@ -1181,7 +1190,7 @@ export async function orchestrateInboundRequest(input: {
           "internal_notification",
         ]);
       }
-    } else if (policy.sourceClass === "partner_application_request" || policy.sourceClass === "privacy_request") {
+    } else if (policy.sourceClass === "partner_application_request" || policy.sourceClass === "privacy_request" || policy.sourceClass === "intake_submission_request") {
       // The review notification is the only internal effect. It completes only when the admin-audience notification
       // created for THIS request is durably linked to it; otherwise it stays held and the request needs review.
       if (!input.notificationId) throw new Error("REVIEW_QUEUE_NOTIFICATION_HANDOFF_REQUIRED");
@@ -1324,7 +1333,7 @@ export async function listInboundRequests(input: {
 }) {
   const limit = Math.min(Math.max(input.limit || 50, 1), 200);
   const offset = Math.max(input.offset || 0, 0);
-  const filters = [];
+  const filters = [sql`${inboundRequests.sourceClass} <> 'intake_submission_request'`];
   if (input.sourceClass) filters.push(eq(inboundRequests.sourceClass, input.sourceClass));
   if (input.lifecycleState) filters.push(eq(inboundRequests.lifecycleState, input.lifecycleState));
   const ref = parseInboundShortRef(input.shortRef);

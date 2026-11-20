@@ -87,6 +87,7 @@ type SuiteManifestDefinition = Omit<
 >;
 
 const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
+  {name:"Unified Intake Center",script:"scripts/test-intake-center.ts",capability:"deterministic-integration",isolateInfrastructure:true,providerDenial:"disposable Postgres/Redis; real authenticated routes and receipt authority; all providers denied"},
   {name:"Staff intake email alerts durability and pause isolation",script:"scripts/certification/test-team-intake-alerts.ts",capability:"deterministic-integration",isolateInfrastructure:true,providerDenial:"private PostgreSQL/Redis; fake SMTP, real intake owners and fatal provider denial"},
   {name:"Staff intake email alerts HTTP",script:"scripts/certification/test-team-intake-alerts-http.ts",capability:"deterministic-integration",isolateInfrastructure:true,providerDenial:"private PostgreSQL/Redis; fake SMTP, real intake owners and fatal provider denial"},
 

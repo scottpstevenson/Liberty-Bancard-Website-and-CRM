@@ -274,6 +274,7 @@ export const MANDATORY_SUITES: Suite[] = [
   {name:"Stage 3 D-R2 Heading Ownership Mounted",script:"scripts/test-stage3-d-r2-headings.ts",timeoutSecs:120},
   {name:"Stage 3 D-R2 Company Search Authority",script:"scripts/test-company-search-authority.ts",timeoutSecs:240,requiresDisposableTestDatabase:true},
   {name:"Stage 3 C5 Resources And Selectors",script:"scripts/test-stage3-c5-resources.ts",timeoutSecs:60},
+  {name:"Unified Intake Center",script:"scripts/test-intake-center.ts",timeoutSecs:120,requiresDisposableTestDatabase:true},
   {name:"Stage 3 C5 Final Sidebar",script:"scripts/test-stage3-c5-sidebar.ts",timeoutSecs:60},
   {name:"Stage 3 C5 Mounted GHL Settings",script:"scripts/test-stage3-c5-mounted.ts",timeoutSecs:420},
   {name:"Stage 3 C5 Data-Bearing Panels And GHL Settings",script:"scripts/test-stage3-c5-panels.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},

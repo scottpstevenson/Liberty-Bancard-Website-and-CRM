@@ -47,7 +47,7 @@ for (const role of roles) {
   }
 }
 ok(landed >= 11 * 2 + 9 - 2, "every role's destinations were exercised");
-eq(employeeSidebarEntries.length, 11, "the sidebar still has eleven entries");
+eq(employeeSidebarEntries.length, 12, "the sidebar includes the approved Intake Center");
 
 // 2. An area a role does not have is never named for it, and non-area routes keep the shell's existing label.
 eq(resolveWorkspaceIdentity("agent", "/dashboard/outbound-center?tab=campaigns"), null, "agent has no Campaigns area");
@@ -99,7 +99,10 @@ eq(trail("admin", "/dashboard/knowledge-base/"), ["Resources", "Knowledge Base"]
 eq(trail("admin", "/dashboard/training"), ["Resources"], "a registered area with no registered page shows only the area");
 
 // 6. Page headings and tab labels equal the text the pages render.
+eq(trail("manager", "/dashboard/intake?tab=applications"), ["Intake Center", "Agent & partner applications"], "intake application trail");
+eq(resolveWorkspaceIdentity("agent", "/dashboard/intake"), null, "no agent intake area");
 const headingSources: Record<string, { file: string; text: string }> = {
+  "/dashboard/intake": { file: "IntakeCenter", text: "Intake Center" },
   "/dashboard": { file: "Overview", text: "Today" },
   "/dashboard/my-day": { file: "SalesRepHome", text: "My Day" },
   "/dashboard/nba": { file: "NbaPriorityPage", text: "Next best action" },

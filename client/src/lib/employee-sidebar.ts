@@ -42,6 +42,7 @@ export const employeeSidebarEntries: readonly SidebarEntry[] = [
   { id: "inbox", label: "Inbox", icon: "inbox",
     href: { admin: "/dashboard/comms-hub", manager: "/dashboard/comms-hub", agent: "/dashboard/comms-hub" },
     badgeKey: "smsUnread", matches: starts("/dashboard/comms-hub"), status: "activated" },
+  { id: "intake-center", label: "Intake Center", icon: "work", href: { admin: "/dashboard/intake", manager: "/dashboard/intake" }, matches: starts("/dashboard/intake"), status: "activated" },
   { id: "work", label: "Work", icon: "work",
     href: { admin: "/dashboard/tasks-appointments?tab=tasks", manager: "/dashboard/tasks-appointments?tab=tasks", agent: "/dashboard/tasks-appointments?tab=tasks" },
     badgeKey: "overdueTaskCount", matches: starts("/dashboard/tasks-appointments"), status: "activated" },
@@ -76,7 +77,7 @@ export const employeeSidebarEntries: readonly SidebarEntry[] = [
 ];
 
 export const EMPLOYEE_SIDEBAR_ORDER = [
-  "Today", "Records", "Pipeline", "Inbox", "Work", "Merchant Operations", "Prospecting", "Campaigns", "Reports", "Administration", "Resources",
+  "Today", "Records", "Pipeline", "Inbox", "Intake Center", "Work", "Merchant Operations", "Prospecting", "Campaigns", "Reports", "Administration", "Resources",
 ] as const;
 
 export interface ResolvedSidebarItem { entry: SidebarEntry; href: string; legacy: boolean }

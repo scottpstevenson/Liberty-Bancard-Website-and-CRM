@@ -157,6 +157,7 @@ const dailyWorkItems: MenuItem[] = [
   { icon: TrendingUp,      label: "Pipeline",             href: "/dashboard/pipeline",           roles: ["admin", "manager"] },
   { icon: Inbox,           label: "Messages & Inbox",     href: "/dashboard/comms-hub",          roles: ["admin", "manager"], badgeKey: "smsUnread" },
   { icon: ClipboardList,   label: "Tasks & Appointments", href: "/dashboard/tasks-appointments", roles: ["admin", "manager"], badgeKey: "overdueTaskCount" },
+  { icon: ClipboardList, label: "Intake Center", href: "/dashboard/intake", roles: ["admin", "manager"] },
   { icon: Brain,           label: "AI Advisor",           href: "/dashboard/chat",               roles: ["admin", "manager"] },
   // Agent
   { icon: Star,            label: "My Day",               href: "/dashboard/my-day",             roles: ["agent"] },

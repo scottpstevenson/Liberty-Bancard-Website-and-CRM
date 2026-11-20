@@ -164,6 +164,7 @@ const LeadCommandCenter = lazy(() => import("@/pages/dashboard/LeadCommandCenter
 const LeadImports = lazy(() => import("@/pages/dashboard/LeadImports"));
 const MasterLeadDatabase = lazy(() => import("@/pages/dashboard/MasterLeadDatabase"));
 const MerchantPortal = lazy(() => import("@/pages/dashboard/MerchantPortal"));
+const IntakeCenter = lazy(() => import("@/pages/dashboard/IntakeCenter"));
 const MerchantApplicationsList = lazy(() => import("@/pages/dashboard/MerchantApplicationsList"));
 const BoardingTracker = lazy(() => import("@/pages/dashboard/BoardingTracker"));
 const AgentManagement = lazy(() => import("@/pages/dashboard/AgentManagement"));
@@ -752,6 +753,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/blaze">
           <LegacyAlias from="/dashboard/blaze" />
+        </Route>
+        <Route path="/dashboard/intake">
+          <ProtectedRoute component={IntakeCenter} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/merchant-applications">
           <ProtectedRoute component={MerchantApplicationsList} />

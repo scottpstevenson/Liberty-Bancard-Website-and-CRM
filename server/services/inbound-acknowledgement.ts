@@ -1,3 +1,5 @@
+import {brandedIntakeEmail} from "./intake-email-layout";
+export {brandedIntakeEmail} from "./intake-email-layout";
 /**
  * Inbound acknowledgement owner.
  *
@@ -29,15 +31,16 @@ import { storage } from "../storage";
 
 export const ACK_CAPABILITY_KEY = "inbound_ack_delivery_capability";
 export const ACK_OWNER_STARTED_KEY = "inbound_ack_owner_started_at";
-export const ACK_PRESENTATION_VERSION = "ack-receipt-v1";
+export const ACK_PRESENTATION_VERSION = "ack-receipt-v2";
 export const ACK_MAX_SEND_ATTEMPTS = 3;
 export const ACK_SOURCE_CLASSES = [
-  "sales_request", "support_request", "fulfillment_request", "partner_application_request", "privacy_request",
+  "sales_request", "support_request", "fulfillment_request", "partner_application_request", "privacy_request", "intake_submission_request",
 ] as const;
 export type AckSourceClass = (typeof ACK_SOURCE_CLASSES)[number];
 
 /** Representative source type per class, used only to render the admin receipt preview. Exhaustive by type. */
 export const ACK_PREVIEW_SOURCE_TYPE: Record<AckSourceClass, string> = {
+  intake_submission_request: "merchant_application",
   sales_request: "estimate_form", support_request: "support_form", fulfillment_request: "equipment_request",
   partner_application_request: "partner_application", privacy_request: "privacy_request",
 };
@@ -46,7 +49,7 @@ export const ACK_PREVIEW_SOURCE_TYPE: Record<AckSourceClass, string> = {
  * A privacy request has no CRM contact by design (no marketing or provider record is created for it). Its receipt goes
  * to the mailbox captured on the request itself, with no contact binding. Every other class requires a contact.
  */
-export const ACK_CONTACTLESS_SOURCE_CLASSES: readonly string[] = ["privacy_request"];
+export const ACK_CONTACTLESS_SOURCE_CLASSES: readonly string[] = ["privacy_request", "intake_submission_request"];
 const isContactless = (sourceClass: string) => ACK_CONTACTLESS_SOURCE_CLASSES.includes(sourceClass);
 
 /**
@@ -56,6 +59,7 @@ const isContactless = (sourceClass: string) => ACK_CONTACTLESS_SOURCE_CLASSES.in
  * milestone row keeps the receipt-only behavior it always had.
  */
 export const ACK_INTERNAL_MILESTONE_EFFECT: Record<AckSourceClass, string> = {
+  intake_submission_request: "review_notification",
   sales_request: "sales_work",
   support_request: "support_ticket",
   fulfillment_request: "fulfillment",
@@ -94,6 +98,7 @@ const ackInternalReviewReadySql = sql`(
         WHEN 'fulfillment_request' THEN 'fulfillment'
         WHEN 'partner_application_request' THEN 'review_notification'
         WHEN 'privacy_request' THEN 'review_notification'
+        WHEN 'intake_submission_request' THEN 'review_notification'
         ELSE '' END)
 )`;
 
@@ -247,6 +252,9 @@ export async function setAckCapability(input: {
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 const SOURCE_LABELS: Record<string, string> = {
+  merchant_application: "merchant application",
+  referral_submission: "referral submission",
+  intake_followup: "request",
   estimate_form: "estimate request",
   get_started_form: "get-started request",
   equipment_inquiry: "equipment inquiry",
@@ -269,7 +277,7 @@ export function ackReference(requestId: string): string {
 export interface AckContent { templateKey: string; subject: string; html: string; text: string }
 
 /**
- * Factual receipt only: no timing promise, no approval/quote/analysis claim, no CTA, no promotional content.
+ * Factual receipt: no timing promise or approval/quote/analysis claim. Relevant intake receipts offer a scheduling CTA.
  * The signature owner supplies the single logo and signature; the SMTP boundary adds its own transport footer.
  */
 export async function buildAckContent(input: {
@@ -293,13 +301,10 @@ export async function buildAckContent(input: {
   const lines = [greeting, `We received your ${label}. Your reference is ${ref}.`, next];
   const { getEmailSignatureHtml, getEmailSignaturePlainText, getStoredSignature } = await import("./email-signatures");
   const sig = await getStoredSignature("support");
-  const html =
-    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:22px;color:#1f2937;max-width:600px;">` +
-    `<p style="margin:0 0 12px;">${esc(greeting)}</p>` +
-    `<p style="margin:0 0 12px;">We received your ${esc(label)}. Your reference is <strong>${esc(ref)}</strong>.</p>` +
-    `<p style="margin:0 0 20px;">${esc(next)}</p>` +
-    `${getEmailSignatureHtml("support", sig)}</div>`;
-  const text = `${lines.join("\n\n")}\n\n${getEmailSignaturePlainText("support", sig)}`;
+  const booking = ["sales_request", "partner_application_request", "intake_submission_request"].includes(input.sourceClass);
+  const body = `${lines.slice(1).join("\n\n")}${booking ? "\n\nIf you would like to discuss your submission, choose a time to speak with our team." : ""}`;
+  const html = brandedIntakeEmail(greeting, body, getEmailSignatureHtml("support", sig), booking);
+  const text = `${lines.join("\n\n")}${booking ? "\n\nSchedule a call: https://libertybancard.com/book" : ""}\n\n${getEmailSignaturePlainText("support", sig)}`;
   return { templateKey, subject, html, text };
 }
 

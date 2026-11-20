@@ -1,3 +1,4 @@
+import { IntakeRecordActions } from "@/components/intake/IntakeRecordActions";
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
@@ -193,6 +194,7 @@ function Links({ row }: { row: InboundRequestRow }) {
 function Actions({ row, isAdmin }: { row: InboundRequestRow; isAdmin: boolean }) {
   return (
     <div className="flex flex-col items-start gap-2">
+      <IntakeRecordActions kind="forms" id={row.requestReceipt} />
       {isAdmin && row.sourceType === "statement_upload" && row.processingNeedsAttention && <StatementRecoveryAction requestReceipt={row.requestReceipt} />}
       {row.sourceClass === "sales_request" && row.lifecycleState === "review_required" && row.contactId && (
         <InboundResumeAction requestReceipt={row.requestReceipt} reviewRevision={row.reviewRevision ?? null} />

@@ -11,6 +11,7 @@
  * those pages already render; scripts/test-phase6-workspace-identity.ts compares them with the page sources so they cannot
  * drift apart.
  */
+import { intakeViewLabels } from "./crm-destination-state";
 import { activeSidebarId, employeeSidebarFor, type SidebarRole } from "./employee-sidebar";
 
 export interface WorkspaceCrumb { label: string; href: string | null }
@@ -36,6 +37,7 @@ interface PageRule {
 
 /** Heading text of each landing page and the labels of its tabs, per path. Keys are exact paths. */
 export const PAGE_RULES: Readonly<Record<string, PageRule>> = {
+  "/dashboard/intake": { page: "Intake Center", tabParam: "tab", tabs: intakeViewLabels },
   "/dashboard": { page: "Today" },
   "/dashboard/my-day": { page: "My Day" },
   "/dashboard/nba": { page: "Next best action" },

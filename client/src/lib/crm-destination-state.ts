@@ -120,6 +120,10 @@ export function adminSelectorState(search: string, role: string | undefined) {
 export function adminAreaForTab(tab: typeof adminTabs[number]): typeof adminAreas[number] {
   return adminAreas.find(area => (adminAreaTabs[area] as readonly string[]).includes(tab)) ?? "users-access";
 }
+export const intakeViews = ["forms", "merchants", "applications", "introductions", "referrals"] as const;
+export const intakeViewLabels = {forms:"Form submissions", merchants:"Merchant applications", applications:"Agent & partner applications", introductions:"Partner introductions", referrals:"Merchant referrals"} as const;
+const intakeRouteKeys = ["merchantReferralPage", "tab", "status", "formPage", "formType", "formStatus", "ref", "intake", "days", "appStatus", "appPath", "appProfession", "appOwner", "appPage", "application", "introState", "introPage", "introduction"];
+
 export function retainedSelectionUrl<T extends string>(path:string,search:string,hash:string,key:string,
   allowed:readonly T[],value:T,legacyKey?:string,resetPaging=true) {
   if(!allowed.includes(value))throw new Error(`Invalid ${key} selection`);
@@ -128,6 +132,7 @@ export function retainedSelectionUrl<T extends string>(path:string,search:string
     : path==="/dashboard/leaderboard"?["metric","period"]
     : path==="/dashboard/boarding"?["status","view"]
     : path==="/dashboard/merchant-applications"?["status"]
+    : path==="/dashboard/intake"?intakeRouteKeys
     : c5RouteKeys[path] ? [...c5RouteKeys[path]]
     : [];
   if(!routeKeys.includes(key))throw new Error(`Unregistered route selector: ${key}`);

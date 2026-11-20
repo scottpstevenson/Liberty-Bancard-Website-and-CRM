@@ -1,3 +1,4 @@
+import { IntakeRecordActions } from "@/components/intake/IntakeRecordActions";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -411,7 +412,7 @@ export function PartnerApplicationsPanel() {
     { id: "due", label: "Due", render: (r) => (r.dueAt ? fmt(r.dueAt) : "Not set") },
     { id: "terms", label: "Terms", render: (r) => (r.termsState === "recorded" ? "Recorded" : "Pending") },
     { id: "open", label: "Open", render: (r) => (
-      <Button variant="outline" size="sm" className="min-h-11" onClick={(e) => { e.stopPropagation(); setOpenId(r.id); }} data-testid={`button-open-application-${r.id}`}>Open</Button>
+      <div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" className="min-h-11" onClick={(e) => { e.stopPropagation(); setOpenId(r.id); }} data-testid={`button-open-application-${r.id}`}>Open</Button><IntakeRecordActions kind="applications" id={r.id} /></div>
     ) },
   ];
 
@@ -482,6 +483,7 @@ export function PartnerApplicationsPanel() {
                   <p className="text-xs text-muted-foreground">Received {fmt(r.receivedAt)} · Terms {r.termsState === "recorded" ? "recorded" : "pending"}</p>
                   <p className="text-xs text-muted-foreground">{ownerText(r)}{r.dueAt ? ` · Due ${fmt(r.dueAt)}` : ""}</p>
                   <Button variant="outline" className="mt-2 min-h-11 w-full" onClick={(e) => { e.stopPropagation(); setOpenId(r.id); }}>Open</Button>
+                  <IntakeRecordActions kind="applications" id={r.id} />
                 </div>
               )}
             />

@@ -77,8 +77,8 @@ const check=(value:unknown,message:string)=>{assert.ok(value,message);checks++;}
 const app=fs.readFileSync("client/src/App.tsx","utf8");
 const patterns=[...new Set([...app.matchAll(/path="(\/dashboard[^"]*)"/g)].map(m=>m[1]))].sort();
 assert.deepEqual(crmRoutes.map(r=>r.pattern).sort(),patterns);checks++;
-check(crmRoutes.length===147 && new Set(crmRoutes.map(r=>r.id)).size===147,"complete single-owner registry");
-assert.deepEqual(["C2","C3","C4","C5"].map(owner=>crmRoutes.filter(r=>r.owner===owner).length),[25,24,39,59]);checks++;
+check(crmRoutes.length===148 && new Set(crmRoutes.map(r=>r.id)).size===148,"complete single-owner registry");
+assert.deepEqual(["C2","C3","C4","C5"].map(owner=>crmRoutes.filter(r=>r.owner===owner).length),[25,24,40,59]);checks++;
 for(const r of crmRoutes) {
   check(r.sourceDeclarations.length>0 && r.outcomes.forbidden && r.futureTarget && r.guard,`contracts ${r.id}`);
 }

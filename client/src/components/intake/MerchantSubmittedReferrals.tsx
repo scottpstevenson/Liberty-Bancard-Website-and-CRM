@@ -1,0 +1,10 @@
+import {useCrmQuery} from '@/hooks/use-crm-query';
+import {useUrlParam} from '@/hooks/use-url-param';
+import {IntakeRecordActions} from './IntakeRecordActions';
+import {Button} from '@/components/ui/button';
+import {CrmDataState} from '@/components/crm/CrmPresentation';
+export function MerchantSubmittedReferrals(){
+ const [page,setPage]=useUrlParam('merchantReferralPage',1,raw=>/^\d{1,5}$/.test(raw)&&Number(raw)>0?Number(raw):undefined);
+ const read=useCrmQuery<{items:Array<{id:number;referred_name:string|null;referred_company:string|null;status:string;created_at:string;referrer:string|null}>;hasMore:boolean}>({queryKey:[`/api/intake-center/merchant-referrals?page=${page}`]});
+ return <section className="space-y-4"><h2 className="font-semibold text-lg">Referrals submitted by merchants</h2>{read.isLoading?<p role="status">Loading merchant referrals…</p>:read.isError||!read.data?<CrmDataState state="unavailable" message="Merchant-submitted referrals could not be loaded." onRetry={()=>void read.refetch()}/>:<>{read.data.items.length?<div className="grid gap-3 lg:grid-cols-2">{read.data.items.map(r=><article className="border rounded-xl p-4 space-y-2" key={r.id}><h3 className="font-medium">{r.referred_company||r.referred_name||'Merchant referral'}</h3><p className="text-sm break-all">Referrer: {r.referrer||'No linked referrer email'}</p><p className="text-sm text-muted-foreground">{(r.status||'Status not recorded').replaceAll('_',' ')} · {new Date(r.created_at).toLocaleString()}</p><IntakeRecordActions kind="merchant_referrals" id={String(r.id)}/></article>)}</div>:<p className="text-sm text-muted-foreground">No merchant-submitted referrals on this page.</p>}<div className="flex gap-3 items-center"><Button variant="outline" disabled={page<=1} onClick={()=>setPage(page-1)}>Previous merchant referrals</Button><span className="text-sm">Page {page}</span><Button variant="outline" disabled={!read.data.hasMore} onClick={()=>setPage(page+1)}>Next merchant referrals</Button></div></>}</section>;
+}

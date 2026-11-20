@@ -265,6 +265,8 @@ export function startPartnerApplicationRecovery(): void {
       let introductions: Awaited<ReturnType<typeof recoverPartnerIntroductions>> | { error: string };
       try { introductions = await recoverPartnerIntroductions(); }
       catch (err) { introductions = { error: err instanceof Error ? err.name : "NonError" }; }
+      try { await (await import("./intake-center")).reconcileIntakeOperations(); }
+      catch { await storage.setSystemSetting("intake_center_heartbeat", {at:new Date().toISOString(),failed:1,error:"reconciliation_unavailable"}).catch(()=>undefined); }
       let teamAlerts: unknown;
       try { teamAlerts = await (await import("./team-intake-alerts")).processTeamIntakeAlerts(); }
       catch (err) { teamAlerts = { error: err instanceof Error ? err.name : "NonError" }; }
