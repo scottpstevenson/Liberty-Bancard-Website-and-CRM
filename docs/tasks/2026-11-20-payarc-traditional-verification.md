@@ -16,7 +16,7 @@ Implementation branch: `codex/payarc-traditional-completion`. This is local impl
 - Traditional codec/adapter contract checks: 61 passed; reporting regressions: 119 passed; processor kill lines: 18 passed.
 - Static checks: 108 passed. Migration checks: 1,057 passed with two historical duplicate-timestamp warnings. CI manifest validation passed.
 - Actual BoardingPanel/preparation UI inspected at desktop and 390px mobile widths using a local synthetic backend; no horizontal overflow. No SMTP/provider delivery occurred.
-- TypeScript and final production build results are recorded in the completion report after they finish.
+- TypeScript passed. Production build passed for implementation commit `af89ab694976a20d3b64530231cd66838cd69e91` (build ID `796befd3-16b5-44f1-a324-d772d1d5567a`). Dependency inventory and the redacting artifact credential scan passed. Build warnings remain for Zod annotation placement, bundle size, and the existing CommonJS `import.meta` use in email-pre-filter; no runtime verification of that fallback is claimed here.
 
 ## Actual provider access
 
