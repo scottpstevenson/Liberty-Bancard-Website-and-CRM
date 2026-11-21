@@ -236,20 +236,19 @@ try {
   check(await adapter.getHealthState("https://testapi.payarc.net/v1") === "configured_unverified",
     "partner entitlement refusal is not healthy");
   stub(201, { MerchantCode: "MC-1" });
-  check((await validatePayarcSignature("MC-1", "https://testapi.payarc.net/v1")).ok,
-    "documented validation response correlated");
-  check(JSON.parse(calls.at(-1).body).validate === true && JSON.parse(calls.at(-1).body).generate_form === false,
-    "validation never requests delivery or a signing link");
-  stub(422, { errors: { apply_app_id: ["invalid"] } });
-  const rejectedValidation = await validatePayarcSignature("MC-1", "https://testapi.payarc.net/v1");
-  check(!rejectedValidation.ok && !rejectedValidation.retryable && rejectedValidation.httpStatus === 422,
-    "definite validation refusal is retained without signature dispatch");
-  stub(200, {}, true);
-  check((await validatePayarcSignature("MC-1", "https://testapi.payarc.net/v1")).retryable,
-    "lost validation response can safely retry validation");
-  stub(201, { MerchantCode: "OTHER" });
-  check(!(await validatePayarcSignature("MC-1", "https://testapi.payarc.net/v1")).ok,
-    "foreign validation response never authorizes signature dispatch");
+  const beforeValidation = calls.length;
+  const unsafeValidation = await validatePayarcSignature("MC-1", "https://testapi.payarc.net/v1");
+  check(!unsafeValidation.ok && !unsafeValidation.retryable && unsafeValidation.errorCode === "PAYARC_REMOTE_VALIDATION_UNSAFE",
+    "remote validation is explicitly unavailable after observed real email side effects");
+  await validatePayarcSignature("MC-1", "https://api.payarc.net/v1");
+  check(calls.length === beforeValidation, "validation compatibility entry point sends zero requests on either host");
+  const observedUnsigned = {MerchantCode:"MC-1",Status:1,LeadStatus:"submitted_to_boarding",LeadModule:"application",AccountStatus:""};
+  const unsignedBoarding = decodePayarcObservation(observedUnsigned,"MC-1");
+  check(unsignedBoarding.phase === "awaiting_signature" && !unsignedBoarding.mid,
+    "observed submitted_to_boarding/application/1 remains unsigned without approval or MID");
+  for(const invalid of [{Status:32},{LeadModule:"underwriting"}]){
+    assert.throws(()=>decodePayarcObservation({...observedUnsigned,...invalid},"MC-1"),/CONTEXT_UNKNOWN/);checks++;
+  }
   stub(201, { MerchantCode: "MC-1" });
   check(
     (await requestPayarcSignature("MC-1", "https://testapi.payarc.net/v1")).ok,

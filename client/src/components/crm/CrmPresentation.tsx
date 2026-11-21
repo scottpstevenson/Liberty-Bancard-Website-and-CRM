@@ -165,11 +165,11 @@ export function CrmAreaNav({ entries, current, className }: {
     <nav aria-label="CRM areas" className={cn("flex flex-wrap gap-2", className)}>
       {entries.map((entry) => entry.allowed ? (
         <Link key={entry.href} href={entry.href} aria-current={current === entry.href ? "page" : undefined}
-          className={cn("inline-flex min-h-11 items-center rounded-md px-4 text-sm", current === entry.href ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-muted")}>
+          className={cn("inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-md px-4 text-sm", current === entry.href ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-muted")}>
           {entry.label}
         </Link>
       ) : (
-        <span key={entry.href} aria-disabled="true" title={entry.reason} className="inline-flex min-h-11 items-center rounded-md px-4 text-sm text-muted-foreground">
+        <span key={entry.href} aria-disabled="true" title={entry.reason} className="inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-md px-4 text-sm text-muted-foreground">
           {entry.label}
         </span>
       ))}

@@ -141,12 +141,20 @@ export function decodePayarcObservation(
     typeof v.AccountStatus === "string"
       ? v.AccountStatus.toLowerCase()
       : undefined;
+  // Observed on the named production test while unsigned. This is a provider
+  // application state, not evidence of underwriting submission or approval.
+  if (
+    leadStatus === "submitted_to_boarding" &&
+    (leadModule !== "application" || ![0, 1, 2, 16].includes(v.Status))
+  )
+    throw Error("PAYARC_LEAD_STATUS_CONTEXT_UNKNOWN");
   const known = new Set([
     "new",
     "needs_approval",
     "approved",
     "in_progress",
     "submitted_to_underwriting",
+    "submitted_to_boarding",
     "declined",
     "dead",
     "application_submitted",
@@ -295,4 +303,4 @@ export function payarcObservationCanAdvance(
   return true;
 }
 
-export const payarcPatchSchema=patchContract.request as any;
+export const payarcPatchSchema = patchContract.request as any;

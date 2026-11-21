@@ -1235,28 +1235,13 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
   }
 }
 
-/** Provider-documented validation-only request: never generates a form or sends for signature. */
+/** Compatibility guard: production evidence showed validate=true sending a real email.
+ * Never use the signature endpoint as a dry run, regardless of environment. */
 export async function validatePayarcSignature(
-  merchantCode: string,
-  baseUrl: string,
-): Promise<{ ok: boolean; retryable: boolean; httpStatus?: number }> {
-  const guard = guardPartnerBase(baseUrl);
-  if (!guard.ok || !payarcIdentifier(merchantCode) || !process.env.PAYARC_API_KEY)
-    return { ok: false, retryable: false };
-  try {
-    const r = await payarcRequest<any>(process.env.PAYARC_API_KEY, guard.baseUrl,
-      "POST", PAYARC_TRADITIONAL_PATHS.signature,
-      { MerchantCode: merchantCode, generate_form: false, validate: true });
-    const v = r.data?.data ?? r.data;
-    return {
-      ok: r.ok && v?.MerchantCode === merchantCode,
-      retryable: r.status === 429 || r.status === 408 || r.status >= 500,
-      httpStatus: r.status,
-    };
-  } catch {
-    // No submission was attempted; a lost validation response is safe to validate again.
-    return { ok: false, retryable: true };
-  }
+  _merchantCode: string,
+  _baseUrl: string,
+): Promise<{ ok: false; retryable: false; errorCode: string }> {
+  return { ok: false, retryable: false, errorCode: "PAYARC_REMOTE_VALIDATION_UNSAFE" };
 }
 
 export async function requestPayarcSignature(

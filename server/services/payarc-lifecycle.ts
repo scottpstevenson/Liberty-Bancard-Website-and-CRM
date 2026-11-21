@@ -3,10 +3,7 @@ import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { requireConfirmedActivationSnapshot } from "./processors/registry";
-import {
-  requestPayarcSignature,
-  validatePayarcSignature,
-} from "./processors/payarc.adapter";
+import { requestPayarcSignature } from "./processors/payarc.adapter";
 import { checkProcessorBaseUrl } from "./processors/processor-base-url";
 import { evaluateBoardingReadiness } from "./boarding-readiness";
 const rows = (r: any): any[] => r.rows ?? r;
@@ -73,10 +70,9 @@ export async function dispatchPayarcSignature(dealId: number) {
   } catch {
     failureCode = "SIGNATURE_PREPARATION_STALE";
   }
-  const validation = failureCode
-    ? { ok: false, retryable: false, httpStatus: undefined }
-    : await validatePayarcSignature(c.merchant_code, base.baseUrl);
-  if (validation.ok) {
+  // Provider validation=true was observed sending mail. All preflight is local;
+  // the sole provider mutation below is the explicit, durably claimed delivery.
+  if (!failureCode) {
     try {
       const current = await requireConfirmedActivationSnapshot(
         "payarc",
@@ -96,9 +92,8 @@ export async function dispatchPayarcSignature(dealId: number) {
       failureCode = "SIGNATURE_AUTHORITY_CHANGED";
     }
   }
-  if (validation.ok && !failureCode) {
-    // Validation is read-only but may take time. Recheck the actual application, review
-    // and lease after it returns, before sending the provider email.
+  if (!failureCode) {
+    // Recheck application, review and lease at the final dispatch fence.
     const stillReviewed = await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT id FROM deals WHERE id=${dealId} FOR UPDATE`);
       await tx.execute(
@@ -128,15 +123,14 @@ export async function dispatchPayarcSignature(dealId: number) {
     });
     if (!stillReviewed) failureCode = "SIGNATURE_REVIEW_CHANGED";
   }
-  const result =
-    validation.ok && !failureCode
-      ? await requestPayarcSignature(c.merchant_code, base.baseUrl)
-      : {
-          ...validation,
-          ok: false,
-          retryable: failureCode ? false : validation.retryable,
-          ambiguous: false,
-        };
+  const result = !failureCode
+    ? await requestPayarcSignature(c.merchant_code, base.baseUrl)
+    : {
+        ok: false,
+        retryable: false,
+        httpStatus: undefined,
+        ambiguous: false,
+      };
   const state = result.ok
     ? "sent"
     : result.ambiguous
@@ -146,7 +140,7 @@ export async function dispatchPayarcSignature(dealId: number) {
         : "failed";
   await db.execute(sql`UPDATE payarc_cases SET signature_state=${state},signature_sent_at=CASE WHEN ${result.ok} THEN now() ELSE signature_sent_at END,
  phase=CASE WHEN ${result.ok} THEN 'awaiting_signature' WHEN ${result.ambiguous} THEN 'reconciliation_required' ELSE phase END,
- last_error=${result.ok ? null : (failureCode ?? (result.ambiguous ? "SIGNATURE_OUTCOME_UNCERTAIN" : `${validation.ok ? "SIGNATURE" : "SIGNATURE_VALIDATION"}_HTTP_${result.httpStatus ?? "REFUSED"}`))},signature_lease=NULL,next_poll_at=now()+interval '5 minutes',updated_at=now()
+ last_error=${result.ok ? null : (failureCode ?? (result.ambiguous ? "SIGNATURE_OUTCOME_UNCERTAIN" : `SIGNATURE_HTTP_${result.httpStatus ?? "REFUSED"}`))},signature_lease=NULL,next_poll_at=now()+interval '5 minutes',updated_at=now()
  WHERE deal_id=${dealId} AND signature_lease=${token}::uuid AND signature_state='attempting'`);
   if (state === "uncertain" || state === "failed") {
     const { storage } = await import("../storage");
@@ -155,17 +149,15 @@ export async function dispatchPayarcSignature(dealId: number) {
       dealId,
       contactId: deal?.contactId ?? undefined,
       assignedTo: deal?.owner ?? undefined,
-      title:
-        validation.ok && !failureCode
-          ? "Review Payarc signature delivery"
-          : "Correct Payarc signature validation",
-      description:
-        validation.ok && !failureCode
-          ? "Reconcile the existing Payarc application delivery receipt before resending. Do not create another lead."
-          : "Payarc signature validation did not pass. Review the existing application and correct it before requesting signature delivery. No signature request was sent by this attempt.",
+      title: !failureCode
+        ? "Review Payarc signature delivery"
+        : "Review Payarc signature readiness",
+      description: !failureCode
+        ? "Reconcile the existing Payarc application delivery receipt before resending. Do not create another lead."
+        : "Local signature readiness changed. Review the existing application before requesting delivery. No signature request was sent by this attempt.",
       priority: "high",
       source: "payarc-lifecycle",
-      automationKey: `payarc-signature:${dealId}:${failureCode ?? (validation.ok ? "delivery" : "validation")}`,
+      automationKey: `payarc-signature:${dealId}:${failureCode ?? "delivery"}`,
     });
   }
   return { state };
