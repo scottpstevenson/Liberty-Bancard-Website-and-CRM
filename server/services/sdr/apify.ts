@@ -1,3 +1,4 @@
+import {YELP_SEARCH_ACTOR,apifyActorPath,yelpSearchInput,yelpOrganicResults} from "./apify-yelp";
 import { storage } from "../../storage";
 import { assertProviderActivation } from "../provider-manifest";
 
@@ -29,7 +30,7 @@ interface ApifyUsageStats {
 }
 
 const APIFY_ACTORS = {
-  yelp: "johnvc/yelp-search-api",
+  yelp: YELP_SEARCH_ACTOR,
   facebook: "apify/facebook-pages-scraper",
   google_maps: "compass/crawler-google-places",
 };
@@ -146,7 +147,7 @@ async function runApifyActor(
   }
 
   try {
-    const runResponse = await fetch(`${APIFY_API_URL}/acts/${actorId}/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN}`, {
+    const runResponse = await fetch(`${APIFY_API_URL}/acts/${apifyActorPath(actorId)}/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -177,21 +178,11 @@ export async function searchYelp(
   location: string,
   limit: number = 200
 ): Promise<ApifyBusiness[]> {
-  const items = await runApifyActor(APIFY_ACTORS.yelp, {
-    search_term: searchTerm,
-    location,
-    max_pages: Math.ceil(Math.min(limit, 500) / 10),
-  });
-
-  const errorPage = items.find(page => page.error);
-  if (errorPage) console.warn(`[Apify/Yelp] Actor error: ${errorPage.error_message || errorPage.error}`);
-
-  const results = items
-    .filter(page => !page.error)
-    .flatMap(page => Array.isArray(page.organic_results) ? page.organic_results : [])
-    .map(parseYelpResult)
-    .filter(b => b.name)
-    .slice(0, limit);
+  const {boundedLimit,input}=yelpSearchInput(searchTerm,location,limit);
+  if(!boundedLimit) return [];
+  const items = await runApifyActor(APIFY_ACTORS.yelp,input);
+  if(items.some(page=>page.error)) console.warn("[Apify/Yelp] Actor returned an error page");
+  const results=yelpOrganicResults(items).map(parseYelpResult).filter(b=>b.name).slice(0,boundedLimit);
   await trackApifyRun(true, results.length);
   console.log(`[Apify/Yelp] Found ${results.length} businesses for: ${searchTerm} in ${location}`);
   return results;

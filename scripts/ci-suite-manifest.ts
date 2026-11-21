@@ -87,6 +87,7 @@ type SuiteManifestDefinition = Omit<
 >;
 
 const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
+  { name: "Yelp Actor Contract", script: "scripts/test-apify-yelp-contract.ts", capability: "deterministic-static", providerDenial: "none (pure actor path/input/result contract)" },
   {name:"Payarc Traditional workflow",script:"scripts/test-payarc-traditional-workflow.ts",capability:"deterministic-integration",isolateInfrastructure:true,providerDenial:"disposable PostgreSQL/Redis; real HTTP, adapter and durable step owners; provider fetch intercepted"},
   {name:"Unified Intake Center",script:"scripts/test-intake-center.ts",capability:"deterministic-integration",isolateInfrastructure:true,providerDenial:"disposable Postgres/Redis; real authenticated routes and receipt authority; all providers denied"},
   {name:"Staff intake email alerts durability and pause isolation",script:"scripts/certification/test-team-intake-alerts.ts",capability:"deterministic-integration",isolateInfrastructure:true,providerDenial:"private PostgreSQL/Redis; fake SMTP, real intake owners and fatal provider denial"},

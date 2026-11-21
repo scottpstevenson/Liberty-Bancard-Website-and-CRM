@@ -1,0 +1,12 @@
+import assert from "node:assert/strict";
+import {YELP_SEARCH_ACTOR,apifyActorPath,yelpSearchInput,yelpOrganicResults} from "../server/services/sdr/apify-yelp";
+assert.equal(apifyActorPath(YELP_SEARCH_ACTOR),"johnvc~yelp-search-api");
+assert.equal(apifyActorPath("compass/crawler-google-places"),"compass~crawler-google-places");
+assert.deepEqual(yelpSearchInput("coffee","Miami, FL",11),{boundedLimit:11,input:{search_term:"coffee",location:"Miami, FL",max_pages:2}});
+for(const n of [0,-1,NaN,Infinity]) assert.equal(yelpSearchInput("x","y",n).boundedLimit,0);
+assert.equal(yelpSearchInput("x","y",900).boundedLimit,500);
+assert.equal(yelpSearchInput("x","y",900).input.max_pages,50);
+const business={title:"Fixture Coffee",link:"https://www.yelp.com/biz/fixture",categories:[{title:"Coffee"}],rating:4.5,reviews:42};
+assert.deepEqual(yelpOrganicResults([{organic_results:[business],ads_results:[{title:"Sponsored"}]},{error:true,organic_results:[{title:"Invalid page"}]},{organic_results:[null,{},"bad"]}]),[business]);
+assert.deepEqual(yelpOrganicResults([{error:true},{organic_results:{title:"not an array"}}]),[]);
+console.log("Yelp actor contract: 11 checks passed; no provider run or database access");

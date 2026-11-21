@@ -244,6 +244,7 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
     timeoutSecs:480,requiresDisposableTestDatabase:true},
 ];
 export const MANDATORY_SUITES: Suite[] = [
+  { name: "Yelp Actor Contract", script: "scripts/test-apify-yelp-contract.ts" },
   {name:"CRM-wide Outscraper Budget Browser",script:"scripts/test-outscraper-budget-browser.ts",timeoutSecs:180,requiresDisposableTestDatabase:true},
   {name:"CRM-wide Outscraper Monthly Budget",script:"scripts/certification/test-outscraper-monthly-budget.ts",timeoutSecs:180,requiresDisposableTestDatabase:true},
   {name:"TypeScript route boundary regressions",script:"scripts/certification/test-typescript-route-boundaries.ts",timeoutSecs:180,requiresDisposableTestDatabase:true},
