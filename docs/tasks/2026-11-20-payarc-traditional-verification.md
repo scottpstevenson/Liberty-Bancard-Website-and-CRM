@@ -32,7 +32,7 @@ Private, redacted receipts remain outside Git under Matt's local Liberty develop
 
 ## Remaining external acceptance
 
-No real lead or signature request was submitted. Production partner application permissions are not proven by reporting reads. The named synthetic sandbox round trip still needs working partner access, and webhook verification needs Payarc's signing/registration contract. Owner corrections and dispute-evidence transport need provider contract clarification. Document upload automation is not implemented by this change.
+Before the subsequently authorized production draft test below, no real lead or signature request had been submitted. Reporting reads alone did not prove production application permissions. The named synthetic sandbox round trip still needs working partner access, and webhook verification needs Payarc's signing/registration contract. Owner corrections and dispute-evidence transport need provider contract clarification. Document upload automation is not implemented by this change.
 
 No shared database migration, production activation, publication or sending-policy change was performed. The new migration was exercised only in disposable local databases. Signature/status worker flags remain unenabled in shared environments. Global outbound remains paused; campaigns and Google offline uploads remain off; the Outscraper cap is unchanged at $50.
 
@@ -47,7 +47,7 @@ Matt authorized production permission verification while explicitly prohibiting 
 | Same validation route without authentication | 401 | The production key passes authentication that the control fails. |
 | OPTIONS /v1/agent-hub/apply/add-lead | 200, Allow: POST | Route availability only; this does not prove permission to create an application. |
 
-Payarc documents validate=true as checking validation rules without submission. No documented add-lead dry run or permission-introspection endpoint was found. Creation and actual signature-delivery entitlement therefore remain unconfirmed until Payarc confirms them or a separately authorized acceptance case is available. A reporting or validation read must not be promoted to onboarding authorization.
+Payarc documents validate=true as checking validation rules without submission. No documented add-lead dry run or permission-introspection endpoint was found. At this permission-only stage, creation and actual signature-delivery entitlement were unconfirmed. A reporting or validation read must not be promoted to onboarding authorization. The later expressly authorized draft test below supplies actual creation evidence; signature delivery remains untested.
 
 The signature worker now performs provider validation before delivery. It binds signature delivery to a keyed fingerprint of the payload actually sent to Payarc, rechecks application review/revision and claim ownership after validation, and rechecks operation activation before sending. A changed application must first go through the explicit correction workflow. Validation rejection and uncertain delivery produce distinct deduplicated CRM tasks. Partner health now uses the documented GET sub-agents endpoint and requires its data array instead of the failing /accounts/me probe.
 
@@ -60,3 +60,16 @@ Final TypeScript, production build, dependency inventory and redacting artifact 
 Fresh Replit workspace readback: outbound paused at epoch 750; no stored budget override and the existing $50 default; Google offline uploads false; Payarc signature dispatch and status-sync flags false. No settings were written by these reads.
 
 References: https://docs.payarc.net/reference/submit-for-signature-traditional and https://docs.payarc.net/reference/list-sub-agents.
+
+## User-authorized synthetic production draft
+
+Matt subsequently selected: "One synthetic production application; no signature or underwriting submission." The operation ran November 20, 2026 at 7:27 PM America/New_York (November 21 UTC), using the actual committed adapter from source `2a8b3fc2` in an isolated, checksum-verified operator bundle on Replit. The existing application source, environment settings and databases were not deployed or migrated for this test. No credential left Replit.
+
+- Initial create attempt with a long TEST ONLY label returned definite HTTP 422, flagging name and MerchantLegalName, with no MerchantCode. The receipt did not capture the field-message text, so no exact maximum length is asserted.
+- One controlled correction shortened the label to `TEST ONLY LIBERTY 1120`. Payarc returned HTTP 200 and MerchantCode `vajm67vrropgbxrl`.
+- An immediate authenticated lead-status read returned HTTP 200, echoed that MerchantCode and decoded Status 0 / lead_created (draft).
+- Two create calls total: one rejected, one accepted. Exactly one provider draft was created. Each attempt had an exclusive durable dispatch marker; no automatic retry or replay was performed.
+- Synthetic names/address, reserved fictional phone and zero-filled invalid tax, SSN and bank identifiers were used. No actual person's identity or financial account was supplied. The business summary explicitly says TEST ONLY / DO NOT UNDERWRITE / DO NOT SEND SIGNATURES.
+- The operator transport allowed add-lead and one status read only. It had no signature, document, transaction or underwriting transport. No signature request or underwriting submission was sent.
+
+This proves real production partner lead-creation and status-read access through the current adapter. It does not prove signature delivery, underwriting acceptance or the deployed CRM worker/UI flow: that branch and its migration are still local/unpublished. Keep this draft as the single test case; do not recreate it. Signature actions remain prohibited under this authorization.
