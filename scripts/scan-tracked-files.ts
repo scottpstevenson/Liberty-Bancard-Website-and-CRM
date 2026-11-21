@@ -45,6 +45,9 @@ const SQL_ALLOWLIST_PREFIXES = ["migrations/"];
 // harness, not query results, dumps or operational exports. Pin their Git
 // blobs: changing a resource or using the same name for a dump fails closed.
 const REVIEWED_SQL_RESOURCES: Record<string, string> = {
+  // Historical Phase 8 SELECT-only catalog/aggregate query, independently reviewed
+  // during consolidation. Pin the source blob; this does not allow query exports.
+  "docs/tasks/phase8-evidence/production-catalog-query.sql": "713417709f7d91293e8d36aeb97b5c3bb1702a34",
   "docs/certification/canonical-enrichment-native-before.sql": "b6042155865a5db03a50fa984e35876a7c9553d5",
   "docs/certification/canonical-enrichment-native-console.sql": "883c4b565adced5fc8abc344b6c9876b164f6a48",
   "docs/certification/canonical-enrichment-native-verify.sql": "343395c0873e2e23ba5ea36d9a8c4e4f00c0d6e8",

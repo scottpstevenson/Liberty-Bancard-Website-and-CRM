@@ -27,6 +27,10 @@ check("modified SQL source is prohibited", !isReviewedSqlResource(
   "docs/certification/canonical-enrichment-native-console.sql", "0000000000000000000000000000000000000000"));
 check("same SQL blob at another path is prohibited", !isReviewedSqlResource(
   "exports/copied-console.sql", "883c4b565adced5fc8abc344b6c9876b164f6a48"));
+check("historical catalog query requires its reviewed source blob", isReviewedSqlResource(
+  "docs/tasks/phase8-evidence/production-catalog-query.sql", "713417709f7d91293e8d36aeb97b5c3bb1702a34"));
+check("changed catalog query is prohibited", !isReviewedSqlResource(
+  "docs/tasks/phase8-evidence/production-catalog-query.sql", "0000000000000000000000000000000000000000"));
 
 function check(name: string, cond: boolean, detail?: string) {
   if (cond) {
