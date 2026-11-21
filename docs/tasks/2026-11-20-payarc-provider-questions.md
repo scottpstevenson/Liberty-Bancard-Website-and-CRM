@@ -15,3 +15,8 @@ Production partner access is verified for GET /agent-hub/sub-agents (200, empty)
 5. An eligible synthetic dispute case and the exact evidence-upload multipart field schema/limits. The working test merchant currently has no dispute cases, so an evidence-upload round trip cannot be certified from that account's current data.
 
 Contacts and support subject format are recorded in the October 5 provisioning email. This note is a review artifact only; no support message has been sent and no webhook registration requested by this task.
+
+Later authorized signature-email test supersedes the earlier entitlement uncertainty: one explicit signature request returned 200 and the Payarc email reached scott@libertybancard.com at 7:49 PM November 20. No signature or underwriting submission occurred. Two concrete contract discrepancies now need clarification before automatic processing:
+
+- `validate:true, generate_form:false` returned 200 but was followed by a real invitation at 7:41 PM to the original plus alias and a transition from Status 0 to 1. Why did documented validation-only mode cause email delivery? Confirm the actual production request encoding and a genuinely side-effect-free validation contract, if one exists. Liberty must not use this call as a dry run meanwhile.
+- Lead Status returned `LeadStatus:submitted_to_boarding`, `LeadModule:application`, `Status:1`, without an account/MID. That lead status is missing from the public enum. Supply the complete production status/module contract and clarify the exact signature and underwriting boundaries.
